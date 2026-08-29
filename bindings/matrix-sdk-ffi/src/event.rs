@@ -338,7 +338,7 @@ impl TryFrom<AnySyncStateEvent> for StateEventContent {
             AnySyncStateEvent::RoomHistoryVisibility(_) => StateEventContent::RoomHistoryVisibility,
             AnySyncStateEvent::RoomJoinRules(_) => StateEventContent::RoomJoinRules,
             AnySyncStateEvent::RoomMember(content) => {
-                let state_key = content.state_key().to_string();
+                let state_key = content.state_key.to_string();
                 let original_content = get_state_event_original_content(content)?;
                 StateEventContent::RoomMemberContent {
                     user_id: state_key,

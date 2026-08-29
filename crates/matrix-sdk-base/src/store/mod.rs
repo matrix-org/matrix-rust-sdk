@@ -50,8 +50,8 @@ use ruma::{
     events::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, EmptyStateKey, EventContentFromType, GlobalAccountDataEventType,
-        RedactContent, RoomAccountDataEventType, StateEventType, StaticEventContent,
-        StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
+        RoomAccountDataEventType, StateEventType, StaticEventContent, StaticStateEventContent,
+        StrippedStateEvent, SyncStateEvent,
         presence::PresenceEvent,
         receipt::ReceiptEventContent,
         room::{
@@ -64,7 +64,6 @@ use ruma::{
     profile::UserProfileUpdate,
     serde::Raw,
 };
-use serde::de::DeserializeOwned;
 use tokio::sync::{Mutex, RwLock, broadcast};
 use tracing::warn;
 pub use traits::compare_thread_subscription_bump_stamps;

@@ -135,7 +135,7 @@ impl LiveLocationsObserver {
 impl From<SdkLiveLocationShare> for LiveLocationShare {
     fn from(share: SdkLiveLocationShare) -> Self {
         let beacon_id = share.beacon_id.into();
-        let start_ts = share.beacon_info.ts.0.into();
+        let start_ts = share.beacon_info.ts.unwrap().0.into();
         let timeout = share.beacon_info.timeout.as_millis() as u64;
         let asset = share.beacon_info.asset.type_.into();
         let last_location = share.last_location.map(|l| LastLocation {

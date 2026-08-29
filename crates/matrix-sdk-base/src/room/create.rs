@@ -16,7 +16,7 @@ use matrix_sdk_common::ROOM_VERSION_RULES_FALLBACK;
 use ruma::{
     OwnedUserId, RoomVersionId, assign,
     events::{
-        EmptyStateKey, RedactContent, StateEventContent, StateEventType, StaticEventContent,
+        EmptyStateKey, RedactContent,
         macros::EventContent,
         room::create::{PreviousRoom, RoomCreateEventContent},
     },

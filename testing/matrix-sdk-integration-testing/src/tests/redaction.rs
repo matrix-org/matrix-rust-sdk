@@ -1,15 +1,13 @@
 use anyhow::Result;
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use assign::assign;
 use matrix_sdk::{
     Client,
     config::SyncSettings,
     ruma::{
         api::client::room::create_room::v3::Request as CreateRoomRequest,
-        events::{
-            AnySyncStateEvent, StateEventType,
-            room::name::{RoomNameEventContent, SyncRoomNameEvent},
-        },
+        events::{AnySyncStateEvent, StateEventType, room::name::RoomNameEventContent},
     },
 };
 
@@ -67,12 +65,9 @@ async fn test_redacting_name() -> Result<()> {
         room.get_state_event(StateEventType::RoomName, "").await?.expect("Room Name not found");
     let room_name_event = raw_event.cast::<RoomNameEventContent>().deserialize()?;
     let sync_room_name_event = room_name_event.as_sync().expect("event is sync event");
-    assert_eq!(
-        sync_room_name_event.as_original().expect("event exists").content.name,
-        "Inappropriate text"
-    );
+    assert_eq!(sync_room_name_event.content.name.as_deref(), Some("Inappropriate text"));
 
-    room.redact(sync_room_name_event.event_id(), None, None).await?;
+    room.redact(&sync_room_name_event.event_id, None, None).await?;
     // sync up.
     for _ in 0..=10 {
         // we call sync up to ten times to give the server time to flush other
@@ -88,10 +83,10 @@ async fn test_redacting_name() -> Result<()> {
         room.get_state_event(StateEventType::RoomName, "").await?.expect("Room Name not found");
     let event = raw_event.deserialize()?;
     // Name content has been redacted
-    assert_matches!(
-        event.as_sync().expect("event is sync event"),
-        AnySyncStateEvent::RoomName(SyncRoomNameEvent::Redacted(_))
+    assert_let!(
+        AnySyncStateEvent::RoomName(room_name) = event.as_sync().expect("event is sync event")
     );
+    assert_matches!(room_name.content.name, None);
 
     Ok(())
 }
@@ -140,12 +135,9 @@ async fn test_redacting_name_static() -> Result<()> {
         .expect("Room Name not found")
         .deserialize()?;
     let sync_room_name_event = room_name_event.as_sync().expect("event is sync event");
-    assert_eq!(
-        sync_room_name_event.as_original().expect("event exists").content.name,
-        "Inappropriate text"
-    );
+    assert_eq!(sync_room_name_event.content.name.as_deref(), Some("Inappropriate text"));
 
-    room.redact(sync_room_name_event.event_id(), None, None).await?;
+    room.redact(&sync_room_name_event.event_id, None, None).await?;
     // we sync up.
     for _ in 0..=10 {
         // we call sync up to ten times to give the server time to flush other
@@ -163,7 +155,7 @@ async fn test_redacting_name_static() -> Result<()> {
         .expect("Room Name not found")
         .deserialize()?;
     // Name content has been redacted
-    assert_matches!(event.as_sync().expect("event is sync event"), SyncRoomNameEvent::Redacted(_));
+    assert_matches!(event.as_sync().expect("event is sync event").content.name, None);
 
     Ok(())
 }

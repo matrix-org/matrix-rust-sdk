@@ -39,9 +39,9 @@ use ruma::{
     },
     events::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, EmptyStateKey, GlobalAccountDataEvent,
-        GlobalAccountDataEventContent, GlobalAccountDataEventType, RedactContent,
-        RoomAccountDataEvent, RoomAccountDataEventContent, RoomAccountDataEventType,
-        StateEventType, StaticEventContent, StaticStateEventContent,
+        GlobalAccountDataEventContent, GlobalAccountDataEventType, RoomAccountDataEvent,
+        RoomAccountDataEventContent, RoomAccountDataEventType, StateEventType, StaticEventContent,
+        StaticStateEventContent,
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
     },

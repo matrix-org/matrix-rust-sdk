@@ -1011,7 +1011,7 @@ impl NotificationItem {
                 if ev.sender() != sender_id {
                     continue;
                 }
-                if let AnyStateEventContentChange::RoomMember(StateEventContentChange::Original {
+                if let AnyStateEventContentChange::RoomMember(StateEventContentChange {
                     content,
                     ..
                 }) = ev.content_change()

@@ -1409,7 +1409,7 @@ impl StateStore for SqliteStateStore {
                                 let encoded_room_id = this.encode_key(keys::MEMBER, &room_id);
                                 let user_id = this.encode_key(keys::MEMBER, &state_key);
                                 let membership = this
-                                    .encode_key(keys::MEMBER, member_event.membership().as_str());
+                                    .encode_key(keys::MEMBER, member_event.content.membership.as_str());
                                 let data = this.serialize_value(&state_key)?;
 
                                 txn.set_member(
@@ -1421,7 +1421,7 @@ impl StateStore for SqliteStateStore {
                                 )?;
 
                                 if let Some(profile) =
-                                    profiles.and_then(|p| p.get(member_event.state_key()))
+                                    profiles.and_then(|p| p.get(&member_event.state_key))
                                 {
                                     let room_id = this.encode_key(keys::PROFILE, &room_id);
                                     let user_id = this.encode_key(keys::PROFILE, &state_key);

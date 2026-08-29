@@ -29,19 +29,18 @@ impl AvatarCache {
         room_id: &RoomId,
         member_event: &SyncRoomMemberEvent,
     ) -> Result<(), StoreError> {
-        let user_id = member_event.sender();
+        let user_id = &member_event.sender;
         if self.changes.get(room_id).is_some_and(|user_ids| user_ids.contains_key(user_id)) {
             return Ok(());
         }
-        match member_event {
-            SyncRoomMemberEvent::Original(original_event) => {
-                let avatar_url = original_event.content.avatar_url.clone();
-                self.add_to_changes_if_needed(state_changes, room_id, user_id, avatar_url).await;
-            }
-            SyncRoomMemberEvent::Redacted(_) => {
-                trace!("Redacted event, discarding avatar change for {:?}", user_id);
-            }
+
+        if member_event.is_redacted() {
+            trace!("Redacted event, discarding avatar change for {:?}", user_id);
+        } else {
+            let avatar_url = member_event.content.avatar_url.clone();
+            self.add_to_changes_if_needed(state_changes, room_id, user_id, avatar_url).await;
         }
+
         Ok(())
     }
 

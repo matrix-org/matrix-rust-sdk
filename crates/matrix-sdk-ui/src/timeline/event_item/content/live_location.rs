@@ -146,7 +146,7 @@ impl LiveLocationState {
     /// `ts + timeout` — see [`LiveLocationState::is_live`] and
     /// [`LiveLocationState::timeout`].
     pub fn ts(&self) -> MilliSecondsSinceUnixEpoch {
-        self.beacon_info.ts
+        self.beacon_info.ts.expect("redacted beacon info should not be a timeline item")
     }
 
     /// An optional human-readable description for this sharing session

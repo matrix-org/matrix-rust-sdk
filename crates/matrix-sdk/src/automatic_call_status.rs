@@ -26,7 +26,7 @@ use std::{
 use matrix_sdk_common::executor::spawn;
 use ruma::{
     OwnedRoomId, SecondsSinceUnixEpoch,
-    events::{OriginalSyncStateEvent, call::member::CallMemberEventContent},
+    events::{SyncStateEvent, call::member::CallMemberEventContent},
 };
 use tracing::warn;
 
@@ -80,7 +80,7 @@ impl AutomaticCallStatus {
         // set until the user clears it manually.
         let rooms: ActiveCallRooms = Arc::new(Mutex::new(HashSet::new()));
         let handle = client.add_event_handler(
-            async move |event: OriginalSyncStateEvent<CallMemberEventContent>,
+            async move |event: SyncStateEvent<CallMemberEventContent>,
                         room: Room,
                         client: Client| {
                 on_event(&rooms, event, room, client);
@@ -101,7 +101,7 @@ impl Drop for AutomaticCallStatus {
 
 fn on_event(
     rooms: &ActiveCallRooms,
-    event: OriginalSyncStateEvent<CallMemberEventContent>,
+    event: SyncStateEvent<CallMemberEventContent>,
     room: Room,
     client: Client,
 ) {

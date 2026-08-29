@@ -27,7 +27,7 @@ use ruma::{
     events::{
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, MessageLikeEventContent, MessageLikeEventType,
-        StateEventContentChange, StateEventType, SyncStateEvent,
+        StateEventContentChange, StateEventType,
         beacon_info::BeaconInfoEventContent,
         poll::unstable_start::{
             NewUnstablePollStartEventContentWithoutRelation, UnstablePollStartEventContent,
@@ -315,43 +315,35 @@ impl TimelineAction {
             },
 
             AnySyncTimelineEvent::State(ev) => match ev {
-                AnySyncStateEvent::RoomMember(ev) => match ev {
-                    SyncStateEvent::Original(ev) => {
-                        vec![Self::add_item(TimelineItemContent::room_member(
-                            ev.state_key,
-                            StateEventContentChange::Original {
-                                content: ev.content,
-                                prev_content: ev.unsigned.prev_content,
-                            },
-                            ev.sender,
-                        ))]
-                    }
-                    SyncStateEvent::Redacted(ev) => {
-                        vec![Self::add_item(TimelineItemContent::room_member(
-                            ev.state_key,
-                            StateEventContentChange::Redacted(ev.content),
-                            ev.sender,
-                        ))]
-                    }
-                },
-                AnySyncStateEvent::BeaconInfo(ev) => match ev {
-                    SyncStateEvent::Original(ev) => {
-                        // Check the `live` field directly, not `is_live()` which
-                        // considers timeout. We want to create a timeline item for any
-                        // beacon_info that was started as live, regardless of whether
-                        // the timeout has since expired.
-                        if ev.content.live {
-                            let add_item_action =
-                                Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent {
-                                    kind: MsgLikeKind::LiveLocation(LiveLocationState::new(
-                                        ev.content,
-                                    )),
-                                    reactions: Default::default(),
-                                    thread_root: None,
-                                    in_reply_to: None,
-                                    thread_summary: None,
-                                }));
-                            let handle_aggregation_action = ev.unsigned.prev_content.map(|prev| {
+                AnySyncStateEvent::RoomMember(ev) => {
+                    let is_redacted = ev.is_redacted();
+
+                    vec![Self::add_item(TimelineItemContent::room_member(
+                        ev.state_key,
+                        StateEventContentChange {
+                            content: ev.content,
+                            prev_content: ev.unsigned.prev_content,
+                        },
+                        ev.sender,
+                        is_redacted,
+                    ))]
+                }
+                AnySyncStateEvent::BeaconInfo(ev) => {
+                    // Check the `live` field directly, not `is_live()` which
+                    // considers timeout. We want to create a timeline item for any
+                    // beacon_info that was started as live, regardless of whether
+                    // the timeout has since expired.
+                    if ev.content.live {
+                        let add_item_action =
+                            Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent {
+                                kind: MsgLikeKind::LiveLocation(LiveLocationState::new(ev.content)),
+                                reactions: Default::default(),
+                                thread_root: None,
+                                in_reply_to: None,
+                                thread_summary: None,
+                            }));
+                        let handle_aggregation_action =
+                            ev.unsigned.prev_content.map(|prev| {
                                 let prev_content = BeaconInfoEventContent::new(
                                     prev.description,
                                     prev.timeout,
@@ -368,31 +360,25 @@ impl TimelineAction {
                                     },
                                 }
                             });
-                            let mut actions = vec![add_item_action];
-                            actions.extend(handle_aggregation_action);
-                            actions
-                        } else {
-                            // A non-live beacon_info is a stop event: it should update the
-                            // existing live item from the same sender rather than creating a
-                            // new timeline item.
-                            let event_id = ev.event_id.clone();
-                            vec![Self::HandleAggregation {
-                                // There is no explicit relates_to on a beacon_info state event;
-                                // the target is identified by sender in handle_beacon_stop.
-                                related_event: event_id.clone(),
-                                kind: HandleAggregationKind::BeaconStop {
-                                    own_id: TimelineEventItemId::EventId(event_id),
-                                    content: ev.content,
-                                },
-                            }]
-                        }
+                        let mut actions = vec![add_item_action];
+                        actions.extend(handle_aggregation_action);
+                        actions
+                    } else {
+                        // A non-live beacon_info is a stop event: it should update the
+                        // existing live item from the same sender rather than creating a
+                        // new timeline item.
+                        let event_id = ev.event_id.clone();
+                        vec![Self::HandleAggregation {
+                            // There is no explicit relates_to on a beacon_info state event;
+                            // the target is identified by sender in handle_beacon_stop.
+                            related_event: event_id.clone(),
+                            kind: HandleAggregationKind::BeaconStop {
+                                own_id: TimelineEventItemId::EventId(event_id),
+                                content: ev.content,
+                            },
+                        }]
                     }
-                    SyncStateEvent::Redacted(_) => {
-                        vec![Self::add_item(TimelineItemContent::MsgLike(
-                            MsgLikeContent::redacted(),
-                        ))]
-                    }
-                },
+                }
                 ev => vec![Self::add_item(TimelineItemContent::OtherState(OtherState {
                     state_key: ev.state_key().to_owned(),
                     content: AnyOtherStateEventContentChange::with_event_content(

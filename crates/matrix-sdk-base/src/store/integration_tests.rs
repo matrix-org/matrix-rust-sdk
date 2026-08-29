@@ -20,7 +20,7 @@ use ruma::{
     events::{
         AnyGlobalAccountDataEvent, AnyMessageLikeEventContent, AnyRoomAccountDataEvent,
         AnyStrippedStateEvent, AnySyncStateEvent, GlobalAccountDataEventType,
-        RoomAccountDataEventType, StateEventType, SyncStateEvent,
+        RoomAccountDataEventType, StateEventType,
         presence::PresenceEvent,
         receipt::{ReceiptThread, ReceiptType},
         room::{
@@ -204,9 +204,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let member_raw: Raw<SyncRoomMemberEvent> =
             f.member(user_id).display_name("example").previous(MembershipState::Invite).into();
         let member_event: SyncRoomMemberEvent = member_raw.deserialize()?;
-        let displayname = DisplayName::new(
-            member_event.as_original().unwrap().content.displayname.as_ref().unwrap(),
-        );
+        let displayname = DisplayName::new(member_event.content.displayname.as_ref().unwrap());
         room_ambiguity_map.insert(displayname.clone(), BTreeSet::from([user_id.to_owned()]));
         room_profiles.insert(user_id.to_owned(), (&member_event).into());
 
@@ -276,11 +274,10 @@ impl StateStoreIntegrationTests for DynStateStore {
                 .expect("can deserialize room topic before redaction")
                 .as_sync()
                 .expect("room topic is a sync state event")
-                .as_original()
-                .expect("room topic is not redacted yet")
                 .content
-                .topic,
-            "😀"
+                .topic
+                .as_deref(),
+            Some("😀")
         );
 
         let mut changes = StateChanges::default();
@@ -299,7 +296,10 @@ impl StateStoreIntegrationTests for DynStateStore {
             .deserialize()
             .expect("can deserialize room topic after redaction");
 
-        assert_matches!(redacted_event.as_sync(), Some(SyncStateEvent::Redacted(_)));
+        assert_matches!(
+            redacted_event.as_sync().expect("room topic is a sync state event").content.topic,
+            None
+        );
 
         Ok(())
     }

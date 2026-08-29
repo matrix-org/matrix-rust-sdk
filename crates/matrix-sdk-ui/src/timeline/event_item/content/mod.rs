@@ -24,7 +24,7 @@ use ruma::{
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, UserId,
     events::{
         AnyMessageLikeEventContent, AnyStateEventContentChange, Mentions, MessageLikeEventType,
-        StateEventContentChange, StateEventType,
+        StateEventContent, StateEventContentChange, StateEventType,
         policy::rule::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
             user::PolicyRuleUserEventContent,
@@ -384,64 +384,66 @@ impl TimelineItemContent {
         user_id: OwnedUserId,
         full_content: StateEventContentChange<RoomMemberEventContent>,
         sender: OwnedUserId,
+        is_redacted: bool,
     ) -> Self {
         use ruma::events::room::member::MembershipChange as MChange;
-        match &full_content {
-            StateEventContentChange::Original { content, prev_content } => {
-                let membership_change = content.membership_change(
-                    prev_content.as_ref().map(|c| c.details()),
-                    &sender,
-                    &user_id,
-                );
 
-                if let MChange::ProfileChanged { displayname_change, avatar_url_change } =
-                    membership_change
-                {
-                    Self::ProfileChange(MemberProfileChange {
-                        user_id,
-                        displayname_change: displayname_change.map(|c| Change {
-                            new: c.new.map(ToOwned::to_owned),
-                            old: c.old.map(ToOwned::to_owned),
-                        }),
-                        avatar_url_change: avatar_url_change.map(|c| Change {
-                            new: c.new.map(ToOwned::to_owned),
-                            old: c.old.map(ToOwned::to_owned),
-                        }),
-                    })
-                } else {
-                    let change = match membership_change {
-                        MChange::None => MembershipChange::None,
-                        MChange::Error => MembershipChange::Error,
-                        MChange::Joined => MembershipChange::Joined,
-                        MChange::Left => MembershipChange::Left,
-                        MChange::Banned => MembershipChange::Banned,
-                        MChange::Unbanned => MembershipChange::Unbanned,
-                        MChange::Kicked => MembershipChange::Kicked,
-                        MChange::Invited => MembershipChange::Invited,
-                        MChange::KickedAndBanned => MembershipChange::KickedAndBanned,
-                        MChange::InvitationAccepted => MembershipChange::InvitationAccepted,
-                        MChange::InvitationRejected => MembershipChange::InvitationRejected,
-                        MChange::InvitationRevoked => MembershipChange::InvitationRevoked,
-                        MChange::Knocked => MembershipChange::Knocked,
-                        MChange::KnockAccepted => MembershipChange::KnockAccepted,
-                        MChange::KnockRetracted => MembershipChange::KnockRetracted,
-                        MChange::KnockDenied => MembershipChange::KnockDenied,
-                        MChange::ProfileChanged { .. } => unreachable!(),
-                        _ => MembershipChange::NotImplemented,
-                    };
-
-                    Self::MembershipChange(RoomMembershipChange {
-                        user_id,
-                        content: full_content,
-                        change: Some(change),
-                    })
-                }
-            }
-            StateEventContentChange::Redacted(_) => Self::MembershipChange(RoomMembershipChange {
+        if is_redacted {
+            Self::MembershipChange(RoomMembershipChange {
                 user_id,
                 content: full_content,
                 change: None,
-            }),
+            })
+        } else {
+            let StateEventContentChange { content, prev_content } = &full_content;
+            let membership_change = content.membership_change(
+                prev_content.as_ref().map(|c| c.details()),
+                &sender,
+                &user_id,
+            );
+
+            if let MChange::ProfileChanged { displayname_change, avatar_url_change } =
+                membership_change
+            {
+                Self::ProfileChange(MemberProfileChange {
+                    user_id,
+                    displayname_change: displayname_change.map(|c| Change {
+                        new: c.new.map(ToOwned::to_owned),
+                        old: c.old.map(ToOwned::to_owned),
+                    }),
+                    avatar_url_change: avatar_url_change.map(|c| Change {
+                        new: c.new.map(ToOwned::to_owned),
+                        old: c.old.map(ToOwned::to_owned),
+                    }),
+                })
+            } else {
+                let change = match membership_change {
+                    MChange::None => MembershipChange::None,
+                    MChange::Error => MembershipChange::Error,
+                    MChange::Joined => MembershipChange::Joined,
+                    MChange::Left => MembershipChange::Left,
+                    MChange::Banned => MembershipChange::Banned,
+                    MChange::Unbanned => MembershipChange::Unbanned,
+                    MChange::Kicked => MembershipChange::Kicked,
+                    MChange::Invited => MembershipChange::Invited,
+                    MChange::KickedAndBanned => MembershipChange::KickedAndBanned,
+                    MChange::InvitationAccepted => MembershipChange::InvitationAccepted,
+                    MChange::InvitationRejected => MembershipChange::InvitationRejected,
+                    MChange::InvitationRevoked => MembershipChange::InvitationRevoked,
+                    MChange::Knocked => MembershipChange::Knocked,
+                    MChange::KnockAccepted => MembershipChange::KnockAccepted,
+                    MChange::KnockRetracted => MembershipChange::KnockRetracted,
+                    MChange::KnockDenied => MembershipChange::KnockDenied,
+                    MChange::ProfileChanged { .. } => unreachable!(),
+                    _ => MembershipChange::NotImplemented,
+                };
+
+                Self::MembershipChange(RoomMembershipChange {
+                    user_id,
+                    content: full_content,
+                    change: Some(change),
+                })
+            }
         }
     }
 
@@ -620,33 +622,27 @@ impl RoomMembershipChange {
     /// Retrieve the member's display name from the current event, or, if
     /// missing, from the one it replaced.
     pub fn display_name(&self) -> Option<String> {
-        if let StateEventContentChange::Original { content, prev_content } = &self.content {
-            content
-                .displayname
-                .as_ref()
-                .or_else(|| {
-                    prev_content.as_ref().and_then(|prev_content| prev_content.displayname.as_ref())
-                })
-                .cloned()
-        } else {
-            None
-        }
+        let StateEventContentChange { content, prev_content } = &self.content;
+        content
+            .displayname
+            .as_ref()
+            .or_else(|| {
+                prev_content.as_ref().and_then(|prev_content| prev_content.displayname.as_ref())
+            })
+            .cloned()
     }
 
     /// Retrieve the avatar URL from the current event, or, if missing, from the
     /// one it replaced.
     pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
-        if let StateEventContentChange::Original { content, prev_content } = &self.content {
-            content
-                .avatar_url
-                .as_ref()
-                .or_else(|| {
-                    prev_content.as_ref().and_then(|prev_content| prev_content.avatar_url.as_ref())
-                })
-                .cloned()
-        } else {
-            None
-        }
+        let StateEventContentChange { content, prev_content } = &self.content;
+        content
+            .avatar_url
+            .as_ref()
+            .or_else(|| {
+                prev_content.as_ref().and_then(|prev_content| prev_content.avatar_url.as_ref())
+            })
+            .cloned()
     }
 
     /// The membership change induced by this event.
@@ -663,7 +659,10 @@ impl RoomMembershipChange {
     fn redact(&self, rules: &RedactionRules) -> Self {
         Self {
             user_id: self.user_id.clone(),
-            content: StateEventContentChange::Redacted(self.content.clone().redact(rules)),
+            content: StateEventContentChange {
+                content: self.content.clone().redact(rules),
+                prev_content: self.content.prev_content.clone(),
+            },
             change: self.change,
         }
     }
@@ -866,88 +865,109 @@ impl AnyOtherStateEventContentChange {
     /// Get the event's type, like `m.room.create`.
     pub fn event_type(&self) -> StateEventType {
         match self {
-            Self::PolicyRuleRoom(c) => c.event_type(),
-            Self::PolicyRuleServer(c) => c.event_type(),
-            Self::PolicyRuleUser(c) => c.event_type(),
-            Self::RoomAvatar(c) => c.event_type(),
-            Self::RoomCanonicalAlias(c) => c.event_type(),
-            Self::RoomCreate(c) => c.event_type(),
-            Self::RoomEncryption(c) => c.event_type(),
-            Self::RoomGuestAccess(c) => c.event_type(),
-            Self::RoomHistoryVisibility(c) => c.event_type(),
-            Self::RoomJoinRules(c) => c.event_type(),
-            Self::RoomName(c) => c.event_type(),
-            Self::RoomPinnedEvents(c) => c.event_type(),
-            Self::RoomPowerLevels(c) => c.event_type(),
-            Self::RoomServerAcl(c) => c.event_type(),
-            Self::RoomThirdPartyInvite(c) => c.event_type(),
-            Self::RoomTombstone(c) => c.event_type(),
-            Self::RoomTopic(c) => c.event_type(),
-            Self::SpaceChild(c) => c.event_type(),
-            Self::SpaceParent(c) => c.event_type(),
+            Self::PolicyRuleRoom(c) => c.content.event_type(),
+            Self::PolicyRuleServer(c) => c.content.event_type(),
+            Self::PolicyRuleUser(c) => c.content.event_type(),
+            Self::RoomAvatar(c) => c.content.event_type(),
+            Self::RoomCanonicalAlias(c) => c.content.event_type(),
+            Self::RoomCreate(c) => c.content.event_type(),
+            Self::RoomEncryption(c) => c.content.event_type(),
+            Self::RoomGuestAccess(c) => c.content.event_type(),
+            Self::RoomHistoryVisibility(c) => c.content.event_type(),
+            Self::RoomJoinRules(c) => c.content.event_type(),
+            Self::RoomName(c) => c.content.event_type(),
+            Self::RoomPinnedEvents(c) => c.content.event_type(),
+            Self::RoomPowerLevels(c) => c.content.event_type(),
+            Self::RoomServerAcl(c) => c.content.event_type(),
+            Self::RoomThirdPartyInvite(c) => c.content.event_type(),
+            Self::RoomTombstone(c) => c.content.event_type(),
+            Self::RoomTopic(c) => c.content.event_type(),
+            Self::SpaceChild(c) => c.content.event_type(),
+            Self::SpaceParent(c) => c.content.event_type(),
             Self::_Custom { event_type } => event_type.as_str().into(),
         }
     }
 
     fn redact(&self, rules: &RedactionRules) -> Self {
         match self {
-            Self::PolicyRuleRoom(c) => {
-                Self::PolicyRuleRoom(StateEventContentChange::Redacted(c.clone().redact(rules)))
+            Self::PolicyRuleRoom(c) => Self::PolicyRuleRoom(StateEventContentChange {
+                content: c.clone().redact(rules),
+                prev_content: c.prev_content.clone(),
+            }),
+            Self::PolicyRuleServer(c) => Self::PolicyRuleServer(StateEventContentChange {
+                content: c.clone().redact(rules),
+                prev_content: c.prev_content.clone(),
+            }),
+            Self::PolicyRuleUser(c) => Self::PolicyRuleUser(StateEventContentChange {
+                content: c.clone().redact(rules),
+                prev_content: c.prev_content.clone(),
+            }),
+            Self::RoomAvatar(c) => Self::RoomAvatar(StateEventContentChange {
+                content: c.clone().redact(rules),
+                prev_content: c.prev_content.clone(),
+            }),
+            Self::RoomCanonicalAlias(c) => Self::RoomCanonicalAlias(StateEventContentChange {
+                content: c.clone().redact(rules),
+                prev_content: c.prev_content.clone(),
+            }),
+            Self::RoomCreate(c) => Self::RoomCreate(StateEventContentChange {
+                content: c.clone().redact(rules),
+                prev_content: c.prev_content.clone(),
+            }),
+            Self::RoomEncryption(c) => Self::RoomEncryption(StateEventContentChange {
+                content: c.clone().redact(rules),
+                prev_content: c.prev_content.clone(),
+            }),
+            Self::RoomGuestAccess(c) => Self::RoomGuestAccess(StateEventContentChange {
+                content: c.clone().redact(rules),
+                prev_content: c.prev_content.clone(),
+            }),
+            Self::RoomHistoryVisibility(c) => {
+                Self::RoomHistoryVisibility(StateEventContentChange {
+                    content: c.clone().redact(rules),
+                    prev_content: c.prev_content.clone(),
+                })
             }
-            Self::PolicyRuleServer(c) => {
-                Self::PolicyRuleServer(StateEventContentChange::Redacted(c.clone().redact(rules)))
-            }
-            Self::PolicyRuleUser(c) => {
-                Self::PolicyRuleUser(StateEventContentChange::Redacted(c.clone().redact(rules)))
-            }
-            Self::RoomAvatar(c) => {
-                Self::RoomAvatar(StateEventContentChange::Redacted(c.clone().redact(rules)))
-            }
-            Self::RoomCanonicalAlias(c) => {
-                Self::RoomCanonicalAlias(StateEventContentChange::Redacted(c.clone().redact(rules)))
-            }
-            Self::RoomCreate(c) => {
-                Self::RoomCreate(StateEventContentChange::Redacted(c.clone().redact(rules)))
-            }
-            Self::RoomEncryption(c) => {
-                Self::RoomEncryption(StateEventContentChange::Redacted(c.clone().redact(rules)))
-            }
-            Self::RoomGuestAccess(c) => {
-                Self::RoomGuestAccess(StateEventContentChange::Redacted(c.clone().redact(rules)))
-            }
-            Self::RoomHistoryVisibility(c) => Self::RoomHistoryVisibility(
-                StateEventContentChange::Redacted(c.clone().redact(rules)),
-            ),
-            Self::RoomJoinRules(c) => {
-                Self::RoomJoinRules(StateEventContentChange::Redacted(c.clone().redact(rules)))
-            }
-            Self::RoomName(c) => {
-                Self::RoomName(StateEventContentChange::Redacted(c.clone().redact(rules)))
-            }
-            Self::RoomPinnedEvents(c) => {
-                Self::RoomPinnedEvents(StateEventContentChange::Redacted(c.clone().redact(rules)))
-            }
-            Self::RoomPowerLevels(c) => {
-                Self::RoomPowerLevels(StateEventContentChange::Redacted(c.clone().redact(rules)))
-            }
-            Self::RoomServerAcl(c) => {
-                Self::RoomServerAcl(StateEventContentChange::Redacted(c.clone().redact(rules)))
-            }
-            Self::RoomThirdPartyInvite(c) => Self::RoomThirdPartyInvite(
-                StateEventContentChange::Redacted(c.clone().redact(rules)),
-            ),
-            Self::RoomTombstone(c) => {
-                Self::RoomTombstone(StateEventContentChange::Redacted(c.clone().redact(rules)))
-            }
-            Self::RoomTopic(c) => {
-                Self::RoomTopic(StateEventContentChange::Redacted(c.clone().redact(rules)))
-            }
-            Self::SpaceChild(c) => {
-                Self::SpaceChild(StateEventContentChange::Redacted(c.clone().redact(rules)))
-            }
-            Self::SpaceParent(c) => {
-                Self::SpaceParent(StateEventContentChange::Redacted(c.clone().redact(rules)))
-            }
+            Self::RoomJoinRules(c) => Self::RoomJoinRules(StateEventContentChange {
+                content: c.clone().redact(rules),
+                prev_content: c.prev_content.clone(),
+            }),
+            Self::RoomName(c) => Self::RoomName(StateEventContentChange {
+                content: c.clone().redact(rules),
+                prev_content: c.prev_content.clone(),
+            }),
+            Self::RoomPinnedEvents(c) => Self::RoomPinnedEvents(StateEventContentChange {
+                content: c.clone().redact(rules),
+                prev_content: c.prev_content.clone(),
+            }),
+            Self::RoomPowerLevels(c) => Self::RoomPowerLevels(StateEventContentChange {
+                content: c.clone().redact(rules),
+                prev_content: c.prev_content.clone(),
+            }),
+            Self::RoomServerAcl(c) => Self::RoomServerAcl(StateEventContentChange {
+                content: c.clone().redact(rules),
+                prev_content: c.prev_content.clone(),
+            }),
+            Self::RoomThirdPartyInvite(c) => Self::RoomThirdPartyInvite(StateEventContentChange {
+                content: c.clone().redact(rules),
+                prev_content: c.prev_content.clone(),
+            }),
+            Self::RoomTombstone(c) => Self::RoomTombstone(StateEventContentChange {
+                content: c.clone().redact(rules),
+                prev_content: c.prev_content.clone(),
+            }),
+            Self::RoomTopic(c) => Self::RoomTopic(StateEventContentChange {
+                content: c.clone().redact(rules),
+                prev_content: c.prev_content.clone(),
+            }),
+            Self::SpaceChild(c) => Self::SpaceChild(StateEventContentChange {
+                content: c.clone().redact(rules),
+                prev_content: c.prev_content.clone(),
+            }),
+            Self::SpaceParent(c) => Self::SpaceParent(StateEventContentChange {
+                content: c.clone().redact(rules),
+                prev_content: c.prev_content.clone(),
+            }),
             Self::_Custom { event_type } => Self::_Custom { event_type: event_type.clone() },
         }
     }
@@ -995,7 +1015,7 @@ mod tests {
     fn redact_membership_change() {
         let content = TimelineItemContent::MembershipChange(RoomMembershipChange {
             user_id: ALICE.to_owned(),
-            content: StateEventContentChange::Original {
+            content: StateEventContentChange {
                 content: assign!(RoomMemberEventContent::new(MembershipState::Ban), {
                     reason: Some("🤬".to_owned()),
                 }),
@@ -1007,7 +1027,11 @@ mod tests {
         let redacted = content.redact(&RedactionRules::V11);
         assert_let!(TimelineItemContent::MembershipChange(inner) = redacted);
         assert_eq!(inner.change, Some(MembershipChange::Banned));
-        assert_let!(StateEventContentChange::Redacted(inner_content_redacted) = inner.content);
+        assert_let!(
+            StateEventContentChange { content: inner_content_redacted, prev_content } =
+                inner.content
+        );
         assert_eq!(inner_content_redacted.membership, MembershipState::Ban);
+        assert_eq!(prev_content.unwrap().membership, MembershipState::Join);
     }
 }

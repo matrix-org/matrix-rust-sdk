@@ -107,7 +107,7 @@ impl AmbiguityCache {
         // this twice for the same event will result in an incorrect AmbiguityChange
         // overwriting the correct one. In other words, this method is not idempotent so
         // we make it by ignoring duplicate events.
-        if self.changes.get(room_id).is_some_and(|c| c.contains_key(member_event.event_id())) {
+        if self.changes.get(room_id).is_some_and(|c| c.contains_key(&member_event.event_id)) {
             return Ok(());
         }
 
@@ -125,27 +125,26 @@ impl AmbiguityCache {
             return Ok(());
         }
 
-        let disambiguated_member =
-            old_map.as_mut().and_then(|o| o.remove(member_event.state_key()));
+        let disambiguated_member = old_map.as_mut().and_then(|o| o.remove(&member_event.state_key));
         let ambiguated_member =
-            new_map.as_mut().and_then(|n| n.add(member_event.state_key().clone()));
+            new_map.as_mut().and_then(|n| n.add(member_event.state_key.clone()));
         let ambiguous = new_map.as_ref().is_some_and(|n| n.is_ambiguous());
 
         self.update(room_id, old_map, new_map);
 
         let change = AmbiguityChange {
-            member_id: member_event.state_key().clone(),
+            member_id: member_event.state_key.clone(),
             disambiguated_member,
             ambiguated_member,
             member_ambiguous: ambiguous,
         };
 
-        trace!(user_id = ?member_event.state_key(), "Handling display name ambiguity: {change:#?}");
+        trace!(user_id = ?member_event.state_key, "Handling display name ambiguity: {change:#?}");
 
         self.changes
             .entry(room_id.to_owned())
             .or_default()
-            .insert(member_event.event_id().to_owned(), change);
+            .insert(member_event.event_id.clone(), change);
 
         Ok(())
     }
@@ -177,7 +176,7 @@ impl AmbiguityCache {
         room_id: &RoomId,
         new_event: &SyncRoomMemberEvent,
     ) -> Result<Option<String>> {
-        let user_id = new_event.state_key();
+        let user_id = &new_event.state_key;
 
         let old_event = if let Some(member) = changes.member(room_id, user_id) {
             Some(SyncOrStrippedState::Stripped(member))
@@ -250,15 +249,16 @@ impl AmbiguityCache {
             None
         };
 
-        let new_map = if is_member_active(member_event.membership()) {
+        let new_map = if is_member_active(&member_event.content.membership) {
             let new = member_event
-                .as_original()
-                .and_then(|ev| ev.content.displayname.as_deref())
-                .unwrap_or_else(|| member_event.state_key().localpart());
+                .content
+                .displayname
+                .as_deref()
+                .unwrap_or_else(|| member_event.state_key.localpart());
 
             // We don't allow other users to set the display name, so if we have a more
             // trusted version of the display name use that.
-            let new_display_name = if member_event.sender().as_str() == member_event.state_key() {
+            let new_display_name = if member_event.sender == member_event.state_key {
                 new
             } else if let Some(old) = old_display_name.as_deref() {
                 old

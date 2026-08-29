@@ -44,7 +44,7 @@ use matrix_sdk::{
 use ruma::{
     OwnedRoomId, RoomId, SpaceChildOrder,
     events::{
-        self, StateEventType, SyncStateEvent,
+        self, StateEventType,
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
     },
 };
@@ -520,10 +520,9 @@ impl SpaceService {
             if let Ok(parents) = space.get_state_events_static::<SpaceParentEventContent>().await {
                 parents.into_iter()
                 .flat_map(|parent_event| match parent_event.deserialize() {
-                    Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(e))) => {
-                        Some(e.state_key)
+                    Ok(SyncOrStrippedState::Sync(e)) => {
+                        e.content.via.is_some().then_some(e.state_key)
                     }
-                    Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => None,
                     Ok(SyncOrStrippedState::Stripped(e)) => Some(e.state_key),
                     Err(e) => {
                         trace!(room_id = ?space.room_id(), "Could not deserialize m.space.parent: {e}");
@@ -539,7 +538,7 @@ impl SpaceService {
             if let Ok(children) = space.get_state_events_static::<SpaceChildEventContent>().await {
                 children.into_iter()
                 .filter_map(|child_event| match child_event.deserialize() {
-                    Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(e))) => {
+                    Ok(SyncOrStrippedState::Sync(e)) if e.content.via.is_some() => {
                         space_child_states.insert(
                             e.state_key.to_owned(),
                             SpaceRoomChildState {
@@ -550,7 +549,7 @@ impl SpaceService {
 
                         Some(e.state_key)
                     }
-                    Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => None,
+                    Ok(SyncOrStrippedState::Sync(_)) => None,
                     Ok(SyncOrStrippedState::Stripped(e)) => Some(e.state_key),
                     Err(e) => {
                         trace!(room_id = ?space.room_id(), "Could not deserialize m.space.child: {e}");

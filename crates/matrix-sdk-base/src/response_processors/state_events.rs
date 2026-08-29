@@ -15,11 +15,7 @@
 use std::collections::BTreeSet;
 
 use as_variant::as_variant;
-use ruma::{
-    RoomId,
-    events::{AnySyncStateEvent, SyncStateEvent},
-    serde::Raw,
-};
+use ruma::{RoomId, events::AnySyncStateEvent, serde::Raw};
 use tracing::error;
 
 use super::Context;
@@ -196,9 +192,9 @@ pub mod sync {
         ambiguity_cache.handle_event(&context.state_changes, room_id, event).await?;
         avatar_cache.handle_event(&context.state_changes, room_id, event).await?;
 
-        match event.membership() {
+        match event.content.membership {
             MembershipState::Join | MembershipState::Invite => {
-                new_users.insert(event.state_key());
+                new_users.insert(&event.state_key);
             }
             _ => (),
         }
@@ -249,7 +245,7 @@ pub mod sync {
                 None
             }
         }) {
-            let new_state: RoomState = member.membership().into();
+            let new_state = RoomState::from(&member.content.membership);
 
             if new_state != room_info.state() {
                 room_info.set_state(new_state);
@@ -402,14 +398,8 @@ pub fn validate_create_event_predecessor(
         return;
     };
 
-    // Redacted and non-redacted create events use the same content type.
-    let content = match event {
-        SyncStateEvent::Original(event) => &event.content,
-        SyncStateEvent::Redacted(event) => &event.content,
-    };
-
     let Some(mut predecessor_room_id) =
-        content.predecessor.as_ref().map(|predecessor| predecessor.room_id.clone())
+        event.content.predecessor.as_ref().map(|predecessor| predecessor.room_id.clone())
     else {
         // No predecessor = no problem here.
         return;
@@ -423,11 +413,7 @@ pub fn validate_create_event_predecessor(
             // Ahhh, there is a loop with `m.room.create` events!
             // We remove the predecessor so that we don't process it later.
             let mut event = event.clone();
-
-            match &mut event {
-                SyncStateEvent::Original(event) => event.content.predecessor.take(),
-                SyncStateEvent::Redacted(event) => event.content.predecessor.take(),
-            };
+            event.content.predecessor.take();
 
             raw_event.set_cached_event(event.into());
 
@@ -469,18 +455,21 @@ pub fn is_tombstone_event_valid(
 
     let Some(tombstone) = raw_event
         .deserialize_as(|any_event| as_variant!(any_event, AnySyncStateEvent::RoomTombstone))
-        .and_then(|event| Some(&event.as_original()?.content))
+        .map(|event| &event.content)
     else {
         // `true` means no problem. No successor = no problem here.
         return true;
     };
 
-    let mut successor_room_id = tombstone.replacement_room.clone();
+    let Some(mut successor_room_id) = tombstone.replacement_room.clone() else {
+        // `true` means no problem. No successor = no problem here.
+        return true;
+    };
 
     loop {
         // We must check immediately if the `successor_room_id` is in `already_seen` in
         // case of a room is created and tombstones itself in a single sync.
-        if already_seen.contains(AsRef::<RoomId>::as_ref(&successor_room_id)) {
+        if already_seen.contains(&successor_room_id) {
             // Ahhh, there is a loop with `m.room.tombstone` events!
             error!(?room_id, ?tombstone, "`m.room.tombstone` event is invalid, it creates a loop");
             return false;

@@ -679,7 +679,7 @@ mod tests {
         MilliSecondsSinceUnixEpoch, OwnedTransactionId, event_id,
         events::{
             AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
-            room::member::{MembershipState, SyncRoomMemberEvent},
+            room::member::MembershipState,
         },
         owned_event_id, owned_room_id, room_id, user_id,
     };
@@ -1538,7 +1538,7 @@ mod tests {
                         event.deserialize().unwrap(),
                         AnySyncTimelineEvent::State(
                             AnySyncStateEvent::RoomMember(
-                                SyncRoomMemberEvent::Original(event)
+                                event
                             )
                         ) => {
                             assert_eq!(event.event_id, event_id_1);

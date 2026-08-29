@@ -14,7 +14,7 @@
 
 //! SDK-specific variations of response types from Ruma.
 
-use std::{collections::BTreeMap, fmt, hash::Hash, iter, sync::LazyLock};
+use std::{collections::BTreeMap, hash::Hash, iter, sync::LazyLock};
 
 pub use matrix_sdk_common::deserialized_responses::*;
 use regex::Regex;
@@ -23,8 +23,7 @@ use ruma::{
     UserId,
     events::{
         AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, EventContentFromType,
-        RedactContent, StateEventContent, StaticStateEventContent, StrippedStateEvent,
-        SyncStateEvent,
+        StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
         room::{
             member::{MembershipState, RoomMemberEvent, RoomMemberEventContent},
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
@@ -301,7 +300,7 @@ impl RawAnySyncOrStrippedState {
     /// without changing the underlying JSON.
     pub fn cast<C>(self) -> RawSyncOrStrippedState<C>
     where
-        C: StaticStateEventContent + RedactContent,
+        C: StaticStateEventContent,
     {
         match self {
             Self::Sync(raw) => RawSyncOrStrippedState::Sync(raw.cast_unchecked()),
@@ -413,7 +412,7 @@ where
     /// The sender of this event.
     pub fn sender(&self) -> &UserId {
         match self {
-            Self::Sync(e) => e.sender(),
+            Self::Sync(e) => &e.sender,
             Self::Stripped(e) => &e.sender,
         }
     }
@@ -421,7 +420,7 @@ where
     /// The ID of this event.
     pub fn event_id(&self) -> Option<&EventId> {
         match self {
-            Self::Sync(e) => Some(e.event_id()),
+            Self::Sync(e) => Some(&e.event_id),
             Self::Stripped(_) => None,
         }
     }
@@ -429,7 +428,7 @@ where
     /// The server timestamp of this event.
     pub fn origin_server_ts(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         match self {
-            Self::Sync(e) => Some(e.origin_server_ts()),
+            Self::Sync(e) => Some(e.origin_server_ts),
             Self::Stripped(_) => None,
         }
     }
@@ -437,7 +436,7 @@ where
     /// The state key associated to this state event.
     pub fn state_key(&self) -> &C::StateKey {
         match self {
-            Self::Sync(e) => e.state_key(),
+            Self::Sync(e) => &e.state_key,
             Self::Stripped(e) => &e.state_key,
         }
     }

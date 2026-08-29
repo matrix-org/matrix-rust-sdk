@@ -18,7 +18,7 @@ use eyeball::{AsyncLock, ObservableWriteGuard};
 use ruma::{
     OwnedEventId, OwnedUserId,
     events::{
-        StateEventType, SyncStateEvent,
+        StateEventType,
         room::member::{MembershipState, RoomMemberEventContent},
     },
 };
@@ -47,7 +47,7 @@ impl Room {
         for raw_event in member_raw_events {
             let event = raw_event.cast::<RoomMemberEventContent>().deserialize()?;
             match event {
-                SyncOrStrippedState::Sync(SyncStateEvent::Original(event)) => {
+                SyncOrStrippedState::Sync(event) => {
                     if event.content.membership == MembershipState::Knock {
                         event_to_user_ids.push((event.event_id, event.state_key))
                     } else {

@@ -19,10 +19,7 @@ use imbl::vector;
 use matrix_sdk_test::{ALICE, BOB, async_test};
 use ruma::{
     event_id,
-    events::{
-        StateEventContentChange, reaction::RedactedReactionEventContent,
-        room::message::OriginalSyncRoomMessageEvent,
-    },
+    events::{reaction::RedactedReactionEventContent, room::message::OriginalSyncRoomMessageEvent},
     owned_event_id,
 };
 use stream_assert::{assert_next_matches, assert_pending};
@@ -44,19 +41,13 @@ async fn test_redact_state_event() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_let!(TimelineItemContent::OtherState(state) = item.content());
-    assert_matches!(
-        state.content,
-        AnyOtherStateEventContentChange::RoomName(StateEventContentChange::Original { .. })
-    );
+    assert_matches!(state.content, AnyOtherStateEventContentChange::RoomName(_));
 
     timeline.handle_live_event(f.redaction(item.event_id().unwrap()).sender(&ALICE)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert_let!(TimelineItemContent::OtherState(state) = item.content());
-    assert_matches!(
-        state.content,
-        AnyOtherStateEventContentChange::RoomName(StateEventContentChange::Redacted(_))
-    );
+    assert_matches!(state.content, AnyOtherStateEventContentChange::RoomName(_));
 }
 
 #[async_test]

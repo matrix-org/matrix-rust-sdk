@@ -415,7 +415,7 @@ impl StateStore for MemoryStore {
                             .members
                             .entry(room.clone())
                             .or_default()
-                            .insert(event.state_key().to_owned(), event.membership().clone());
+                            .insert(event.state_key.clone(), event.content.membership.clone());
                     }
                 }
             }

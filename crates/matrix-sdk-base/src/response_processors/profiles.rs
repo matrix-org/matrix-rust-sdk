@@ -35,16 +35,16 @@ pub fn upsert_or_delete(
     // We don't want to update the profile if the member is leaving the room, as the
     // server may return a dummy empty profile along the leave event. We want to
     // keep the last known profile in that case.
-    if event.state_key() == event.sender() && *event.membership() != MembershipState::Leave {
+    if event.state_key == event.sender && event.content.membership != MembershipState::Leave {
         context
             .state_changes
             .profiles
             .entry(room_id.to_owned())
             .or_default()
-            .insert(event.sender().to_owned(), event.into());
+            .insert(event.sender.clone(), event.into());
     }
 
-    if matches!(*event.membership(), MembershipState::Invite | MembershipState::Ban) {
+    if matches!(event.content.membership, MembershipState::Invite | MembershipState::Ban) {
         // Remove any profile previously stored for the invited/banned user.
         //
         // A room member could have joined the room and left it later; in that case, the
@@ -56,13 +56,13 @@ pub fn upsert_or_delete(
             .profiles_to_delete
             .entry(room_id.to_owned())
             .or_default()
-            .push(event.state_key().clone());
+            .push(event.state_key.clone());
 
         // Address the edge case of "in-flight" profiles. If an earlier event in
         // this same sync batch inserted a profile (for example user joined then got
         // banned by an admin of a room), we MUST NOT reinsert it.
         if let Some(room_profiles) = context.state_changes.profiles.get_mut(room_id) {
-            room_profiles.remove(event.state_key());
+            room_profiles.remove(&event.state_key);
         }
     }
 }

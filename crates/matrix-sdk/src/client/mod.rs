@@ -74,7 +74,7 @@ use ruma::{
         path_builder::PathBuilder,
     },
     assign,
-    events::{beacon_info::OriginalSyncBeaconInfoEvent, direct::DirectUserIdentifier},
+    events::{beacon_info::SyncBeaconInfoEvent, direct::DirectUserIdentifier},
     presence::PresenceState,
     push::Ruleset,
     time::Instant,
@@ -1232,7 +1232,7 @@ impl Client {
     pub fn observe_own_beacon_info_updates(
         &self,
     ) -> Result<impl Stream<Item = BeaconInfoUpdate> + use<>> {
-        let observer = self.observe_events::<OriginalSyncBeaconInfoEvent, Room>();
+        let observer = self.observe_events::<SyncBeaconInfoEvent, Room>();
         let mut stream = observer.subscribe();
         let own_user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
         Ok(async_stream::stream! {

@@ -35,7 +35,7 @@ use matrix_sdk_test::{
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::events::{
     StateEvent,
-    room::topic::{OriginalRoomTopicEvent, RoomTopicEventContent},
+    room::topic::{RoomTopicEvent, RoomTopicEventContent},
 };
 use ruma::{
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm,
@@ -960,12 +960,14 @@ async fn test_megolm_state_encryption() {
 
     let decrypted_event = decrypted_event.event.deserialize().unwrap();
 
-    if let AnyTimelineEvent::State(AnyStateEvent::RoomTopic(StateEvent::Original(
-        OriginalRoomTopicEvent { sender, content, .. },
-    ))) = decrypted_event
+    if let AnyTimelineEvent::State(AnyStateEvent::RoomTopic(RoomTopicEvent {
+        sender,
+        content,
+        ..
+    })) = decrypted_event
     {
         assert_eq!(&sender, alice.user_id());
-        assert_eq!(&content.topic, plaintext);
+        assert_eq!(content.topic.as_deref(), Some(plaintext));
     } else {
         panic!("Decrypted room event has the wrong type");
     }

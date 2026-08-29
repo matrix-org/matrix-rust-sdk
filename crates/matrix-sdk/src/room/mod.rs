@@ -104,10 +104,9 @@ use ruma::{
     assign,
     events::{
         AnyRoomAccountDataEvent, AnyRoomAccountDataEventContent, AnyTimelineEvent, EmptyStateKey,
-        Mentions, MessageLikeEventContent, OriginalSyncStateEvent, RedactContent,
-        RoomAccountDataEvent, RoomAccountDataEventContent, RoomAccountDataEventType,
-        StateEventContent, StateEventType, StaticEventContent, StaticStateEventContent,
-        SyncStateEvent,
+        Mentions, MessageLikeEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
+        RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
+        StaticStateEventContent, SyncStateEvent,
         beacon::BeaconEventContent,
         beacon_info::BeaconInfoEventContent,
         direct::DirectEventContent,
@@ -146,8 +145,7 @@ use ruma::{
 };
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::{
-    events::room::encrypted::unstable_state::OriginalSyncStateRoomEncryptedEvent,
-    serde::JsonCastable,
+    events::room::encrypted::unstable_state::SyncStateRoomEncryptedEvent, serde::JsonCastable,
 };
 use serde::de::DeserializeOwned;
 use thiserror::Error;
@@ -772,12 +770,12 @@ impl Room {
                     return event;
                 }
             }
-            Ok(AnySyncTimelineEvent::State(AnySyncStateEvent::RoomEncrypted(
-                SyncStateEvent::Original(_),
-            ))) => {
+            Ok(AnySyncTimelineEvent::State(AnySyncStateEvent::RoomEncrypted(ev)))
+                if !ev.is_redacted() =>
+            {
                 if let Ok(event) = self
                     .decrypt_event(
-                        event.cast_ref_unchecked::<OriginalSyncStateRoomEncryptedEvent>(),
+                        event.cast_ref_unchecked::<SyncStateRoomEncryptedEvent>(),
                         push_ctx,
                     )
                     .await
@@ -1264,15 +1262,7 @@ impl Room {
             return Err(Error::InsufficientData);
         };
 
-        let event = raw_event.deserialize()?;
-
-        let mut content = match event {
-            SyncStateEvent::Original(original_event) => original_event.content,
-            SyncStateEvent::Redacted(redacted_event) => {
-                RoomMemberEventContent::new(redacted_event.content.membership)
-            }
-        };
-
+        let mut content = raw_event.deserialize()?.content;
         content.displayname = display_name;
         self.send_state_event_for_key(user_id, content).await
     }
@@ -1451,10 +1441,13 @@ impl Room {
             .into_iter()
             // Extract state key (ie. the parent's id) and sender
             .filter_map(|parent_event| match parent_event.deserialize() {
-                Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(e))) => {
-                    Some((e.state_key.to_owned(), e.sender))
+                Ok(SyncOrStrippedState::Sync(e)) => {
+                    if e.content.via.is_some() {
+                        Some((e.state_key.to_owned(), e.sender))
+                    } else {
+                        None
+                    }
                 }
-                Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => None,
                 Ok(SyncOrStrippedState::Stripped(e)) => Some((e.state_key.to_owned(), e.sender)),
                 Err(e) => {
                     info!(room_id = ?self.room_id(), "Could not deserialize m.space.parent: {e}");
@@ -1475,12 +1468,13 @@ impl Room {
                     .await?
                 {
                     match child_event.deserialize() {
-                        Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(_))) => {
-                            // There is a valid m.space.child in the parent pointing to
-                            // this room
-                            return Ok(ParentSpace::Reciprocal(parent_room));
+                        Ok(SyncOrStrippedState::Sync(e)) => {
+                            if e.content.via.is_some() {
+                                // There is a valid m.space.child in the parent pointing to
+                                // this room
+                                return Ok(ParentSpace::Reciprocal(parent_room));
+                            }
                         }
-                        Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => {}
                         Ok(SyncOrStrippedState::Stripped(_)) => {}
                         Err(e) => {
                             info!(
@@ -3420,9 +3414,9 @@ impl Room {
             .get_state_event_static::<RoomServerAclEventContent>()
             .await?
             .and_then(|ev| ev.deserialize().ok());
-        let acl = acl_ev.as_ref().and_then(|ev| match ev {
-            SyncOrStrippedState::Sync(ev) => ev.as_original().map(|ev| &ev.content),
-            SyncOrStrippedState::Stripped(ev) => Some(&ev.content),
+        let acl = acl_ev.as_ref().map(|ev| match ev {
+            SyncOrStrippedState::Sync(ev) => &ev.content,
+            SyncOrStrippedState::Stripped(ev) => &ev.content,
         });
 
         // Filter out server names that:
@@ -3948,15 +3942,20 @@ impl Room {
     pub(crate) async fn get_user_beacon_info(
         &self,
         user_id: &UserId,
-    ) -> Result<OriginalSyncStateEvent<BeaconInfoEventContent>, BeaconError> {
+    ) -> Result<SyncStateEvent<BeaconInfoEventContent>, BeaconError> {
         let raw_event = self
             .get_state_event_static_for_key::<BeaconInfoEventContent, _>(user_id)
             .await?
             .ok_or(BeaconError::NotFound)?;
 
         match raw_event.deserialize()? {
-            SyncOrStrippedState::Sync(SyncStateEvent::Original(beacon_info)) => Ok(beacon_info),
-            SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_)) => Err(BeaconError::Redacted),
+            SyncOrStrippedState::Sync(beacon_info) => {
+                if beacon_info.is_redacted() {
+                    Err(BeaconError::Redacted)
+                } else {
+                    Ok(beacon_info)
+                }
+            }
             SyncOrStrippedState::Stripped(_) => Err(BeaconError::Stripped),
         }
     }
@@ -4172,9 +4171,9 @@ impl Room {
                 // when any of the branches changes
                 tokio::select! {
                     Some((event, _)) = requests_stream.next() => {
-                        if let Some(event) = event.as_original() {
+                        if !event.is_redacted() {
                             // If we can calculate the membership change, try to emit only when needed
-                            let emit = if event.prev_content().is_some() {
+                            let emit = if event.unsigned.prev_content.is_some() {
                                 matches!(event.membership_change(),
                                     MembershipChange::Banned |
                                     MembershipChange::Knocked |

@@ -26,9 +26,9 @@ use matrix_sdk_common::locks::Mutex;
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId,
     events::{
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncStateEvent,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         beacon::OriginalSyncBeaconEvent,
-        beacon_info::{BeaconInfoEventContent, OriginalSyncBeaconInfoEvent},
+        beacon_info::{BeaconInfoEventContent, SyncBeaconInfoEvent},
         location::LocationContent,
         relation::RelationType,
     },
@@ -105,7 +105,7 @@ impl LiveLocationsObserver {
         let beacon_guard = room.client.event_handler_drop_guard(beacon_handle);
         let beacon_info_handle = room.add_event_handler({
             let shares = shares.clone();
-            async move |event: OriginalSyncBeaconInfoEvent, room: Room| {
+            async move |event: SyncBeaconInfoEvent, room: Room| {
                 Self::handle_beacon_info_event(&shares, &room, event).await;
             }
         });
@@ -159,7 +159,7 @@ impl LiveLocationsObserver {
     fn extract_live_beacon_info(
         event: SyncOrStrippedState<BeaconInfoEventContent>,
     ) -> Option<(OwnedUserId, BeaconInfoEventContent, OwnedEventId)> {
-        let SyncOrStrippedState::Sync(SyncStateEvent::Original(ev)) = event else {
+        let SyncOrStrippedState::Sync(ev) = event else {
             return None;
         };
         if !ev.content.is_live() {
@@ -237,7 +237,7 @@ impl LiveLocationsObserver {
     async fn handle_beacon_info_event(
         shares: &Mutex<ObservableVector<LiveLocationShare>>,
         room: &Room,
-        event: OriginalSyncBeaconInfoEvent,
+        event: SyncBeaconInfoEvent,
     ) {
         {
             let mut shares = shares.lock();

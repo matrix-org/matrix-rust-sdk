@@ -26,7 +26,7 @@ use matrix_sdk_base::{
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
     events::{
-        AnyMessageLikeEventContent, AnySyncStateEvent, AnySyncTimelineEvent, SyncStateEvent,
+        AnyMessageLikeEventContent, AnySyncStateEvent, AnySyncTimelineEvent,
         relation::Replacement,
         room::{
             member::MembershipChange,
@@ -772,7 +772,7 @@ fn filter_any_sync_state_event(
     power_levels: Option<&RoomPowerLevels>,
 ) -> ControlFlow<(), FilterContinue> {
     match event {
-        AnySyncStateEvent::RoomMember(SyncStateEvent::Original(member)) => {
+        AnySyncStateEvent::RoomMember(member) if !member.is_redacted() => {
             match member.membership_change() {
                 MembershipChange::Knocked => {
                     let can_accept_or_decline_knocks = match power_levels {
@@ -821,7 +821,7 @@ fn filter_any_sync_state_event(
         // Both the start (`is_live() == true`) and stop (`is_live() == false`)
         // events are suitable, so that the item stays visible in the room
         // summary even after the sharing session ends.
-        AnySyncStateEvent::BeaconInfo(SyncStateEvent::Original(_)) => filter_break(),
+        AnySyncStateEvent::BeaconInfo(beacon) if !beacon.is_redacted() => filter_break(),
 
         _ => filter_continue(),
     }

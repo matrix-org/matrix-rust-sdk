@@ -912,7 +912,7 @@ impl_state_store!({
                                 .build()?;
 
                             if let Some(profile) =
-                                profile_changes.and_then(|p| p.get(event.state_key()))
+                                profile_changes.and_then(|p| p.get(&event.state_key))
                             {
                                 profiles
                                     .put(&self.serialize_value(&profile)?)
@@ -2148,7 +2148,7 @@ struct RoomMember {
 
 impl From<&SyncStateEvent<RoomMemberEventContent>> for RoomMember {
     fn from(event: &SyncStateEvent<RoomMemberEventContent>) -> Self {
-        Self { user_id: event.state_key().clone(), membership: event.membership().clone() }
+        Self { user_id: event.state_key.clone(), membership: event.content.membership.clone() }
     }
 }
 

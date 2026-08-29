@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use ruma::events::{
-    AnySyncStateEvent, AnySyncTimelineEvent, SyncStateEvent, TimelineEventType,
+    AnySyncStateEvent, AnySyncTimelineEvent, TimelineEventType,
     room::member::{MembershipChange, MembershipState},
 };
 
@@ -89,9 +89,9 @@ impl TimelineEventCondition {
         match self {
             Self::EventType(event_type) => event.event_type() == *event_type,
             Self::MembershipChange(filter) => match event {
-                AnySyncTimelineEvent::State(AnySyncStateEvent::RoomMember(
-                    SyncStateEvent::Original(ev),
-                )) => {
+                AnySyncTimelineEvent::State(AnySyncStateEvent::RoomMember(ev))
+                    if !ev.is_redacted() =>
+                {
                     if matches!(ev.membership_change(), MembershipChange::ProfileChanged { .. }) {
                         return false;
                     }
@@ -110,9 +110,9 @@ impl TimelineEventCondition {
                 _ => false,
             },
             Self::ProfileChange => match event {
-                AnySyncTimelineEvent::State(AnySyncStateEvent::RoomMember(
-                    SyncStateEvent::Original(ev),
-                )) => {
+                AnySyncTimelineEvent::State(AnySyncStateEvent::RoomMember(ev))
+                    if !ev.is_redacted() =>
+                {
                     matches!(ev.membership_change(), MembershipChange::ProfileChanged { .. })
                 }
                 _ => false,

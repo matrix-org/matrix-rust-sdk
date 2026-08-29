@@ -832,14 +832,12 @@ impl RoomInfo {
         if raw_event.event_type == StateEventType::MemberHints
             && let Some(AnySyncStateEvent::MemberHints(new_hints)) = raw_event.deserialize()
             // If we have both old and new member hints events
-            && let (Some(current_hints), Some(new)) =
-                (&self.base_info.member_hints, new_hints.as_original())
+            && let Some(current_hints) =
+                &self.base_info.member_hints
             // Then we check if their contents don't match
             && current_hints
                 .content
-                .service_members
-                .as_ref()
-                .is_some_and(|current_members| *current_members != new.content.service_members)
+                .service_members != new_hints.content.service_members
         {
             // And reset the computed value in that case
             self.summary.active_service_members = None;
@@ -1087,7 +1085,7 @@ impl RoomInfo {
     /// Return the service members for this room if the `m.member_hints` event
     /// is available
     pub fn service_members(&self) -> Option<&BTreeSet<OwnedUserId>> {
-        self.base_info.member_hints.as_ref()?.content.service_members.as_ref()
+        Some(&self.base_info.member_hints.as_ref()?.content.service_members)
     }
 
     /// Get the name of this room.
@@ -1268,8 +1266,7 @@ impl RoomInfo {
         self.base_info
             .pinned_events
             .as_ref()
-            .and_then(|content| content.pinned.as_deref())
-            .is_some_and(|pinned| pinned.contains(&event_id.to_owned()))
+            .is_some_and(|content| content.pinned.contains(&event_id.to_owned()))
     }
 
     /// Returns the computed read receipts for this room.
@@ -1562,7 +1559,7 @@ mod tests {
             encryption_state_synced: true,
             latest_event_value: LatestEventValue::None,
             base_info: Box::new(
-                assign!(BaseRoomInfo::new(), { pinned_events: Some(RoomPinnedEventsEventContent::new(vec![owned_event_id!("$a")]).into()) }),
+                assign!(BaseRoomInfo::new(), { pinned_events: Some(RoomPinnedEventsEventContent::new(vec![owned_event_id!("$a")])) }),
             ),
             read_receipts: Default::default(),
             warned_about_unknown_room_version_rules: Arc::new(false.into()),
@@ -1957,7 +1954,7 @@ mod tests {
         });
 
         let info: RoomInfo = serde_json::from_value(info_json.clone()).unwrap();
-        assert_eq!(info.base_info.member_hints.unwrap().content.service_members.unwrap(), expected);
+        assert_eq!(info.base_info.member_hints.unwrap().content.service_members, expected);
         assert_eq!(info.summary.active_service_members, Some(2));
 
         // We receive a new event with the same values as the stored ones
@@ -1973,7 +1970,7 @@ mod tests {
         info.handle_state_event(&mut raw_state_event_with_keys);
 
         // Nothing changed
-        assert_eq!(info.base_info.member_hints.unwrap().content.service_members.unwrap(), expected);
+        assert_eq!(info.base_info.member_hints.unwrap().content.service_members, expected);
         // And the computed value is kept
         assert_eq!(info.summary.active_service_members, Some(2));
 
@@ -1991,10 +1988,7 @@ mod tests {
         info.handle_state_event(&mut raw_state_event_with_keys);
 
         // The new member hints were applied
-        assert_eq!(
-            info.base_info.member_hints.unwrap().content.service_members.unwrap(),
-            new_member_hints
-        );
+        assert_eq!(info.base_info.member_hints.unwrap().content.service_members, new_member_hints);
         // And the computed value is reset
         assert!(info.summary.active_service_members.is_none());
     }

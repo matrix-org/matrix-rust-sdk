@@ -125,7 +125,7 @@ where
 
 impl<C> From<&SyncStateEvent<C>> for MinimalStateEvent<C>
 where
-    C1: Clone + StaticStateEventContent + RedactContent,
+    C: Clone + StaticStateEventContent + RedactContent,
 {
     fn from(ev: &SyncStateEvent<C>) -> Self {
         Self { content: ev.content.clone(), event_id: Some(ev.event_id.clone()) }
