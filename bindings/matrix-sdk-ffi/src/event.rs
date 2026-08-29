@@ -354,7 +354,9 @@ impl TryFrom<AnySyncStateEvent> for StateEventContent {
             AnySyncStateEvent::RoomTopic(content) => {
                 let content = get_state_event_original_content(content)?;
 
-                StateEventContent::RoomTopic { topic: content.topic }
+                StateEventContent::RoomTopic {
+                    topic: content.topic.context("Failed to get topic")?,
+                }
             }
             AnySyncStateEvent::SpaceChild(_) => StateEventContent::SpaceChild,
             AnySyncStateEvent::SpaceParent(_) => StateEventContent::SpaceParent,

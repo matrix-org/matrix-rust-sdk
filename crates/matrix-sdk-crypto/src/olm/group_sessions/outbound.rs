@@ -32,10 +32,7 @@ use ruma::{
     SecondsSinceUnixEpoch, TransactionId, UserId,
     events::{
         AnyMessageLikeEventContent,
-        room::{
-            encryption::{PossiblyRedactedRoomEncryptionEventContent, RoomEncryptionEventContent},
-            history_visibility::HistoryVisibility,
-        },
+        room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
     },
     serde::Raw,
 };
@@ -132,34 +129,10 @@ impl Default for EncryptionSettings {
 impl EncryptionSettings {
     /// Create new encryption settings using an `RoomEncryptionEventContent`,
     /// a history visibility, and key sharing strategy.
-    pub fn new(
-        content: RoomEncryptionEventContent,
-        history_visibility: HistoryVisibility,
-        sharing_strategy: CollectStrategy,
-    ) -> Self {
-        let rotation_period: Duration =
-            content.rotation_period_ms.map_or(ROTATION_PERIOD, |r| Duration::from_millis(r.into()));
-        let rotation_period_msgs: u64 =
-            content.rotation_period_msgs.map_or(ROTATION_MESSAGES, Into::into);
-
-        Self {
-            algorithm: EventEncryptionAlgorithm::from(content.algorithm.as_str()),
-            #[cfg(feature = "experimental-encrypted-state-events")]
-            encrypt_state_events: false,
-            rotation_period,
-            rotation_period_msgs,
-            history_visibility,
-            sharing_strategy,
-        }
-    }
-
-    /// Create new encryption settings using a
-    /// `PossiblyRedactedRoomEncryptionEventContent`, a history visibility,
-    /// and key sharing strategy.
     ///
     /// Returns `None` if the `content` was redacted.
-    pub fn from_possibly_redacted(
-        content: PossiblyRedactedRoomEncryptionEventContent,
+    pub fn new(
+        content: RoomEncryptionEventContent,
         history_visibility: HistoryVisibility,
         sharing_strategy: CollectStrategy,
     ) -> Option<Self> {
@@ -925,7 +898,8 @@ mod tests {
             content.clone(),
             HistoryVisibility::Joined,
             CollectStrategy::AllDevices,
-        );
+        )
+        .expect("content is not redacted");
 
         assert_eq!(settings.rotation_period, ROTATION_PERIOD);
         assert_eq!(settings.rotation_period_msgs, ROTATION_MESSAGES);
@@ -937,7 +911,8 @@ mod tests {
             content,
             HistoryVisibility::Shared,
             CollectStrategy::AllDevices,
-        );
+        )
+        .expect("content is not redacted");
 
         assert_eq!(settings.rotation_period, Duration::from_millis(3600));
         assert_eq!(settings.rotation_period_msgs, 500);

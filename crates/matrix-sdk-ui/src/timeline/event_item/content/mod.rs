@@ -984,9 +984,7 @@ mod tests {
         assign,
         events::{
             StateEventContentChange,
-            room::member::{
-                MembershipState, PossiblyRedactedRoomMemberEventContent, RoomMemberEventContent,
-            },
+            room::member::{MembershipState, RoomMemberEventContent},
         },
         room_version_rules::RedactionRules,
     };
@@ -1001,9 +999,7 @@ mod tests {
                 content: assign!(RoomMemberEventContent::new(MembershipState::Ban), {
                     reason: Some("🤬".to_owned()),
                 }),
-                prev_content: Some(PossiblyRedactedRoomMemberEventContent::new(
-                    MembershipState::Join,
-                )),
+                prev_content: Some(RoomMemberEventContent::new(MembershipState::Join)),
             },
             change: Some(MembershipChange::Banned),
         });
