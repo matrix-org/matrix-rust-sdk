@@ -5368,7 +5368,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.16.0"
-source = "git+https://github.com/ruma/ruma?rev=cc6645b98e8a635460eac170ace9fef5b4a59d20#cc6645b98e8a635460eac170ace9fef5b4a59d20"
+source = "git+https://github.com/ruma/ruma?rev=894c7c1d15f9ecfee1d2d109500100e39515cea3#894c7c1d15f9ecfee1d2d109500100e39515cea3"
 dependencies = [
  "assign",
  "js_int",
@@ -5386,7 +5386,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.24.0"
-source = "git+https://github.com/ruma/ruma?rev=cc6645b98e8a635460eac170ace9fef5b4a59d20#cc6645b98e8a635460eac170ace9fef5b4a59d20"
+source = "git+https://github.com/ruma/ruma?rev=894c7c1d15f9ecfee1d2d109500100e39515cea3#894c7c1d15f9ecfee1d2d109500100e39515cea3"
 dependencies = [
  "as_variant",
  "assign",
@@ -5408,7 +5408,7 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.19.0"
-source = "git+https://github.com/ruma/ruma?rev=cc6645b98e8a635460eac170ace9fef5b4a59d20#cc6645b98e8a635460eac170ace9fef5b4a59d20"
+source = "git+https://github.com/ruma/ruma?rev=894c7c1d15f9ecfee1d2d109500100e39515cea3#894c7c1d15f9ecfee1d2d109500100e39515cea3"
 dependencies = [
  "as_variant",
  "base64 0.23.0",
@@ -5428,6 +5428,7 @@ dependencies = [
  "serde",
  "serde_html_form",
  "serde_json",
+ "smallvec",
  "thiserror 2.0.19",
  "time",
  "tracing",
@@ -5441,7 +5442,7 @@ dependencies = [
 [[package]]
 name = "ruma-events"
 version = "0.34.0"
-source = "git+https://github.com/ruma/ruma?rev=cc6645b98e8a635460eac170ace9fef5b4a59d20#cc6645b98e8a635460eac170ace9fef5b4a59d20"
+source = "git+https://github.com/ruma/ruma?rev=894c7c1d15f9ecfee1d2d109500100e39515cea3#894c7c1d15f9ecfee1d2d109500100e39515cea3"
 dependencies = [
  "as_variant",
  "indexmap",
@@ -5465,7 +5466,7 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.15.0"
-source = "git+https://github.com/ruma/ruma?rev=cc6645b98e8a635460eac170ace9fef5b4a59d20#cc6645b98e8a635460eac170ace9fef5b4a59d20"
+source = "git+https://github.com/ruma/ruma?rev=894c7c1d15f9ecfee1d2d109500100e39515cea3#894c7c1d15f9ecfee1d2d109500100e39515cea3"
 dependencies = [
  "http",
  "http-auth",
@@ -5485,7 +5486,7 @@ dependencies = [
 [[package]]
 name = "ruma-html"
 version = "0.8.0"
-source = "git+https://github.com/ruma/ruma?rev=cc6645b98e8a635460eac170ace9fef5b4a59d20#cc6645b98e8a635460eac170ace9fef5b4a59d20"
+source = "git+https://github.com/ruma/ruma?rev=894c7c1d15f9ecfee1d2d109500100e39515cea3#894c7c1d15f9ecfee1d2d109500100e39515cea3"
 dependencies = [
  "as_variant",
  "html5ever",
@@ -5496,7 +5497,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.12.1"
-source = "git+https://github.com/ruma/ruma?rev=cc6645b98e8a635460eac170ace9fef5b4a59d20#cc6645b98e8a635460eac170ace9fef5b4a59d20"
+source = "git+https://github.com/ruma/ruma?rev=894c7c1d15f9ecfee1d2d109500100e39515cea3#894c7c1d15f9ecfee1d2d109500100e39515cea3"
 dependencies = [
  "js_int",
  "thiserror 2.0.19",
@@ -5505,7 +5506,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.19.0"
-source = "git+https://github.com/ruma/ruma?rev=cc6645b98e8a635460eac170ace9fef5b4a59d20#cc6645b98e8a635460eac170ace9fef5b4a59d20"
+source = "git+https://github.com/ruma/ruma?rev=894c7c1d15f9ecfee1d2d109500100e39515cea3#894c7c1d15f9ecfee1d2d109500100e39515cea3"
 dependencies = [
  "as_variant",
  "cfg-if",
@@ -5521,7 +5522,7 @@ dependencies = [
 [[package]]
 name = "ruma-signatures"
 version = "0.21.0"
-source = "git+https://github.com/ruma/ruma?rev=cc6645b98e8a635460eac170ace9fef5b4a59d20#cc6645b98e8a635460eac170ace9fef5b4a59d20"
+source = "git+https://github.com/ruma/ruma?rev=894c7c1d15f9ecfee1d2d109500100e39515cea3#894c7c1d15f9ecfee1d2d109500100e39515cea3"
 dependencies = [
  "base64 0.23.0",
  "ed25519-dalek",
@@ -6150,9 +6151,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.13.2"
+version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
+checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
 dependencies = [
  "serde",
 ]
