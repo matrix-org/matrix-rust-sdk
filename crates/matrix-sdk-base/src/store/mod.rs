@@ -49,8 +49,8 @@ use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
     events::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncStateEvent, EmptyStateKey, GlobalAccountDataEventType, RedactContent,
-        RedactedStateEventContent, RoomAccountDataEventType, StateEventType, StaticEventContent,
+        AnySyncStateEvent, EmptyStateKey, EventContentFromType, GlobalAccountDataEventType,
+        RedactContent, RoomAccountDataEventType, StateEventType, StaticEventContent,
         StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
         presence::PresenceEvent,
         receipt::ReceiptEventContent,
@@ -683,10 +683,7 @@ impl StateChanges {
         state_key: &K,
     ) -> Option<&Raw<SyncStateEvent<C>>>
     where
-        C: StaticEventContent<IsPrefix = ruma::events::False>
-            + StaticStateEventContent
-            + RedactContent,
-        C::Redacted: RedactedStateEventContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False> + StaticStateEventContent,
         C::StateKey: Borrow<K>,
         K: AsRef<str> + ?Sized,
     {
@@ -704,7 +701,7 @@ impl StateChanges {
         &self,
         room_id: &RoomId,
         state_key: &K,
-    ) -> Option<&Raw<StrippedStateEvent<C::PossiblyRedacted>>>
+    ) -> Option<&Raw<StrippedStateEvent<C>>>
     where
         C: StaticEventContent<IsPrefix = ruma::events::False> + StaticStateEventContent,
         C::StateKey: Borrow<K>,
@@ -725,13 +722,11 @@ impl StateChanges {
         &self,
         room_id: &RoomId,
         state_key: &K,
-    ) -> Option<StrippedStateEvent<C::PossiblyRedacted>>
+    ) -> Option<StrippedStateEvent<C>>
     where
         C: StaticEventContent<IsPrefix = ruma::events::False>
             + StaticStateEventContent
-            + RedactContent,
-        C::Redacted: RedactedStateEventContent,
-        C::PossiblyRedacted: StaticEventContent + DeserializeOwned,
+            + EventContentFromType,
         C::StateKey: Borrow<K>,
         K: AsRef<str> + ?Sized,
     {

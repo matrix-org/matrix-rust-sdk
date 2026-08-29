@@ -19,10 +19,9 @@ use ruma::{
         self, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, AnyToDeviceEvent, EphemeralRoomEventContent, False,
-        GlobalAccountDataEventContent, MessageLikeEventContent, PossiblyRedactedStateEventContent,
-        RedactContent, RedactedMessageLikeEventContent, RedactedStateEventContent,
-        RoomAccountDataEventContent, StaticEventContent, StaticStateEventContent,
-        ToDeviceEventContent, presence::PresenceEvent,
+        GlobalAccountDataEventContent, MessageLikeEventContent, RedactContent,
+        RedactedMessageLikeEventContent, RoomAccountDataEventContent, StaticEventContent,
+        StaticStateEventContent, ToDeviceEventContent, presence::PresenceEvent,
     },
     serde::Raw,
 };
@@ -110,35 +109,16 @@ impl SyncEvent for events::room::redaction::RedactedSyncRoomRedactionEvent {
 
 impl<C> SyncEvent for events::SyncStateEvent<C>
 where
-    C: StaticEventContent + StaticStateEventContent + RedactContent,
-    C::Redacted: RedactedStateEventContent,
+    C: StaticEventContent + StaticStateEventContent,
 {
     const KIND: HandlerKind = HandlerKind::State;
     const TYPE: Option<&'static str> = Some(C::TYPE);
     type IsPrefix = <C as StaticEventContent>::IsPrefix;
 }
 
-impl<C> SyncEvent for events::OriginalSyncStateEvent<C>
-where
-    C: StaticEventContent + StaticStateEventContent,
-{
-    const KIND: HandlerKind = HandlerKind::OriginalState;
-    const TYPE: Option<&'static str> = Some(C::TYPE);
-    type IsPrefix = <C as StaticEventContent>::IsPrefix;
-}
-
-impl<C> SyncEvent for events::RedactedSyncStateEvent<C>
-where
-    C: StaticEventContent + RedactedStateEventContent,
-{
-    const KIND: HandlerKind = HandlerKind::RedactedState;
-    const TYPE: Option<&'static str> = Some(C::TYPE);
-    type IsPrefix = <C as StaticEventContent>::IsPrefix;
-}
-
 impl<C> SyncEvent for events::StrippedStateEvent<C>
 where
-    C: StaticEventContent + PossiblyRedactedStateEventContent,
+    C: StaticEventContent + StaticStateEventContent,
 {
     const KIND: HandlerKind = HandlerKind::StrippedState;
     const TYPE: Option<&'static str> = Some(C::TYPE);

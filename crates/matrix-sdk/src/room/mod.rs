@@ -105,9 +105,9 @@ use ruma::{
     events::{
         AnyRoomAccountDataEvent, AnyRoomAccountDataEventContent, AnyTimelineEvent, EmptyStateKey,
         Mentions, MessageLikeEventContent, OriginalSyncStateEvent, RedactContent,
-        RedactedStateEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
-        RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
-        StaticStateEventContent, SyncStateEvent,
+        RoomAccountDataEvent, RoomAccountDataEventContent, RoomAccountDataEventType,
+        StateEventContent, StateEventType, StaticEventContent, StaticStateEventContent,
+        SyncStateEvent,
         beacon::BeaconEventContent,
         beacon_info::BeaconInfoEventContent,
         direct::DirectEventContent,
@@ -1308,10 +1308,7 @@ impl Room {
     /// ```
     pub async fn get_state_events_static<C>(&self) -> Result<Vec<RawSyncOrStrippedState<C>>>
     where
-        C: StaticEventContent<IsPrefix = ruma::events::False>
-            + StaticStateEventContent
-            + RedactContent,
-        C::Redacted: RedactedStateEventContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False> + StaticStateEventContent,
     {
         Ok(self.client.state_store().get_state_events_static(self.room_id()).await?)
     }
@@ -1354,11 +1351,8 @@ impl Room {
         state_keys: I,
     ) -> Result<Vec<RawSyncOrStrippedState<C>>>
     where
-        C: StaticEventContent<IsPrefix = ruma::events::False>
-            + StaticStateEventContent
-            + RedactContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False> + StaticStateEventContent,
         C::StateKey: Borrow<K>,
-        C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + Sized + Sync + 'a,
         I: IntoIterator<Item = &'a K> + Send,
         I::IntoIter: Send,
@@ -1404,9 +1398,7 @@ impl Room {
     pub async fn get_state_event_static<C>(&self) -> Result<Option<RawSyncOrStrippedState<C>>>
     where
         C: StaticEventContent<IsPrefix = ruma::events::False>
-            + StaticStateEventContent<StateKey = EmptyStateKey>
-            + RedactContent,
-        C::Redacted: RedactedStateEventContent,
+            + StaticStateEventContent<StateKey = EmptyStateKey>,
     {
         self.get_state_event_static_for_key(&EmptyStateKey).await
     }
@@ -1435,11 +1427,8 @@ impl Room {
         state_key: &K,
     ) -> Result<Option<RawSyncOrStrippedState<C>>>
     where
-        C: StaticEventContent<IsPrefix = ruma::events::False>
-            + StaticStateEventContent
-            + RedactContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False> + StaticStateEventContent,
         C::StateKey: Borrow<K>,
-        C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + ?Sized + Sync,
     {
         Ok(self

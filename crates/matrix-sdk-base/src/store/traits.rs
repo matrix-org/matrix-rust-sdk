@@ -40,8 +40,8 @@ use ruma::{
     events::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, EmptyStateKey, GlobalAccountDataEvent,
         GlobalAccountDataEventContent, GlobalAccountDataEventType, RedactContent,
-        RedactedStateEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
-        RoomAccountDataEventType, StateEventType, StaticEventContent, StaticStateEventContent,
+        RoomAccountDataEvent, RoomAccountDataEventContent, RoomAccountDataEventType,
+        StateEventType, StaticEventContent, StaticStateEventContent,
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
     },
@@ -1968,9 +1968,7 @@ pub trait StateStoreExt: StateStore {
     ) -> Result<Option<RawSyncOrStrippedState<C>>, Self::Error>
     where
         C: StaticEventContent<IsPrefix = ruma::events::False>
-            + StaticStateEventContent<StateKey = EmptyStateKey>
-            + RedactContent,
-        C::Redacted: RedactedStateEventContent,
+            + StaticStateEventContent<StateKey = EmptyStateKey>,
     {
         Ok(self.get_state_event(room_id, C::TYPE.into(), "").await?.map(|raw| raw.cast()))
     }
@@ -1986,11 +1984,8 @@ pub trait StateStoreExt: StateStore {
         state_key: &K,
     ) -> Result<Option<RawSyncOrStrippedState<C>>, Self::Error>
     where
-        C: StaticEventContent<IsPrefix = ruma::events::False>
-            + StaticStateEventContent
-            + RedactContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False> + StaticStateEventContent,
         C::StateKey: Borrow<K>,
-        C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + ?Sized + Sync,
     {
         Ok(self
@@ -2009,10 +2004,7 @@ pub trait StateStoreExt: StateStore {
         room_id: &RoomId,
     ) -> Result<Vec<RawSyncOrStrippedState<C>>, Self::Error>
     where
-        C: StaticEventContent<IsPrefix = ruma::events::False>
-            + StaticStateEventContent
-            + RedactContent,
-        C::Redacted: RedactedStateEventContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False> + StaticStateEventContent,
     {
         // FIXME: Could be more efficient, if we had streaming store accessor functions
         Ok(self
@@ -2037,11 +2029,8 @@ pub trait StateStoreExt: StateStore {
         state_keys: I,
     ) -> Result<Vec<RawSyncOrStrippedState<C>>, Self::Error>
     where
-        C: StaticEventContent<IsPrefix = ruma::events::False>
-            + StaticStateEventContent
-            + RedactContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False> + StaticStateEventContent,
         C::StateKey: Borrow<K>,
-        C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + Sized + Sync + 'a,
         I: IntoIterator<Item = &'a K> + Send,
         I::IntoIter: Send,

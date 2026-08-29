@@ -33,10 +33,10 @@ use ruma::{
         AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
         AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations,
         EphemeralRoomEventContent, EventContentFromType, False, GlobalAccountDataEventContent,
-        Mentions, MessageLikeEvent, MessageLikeEventContent, PossiblyRedactedStateEventContent,
-        RedactContent, RedactedMessageLikeEventContent, RedactedStateEventContent,
-        RoomAccountDataEventContent, StateEvent, StateEventContent, StaticEventContent,
-        StaticStateEventContent, StrippedStateEvent, SyncMessageLikeEvent, SyncStateEvent,
+        Mentions, MessageLikeEvent, MessageLikeEventContent, RedactContent,
+        RedactedMessageLikeEventContent, RoomAccountDataEventContent, StateEvent,
+        StateEventContent, StaticEventContent, StaticStateEventContent, StrippedStateEvent,
+        SyncMessageLikeEvent, SyncStateEvent,
         beacon::BeaconEventContent,
         beacon_info::BeaconInfoEventContent,
         call::{
@@ -677,8 +677,7 @@ impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuil
 impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
     for Raw<SyncStateEvent<E>>
 where
-    E: StaticStateEventContent + RedactContent,
-    E::Redacted: RedactedStateEventContent,
+    E: StaticStateEventContent,
 {
     fn from(val: EventBuilder<E>) -> Self {
         val.format(EventFormat::SyncTimeline).into_raw()
@@ -688,9 +687,7 @@ where
 impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
     for SyncStateEvent<E>
 where
-    E: StaticStateEventContent + RedactContent + EventContentFromType,
-    E::Redacted: RedactedStateEventContent<StateKey = <E as StateEventContent>::StateKey>
-        + EventContentFromType,
+    E: StaticStateEventContent + EventContentFromType,
 {
     fn from(val: EventBuilder<E>) -> Self {
         Raw::<SyncStateEvent<E>>::from(val).deserialize().expect("expected sync state")
@@ -716,8 +713,7 @@ impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuil
 impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
     for Raw<StateEvent<E>>
 where
-    E: StaticStateEventContent + RedactContent,
-    E::Redacted: RedactedStateEventContent,
+    E: StaticStateEventContent,
 {
     fn from(val: EventBuilder<E>) -> Self {
         val.into_raw()
@@ -727,9 +723,7 @@ where
 impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
     for StateEvent<E>
 where
-    E: StaticStateEventContent + RedactContent + EventContentFromType,
-    E::Redacted: RedactedStateEventContent<StateKey = <E as StateEventContent>::StateKey>
-        + EventContentFromType,
+    E: StaticStateEventContent + EventContentFromType,
 {
     fn from(val: EventBuilder<E>) -> Self {
         Raw::<StateEvent<E>>::from(val).deserialize().expect("expected state")
@@ -753,7 +747,7 @@ impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuil
 }
 
 impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
-    for Raw<StrippedStateEvent<E::PossiblyRedacted>>
+    for Raw<StrippedStateEvent<E>>
 where
     E: StaticStateEventContent,
 {
@@ -763,15 +757,12 @@ where
 }
 
 impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
-    for StrippedStateEvent<E::PossiblyRedacted>
+    for StrippedStateEvent<E>
 where
-    E: StaticStateEventContent,
-    E::PossiblyRedacted: PossiblyRedactedStateEventContent + EventContentFromType,
+    E: StaticStateEventContent + EventContentFromType,
 {
     fn from(val: EventBuilder<E>) -> Self {
-        Raw::<StrippedStateEvent<E::PossiblyRedacted>>::from(val)
-            .deserialize()
-            .expect("expected stripped state")
+        Raw::<StrippedStateEvent<E>>::from(val).deserialize().expect("expected stripped state")
     }
 }
 
@@ -1172,7 +1163,7 @@ impl EventFactory {
 
     /// Create a redacted state event, with extra information in the unsigned
     /// section about the redaction itself.
-    pub fn redacted_state<T: StaticEventContent<IsPrefix = False> + RedactedStateEventContent>(
+    pub fn redacted_state<T: StaticEventContent<IsPrefix = False> + StaticStateEventContent>(
         &self,
         redacter: &UserId,
         state_key: impl Into<String>,
