@@ -100,6 +100,9 @@ const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
     (StateEventType::SpaceChild, "*"),
     // Required for live location sharing to work - beacon events reference this state.
     (StateEventType::BeaconInfo, "*"),
+    // Required for `Room::retention`/`Room::effective_retention` (MSC1763) to see
+    // room-level retention overrides.
+    (StateEventType::RoomRetention, ""),
 ];
 
 /// The default `required_state` constant value for sliding sync room
