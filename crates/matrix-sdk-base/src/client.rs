@@ -1064,7 +1064,7 @@ impl BaseClient {
 
                 let members = self.state_store.get_user_ids(room_id, filter).await?;
 
-                let Some(settings) = EncryptionSettings::from_possibly_redacted(
+                let Some(settings) = EncryptionSettings::new(
                     room_encryption_event,
                     history_visibility,
                     self.room_key_recipient_strategy.clone(),

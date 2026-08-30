@@ -16,8 +16,8 @@ use matrix_sdk_common::ROOM_VERSION_RULES_FALLBACK;
 use ruma::{
     OwnedUserId, RoomVersionId, assign,
     events::{
-        EmptyStateKey, PossiblyRedactedStateEventContent, RedactContent, RedactedStateEventContent,
-        StateEventContent, StateEventType, StaticEventContent,
+        EmptyStateKey, RedactContent, RedactedStateEventContent, StateEventContent, StateEventType,
+        StaticEventContent,
         macros::EventContent,
         room::create::{PreviousRoom, RoomCreateEventContent},
     },
@@ -132,10 +132,7 @@ impl RoomCreateWithCreatorEventContent {
     }
 }
 
-/// Redacted form of [`RoomCreateWithCreatorEventContent`].
-pub type RedactedRoomCreateWithCreatorEventContent = RoomCreateWithCreatorEventContent;
-
-impl RedactedStateEventContent for RedactedRoomCreateWithCreatorEventContent {
+impl RedactedStateEventContent for RoomCreateWithCreatorEventContent {
     type StateKey = <RoomCreateWithCreatorEventContent as StateEventContent>::StateKey;
 
     fn event_type(&self) -> StateEventType {
@@ -144,7 +141,7 @@ impl RedactedStateEventContent for RedactedRoomCreateWithCreatorEventContent {
 }
 
 impl RedactContent for RoomCreateWithCreatorEventContent {
-    type Redacted = RedactedRoomCreateWithCreatorEventContent;
+    type Redacted = Self;
 
     fn redact(self, rules: &RedactionRules) -> Self::Redacted {
         let (content, sender) = self.into_event_content();
@@ -156,12 +153,4 @@ impl RedactContent for RoomCreateWithCreatorEventContent {
 
 fn default_create_room_version_id() -> RoomVersionId {
     RoomVersionId::V1
-}
-
-impl PossiblyRedactedStateEventContent for RoomCreateWithCreatorEventContent {
-    type StateKey = <RoomCreateWithCreatorEventContent as StateEventContent>::StateKey;
-
-    fn event_type(&self) -> StateEventType {
-        RoomCreateWithCreatorEventContent::TYPE.into()
-    }
 }

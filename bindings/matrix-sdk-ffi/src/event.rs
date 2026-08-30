@@ -316,7 +316,7 @@ pub enum StateEventContent {
     RoomServerAcl,
     RoomThirdPartyInvite,
     RoomTombstone,
-    RoomTopic { topic: String },
+    RoomTopic { topic: Option<String> },
     SpaceChild,
     SpaceParent,
     BeaconInfo,

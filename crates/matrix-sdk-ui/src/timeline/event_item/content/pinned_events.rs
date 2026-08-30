@@ -38,28 +38,23 @@ impl From<&StateEventContentChange<RoomPinnedEventsEventContent>> for RoomPinned
                 if let Some(prev_content) = prev_content {
                     let mut new_pinned: HashSet<&OwnedEventId> =
                         HashSet::from_iter(&content.pinned);
-                    if let Some(old_pinned) = &prev_content.pinned {
-                        let mut still_pinned: HashSet<&OwnedEventId> =
-                            HashSet::from_iter(old_pinned);
+                    let mut still_pinned: HashSet<&OwnedEventId> =
+                        HashSet::from_iter(&prev_content.pinned);
 
-                        // Newly added elements will be kept in new_pinned, previous ones in
-                        // still_pinned instead
-                        still_pinned.retain(|item| new_pinned.remove(item));
+                    // Newly added elements will be kept in new_pinned, previous ones in
+                    // still_pinned instead
+                    still_pinned.retain(|item| new_pinned.remove(item));
 
-                        let added = !new_pinned.is_empty();
-                        let removed = still_pinned.len() < old_pinned.len();
-                        if added && removed {
-                            RoomPinnedEventsChange::Changed
-                        } else if added {
-                            RoomPinnedEventsChange::Added
-                        } else if removed {
-                            RoomPinnedEventsChange::Removed
-                        } else {
-                            // Any other case
-                            RoomPinnedEventsChange::Changed
-                        }
+                    let added = !new_pinned.is_empty();
+                    let removed = still_pinned.len() < prev_content.pinned.len();
+                    if added && removed {
+                        RoomPinnedEventsChange::Changed
+                    } else if added {
+                        RoomPinnedEventsChange::Added
+                    } else if removed {
+                        RoomPinnedEventsChange::Removed
                     } else {
-                        // We don't know the previous state, so let's assume a generic change
+                        // Any other case
                         RoomPinnedEventsChange::Changed
                     }
                 } else {
@@ -77,12 +72,7 @@ impl From<&StateEventContentChange<RoomPinnedEventsEventContent>> for RoomPinned
 mod tests {
     use assert_matches::assert_matches;
     use ruma::{
-        events::{
-            StateEventContentChange,
-            room::pinned_events::{
-                RedactedRoomPinnedEventsEventContent, RoomPinnedEventsEventContent,
-            },
-        },
+        events::{StateEventContentChange, room::pinned_events::RoomPinnedEventsEventContent},
         owned_event_id,
     };
 
@@ -90,8 +80,7 @@ mod tests {
 
     #[test]
     fn redacted_pinned_events_content_has_generic_changes() {
-        let content =
-            StateEventContentChange::Redacted(RedactedRoomPinnedEventsEventContent::new());
+        let content = StateEventContentChange::Redacted(RoomPinnedEventsEventContent::new(vec![]));
         let ret: RoomPinnedEventsChange = (&content).into();
         assert_matches!(ret, RoomPinnedEventsChange::Changed);
     }
@@ -110,7 +99,7 @@ mod tests {
     fn pinned_events_content_with_added_ids_returns_added() {
         let content = StateEventContentChange::Original {
             content: RoomPinnedEventsEventContent::new(vec![owned_event_id!("$1")]),
-            prev_content: Some(RoomPinnedEventsEventContent::new(Vec::new()).into()),
+            prev_content: Some(RoomPinnedEventsEventContent::new(Vec::new())),
         };
         let ret: RoomPinnedEventsChange = (&content).into();
         assert_matches!(ret, RoomPinnedEventsChange::Added);
@@ -120,9 +109,7 @@ mod tests {
     fn pinned_events_content_with_removed_ids_returns_removed() {
         let content = StateEventContentChange::Original {
             content: RoomPinnedEventsEventContent::new(Vec::new()),
-            prev_content: Some(
-                RoomPinnedEventsEventContent::new(vec![owned_event_id!("$1")]).into(),
-            ),
+            prev_content: Some(RoomPinnedEventsEventContent::new(vec![owned_event_id!("$1")])),
         };
         let ret: RoomPinnedEventsChange = (&content).into();
         assert_matches!(ret, RoomPinnedEventsChange::Removed);
@@ -132,9 +119,7 @@ mod tests {
     fn pinned_events_content_with_added_and_removed_ids_returns_changed() {
         let content = StateEventContentChange::Original {
             content: RoomPinnedEventsEventContent::new(vec![owned_event_id!("$2")]),
-            prev_content: Some(
-                RoomPinnedEventsEventContent::new(vec![owned_event_id!("$1")]).into(),
-            ),
+            prev_content: Some(RoomPinnedEventsEventContent::new(vec![owned_event_id!("$1")])),
         };
         let ret: RoomPinnedEventsChange = (&content).into();
         assert_matches!(ret, RoomPinnedEventsChange::Changed);
@@ -147,13 +132,10 @@ mod tests {
                 owned_event_id!("$2"),
                 owned_event_id!("$1"),
             ]),
-            prev_content: Some(
-                RoomPinnedEventsEventContent::new(vec![
-                    owned_event_id!("$1"),
-                    owned_event_id!("$2"),
-                ])
-                .into(),
-            ),
+            prev_content: Some(RoomPinnedEventsEventContent::new(vec![
+                owned_event_id!("$1"),
+                owned_event_id!("$2"),
+            ])),
         };
         let ret: RoomPinnedEventsChange = (&content).into();
         assert_matches!(ret, RoomPinnedEventsChange::Changed);
@@ -169,13 +151,10 @@ mod tests {
                 owned_event_id!("$1"),
                 owned_event_id!("$2"),
             ]),
-            prev_content: Some(
-                RoomPinnedEventsEventContent::new(vec![
-                    owned_event_id!("$1"),
-                    owned_event_id!("$2"),
-                ])
-                .into(),
-            ),
+            prev_content: Some(RoomPinnedEventsEventContent::new(vec![
+                owned_event_id!("$1"),
+                owned_event_id!("$2"),
+            ])),
         };
         let ret: RoomPinnedEventsChange = (&content).into();
         assert_matches!(ret, RoomPinnedEventsChange::Changed);

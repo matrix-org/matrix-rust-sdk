@@ -6,10 +6,7 @@ use ruma::{
     OwnedUserId,
     events::{
         MessageLikeEventType, StateEventType,
-        room::power_levels::{
-            PossiblyRedactedRoomPowerLevelsEventContent, RoomPowerLevels,
-            RoomPowerLevelsEventContent,
-        },
+        room::power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
     },
 };
 
@@ -201,7 +198,7 @@ impl From<js_int::TryFromIntError> for crate::error::Error {
 /// event.
 pub fn power_level_user_changes(
     content: &RoomPowerLevelsEventContent,
-    prev_content: &Option<PossiblyRedactedRoomPowerLevelsEventContent>,
+    prev_content: &Option<RoomPowerLevelsEventContent>,
 ) -> HashMap<OwnedUserId, i64> {
     let Some(prev_content) = prev_content.as_ref() else {
         return Default::default();

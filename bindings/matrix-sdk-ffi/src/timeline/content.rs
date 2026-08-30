@@ -368,7 +368,7 @@ pub struct LiveLocationContent {
     ///
     /// This marks the *beginning* of the session. The session expires at
     /// `ts + timeout_ms`.
-    pub ts: Timestamp,
+    pub ts: Option<Timestamp>,
 
     /// An optional human-readable label for this sharing session.
     pub description: Option<String>,
@@ -434,7 +434,7 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherStateEventContentChange> for OtherSt
             }
             Content::RoomName(c) => {
                 let name = match c {
-                    FullContent::Original { content, .. } => Some(content.name.clone()),
+                    FullContent::Original { content, .. } => content.name.clone(),
                     FullContent::Redacted(_) => None,
                 };
                 Self::RoomName { name }
@@ -443,7 +443,7 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherStateEventContentChange> for OtherSt
             Content::RoomPowerLevels(c) => {
                 let (content, prev_content) = match c.clone() {
                     FullContent::Original { content, prev_content } => (content, prev_content),
-                    FullContent::Redacted(content) => (content.into(), None),
+                    FullContent::Redacted(content) => (content, None),
                 };
 
                 Self::RoomPowerLevels {
@@ -493,7 +493,7 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherStateEventContentChange> for OtherSt
             Content::RoomServerAcl(_) => Self::RoomServerAcl,
             Content::RoomThirdPartyInvite(c) => {
                 let display_name = match c {
-                    FullContent::Original { content, .. } => Some(content.display_name.clone()),
+                    FullContent::Original { content, .. } => content.display_name.clone(),
                     FullContent::Redacted(_) => None,
                 };
                 Self::RoomThirdPartyInvite { display_name }
@@ -501,7 +501,7 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherStateEventContentChange> for OtherSt
             Content::RoomTombstone(_) => Self::RoomTombstone,
             Content::RoomTopic(c) => {
                 let topic = match c {
-                    FullContent::Original { content, .. } => Some(content.topic.clone()),
+                    FullContent::Original { content, .. } => content.topic.clone(),
                     FullContent::Redacted(_) => None,
                 };
                 Self::RoomTopic { topic }

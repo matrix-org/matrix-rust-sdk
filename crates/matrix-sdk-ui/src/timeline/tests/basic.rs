@@ -270,7 +270,7 @@ async fn test_other_state() {
     assert_let!(TimelineItemContent::OtherState(ev) = item.as_event().unwrap().content());
     assert_let!(AnyOtherStateEventContentChange::RoomName(full_content) = ev.content());
     assert_let!(StateEventContentChange::Original { content, prev_content } = full_content);
-    assert_eq!(content.name, "Alice's room");
+    assert_eq!(content.name.as_deref(), Some("Alice's room"));
     assert_matches!(prev_content, None);
 
     let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);

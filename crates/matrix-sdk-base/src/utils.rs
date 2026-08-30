@@ -7,7 +7,7 @@ use ruma::{
         StrippedStateEvent, SyncStateEvent,
         room::{
             create::{StrippedRoomCreateEvent, SyncRoomCreateEvent},
-            member::PossiblyRedactedRoomMemberEventContent,
+            member::RoomMemberEventContent,
         },
     },
     room_version_rules::RedactionRules,
@@ -113,7 +113,7 @@ where
 }
 
 /// A minimal `m.room.member` event.
-pub type MinimalRoomMemberEvent = MinimalStateEvent<PossiblyRedactedRoomMemberEventContent>;
+pub type MinimalRoomMemberEvent = MinimalStateEvent<RoomMemberEventContent>;
 
 impl<C1, C2> From<SyncStateEvent<C1>> for MinimalStateEvent<C2>
 where
@@ -485,7 +485,7 @@ impl AnyStateEventEnum for AnyStrippedStateEvent {
 
 #[cfg(test)]
 mod tests {
-    use ruma::{event_id, events::room::name::PossiblyRedactedRoomNameEventContent};
+    use ruma::{event_id, events::room::name::RoomNameEventContent};
 
     use super::MinimalStateEvent;
 
@@ -494,36 +494,32 @@ mod tests {
         let event_id = event_id!("$event");
 
         // The old format with `Original` and `Redacted` variants works.
-        let event =
-            serde_json::from_str::<MinimalStateEvent<PossiblyRedactedRoomNameEventContent>>(
-                r#"{"Original":{"content":{"name":"My Room"},"event_id":"$event"}}"#,
-            )
-            .unwrap();
+        let event = serde_json::from_str::<MinimalStateEvent<RoomNameEventContent>>(
+            r#"{"Original":{"content":{"name":"My Room"},"event_id":"$event"}}"#,
+        )
+        .unwrap();
         assert_eq!(event.content.name.as_deref(), Some("My Room"));
         assert_eq!(event.event_id.as_deref(), Some(event_id));
 
-        let event =
-            serde_json::from_str::<MinimalStateEvent<PossiblyRedactedRoomNameEventContent>>(
-                r#"{"Redacted":{"content":{},"event_id":"$event"}}"#,
-            )
-            .unwrap();
+        let event = serde_json::from_str::<MinimalStateEvent<RoomNameEventContent>>(
+            r#"{"Redacted":{"content":{},"event_id":"$event"}}"#,
+        )
+        .unwrap();
         assert_eq!(event.content.name, None);
         assert_eq!(event.event_id.as_deref(), Some(event_id));
 
         // The new format works.
-        let event =
-            serde_json::from_str::<MinimalStateEvent<PossiblyRedactedRoomNameEventContent>>(
-                r#"{"PossiblyRedacted":{"content":{"name":"My Room"},"event_id":"$event"}}"#,
-            )
-            .unwrap();
+        let event = serde_json::from_str::<MinimalStateEvent<RoomNameEventContent>>(
+            r#"{"PossiblyRedacted":{"content":{"name":"My Room"},"event_id":"$event"}}"#,
+        )
+        .unwrap();
         assert_eq!(event.content.name.as_deref(), Some("My Room"));
         assert_eq!(event.event_id.as_deref(), Some(event_id));
 
-        let event =
-            serde_json::from_str::<MinimalStateEvent<PossiblyRedactedRoomNameEventContent>>(
-                r#"{"PossiblyRedacted":{"content":{},"event_id":"$event"}}"#,
-            )
-            .unwrap();
+        let event = serde_json::from_str::<MinimalStateEvent<RoomNameEventContent>>(
+            r#"{"PossiblyRedacted":{"content":{},"event_id":"$event"}}"#,
+        )
+        .unwrap();
         assert_eq!(event.content.name, None);
         assert_eq!(event.event_id.as_deref(), Some(event_id));
     }

@@ -145,7 +145,7 @@ impl LiveLocationState {
     /// This marks the *beginning* of the session. The session expires at
     /// `ts + timeout` — see [`LiveLocationState::is_live`] and
     /// [`LiveLocationState::timeout`].
-    pub fn ts(&self) -> MilliSecondsSinceUnixEpoch {
+    pub fn ts(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         self.beacon_info.ts
     }
 

@@ -333,7 +333,7 @@ macro_rules! assert_decrypted_message_eq {
 ///         ruma::events::room::topic::RoomTopicEventContent { topic, .. }
 ///     ) = event
 /// );
-/// assert_eq!(topic, "Encrypted topic!");
+/// assert_eq!(topic.as_deref(), Some("Encrypted topic!"));
 /// # anyhow::Ok(()) };
 /// ```
 #[macro_export]
