@@ -350,8 +350,7 @@ macro_rules! assert_let_decrypted_state_event_content {
             .deserialize_as_unchecked::<$crate::ruma::events::AnyStateEvent>()
             .expect("We should be able to deserialize the decrypted event");
 
-        let content =
-            deserialized_event.original_content().expect("The event should not have been redacted");
+        let content = deserialized_event.content();
 
         assert_matches2::assert_let!($pat = content, $($msg)*);
     };

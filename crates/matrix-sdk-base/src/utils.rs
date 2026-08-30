@@ -1,10 +1,10 @@
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, UserId,
     events::{
-        AnyPossiblyRedactedStateEventContent, AnyStrippedStateEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, PossiblyRedactedStateEventContent, RedactContent,
-        RedactedStateEventContent, StateEventType, StaticEventContent, StaticStateEventContent,
-        StrippedStateEvent, SyncStateEvent,
+        AnyStateEventContent, AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+        PossiblyRedactedStateEventContent, RedactContent, RedactedStateEventContent,
+        StateEventType, StaticEventContent, StaticStateEventContent, StrippedStateEvent,
+        SyncStateEvent,
         room::{
             create::{StrippedRoomCreateEvent, SyncRoomCreateEvent},
             member::RoomMemberEventContent,
@@ -263,7 +263,7 @@ impl<T: AnyStateEventEnum> RawStateEventWithKeys<T> {
 
     /// Try to deserialize the raw event and return it as a
     /// [`MinimalStateEvent`] using the selected variant of
-    /// [`AnyPossiblyRedactedStateEventContent`].
+    /// [`AnyStateEventContent`].
     ///
     /// This method should only be called if the variant is already known. It is
     /// considered a developer error for `as_variant_fn` to return `None`, but
@@ -280,7 +280,7 @@ impl<T: AnyStateEventEnum> RawStateEventWithKeys<T> {
         as_variant_fn: F,
     ) -> Option<MinimalStateEvent<C>>
     where
-        F: FnOnce(AnyPossiblyRedactedStateEventContent) -> Option<C>,
+        F: FnOnce(AnyStateEventContent) -> Option<C>,
         C: StaticEventContent + PossiblyRedactedStateEventContent + RedactContent,
     {
         let any_event = self.deserialize()?;
@@ -425,7 +425,7 @@ pub trait AnyStateEventEnum: DeserializeOwned {
     fn get_event_type(&self) -> StateEventType;
 
     /// Get the content of the state event.
-    fn get_content(&self) -> AnyPossiblyRedactedStateEventContent;
+    fn get_content(&self) -> AnyStateEventContent;
 
     /// Get the ID of the state event, if any.
     fn get_event_id(&self) -> Option<&EventId>;
@@ -443,7 +443,7 @@ impl AnyStateEventEnum for AnySyncStateEvent {
         self.event_type()
     }
 
-    fn get_content(&self) -> AnyPossiblyRedactedStateEventContent {
+    fn get_content(&self) -> AnyStateEventContent {
         self.content()
     }
 
@@ -466,7 +466,7 @@ impl AnyStateEventEnum for AnyStrippedStateEvent {
         self.event_type()
     }
 
-    fn get_content(&self) -> AnyPossiblyRedactedStateEventContent {
+    fn get_content(&self) -> AnyStateEventContent {
         self.content()
     }
 
