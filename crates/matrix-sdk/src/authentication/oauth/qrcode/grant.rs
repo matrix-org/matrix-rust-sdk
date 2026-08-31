@@ -1453,7 +1453,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                         cancel_task.cancel();
                         break;
