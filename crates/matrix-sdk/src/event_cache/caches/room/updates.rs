@@ -52,8 +52,7 @@ pub enum RoomEventCacheUpdate {
 
     /// The room has received a new read receipt event.
     AddReadReceiptEvent {
-        /// XXX: this is temporary, until read receipts are handled in the event
-        /// cache
+        /// The event containing the receipts.
         event: ReceiptEventContent,
     },
 }

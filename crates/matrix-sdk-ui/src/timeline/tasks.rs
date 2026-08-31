@@ -188,6 +188,13 @@ pub(in crate::timeline) async fn thread_updates_task(
                     timeline_controller.retry_event_decryption(None).await;
                 }
             }
+
+            ThreadEventCacheUpdate::AddReadReceiptEvent { event } => {
+                trace!("Received a new read receipt event from sync.");
+
+                // TODO: ephemeral (read receipts) should be handled by the event cache (#4113).
+                timeline_controller.handle_read_receipt_event(event).await;
+            }
         }
     }
 

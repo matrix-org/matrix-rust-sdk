@@ -458,7 +458,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     pub async fn handle_sync(
         &mut self,
         timeline: Timeline,
-        read_receipts: MaybeReceiptEventContent,
+        read_receipts: &MaybeReceiptEventContent,
     ) -> Result<(bool, Vec<VectorDiff<Event>>)> {
         let prev_batch_token = &timeline.prev_batch;
 

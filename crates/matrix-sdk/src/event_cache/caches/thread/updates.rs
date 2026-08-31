@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use ruma::events::receipt::ReceiptEventContent;
 use tokio::sync::broadcast::{Receiver, Sender};
 
 use super::super::{super::RoomEventCacheGenericUpdate, TimelineVectorDiffs};
@@ -21,6 +22,12 @@ use super::super::{super::RoomEventCacheGenericUpdate, TimelineVectorDiffs};
 pub enum ThreadEventCacheUpdate {
     /// The thread has received updates for the timeline as _diffs_.
     UpdateTimelineEvents(TimelineVectorDiffs),
+
+    /// The thread has received a new read receipt event.
+    AddReadReceiptEvent {
+        /// The event containing the receipts.
+        event: ReceiptEventContent,
+    },
 }
 
 /// A small type to send updates in all channels.
