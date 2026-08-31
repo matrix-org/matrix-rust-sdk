@@ -16,10 +16,17 @@ use tokio::sync::broadcast::{Receiver, Sender};
 
 use super::super::{super::RoomEventCacheGenericUpdate, TimelineVectorDiffs};
 
+/// An update related to events happened in a thread.
+#[derive(Debug, Clone)]
+pub enum ThreadEventCacheUpdate {
+    /// The thread has received updates for the timeline as _diffs_.
+    UpdateTimelineEvents(TimelineVectorDiffs),
+}
+
 /// A small type to send updates in all channels.
 #[derive(Clone)]
 pub struct ThreadEventCacheUpdateSender {
-    thread_sender: Sender<TimelineVectorDiffs>,
+    thread_sender: Sender<ThreadEventCacheUpdate>,
     generic_sender: Sender<RoomEventCacheGenericUpdate>,
 }
 
@@ -32,7 +39,7 @@ impl ThreadEventCacheUpdateSender {
     /// Send a [`TimelineVectorDiffs`].
     pub fn send(
         &self,
-        thread_update: TimelineVectorDiffs,
+        thread_update: ThreadEventCacheUpdate,
         generic_update: Option<RoomEventCacheGenericUpdate>,
     ) {
         let _ = self.thread_sender.send(thread_update);
@@ -42,8 +49,8 @@ impl ThreadEventCacheUpdateSender {
         }
     }
 
-    /// Create a new [`Receiver`] of [`TimelineVectorDiffs`].
-    pub(super) fn new_thread_receiver(&self) -> Receiver<TimelineVectorDiffs> {
+    /// Create a new [`Receiver`] of [`ThreadEventCacheUpdate`].
+    pub(super) fn new_thread_receiver(&self) -> Receiver<ThreadEventCacheUpdate> {
         self.thread_sender.subscribe()
     }
 }

@@ -28,7 +28,8 @@ use matrix_sdk::{
     deserialized_responses::TimelineEvent,
     event_cache::{
         DecryptionRetryRequest, EventCache, EventFocusedCache, PaginationStatus, PinnedEventsCache,
-        RoomEventCache, Subscriber as EventCacheSubscriber, ThreadEventCache, TimelineVectorDiffs,
+        RoomEventCache, Subscriber as EventCacheSubscriber, ThreadEventCache,
+        ThreadEventCacheUpdate,
     },
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
@@ -1571,7 +1572,7 @@ impl TimelineController {
     pub(super) async fn init_with_thread_root(
         &self,
         event_cache: &ThreadEventCache,
-    ) -> Result<(bool, EventCacheSubscriber<TimelineVectorDiffs>), Error> {
+    ) -> Result<(bool, EventCacheSubscriber<ThreadEventCacheUpdate>), Error> {
         let (events, subscriber) = event_cache.subscribe().await?;
         let has_events = !events.is_empty();
 
