@@ -233,6 +233,14 @@ pub enum DependentQueuedRequestKind {
     /// The event should be redacted/aborted/removed.
     RedactEvent,
 
+    /// The event should be redacted/aborted/removed, with a reason applied to
+    /// the redaction if the event was sent by the time the abort was processed
+    /// and must be redacted server-side.
+    RedactEventWithReason {
+        /// Reason for the redaction.
+        reason: String,
+    },
+
     /// The event should be reacted to, with the given key.
     ReactEvent {
         /// Key used for the reaction.
@@ -501,6 +509,7 @@ impl DependentQueuedRequest {
         match self.kind {
             DependentQueuedRequestKind::EditEvent { .. }
             | DependentQueuedRequestKind::RedactEvent
+            | DependentQueuedRequestKind::RedactEventWithReason { .. }
             | DependentQueuedRequestKind::ReactEvent { .. }
             | DependentQueuedRequestKind::UploadFileOrThumbnail { .. } => {
                 // These are all aggregated events, or non-visible items (file upload producing
@@ -528,5 +537,27 @@ impl fmt::Debug for QueuedRequest {
             .field("transaction_id", &self.transaction_id)
             .field("is_wedged", &self.is_wedged())
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_matches2::{assert_let, assert_matches};
+
+    use super::DependentQueuedRequestKind;
+
+    #[test]
+    fn test_deserialize_redact_event_variants() {
+        // `RedactEvent` is a unit variant, and must stay one: requests persisted
+        // before `RedactEventWithReason` existed are serialized as a plain string.
+        let deserialized: DependentQueuedRequestKind =
+            serde_json::from_str("\"RedactEvent\"").unwrap();
+        assert_matches!(deserialized, DependentQueuedRequestKind::RedactEvent);
+
+        let kind = DependentQueuedRequestKind::RedactEventWithReason { reason: "spam".to_owned() };
+        let serialized = serde_json::to_string(&kind).unwrap();
+        let deserialized: DependentQueuedRequestKind = serde_json::from_str(&serialized).unwrap();
+        assert_let!(DependentQueuedRequestKind::RedactEventWithReason { reason } = deserialized);
+        assert_eq!(reason, "spam");
     }
 }
