@@ -30,9 +30,9 @@ use ruma::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             ImageInfo,
-            member::{MembershipState, RedactedRoomMemberEventContent},
+            member::{MembershipState, RoomMemberEventContent},
             message::MessageType,
-            topic::RedactedRoomTopicEventContent,
+            topic::RoomTopicEventContent,
         },
     },
     mxc_uri, owned_event_id, owned_mxc_uri, room_id, user_id,
@@ -248,7 +248,7 @@ async fn test_room_member() {
         .handle_live_event(f.redacted_state(
             &ALICE,
             ALICE.as_str(),
-            RedactedRoomMemberEventContent::new(MembershipState::Join),
+            RoomMemberEventContent::new(MembershipState::Join),
         ))
         .await;
 
@@ -276,9 +276,9 @@ async fn test_other_state() {
     let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(date_divider.is_date_divider());
 
-    timeline
-        .handle_live_event(f.redacted_state(&ALICE, "", RedactedRoomTopicEventContent::new()))
-        .await;
+    let mut event_content = RoomTopicEventContent::new(String::new());
+    event_content.topic.take();
+    timeline.handle_live_event(f.redacted_state(&ALICE, "", event_content)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_let!(TimelineItemContent::OtherState(ev) = item.as_event().unwrap().content());
