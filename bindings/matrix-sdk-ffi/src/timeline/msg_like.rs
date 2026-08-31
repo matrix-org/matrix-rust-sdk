@@ -290,11 +290,6 @@ pub struct PollAnswer {
 pub struct ThreadSummary {
     pub latest_event: EmbeddedEventDetails,
     pub num_replies: u32,
-    /// The user's own public read receipt event id, for this particular thread.
-    pub public_read_receipt_event_id: Option<String>,
-    /// The user's own private read receipt event id, for this particular
-    /// thread.
-    pub private_read_receipt_event_id: Option<String>,
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -313,10 +308,6 @@ impl From<matrix_sdk_ui::timeline::ThreadSummary> for ThreadSummary {
         Self {
             latest_event: EmbeddedEventDetails::from(value.latest_event),
             num_replies: value.num_replies,
-            public_read_receipt_event_id: value.public_read_receipt_event_id.map(|v| v.to_string()),
-            private_read_receipt_event_id: value
-                .private_read_receipt_event_id
-                .map(|v| v.to_string()),
         }
     }
 }
