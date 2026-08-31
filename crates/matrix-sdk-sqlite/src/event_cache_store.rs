@@ -58,7 +58,7 @@ use crate::{
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt, SqliteTransactionExt, repeat_vars,
+        SqliteKeyValueStoreConnExt, SqliteTransactionExt, host_parameters,
     },
 };
 
@@ -1548,7 +1548,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         // If there's no events for which we want to check duplicates, we can return
         // early. It's not only an optimization to do so: it's required, otherwise the
-        // `repeat_vars` call below will panic.
+        // `host_parameters` call below will panic.
         if event_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -1870,7 +1870,7 @@ fn find_event_relations_transaction(
             FROM events \
             LEFT JOIN event_chunks ON events.event_id = event_chunks.event_id AND event_chunks.linked_chunk_id = ? \
             WHERE events.relates_to = ? AND events.room_id = ? AND events.rel_type IN ({})",
-            repeat_vars(filters.len())
+            host_parameters(filters.len())
         );
 
         // First the filters need to be stringified; because `.to_sql()` will borrow

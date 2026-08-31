@@ -422,7 +422,7 @@ impl<Key> ChunkFromLargeQuery<Key> {
     /// Return the correct number of host parameters (the `?` variable in an SQL
     /// query) equals to the size of the chunk.
     pub fn host_parameters(&self) -> impl fmt::Display + use<Key> {
-        repeat_vars(self.0.len())
+        host_parameters(self.0.len())
     }
 
     /// Iterate over the keys in the chunk, by reference.
@@ -656,8 +656,8 @@ impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
 }
 
 /// Repeat `?` n times, where n is defined by `count`. `?` are comma-separated.
-pub(crate) fn repeat_vars(count: usize) -> impl fmt::Display {
-    assert_ne!(count, 0, "Can't generate zero repeated vars");
+pub(crate) fn host_parameters(count: usize) -> impl fmt::Display {
+    assert_ne!(count, 0, "Can't generate zero host parameters");
 
     iter::repeat_n("?", count).format(",")
 }
@@ -774,16 +774,16 @@ mod unit_tests {
     use super::*;
 
     #[test]
-    fn can_generate_repeated_vars() {
-        assert_eq!(repeat_vars(1).to_string(), "?");
-        assert_eq!(repeat_vars(2).to_string(), "?,?");
-        assert_eq!(repeat_vars(5).to_string(), "?,?,?,?,?");
+    fn test_can_generate_host_parameters() {
+        assert_eq!(host_parameters(1).to_string(), "?");
+        assert_eq!(host_parameters(2).to_string(), "?,?");
+        assert_eq!(host_parameters(5).to_string(), "?,?,?,?,?");
     }
 
     #[test]
-    #[should_panic(expected = "Can't generate zero repeated vars")]
-    fn generating_zero_vars_panics() {
-        repeat_vars(0);
+    #[should_panic(expected = "Can't generate zero host parameters")]
+    fn test_generating_zero_host_parameters_panics() {
+        host_parameters(0);
     }
 
     #[test]
