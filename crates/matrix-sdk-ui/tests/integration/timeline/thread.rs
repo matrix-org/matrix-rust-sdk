@@ -1518,7 +1518,7 @@ async fn test_read_receipts() {
     assert!(initial_items.is_empty());
     assert_pending!(stream);
 
-    // Receive two events from the server, one of which is a read receipt.
+    // Receive three events from the server.
     let f = EventFactory::new();
     server
         .sync_room(

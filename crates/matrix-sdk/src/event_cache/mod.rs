@@ -80,7 +80,7 @@ pub use self::{
             pagination::RoomPagination,
         },
         subscriber::Subscriber,
-        thread::{ThreadEventCache, pagination::ThreadPagination},
+        thread::{ThreadEventCache, ThreadEventCacheUpdate, pagination::ThreadPagination},
     },
 };
 use self::{

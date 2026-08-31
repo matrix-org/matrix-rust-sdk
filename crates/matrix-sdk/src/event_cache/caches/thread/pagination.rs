@@ -36,6 +36,7 @@ use super::{
         room::RoomEventCacheGenericUpdate,
     },
     ThreadEventCacheInner,
+    updates::ThreadEventCacheUpdate,
 };
 use crate::room::{IncludeRelations, RelationsOptions};
 
@@ -261,7 +262,10 @@ impl PaginatedCache for ThreadEventCacheWrapper {
     ) -> BackPaginationOutcome {
         if !timeline_event_diffs.is_empty() {
             self.cache.update_sender.send(
-                TimelineVectorDiffs { diffs: timeline_event_diffs, origin: EventsOrigin::Cache },
+                ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                    diffs: timeline_event_diffs,
+                    origin: EventsOrigin::Cache,
+                }),
                 Some(RoomEventCacheGenericUpdate { room_id: self.cache.room_id.clone() }),
             );
         }
@@ -396,10 +400,10 @@ impl PaginatedCache for ThreadEventCacheWrapper {
 
         if !timeline_event_diffs.is_empty() {
             state.update_sender.send(
-                TimelineVectorDiffs {
+                ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
                     diffs: timeline_event_diffs,
                     origin: EventsOrigin::Pagination,
-                },
+                }),
                 Some(RoomEventCacheGenericUpdate { room_id: state.room_id.clone() }),
             );
         }
