@@ -12,7 +12,7 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{panic, sync::Arc};
 
 use matrix_sdk::authentication::oauth::{
     OAuth,
@@ -25,8 +25,12 @@ use matrix_sdk_base::{
     CancellableIntoFutureExt,
     crypto::types::qr_login::{self, QrCodeIntent},
 };
-use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm, stream::StreamExt};
+use matrix_sdk_common::{
+    SendOutsideWasm, SyncOutsideWasm, executor::JoinHandle, stream::StreamExt,
+};
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
+use tracing::error;
 
 use crate::{
     authentication::OAuthConfiguration, runtime::get_runtime_handle, task_handle::TaskHandle,
@@ -37,12 +41,11 @@ use crate::{
 pub struct LoginWithQrCodeHandler {
     oauth: OAuth,
     oauth_configuration: OAuthConfiguration,
-    cancel: CancellationToken,
 }
 
 impl LoginWithQrCodeHandler {
     pub(crate) fn new(oauth: OAuth, oauth_configuration: OAuthConfiguration) -> Self {
-        Self { oauth, oauth_configuration, cancel: CancellationToken::new() }
+        Self { oauth, oauth_configuration }
     }
 }
 
@@ -51,7 +54,12 @@ impl LoginWithQrCodeHandler {
     /// This method allows you to log in with a scanned QR code.
     ///
     /// The existing device needs to display the QR code which this device can
-    /// scan, call this method and handle its progress updates to log in.
+    /// scan, call this method and handle the returned [`LoginWithQrCodeTask`]'s
+    /// progress updates to log in.
+    ///
+    /// This spawns the login process in the background and returns
+    /// immediately with a [`LoginWithQrCodeTask`] that can be used to wait
+    /// for the login to finish, or to cancel it.
     ///
     /// For the login to succeed, the [`Client`] associated with the
     /// [`LoginWithQrCodeHandler`] must have been built with
@@ -70,39 +78,51 @@ impl LoginWithQrCodeHandler {
     ///   transfer the [`CheckCode`] to the existing device.
     ///
     /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
-    pub async fn scan(
+    pub fn scan(
         self: Arc<Self>,
         qr_code_data: &QrCodeData,
         progress_listener: Box<dyn QrLoginProgressListener>,
-    ) -> Result<(), HumanQrLoginError> {
+    ) -> Result<Arc<LoginWithQrCodeTask>, HumanQrLoginError> {
         let registration_data = self
             .oauth_configuration
             .registration_data()
             .map_err(|_| HumanQrLoginError::OAuthMetadataInvalid)?;
 
-        let login =
-            self.oauth.login_with_qr_code(Some(&registration_data)).scan(&qr_code_data.inner);
+        let oauth = self.oauth.clone();
+        let qr_code_data = qr_code_data.inner.clone();
+        let cancel = CancellationToken::new();
+        let cancel_for_task = cancel.clone();
 
-        let mut progress = login.subscribe_to_progress();
+        let handle = get_runtime_handle().spawn(async move {
+            let login = oauth.login_with_qr_code(Some(&registration_data)).scan(&qr_code_data);
 
-        // We create this task, which will get cancelled once it's dropped, just in case
-        // the progress stream doesn't end.
-        let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
-            while let Some(state) = progress.next().await {
-                progress_listener.on_update(state.into());
-            }
-        }));
+            let mut progress = login.subscribe_to_progress();
 
-        login.cancellable(self.cancel.clone()).await.ok_or(HumanQrLoginError::Cancelled)??;
+            // We create this task, which will get cancelled once it's dropped, just in case
+            // the progress stream doesn't end.
+            let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
+                while let Some(state) = progress.next().await {
+                    progress_listener.on_update(state.into());
+                }
+            }));
 
-        Ok(())
+            login.cancellable(cancel_for_task).await.ok_or(HumanQrLoginError::Cancelled)??;
+
+            Ok(())
+        });
+
+        Ok(LoginWithQrCodeTask::new(handle, cancel))
     }
 
     /// This method allows you to log in by generating a QR code.
     ///
-    /// This device needs to call this method and handle its progress updates to
-    /// generate a QR code which the existing device can scan and grant the
-    /// log in.
+    /// This device needs to call this method and handle the returned
+    /// [`LoginWithQrCodeTask`]'s progress updates to generate a QR code which
+    /// the existing device can scan and grant the log in.
+    ///
+    /// This spawns the login process in the background and returns
+    /// immediately with a [`LoginWithQrCodeTask`] that can be used to wait
+    /// for the login to finish, or to cancel it.
     ///
     /// This method uses the login mechanism described in [MSC4108]. As such,
     /// it requires OAuth 2.0 support.
@@ -116,35 +136,91 @@ impl LoginWithQrCodeHandler {
     ///   obtain the [`QrCodeData`] and collect the [`CheckCode`] from the user.
     ///
     /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
-    pub async fn generate(
+    pub fn generate(
         self: Arc<Self>,
         progress_listener: Box<dyn GeneratedQrLoginProgressListener>,
-    ) -> Result<(), HumanQrLoginError> {
+    ) -> Result<Arc<LoginWithQrCodeTask>, HumanQrLoginError> {
         let registration_data = self
             .oauth_configuration
             .registration_data()
             .map_err(|_| HumanQrLoginError::OAuthMetadataInvalid)?;
 
-        let login = self.oauth.login_with_qr_code(Some(&registration_data)).generate();
+        let oauth = self.oauth.clone();
+        let cancel = CancellationToken::new();
+        let cancel_for_task = cancel.clone();
 
-        let mut progress = login.subscribe_to_progress();
+        let handle = get_runtime_handle().spawn(async move {
+            let login = oauth.login_with_qr_code(Some(&registration_data)).generate();
 
-        // We create this task, which will get cancelled once it's dropped, just in case
-        // the progress stream doesn't end.
-        let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
-            while let Some(state) = progress.next().await {
-                progress_listener.on_update(state.into());
+            let mut progress = login.subscribe_to_progress();
+
+            // We create this task, which will get cancelled once it's dropped, just in case
+            // the progress stream doesn't end.
+            let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
+                while let Some(state) = progress.next().await {
+                    progress_listener.on_update(state.into());
+                }
+            }));
+
+            login.cancellable(cancel_for_task).await.ok_or(HumanQrLoginError::Cancelled)??;
+
+            Ok(())
+        });
+
+        Ok(LoginWithQrCodeTask::new(handle, cancel))
+    }
+}
+
+/// A handle to a single login attempt started by
+/// [`LoginWithQrCodeHandler::scan`] or [`LoginWithQrCodeHandler::generate`].
+///
+/// Use [`Self::wait`] to wait for the attempt to finish and obtain its
+/// result, and [`Self::cancel`] to request that it be aborted cooperatively.
+#[derive(uniffi::Object)]
+pub struct LoginWithQrCodeTask {
+    cancel: CancellationToken,
+    handle: Mutex<JoinHandle<Result<(), HumanQrLoginError>>>,
+}
+
+impl LoginWithQrCodeTask {
+    fn new(
+        handle: JoinHandle<Result<(), HumanQrLoginError>>,
+        cancel: CancellationToken,
+    ) -> Arc<Self> {
+        Arc::new(Self { cancel, handle: Mutex::new(handle) })
+    }
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl LoginWithQrCodeTask {
+    /// Wait for the login attempt to finish and return its result.
+    ///
+    /// If [`Self::cancel`] has been called, this returns
+    /// [`HumanQrLoginError::Cancelled`] once the attempt has finished tearing
+    /// down its running task.
+    pub async fn wait(&self) -> Result<(), HumanQrLoginError> {
+        let mut handle = self.handle.lock().await;
+
+        match (&mut *handle).await {
+            Ok(result) => result,
+            Err(err) => {
+                if err.is_cancelled() {
+                    return Err(HumanQrLoginError::Cancelled);
+                }
+
+                error!("The QR code login task panicked! resuming panic from here.");
+                #[cfg(not(target_family = "wasm"))]
+                panic::resume_unwind(err.into_panic());
+                #[cfg(target_family = "wasm")]
+                panic!("The QR code login task panicked! {err}");
             }
-        }));
-
-        login.cancellable(self.cancel.clone()).await.ok_or(HumanQrLoginError::Cancelled)??;
-
-        Ok(())
+        }
     }
 
-    /// Request the handler to abort cooperatively. This will make the handler
-    /// tear down its running task and then return the `Cancelled` error.
-    pub fn abort(&self) {
+    /// Request this login attempt to abort cooperatively. This will make the
+    /// task tear down its running work and then return the `Cancelled` error
+    /// from [`Self::wait`].
+    pub fn cancel(&self) {
         self.cancel.cancel();
     }
 }
@@ -153,12 +229,11 @@ impl LoginWithQrCodeHandler {
 #[derive(uniffi::Object)]
 pub struct GrantLoginWithQrCodeHandler {
     oauth: OAuth,
-    cancel: CancellationToken,
 }
 
 impl GrantLoginWithQrCodeHandler {
     pub(crate) fn new(oauth: OAuth) -> Self {
-        Self { oauth, cancel: CancellationToken::new() }
+        Self { oauth }
     }
 }
 
@@ -167,8 +242,12 @@ impl GrantLoginWithQrCodeHandler {
     /// This method allows you to grant login with a scanned QR code.
     ///
     /// The new device needs to display the QR code which this device can
-    /// scan, call this method and handle its progress updates to grant the
-    /// login.
+    /// scan, call this method and handle the returned
+    /// [`GrantLoginWithQrCodeTask`]'s progress updates to grant the login.
+    ///
+    /// This spawns the login process in the background and returns
+    /// immediately with a [`GrantLoginWithQrCodeTask`] that can be used to
+    /// wait for the login to finish, or to cancel it.
     ///
     /// This method uses the login mechanism described in [MSC4108]. As such,
     /// it requires OAuth 2.0 support.
@@ -183,32 +262,46 @@ impl GrantLoginWithQrCodeHandler {
     ///   transfer the [`CheckCode`] to the new device.
     ///
     /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
-    pub async fn scan(
+    pub fn scan(
         self: Arc<Self>,
         qr_code_data: &QrCodeData,
         progress_listener: Box<dyn GrantQrLoginProgressListener>,
-    ) -> Result<(), HumanQrGrantLoginError> {
-        let grant = self.oauth.grant_login_with_qr_code().scan(&qr_code_data.inner);
+    ) -> Result<Arc<GrantLoginWithQrCodeTask>, HumanQrGrantLoginError> {
+        let oauth = self.oauth.clone();
+        let qr_code_data = qr_code_data.inner.clone();
+        let cancel = CancellationToken::new();
+        let cancel_for_task = cancel.clone();
 
-        let mut progress = grant.subscribe_to_progress();
+        let handle = get_runtime_handle().spawn(async move {
+            let grant = oauth.grant_login_with_qr_code().scan(&qr_code_data);
 
-        // We create this task, which will get cancelled once it's dropped, just in case
-        // the progress stream doesn't end.
-        let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
-            while let Some(state) = progress.next().await {
-                progress_listener.on_update(state.into());
-            }
-        }));
+            let mut progress = grant.subscribe_to_progress();
 
-        grant.cancellable(self.cancel.clone()).await.ok_or(HumanQrGrantLoginError::Cancelled)??;
+            // We create this task, which will get cancelled once it's dropped, just in case
+            // the progress stream doesn't end.
+            let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
+                while let Some(state) = progress.next().await {
+                    progress_listener.on_update(state.into());
+                }
+            }));
 
-        Ok(())
+            grant.cancellable(cancel_for_task).await.ok_or(HumanQrGrantLoginError::Cancelled)??;
+
+            Ok(())
+        });
+
+        Ok(GrantLoginWithQrCodeTask::new(handle, cancel))
     }
 
     /// This method allows you to grant login by generating a QR code.
     ///
-    /// This device needs to call this method and handle its progress updates to
-    /// generate a QR code which the new device can scan to log in.
+    /// This device needs to call this method and handle the returned
+    /// [`GrantLoginWithQrCodeTask`]'s progress updates to generate a QR code
+    /// which the new device can scan to log in.
+    ///
+    /// This spawns the login process in the background and returns
+    /// immediately with a [`GrantLoginWithQrCodeTask`] that can be used to
+    /// wait for the login to finish, or to cancel it.
     ///
     /// This method uses the login mechanism described in [MSC4108]. As such,
     /// it requires OAuth 2.0 support.
@@ -222,30 +315,87 @@ impl GrantLoginWithQrCodeHandler {
     ///   obtain the [`QrCodeData`] and collect the [`CheckCode`] from the user.
     ///
     /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
-    pub async fn generate(
+    pub fn generate(
         self: Arc<Self>,
         progress_listener: Box<dyn GrantGeneratedQrLoginProgressListener>,
-    ) -> Result<(), HumanQrGrantLoginError> {
-        let grant = self.oauth.grant_login_with_qr_code().generate();
+    ) -> Result<Arc<GrantLoginWithQrCodeTask>, HumanQrGrantLoginError> {
+        let oauth = self.oauth.clone();
+        let cancel = CancellationToken::new();
+        let cancel_for_task = cancel.clone();
 
-        let mut progress = grant.subscribe_to_progress();
+        let handle = get_runtime_handle().spawn(async move {
+            let grant = oauth.grant_login_with_qr_code().generate();
 
-        // We create this task, which will get cancelled once it's dropped, just in case
-        // the progress stream doesn't end.
-        let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
-            while let Some(state) = progress.next().await {
-                progress_listener.on_update(state.into());
+            let mut progress = grant.subscribe_to_progress();
+
+            // We create this task, which will get cancelled once it's dropped, just in case
+            // the progress stream doesn't end.
+            let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
+                while let Some(state) = progress.next().await {
+                    progress_listener.on_update(state.into());
+                }
+            }));
+
+            grant.cancellable(cancel_for_task).await.ok_or(HumanQrGrantLoginError::Cancelled)??;
+
+            Ok(())
+        });
+
+        Ok(GrantLoginWithQrCodeTask::new(handle, cancel))
+    }
+}
+
+/// A handle to a single login grant attempt started by
+/// [`GrantLoginWithQrCodeHandler::scan`] or
+/// [`GrantLoginWithQrCodeHandler::generate`].
+///
+/// Use [`Self::wait`] to wait for the attempt to finish and obtain its
+/// result, and [`Self::cancel`] to request that it be aborted cooperatively.
+#[derive(uniffi::Object)]
+pub struct GrantLoginWithQrCodeTask {
+    cancel: CancellationToken,
+    handle: Mutex<JoinHandle<Result<(), HumanQrGrantLoginError>>>,
+}
+
+impl GrantLoginWithQrCodeTask {
+    fn new(
+        handle: JoinHandle<Result<(), HumanQrGrantLoginError>>,
+        cancel: CancellationToken,
+    ) -> Arc<Self> {
+        Arc::new(Self { cancel, handle: Mutex::new(handle) })
+    }
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl GrantLoginWithQrCodeTask {
+    /// Wait for the login grant attempt to finish and return its result.
+    ///
+    /// If [`Self::cancel`] has been called, this returns
+    /// [`HumanQrGrantLoginError::Cancelled`] once the attempt has finished
+    /// tearing down its running task.
+    pub async fn wait(&self) -> Result<(), HumanQrGrantLoginError> {
+        let mut handle = self.handle.lock().await;
+
+        match (&mut *handle).await {
+            Ok(result) => result,
+            Err(err) => {
+                if err.is_cancelled() {
+                    return Err(HumanQrGrantLoginError::Cancelled);
+                }
+
+                error!("The QR code login grant task panicked! resuming panic from here.");
+                #[cfg(not(target_family = "wasm"))]
+                panic::resume_unwind(err.into_panic());
+                #[cfg(target_family = "wasm")]
+                panic!("The QR code login grant task panicked! {err}");
             }
-        }));
-
-        grant.cancellable(self.cancel.clone()).await.ok_or(HumanQrGrantLoginError::Cancelled)??;
-
-        Ok(())
+        }
     }
 
-    /// Request the handler to abort cooperatively. This will make the handler
-    /// tear down its running task and then return the `Cancelled` error.
-    pub fn abort(&self) {
+    /// Request this login grant attempt to abort cooperatively. This will
+    /// make the task tear down its running work and then return the
+    /// `Cancelled` error from [`Self::wait`].
+    pub fn cancel(&self) {
         self.cancel.cancel();
     }
 }
