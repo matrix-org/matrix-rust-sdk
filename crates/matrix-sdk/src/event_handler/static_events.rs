@@ -19,10 +19,9 @@ use ruma::{
         self, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, AnyToDeviceEvent, EphemeralRoomEventContent, False,
-        GlobalAccountDataEventContent, MessageLikeEventContent, PossiblyRedactedStateEventContent,
-        RedactContent, RedactedMessageLikeEventContent, RedactedStateEventContent,
-        RoomAccountDataEventContent, StaticEventContent, StaticStateEventContent,
-        ToDeviceEventContent, presence::PresenceEvent,
+        GlobalAccountDataEventContent, MessageLikeEventContent, RedactContent,
+        RedactedMessageLikeEventContent, RedactedStateEventContent, RoomAccountDataEventContent,
+        StaticEventContent, StaticStateEventContent, ToDeviceEventContent, presence::PresenceEvent,
     },
     serde::Raw,
 };
@@ -138,7 +137,7 @@ where
 
 impl<C> SyncEvent for events::StrippedStateEvent<C>
 where
-    C: StaticEventContent + PossiblyRedactedStateEventContent,
+    C: StaticEventContent + StaticStateEventContent,
 {
     const KIND: HandlerKind = HandlerKind::StrippedState;
     const TYPE: Option<&'static str> = Some(C::TYPE);

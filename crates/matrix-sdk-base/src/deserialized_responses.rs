@@ -23,8 +23,8 @@ use ruma::{
     UserId,
     events::{
         AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, EventContentFromType,
-        PossiblyRedactedStateEventContent, RedactContent, RedactedStateEventContent,
-        StateEventContent, StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
+        RedactContent, RedactedStateEventContent, StateEventContent, StaticStateEventContent,
+        StrippedStateEvent, SyncStateEvent,
         room::{
             member::{MembershipState, RoomMemberEvent, RoomMemberEventContent},
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
@@ -357,7 +357,7 @@ where
     /// An event from a room in joined or left state.
     Sync(Raw<SyncStateEvent<C>>),
     /// An event from a room in invited state.
-    Stripped(Raw<StrippedStateEvent<C::PossiblyRedacted>>),
+    Stripped(Raw<StrippedStateEvent<C>>),
 }
 
 impl<C> RawSyncOrStrippedState<C>
@@ -370,7 +370,6 @@ where
     where
         C: StaticStateEventContent + EventContentFromType + RedactContent,
         C::Redacted: RedactedStateEventContent<StateKey = C::StateKey> + EventContentFromType,
-        C::PossiblyRedacted: PossiblyRedactedStateEventContent + EventContentFromType,
     {
         match self {
             Self::Sync(ev) => Ok(SyncOrStrippedState::Sync(ev.deserialize()?)),
@@ -392,14 +391,13 @@ where
     /// An event from a room in joined or left state.
     Sync(SyncStateEvent<C>),
     /// An event from a room in invited state.
-    Stripped(StrippedStateEvent<C::PossiblyRedacted>),
+    Stripped(StrippedStateEvent<C>),
 }
 
 impl<C> SyncOrStrippedState<C>
 where
     C: StaticStateEventContent + RedactContent,
     C::Redacted: RedactedStateEventContent<StateKey = C::StateKey> + fmt::Debug + Clone,
-    C::PossiblyRedacted: PossiblyRedactedStateEventContent<StateKey = C::StateKey>,
 {
     /// If this is a `SyncStateEvent`, return a reference to the inner event.
     pub fn as_sync(&self) -> Option<&SyncStateEvent<C>> {
@@ -411,7 +409,7 @@ where
 
     /// If this is a `StrippedStateEvent`, return a reference to the inner
     /// event.
-    pub fn as_stripped(&self) -> Option<&StrippedStateEvent<C::PossiblyRedacted>> {
+    pub fn as_stripped(&self) -> Option<&StrippedStateEvent<C>> {
         match self {
             Self::Sync(_) => None,
             Self::Stripped(ev) => Some(ev),
@@ -453,9 +451,7 @@ where
 
 impl<C> SyncOrStrippedState<C>
 where
-    C: StaticStateEventContent<PossiblyRedacted = C>
-        + RedactContent
-        + PossiblyRedactedStateEventContent,
+    C: StaticStateEventContent + RedactContent,
     C::Redacted: RedactedStateEventContent<StateKey = <C as StateEventContent>::StateKey>
         + fmt::Debug
         + Clone,
