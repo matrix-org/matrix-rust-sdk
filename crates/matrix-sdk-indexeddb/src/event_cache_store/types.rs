@@ -17,10 +17,10 @@ use std::time::Duration;
 use matrix_sdk_base::{
     cross_process_lock::CrossProcessLockGeneration,
     deserialized_responses::TimelineEvent,
-    event_cache::store::extract_event_relation,
+    event_cache::{store::extract_event_relation, thread::ThreadInfo},
     linked_chunk::{ChunkIdentifier, LinkedChunkId, OwnedLinkedChunkId},
 };
-use ruma::{OwnedEventId, RoomId};
+use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
 use serde::{Deserialize, Serialize};
 
 /// Representation of a time-based lock on the entire
@@ -101,8 +101,8 @@ impl Event {
         }
     }
 
-    /// The [`OwnedEventId`] of the underlying event.
-    pub fn event_id(&self) -> Option<OwnedEventId> {
+    /// The [`EventId`] of the underlying event.
+    pub fn event_id(&self) -> Option<&EventId> {
         match self {
             Event::InBand(e) => e.event_id(),
             Event::OutOfBand(e) => e.event_id(),
@@ -169,8 +169,8 @@ impl<P> GenericEvent<P> {
         self.linked_chunk_id.room_id()
     }
 
-    /// The [`OwnedEventId`] of the underlying event.
-    pub fn event_id(&self) -> Option<OwnedEventId> {
+    /// The [`EventId`] of the underlying event.
+    pub fn event_id(&self) -> Option<&EventId> {
         self.content.event_id()
     }
 
@@ -231,4 +231,23 @@ pub struct Gap {
     /// "end" field of a `/messages` response.
     #[serde(alias = "prev_token")]
     pub token: String,
+}
+
+/// A representation of a _thread_ for the thread list which can be stored in
+/// IndexedDB.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Thread {
+    /// The room of the thread.
+    pub room_id: OwnedRoomId,
+    /// The root of the thread.
+    pub thread_id: OwnedEventId,
+    /// Information about the thread.
+    pub info: ThreadInfo,
+}
+
+impl Thread {
+    /// Get the [`LinkedChunkId`] associated to this [`Thread`].
+    pub fn linked_chunk(&self) -> LinkedChunkId<'_> {
+        LinkedChunkId::Thread(&self.room_id, &self.thread_id)
+    }
 }

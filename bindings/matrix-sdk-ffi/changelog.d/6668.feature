@@ -1,0 +1,2 @@
+The `TimelineItemContent::RtcNotification` now contains additional fields for when the notification is related to
+and active call. The new fields are `active_members` (if not empty then the call is active), `call_start_ts_millis`, `is_joined`.

@@ -29,7 +29,7 @@ use crate::timeline::{
 
 #[async_test]
 async fn test_no_shield_in_unencrypted_room() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
     let f = &timeline.factory;
 
@@ -42,7 +42,7 @@ async fn test_no_shield_in_unencrypted_room() {
 
 #[async_test]
 async fn test_sent_in_clear_shield() {
-    let timeline = TestTimelineBuilder::new().room_encrypted(true).build();
+    let timeline = TestTimelineBuilder::new().room_encrypted(true).build().await;
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -64,7 +64,7 @@ async fn test_sent_in_clear_shield() {
 /// sure the shield only appears once the remote echo is received.
 async fn test_local_sent_in_clear_shield() {
     // Given an encrypted timeline.
-    let timeline = TestTimelineBuilder::new().room_encrypted(true).build();
+    let timeline = TestTimelineBuilder::new().room_encrypted(true).build().await;
     let mut stream = timeline.subscribe().await;
 
     // When sending an unencrypted event.
@@ -143,7 +143,7 @@ async fn test_local_sent_in_clear_shield() {
 /// Once a beacon location update arrives without encryption info (i.e. it was
 /// sent in clear), the shield must switch to `SentInClear`.
 async fn test_live_location_no_sent_in_clear_shield() {
-    let timeline = TestTimelineBuilder::new().room_encrypted(true).build();
+    let timeline = TestTimelineBuilder::new().room_encrypted(true).build().await;
     let mut stream = timeline.subscribe_events().await;
     let beacon_id = event_id!("$beacon_info:example.org");
 
@@ -230,7 +230,7 @@ async fn test_live_location_no_sent_in_clear_shield() {
 /// sent in clear` red warning.
 async fn test_utd_shield() {
     // Given we are in an encrypted room
-    let timeline = TestTimelineBuilder::new().room_encrypted(true).build();
+    let timeline = TestTimelineBuilder::new().room_encrypted(true).build().await;
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;

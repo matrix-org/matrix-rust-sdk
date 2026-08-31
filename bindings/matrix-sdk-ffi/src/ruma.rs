@@ -22,12 +22,11 @@ use extension_trait::extension_trait;
 use matrix_sdk::attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo};
 use ruma::{
     KeyDerivationAlgorithm as RumaKeyDerivationAlgorithm, MatrixToUri, MatrixUri as RumaMatrixUri,
-    OwnedRoomId, OwnedUserId, UInt, UserId, assign,
+    OwnedRoomId, OwnedUserId, SecondsSinceUnixEpoch, UInt, UserId, assign,
     events::{
         GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
         GlobalAccountDataEventType as RumaGlobalAccountDataEventType,
         RoomAccountDataEvent as RumaRoomAccountDataEvent,
-        RoomAccountDataEventType as RumaRoomAccountDataEventType,
         direct::DirectEventContent,
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
@@ -79,6 +78,8 @@ use ruma::{
         },
     },
     matrix_uri::MatrixId as RumaMatrixId,
+    presence::PresenceState as RumaPresenceState,
+    profile::{CallProfileField, StatusProfileField},
     push::{
         ConditionalPushRule as RumaConditionalPushRule, PatternedPushRule as RumaPatternedPushRule,
         Ruleset as RumaRuleset, SimplePushRule as RumaSimplePushRule,
@@ -188,6 +189,79 @@ impl From<&RumaMatrixId> for MatrixId {
             }
             _ => panic!("Unexpected MatrixId type: {value:?}"),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum, Default)]
+pub enum PresenceState {
+    Online,
+    Offline,
+    #[default]
+    Unavailable,
+}
+
+impl From<PresenceState> for RumaPresenceState {
+    fn from(value: PresenceState) -> Self {
+        match value {
+            PresenceState::Online => Self::Online,
+            PresenceState::Offline => Self::Offline,
+            PresenceState::Unavailable => Self::Unavailable,
+        }
+    }
+}
+
+impl From<RumaPresenceState> for PresenceState {
+    fn from(value: RumaPresenceState) -> Self {
+        match value {
+            RumaPresenceState::Online => Self::Online,
+            RumaPresenceState::Offline => Self::Offline,
+            RumaPresenceState::Unavailable => Self::Unavailable,
+            _ => Self::default(),
+        }
+    }
+}
+
+/// A user-set status (MSC4426 `m.status` profile field value).
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct UserStatus {
+    pub emoji: String,
+    pub text: String,
+}
+
+impl From<UserStatus> for StatusProfileField {
+    fn from(value: UserStatus) -> Self {
+        Self::new(value.text, value.emoji)
+    }
+}
+
+impl From<StatusProfileField> for UserStatus {
+    fn from(value: StatusProfileField) -> Self {
+        Self { emoji: value.emoji, text: value.text }
+    }
+}
+
+/// The user's call indicator (MSC4426 `m.call` profile field value).
+///
+/// Presence of a `UserCall` value means the user is in a call. The optional
+/// `call_joined_ts` is the Unix-epoch seconds when they joined, if known.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct UserCall {
+    pub call_joined_ts: Option<u64>,
+}
+
+impl From<CallProfileField> for UserCall {
+    fn from(value: CallProfileField) -> Self {
+        Self { call_joined_ts: value.call_joined_ts.map(|ts| u64::from(ts.get())) }
+    }
+}
+
+impl From<UserCall> for CallProfileField {
+    fn from(value: UserCall) -> Self {
+        let mut field = CallProfileField::new();
+        field.call_joined_ts = value
+            .call_joined_ts
+            .map(|secs| SecondsSinceUnixEpoch(UInt::try_from(secs).unwrap_or_default()));
+        field
     }
 }
 
@@ -711,19 +785,23 @@ impl TryFrom<&ImageInfo> for BaseImageInfo {
     type Error = MediaInfoError;
 
     fn try_from(value: &ImageInfo) -> Result<Self, MediaInfoError> {
-        let height = UInt::try_from(value.height.ok_or(MediaInfoError::MissingField)?)
-            .map_err(|_| MediaInfoError::InvalidField)?;
-        let width = UInt::try_from(value.width.ok_or(MediaInfoError::MissingField)?)
-            .map_err(|_| MediaInfoError::InvalidField)?;
-        let size = UInt::try_from(value.size.ok_or(MediaInfoError::MissingField)?)
-            .map_err(|_| MediaInfoError::InvalidField)?;
-        let blurhash = value.blurhash.clone().ok_or(MediaInfoError::MissingField)?;
-
         Ok(BaseImageInfo {
-            height: Some(height),
-            width: Some(width),
-            size: Some(size),
-            blurhash: Some(blurhash),
+            height: value
+                .height
+                .map(UInt::try_from)
+                .transpose()
+                .map_err(|_| MediaInfoError::InvalidField)?,
+            width: value
+                .width
+                .map(UInt::try_from)
+                .transpose()
+                .map_err(|_| MediaInfoError::InvalidField)?,
+            size: value
+                .size
+                .map(UInt::try_from)
+                .transpose()
+                .map_err(|_| MediaInfoError::InvalidField)?,
+            blurhash: value.blurhash.clone(),
             is_animated: value.is_animated,
         })
     }
@@ -750,11 +828,15 @@ impl TryFrom<&AudioInfo> for BaseAudioInfo {
     type Error = MediaInfoError;
 
     fn try_from(value: &AudioInfo) -> Result<Self, MediaInfoError> {
-        let duration = value.duration.ok_or(MediaInfoError::MissingField)?;
-        let size = UInt::try_from(value.size.ok_or(MediaInfoError::MissingField)?)
-            .map_err(|_| MediaInfoError::InvalidField)?;
-
-        Ok(BaseAudioInfo { duration: Some(duration), size: Some(size), waveform: None })
+        Ok(BaseAudioInfo {
+            duration: value.duration,
+            size: value
+                .size
+                .map(UInt::try_from)
+                .transpose()
+                .map_err(|_| MediaInfoError::InvalidField)?,
+            waveform: None,
+        })
     }
 }
 
@@ -832,21 +914,24 @@ impl TryFrom<&VideoInfo> for BaseVideoInfo {
     type Error = MediaInfoError;
 
     fn try_from(value: &VideoInfo) -> Result<Self, MediaInfoError> {
-        let duration = value.duration.ok_or(MediaInfoError::MissingField)?;
-        let height = UInt::try_from(value.height.ok_or(MediaInfoError::MissingField)?)
-            .map_err(|_| MediaInfoError::InvalidField)?;
-        let width = UInt::try_from(value.width.ok_or(MediaInfoError::MissingField)?)
-            .map_err(|_| MediaInfoError::InvalidField)?;
-        let size = UInt::try_from(value.size.ok_or(MediaInfoError::MissingField)?)
-            .map_err(|_| MediaInfoError::InvalidField)?;
-        let blurhash = value.blurhash.clone().ok_or(MediaInfoError::MissingField)?;
-
         Ok(BaseVideoInfo {
-            duration: Some(duration),
-            height: Some(height),
-            width: Some(width),
-            size: Some(size),
-            blurhash: Some(blurhash),
+            duration: value.duration,
+            height: value
+                .height
+                .map(UInt::try_from)
+                .transpose()
+                .map_err(|_| MediaInfoError::InvalidField)?,
+            width: value
+                .width
+                .map(UInt::try_from)
+                .transpose()
+                .map_err(|_| MediaInfoError::InvalidField)?,
+            size: value
+                .size
+                .map(UInt::try_from)
+                .transpose()
+                .map_err(|_| MediaInfoError::InvalidField)?,
+            blurhash: value.blurhash.clone(),
         })
     }
 }
@@ -874,10 +959,13 @@ impl TryFrom<&FileInfo> for BaseFileInfo {
     type Error = MediaInfoError;
 
     fn try_from(value: &FileInfo) -> Result<Self, MediaInfoError> {
-        let size = UInt::try_from(value.size.ok_or(MediaInfoError::MissingField)?)
-            .map_err(|_| MediaInfoError::InvalidField)?;
-
-        Ok(BaseFileInfo { size: Some(size) })
+        Ok(BaseFileInfo {
+            size: value
+                .size
+                .map(UInt::try_from)
+                .transpose()
+                .map_err(|_| MediaInfoError::InvalidField)?,
+        })
     }
 }
 
@@ -1655,33 +1743,6 @@ impl TryFrom<RumaGlobalAccountDataEvent<SecretStorageKeyEventContent>> for Accou
             algorithm: value.content.algorithm.try_into()?,
             passphrase: value.content.passphrase.map(TryInto::try_into).transpose()?,
         })
-    }
-}
-
-/// Types of room account data events.
-#[derive(Clone, uniffi::Enum)]
-pub enum RoomAccountDataEventType {
-    /// m.fully_read
-    FullyRead,
-    /// m.marked_unread
-    MarkedUnread,
-    /// m.tag
-    Tag,
-    /// com.famedly.marked_unread
-    UnstableMarkedUnread,
-}
-
-impl TryFrom<RumaRoomAccountDataEventType> for RoomAccountDataEventType {
-    type Error = String;
-
-    fn try_from(value: RumaRoomAccountDataEventType) -> Result<Self, Self::Error> {
-        match value {
-            RumaRoomAccountDataEventType::FullyRead => Ok(Self::FullyRead),
-            RumaRoomAccountDataEventType::MarkedUnread => Ok(Self::MarkedUnread),
-            RumaRoomAccountDataEventType::Tag => Ok(Self::Tag),
-            RumaRoomAccountDataEventType::UnstableMarkedUnread => Ok(Self::UnstableMarkedUnread),
-            _ => Err("Unsupported account data event type".to_owned()),
-        }
     }
 }
 

@@ -4,8 +4,9 @@ use anyhow::Result;
 use assert_matches2::{assert_let, assert_matches};
 use eyeball::Subscriber;
 use futures::FutureExt as _;
+use http::StatusCode;
 use matrix_sdk::{
-    Room, RoomState, assert_let_timeout,
+    Room, RoomMemberships, RoomState, assert_let_timeout,
     encryption::{BackupDownloadStrategy, EncryptionSettings, recovery::RecoveryState},
     event_cache::RoomEventCacheUpdate,
     latest_events::LatestEventValue,
@@ -34,7 +35,121 @@ use matrix_sdk_ui::{sync_service::SyncService, timeline::TimelineBuilder};
 use tokio::{spawn, time::sleep};
 use tracing::{debug, error, warn};
 
-use crate::helpers::{TestClientBuilder, wait_for_room};
+use crate::helpers::{TestClientBuilder, wait_for_room, wait_until_some};
+
+#[tokio::test]
+async fn test_empty_room_decline_invite() -> Result<()> {
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
+
+    let b = bob.clone();
+    spawn(async move {
+        let bob = b;
+        loop {
+            if let Err(e) = bob.sync(Default::default()).await {
+                error!("bob sync error: {e}");
+            }
+        }
+    });
+
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+
+    let a = alice.clone();
+    spawn(async move {
+        let alice = a;
+        loop {
+            if let Err(e) = alice.sync(Default::default()).await {
+                error!("alice sync error: {e}");
+            }
+        }
+    });
+
+    let room_id = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            invite: vec![bob.user_id().unwrap().to_owned()],
+            is_direct: false,
+        }))
+        .await?
+        .room_id()
+        .to_owned();
+
+    let room = alice.get_room(&room_id).expect("Alice should see the room");
+    room.leave().await?;
+
+    let mut bob_declined = false;
+    for i in 1..=5 {
+        if let Some(room) = bob.get_room(&room_id)
+            && matches!(room.state(), RoomState::Invited)
+        {
+            room.leave().await?;
+            bob_declined = true;
+            break;
+        }
+        sleep(Duration::from_millis(500 * i)).await;
+    }
+    anyhow::ensure!(bob_declined, "bob couldn't find the invite after ~8 seconds");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_empty_room_accept_invite() -> Result<()> {
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
+
+    let b = bob.clone();
+    spawn(async move {
+        let bob = b;
+        loop {
+            if let Err(e) = bob.sync(Default::default()).await {
+                error!("bob sync error: {e}");
+            }
+        }
+    });
+
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+
+    let a = alice.clone();
+    spawn(async move {
+        let alice = a;
+        loop {
+            if let Err(e) = alice.sync(Default::default()).await {
+                error!("alice sync error: {e}");
+            }
+        }
+    });
+
+    let room_id = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            invite: vec![bob.user_id().unwrap().to_owned()],
+            is_direct: false,
+        }))
+        .await?
+        .room_id()
+        .to_owned();
+
+    let room = alice.get_room(&room_id).expect("Alice should see the room");
+    room.leave().await?;
+
+    for i in 1..=5 {
+        if let Some(room) = bob.get_room(&room_id)
+            && matches!(room.state(), RoomState::Invited)
+        {
+            if let Err(err) = room.join().await {
+                if let Some(api_err) = err.as_client_api_error() {
+                    if api_err.status_code == StatusCode::NOT_FOUND {
+                        return Ok(());
+                    } else {
+                        return Err(err.into());
+                    }
+                } else {
+                    return Err(err.into());
+                }
+            }
+            break;
+        }
+        sleep(Duration::from_millis(500 * i)).await;
+    }
+    Err(anyhow::anyhow!("bob couldn't find the invite after ~8 seconds"))
+}
 
 #[tokio::test]
 async fn test_event_with_context() -> Result<()> {
@@ -370,7 +485,7 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
     // point.
     loop {
         if let LatestEventValue::Remote(timeline_event) = room1.latest_event() {
-            if timeline_event.event_id().as_ref() == Some(&edit_event_id) {
+            if timeline_event.event_id() == Some(edit_event_id.as_ref()) {
                 let message_event = timeline_event
                     .raw()
                     .deserialize_as_unchecked::<OriginalSyncRoomMessageEvent>()?;
@@ -401,7 +516,7 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
 
     let sync_service2 = SyncService::builder(alice2.clone()).build().await?;
 
-    sync_service2.room_list_service().subscribe_to_rooms(&[&room_id]).await;
+    sync_service2.room_list_service().set_room_subscriptions(&[&room_id]).await;
     sync_service2.start().await;
 
     alice2.encryption().wait_for_e2ee_initialization_tasks().await;
@@ -422,9 +537,9 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
     // Last two events in the room cache should be UTDs.
     let timeline_tail = events.iter().rev().take(2).collect::<Vec<_>>();
     // Note: events are reverted, because of .rev().
-    assert_eq!(timeline_tail[0].event_id().as_ref(), Some(&edit_event_id));
+    assert_eq!(timeline_tail[0].event_id(), Some(edit_event_id.as_ref()));
     assert!(timeline_tail[0].kind.is_utd());
-    assert_eq!(timeline_tail[1].event_id().as_ref(), Some(&original_event_id));
+    assert_eq!(timeline_tail[1].event_id(), Some(original_event_id.as_ref()));
     assert!(timeline_tail[1].kind.is_utd());
 
     // The unread counts should be incorrect.
@@ -452,8 +567,8 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
     // Last two events in the room cache should now be decrypted!
     let timeline_tail = events.iter().rev().take(2).collect::<Vec<_>>();
     // Note: events are reverted, because of .rev().
-    assert_eq!(timeline_tail[0].event_id().as_ref(), Some(&edit_event_id));
-    assert_eq!(timeline_tail[1].event_id().as_ref(), Some(&original_event_id));
+    assert_eq!(timeline_tail[0].event_id(), Some(edit_event_id.as_ref()));
+    assert_eq!(timeline_tail[1].event_id(), Some(original_event_id.as_ref()));
     assert!(timeline_tail[0].kind.is_utd().not());
     assert!(timeline_tail[1].kind.is_utd().not());
 
@@ -557,7 +672,7 @@ async fn test_latest_event_few_rooms() -> Result<()> {
         if run_loop {
             loop {
                 assert_let_timeout!(Duration::from_secs(5), Some(latest_event) = room_sub.next());
-                if matches!(latest_event, LatestEventValue::Remote(event) if event.event_id().as_deref() == Some(event_id))
+                if matches!(latest_event, LatestEventValue::Remote(event) if event.event_id() == Some(event_id))
                 {
                     break;
                 }
@@ -573,7 +688,7 @@ async fn test_latest_event_few_rooms() -> Result<()> {
     sleep(Duration::from_secs(1)).await;
     while let Some(Some(up)) = room2_sub.next().now_or_never() {
         assert_let!(LatestEventValue::Remote(event) = up);
-        assert_eq!(event.event_id().as_ref(), Some(&room2_msg_event_id));
+        assert_eq!(event.event_id(), Some(room2_msg_event_id.as_ref()));
     }
 
     bob_sync_service.stop().await;
@@ -622,7 +737,7 @@ async fn test_latest_event_few_rooms() -> Result<()> {
     //warn!("Subscribing to rooms on second client…");
     //bob2_sync_service
     //.room_list_service()
-    //.subscribe_to_rooms(&[room1.room_id(), room2.room_id()])
+    //.set_room_subscriptions(&[room1.room_id(), room2.room_id()])
     //.await;
 
     //// Wait for a bit, for a sync response to be returned.
@@ -652,6 +767,149 @@ async fn test_latest_event_few_rooms() -> Result<()> {
 
     debug!("Running check for second client, room2");
     assert_latest_event_is_remote_event(&room2, &mut room2_sub, &room2_msg_event_id).await;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_invite_declined_and_later_accepted() -> Result<()> {
+    // Test plan:
+    // 1. Alice creates a room
+    // 2. Alice invites Bob
+    // 3. Bob declines the invite
+    // 4. Alice invites Bob again
+    // 5. Bob accepts the invite
+
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
+
+    let alice_user_id = alice.user_id().unwrap().to_owned();
+    let bob_user_id = bob.user_id().unwrap().to_owned();
+
+    alice.event_cache().subscribe()?;
+    bob.event_cache().subscribe()?;
+
+    // Step 1, Alice creates a room.
+    let (alice_room, event_id) = {
+        let room = alice
+            .create_room(assign!(CreateRoomRequest::new(), {
+                is_direct: true,
+            }))
+            .await?;
+
+        let event_id =
+            room.send(RoomMessageEventContent::text_plain("hello")).await?.response.event_id;
+
+        // Sync to receive the first `JoinedRoomUpdate`.
+        alice.sync_once(Default::default()).await?;
+
+        (room, event_id)
+    };
+
+    // Step 2, Alice invites Bob.
+    {
+        alice_room.invite_user_by_id(&bob_user_id).await?;
+
+        // Alice sees Bob as a member of the room!
+        let members = wait_until_some(
+            async |_| {
+                alice.sync_once(Default::default()).await.ok()?;
+                let members = alice_room.members_no_sync(RoomMemberships::INVITE).await.ok()?;
+
+                if members.is_empty() { None } else { Some(members) }
+            },
+            Duration::from_secs(5),
+        )
+        .await?;
+
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].user_id(), bob_user_id);
+    }
+
+    // Step 3, Bob declines the invite.
+    {
+        let room_id = wait_until_some(
+            async |_| {
+                let mut sync_response = bob.sync_once(Default::default()).await.ok()?;
+
+                Some(sync_response.rooms.invited.first_entry()?.key().to_owned())
+            },
+            Duration::from_secs(5),
+        )
+        .await?;
+
+        // Ensure we are talking about the same room.
+        assert_eq!(room_id, alice_room.room_id());
+
+        // Bob declines the invite.
+        let room = bob.get_room(&room_id).unwrap();
+        room.leave().await?;
+        bob.sync_once(Default::default()).await?;
+
+        // Alice no longer sees Bob as a member of the room.
+        alice.sync_once(Default::default()).await?;
+        assert!(alice_room.members_no_sync(RoomMemberships::INVITE).await?.is_empty());
+    }
+
+    // Step 4, Alice invites Bob again.
+    {
+        alice_room.invite_user_by_id(&bob_user_id).await?;
+
+        // Alice sees Bob as a member of the room!
+        alice.sync_once(Default::default()).await?;
+        let members = alice_room.members_no_sync(RoomMemberships::INVITE).await?;
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].user_id(), bob_user_id);
+    }
+
+    // Step 5, Bob accepts the invite!
+    {
+        let room_id = wait_until_some(
+            async |_| {
+                let mut sync_response = bob.sync_once(Default::default()).await.ok()?;
+
+                Some(sync_response.rooms.invited.first_entry()?.key().to_owned())
+            },
+            Duration::from_secs(5),
+        )
+        .await?;
+
+        // Ensure we are talking about the same room.
+        assert_eq!(room_id, alice_room.room_id());
+
+        // Bob accepts the invite!
+        let room = bob.get_room(&room_id).unwrap();
+        room.join().await?;
+
+        // Alice sees Bob.
+        {
+            alice.sync_once(Default::default()).await?;
+            let members = alice_room.members_no_sync(RoomMemberships::JOIN).await?;
+            assert_eq!(members.len(), 2);
+            assert_eq!(members[0].user_id(), alice_user_id);
+            assert_eq!(members[1].user_id(), bob_user_id);
+        }
+
+        // Bob sees Alice.
+        {
+            let members = room.members(RoomMemberships::JOIN).await?;
+            assert_eq!(members.len(), 2);
+            assert_eq!(members[0].user_id(), alice_user_id);
+            assert_eq!(members[1].user_id(), bob_user_id);
+        }
+
+        // Bob can open the timeline and can see the event from Alice.
+        let timeline = TimelineBuilder::new(&room).build().await?;
+
+        // The event sent by Alice is not here yet. Be patient.
+        assert!(timeline.item_by_event_id(&event_id).await.is_none());
+
+        // Let's paginate… and…
+        timeline.paginate_backwards(42).await?;
+
+        // … event is here!
+        assert!(timeline.item_by_event_id(&event_id).await.is_some());
+    }
 
     Ok(())
 }

@@ -294,6 +294,12 @@ impl CryptoStore for MemoryStore {
                 let id = key_request.request_id.clone();
                 let info_string = encode_key_info(&key_request.info);
 
+                // If we have an old request for the same key/secret, remove it.
+                if let Some(old_id) = key_requests_by_info.get(&info_string) {
+                    outgoing_key_requests.remove(old_id);
+                    key_requests_by_info.remove(&info_string);
+                }
+
                 outgoing_key_requests.insert(id.clone(), key_request);
                 key_requests_by_info.insert(info_string, id);
             }

@@ -31,14 +31,12 @@ use ruma::{
     OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
     api::client::{
         dehydrated_device::{DehydratedDeviceData, DehydratedDeviceV2},
-        keys::{
-            upload_keys,
-            upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
-        },
+        keys::{upload_keys, upload_signatures::v3::Request as SignatureUploadRequest},
     },
     canonical_json::to_canonical_value,
     events::{AnyToDeviceEvent, room::history_visibility::HistoryVisibility},
     serde::Raw,
+    uint,
 };
 use serde::{Deserialize, Serialize, de::Error};
 use serde_json::value::{RawValue as RawJsonValue, to_raw_value};
@@ -59,6 +57,8 @@ use super::{
 };
 #[cfg(feature = "experimental-algorithms")]
 use crate::types::events::room::encrypted::OlmV2Curve25519AesSha2Content;
+#[cfg(feature = "experimental-x509-identity-verification")]
+use crate::x509::{RawX509Signer, X509Signer};
 use crate::{
     DecryptionSettings, Device, OlmError, SignatureError, TrustRequirement,
     dehydrated_devices::DehydrationError,
@@ -70,7 +70,7 @@ use crate::{
         types::{Changes, DeviceChanges},
     },
     types::{
-        CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, OneTimeKey, SignedKey,
+        CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, OneTimeKey, SignedKey,
         events::{
             olm_v1::AnyDecryptedOlmEvent,
             room::encrypted::{
@@ -528,13 +528,40 @@ impl Account {
         self.inner.max_number_of_one_time_keys()
     }
 
+    /// Update the number of one-time keys we consider to have available on the
+    /// server.
+    ///
+    /// # Arguments
+    ///
+    /// * `one_time_key_counts` - The number of one-time keys the homeserver
+    ///   told us we have available.
+    /// * `unused_fallback_keys` - The list of unused fallback keys we have on
+    ///   the homeserver. `None` means that the homeserver doesn't support
+    ///   fallback keys.
+    /// * `is_missing_count_zero` - A boolean telling us how to interpret the
+    ///   `one_time_key_counts` argument. Namely the semantics for the one-time
+    ///   key counts differs between sync v2 and sliding sync as defined in
+    ///   [MSC4186]. For classic sync a missing count should be interpreted as
+    ///   zero one-time keys on the homeserver, while for sliding sync it just
+    ///   means no change since the last sync.
     pub(crate) fn update_key_counts(
         &mut self,
         one_time_key_counts: &BTreeMap<OneTimeKeyAlgorithm, UInt>,
         unused_fallback_keys: Option<&[OneTimeKeyAlgorithm]>,
+        is_missing_count_zero: bool,
     ) {
-        if let Some(count) = one_time_key_counts.get(&OneTimeKeyAlgorithm::SignedCurve25519) {
-            let count: u64 = (*count).into();
+        let count = if is_missing_count_zero {
+            Some(
+                one_time_key_counts
+                    .get(&OneTimeKeyAlgorithm::SignedCurve25519)
+                    .copied()
+                    .unwrap_or(uint!(0)),
+            )
+        } else {
+            one_time_key_counts.get(&OneTimeKeyAlgorithm::SignedCurve25519).copied()
+        };
+
+        if let Some(count) = count.map(Into::into) {
             let old_count = self.uploaded_key_count();
 
             // Some servers might always return the key counts in the sync
@@ -817,17 +844,28 @@ impl Account {
     ///   this device to the server.
     pub async fn bootstrap_cross_signing(
         &self,
-    ) -> (PrivateCrossSigningIdentity, UploadSigningKeysRequest, SignatureUploadRequest) {
-        let identity = PrivateCrossSigningIdentity::for_account(self);
+        #[cfg(feature = "experimental-x509-identity-verification")] x509_signer: Option<
+            Arc<dyn RawX509Signer>,
+        >,
+    ) -> Result<
+        (PrivateCrossSigningIdentity, UploadSigningKeysRequest, SignatureUploadRequest),
+        SignatureError,
+    > {
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        let x509_signer = x509_signer.map(X509Signer::new);
 
-        let signature_request = identity
-            .sign_account(self.static_data())
-            .await
-            .expect("Can't sign own device with new cross signing keys");
+        let identity = PrivateCrossSigningIdentity::for_account(
+            self,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_signer.as_ref(),
+        )
+        .await?;
+
+        let signature_request = identity.sign_account(self.static_data()).await?;
 
         let upload_request = identity.as_upload_request().await;
 
-        (identity, upload_request, signature_request)
+        Ok((identity, upload_request, signature_request))
     }
 
     /// Sign the given CrossSigning Key in place
@@ -844,25 +882,6 @@ impl Account {
         );
 
         Ok(())
-    }
-
-    /// Sign the given Master Key
-    pub fn sign_master_key(
-        &self,
-        master_key: &MasterPubkey,
-    ) -> Result<SignatureUploadRequest, SignatureError> {
-        let public_key =
-            master_key.get_first_key().ok_or(SignatureError::MissingSigningKey)?.to_base64().into();
-
-        let mut cross_signing_key: CrossSigningKey = master_key.as_ref().clone();
-        cross_signing_key.signatures.clear();
-        self.sign_cross_signing_key(&mut cross_signing_key)?;
-
-        let mut user_signed_keys = SignedKeys::new();
-        user_signed_keys.add_cross_signing_keys(public_key, cross_signing_key.to_raw());
-
-        let signed_keys = [(self.user_id().to_owned(), user_signed_keys)].into();
-        Ok(SignatureUploadRequest::new(signed_keys))
     }
 
     /// Convert a JSON value to the canonical representation and sign the JSON
@@ -1293,7 +1312,7 @@ impl Account {
         // First mark the current keys as published, as updating the key counts might
         // generate some new keys if we're still below the limit.
         self.mark_keys_as_published();
-        self.update_key_counts(&response.one_time_key_counts, None);
+        self.update_key_counts(&response.one_time_key_counts, None, false);
 
         Ok(())
     }
@@ -2009,7 +2028,7 @@ mod tests {
 
         // A `None` here means that the server doesn't support fallback keys, no
         // fallback key gets uploaded.
-        account.update_key_counts(&one_time_keys, None);
+        account.update_key_counts(&one_time_keys, None, false);
         let (_, _, fallback_keys) = account.keys_for_upload();
         assert!(
             fallback_keys.is_empty(),
@@ -2021,7 +2040,7 @@ mod tests {
         // there isn't a unused fallback key on the server. This time we upload
         // a fallback key.
         let unused_fallback_keys = &[];
-        account.update_key_counts(&one_time_keys, Some(unused_fallback_keys.as_ref()));
+        account.update_key_counts(&one_time_keys, Some(unused_fallback_keys.as_ref()), false);
         let (_, _, fallback_keys) = account.keys_for_upload();
         assert!(
             !fallback_keys.is_empty(),
@@ -2032,7 +2051,7 @@ mod tests {
         // There's no unused fallback key on the server, but our initial fallback key
         // did not yet expire.
         let unused_fallback_keys = &[];
-        account.update_key_counts(&one_time_keys, Some(unused_fallback_keys.as_ref()));
+        account.update_key_counts(&one_time_keys, Some(unused_fallback_keys.as_ref()), false);
         let (_, _, fallback_keys) = account.keys_for_upload();
         assert!(
             fallback_keys.is_empty(),
@@ -2046,7 +2065,7 @@ mod tests {
         account.fallback_creation_timestamp =
             Some(MilliSecondsSinceUnixEpoch::from_system_time(fallback_key_timestamp).unwrap());
 
-        account.update_key_counts(&one_time_keys, None);
+        account.update_key_counts(&one_time_keys, None, false);
         let (_, _, fallback_keys) = account.keys_for_upload();
         assert!(
             !fallback_keys.is_empty(),

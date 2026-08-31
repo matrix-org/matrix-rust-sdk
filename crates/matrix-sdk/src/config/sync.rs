@@ -62,7 +62,7 @@ pub struct SyncSettings {
     pub(crate) ignore_timeout_on_first_sync: bool,
     pub(crate) token: SyncToken,
     pub(crate) full_state: bool,
-    pub(crate) set_presence: PresenceState,
+    pub(crate) set_presence: Option<PresenceState>,
 }
 
 impl Default for SyncSettings {
@@ -87,7 +87,7 @@ impl fmt::Debug for SyncSettings {
             .maybe_field("timeout", timeout)
             .field("ignore_timeout_on_first_sync", ignore_timeout_on_first_sync)
             .field("full_state", full_state)
-            .field("set_presence", set_presence)
+            .maybe_field("set_presence", set_presence)
             .finish()
     }
 }
@@ -102,7 +102,7 @@ impl SyncSettings {
             ignore_timeout_on_first_sync: false,
             token: SyncToken::default(),
             full_state: false,
-            set_presence: PresenceState::Online,
+            set_presence: None,
         }
     }
 
@@ -182,21 +182,31 @@ impl SyncSettings {
         self
     }
 
-    /// Set the presence state
+    /// Override the presence state for this classic `/sync` request.
+    ///
+    /// If this is not set, the request uses the client-owned sync presence
+    /// value configured with [`Client::set_presence`]. The client default is
+    /// [`PresenceState::Online`].
     ///
     /// `PresenceState::Online` - The client is marked as being online. This is
-    /// the default preset.
+    /// the active preset and client default.
     ///
     /// `PresenceState::Offline` - The client is not marked as being online.
     ///
-    /// `PresenceState::Unavailable` - The client is marked as being idle.
+    /// `PresenceState::Unavailable` - The client is marked as being idle. This
+    /// is the idle preset.
+    ///
+    /// Sliding Sync requests do not use this per-request setting; they read the
+    /// client-owned sync presence value directly.
     ///
     /// # Arguments
     /// * `set_presence` - The `PresenceState` that the server should set for
     ///   the client.
+    ///
+    /// [`Client::set_presence`]: crate::Client::set_presence
     #[must_use]
     pub fn set_presence(mut self, presence: PresenceState) -> Self {
-        self.set_presence = presence;
+        self.set_presence = Some(presence);
         self
     }
 }

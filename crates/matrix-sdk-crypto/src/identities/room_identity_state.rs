@@ -139,45 +139,42 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
         // Ignore redacted events - memberships should come through as new events, not
         // redactions.
         if let SyncStateEvent::Original(event) = sync_room_member_event.deref() {
-            // Ignore invalid user IDs
-            let user_id: Result<&UserId, _> = event.state_key.as_str().try_into();
-            if let Ok(user_id) = user_id {
-                // Ignore non-existent users, and changes to our own identity
-                if let Some(user_identity @ UserIdentity::Other(_)) =
-                    self.room.user_identity(user_id).await
-                {
-                    // Don't notify on membership changes of verified or pinned identities
-                    if matches!(
-                        self.room.state_of(&user_identity),
-                        IdentityState::Verified | IdentityState::Pinned
-                    ) {
-                        return vec![];
-                    }
+            let user_id = &event.state_key;
+            // Ignore non-existent users, and changes to our own identity
+            if let Some(user_identity @ UserIdentity::Other(_)) =
+                self.room.user_identity(user_id).await
+            {
+                // Don't notify on membership changes of verified or pinned identities
+                if matches!(
+                    self.room.state_of(&user_identity),
+                    IdentityState::Verified | IdentityState::Pinned
+                ) {
+                    return vec![];
+                }
 
-                    match event.content.membership {
-                        MembershipState::Join | MembershipState::Invite => {
-                            // They are joining the room - check whether we need to display a
-                            // warning to the user
-                            if let Some(update) = self.update_user_state(user_id, &user_identity) {
-                                return vec![update];
-                            }
+                match event.content.membership {
+                    MembershipState::Join | MembershipState::Invite => {
+                        // They are joining the room - check whether we need to display a
+                        // warning to the user
+                        if let Some(update) = self.update_user_state(user_id, &user_identity) {
+                            return vec![update];
                         }
-                        MembershipState::Leave | MembershipState::Ban => {
-                            // They are leaving the room - treat that as if they are becoming
-                            // Pinned, which means the UI will remove any banner it was displaying
-                            // for them.
-
-                            if let Some(update) =
-                                self.update_user_state_to(user_id, IdentityState::Pinned)
-                            {
-                                return vec![update];
-                            }
-                        }
-                        MembershipState::Knock => {
-                            // No need to do anything when someone is knocking
-                        }
-                        _ => {}
                     }
+                    MembershipState::Leave | MembershipState::Ban => {
+                        // They are leaving the room - treat that as if they are becoming
+                        // Pinned, which means the UI will remove any banner it was displaying
+                        // for them.
+
+                        if let Some(update) =
+                            self.update_user_state_to(user_id, IdentityState::Pinned)
+                        {
+                            return vec![update];
+                        }
+                    }
+                    MembershipState::Knock => {
+                        // No need to do anything when someone is knocking
+                    }
+                    _ => {}
                 }
             }
         }
@@ -1111,8 +1108,15 @@ mod tests {
         let device_id = owned_device_id!("DEV123");
         let account = Account::with_device_id(user_id, &device_id);
 
-        let private_identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::for_account(&account)));
+        let private_identity = Arc::new(Mutex::new(
+            PrivateCrossSigningIdentity::for_account(
+                &account,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
+            )
+            .await
+            .unwrap(),
+        ));
 
         let other_user_identity_data =
             OtherUserIdentityData::from_private(&*private_identity.lock().await).await;
@@ -1131,6 +1135,8 @@ mod tests {
                     MemoryStore::new(),
                 )),
             ),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier: None,
         })
     }
 
@@ -1151,8 +1157,15 @@ mod tests {
         let device_id = owned_device_id!("DEV123");
         let account = Account::with_device_id(user_id, &device_id);
 
-        let private_identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::for_account(&account)));
+        let private_identity = Arc::new(Mutex::new(
+            PrivateCrossSigningIdentity::for_account(
+                &account,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
+            )
+            .await
+            .unwrap(),
+        ));
 
         let own_user_identity_data =
             OwnUserIdentityData::from_private(&*private_identity.lock().await).await;

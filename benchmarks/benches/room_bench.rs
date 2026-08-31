@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use std::time::Duration;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
@@ -176,7 +178,7 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
                 .unwrap()
                 .as_clean()
                 .unwrap()
-                .clear_all_linked_chunks()
+                .clear_all_events(None)
                 .await
                 .unwrap();
 

@@ -15,7 +15,9 @@
 use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk_base::crypto::types::events::UtdCause;
-use ruma::events::{MessageLikeEventContent, room::MediaSource as RumaMediaSource};
+use ruma::events::{
+    MessageLikeEventContent, MessageLikeEventType, room::MediaSource as RumaMediaSource,
+};
 
 use super::{
     content::{BeaconInfo, LiveLocationContent, Reaction},
@@ -23,7 +25,6 @@ use super::{
 };
 use crate::{
     error::ClientError,
-    event::MessageLikeEventType,
     ruma::{ImageInfo, MediaSource, MediaSourceExt, Mentions, MessageType, PollKind},
     timeline::content::ReactionSenderData,
     utils::Timestamp,
@@ -194,7 +195,7 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
             },
             Kind::Other(other) => Self {
                 kind: MsgLikeKind::Other {
-                    event_type: MessageLikeEventType::Other(other.event_type().to_string()),
+                    event_type: MessageLikeEventType::from(other.event_type().to_string()),
                 },
                 reactions,
                 in_reply_to,

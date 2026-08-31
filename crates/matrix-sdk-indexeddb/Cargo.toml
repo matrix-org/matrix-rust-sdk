@@ -1,12 +1,15 @@
 [package]
 name = "matrix-sdk-indexeddb"
-version = "0.17.0"
+version = "0.18.0"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 description = "Web's IndexedDB Storage backend for matrix-sdk"
 license = "Apache-2.0"
 edition = "2024"
 rust-version.workspace = true
 readme = "README.md"
+
+[package.metadata.cargo-machete]
+ignored = ["serde_bytes"] # Used in the indexed types, by the IndexedMediaContentData (aka media content).
 
 [package.metadata.docs.rs]
 all-features = true
@@ -50,6 +53,7 @@ matrix-sdk-store-encryption.workspace = true
 rmp-serde.workspace = true
 ruma.workspace = true
 serde.workspace = true
+serde_bytes.workspace = true
 serde-wasm-bindgen = { version = "0.6.5", default-features = false }
 serde_json.workspace = true
 sha2.workspace = true

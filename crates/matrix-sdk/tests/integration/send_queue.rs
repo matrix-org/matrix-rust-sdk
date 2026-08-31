@@ -1538,13 +1538,14 @@ async fn test_unrecoverable_errors() {
 
     mock.mock_room_state_encryption().plain().mount().await;
 
-    // Respond to the first /send with an unrecoverable error.
+    // Respond to the first /send with an unrecoverable error. The success mock for
+    // the second message is only mounted after the wedged message gets cancelled,
+    // so a request sneaking past the wedge fails loudly regardless of timing.
     mock.mock_room_send().error_too_large().mock_once().mount().await;
-    // Respond to the second /send with an OK response.
-    mock.mock_room_send().ok(event_id!("$42")).mock_once().mount().await;
 
     // Queue two messages.
-    q.send(RoomMessageEventContent::text_plain("i'm too big for ya").into()).await.unwrap();
+    let handle1 =
+        q.send(RoomMessageEventContent::text_plain("i'm too big for ya").into()).await.unwrap();
     q.send(RoomMessageEventContent::text_plain("aloha").into()).await.unwrap();
 
     // First message is seen as a local echo.
@@ -1567,6 +1568,15 @@ async fn test_unrecoverable_errors() {
     // The permanent error disables the room send queue.
     assert!(!room.send_queue().is_enabled());
     room.send_queue().set_enabled(true);
+
+    // The second message is NOT sent: the wedged first message blocks the queue, so
+    // messages aren't sent out of order. Its success mock is only mounted below, so
+    // a request sneaking past the wedge fails loudly.
+    //
+    // Cancelling the wedged message unblocks the queue.
+    mock.mock_room_send().ok(event_id!("$42")).mock_once().mount().await;
+    assert!(handle1.abort().await.unwrap());
+    assert_update!((global_watch, watch) => cancelled { txn = txn1 });
 
     // The second message will be properly sent.
     assert_update!((global_watch, watch) => sent { txn=txn2, event_id=event_id!("$42") });
@@ -1971,7 +1981,7 @@ async fn test_redaction() {
     assert_eq!(up.diffs.len(), 1);
     assert_let!(VectorDiff::Append { values } = &up.diffs[0]);
     assert_eq!(values.len(), 1);
-    assert_eq!(values[0].event_id().as_deref().unwrap(), msg_event_id);
+    assert_eq!(values[0].event_id().unwrap(), msg_event_id);
 
     // ----------------------
     // Send a redaction for the event.
@@ -1999,7 +2009,7 @@ async fn test_redaction() {
     // The redaction event itself is added.
     assert_let!(VectorDiff::Append { values } = &up.diffs[0]);
     assert_eq!(values.len(), 1);
-    assert_eq!(values[0].event_id().as_deref().unwrap(), redaction_event_id);
+    assert_eq!(values[0].event_id().unwrap(), redaction_event_id);
     // The target event is now redacted.
     assert_let!(VectorDiff::Set { index: 1, value: redacted_event } = &up.diffs[1]);
     let ev = redacted_event.raw().deserialize().unwrap();
@@ -2173,23 +2183,6 @@ async fn test_media_uploads() {
             &MediaRequestParameters {
                 source: local_thumbnail_source.clone(),
                 format: MediaFormat::File,
-            },
-            true,
-        )
-        .await
-        .expect("media should be found");
-    assert_eq!(thumbnail_media, b"thumbnail");
-
-    // The format should be ignored when requesting a local media.
-    let thumbnail_media = client
-        .media()
-        .get_media_content(
-            &MediaRequestParameters {
-                source: local_thumbnail_source.clone(),
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                    tinfo.width.unwrap(),
-                    tinfo.height.unwrap(),
-                )),
             },
             true,
         )
@@ -2519,23 +2512,6 @@ async fn test_gallery_uploads() {
         .expect("media should be found");
     assert_eq!(thumbnail_media, b"thumbnail");
 
-    // The format should be ignored when requesting a local media.
-    let thumbnail_media = client
-        .media()
-        .get_media_content(
-            &MediaRequestParameters {
-                source: local_thumbnail_source1.clone(),
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                    tinfo.width.unwrap(),
-                    tinfo.height.unwrap(),
-                )),
-            },
-            true,
-        )
-        .await
-        .expect("media should be found");
-    assert_eq!(thumbnail_media, b"thumbnail");
-
     // ----------------------
     // Media 2.
     assert_let!(GalleryItemType::Image(img_content) = gallery_content.itemtypes.get(1).unwrap());
@@ -2587,23 +2563,6 @@ async fn test_gallery_uploads() {
             &MediaRequestParameters {
                 source: local_thumbnail_source2.clone(),
                 format: MediaFormat::File,
-            },
-            true,
-        )
-        .await
-        .expect("media should be found");
-    assert_eq!(thumbnail_media, b"another thumbnail");
-
-    // The format should be ignored when requesting a local media.
-    let thumbnail_media = client
-        .media()
-        .get_media_content(
-            &MediaRequestParameters {
-                source: local_thumbnail_source2.clone(),
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                    tinfo.width.unwrap(),
-                    tinfo.height.unwrap(),
-                )),
             },
             true,
         )
@@ -2757,6 +2716,72 @@ async fn test_gallery_uploads() {
 }
 
 #[async_test]
+async fn test_media_upload_with_extra_content() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+
+    // ----------------------
+    // Create the media to send, with extra content fields.
+    let mut extra_content = serde_json::Map::new();
+    extra_content.insert("com.example.key".to_owned(), json!("@alice:example.org"));
+    // Extra fields must never override the fields of the media event itself.
+    extra_content.insert("body".to_owned(), json!("override attempt"));
+
+    let config = AttachmentConfig::new()
+        .caption(Some(TextMessageEventContent::plain("caption")))
+        .extra_content(Some(extra_content));
+
+    // ----------------------
+    // Prepare endpoints, capturing the body of the send request.
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+    mock.mock_room_state_encryption().plain().mount().await;
+    mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/media")).mock_once().mount().await;
+
+    let sent_body = Arc::new(std::sync::Mutex::new(None));
+    let sent_body_clone = sent_body.clone();
+    mock.mock_room_send()
+        .respond_with(move |req: &Request| {
+            *sent_body_clone.lock().unwrap() =
+                Some(serde_json::from_slice::<serde_json::Value>(&req.body).unwrap());
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$1" }))
+        })
+        .mock_once()
+        .mount()
+        .await;
+
+    // ----------------------
+    // Send the media and wait for it to be sent.
+    q.send_attachment("village.jpg", mime::IMAGE_JPEG, b"hello world".to_vec(), config)
+        .await
+        .expect("queuing the attachment works");
+
+    let (txn, _send_handle, _content) = assert_update!((global_watch, watch) => local echo event);
+    assert_update!((global_watch, watch) => uploaded {
+        related_to = txn,
+        mxc = mxc_uri!("mxc://sdk.rs/media")
+    });
+    assert_update!((global_watch, watch) => edit local echo { txn = txn });
+    assert_update!((global_watch, watch) => sent { txn = txn, event_id = event_id!("$1") });
+
+    // The extra field was included in the sent event, and the media event's own
+    // fields were left untouched.
+    let body = sent_body.lock().unwrap().take().unwrap();
+    assert_eq!(body["com.example.key"], json!("@alice:example.org"));
+    assert_eq!(body["body"], json!("caption"));
+    assert_eq!(body["url"], json!("mxc://sdk.rs/media"));
+}
+
+#[async_test]
 async fn test_media_upload_retry() {
     let mock = MatrixMockServer::new().await;
 
@@ -2854,12 +2879,13 @@ async fn test_media_upload_retry_with_520_http_status_code() {
 
     mock.mock_authenticated_media_config().ok_default().mount().await;
 
-    // Fail with a 520 http status code
+    // Fail with a 520 http status code, for the first three (in-request retry)
+    // attempts.
     mock.mock_upload()
         .expect_mime_type("image/jpeg")
         .respond_with(ResponseTemplate::new(520).set_body_json(json!({})))
-        .up_to_n_times(1)
-        .expect(1)
+        .up_to_n_times(3)
+        .expect(3)
         .mount()
         .await;
 
@@ -2873,11 +2899,40 @@ async fn test_media_upload_retry_with_520_http_status_code() {
     assert_let!(MessageType::Image(img_content) = content.msgtype);
     assert_eq!(img_content.body, filename);
 
-    // Let the upload stumble and the queue disable itself.
-    let error = assert_update!((global_watch, watch) => error { recoverable=false, txn=event_txn });
+    // A 520 is a transient (recoverable) server error: let the upload stumble and
+    // the queue disable itself, keeping the request in the queue.
+    let error = assert_update!((global_watch, watch) => error { recoverable=true, txn=event_txn });
     let error = error.as_client_api_error().unwrap();
     assert_eq!(error.status_code, 520);
     assert!(q.is_enabled().not());
+
+    // Mount the mock for the upload and sending the event.
+    mock.mock_upload()
+        .expect_mime_type("image/jpeg")
+        .ok(mxc_uri!("mxc://sdk.rs/media"))
+        .mock_once()
+        .mount()
+        .await;
+    mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
+
+    // Restarting the send queue retries the upload, which succeeds this time.
+    q.set_enabled(true);
+
+    assert_update!((global_watch, watch) => uploaded {
+        related_to = event_txn,
+        mxc = mxc_uri!("mxc://sdk.rs/media")
+    });
+
+    assert_update!((global_watch, watch) => edit local echo { txn = event_txn });
+
+    // The event is sent, at some point.
+    assert_update!((global_watch, watch) => sent {
+        txn = event_txn,
+        event_id = event_id!("$1")
+    });
+
+    // That's all, folks!
+    assert!(watch.is_empty());
 }
 
 #[async_test]
@@ -2920,6 +2975,13 @@ async fn test_unwedging_media_upload() {
     assert_eq!(error.status_code, 413);
     assert!(!q.is_enabled());
 
+    // The wedged upload is reflected on the media event's local echo: a client
+    // restarting here must see the media as failed, not as still being sent.
+    let (local_echoes, _) = q.subscribe().await.unwrap();
+    assert_eq!(local_echoes.len(), 1);
+    assert_let!(LocalEchoContent::Event { send_error, .. } = &local_echoes[0].content);
+    assert!(send_error.is_some());
+
     // Mount the mock for the upload and sending the event.
     mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/media")).mock_once().mount().await;
     mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
@@ -2946,6 +3008,59 @@ async fn test_unwedging_media_upload() {
 
     // That's all, folks!
     assert!(watch.is_empty());
+}
+
+#[cfg(feature = "unstable-msc4274")]
+#[async_test]
+async fn test_wedged_gallery_upload_error_is_reflected_on_local_echo() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+
+    let mut global_watch = client.send_queue().subscribe();
+
+    // Prepare endpoints.
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // The upload fails with an error indicating the media's too large, wedging it.
+    mock.mock_upload().error_too_large().mock_once().mount().await;
+
+    // Send a single-item gallery, without a thumbnail.
+    let gallery = GalleryConfig::new().add_item(GalleryItemInfo {
+        attachment_info: AttachmentInfo::Image(BaseImageInfo::default()),
+        content_type: mime::IMAGE_JPEG,
+        filename: "surprise.jpeg.exe".into(),
+        data: b"hello world".to_vec(),
+        thumbnail: None,
+        caption: None,
+    });
+
+    assert!(watch.is_empty());
+    q.send_gallery(gallery).await.expect("queuing the gallery works");
+
+    let (event_txn, _send_handle, _content) =
+        assert_update!((global_watch, watch) => local echo event);
+
+    // Although the actual error happens on the file upload transaction id, it must
+    // be reported with the *event* transaction id.
+    let error = assert_update!((global_watch, watch) => error { recoverable=false, txn=event_txn });
+    assert_eq!(error.as_client_api_error().unwrap().status_code, 413);
+    assert!(!q.is_enabled());
+
+    // The wedged upload is reflected on the gallery event's local echo: a client
+    // restarting here must see the gallery as failed, not as still being sent.
+    let (local_echoes, _) = q.subscribe().await.unwrap();
+    assert_eq!(local_echoes.len(), 1);
+    assert_let!(LocalEchoContent::Event { send_error, .. } = &local_echoes[0].content);
+    assert!(send_error.is_some());
 }
 
 /// Aborts an ongoing media upload and checks post-conditions:
@@ -3016,10 +3131,14 @@ async fn test_media_event_is_sent_in_order() {
     {
         // 1. Send a text message that will get wedged.
         mock.mock_room_send().error_too_large().mock_once().mount().await;
-        q.send(RoomMessageEventContent::text_plain("error").into()).await.unwrap();
+        let handle = q.send(RoomMessageEventContent::text_plain("error").into()).await.unwrap();
         let (text_txn, _send_handle) =
             assert_update!((global_watch, watch) => local echo { body = "error" });
         assert_update!((global_watch, watch) => error { recoverable = false, txn = text_txn });
+
+        // The wedged message would block the queue, so cancel it.
+        assert!(handle.abort().await.unwrap());
+        assert_update!((global_watch, watch) => cancelled { txn = text_txn });
     }
 
     // Re-enable the send queue after the permanent error.
@@ -3061,11 +3180,9 @@ async fn test_media_event_is_sent_in_order() {
     // That's all, folks!
     assert!(watch.is_empty());
 
-    // When reopening the send queue, we still see the wedged event.
+    // When reopening the send queue, everything has been sent or cancelled.
     let (local_echoes, _watch) = q.subscribe().await.unwrap();
-    assert_eq!(local_echoes.len(), 1);
-    assert_let!(LocalEchoContent::Event { send_error, .. } = &local_echoes[0].content);
-    assert!(send_error.is_some());
+    assert!(local_echoes.is_empty());
 }
 
 #[async_test]
@@ -4043,7 +4160,7 @@ async fn test_sending_event_still_saves_sync_gap() {
     assert_eq!(up.diffs.len(), 1);
     assert_let!(VectorDiff::Append { values } = &up.diffs[0]);
     assert_eq!(values.len(), 1);
-    assert_eq!(values[0].event_id().as_deref().unwrap(), event_id!("$msg_now"));
+    assert_eq!(values[0].event_id().unwrap(), event_id!("$msg_now"));
 
     // Now, assume that a /sync response comes with only this message as part of the
     // response, and with a previous gap.
@@ -4065,7 +4182,7 @@ async fn test_sending_event_still_saves_sync_gap() {
     assert_eq!(update.diffs.len(), 2);
     assert_let!(VectorDiff::Clear = &update.diffs[0]);
     assert_let!(VectorDiff::Append { values } = &update.diffs[1]);
-    assert_eq!(values[0].event_id().as_deref().unwrap(), event_id!("$msg_now"));
+    assert_eq!(values[0].event_id().unwrap(), event_id!("$msg_now"));
 
     // When paginating with this previous batch token, we should get new events from
     // this room.
@@ -4086,7 +4203,7 @@ async fn test_sending_event_still_saves_sync_gap() {
     assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(update)) = stream.recv());
     assert_eq!(update.diffs.len(), 1);
     assert_let!(VectorDiff::Insert { index: 0, value: event } = &update.diffs[0]);
-    assert_eq!(event.event_id().as_deref().unwrap(), event_id!("$past_msg"));
+    assert_eq!(event.event_id().unwrap(), event_id!("$past_msg"));
 
     assert!(stream.is_empty());
 }

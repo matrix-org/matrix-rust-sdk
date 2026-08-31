@@ -1,6 +1,6 @@
 [package]
 name = "matrix-sdk-ffi"
-version = "0.17.0"
+version = "0.18.0"
 edition = "2024"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ffi"]
@@ -24,8 +24,8 @@ crate-type = [
 ]
 
 [features]
-default = ["bundled-sqlite", "unstable-msc4274", "experimental-element-recent-emojis", "experimental-push-secrets", "experimental-search"]
-experimental-search = ["matrix-sdk/experimental-search"]
+default = ["bundled-sqlite", "unstable-msc4274", "experimental-element-recent-emojis", "experimental-push-secrets", "experimental-search", "rustls-aws-lc-rs"]
+experimental-search = ["matrix-sdk/experimental-search", "matrix-sdk-ui/experimental-search"]
 # Use SQLite for the session storage.
 sqlite = ["matrix-sdk/sqlite"]
 # Use an embedded version of SQLite.
@@ -40,6 +40,13 @@ sentry = ["dep:sentry", "dep:sentry-tracing"]
 
 experimental-element-recent-emojis = ["matrix-sdk/experimental-element-recent-emojis"]
 experimental-push-secrets = ["matrix-sdk/experimental-push-secrets"]
+experimental-x509-identity-verification = ["matrix-sdk-base/experimental-x509-identity-verification", "matrix-sdk/experimental-x509-identity-verification"]
+
+# Disable the minimum rotation period of Megolm sessions (room keys), this is
+# used by complement-crypto, **DO NOT** enable if you're not complement-crypto.
+_only-for-testing-disable-megolm-minimum-rotation-period-ms = ["dep:matrix-sdk-crypto", "matrix-sdk-crypto/_disable-minimum-rotation-period-ms"]
+
+rustls-aws-lc-rs = ["matrix-sdk/rustls-aws-lc-rs", "matrix-sdk-ui/rustls-aws-lc-rs", "matrix-sdk-contentscanner/rustls-aws-lc-rs"]
 
 [dependencies]
 anyhow.workspace = true
@@ -62,7 +69,9 @@ matrix-sdk = { workspace = true, features = [
 matrix-sdk-base.workspace = true
 matrix-sdk-common.workspace = true
 matrix-sdk-ffi-macros.workspace = true
-matrix-sdk-ui = { workspace = true, features = ["uniffi"] }
+matrix-sdk-contentscanner = { workspace = true, features = ["uniffi", "e2e-encryption"] }
+matrix-sdk-ui = { workspace = true, features = ["uniffi", "unstable-msc4426"] }
+matrix-sdk-crypto = { workspace = true, optional = true }
 mime = { version = "0.3.17", default-features = false }
 ruma = { workspace = true, features = [
     "html",
@@ -83,10 +92,9 @@ ruma = { workspace = true, features = [
     "unstable-msc3245",
     # Emote event type
     "unstable-msc3954",
-    # Image pack event type
-    "unstable-msc2545",
     # Room language event type
     "unstable-msc4334",
+    "unstable-uniffi",
 ] }
 serde.workspace = true
 serde_json.workspace = true
@@ -108,6 +116,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url.workspace = true
 uuid = { version = "1.4.1", default-features = false, features = ["std", "v4"] }
 zeroize.workspace = true
+zxcvbn.workspace = true
 oauth2.workspace = true
 
 [target.'cfg(target_family = "wasm")'.dependencies]
@@ -133,7 +142,7 @@ once_cell = "1.21.4"
 jvm-getter = "0.1.0"
 
 [dev-dependencies]
-matrix-sdk = { workspace = true, features = ["testing"] }
+matrix-sdk = { workspace = true, features = ["testing", "rustls-aws-lc-rs"] }
 similar-asserts.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

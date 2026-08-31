@@ -25,7 +25,7 @@ use aes::{
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use hkdf::Hkdf;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, HmacReset, Mac};
 use pbkdf2::pbkdf2;
 use rand::{Rng, rng};
 use sha2::{
@@ -397,7 +397,7 @@ impl EncryptedMmapDirectory {
         encrypted_data: &[u8],
         hmac_key: &[u8],
     ) -> std::io::Result<Hmac<Sha256>> {
-        let mut hmac = <Hmac<Sha256> as Mac>::new_from_slice(hmac_key)
+        let mut hmac = Hmac::<Sha256>::new_from_slice(hmac_key)
             .map_err(|e| IoError::other(format!("error creating hmac: {:?}", e)))?;
         <Hmac<Sha256> as Mac>::update(&mut hmac, &[version]);
         <Hmac<Sha256> as Mac>::update(&mut hmac, iv);
@@ -550,7 +550,7 @@ impl Directory for EncryptedMmapDirectory {
             .read_bytes()
             .map_err(|err| <IoError as IntoTvError<OpenReadError>>::into_tv_err(err, path))?;
 
-        let mut reader = AesReader::<Aes256Ctr, _>::new::<Hmac<Sha256>>(
+        let mut reader = AesReader::<Aes256Ctr, _>::new::<HmacReset<Sha256>>(
             Cursor::new(bytes.as_slice()),
             &self.encryption_key,
             &self.mac_key,
@@ -584,7 +584,7 @@ impl Directory for EncryptedMmapDirectory {
             }
         };
 
-        let writer = AesWriter::<Aes256Ctr, Hmac<Sha256>, _>::new(
+        let writer = AesWriter::<Aes256Ctr, HmacReset<Sha256>, _>::new(
             file,
             &self.encryption_key,
             &self.mac_key,
@@ -597,7 +597,7 @@ impl Directory for EncryptedMmapDirectory {
     fn atomic_read(&self, path: &Path) -> Result<Vec<u8>, OpenReadError> {
         let data = self.mmap_dir.atomic_read(path)?;
 
-        let mut reader = AesReader::<Aes256Ctr, _>::new::<Hmac<Sha256>>(
+        let mut reader = AesReader::<Aes256Ctr, _>::new::<HmacReset<Sha256>>(
             Cursor::new(data),
             &self.encryption_key,
             &self.mac_key,
@@ -616,7 +616,7 @@ impl Directory for EncryptedMmapDirectory {
     fn atomic_write(&self, path: &Path, data: &[u8]) -> std::io::Result<()> {
         let mut encrypted = Vec::new();
         {
-            let mut writer = AesWriter::<Aes256Ctr, Hmac<Sha256>, _>::new(
+            let mut writer = AesWriter::<Aes256Ctr, HmacReset<Sha256>, _>::new(
                 &mut encrypted,
                 &self.encryption_key,
                 &self.mac_key,

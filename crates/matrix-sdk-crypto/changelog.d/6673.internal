@@ -1,0 +1,1 @@
+Move logic for parsing base64-encoded signatures into `Signature`.

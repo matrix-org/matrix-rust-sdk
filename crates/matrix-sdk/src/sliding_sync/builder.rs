@@ -200,6 +200,18 @@ impl SlidingSyncBuilder {
         self
     }
 
+    /// Set the Profiles extension configuration.
+    pub fn with_profiles_extension(mut self, profiles: http::request::Profiles) -> Self {
+        self.extensions.get_or_insert_with(Default::default).profiles = profiles;
+        self
+    }
+
+    /// Unset the Profiles extension configuration.
+    pub fn without_profiles_extension(mut self) -> Self {
+        self.extensions.get_or_insert_with(Default::default).profiles = Default::default();
+        self
+    }
+
     /// Sets a custom timeout duration for the sliding sync polling endpoint.
     ///
     /// This is the maximum time to wait before the sliding sync server returns

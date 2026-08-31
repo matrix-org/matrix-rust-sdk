@@ -34,12 +34,11 @@ The search crate accepts index operations through
 
 ```rust
 use matrix_sdk_search::index::{
-    RoomIndex, RoomIndexOperation,
+    IndexableEvent, RoomIndex, RoomIndexOperation,
     builder::RoomIndexBuilder
 };
-use ruma::events::room::message::OriginalSyncRoomMessageEvent;
 
-async fn add_event(index: &mut RoomIndex, event: OriginalSyncRoomMessageEvent) {
+async fn add_event(index: &mut RoomIndex, event: IndexableEvent) {
     index.execute(RoomIndexOperation::Add(event));
 }
 ```

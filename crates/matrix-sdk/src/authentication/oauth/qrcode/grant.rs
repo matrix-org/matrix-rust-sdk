@@ -36,8 +36,9 @@ use super::{
 use crate::{
     Client,
     authentication::oauth::qrcode::{
-        CheckCodeSender, GeneratedQrProgress, LoginFailureReason, QRCodeGrantLoginError,
-        QrProgress, SecureChannelError,
+        CheckCodeSender, CloneableSender, ContinuationMessage, ContinuationMessageSender,
+        GeneratedQrProgress, LoginFailureReason, QRCodeGrantLoginError, QrProgress,
+        SecureChannelError,
     },
 };
 
@@ -76,7 +77,7 @@ async fn finish_login_grant<Q>(
         message => {
             return Err(QRCodeGrantLoginError::UnexpectedMessage {
                 expected: "m.login.protocol",
-                received: message,
+                received: Box::new(message),
             });
         }
     };
@@ -116,8 +117,29 @@ async fn finish_login_grant<Q>(
             .as_str(),
     )
     .map_err(|e| QRCodeGrantLoginError::Unknown(e.to_string()))?;
-    state.set(GrantLoginProgress::WaitingForAuth { verification_uri });
 
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    state.set(GrantLoginProgress::WaitingForAuth {
+        verification_uri,
+        continuation_sender: ContinuationMessageSender(CloneableSender::new(sender)),
+    });
+
+    // We wait for this device to confirm that the authorization using the
+    // verification URI has succeeded.
+    match receiver.await {
+        Ok(ContinuationMessage::Confirm) => {}
+        Ok(ContinuationMessage::Cancel) | Err(_) => {
+            channel
+                .send_json(QrAuthMessage::LoginFailure {
+                    reason: LoginFailureReason::UserCancelled,
+                    homeserver: None,
+                })
+                .await?;
+            return Err(QRCodeGrantLoginError::LoginFailure {
+                reason: LoginFailureReason::UserCancelled,
+            });
+        }
+    }
     // We send the new device the m.login.protocol_accepted message to let it know
     // that the consent process is in progress.
     // -- MSC4108 OAuth 2.0 login step 4 continued
@@ -140,7 +162,7 @@ async fn finish_login_grant<Q>(
         message => {
             return Err(QRCodeGrantLoginError::UnexpectedMessage {
                 expected: "m.login.success",
-                received: message,
+                received: Box::new(message),
             });
         }
     }
@@ -155,7 +177,7 @@ async fn finish_login_grant<Q>(
         } else {
             // If the deadline hasn't yet passed, give it some time and retry the request.
             if Instant::now() < deadline {
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                matrix_sdk_common::sleep::sleep(Duration::from_millis(500)).await;
                 continue;
             } else {
                 // The deadline has passed. Let's fail the login process.
@@ -196,6 +218,12 @@ pub enum GrantLoginProgress<Q> {
     WaitingForAuth {
         /// A URI to open in a (secure) system browser to verify the new login.
         verification_uri: Url,
+        /// A sender to confirm that the authorization using the verification
+        /// URI has been started in the browser and that the application is
+        /// ready to proceed. This allows applications that suspend or navigate
+        /// away while the verification URI is open to resume the process
+        /// explicitly.
+        continuation_sender: ContinuationMessageSender,
     },
     /// The new device has been granted access and this device is sending the
     /// secrets to it.
@@ -425,6 +453,7 @@ mod test {
         DeviceAlreadyExists,
         DeviceNotCreated,
         InvalidJsonMessage,
+        CancelledWhileWaitingForAuth,
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -453,9 +482,7 @@ mod test {
         .expect("Bob should be able to connect the secure channel");
 
         // Let Alice know about the checkcode so she can verify the channel.
-        check_code_tx
-            .send(bob.check_code().to_digit())
-            .expect("Bob should be able to send the checkcode");
+        check_code_tx.send(bob.check_code()).expect("Bob should be able to send the checkcode");
 
         match behaviour {
             BobBehaviour::UnexpectedMessageInsteadOfLoginProtocol => {
@@ -507,6 +534,27 @@ mod test {
                     .expect("Bob should receive the LoginFailure message from Alice");
                 assert_let!(QrAuthMessage::LoginFailure { reason, .. } = message);
                 assert_matches!(reason, LoginFailureReason::DeviceAlreadyExists);
+
+                return; // Exit.
+            }
+            BobBehaviour::CancelledWhileWaitingForAuth => {
+                // Send the LoginProtocol message.
+                let message = QrAuthMessage::LoginProtocol {
+                    protocol: LoginProtocolType::DeviceAuthorizationGrant,
+                    device_authorization_grant: device_authorization_grant
+                        .expect("Bob needs the device authorization grant"),
+                    device_id: "wjLpTLRqbqBzLs63aYaEv2Boi6cFEbbM/sSRQ2oAKk4".to_owned(),
+                };
+                bob.send_json(message).await.unwrap();
+
+                // Alice cancels while waiting for the authorization and should fail the login
+                // with the appropriate reason.
+                let message = bob
+                    .receive_json()
+                    .await
+                    .expect("Bob should receive the LoginFailure message from Alice");
+                assert_let!(QrAuthMessage::LoginFailure { reason, .. } = message);
+                assert_matches!(reason, LoginFailureReason::UserCancelled);
 
                 return; // Exit.
             }
@@ -682,6 +730,27 @@ mod test {
                     .expect("Bob should receive the LoginFailure message from Alice");
                 assert_let!(QrAuthMessage::LoginFailure { reason, .. } = message);
                 assert_matches!(reason, LoginFailureReason::DeviceAlreadyExists);
+
+                return; // Exit.
+            }
+            BobBehaviour::CancelledWhileWaitingForAuth => {
+                // Send the LoginProtocol message.
+                let message = QrAuthMessage::LoginProtocol {
+                    protocol: LoginProtocolType::DeviceAuthorizationGrant,
+                    device_authorization_grant: device_authorization_grant
+                        .expect("Bob needs the device authorization grant"),
+                    device_id: "wjLpTLRqbqBzLs63aYaEv2Boi6cFEbbM/sSRQ2oAKk4".to_owned(),
+                };
+                bob.send_json(message).await.unwrap();
+
+                // Alice cancels while waiting for the authorization and should fail the login
+                // with the appropriate reason.
+                let message = bob
+                    .receive_json()
+                    .await
+                    .expect("Bob should receive the LoginFailure message from Alice");
+                assert_let!(QrAuthMessage::LoginFailure { reason, .. } = message);
+                assert_matches!(reason, LoginFailureReason::UserCancelled);
 
                 return; // Exit.
             }
@@ -875,7 +944,10 @@ mod test {
                             .await
                             .expect("Alice should be able to forward the checkcode");
                     }
-                    GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
                         assert_matches!(
                             state,
                             GrantLoginProgress::EstablishingSecureChannel(
@@ -883,6 +955,7 @@ mod test {
                             )
                         );
                         assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        continuation_sender.confirm().await.expect("should be able to confirm");
                     }
                     GrantLoginProgress::SyncingSecrets => {
                         assert_matches!(state, GrantLoginProgress::WaitingForAuth { .. });
@@ -1000,15 +1073,19 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                     }
-                    GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
                         assert_matches!(
                             state,
                             GrantLoginProgress::EstablishingSecureChannel(QrProgress { .. })
                         );
                         assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        continuation_sender.confirm().await.expect("should be able to confirm");
                     }
                     GrantLoginProgress::SyncingSecrets => {
                         assert_matches!(state, GrantLoginProgress::WaitingForAuth { .. });
@@ -1129,15 +1206,19 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                     }
-                    GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
                         assert_matches!(
                             state,
                             GrantLoginProgress::EstablishingSecureChannel(QrProgress { .. })
                         );
                         assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        continuation_sender.confirm().await.expect("should be able to confirm");
                     }
                     GrantLoginProgress::SyncingSecrets => {
                         assert_matches!(state, GrantLoginProgress::WaitingForAuth { .. });
@@ -1287,13 +1368,17 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(
-            grant.await,
+        assert_let!(
             Err(QRCodeGrantLoginError::UnexpectedMessage {
                 expected: "m.login.protocol",
-                received: QrAuthMessage::LoginSuccess
-            }),
-            "Alice should abort the login with expected error"
+                received,
+            }) = grant.await,
+            "Alice should abort the login with expected error variant"
+        );
+        assert_matches!(
+            *received,
+            QrAuthMessage::LoginSuccess,
+            "Alice should abort the login with expected error message"
         );
         updates_task.await.expect("Alice should run through all progress states");
         bob_task.await.expect("Bob's task should finish");
@@ -1369,7 +1454,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                         break;
                     }
@@ -1398,13 +1483,17 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(
-            grant.await,
+        assert_let!(
             Err(QRCodeGrantLoginError::UnexpectedMessage {
                 expected: "m.login.protocol",
-                received: QrAuthMessage::LoginSuccess
-            }),
-            "Alice should abort the login with expected error"
+                received,
+            }) = grant.await,
+            "Alice should abort the login with expected error variant"
+        );
+        assert_matches!(
+            *received,
+            QrAuthMessage::LoginSuccess,
+            "Alice should abort the login with expected error message"
         );
         updates_task.await.expect("Alice should run through all progress states");
         bob_task.await.expect("Bob's task should finish");
@@ -1619,7 +1708,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                     }
                     _ => {
@@ -1755,7 +1844,10 @@ mod test {
                             .await
                             .expect("Alice should be able to forward the checkcode");
                     }
-                    GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
                         assert_matches!(
                             state,
                             GrantLoginProgress::EstablishingSecureChannel(
@@ -1763,6 +1855,7 @@ mod test {
                             )
                         );
                         assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        continuation_sender.confirm().await.expect("should be able to confirm");
                     }
                     _ => {
                         panic!("Alice should abort the process");
@@ -1876,15 +1969,19 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                     }
-                    GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
                         assert_matches!(
                             state,
                             GrantLoginProgress::EstablishingSecureChannel(QrProgress { .. })
                         );
                         assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        continuation_sender.confirm().await.expect("should be able to confirm");
                     }
                     _ => {
                         panic!("Alice should abort the process");
@@ -2266,7 +2363,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                         break;
                     }
@@ -2405,7 +2502,10 @@ mod test {
                             .await
                             .expect("Alice should be able to forward the checkcode");
                     }
-                    GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
                         assert_matches!(
                             state,
                             GrantLoginProgress::EstablishingSecureChannel(
@@ -2413,6 +2513,7 @@ mod test {
                             )
                         );
                         assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        continuation_sender.confirm().await.expect("should be able to confirm");
                     }
                     _ => {
                         panic!("Alice should abort the process");
@@ -2531,15 +2632,19 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                     }
-                    GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
                         assert_matches!(
                             state,
                             GrantLoginProgress::EstablishingSecureChannel(QrProgress { .. })
                         );
                         assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        continuation_sender.confirm().await.expect("should be able to confirm");
                     }
                     _ => {
                         panic!("Alice should abort the process");
@@ -2678,7 +2783,10 @@ mod test {
                             .await
                             .expect("Alice should be able to forward the checkcode");
                     }
-                    GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
                         assert_matches!(
                             state,
                             GrantLoginProgress::EstablishingSecureChannel(
@@ -2686,6 +2794,7 @@ mod test {
                             )
                         );
                         assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        continuation_sender.confirm().await.expect("should be able to confirm");
                     }
                     _ => {
                         panic!("Alice should abort the process");
@@ -2711,13 +2820,17 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(
-            grant.await,
+        assert_let!(
             Err(QRCodeGrantLoginError::UnexpectedMessage {
                 expected: "m.login.success",
-                received: QrAuthMessage::LoginProtocolAccepted
-            }),
-            "Alice should abort the login with expected error"
+                received,
+            }) = grant.await,
+            "Alice should abort the login with expected error variant"
+        );
+        assert_matches!(
+            *received,
+            QrAuthMessage::LoginProtocolAccepted,
+            "Alice should abort the login with expected error message"
         );
         updates_task.await.expect("Alice should run through all progress states");
         bob_task.await.expect("Bob's task should finish");
@@ -2805,15 +2918,19 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                     }
-                    GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
                         assert_matches!(
                             state,
                             GrantLoginProgress::EstablishingSecureChannel(QrProgress { .. })
                         );
                         assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        continuation_sender.confirm().await.expect("should be able to confirm");
                     }
                     _ => {
                         panic!("Alice should abort the process");
@@ -2840,13 +2957,17 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(
-            grant.await,
+        assert_let!(
             Err(QRCodeGrantLoginError::UnexpectedMessage {
                 expected: "m.login.success",
-                received: QrAuthMessage::LoginProtocolAccepted
-            }),
-            "Alice should abort the login with expected error"
+                received,
+            }) = grant.await,
+            "Alice should abort the login with expected error variant"
+        );
+        assert_matches!(
+            *received,
+            QrAuthMessage::LoginProtocolAccepted,
+            "Alice should abort the login with expected error message"
         );
         updates_task.await.expect("Alice should run through all progress states");
         bob_task.await.expect("Bob's task should finish");
@@ -3045,7 +3166,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                         break;
                     }
@@ -3078,6 +3199,283 @@ mod test {
             grant.await,
             Err(QRCodeGrantLoginError::SecureChannel(SecureChannelError::Json(_))),
             "Alice should abort the login with a SecureChannel error"
+        );
+        updates_task.await.expect("Alice should run through all progress states");
+        bob_task.await.expect("Bob's task should finish");
+    }
+
+    #[async_test]
+    async fn test_grant_login_with_generated_qr_code_cancelled_while_waiting_for_auth() {
+        let server = MatrixMockServer::new().await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await;
+        debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
+
+        let device_authorization_grant = AuthorizationGrant {
+            verification_uri_complete: Some(VerificationUriComplete::new(
+                "https://id.matrix.org/device/abcde".to_owned(),
+            )),
+            verification_uri: EndUserVerificationUrl::new(
+                "https://id.matrix.org/device/abcde?code=ABCDE".to_owned(),
+            )
+            .unwrap(),
+        };
+
+        server.mock_upload_keys().ok().expect(1).named("upload_keys").mount().await;
+        server
+            .mock_upload_cross_signing_keys()
+            .ok()
+            .expect(1)
+            .named("upload_xsigning_keys")
+            .mount()
+            .await;
+        server
+            .mock_upload_cross_signing_signatures()
+            .ok()
+            .expect(1)
+            .named("upload_xsigning_signatures")
+            .mount()
+            .await;
+
+        // Create the existing client (Alice).
+        let user_id = owned_user_id!("@alice:example.org");
+        let device_id = owned_device_id!("ALICE_DEVICE");
+        let alice = server
+            .client_builder_for_crypto_end_to_end(&user_id, &device_id)
+            .logged_in_with_oauth()
+            .build()
+            .await;
+        alice
+            .encryption()
+            .bootstrap_cross_signing(None)
+            .await
+            .expect("Alice should be able to set up cross signing");
+
+        // Prepare the login granting future.
+        let oauth = alice.oauth();
+        let grant = oauth
+            .grant_login_with_qr_code()
+            .device_creation_timeout(Duration::from_secs(2))
+            .generate();
+        let (qr_code_tx, qr_code_rx) = oneshot::channel();
+        let (checkcode_tx, checkcode_rx) = oneshot::channel();
+
+        // Spawn the updates task.
+        let mut updates = grant.subscribe_to_progress();
+        let mut state = grant.state.get();
+        let verification_uri_complete =
+            device_authorization_grant.clone().verification_uri_complete.unwrap().into_secret();
+        assert_matches!(state.clone(), GrantLoginProgress::Starting);
+        let updates_task = spawn(async move {
+            let mut qr_code_tx = Some(qr_code_tx);
+            let mut checkcode_rx = Some(checkcode_rx);
+
+            while let Some(update) = updates.next().await {
+                match &update {
+                    GrantLoginProgress::Starting => {
+                        assert_matches!(state, GrantLoginProgress::Starting);
+                    }
+                    GrantLoginProgress::EstablishingSecureChannel(
+                        GeneratedQrProgress::QrReady(qr_code_data),
+                    ) => {
+                        assert_matches!(state, GrantLoginProgress::Starting);
+                        qr_code_tx
+                            .take()
+                            .expect("The QR code should only be forwarded once")
+                            .send(qr_code_data.clone())
+                            .expect("Alice should be able to forward the QR code");
+                    }
+                    GrantLoginProgress::EstablishingSecureChannel(
+                        GeneratedQrProgress::QrScanned(checkcode_sender),
+                    ) => {
+                        assert_matches!(
+                            state,
+                            GrantLoginProgress::EstablishingSecureChannel(
+                                GeneratedQrProgress::QrReady(_)
+                            )
+                        );
+                        let checkcode = checkcode_rx
+                            .take()
+                            .expect("The checkcode should only be forwarded once")
+                            .await
+                            .expect("Alice should receive the checkcode");
+                        checkcode_sender
+                            .send(checkcode)
+                            .await
+                            .expect("Alice should be able to forward the checkcode");
+                    }
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
+                        assert_matches!(
+                            state,
+                            GrantLoginProgress::EstablishingSecureChannel(
+                                GeneratedQrProgress::QrScanned(_)
+                            )
+                        );
+                        assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        // The user cancels the login instead of confirming it.
+                        continuation_sender.cancel().await.expect("should be able to cancel");
+                        break;
+                    }
+                    _ => {
+                        panic!("Alice should abort the process after being cancelled");
+                    }
+                }
+                state = update;
+            }
+        });
+
+        // Let Bob request the login and run through the process.
+        let bob_task = spawn(async move {
+            request_login_with_scanned_qr_code(
+                BobBehaviour::CancelledWhileWaitingForAuth,
+                qr_code_rx,
+                checkcode_tx,
+                Some(server),
+                &rendezvous_server,
+                Some(device_authorization_grant),
+                None,
+            )
+            .await;
+        });
+
+        // Wait for all tasks to finish / fail.
+        assert_matches!(
+            grant.await,
+            Err(QRCodeGrantLoginError::LoginFailure { reason: LoginFailureReason::UserCancelled }),
+            "Alice should abort the login with expected error"
+        );
+        updates_task.await.expect("Alice should run through all progress states");
+        bob_task.await.expect("Bob's task should finish");
+    }
+
+    #[async_test]
+    async fn test_grant_login_with_scanned_qr_code_cancelled_while_waiting_for_auth() {
+        let server = MatrixMockServer::new().await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await;
+        debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
+
+        let device_authorization_grant = AuthorizationGrant {
+            verification_uri_complete: Some(VerificationUriComplete::new(
+                "https://id.matrix.org/device/abcde".to_owned(),
+            )),
+            verification_uri: EndUserVerificationUrl::new(
+                "https://id.matrix.org/device/abcde?code=ABCDE".to_owned(),
+            )
+            .unwrap(),
+        };
+
+        server.mock_upload_keys().ok().expect(1).named("upload_keys").mount().await;
+        server
+            .mock_upload_cross_signing_keys()
+            .ok()
+            .expect(1)
+            .named("upload_xsigning_keys")
+            .mount()
+            .await;
+        server
+            .mock_upload_cross_signing_signatures()
+            .ok()
+            .expect(1)
+            .named("upload_xsigning_signatures")
+            .mount()
+            .await;
+
+        // Create a secure channel on the new client (Bob) and extract the QR code.
+        let client = HttpClient::new(reqwest::Client::new(), Default::default());
+        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url)
+            .await
+            .expect("Bob should be able to create a secure channel.");
+        let qr_code_data = channel.qr_code_data().clone();
+
+        // Create the existing client (Alice).
+        let user_id = owned_user_id!("@alice:example.org");
+        let device_id = owned_device_id!("ALICE_DEVICE");
+        let alice = server
+            .client_builder_for_crypto_end_to_end(&user_id, &device_id)
+            .logged_in_with_oauth()
+            .build()
+            .await;
+        alice
+            .encryption()
+            .bootstrap_cross_signing(None)
+            .await
+            .expect("Alice should be able to set up cross signing");
+
+        // Prepare the login granting future using the QR code.
+        let oauth = alice.oauth();
+        let grant = oauth
+            .grant_login_with_qr_code()
+            .device_creation_timeout(Duration::from_secs(2))
+            .scan(&qr_code_data);
+        let (checkcode_tx, checkcode_rx) = oneshot::channel();
+
+        // Spawn the updates task.
+        let mut updates = grant.subscribe_to_progress();
+        let mut state = grant.state.get();
+        let verification_uri_complete =
+            device_authorization_grant.clone().verification_uri_complete.unwrap().into_secret();
+        assert_matches!(state.clone(), GrantLoginProgress::Starting);
+        let updates_task = spawn(async move {
+            let mut checkcode_tx = Some(checkcode_tx);
+
+            while let Some(update) = updates.next().await {
+                match &update {
+                    GrantLoginProgress::Starting => {
+                        assert_matches!(state, GrantLoginProgress::Starting);
+                    }
+                    GrantLoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
+                        assert_matches!(state, GrantLoginProgress::Starting);
+                        checkcode_tx
+                            .take()
+                            .expect("The checkcode should only be forwarded once")
+                            .send(*check_code)
+                            .expect("Alice should be able to forward the checkcode");
+                    }
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
+                        assert_matches!(
+                            state,
+                            GrantLoginProgress::EstablishingSecureChannel(QrProgress { .. })
+                        );
+                        assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        // The user cancels the login instead of confirming it.
+                        continuation_sender.cancel().await.expect("should be able to cancel");
+                        break;
+                    }
+                    _ => {
+                        panic!("Alice should abort the process after being cancelled");
+                    }
+                }
+                state = update;
+            }
+        });
+
+        // Let Bob request the login and run through the process.
+        let bob_task = spawn(async move {
+            request_login_with_generated_qr_code(
+                BobBehaviour::CancelledWhileWaitingForAuth,
+                channel,
+                checkcode_rx,
+                Some(server),
+                &rendezvous_server,
+                alice.homeserver(),
+                Some(device_authorization_grant),
+                None,
+            )
+            .await;
+        });
+
+        // Wait for all tasks to finish / fail.
+        assert_matches!(
+            grant.await,
+            Err(QRCodeGrantLoginError::LoginFailure { reason: LoginFailureReason::UserCancelled }),
+            "Alice should abort the login with expected error"
         );
         updates_task.await.expect("Alice should run through all progress states");
         bob_task.await.expect("Bob's task should finish");

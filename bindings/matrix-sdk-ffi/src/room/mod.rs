@@ -19,8 +19,9 @@ use futures_util::{StreamExt, pin_mut};
 use matrix_sdk::{
     ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType,
     DraftAttachment as SdkDraftAttachment, DraftAttachmentContent, DraftThumbnail, EncryptionState,
-    PredecessorRoom as SdkPredecessorRoom, RoomHero as SdkRoomHero, RoomMemberships, RoomState,
-    SuccessorRoom as SdkSuccessorRoom,
+    PredecessorRoom as SdkPredecessorRoom, RoomHeroWithProfile as SdkRoomHeroWithProfile,
+    RoomMemberships, RoomState, SuccessorRoom as SdkSuccessorRoom,
+    deserialized_responses::TimelineEvent as SdkTimelineEvent,
     encryption::LocalTrust,
     room::{
         Room as SdkRoom, RoomMemberRole, edit::EditedContent, power_levels::RoomPowerLevelChanges,
@@ -38,7 +39,8 @@ use ruma::{
     ServerName, UserId, assign,
     events::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
-        receipt::ReceiptThread,
+        receipt::ReceiptThread as RumaReceiptThread,
+        relation::RelationType as RumaRelationType,
         room::{
             MediaSource as RumaMediaSource, avatar::ImageInfo as RumaAvatarImageInfo,
             history_visibility::HistoryVisibility as RumaHistoryVisibility,
@@ -62,10 +64,13 @@ use crate::{
     live_locations_observer::LiveLocationsObserver,
     room_member::{RoomMember, RoomMemberWithSenderInfo},
     room_preview::RoomPreview,
-    ruma::{AudioInfo, FileInfo, ImageInfo, MediaSource, ThumbnailInfo, VideoInfo},
+    ruma::{
+        AudioInfo, FileInfo, ImageInfo, MediaSource, ThumbnailInfo, UserCall, UserStatus, VideoInfo,
+    },
     runtime::get_runtime_handle,
     timeline::{
-        AbstractProgress, LatestEventValue, ReceiptType, SendHandle, Timeline, UploadSource,
+        AbstractProgress, LatestEventValue, ReceiptThread, ReceiptType, SendHandle, Timeline,
+        UploadSource, UserReceipt,
         configuration::{TimelineConfiguration, TimelineFilter},
         threads::{ThreadListService, ThreadSubscription},
     },
@@ -196,8 +201,8 @@ impl Room {
     }
 
     /// Returns the room heroes for this room.
-    pub fn heroes(&self) -> Vec<RoomHero> {
-        self.inner.heroes().into_iter().map(Into::into).collect()
+    pub async fn heroes(&self) -> Vec<RoomHero> {
+        self.inner.heroes().await.into_iter().map(Into::into).collect()
     }
 
     /// Is there a non expired membership with application "m.call" and scope
@@ -331,6 +336,31 @@ impl Room {
         Ok(Arc::new(RoomMembersIterator::new(
             self.inner.members_no_sync(RoomMemberships::empty()).await?,
         )))
+    }
+
+    /// Get the user IDs of the joined and invited members, without the service
+    /// members. The current user is part of the result. Fetches the member list
+    /// if it is not synced yet.
+    pub async fn active_human_member_ids(&self) -> Result<Vec<String>, ClientError> {
+        Ok(self
+            .inner
+            .human_member_ids(RoomMemberships::ACTIVE)
+            .await?
+            .into_iter()
+            .map(String::from)
+            .collect())
+    }
+
+    /// Same as [`Self::active_human_member_ids`], without a request to the
+    /// homeserver, so members can be missing.
+    pub async fn active_human_member_ids_no_sync(&self) -> Result<Vec<String>, ClientError> {
+        Ok(self
+            .inner
+            .human_member_ids_no_sync(RoomMemberships::ACTIVE)
+            .await?
+            .into_iter()
+            .map(String::from)
+            .collect())
     }
 
     pub async fn member(&self, user_id: String) -> Result<RoomMember, ClientError> {
@@ -711,6 +741,55 @@ impl Room {
         Ok(())
     }
 
+    /// Load the receipt of the given type for the given user in this room,
+    /// optionally scoped to a thread.
+    ///
+    /// The receipt is read from the local store, which is fed by sync, so it
+    /// also reflects receipts sent by the user's other devices. Returns
+    /// `None` if the user has no matching receipt in this room.
+    ///
+    /// Note: [`ReceiptType::FullyRead`] is a marker, not an event receipt,
+    /// and is rejected.
+    pub async fn load_user_receipt(
+        &self,
+        receipt_type: ReceiptType,
+        thread: ReceiptThread,
+        user_id: String,
+    ) -> Result<Option<UserReceipt>, ClientError> {
+        let user_id = UserId::parse(&*user_id)?;
+
+        Ok(self
+            .inner
+            .load_user_receipt(receipt_type.try_into()?, &thread.try_into()?, &user_id)
+            .await?
+            .map(|(event_id, receipt)| UserReceipt {
+                event_id: event_id.to_string(),
+                receipt: receipt.into(),
+            }))
+    }
+
+    /// Send a single receipt of the given type for the given event, optionally
+    /// scoped to a thread.
+    ///
+    /// This allows sending receipts for events without instantiating the
+    /// [`Timeline`] they belong to, e.g. marking a thread as read from its
+    /// root and latest event ids. Note that this won't check whether sending
+    /// the receipt is necessary or valid (i.e. it can move a receipt
+    /// backwards); prefer [`Timeline::send_single_receipt`] when a timeline
+    /// is available.
+    pub async fn send_single_receipt(
+        &self,
+        receipt_type: ReceiptType,
+        thread: ReceiptThread,
+        event_id: String,
+    ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+
+        self.inner.send_single_receipt(receipt_type.into(), thread.try_into()?, event_id).await?;
+
+        Ok(())
+    }
+
     /// Mark a room as fully read, by attaching a read receipt to the provided
     /// `event_id`.
     ///
@@ -724,7 +803,11 @@ impl Room {
         let event_id = EventId::parse(event_id)?;
 
         self.inner
-            .send_single_receipt(ReceiptType::FullyRead.into(), ReceiptThread::Unthreaded, event_id)
+            .send_single_receipt(
+                ReceiptType::FullyRead.into(),
+                RumaReceiptThread::Unthreaded,
+                event_id,
+            )
             .await?;
 
         Ok(())
@@ -937,16 +1020,6 @@ impl Room {
 
         send_handle.try_resend().await?;
 
-        Ok(())
-    }
-
-    /// Clear the event cache storage for the current room.
-    ///
-    /// This will remove all the information related to the event cache, in
-    /// memory and in the persisted storage, if enabled.
-    pub async fn clear_event_cache_storage(&self) -> Result<(), ClientError> {
-        let (room_event_cache, _drop_handles) = self.inner.event_cache().await?;
-        room_event_cache.clear().await?;
         Ok(())
     }
 
@@ -1269,6 +1342,79 @@ impl Room {
             .into_full_event(self.inner.room_id().to_owned())
             .into())
     }
+
+    /// Either loads the event associated with the `event_id` from the event
+    /// cache or fetches it from the homeserver, along with the events related
+    /// to it (e.g. reactions and edits), fetched recursively.
+    ///
+    /// An optional filter restricts the relation types fetched; no filter
+    /// fetches relations of all types.
+    pub async fn load_or_fetch_event_with_relations(
+        &self,
+        event_id: String,
+        relation_filter: Option<Vec<RelationType>>,
+    ) -> Result<EventWithRelations, ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        let filter = relation_filter.map(|filter| filter.into_iter().map(Into::into).collect());
+
+        let (event, related_events) =
+            self.inner.load_or_fetch_event_with_relations(&event_id, filter, None).await?;
+
+        let as_ffi_event = |event: SdkTimelineEvent| -> Result<Arc<TimelineEvent>, ClientError> {
+            Ok(Arc::new(
+                event
+                    .kind
+                    .into_raw()
+                    .deserialize()?
+                    .into_full_event(self.inner.room_id().to_owned())
+                    .into(),
+            ))
+        };
+
+        Ok(EventWithRelations {
+            event: as_ffi_event(event)?,
+            related_events: related_events
+                .into_iter()
+                .map(as_ffi_event)
+                .collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+}
+
+/// The relation types that can be used to filter related events when calling
+/// [`Room::load_or_fetch_event_with_relations`].
+#[derive(uniffi::Enum)]
+pub enum RelationType {
+    /// An annotation to an event (e.g. a reaction), `m.annotation`.
+    Annotation,
+    /// A reference to another event, `m.reference`.
+    Reference,
+    /// An event that replaces another event (e.g. an edit), `m.replace`.
+    Replacement,
+    /// An event that belongs to a thread, `m.thread`.
+    Thread,
+}
+
+impl From<RelationType> for RumaRelationType {
+    fn from(value: RelationType) -> Self {
+        match value {
+            RelationType::Annotation => Self::Annotation,
+            RelationType::Reference => Self::Reference,
+            RelationType::Replacement => Self::Replacement,
+            RelationType::Thread => Self::Thread,
+        }
+    }
+}
+
+/// An event and the events related to it, as returned by
+/// [`Room::load_or_fetch_event_with_relations`].
+#[derive(uniffi::Record)]
+pub struct EventWithRelations {
+    /// The event itself.
+    pub event: Arc<TimelineEvent>,
+    /// The events related to it, directly or (recursively) through other
+    /// related events.
+    pub related_events: Vec<Arc<TimelineEvent>>,
 }
 
 /// A listener for receiving call decline events in a room.
@@ -1414,14 +1560,20 @@ pub struct RoomHero {
     display_name: Option<String>,
     /// The avatar URL of the hero.
     avatar_url: Option<String>,
+    /// The hero's user-set status, taken from their global profile.
+    status: Option<UserStatus>,
+    /// The hero's call indicator, taken from their global profile.
+    call: Option<UserCall>,
 }
 
-impl From<SdkRoomHero> for RoomHero {
-    fn from(value: SdkRoomHero) -> Self {
+impl From<SdkRoomHeroWithProfile> for RoomHero {
+    fn from(value: SdkRoomHeroWithProfile) -> Self {
         Self {
             user_id: value.user_id.to_string(),
             display_name: value.display_name.clone(),
             avatar_url: value.avatar_url.as_ref().map(ToString::to_string),
+            status: value.status.map(UserStatus::from),
+            call: value.call.map(UserCall::from),
         }
     }
 }

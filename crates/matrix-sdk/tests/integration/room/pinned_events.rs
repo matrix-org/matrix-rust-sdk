@@ -171,8 +171,10 @@ async fn test_pinned_events_are_loaded_from_network_then_are_reloaded_from_stora
             .build()
             .await;
 
+        let event_cache = client.event_cache();
+
         // Subscribe the event cache to sync updates.
-        client.event_cache().subscribe().unwrap();
+        event_cache.subscribe().unwrap();
 
         // Sync the room with the pinned event ID in the room state.
         //
@@ -181,19 +183,20 @@ async fn test_pinned_events_are_loaded_from_network_then_are_reloaded_from_stora
         // events.
         let pinned_events_state = f.room_pinned_events(vec![pinned_event_id.to_owned()]);
 
-        let room = server
+        let _room = server
             .sync_room(
                 &client,
                 JoinedRoomBuilder::new(room_id).add_state_bulk(vec![pinned_events_state.into()]),
             )
             .await;
 
-        // Get the room event cache and subscribe to pinned events.
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        // Get the pinned events cache and subscribe to it.
+        let (pinned_events_cache, _drop_handles) =
+            event_cache.pinned_events(room_id).await.unwrap();
 
-        // Subscribe to pinned events - this triggers PinnedEventCache::new() which
-        // spawns a task that calls reload_from_storage() first.
-        let (events, mut subscriber) = room_event_cache.subscribe_to_pinned_events().await.unwrap();
+        // Getting the pinned events cache triggers `PinnedEventsCache::new()` which
+        // spawns a task that calls `reload_from_storage()` first.
+        let (events, mut subscriber) = pinned_events_cache.subscribe().await.unwrap();
         let mut events = events.into();
 
         // Wait for the background task to reload the events.
@@ -229,17 +232,19 @@ async fn test_pinned_events_are_loaded_from_network_then_are_reloaded_from_stora
         .build()
         .await;
 
+    let event_cache = client.event_cache();
+
     // Subscribe the event cache to sync updates.
-    client.event_cache().subscribe().unwrap();
+    event_cache.subscribe().unwrap();
 
-    let room = client.get_room(room_id).unwrap();
+    let _room = client.get_room(room_id).unwrap();
 
-    // Get the room event cache and subscribe to pinned events.
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    // Get the pinned events cache and subscribe to it.
+    let (pinned_events_cache, _drop_handles) = event_cache.pinned_events(room_id).await.unwrap();
 
-    // Subscribe to pinned events - this triggers PinnedEventCache::new() which
-    // spawns a task that calls reload_from_storage() first.
-    let (events, mut subscriber) = room_event_cache.subscribe_to_pinned_events().await.unwrap();
+    // Getting the pinned events cache triggers `PinnedEventsCache::new()` which
+    // spawns a task that calls `reload_from_storage()` first.
+    let (events, mut subscriber) = pinned_events_cache.subscribe().await.unwrap();
     let mut events = events.into();
 
     // Wait for the background task to reload the events from storage.
@@ -277,8 +282,10 @@ async fn test_pinned_events_are_reloaded_from_storage_from_many_chunks() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
+    let event_cache = client.event_cache();
+
     // Create a non empty Event Cache store containing two chunks.
-    client.event_cache().subscribe().unwrap();
+    event_cache.subscribe().unwrap();
     client
         .event_cache_store()
         .lock()
@@ -308,14 +315,14 @@ async fn test_pinned_events_are_reloaded_from_storage_from_many_chunks() {
         .await
         .unwrap();
 
-    let room = server.sync_room(&client, JoinedRoomBuilder::new(room_id)).await;
+    let _room = server.sync_room(&client, JoinedRoomBuilder::new(room_id)).await;
 
-    // Get the room event cache and subscribe to pinned events.
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    // Get the pinned events cache and subscribe to it.
+    let (pinned_events_cache, _drop_handles) = event_cache.pinned_events(room_id).await.unwrap();
 
-    // Subscribe to pinned events - this triggers PinnedEventCache::new() which
-    // spawns a task that calls reload_from_storage() first.
-    let (events, mut subscriber) = room_event_cache.subscribe_to_pinned_events().await.unwrap();
+    // Getting the pinned events cache triggers `PinnedEventsCache::new()` which
+    // spawns a task that calls `reload_from_storage()` first.
+    let (events, mut subscriber) = pinned_events_cache.subscribe().await.unwrap();
     let mut events = events.into();
 
     // Wait for the background task to reload the events.
@@ -331,8 +338,8 @@ async fn test_pinned_events_are_reloaded_from_storage_from_many_chunks() {
 
     // Verify the pinned event was loaded from the storage and the network.
     assert_eq!(events.len(), 2, "Expected pinned events to be loaded from the network");
-    assert_eq!(events[0].event_id().as_deref(), Some(pinned_event_id_0));
-    assert_eq!(events[1].event_id().as_deref(), Some(pinned_event_id_1));
+    assert_eq!(events[0].event_id(), Some(pinned_event_id_0));
+    assert_eq!(events[1].event_id(), Some(pinned_event_id_1));
 }
 
 #[async_test]
@@ -368,9 +375,10 @@ async fn test_pinned_events_dont_include_thread_responses() {
         .await;
 
     let client = server.client_builder().build().await;
+    let event_cache = client.event_cache();
 
     // Subscribe the event cache to sync updates.
-    client.event_cache().subscribe().unwrap();
+    event_cache.subscribe().unwrap();
 
     // Sync the room with the pinned event ID in the room state.
     //
@@ -379,7 +387,7 @@ async fn test_pinned_events_dont_include_thread_responses() {
     // events.
     let pinned_events_state = f.room_pinned_events(vec![pinned_event_id.to_owned()]);
 
-    let room = server
+    let _room = server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_state_bulk(vec![pinned_events_state.into()]),
@@ -387,11 +395,11 @@ async fn test_pinned_events_dont_include_thread_responses() {
         .await;
 
     // Get the room event cache and subscribe to pinned events.
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (pinned_events_cache, _drop_handles) = event_cache.pinned_events(room_id).await.unwrap();
 
-    // Subscribe to pinned events - this triggers PinnedEventCache::new() which
-    // spawns a task that calls reload_from_storage() first.
-    let (events, mut subscriber) = room_event_cache.subscribe_to_pinned_events().await.unwrap();
+    // Getting the pinned events cache triggers `PinnedEventsCache::new()` which
+    // spawns a task that calls `reload_from_storage()` first.
+    let (events, mut subscriber) = pinned_events_cache.subscribe().await.unwrap();
     let mut events = events.into();
 
     // Wait for the background task to reload the events.

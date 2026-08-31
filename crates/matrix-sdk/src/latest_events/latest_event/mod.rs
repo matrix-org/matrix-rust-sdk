@@ -16,6 +16,7 @@ mod builder;
 
 use std::ops::{Deref, DerefMut, Not};
 
+pub use builder::filter_timeline_event;
 use builder::{BufferOfValuesForLocalEvents, Builder};
 use eyeball::{AsyncLock, ObservableWriteGuard, SharedObservable, Subscriber};
 pub use matrix_sdk_base::latest_event::{
@@ -218,11 +219,21 @@ impl LatestEvent {
                 // If at least one is `None`, yes.
                 (_, LatestEventValue::None) | (LatestEventValue::None, _) => true,
 
-                // If the event IDs are identical, no.
-                (previous, new) if previous.event_id() == new.event_id() => false,
+                // A new local latest event is created, or the local event
+                // cannot be sent, yes.
+                (
+                    _,
+                    LatestEventValue::LocalIsSending(_) | LatestEventValue::LocalCannotBeSent(_),
+                ) => true,
 
-                // Otherwise, yes.
-                (_, _) => true,
+                // If both event IDs are known, do an update if they're different.
+                // If either is unknown, the two values cannot be compared, so do an update.
+                (previous, new) => match (previous.event_id(), new.event_id()) {
+                    (Some(previous_event_id), Some(new_event_id)) => {
+                        previous_event_id != new_event_id
+                    }
+                    _ => true,
+                },
             };
 
             if do_update {
@@ -320,7 +331,7 @@ mod tests_latest_event {
     use ruma::{
         MilliSecondsSinceUnixEpoch, OwnedTransactionId, event_id,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
-        owned_event_id, owned_room_id, room_id, user_id,
+        owned_event_id, owned_room_id, owned_user_id, room_id, user_id,
     };
     use stream_assert::{assert_next_matches, assert_pending};
     use tokio::task::yield_now;
@@ -476,6 +487,75 @@ mod tests_latest_event {
     }
 
     #[async_test]
+    async fn test_updates_do_not_ignore_local_values() {
+        let room_id = room_id!("!r0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let weak_client = WeakClient::from_client(&client);
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let weak_room = WeakRoom::new(weak_client, room_id.to_owned());
+
+        let mut latest_event = LatestEvent::new(&weak_room, None);
+
+        let mut stream = latest_event.subscribe().await;
+        assert_pending!(stream);
+
+        // A local event is being sent.
+        latest_event.update(LatestEventValue::LocalIsSending(local_room_message("foo"))).await;
+        assert_next_matches!(stream, LatestEventValue::LocalIsSending(_));
+
+        // A second local event is not ignored
+        latest_event.update(LatestEventValue::LocalIsSending(local_room_message("bar"))).await;
+        assert_next_matches!(stream, LatestEventValue::LocalIsSending(_));
+
+        // The send queue is wedged but even that shouldn't be ignored.
+        latest_event.update(LatestEventValue::LocalCannotBeSent(local_room_message("bar"))).await;
+        assert_next_matches!(stream, LatestEventValue::LocalCannotBeSent(_));
+
+        // Not when it's retrying either
+        latest_event.update(LatestEventValue::LocalIsSending(local_room_message("bar"))).await;
+        assert_next_matches!(stream, LatestEventValue::LocalIsSending(_));
+
+        assert_pending!(stream);
+    }
+
+    #[async_test]
+    async fn test_update_does_not_ignore_a_new_value_that_has_no_event_id() {
+        let room_id = room_id!("!r0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let weak_client = WeakClient::from_client(&client);
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let weak_room = WeakRoom::new(weak_client, room_id.to_owned());
+
+        let mut latest_event = LatestEvent::new(&weak_room, None);
+
+        let mut stream = latest_event.subscribe().await;
+        assert_pending!(stream);
+
+        // A local event is being sent: it has no event ID.
+        latest_event.update(LatestEventValue::LocalIsSending(local_room_message("foo"))).await;
+        assert_next_matches!(stream, LatestEventValue::LocalIsSending(_));
+
+        // An invite computed from stripped state events has no event ID either, but
+        // both values are obviously different: this must not be ignored.
+        latest_event
+            .update(LatestEventValue::RemoteInvite {
+                event_id: None,
+                timestamp: MilliSecondsSinceUnixEpoch::now(),
+                inviter: Some(owned_user_id!("@mnt_io:matrix.org")),
+            })
+            .await;
+        assert_next_matches!(stream, LatestEventValue::RemoteInvite { .. });
+
+        assert_pending!(stream);
+    }
+
+    #[async_test]
     async fn test_update_ignore_when_previous_value_has_the_same_event_id() {
         let room_id = room_id!("!r0");
         let user_id = user_id!("@mnt_io:matrix.org");
@@ -560,7 +640,7 @@ mod tests_latest_event {
             .await
             .unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(&room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
         let send_queue = client.send_queue();
         let room_send_queue = send_queue.for_room(room);
@@ -677,7 +757,7 @@ mod tests_latest_event {
             .await
             .unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(&room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
         let mut latest_event = LatestEvent::new(&weak_room, None);
 
@@ -688,7 +768,7 @@ mod tests_latest_event {
             assert_matches!(
                 latest_event.current_value.get().await,
                 LatestEventValue::Remote(remote) => {
-                    assert_eq!(remote.event_id().as_deref(), Some(event_id_1));
+                    assert_eq!(remote.event_id(), Some(event_id_1));
                 }
             );
         }
@@ -713,7 +793,7 @@ mod tests_latest_event {
                 latest_event.current_value.get().await,
                 LatestEventValue::Remote(remote) => {
                     // `$ev1` has been redacted, so `$ev0` is the new candidate!
-                    assert_eq!(remote.event_id().as_deref(), Some(event_id_0));
+                    assert_eq!(remote.event_id(), Some(event_id_0));
                 }
             );
         }
@@ -771,7 +851,7 @@ mod tests_latest_event {
                 .await
                 .unwrap();
 
-            let (room_event_cache, _) = event_cache.for_room(&room_id).await.unwrap();
+            let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
             // Check there is no `LatestEventValue` for the moment.
             {

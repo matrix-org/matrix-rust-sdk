@@ -19,7 +19,9 @@
 use std::{fs, path::PathBuf};
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 
-#[cfg(not(any(target_family = "wasm", target_os = "android")))]
+#[cfg(feature = "experimental-x509-identity-verification")]
+use matrix_sdk::encryption::SignatureError;
+#[cfg(not(any(target_family = "wasm")))]
 use matrix_sdk::reqwest::Certificate;
 #[cfg(feature = "experimental-search")]
 use matrix_sdk::search_index::SearchIndexStoreKind;
@@ -29,12 +31,15 @@ use matrix_sdk::{
     cross_process_lock::CrossProcessLockConfig as SdkCrossProcessLockConfig,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     event_cache::EventCacheError,
+    media::MediaFetcher,
     ruma::{ServerName, UserId},
     sliding_sync::{
         Error as MatrixSlidingSyncError, VersionBuilder as MatrixSlidingSyncVersionBuilder,
         VersionBuilderError,
     },
 };
+#[cfg(feature = "experimental-x509-identity-verification")]
+use matrix_sdk_base::crypto::x509::{RawX509Signature, ValidityError};
 use matrix_sdk_base::{
     DmRoomDefinition,
     crypto::{CollectStrategy, DecryptionSettings, TrustRequirement},
@@ -43,6 +48,8 @@ use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::debug;
 
 use super::client::Client;
+#[cfg(feature = "experimental-x509-identity-verification")]
+use super::client::{RawX509Signer, RawX509Verifier};
 #[cfg(any(feature = "sqlite", feature = "indexeddb"))]
 use crate::store;
 use crate::{
@@ -60,6 +67,7 @@ enum HomeserverConfig {
     Url(String),
     ServerName(String),
     ServerNameOrUrl(String),
+    ServerNameFromUserId(String),
 }
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -67,10 +75,15 @@ enum HomeserverConfig {
 pub enum ClientBuildError {
     #[error("The supplied server name is invalid.")]
     InvalidServerName,
+    #[error(
+        "Homeserver discovery requires a .well-known lookup, which was disabled; \
+         use `ClientBuilder::homeserver_url` instead."
+    )]
+    WellKnownLookupDisabled,
     #[error(transparent)]
     ServerUnreachable(HttpError),
     #[error(transparent)]
-    WellKnownLookupFailed(RumaApiError),
+    WellKnownLookupFailed(Box<RumaApiError>),
     #[error(transparent)]
     WellKnownDeserializationError(DeserializationError),
     #[error(transparent)]
@@ -92,13 +105,19 @@ impl From<MatrixClientBuildError> for ClientBuildError {
     fn from(e: MatrixClientBuildError) -> Self {
         match e {
             MatrixClientBuildError::InvalidServerName => ClientBuildError::InvalidServerName,
+            MatrixClientBuildError::WellKnownLookupDisabled => {
+                ClientBuildError::WellKnownLookupDisabled
+            }
             MatrixClientBuildError::Http(e) => ClientBuildError::ServerUnreachable(e),
-            MatrixClientBuildError::AutoDiscovery(FromHttpResponseError::Server(e)) => {
-                ClientBuildError::WellKnownLookupFailed(e)
-            }
-            MatrixClientBuildError::AutoDiscovery(FromHttpResponseError::Deserialization(e)) => {
-                ClientBuildError::WellKnownDeserializationError(e)
-            }
+            MatrixClientBuildError::AutoDiscovery(e) => match *e {
+                FromHttpResponseError::Server(e) => {
+                    ClientBuildError::WellKnownLookupFailed(Box::new(e))
+                }
+                FromHttpResponseError::Deserialization(e) => {
+                    ClientBuildError::WellKnownDeserializationError(e)
+                }
+                _ => ClientBuildError::Sdk(MatrixClientBuildError::AutoDiscovery(e)),
+            },
             MatrixClientBuildError::SlidingSyncVersion(e) => {
                 ClientBuildError::SlidingSyncVersion(e)
             }
@@ -135,7 +154,6 @@ impl From<ClientError> for ClientBuildError {
 pub struct ClientBuilder {
     store: Option<StoreBuilder>,
     system_is_memory_constrained: bool,
-    username: Option<String>,
     homeserver_cfg: Option<HomeserverConfig>,
     sliding_sync_version_builder: SlidingSyncVersionBuilder,
     disable_automatic_token_refresh: bool,
@@ -145,6 +163,8 @@ pub struct ClientBuilder {
     room_key_recipient_strategy: CollectStrategy,
     decryption_settings: DecryptionSettings,
     enable_share_history_on_invite: bool,
+    disable_well_known_lookup: bool,
+    enable_automatic_back_pagination: bool,
     request_config: Option<RequestConfig>,
     #[cfg(feature = "experimental-search")]
     search_index_store: Option<SearchIndexStoreKind>,
@@ -162,7 +182,14 @@ pub struct ClientBuilder {
 
     threading_support: ThreadingSupport,
 
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    raw_x509_signer: Option<Arc<dyn RawX509Signer>>,
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    raw_x509_verifier: Option<Arc<dyn RawX509Verifier>>,
+
     dm_room_definition: DmRoomDefinition,
+
+    media_fetcher: Option<Arc<dyn MediaFetcher>>,
 }
 
 /// The timeout applies to each read operation, and resets after a successful
@@ -177,7 +204,6 @@ impl ClientBuilder {
         Arc::new(Self {
             store: None,
             system_is_memory_constrained: false,
-            username: None,
             homeserver_cfg: None,
             #[cfg(not(target_family = "wasm"))]
             user_agent: None,
@@ -204,11 +230,20 @@ impl ClientBuilder {
                 sender_device_trust_requirement: TrustRequirement::Untrusted,
             },
             enable_share_history_on_invite: false,
+            disable_well_known_lookup: false,
+            enable_automatic_back_pagination: false,
             request_config: Default::default(),
             threading_support: ThreadingSupport::Disabled,
             #[cfg(feature = "experimental-search")]
             search_index_store: None,
+
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            raw_x509_signer: None,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            raw_x509_verifier: None,
+
             dm_room_definition: DmRoomDefinition::MatrixSpec,
+            media_fetcher: None,
         })
     }
 
@@ -249,27 +284,78 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub fn username(self: Arc<Self>, username: String) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.username = Some(username);
-        Arc::new(builder)
-    }
-
-    pub fn server_name(self: Arc<Self>, server_name: String) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.homeserver_cfg = Some(HomeserverConfig::ServerName(server_name));
-        Arc::new(builder)
-    }
-
+    /// Set the homeserver URL to use.
+    ///
+    /// The following methods are mutually exclusive: [`Self::homeserver_url`],
+    /// [`Self::server_name`], [`Self::server_name_or_homeserver_url`] and
+    /// [`Self::server_name_from_user_id`]. If you set more than one, then
+    /// whichever was set last will be used.
+    ///
+    /// This is the only one of them that never performs a
+    /// `.well-known/matrix/client` lookup, so it is the one to use together
+    /// with [`Self::disable_well_known_lookup`].
     pub fn homeserver_url(self: Arc<Self>, url: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.homeserver_cfg = Some(HomeserverConfig::Url(url));
         Arc::new(builder)
     }
 
+    /// Set the server name to discover the homeserver from.
+    ///
+    /// The following methods are mutually exclusive: [`Self::homeserver_url`],
+    /// [`Self::server_name`], [`Self::server_name_or_homeserver_url`] and
+    /// [`Self::server_name_from_user_id`]. If you set more than one, then
+    /// whichever was set last will be used.
+    ///
+    /// This performs a `.well-known/matrix/client` lookup, and is therefore
+    /// incompatible with [`Self::disable_well_known_lookup`]: [`Self::build`]
+    /// then fails with [`ClientBuildError::WellKnownLookupDisabled`].
+    pub fn server_name(self: Arc<Self>, server_name: String) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.homeserver_cfg = Some(HomeserverConfig::ServerName(server_name));
+        Arc::new(builder)
+    }
+
+    /// Set the server name to discover the homeserver from, falling back to
+    /// using it as a homeserver URL if discovery fails. When falling back to a
+    /// homeserver URL, a check is made to ensure that the server exists (unlike
+    /// [`Self::homeserver_url`], so you can guarantee that the client is ready
+    /// to use.
+    ///
+    /// The following methods are mutually exclusive: [`Self::homeserver_url`],
+    /// [`Self::server_name`], [`Self::server_name_or_homeserver_url`] and
+    /// [`Self::server_name_from_user_id`]. If you set more than one, then
+    /// whichever was set last will be used.
+    ///
+    /// With [`Self::disable_well_known_lookup`], the discovery step is skipped
+    /// and only the homeserver URL check is performed, so a homeserver URL
+    /// still works while a delegating server name fails with
+    /// [`ClientBuildError::InvalidServerName`].
     pub fn server_name_or_homeserver_url(self: Arc<Self>, server_name_or_url: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.homeserver_cfg = Some(HomeserverConfig::ServerNameOrUrl(server_name_or_url));
+        Arc::new(builder)
+    }
+
+    /// Uses the server name from the supplied the user ID to discover the
+    /// homeserver.
+    ///
+    /// When building a client for restoration, prefer to use
+    /// [`Self::homeserver_url`] as the restoration will pick up the user ID
+    /// from the [`Session`], and using this will result in a needless request
+    /// to re-discover the homeserver.
+    ///
+    /// The following methods are mutually exclusive: [`Self::homeserver_url`],
+    /// [`Self::server_name`], [`Self::server_name_or_homeserver_url`] and
+    /// [`Self::server_name_from_user_id`]. If you set more than one, then
+    /// whichever was set last will be used.
+    ///
+    /// This performs a `.well-known/matrix/client` lookup, and is therefore
+    /// incompatible with [`Self::disable_well_known_lookup`]: [`Self::build`]
+    /// then fails with [`ClientBuildError::WellKnownLookupDisabled`].
+    pub fn server_name_from_user_id(self: Arc<Self>, user_id: String) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.homeserver_cfg = Some(HomeserverConfig::ServerNameFromUserId(user_id));
         Arc::new(builder)
     }
 
@@ -345,6 +431,45 @@ impl ClientBuilder {
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.enable_share_history_on_invite = enable_share_history_on_invite;
+        Arc::new(builder)
+    }
+
+    /// Disable all the `.well-known/matrix/client` lookups, both the one
+    /// performed by `ClientBuilder::build` to discover the homeserver, and all
+    /// the ones performed later by the built client.
+    ///
+    /// Some deployments must not emit any request to the well-known URI of
+    /// their domain. When disabled, `Client::tile_server` returns `None` and
+    /// RTC transport discovery doesn't fall back to the well-known
+    /// `m.rtc_foci`, meaning `Client::is_livekit_rtc_supported` only relies on
+    /// the MSC4143 discovery endpoint.
+    ///
+    /// The homeserver must then be resolvable without a well-known lookup, so
+    /// `ClientBuilder::homeserver_url` must be used.
+    /// `ClientBuilder::server_name` and
+    /// `ClientBuilder::server_name_from_user_id` can only be resolved through
+    /// the well-known, and `ClientBuilder::build` fails with
+    /// `ClientBuildError::WellKnownLookupDisabled` in that case.
+    /// `ClientBuilder::server_name_or_homeserver_url` skips the well-known step
+    /// and works only when given a homeserver URL.
+    pub fn disable_well_known_lookup(
+        self: Arc<Self>,
+        disable_well_known_lookup: bool,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.disable_well_known_lookup = disable_well_known_lookup;
+        Arc::new(builder)
+    }
+
+    /// Set whether to automatically back-paginate a room's history in the
+    /// background, under certain conditions (search backfill, latest-event
+    /// resolution, read-receipt finding). Off by default.
+    pub fn enable_automatic_back_pagination(
+        self: Arc<Self>,
+        enable_automatic_back_pagination: bool,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.enable_automatic_back_pagination = enable_automatic_back_pagination;
         Arc::new(builder)
     }
 
@@ -432,48 +557,39 @@ impl ClientBuilder {
             Some(HomeserverConfig::ServerNameOrUrl(server_name_or_url)) => {
                 inner_builder.server_name_or_homeserver_url(server_name_or_url)
             }
+            Some(HomeserverConfig::ServerNameFromUserId(user_id)) => {
+                let user = UserId::parse(user_id)?;
+                inner_builder.server_name(user.server_name())
+            }
             None => {
-                if let Some(username) = builder.username {
-                    let user = UserId::parse(username)?;
-                    inner_builder.server_name(user.server_name())
-                } else {
-                    return Err(ClientBuildError::Generic {
-                        message: "Failed to build: One of homeserver_url, server_name, server_name_or_homeserver_url or username must be called.".to_owned(),
-                    });
-                }
+                return Err(ClientBuildError::Generic {
+                    message: "Failed to build: One of homeserver_url, server_name, server_name_or_homeserver_url or server_name_from_user_id must be called.".to_owned(),
+                });
             }
         };
 
         #[cfg(not(target_family = "wasm"))]
         {
-            #[cfg(target_os = "android")]
-            {
-                inner_builder =
-                    inner_builder.add_raw_root_certificates(builder.additional_root_certificates)
-            }
-            #[cfg(not(target_os = "android"))]
-            {
-                let mut certificates = Vec::new();
-                for certificate in builder.additional_root_certificates {
-                    // We don't really know what type of certificate we may get here, so let's try
-                    // first one type, then the other.
-                    match Certificate::from_der(&certificate) {
-                        Ok(cert) => {
-                            certificates.push(cert);
-                        }
-                        Err(der_error) => {
-                            let cert = Certificate::from_pem(&certificate).map_err(|pem_error| {
-                                ClientBuildError::Generic {
-                                    message: format!("Failed to add a root certificate as DER ({der_error:?}) or PEM ({pem_error:?})"),
-                                }
-                            })?;
-                            certificates.push(cert);
-                        }
+            let mut certificates = Vec::new();
+            for certificate in builder.additional_root_certificates {
+                // We don't really know what type of certificate we may get here, so let's try
+                // first one type, then the other.
+                match Certificate::from_der(&certificate) {
+                    Ok(cert) => {
+                        certificates.push(cert);
+                    }
+                    Err(der_error) => {
+                        let cert = Certificate::from_pem(&certificate).map_err(|pem_error| {
+                            ClientBuildError::Generic {
+                                message: format!("Failed to add a root certificate as DER ({der_error:?}) or PEM ({pem_error:?})"),
+                            }
+                        })?;
+                        certificates.push(cert);
                     }
                 }
-
-                inner_builder = inner_builder.add_root_certificates(certificates);
             }
+
+            inner_builder = inner_builder.add_root_certificates(certificates);
 
             if builder.disable_built_in_root_certificates {
                 inner_builder = inner_builder.disable_built_in_root_certificates();
@@ -500,7 +616,9 @@ impl ClientBuilder {
             .with_encryption_settings(builder.encryption_settings)
             .with_room_key_recipient_strategy(builder.room_key_recipient_strategy)
             .with_decryption_settings(builder.decryption_settings)
-            .with_enable_share_history_on_invite(builder.enable_share_history_on_invite);
+            .with_enable_share_history_on_invite(builder.enable_share_history_on_invite)
+            .with_enable_automatic_back_pagination(builder.enable_automatic_back_pagination)
+            .disable_well_known_lookup(builder.disable_well_known_lookup);
 
         match builder.sliding_sync_version_builder {
             SlidingSyncVersionBuilder::None => {
@@ -544,9 +662,97 @@ impl ClientBuilder {
             .dm_room_definition(builder.dm_room_definition)
             .with_threading_support(builder.threading_support);
 
+        if let Some(media_fetcher) = builder.media_fetcher {
+            inner_builder = inner_builder.media_fetcher(media_fetcher.clone());
+        }
+
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        if let Some(x509_sign) = builder.raw_x509_signer {
+            use std::{future::ready, pin::Pin};
+
+            use matrix_sdk_base::crypto::x509::X509SignatureSigningError;
+
+            // Wrap the provided RawX509Signer impl in a shim which converts the arguments
+            // and results.
+            #[derive(Debug)]
+            struct X509SignImpl(Arc<dyn RawX509Signer>);
+
+            impl matrix_sdk_base::crypto::x509::RawX509Signer for X509SignImpl {
+                fn sign(
+                    &self,
+                    message: Vec<u8>,
+                ) -> Pin<Box<dyn Future<Output = Result<RawX509Signature, SignatureError>> + Send>>
+                {
+                    let result = self.0.sign(message.to_vec()).map_err(|e| {
+                        SignatureError::X509SigningError(X509SignatureSigningError::Custom(
+                            e.into(),
+                        ))
+                    });
+
+                    Box::pin(ready(result))
+                }
+
+                fn validity_not_after(&self) -> Result<Duration, ValidityError> {
+                    if let Ok(validity_not_after) = self.0.validity_not_after() {
+                        Ok(std::time::Duration::from_millis(validity_not_after))
+                    } else {
+                        Err(ValidityError)
+                    }
+                }
+            }
+
+            inner_builder = inner_builder.with_x509_signer(Some(Arc::new(X509SignImpl(x509_sign))));
+        }
+
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        if let Some(x509_verify) = builder.raw_x509_verifier {
+            use matrix_sdk_base::crypto::x509::X509SignatureVerificationError;
+
+            // Wrap the provided RawX509Verifier impl in a shim which converts the
+            // arguments.
+            #[derive(Debug)]
+            struct X509VerifyImpl(Arc<dyn RawX509Verifier>);
+            impl matrix_sdk_base::crypto::x509::RawX509Verifier for X509VerifyImpl {
+                fn verify(
+                    &self,
+                    message: &[u8],
+                    sig: &RawX509Signature,
+                ) -> Result<(), X509SignatureVerificationError> {
+                    if self.0.verify(message.to_vec(), sig.clone()) {
+                        Ok(())
+                    } else {
+                        Err(X509SignatureVerificationError::Custom(
+                            "Verification across FFI failed".into(),
+                        ))
+                    }
+                }
+            }
+            inner_builder =
+                inner_builder.with_x509_verifier(Some(Arc::new(X509VerifyImpl(x509_verify))));
+        }
+
         let sdk_client = inner_builder.build().await?;
 
         Ok(Arc::new(Client::new(sdk_client, builder.session_delegate, store_path).await?))
+    }
+}
+
+#[cfg(feature = "experimental-x509-identity-verification")]
+#[matrix_sdk_ffi_macros::export]
+impl ClientBuilder {
+    pub fn with_raw_x509_signer(self: Arc<Self>, x509_sign: Arc<dyn RawX509Signer>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.raw_x509_signer = Some(x509_sign);
+        Arc::new(builder)
+    }
+
+    pub fn with_raw_x509_verifier(
+        self: Arc<Self>,
+        x509_verify: Arc<dyn RawX509Verifier>,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.raw_x509_verifier = Some(x509_verify);
+        Arc::new(builder)
     }
 }
 

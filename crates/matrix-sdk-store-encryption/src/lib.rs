@@ -27,6 +27,7 @@ use chacha20poly1305::{
     Key as ChachaKey, KeyInit, XChaCha20Poly1305, XNonce,
     aead::{Aead, Error as EncryptionError},
 };
+use hkdf::Hkdf;
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use rand::{Rng, rng};
@@ -70,11 +71,12 @@ pub enum Error {
     #[error("The ciphertext had an invalid length, expected `{0}`, got `{1}`")]
     Length(usize, usize),
 
-    /// Failed to import a store cipher, the export used a passphrase while
-    /// we are trying to import it using a key or vice-versa.
+    /// Failed to import the store cipher. The export was created using a
+    /// different encryption mechanism than the one being used for import
+    /// (passphrase vs. key).
     #[error(
-        "Failed to import a store cipher, the export used a passphrase while we are trying to \
-         import it using a key or vice-versa"
+        "Failed to import the store cipher. The export was created using a different encryption
+         mechanism than the one being used for import (passphrase vs. key)"
     )]
     KdfMismatch,
 }
@@ -174,8 +176,14 @@ impl StoreCipher {
     /// // Save the export in your key/value store.
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn export_with_key(&self, key: &[u8; 32]) -> Result<Vec<u8>, Error> {
-        let store_cipher = self.export_helper(key, KdfInfo::None)?;
+    pub fn export_with_key(&self, key: &[u8]) -> Result<Vec<u8>, Error> {
+        let mut derived_key = Box::new([0u8; 32]);
+
+        Self::expand_key_from_key(key, &mut derived_key);
+        let store_cipher = self.export_helper(&derived_key, KdfInfo::HkdfSha256)?;
+
+        derived_key.zeroize();
+
         Ok(rmp_serde::to_vec_named(&store_cipher).expect("Can't serialize the store cipher"))
     }
 
@@ -184,7 +192,7 @@ impl StoreCipher {
         key: &[u8; 32],
         kdf_info: KdfInfo,
     ) -> Result<EncryptedStoreCipher, Error> {
-        let key = ChachaKey::from_slice(key.as_ref());
+        let key = ChachaKey::cast_from_core(key);
         let cipher = XChaCha20Poly1305::new(key);
 
         let nonce = Keys::get_nonce();
@@ -194,7 +202,7 @@ impl StoreCipher {
         keys[0..32].copy_from_slice(self.inner.encryption_key.as_ref());
         keys[32..64].copy_from_slice(self.inner.mac_key_seed.as_ref());
 
-        let ciphertext = cipher.encrypt(XNonce::from_slice(&nonce), keys.as_ref())?;
+        let ciphertext = cipher.encrypt(XNonce::cast_from_core(&nonce), keys.as_ref())?;
 
         keys.zeroize();
 
@@ -229,7 +237,7 @@ impl StoreCipher {
         let mut decrypted = match encrypted.ciphertext_info {
             CipherTextInfo::ChaCha20Poly1305 { nonce, ciphertext } => {
                 let cipher = XChaCha20Poly1305::new(key);
-                let nonce = XNonce::from_slice(&nonce);
+                let nonce = XNonce::cast_from_core(&nonce);
                 cipher.decrypt(nonce, ciphertext.as_ref())?
             }
         };
@@ -294,12 +302,12 @@ impl StoreCipher {
             KdfInfo::Pbkdf2ToChaCha20Poly1305 { rounds, kdf_salt } => {
                 Self::expand_key(passphrase, &kdf_salt, rounds)
             }
-            KdfInfo::None => {
+            KdfInfo::None | KdfInfo::HkdfSha256 => {
                 return Err(Error::KdfMismatch);
             }
         };
 
-        let key = ChachaKey::from_slice(key.as_ref());
+        let key = ChachaKey::cast_from_core(key.as_ref());
 
         Self::import_helper(key, encrypted)
     }
@@ -331,16 +339,47 @@ impl StoreCipher {
     /// // Save the export in your key/value store.
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn import_with_key(key: &[u8; 32], encrypted: &[u8]) -> Result<Self, Error> {
+    pub fn import_with_key(key: &[u8], encrypted: &[u8]) -> Result<Self, Error> {
         let encrypted: EncryptedStoreCipher = rmp_serde::from_slice(encrypted)?;
+
+        let mut key = match &encrypted.kdf_info {
+            KdfInfo::None => {
+                // We used to be able to call this method only with a 32-byte array. If we call
+                // this method with a smaller key and the `None` KDF info, then there's a
+                // mismatch between how the export was used.
+                if key.len() != 32 {
+                    return Err(Error::KdfMismatch);
+                }
+
+                // To avoid borrower issues between the two branches we copy the key here to
+                // take ownership over it.
+                let mut key_copy = Box::new([0u8; 32]);
+                key_copy.copy_from_slice(key);
+
+                key_copy
+            }
+            KdfInfo::HkdfSha256 => {
+                let mut derived_key = Box::new([0u8; 32]);
+                Self::expand_key_from_key(key, &mut derived_key);
+
+                derived_key
+            }
+            KdfInfo::Pbkdf2ToChaCha20Poly1305 { .. } => {
+                return Err(Error::KdfMismatch);
+            }
+        };
 
         if let KdfInfo::Pbkdf2ToChaCha20Poly1305 { .. } = encrypted.kdf_info {
             return Err(Error::KdfMismatch);
         }
 
-        let key = ChachaKey::from_slice(key.as_ref());
+        let chacha_key = ChachaKey::cast_from_core(key.as_ref());
 
-        Self::import_helper(key, encrypted)
+        let ret = Self::import_helper(chacha_key, encrypted);
+
+        key.zeroize();
+
+        ret
     }
 
     /// Hash a key before it is inserted into the key/value store.
@@ -448,13 +487,16 @@ impl StoreCipher {
     /// assert_eq!(value, decrypted);
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn encrypt_value_data(&self, mut data: Vec<u8>) -> Result<EncryptedValue, Error> {
+    pub fn encrypt_value_data<D>(&self, mut data: D) -> Result<EncryptedValue, Error>
+    where
+        D: EncryptableValue,
+    {
         let nonce = Keys::get_nonce();
         let cipher = XChaCha20Poly1305::new(self.inner.encryption_key());
 
-        let ciphertext = cipher.encrypt(XNonce::from_slice(&nonce), data.as_ref())?;
+        let ciphertext = cipher.encrypt(XNonce::cast_from_core(&nonce), data.as_bytes())?;
 
-        data.zeroize();
+        data.zeroiize();
         Ok(EncryptedValue { version: VERSION, ciphertext, nonce })
     }
 
@@ -601,7 +643,7 @@ impl StoreCipher {
         }
 
         let cipher = XChaCha20Poly1305::new(self.inner.encryption_key());
-        let nonce = XNonce::from_slice(&value.nonce);
+        let nonce = XNonce::cast_from_core(&value.nonce);
         Ok(cipher.decrypt(nonce, value.ciphertext.as_ref())?)
     }
 
@@ -614,6 +656,12 @@ impl StoreCipher {
         );
 
         key
+    }
+
+    fn expand_key_from_key(key: &[u8], output: &mut [u8; 32]) {
+        let hkdf = Hkdf::<Sha256>::new(None, key);
+        hkdf.expand(b"matrix-sdk-store-encryption", output)
+            .expect("32 bytes is a valid HKDF-SHA256 output length");
     }
 }
 
@@ -740,7 +788,7 @@ impl Keys {
     }
 
     fn encryption_key(&self) -> &ChachaKey {
-        ChachaKey::from_slice(self.encryption_key.as_slice())
+        ChachaKey::cast_from_core(&self.encryption_key)
     }
 
     fn mac_key_seed(&self) -> &MacKeySeed {
@@ -771,7 +819,14 @@ impl Keys {
 /// Version specific info for the key derivation method that is used.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 enum KdfInfo {
+    /// Not used anymore. Is kept for backwards compatibility when calling
+    /// [StoreCipher::import].
     None,
+    /// The HKDF-SHA256 key derivation variant.
+    ///
+    /// This is the default key derivation variant when
+    /// [StoreCipher::export_with_key] is used.
+    HkdfSha256,
     /// The PBKDF2 to Chacha key derivation variant.
     Pbkdf2ToChaCha20Poly1305 {
         /// The number of PBKDF rounds that were used when deriving the store
@@ -808,12 +863,61 @@ struct EncryptedStoreCipher {
     pub ciphertext_info: CipherTextInfo,
 }
 
+/// A trait to get a slice of bytes and to zeroize a data, which are the
+/// required operations for [`StoreCipher::encrypt_value_data`].
+///
+/// The goal of this trait was to call [`Zeroize`] efficiently on `Vec<u8>` and
+/// `&[u8]`. We could call `vec.iter_mut().zeroize()` but the implementation of
+/// `Zeroize` on `Vec<u8>` does a bit more than that as it clears the vector and
+/// zeroizes the spare capacity as a best effort.
+pub trait EncryptableValue {
+    /// Get the encodable value as bytes.
+    fn as_bytes(&self) -> &[u8];
+
+    /// Zeroize the encodable value.
+    ///
+    /// Called `zeroiize` to avoid clashes with [`Zeroize::zeroize`].
+    fn zeroiize(&mut self);
+}
+
+impl EncryptableValue for Vec<u8> {
+    fn as_bytes(&self) -> &[u8] {
+        AsRef::as_ref(self)
+    }
+
+    fn zeroiize(&mut self) {
+        Zeroize::zeroize(self);
+    }
+}
+
+impl EncryptableValue for String {
+    fn as_bytes(&self) -> &[u8] {
+        str::as_bytes(self)
+    }
+
+    fn zeroiize(&mut self) {
+        Zeroize::zeroize(self);
+    }
+}
+
+impl EncryptableValue for &mut [u8] {
+    fn as_bytes(&self) -> &[u8] {
+        self
+    }
+
+    fn zeroiize(&mut self) {
+        self.iter_mut().zeroize();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::{Value, json};
 
     use super::{Error, StoreCipher};
-    use crate::{EncryptedValue, EncryptedValueBase64, EncryptedValueBase64DecodeError};
+    use crate::{
+        EncryptedStoreCipher, EncryptedValue, EncryptedValueBase64, EncryptedValueBase64DecodeError,
+    };
 
     #[test]
     fn generating() {
@@ -899,6 +1003,34 @@ mod tests {
             .expect("We can import the old store-cipher export");
 
         Ok(())
+    }
+
+    #[test]
+    fn import_with_key_no_kdf_variant() {
+        let old_export = json!({
+            "kdf_info": "None",
+            "ciphertext_info": {
+                "ChaCha20Poly1305": {
+                    "nonce": [
+                        239,147,78,71,225,166,233,69,75,161,181,241,171,197,174,102,228,176,161,158,
+                        21,32,208,216
+                    ],
+                    "ciphertext":[
+                        63,195,248,146,13,60,40,131,62,209,2,113,184,79,121,242,180,170,51,194,85,
+                        96,11,97,248,68,2,178,108,30,39,215,96,119,216,38,6,203,79,42,32,220,69,41,
+                        120,44,218,88,37,176,79,198,198,209,26,62,251,20,181,55,88,83,196,131,140,
+                        245,89,167,58,146,150,10,136,90,194,123,221,147,128,255
+                    ]
+                }
+            }
+        });
+
+        let old_export: EncryptedStoreCipher = serde_json::from_value(old_export)
+            .expect("We should be able to serialize the old export");
+        let old_export = rmp_serde::to_vec(&old_export).unwrap();
+
+        StoreCipher::import_with_key(&[0u8; 32], &old_export)
+            .expect("We can import the old store-cipher export");
     }
 
     #[test]

@@ -12,13 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "e2e-encryption")]
-use std::collections::BTreeSet;
-
 use as_variant::as_variant;
 use eyeball_im::VectorDiff;
-#[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::deserialized_responses::TimelineEventKind;
 pub use matrix_sdk_base::event_cache::{Event, Gap};
 use matrix_sdk_base::{
     event_cache::store::DEFAULT_CHUNK_CAPACITY,
@@ -34,7 +29,7 @@ use matrix_sdk_common::linked_chunk::{
 use tracing::{instrument, trace};
 
 #[cfg(feature = "e2e-encryption")]
-use crate::event_cache::redecryptor::ResolvedUtd;
+use super::super::redecryptor::MaybeResolvedEvent;
 
 /// This type represents a linked chunk of events for a single room or thread.
 #[derive(Debug)]
@@ -175,6 +170,11 @@ impl EventLinkedChunk {
         P: FnMut(&'a Chunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>) -> bool,
     {
         self.chunks.chunk_identifier(predicate)
+    }
+
+    /// Return the first chunk.
+    pub fn first_chunk(&self) -> &Chunk<DEFAULT_CHUNK_CAPACITY, Event, Gap> {
+        self.chunks.first_chunk()
     }
 
     /// Iterate over the chunks, forward.
@@ -465,7 +465,7 @@ impl EventLinkedChunk {
     #[cfg(feature = "e2e-encryption")]
     pub fn find_event(&self, event_id: &ruma::EventId) -> Option<(Position, Event)> {
         for (position, event) in self.revents() {
-            if event.event_id().as_deref() == Some(event_id) {
+            if event.event_id() == Some(event_id) {
                 return Some((position, event.clone()));
             }
         }
@@ -473,36 +473,27 @@ impl EventLinkedChunk {
     }
 
     /// Try to locate the events in the linked chunk corresponding to the given
-    /// list of decrypted events, and replace them.
+    /// list of resolved events, and replace them.
     ///
     /// Returns true if at least one event has been replaced, false otherwise.
     #[cfg(feature = "e2e-encryption")]
-    pub fn replace_utds(&mut self, events: &[ResolvedUtd]) -> bool {
-        let event_set =
-            self.events().filter_map(|(_pos, ev)| ev.event_id()).collect::<BTreeSet<_>>();
-
+    pub fn replace_utds(&mut self, resolved_events: &[MaybeResolvedEvent]) -> bool {
         let mut replaced_some = false;
 
-        for (event_id, decrypted, actions) in events {
-            // As a performance optimization, do a lookup in the current pinned events
-            // check, before looking for the event in the linked chunk.
-
-            if !event_set.contains(event_id) {
-                continue;
-            }
-
-            // The event should be in the linked chunk.
-            let Some((position, mut target_event)) = self.find_event(event_id) else {
+        for resolved_event in
+            resolved_events.iter().filter_map(|resolved_event| resolved_event.as_resolved())
+        {
+            let Some(event_id) = resolved_event.event_id() else {
+                // No event ID? Let's skip it.
                 continue;
             };
 
-            target_event.kind = TimelineEventKind::Decrypted(decrypted.clone());
+            // The event should be in the linked chunk.
+            let Some((position, _)) = self.find_event(event_id) else {
+                continue;
+            };
 
-            if let Some(actions) = actions {
-                target_event.set_push_actions(actions.clone());
-            }
-
-            self.replace_event_at(position, target_event.clone())
+            self.replace_event_at(position, resolved_event.clone())
                 .expect("position should be valid");
 
             replaced_some = true;
@@ -558,22 +549,34 @@ impl EventLinkedChunk {
         r
     }
 
-    /// Replace the events with the given last chunk of events and generator.
+    /// Replace all chunks by the last (loaded) one.
     ///
-    /// Happens only during lazy loading.
-    ///
-    /// This clears all the chunks in memory before resetting to the new chunk,
-    /// if provided.
+    /// Since the last chunk has been loaded, it is assumed the metadata of the
+    /// `LinkedChunk` might have changed. That's why
+    /// `full_linked_chunk_metadata` is required if this type has been built
+    /// with [`EventLinkedChunk::with_initial_linked_chunk`].
     #[instrument(err, skip_all, fields(sentry = true))]
-    pub(in super::super) fn replace_with(
+    pub(in super::super) fn shrink_to_last_reloaded_chunk(
         &mut self,
         last_chunk: Option<RawChunk<Event, Gap>>,
         chunk_identifier_generator: ChunkIdentifierGenerator,
+        full_linked_chunk_metadata: Option<Vec<ChunkMetadata>>,
     ) -> Result<(), LazyLoaderError> {
         // Since `replace_with` is used only to unload some chunks, we don't want it to
         // affect the chunk ordering.
         self.inhibit_updates_to_ordering_tracker(move |this| {
-            lazy_loader::replace_with(&mut this.chunks, last_chunk, chunk_identifier_generator)
+            lazy_loader::replace_with(&mut this.chunks, last_chunk, chunk_identifier_generator)?;
+
+            // Don't propagate those updates to the store; this is only for the in-memory
+            // representation that we're doing this. Let's drain those store updates.
+            let _ = this.store_updates().take();
+
+            this.order_tracker = this
+                .chunks
+                .order_tracker(full_linked_chunk_metadata)
+                .expect("`LinkedChunk` must have been built with `new_with_update_history`");
+
+            Ok(())
         })
     }
 
@@ -646,6 +649,7 @@ pub(in super::super) fn sort_positions_descending(positions: &mut [Position]) {
 mod tests {
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
+    use matrix_sdk_base::linked_chunk::Update;
     use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, event_factory::EventFactory};
     use ruma::{EventId, OwnedEventId, event_id, user_id};
 
@@ -855,15 +859,15 @@ mod tests {
             &diffs[0],
             VectorDiff::Append { values } => {
                 assert_eq!(values.len(), 2);
-                assert_eq!(values[0].event_id(), Some(event_id_0));
-                assert_eq!(values[1].event_id(), Some(event_id_1));
+                assert_eq!(values[0].event_id(), Some(event_id_0.as_ref()));
+                assert_eq!(values[1].event_id(), Some(event_id_1.as_ref()));
             }
         );
         assert_matches!(
             &diffs[1],
             VectorDiff::Append { values } => {
                 assert_eq!(values.len(), 1);
-                assert_eq!(values[0].event_id(), Some(event_id_2));
+                assert_eq!(values[0].event_id(), Some(event_id_2.as_ref()));
             }
         );
 
@@ -881,7 +885,7 @@ mod tests {
             &diffs[1],
             VectorDiff::Append { values } => {
                 assert_eq!(values.len(), 1);
-                assert_eq!(values[0].event_id(), Some(event_id_3));
+                assert_eq!(values[0].event_id(), Some(event_id_3.as_ref()));
             }
         );
     }
@@ -932,5 +936,46 @@ mod tests {
                 Position::new(ChunkIdentifier::new(0), 0),
             ]
         );
+    }
+
+    #[test]
+    fn test_shrink_to_no_last_reloaded_chunk() {
+        let mut linked_chunk = EventLinkedChunk::new();
+
+        {
+            let updates = linked_chunk.store_updates().take();
+
+            assert_eq!(updates.len(), 1);
+            assert_matches!(
+                &updates[0],
+                Update::NewItemsChunk { previous, new, next } => {
+                    assert!(previous.is_none());
+                    assert_eq!(new.index(), 0);
+                    assert!(next.is_none());
+                }
+            );
+        }
+
+        // Let's imagine the `LinkedChunk` has been reset: no last chunk anymore, no
+        // metadata, nothing.
+        linked_chunk
+            .shrink_to_last_reloaded_chunk(None, ChunkIdentifierGenerator::new_from_scratch(), None)
+            .unwrap();
+
+        {
+            let updates = linked_chunk.store_updates().take();
+
+            assert_eq!(updates.len(), 1);
+            // No `Update::Clear`, because it is drained.
+            // However, `Update::NewItemsChunk` is **NOT** drained!
+            assert_matches!(
+                &updates[0],
+                Update::NewItemsChunk { previous, new, next } => {
+                    assert!(previous.is_none());
+                    assert_eq!(new.index(), 0);
+                    assert!(next.is_none());
+                }
+            );
+        }
     }
 }

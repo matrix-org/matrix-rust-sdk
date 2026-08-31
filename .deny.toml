@@ -10,6 +10,7 @@ exclude = [
 version = 2
 ignore = [
     { id = "RUSTSEC-2024-0388", reason = "Unmaintained derivative crate, not a direct dependency" },
+    { id = "RUSTSEC-2026-0247", reason = "Unmaintained bitmaps crate; not a direct dependency" },
 ]
 
 [licenses]
@@ -43,11 +44,16 @@ allow-git = [
     "https://github.com/tokio-rs/tracing.git",
     # Well, it's Ruma.
     "https://github.com/ruma/ruma",
+    # This is our fork of Ruma, needed until the fix for https://github.com/mozilla/uniffi-rs/issues/2939 is merged.
+    "https://github.com/matrix-org/ruma",
+    # Vodozemac won't block us as we're doing the releases.
+    "https://github.com/matrix-org/vodozemac",
     # A patch override for the bindings: https://github.com/rodrimati1992/const_panic/pull/10
     "https://github.com/jplatte/const_panic",
     # A patch override for the bindings: https://github.com/smol-rs/async-compat/pull/22
     "https://github.com/element-hq/async-compat",
-    # We can release vodozemac whenever we need but let's not block development
-    # on releases.
-    "https://github.com/matrix-org/vodozemac",
+    "https://github.com/mozilla/uniffi-rs",
+    # Pinned one commit past 3.1.1 for the unreleased guess-magnitude
+    # overflow fix, needed by the bindings' password strength estimation.
+    "https://github.com/shssoichiro/zxcvbn-rs",
 ]

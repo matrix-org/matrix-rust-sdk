@@ -30,13 +30,13 @@ use eyeball::SharedObservable;
 use http::Method;
 use matrix_sdk_base::SendOutsideWasm;
 use ruma::api::{
-    OutgoingRequest, SupportedVersions,
+    OutgoingRequest, OutgoingRequestExt, SupportedVersions,
     auth_scheme::{self, AuthScheme, SendAccessToken},
     error::{FromHttpResponseError, IntoHttpError},
     path_builder,
 };
 use tokio::sync::{Semaphore, SemaphorePermit};
-use tracing::{debug, error, field::debug, instrument, trace};
+use tracing::{Instrument, debug, error, field::debug, trace};
 
 use crate::{HttpResult, config::RequestConfig, error::HttpError};
 
@@ -134,21 +134,7 @@ impl HttpClient {
         Ok(request)
     }
 
-    #[allow(clippy::too_many_arguments)]
-    #[instrument(
-        skip(self, request, config, homeserver, access_token, path_builder_input, send_progress),
-        fields(
-            uri,
-            method,
-            request_id,
-            request_size,
-            request_duration,
-            status,
-            response_size,
-            sentry_event_id
-        )
-    )]
-    pub async fn send<R>(
+    pub fn send<R>(
         &self,
         request: R,
         config: Option<RequestConfig>,
@@ -156,31 +142,29 @@ impl HttpClient {
         access_token: Option<&str>,
         path_builder_input: <R::PathBuilder as path_builder::PathBuilder>::Input<'_>,
         send_progress: SharedObservable<TransmissionProgress>,
-    ) -> Result<R::IncomingResponse, HttpError>
+    ) -> impl Future<Output = Result<R::IncomingResponse, HttpError>>
     where
         R: OutgoingRequest + Debug,
         R::Authentication: SupportedAuthScheme,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
-        let config = match config {
-            Some(config) => config,
-            None => self.request_config,
-        };
-
-        // Keep some local variables in a separate scope so the compiler doesn't include
-        // them in the future type. https://github.com/rust-lang/rust/issues/57478
-        let request = {
-            let request_id = self.get_request_id();
-            let span = tracing::Span::current();
-
-            // At this point in the code, the config isn't behind an Option anymore, that's
-            // why we record it here, instead of in the #[instrument] macro.
-            span.record("config", debug(config)).record("request_id", request_id);
-
-            let request = self
-                .serialize_request(request, config, homeserver, access_token, path_builder_input)
-                .map_err(HttpError::IntoHttp)?;
-
+        // some functions split out so they only get compiled once,
+        // not monomorphized per request type
+        fn make_span(client: &HttpClient, config: &RequestConfig) -> tracing::Span {
+            tracing::info_span!(
+                "send",
+                uri = tracing::field::Empty,
+                ?config,
+                method = tracing::field::Empty,
+                request_id = client.get_request_id(),
+                request_size = tracing::field::Empty,
+                request_duration = tracing::field::Empty,
+                status = tracing::field::Empty,
+                response_size = tracing::field::Empty,
+                sentry_event_id = tracing::field::Empty
+            )
+        }
+        fn record_request_uri_and_size(request: &http::Request<Bytes>) {
             let method = request.method();
 
             let mut uri_parts = request.uri().clone().into_parts();
@@ -194,6 +178,7 @@ impl HttpClient {
 
             let uri = http::Uri::from_parts(uri_parts).expect("created from valid URI");
 
+            let span = tracing::Span::current();
             span.record("method", debug(method)).record("uri", uri.to_string());
 
             // POST, PUT, PATCH are the only methods that are reasonably used
@@ -205,25 +190,44 @@ impl HttpClient {
                     ByteSize(request_size).display().si_short().to_string(),
                 );
             }
+        }
+        // these macros expand to a lot of code, also want to skip monomorphization
+        // for them even though they might look super simple
+        fn log_got_response() {
+            debug!("Got response");
+        }
+        fn log_error(e: &HttpError) {
+            error!("Error while sending request: {e:?}");
+        }
 
-            request
+        let config = match config {
+            Some(config) => config,
+            None => self.request_config,
         };
 
-        // will be automatically dropped at the end of this function
-        let _handle = self.concurrent_request_semaphore.acquire().await;
+        async move {
+            let request = self
+                .serialize_request(request, config, homeserver, access_token, path_builder_input)
+                .map_err(HttpError::IntoHttp)?;
+            record_request_uri_and_size(&request);
 
-        // There's a bunch of state in send_request, factor out a pinned inner
-        // future to reduce this size of futures that await this function.
-        match Box::pin(self.send_request::<R>(request, config, send_progress)).await {
-            Ok(response) => {
-                debug!("Got response");
-                Ok(response)
-            }
-            Err(e) => {
-                error!("Error while sending request: {e:?}");
-                Err(e)
+            // will be automatically dropped at the end of this function
+            let _handle = self.concurrent_request_semaphore.acquire().await;
+
+            // There's a bunch of state in send_request, factor out a pinned inner
+            // future to reduce the size of futures that await this function.
+            match Box::pin(self.send_request::<R>(request, config, send_progress)).await {
+                Ok(response) => {
+                    log_got_response();
+                    Ok(response)
+                }
+                Err(e) => {
+                    log_error(&e);
+                    Err(e)
+                }
             }
         }
+        .instrument(make_span(self, &config))
     }
 }
 
@@ -258,9 +262,9 @@ async fn response_to_http_response(
 /// Marker trait to identify the authentication schemes that the
 /// [`Client`](crate::Client) supports.
 ///
-/// This trait can also be implemented for custom
-/// [`PathBuilder`](path_builder::PathBuilder)s if necessary.
+/// This trait can also be implemented for custom [`AuthScheme`]s if necessary.
 pub trait SupportedAuthScheme: AuthScheme {
+    /// Get the [`AuthScheme::Input`] from the access token.
     fn authentication_input(access_token: SendAccessToken<'_>) -> Self::Input<'_>;
 }
 
@@ -304,6 +308,8 @@ impl SupportedAuthScheme for auth_scheme::NoAuthentication {
 /// This trait can also be implemented for custom
 /// [`PathBuilder`](path_builder::PathBuilder)s if necessary.
 pub trait SupportedPathBuilder: path_builder::PathBuilder {
+    /// Get the [`PathBuilder::Input`](path_builder::PathBuilder::Input) from
+    /// the [`Client`](crate::Client).
     fn get_path_builder_input(
         client: &crate::Client,
         skip_auth: bool,

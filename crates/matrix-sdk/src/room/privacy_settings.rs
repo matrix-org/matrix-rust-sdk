@@ -13,6 +13,7 @@ use ruma::{
             canonical_alias::RoomCanonicalAliasEventContent,
             history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
             join_rules::{JoinRule, RoomJoinRulesEventContent},
+            retention::RoomRetentionEventContent,
         },
     },
 };
@@ -137,6 +138,27 @@ impl<'a> RoomPrivacySettings<'a> {
         Ok(())
     }
 
+    /// Update the message retention policy for this room.
+    ///
+    /// The caller must have a power level sufficient to send the
+    /// `m.room.retention` state event (typically power level 50). The
+    /// server will reject the request if the power level is insufficient.
+    ///
+    /// The `content` must satisfy `max_lifetime >= min_lifetime`; use
+    /// [`RoomRetentionEventContent`]'s builder methods to construct a valid
+    /// value.
+    ///
+    /// See [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763) for more info.
+    pub async fn update_room_retention(&'a self, content: RoomRetentionEventContent) -> Result<()> {
+        let request = send_state_event::v3::Request::new(
+            self.room.room_id().to_owned(),
+            &EmptyStateKey,
+            &content,
+        )?;
+        self.client.send(request).await?;
+        Ok(())
+    }
+
     /// Returns the visibility for this room in the room directory.
     ///
     /// [Public](`Visibility::Public`) rooms are listed in the room directory
@@ -163,7 +185,7 @@ impl<'a> RoomPrivacySettings<'a> {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use std::ops::Not;
+    use std::{ops::Not, time::Duration};
 
     use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{
@@ -171,7 +193,10 @@ mod tests {
         event_id,
         events::{
             StateEventType,
-            room::{history_visibility::HistoryVisibility, join_rules::JoinRule},
+            room::{
+                history_visibility::HistoryVisibility, join_rules::JoinRule,
+                retention::RoomRetentionEventContent,
+            },
         },
         owned_room_alias_id, room_id, user_id,
     };
@@ -388,6 +413,34 @@ mod tests {
             .await;
 
         let ret = room.privacy_settings().update_join_rule(JoinRule::Public).await;
+        assert!(ret.is_ok());
+    }
+
+    #[async_test]
+    async fn test_update_room_retention() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a:b.c");
+        let room = server.sync_joined_room(&client, room_id).await;
+
+        server
+            .mock_room_send_state()
+            .for_type(StateEventType::RoomRetention)
+            .body_matches_partial_json(serde_json::json!({
+                "max_lifetime": Duration::from_secs(86_400).as_millis() as u64,
+            }))
+            .ok(event_id!("$a:b.c"))
+            .mock_once()
+            .mount()
+            .await;
+
+        let ret = room
+            .privacy_settings()
+            .update_room_retention(
+                RoomRetentionEventContent::new().at_most(Duration::from_secs(86_400)).unwrap(),
+            )
+            .await;
         assert!(ret.is_ok());
     }
 

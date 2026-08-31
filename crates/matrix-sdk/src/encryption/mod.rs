@@ -53,6 +53,7 @@ use matrix_sdk_base::{
         },
     },
     sleep::sleep,
+    timeout::timeout,
 };
 use matrix_sdk_common::{executor::spawn, locks::Mutex as StdMutex};
 use ruma::{
@@ -83,7 +84,7 @@ use serde::{Deserialize, de::Error as _};
 use tasks::BundleReceiverTask;
 use tokio::sync::{Mutex, RwLockReadGuard};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tracing::{Span, debug, error, instrument, warn};
+use tracing::{Instrument, Span, debug, error, instrument, warn};
 use url::Url;
 use vodozemac::Curve25519PublicKey;
 
@@ -105,6 +106,7 @@ use crate::{
 };
 
 pub mod backups;
+pub mod dehydrated_devices;
 pub mod futures;
 pub mod identities;
 pub mod recovery;
@@ -112,6 +114,7 @@ pub mod secret_storage;
 pub(crate) mod tasks;
 pub mod verification;
 
+use matrix_sdk_base::crypto::OlmMachineBuilder;
 pub use matrix_sdk_base::crypto::{
     CrossSigningStatus, CryptoStoreError, DecryptorError, EventError, KeyExportError, LocalTrust,
     MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SessionCreationError,
@@ -177,7 +180,9 @@ pub async fn export_secrets_bundle_from_store(
         store.load_account().await.map_err(|e| BundleExportError::StoreError(e.into()))?;
 
     if let Some(account) = account {
-        let machine = OlmMachine::with_store(&account.user_id, &account.device_id, store, None)
+        let machine = OlmMachineBuilder::new(&account.user_id, &account.device_id)
+            .with_crypto_store(store)
+            .build()
             .await
             .map_err(BundleExportError::StoreError)?;
 
@@ -203,6 +208,10 @@ pub(crate) struct EncryptionData {
 
     /// All state related to secret storage recovery.
     pub recovery_state: SharedObservable<RecoveryState>,
+
+    /// State for the dehydrated-devices manager (event channel, scheduled
+    /// rotation task).
+    pub dehydrated_devices_state: dehydrated_devices::DehydratedDevicesState,
 }
 
 impl EncryptionData {
@@ -213,6 +222,7 @@ impl EncryptionData {
             tasks: StdMutex::new(Default::default()),
             backup_state: Default::default(),
             recovery_state: Default::default(),
+            dehydrated_devices_state: Default::default(),
         }
     }
 
@@ -358,43 +368,46 @@ impl CrossSigningResetHandle {
         // Give up after two minutes of polling.
         const TIMEOUT: Duration = Duration::from_mins(2);
 
-        tokio::time::timeout(TIMEOUT, async {
-            let mut upload_request = self.upload_request.clone();
-            upload_request.auth = auth;
-
-            debug!(
-                "Repeatedly PUTting to keys/device_signing/upload until it works \
-                or we hit a permanent failure."
-            );
-            while let Err(e) = self.client.send(upload_request.clone()).await {
-                if *self.is_cancelled.lock().await {
-                    return Ok(());
-                }
-
-                match e.as_uiaa_response() {
-                    Some(uiaa_info) => {
-                        // Return the error except if we are at the `m.oauth` stage where we want to
-                        // keep polling.
-                        if !matches!(self.auth_type, CrossSigningResetAuthType::OAuth(_))
-                            && uiaa_info.auth_error.is_some()
-                        {
-                            return Err(e.into());
-                        }
-                    }
-                    None => return Err(e.into()),
-                }
+        timeout(
+            async {
+                let mut upload_request = self.upload_request.clone();
+                upload_request.auth = auth;
 
                 debug!(
-                    "PUT to keys/device_signing/upload failed with 401. Retrying after \
-                    a short delay."
+                    "Repeatedly PUTting to keys/device_signing/upload until it works \
+                    or we hit a permanent failure."
                 );
-                sleep(RETRY_EVERY).await;
-            }
+                while let Err(e) = self.client.send(upload_request.clone()).await {
+                    if *self.is_cancelled.lock().await {
+                        return Ok(());
+                    }
 
-            self.client.send(self.signatures_request.clone()).await?;
+                    match e.as_uiaa_response() {
+                        Some(uiaa_info) => {
+                            // Return the error except if we are at the `m.oauth` stage where we
+                            // want to keep polling.
+                            if !matches!(self.auth_type, CrossSigningResetAuthType::OAuth(_))
+                                && uiaa_info.auth_error.is_some()
+                            {
+                                return Err(e.into());
+                            }
+                        }
+                        None => return Err(e.into()),
+                    }
 
-            Ok(())
-        })
+                    debug!(
+                        "PUT to keys/device_signing/upload failed with 401. Retrying after \
+                        a short delay."
+                    );
+                    sleep(RETRY_EVERY).await;
+                }
+
+                self.client.send(self.signatures_request.clone()).await?;
+
+                Ok(())
+            },
+            TIMEOUT,
+        )
         .await
         .unwrap_or_else(|_| {
             warn!("Timed out waiting for keys/device_signing/upload to succeed.");
@@ -1797,6 +1810,17 @@ impl Encryption {
         Recovery { client: self.client.to_owned() }
     }
 
+    /// Get the dehydrated-devices manager of the client.
+    ///
+    /// A dehydrated device is a virtual device that the homeserver holds on
+    /// the user's behalf and that can receive end-to-end encrypted to-device
+    /// events while the user is offline. See the
+    /// [`dehydrated_devices`] module
+    /// for the full lifecycle and an example.
+    pub fn dehydrated_devices(&self) -> dehydrated_devices::DehydratedDevices {
+        dehydrated_devices::DehydratedDevices { client: self.client.to_owned() }
+    }
+
     /// Enables the crypto-store cross-process lock.
     ///
     /// This may be required if there are multiple processes that may do writes
@@ -1988,24 +2012,27 @@ impl Encryption {
 
         let this = self.clone();
 
-        tasks.setup_e2ee = Some(spawn(async move {
-            // Update the current state first, so we don't have to wait for the result of
-            // network requests
-            this.update_verification_state().await;
+        tasks.setup_e2ee = Some(spawn(
+            async move {
+                // Update the current state first, so we don't have to wait for the result of
+                // network requests
+                this.update_verification_state().await;
 
-            if this.settings().auto_enable_cross_signing
-                && let Err(e) = this.bootstrap_cross_signing_if_needed(auth_data).await
-            {
-                error!("Couldn't bootstrap cross signing {e:?}");
-            }
+                if this.settings().auto_enable_cross_signing
+                    && let Err(e) = this.bootstrap_cross_signing_if_needed(auth_data).await
+                {
+                    error!("Couldn't bootstrap cross signing {e:?}");
+                }
 
-            if let Err(e) = this.backups().setup_and_resume().await {
-                error!("Couldn't setup and resume backups {e:?}");
+                if let Err(e) = this.backups().setup_and_resume().await {
+                    error!("Couldn't setup and resume backups {e:?}");
+                }
+                if let Err(e) = this.recovery().setup().await {
+                    error!("Couldn't setup and resume recovery {e:?}");
+                }
             }
-            if let Err(e) = this.recovery().setup().await {
-                error!("Couldn't setup and resume recovery {e:?}");
-            }
-        }));
+            .instrument(Span::current()),
+        ));
 
         tasks.receive_historic_room_key_bundles = bundle_receiver_task;
 
@@ -2232,7 +2259,6 @@ mod tests {
             Arc,
             atomic::{AtomicBool, Ordering},
         },
-        time::Duration,
     };
 
     use matrix_sdk_test::{
@@ -2318,7 +2344,8 @@ mod tests {
         // Create two clients using the same sqlite database.
 
         use matrix_sdk_base::store::RoomLoadSettings;
-        let sqlite_path = std::env::temp_dir().join("generation_counter_sqlite.db");
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let sqlite_path = tmp_dir.path().join("generation_counter_sqlite.db");
         let session = mock_matrix_session();
 
         let client1 = Client::builder()
@@ -2351,7 +2378,7 @@ mod tests {
         client2.encryption().enable_cross_process_store_lock("client2".to_owned()).await.unwrap();
 
         // One client can take the lock.
-        let acquired1 = client1.encryption().try_lock_store_once().await.unwrap();
+        let acquired1 = client1.encryption().spin_lock_store(None).await.unwrap();
         assert!(acquired1.is_some());
 
         // Keep the olm machine, so we can see if it's changed later, by comparing Arcs.
@@ -2378,10 +2405,9 @@ mod tests {
 
         // Now have the first client release the lock,
         drop(acquired1);
-        tokio::time::sleep(Duration::from_millis(100)).await;
 
         // And re-take it.
-        let acquired1 = client1.encryption().try_lock_store_once().await.unwrap();
+        let acquired1 = client1.encryption().spin_lock_store(None).await.unwrap();
         assert!(acquired1.is_some());
 
         // In that case, the Olm Machine shouldn't change.
@@ -2390,18 +2416,16 @@ mod tests {
 
         // Ok, release again.
         drop(acquired1);
-        tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Client2 can acquire the lock.
-        let acquired2 = client2.encryption().try_lock_store_once().await.unwrap();
+        let acquired2 = client2.encryption().spin_lock_store(None).await.unwrap();
         assert!(acquired2.is_some());
 
         // And then release it.
         drop(acquired2);
-        tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Client1 can acquire it again,
-        let acquired1 = client1.encryption().try_lock_store_once().await.unwrap();
+        let acquired1 = client1.encryption().spin_lock_store(None).await.unwrap();
         assert!(acquired1.is_some());
 
         // But now its olm machine has been invalidated and thus regenerated!
@@ -2424,8 +2448,8 @@ mod tests {
         // Create two clients using the same sqlite database.
 
         use matrix_sdk_base::store::RoomLoadSettings;
-        let sqlite_path =
-            std::env::temp_dir().join("generation_counter_no_spurious_invalidations.db");
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let sqlite_path = tmp_dir.path().join("generation_counter_no_spurious_invalidations.db");
         let session = mock_matrix_session();
 
         let client = Client::builder()
@@ -2474,11 +2498,10 @@ mod tests {
             assert!(guard.is_some());
 
             drop(guard);
-            tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
         {
-            let acquired = client.encryption().try_lock_store_once().await.unwrap();
+            let acquired = client.encryption().spin_lock_store(None).await.unwrap();
             assert!(acquired.is_some());
         }
 
@@ -2487,7 +2510,7 @@ mod tests {
         assert!(!initial_olm_machine.same_as(&after_taking_lock_first_time));
 
         {
-            let acquired = client.encryption().try_lock_store_once().await.unwrap();
+            let acquired = client.encryption().spin_lock_store(None).await.unwrap();
             assert!(acquired.is_some());
         }
 

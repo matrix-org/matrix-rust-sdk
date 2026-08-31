@@ -370,6 +370,33 @@ impl OAuth {
         as_variant!(data, AuthData::OAuth)
     }
 
+    /// Check if the homeserver supports the [MSC4388] variant of the rendezvous
+    /// server.
+    ///
+    /// Returns `Ok(true)` if the rendezvous discovery endpoint returns a 200 OK
+    /// HTTP response, `Ok(false)` if the endpoint returns a 404 NOT_FOUND or
+    /// 403 FORBIDDEN HTTP response, otherwise an error is returned.
+    ///
+    /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn msc_4388_rendezvous_server_supported(&self) -> Result<bool, crate::HttpError> {
+        use http::StatusCode;
+        use ruma::api::client::rendezvous::discover_rendezvous;
+
+        match self.client.send(discover_rendezvous::unstable::Request::new()).await {
+            Ok(response) => Ok(response.create_available),
+            Err(e) => {
+                if e.as_client_api_error().is_some_and(|err| {
+                    matches!(err.status_code, StatusCode::NOT_FOUND | StatusCode::FORBIDDEN)
+                }) {
+                    Ok(false)
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+
     /// Log in this device using a QR code.
     ///
     /// # Arguments
@@ -1116,7 +1143,7 @@ impl OAuth {
         let response = OAuthClient::new(client_id)
             .set_token_uri(token_uri)
             .exchange_device_access_token(device_authorization_response)
-            .request_async(self.http_client(), tokio::time::sleep, None)
+            .request_async(self.http_client(), matrix_sdk_common::sleep::sleep, None)
             .await?;
 
         self.client.auth_ctx().set_session_tokens(SessionTokens {
@@ -1135,7 +1162,7 @@ impl OAuth {
         #[cfg(feature = "e2e-encryption")] cross_process_lock: Option<CrossProcessRefreshLockGuard>,
     ) -> Result<(), OAuthError> {
         trace!(
-            "Token refresh: attempting to refresh with refresh_token {:x}",
+            "Token refresh: attempting to refresh with refresh_token {}",
             hash_str(&refresh_token)
         );
 
@@ -1153,11 +1180,8 @@ impl OAuth {
         let new_refresh_token = response.refresh_token().map(RefreshToken::secret).cloned();
 
         trace!(
-            "Token refresh: new refresh_token: {} / access_token: {:x}",
-            new_refresh_token
-                .as_deref()
-                .map(|token| format!("{:x}", hash_str(token)))
-                .unwrap_or_else(|| "<none>".to_owned()),
+            "Token refresh: new refresh_token: {} / access_token: {}",
+            new_refresh_token.as_deref().map(hash_str).unwrap_or_else(|| "<none>".to_owned()),
             hash_str(&new_access_token)
         );
 
@@ -1228,6 +1252,30 @@ impl OAuth {
 
         debug!("no other refresh happening in background, starting.");
 
+        // Fetch the authorization server metadata *before* taking the cross-process
+        // lock, checking the session hash, or reading the refresh token. This request
+        // can stall for a long time when the OS suspends the process (e.g. iOS
+        // background suspension), and while suspended the lock lease lapses, which
+        // lets another process refresh and rotate the token. Doing it first means the
+        // lock and the hash check happen after the stall, so such a rotation is caught
+        // below as a hash mismatch instead of being exchanged while stale, which the
+        // server rejects with `invalid_grant` and signs the user out.
+        let server_metadata = match self.server_metadata().await {
+            Ok(metadata) => metadata,
+            Err(err) => {
+                warn!("couldn't get authorization server metadata: {err:?}");
+                fail!(refresh_status_guard, RefreshTokenError::OAuth(Arc::new(err.into())));
+            }
+        };
+
+        let Some(client_id) = self.client_id().cloned() else {
+            warn!("invalid state: missing client ID");
+            fail!(
+                refresh_status_guard,
+                RefreshTokenError::OAuth(Arc::new(OAuthError::NotAuthenticated))
+            );
+        };
+
         #[cfg(feature = "e2e-encryption")]
         let cross_process_guard =
             if let Some(manager) = self.ctx().cross_process_token_refresh_manager.get() {
@@ -1259,6 +1307,9 @@ impl OAuth {
                 None
             };
 
+        // Read the refresh token only now, after the hash check above, so we always
+        // exchange the token that is current in the store, never one that another
+        // process rotated out from under us while we were suspended.
         let Some(session_tokens) = self.client.session_tokens() else {
             warn!("invalid state: missing session tokens");
             fail!(refresh_status_guard, RefreshTokenError::RefreshTokenRequired);
@@ -1267,22 +1318,6 @@ impl OAuth {
         let Some(refresh_token) = session_tokens.refresh_token else {
             warn!("invalid state: missing session tokens");
             fail!(refresh_status_guard, RefreshTokenError::RefreshTokenRequired);
-        };
-
-        let server_metadata = match self.server_metadata().await {
-            Ok(metadata) => metadata,
-            Err(err) => {
-                warn!("couldn't get authorization server metadata: {err:?}");
-                fail!(refresh_status_guard, RefreshTokenError::OAuth(Arc::new(err.into())));
-            }
-        };
-
-        let Some(client_id) = self.client_id().cloned() else {
-            warn!("invalid state: missing client ID");
-            fail!(
-                refresh_status_guard,
-                RefreshTokenError::OAuth(Arc::new(OAuthError::NotAuthenticated))
-            );
         };
 
         // Do not interrupt refresh access token requests and processing, by detaching
@@ -1426,8 +1461,7 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     ///         match state {
     ///             LoginProgress::Starting | LoginProgress::SyncingSecrets => (),
     ///             LoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
-    ///                 let code = check_code.to_digit();
-    ///                 println!("Please enter the following code into the other device {code:02}");
+    ///                 println!("Please enter the following code into the other device {check_code:02}");
     ///             },
     ///             LoginProgress::WaitingForToken { user_code } => {
     ///                 println!("Please use your other device to confirm the log in {user_code}")
@@ -1619,8 +1653,12 @@ impl<'a> GrantLoginWithQrCodeBuilder<'a> {
     ///             GrantLoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
     ///                 println!("Please enter the checkcode on your other device: {:?}", check_code);
     ///             }
-    ///             GrantLoginProgress::WaitingForAuth { verification_uri } => {
-    ///                 println!("Please open {verification_uri} to confirm the new login")
+    ///             GrantLoginProgress::WaitingForAuth { verification_uri, continuation_sender } => {
+    ///                 println!("Please open {verification_uri} to confirm the new login");
+    ///
+    ///                 // Once the new login has been confirmed in the browser, we can let the
+    ///                 // client continue with the process.
+    ///                 continuation_sender.confirm().await?;
     ///             },
     ///             GrantLoginProgress::Done => break,
     ///         }
@@ -1696,8 +1734,12 @@ impl<'a> GrantLoginWithQrCodeBuilder<'a> {
     ///                 let check_code = s.trim().parse::<u8>()?;
     ///                 checkcode_sender.send(check_code).await?;
     ///             }
-    ///             GrantLoginProgress::WaitingForAuth { verification_uri } => {
-    ///                 println!("Please open {verification_uri} to confirm the new login")
+    ///             GrantLoginProgress::WaitingForAuth { verification_uri, continuation_sender } => {
+    ///                 println!("Please open {verification_uri} to confirm the new login");
+    ///
+    ///                 // Once the new login has been confirmed in the browser, we can let the
+    ///                 // client continue with the process.
+    ///                 continuation_sender.confirm().await?;
     ///             },
     ///             GrantLoginProgress::Done => break,
     ///         }
@@ -1813,8 +1855,8 @@ struct AuthorizationError {
     state: CsrfToken,
 }
 
-fn hash_str(x: &str) -> impl fmt::LowerHex {
-    sha2::Sha256::new().chain_update(x).finalize()
+fn hash_str(x: &str) -> String {
+    hex::encode(sha2::Sha256::new().chain_update(x).finalize())
 }
 
 /// Data to register or restore a client.

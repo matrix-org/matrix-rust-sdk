@@ -22,7 +22,8 @@ use http::StatusCode;
 use matrix_sdk_base::crypto::ScanError;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{
-    CryptoStoreError, DecryptorError, KeyExportError, MegolmError, OlmError,
+    BootstrapCrossSigningError, CryptoStoreError, DecryptorError, KeyExportError, MegolmError,
+    OlmError, SignatureError,
 };
 use matrix_sdk_base::{
     Error as SdkBaseError, QueueWedgeError, RoomState, StoreError,
@@ -39,8 +40,6 @@ use ruma::{
     events::{room::power_levels::PowerLevelsError, tag::InvalidUserTagName},
     push::{InsertPushRuleError, RemovePushRuleError},
 };
-#[cfg(target_os = "android")]
-use rustls::client::VerifierBuilderError;
 use serde_json::Error as JsonError;
 use thiserror::Error;
 use url::ParseError as UrlParseError;
@@ -89,11 +88,6 @@ pub enum HttpError {
     /// [`HttpError`] into an [`Arc`] to be able to clone it.
     #[error(transparent)]
     Cached(Arc<HttpError>),
-
-    /// Error creating the TLS verifier.
-    #[cfg(target_os = "android")]
-    #[error(transparent)]
-    VerifierBuilder(#[from] VerifierBuilderError),
 }
 
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines
@@ -234,14 +228,15 @@ impl RetryKind {
     /// if we received an error from a reverse proxy while the Matrix
     /// homeserver is down.
     fn from_status_code(status_code: StatusCode) -> Self {
-        if status_code.as_u16() == 520 {
-            // Cloudflare or some other proxy server sent this, meaning the actual
-            // homeserver sent some unknown error back
-            RetryKind::Permanent
-        } else if status_code == StatusCode::TOO_MANY_REQUESTS || status_code.is_server_error() {
-            // If the status code is 429, this is requesting a retry in HTTP, without the
-            // custom `errcode`. Treat that as a retriable request with no specified
-            // retry_after delay.
+        // If the status code is 429, this is requesting a retry in HTTP, without the
+        // custom `errcode`. Treat that as a retriable request with no specified
+        // retry_after delay.
+        //
+        // All 5xx errors are considered transient, including non-standard ones like
+        // 520 ("web server returned an unknown error", from Cloudflare or another
+        // reverse proxy): they reflect the state of the server at the time of the
+        // request, and the request may well succeed when retried later.
+        if status_code == StatusCode::TOO_MANY_REQUESTS || status_code.is_server_error() {
             RetryKind::Transient { retry_after: None }
         } else {
             RetryKind::Permanent
@@ -308,6 +303,11 @@ pub enum Error {
     #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     DecryptorError(#[from] DecryptorError),
+
+    /// An error occurred during signing or verifying.
+    #[cfg(feature = "e2e-encryption")]
+    #[error(transparent)]
+    SignatureError(#[from] SignatureError),
 
     /// An error occurred in the state store.
     #[error(transparent)]
@@ -530,6 +530,16 @@ impl From<EventCacheError> for Error {
 impl From<QueueWedgeError> for Error {
     fn from(error: QueueWedgeError) -> Self {
         Error::SendQueueWedgeError(Box::new(error))
+    }
+}
+
+#[cfg(feature = "e2e-encryption")]
+impl From<BootstrapCrossSigningError> for Error {
+    fn from(error: BootstrapCrossSigningError) -> Self {
+        match error {
+            BootstrapCrossSigningError::CryptoStore(e) => e.into(),
+            BootstrapCrossSigningError::Signature(e) => e.into(),
+        }
     }
 }
 

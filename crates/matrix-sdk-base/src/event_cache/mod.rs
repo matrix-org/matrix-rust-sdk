@@ -17,6 +17,7 @@
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
 
 pub mod store;
+pub mod thread;
 
 /// The kind of event the event storage holds.
 pub type Event = TimelineEvent;

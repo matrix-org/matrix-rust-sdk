@@ -25,6 +25,7 @@
 //! # use std::sync::Arc;
 //! # use matrix_sdk_crypto::{
 //! #     OlmMachine,
+//! #     OlmMachineBuilder,
 //! #     store::MemoryStore,
 //! # };
 //! # use ruma::{device_id, user_id};
@@ -32,7 +33,9 @@
 //! # let device_id = device_id!("TEST");
 //! let store = Arc::new(MemoryStore::new());
 //!
-//! let machine = OlmMachine::with_store(user_id, device_id, store, None);
+//! let machine = OlmMachineBuilder::new(user_id, device_id)
+//!     .with_crypto_store(store)
+//!     .build();
 //! ```
 //!
 //! [`OlmMachine`]: /matrix_sdk_crypto/struct.OlmMachine.html
@@ -112,6 +115,8 @@ use self::caches::{SequenceNumber, StoreCache, StoreCacheGuard, UsersForKeyQuery
 use crate::types::{
     events::room_key_withheld::RoomKeyWithheldContent, room_history::RoomKeyBundle,
 };
+#[cfg(feature = "experimental-x509-identity-verification")]
+use crate::x509::{X509Signer, X509Verifier};
 pub use crate::{
     dehydrated_devices::DehydrationError,
     gossiping::{GossipRequest, SecretInfo},
@@ -486,6 +491,16 @@ struct StoreInner {
 
     verification_machine: VerificationMachine,
 
+    /// If we can verify peoples' identities via X.509 certificates, a handle to
+    /// the implementation.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    x509_verifier: Option<X509Verifier>,
+
+    /// If we can sign our own identity via X.509 certificates, a handle to the
+    /// implementation.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    x509_signer: Option<X509Signer>,
+
     /// Static account data that never changes (and thus can be loaded once and
     /// for all when creating the store).
     static_account: StaticAccountData,
@@ -540,12 +555,35 @@ pub enum SecretsBundleExportError {
 }
 
 impl Store {
-    /// Create a new Store.
+    /// Create a new Store. A thin wrapper for [`Store::new_with_x509`].
     pub(crate) fn new(
         account: StaticAccountData,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         store: Arc<CryptoStoreWrapper>,
         verification_machine: VerificationMachine,
+    ) -> Self {
+        Self::new_with_x509(
+            account,
+            identity,
+            store,
+            verification_machine,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            None,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            None,
+        )
+    }
+
+    /// Create a new Store, allowing specification of X.509 parameters.
+    pub(crate) fn new_with_x509(
+        account: StaticAccountData,
+        identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
+        store: Arc<CryptoStoreWrapper>,
+        verification_machine: VerificationMachine,
+        #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+            X509Verifier,
+        >,
+        #[cfg(feature = "experimental-x509-identity-verification")] x509_signer: Option<X509Signer>,
     ) -> Self {
         Self {
             inner: Arc::new(StoreInner {
@@ -553,6 +591,10 @@ impl Store {
                 identity,
                 store: store.clone(),
                 verification_machine,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                x509_verifier,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                x509_signer,
                 cache: Arc::new(RwLock::new(StoreCache {
                     store,
                     tracked_users: Default::default(),
@@ -576,6 +618,20 @@ impl Store {
     /// The static data for the account associated with this store.
     pub(crate) fn static_account(&self) -> &StaticAccountData {
         &self.inner.static_account
+    }
+
+    /// If we can sign our own identity via X.509 certificates, a handle to the
+    /// implementation.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    pub(crate) fn x509_signer(&self) -> Option<&X509Signer> {
+        self.inner.x509_signer.as_ref()
+    }
+
+    /// If we can verify peoples' identities via X.509 certificates, a handle to
+    /// the implementation.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    pub(crate) fn x509_verifier(&self) -> Option<&X509Verifier> {
+        self.inner.x509_verifier.as_ref()
     }
 
     pub(crate) async fn cache(&self) -> Result<StoreCacheGuard> {

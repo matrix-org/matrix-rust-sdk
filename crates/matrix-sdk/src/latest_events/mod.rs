@@ -58,6 +58,7 @@ use std::{
 
 pub use error::LatestEventsError;
 use eyeball::{AsyncLock, Subscriber};
+pub(crate) use latest_event::filter_timeline_event;
 use latest_event::{LatestEvent, With};
 pub use latest_event::{LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue};
 use matrix_sdk_base::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, timer};
@@ -340,7 +341,7 @@ impl RegisteredRooms {
                     value @ Some(_) => value,
                     None => {
                         let _timer = timer!(
-                            tracing::Level::INFO,
+                            tracing::Level::DEBUG,
                             format!("Creating `RoomLatestEvents` for {room_id:?}"),
                         );
 

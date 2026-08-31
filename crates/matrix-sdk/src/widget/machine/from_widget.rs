@@ -18,8 +18,9 @@ use as_variant::as_variant;
 use ruma::{
     OwnedEventId, OwnedRoomId,
     api::{
-        client::delayed_events::{
-            delayed_message_event, delayed_state_event, update_delayed_event,
+        client::{
+            delayed_events::{delayed_message_event, delayed_state_event, update_delayed_event},
+            rtc::RtcTransport,
         },
         error::{ErrorBody, StandardErrorBody},
     },
@@ -56,6 +57,8 @@ pub(super) enum FromWidgetRequest {
     DelayedEventUpdate(UpdateDelayedEventRequest),
     #[serde(rename = "org.matrix.msc4039.download_file")]
     DownloadFile(DownloadFileRequest),
+    #[serde(rename = "org.matrix.msc4515.get_rtc_transports")]
+    GetRtcTransports {},
 }
 
 /// The full response a client sends to a [`FromWidgetRequest`] in case of an
@@ -153,6 +156,7 @@ impl SupportedApiVersionsResponse {
                 ApiVersion::MSC2871,
                 ApiVersion::MSC3819,
                 ApiVersion::MSC4039,
+                ApiVersion::MSC4515,
             ],
         }
     }
@@ -203,6 +207,10 @@ pub(super) enum ApiVersion {
 
     #[serde(rename = "org.matrix.msc4039")]
     MSC4039,
+
+    /// Supports discovering the RTC transports advertised by the homeserver.
+    #[serde(rename = "org.matrix.msc4515")]
+    MSC4515,
 }
 
 #[derive(Deserialize, Debug)]
@@ -252,15 +260,15 @@ impl From<delayed_state_event::unstable::Response> for SendEventResponse {
 }
 
 /// A wrapper type for the empty okay response from
-/// [`update_delayed_event`](update_delayed_event::unstable::Response)
+/// [`update_delayed_event`](update_delayed_event::unstable_v1::Response)
 /// which derives Serialize. (The response struct from Ruma does not derive
 /// serialize)
 /// This is intentionally an empty tuple struct (not a unit struct), so that it
 /// serializes to `{}` instead of `Null` when returned to the widget as json.
 #[derive(Serialize, Debug)]
 pub(crate) struct UpdateDelayedEventResponse {}
-impl From<update_delayed_event::unstable::Response> for UpdateDelayedEventResponse {
-    fn from(_: update_delayed_event::unstable::Response) -> Self {
+impl From<update_delayed_event::unstable_v1::Response> for UpdateDelayedEventResponse {
+    fn from(_: update_delayed_event::unstable_v1::Response) -> Self {
         Self {}
     }
 }
@@ -303,6 +311,28 @@ impl FromMatrixDriverResponse for DownloadFileResponse {
         match matrix_driver_response {
             MatrixDriverResponse::FileDownloaded(resp) => {
                 Some(Self { file_data_base64: resp.file_data_base64 })
+            }
+            _ => {
+                error!("bug in MatrixDriver, received wrong event response");
+                None
+            }
+        }
+    }
+}
+
+/// Response for a `get_rtc_transports` request.
+/// <https://github.com/matrix-org/matrix-spec-proposals/pull/4515>
+#[derive(Serialize, Debug)]
+pub(crate) struct RtcTransportsResponse {
+    /// The RTC transports advertised by the homeserver.
+    pub(crate) rtc_transports: Vec<RtcTransport>,
+}
+
+impl FromMatrixDriverResponse for RtcTransportsResponse {
+    fn from_response(matrix_driver_response: MatrixDriverResponse) -> Option<Self> {
+        match matrix_driver_response {
+            MatrixDriverResponse::RtcTransportsReceived(rtc_transports) => {
+                Some(Self { rtc_transports })
             }
             _ => {
                 error!("bug in MatrixDriver, received wrong event response");

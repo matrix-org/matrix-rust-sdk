@@ -645,7 +645,7 @@ mod tests {
 
     use super::BackupMachine;
     use crate::{
-        OlmError, OlmMachine,
+        OlmError, OlmMachine, OlmMachineBuilder,
         olm::BackedUpRoomKey,
         store::{
             CryptoStore, MemoryStore,
@@ -920,8 +920,11 @@ mod tests {
 
         // Create the machine using `with_store` and without a call to enable_backup_v1,
         // like regenerate_olm would do
-        let alice =
-            OlmMachine::with_store(alice_id(), alice_device_id(), store, None).await.unwrap();
+        let alice = OlmMachineBuilder::new(alice_id(), alice_device_id())
+            .with_crypto_store(store)
+            .build()
+            .await
+            .unwrap();
 
         let binding = alice.backup_machine().backup_key.read().await;
         let machine_backup_key = binding.as_ref().unwrap();

@@ -1,0 +1,1 @@
+[**breaking**] Add `OlmMachineBuilder` to help with construction of `OlmMachine`. `OlmMachine::with_store` is removed, and callers should use the builder instead.

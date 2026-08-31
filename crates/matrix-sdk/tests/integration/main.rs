@@ -8,6 +8,8 @@ use wiremock::{
 };
 
 mod account;
+#[cfg(feature = "unstable-msc4426")]
+mod automatic_call_status;
 mod client;
 mod edit_validation;
 #[cfg(feature = "e2e-encryption")]

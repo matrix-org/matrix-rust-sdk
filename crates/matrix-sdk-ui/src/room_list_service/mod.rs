@@ -100,6 +100,9 @@ const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
     (StateEventType::SpaceChild, "*"),
     // Required for live location sharing to work - beacon events reference this state.
     (StateEventType::BeaconInfo, "*"),
+    // Required for `Room::retention`/`Room::effective_retention` (MSC1763) to see
+    // room-level retention overrides.
+    (StateEventType::RoomRetention, ""),
 ];
 
 /// The default `required_state` constant value for sliding sync room
@@ -141,7 +144,8 @@ impl RoomListService {
     /// to create one in this case using
     /// [`EncryptionSyncService`][crate::encryption_sync_service::EncryptionSyncService].
     pub async fn new(client: Client) -> Result<Self, Error> {
-        Self::new_with(client, true, DEFAULT_CONNECTION_ID, DEFAULT_LIST_TIMELINE_LIMIT).await
+        Self::new_with(client, true, DEFAULT_CONNECTION_ID, DEFAULT_LIST_TIMELINE_LIMIT, false)
+            .await
     }
 
     /// Like [`RoomListService::new`] but with additional configuration options.
@@ -150,6 +154,9 @@ impl RoomListService {
     ///   cross-process position sharing.
     /// - `connection_id`: the Sliding Sync connection ID
     /// - `timeline_limit`: the timeline limit
+    /// - `profiles_extension`: enables the Profiles extension, required to
+    ///   merge the global `m.status` and `m.call` fields into room members and
+    ///   profiles
     ///
     /// [`SlidingSyncBuilder::share_pos`]: matrix_sdk::sliding_sync::SlidingSyncBuilder::share_pos
     pub async fn new_with(
@@ -157,6 +164,7 @@ impl RoomListService {
         share_pos: bool,
         connection_id: &str,
         timeline_limit: u32,
+        profiles_extension: bool,
     ) -> Result<Self, Error> {
         let mut builder = client
             .sliding_sync(connection_id)
@@ -196,6 +204,14 @@ impl RoomListService {
                     "Failed to check whether the client requested thread subscriptions extension: not enabling."
                 );
             }
+        }
+
+        if profiles_extension {
+            debug!("Enabling the profiles extension for the room list sliding sync");
+            builder = builder.with_profiles_extension(assign!(
+                http::request::Profiles::default(),
+                { enabled: Some(true) }
+            ));
         }
 
         if share_pos {
@@ -465,7 +481,7 @@ impl RoomListService {
         self.client.get_room(room_id).ok_or_else(|| Error::RoomNotFound(room_id.to_owned()))
     }
 
-    /// Subscribe to rooms.
+    /// Set the room subscriptions to exactly `room_ids`.
     ///
     /// It means that all events from these rooms will be received every time,
     /// no matter how the `RoomList` is configured.
@@ -474,59 +490,88 @@ impl RoomListService {
     /// room in `room_ids`, so that the [`LatestEventValue`] will automatically
     /// be calculated and updated for these rooms, for free.
     ///
-    /// All previous room subscriptions will be forgotten.
-    ///
     /// [listen_to_room]: matrix_sdk::latest_events::LatestEvents::listen_to_room
     /// [`LatestEventValue`]: matrix_sdk::latest_events::LatestEventValue
-    pub async fn subscribe_to_rooms(&self, room_ids: &[&RoomId]) {
-        // Calculate the settings for the room subscriptions.
-        let settings = assign!(http::request::RoomSubscription::default(), {
-            required_state: DEFAULT_REQUIRED_STATE.iter().map(|(state_event, value)| {
-                (state_event.clone(), (*value).to_owned())
-            })
-            .chain(
-                DEFAULT_ROOM_SUBSCRIPTION_EXTRA_REQUIRED_STATE.iter().map(|(state_event, value)| {
-                    (state_event.clone(), (*value).to_owned())
-                })
-            )
-            .collect(),
-            timeline_limit: UInt::from(DEFAULT_ROOM_SUBSCRIPTION_TIMELINE_LIMIT),
-        });
+    pub async fn set_room_subscriptions(&self, room_ids: &[&RoomId]) {
+        // Read the state before the await: the state machine can drift meanwhile.
+        let cancel_in_flight_request = self.must_cancel_in_flight_request();
 
-        // Decide whether the in-flight request (if any) should be cancelled if needed.
-        let cancel_in_flight_request = match self.state_machine.get() {
+        self.listen_to_latest_events(room_ids).await;
+
+        self.sliding_sync.set_room_subscriptions(
+            room_ids,
+            Some(room_subscription_settings()),
+            cancel_in_flight_request,
+        )
+    }
+
+    /// Remove the room subscriptions of `room_ids`.
+    ///
+    /// The latest events of these rooms are still listened to.
+    pub fn remove_room_subscriptions(&self, room_ids: &[&RoomId]) {
+        self.sliding_sync.remove_room_subscriptions(room_ids, self.must_cancel_in_flight_request())
+    }
+
+    /// Remove all the room subscriptions, then subscribe to `room_ids`.
+    ///
+    /// Contrary to [`Self::set_room_subscriptions`], the members of every room
+    /// of `room_ids` are marked as missing, so that they are re-fetched.
+    pub async fn reset_and_add_room_subscriptions(&self, room_ids: &[&RoomId]) {
+        // Read the state before the await: the state machine can drift meanwhile.
+        let cancel_in_flight_request = self.must_cancel_in_flight_request();
+
+        self.listen_to_latest_events(room_ids).await;
+
+        self.sliding_sync.reset_and_add_room_subscriptions(
+            room_ids,
+            Some(room_subscription_settings()),
+            cancel_in_flight_request,
+        )
+    }
+
+    async fn listen_to_latest_events(&self, room_ids: &[&RoomId]) {
+        if !self.client.event_cache().has_subscribed() {
+            return;
+        }
+
+        let latest_events = self.client.latest_events().await;
+
+        for room_id in room_ids {
+            if let Err(error) = latest_events.listen_to_room(room_id).await {
+                // A failure here must not fail the room subscription.
+                error!(?error, ?room_id, "Failed to listen to the latest event for this room");
+            }
+        }
+    }
+
+    fn must_cancel_in_flight_request(&self) -> bool {
+        match self.state_machine.get() {
             State::Init | State::Recovering | State::Error { .. } | State::Terminated { .. } => {
                 false
             }
             State::SettingUp | State::Running => true,
-        };
-
-        // Before subscribing, let's listen these rooms to calculate their latest
-        // events.
-        if self.client.event_cache().has_subscribed() {
-            let latest_events = self.client.latest_events().await;
-
-            for room_id in room_ids {
-                if let Err(error) = latest_events.listen_to_room(room_id).await {
-                    // Let's not fail the room subscription. Instead, emit a log because it's very
-                    // unlikely to happen.
-                    error!(?error, ?room_id, "Failed to listen to the latest event for this room");
-                }
-            }
         }
-
-        // Subscribe to the rooms.
-        self.sliding_sync.clear_and_subscribe_to_rooms(
-            room_ids,
-            Some(settings),
-            cancel_in_flight_request,
-        )
     }
 
     #[cfg(test)]
     pub fn sliding_sync(&self) -> &SlidingSync {
         &self.sliding_sync
     }
+}
+
+fn room_subscription_settings() -> http::request::RoomSubscription {
+    assign!(http::request::RoomSubscription::default(), {
+        required_state: DEFAULT_REQUIRED_STATE.iter().map(|(state_event, value)| {
+            (state_event.clone(), (*value).to_owned())
+        })
+        .chain(
+            DEFAULT_ROOM_SUBSCRIPTION_EXTRA_REQUIRED_STATE.iter().map(|(state_event, value)| {
+                (state_event.clone(), (*value).to_owned())
+            })
+        )
+        .collect(),
+        timeline_limit: UInt::from(DEFAULT_ROOM_SUBSCRIPTION_TIMELINE_LIMIT),
+    })
 }
 
 /// [`RoomList`]'s errors.

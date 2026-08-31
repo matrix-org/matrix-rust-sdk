@@ -8,22 +8,23 @@ name = "matrix-sdk-search"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version.workspace = true
-version = "0.17.0"
+version = "0.18.0"
 
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [dependencies]
-aes = { version = "0.8.4", default-features = false }
+aes = { version = "0.9.2", default-features = false }
 byteorder.workspace = true
-ctr = { version = "0.9.2", default-features = false}
-hmac = { workspace = true, features = ["reset"] }
+ctr = { version = "0.10.1", default-features = false}
+hmac = { workspace = true, features = ["zeroize"] }
 hkdf.workspace = true
 matrix-sdk-test = { workspace = true, optional = true }
+once_cell.workspace = true
 pbkdf2.workspace = true
 rand = { workspace = true, features = ["thread_rng"] }
-sha2.workspace = true
+sha2 = { workspace =  true, features = ["alloc", "zeroize"] }
 tantivy = { version = "0.26.1", default-features = false, features = ["mmap", "stopwords", "stemmer", "lz4-compression", "columnar-zstd-compression"] }
 tracing = { workspace = true, features = ["attributes"] }
 thiserror.workspace = true

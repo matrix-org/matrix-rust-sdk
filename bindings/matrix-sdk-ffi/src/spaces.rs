@@ -15,7 +15,7 @@
 use std::{fmt::Debug, sync::Arc};
 
 use eyeball_im::VectorDiff;
-use futures_util::{StreamExt, pin_mut};
+use futures_util::StreamExt;
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::spaces::{
     SpaceFilter as UISpaceFilter, SpaceRoom as UISpaceRoom, SpaceRoomList as UISpaceRoomList,
@@ -219,11 +219,11 @@ impl SpaceRoomList {
         &self,
         listener: Box<dyn SpaceRoomListSpaceListener>,
     ) -> Arc<TaskHandle> {
-        let space_updates = self.inner.subscribe_to_space_updates();
+        let mut space_updates = self.inner.subscribe_to_space_updates();
+
+        listener.on_update(space_updates.next_now().map(Into::into));
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(space_updates);
-
             while let Some(space) = space_updates.next().await {
                 listener.on_update(space.map(Into::into));
             }
@@ -240,11 +240,11 @@ impl SpaceRoomList {
         &self,
         listener: Box<dyn SpaceRoomListPaginationStateListener>,
     ) -> Arc<TaskHandle> {
-        let pagination_state = self.inner.subscribe_to_pagination_state_updates();
+        let mut pagination_state = self.inner.subscribe_to_pagination_state_updates();
+
+        listener.on_update(pagination_state.next_now());
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(pagination_state);
-
             while let Some(state) = pagination_state.next().await {
                 listener.on_update(state);
             }

@@ -771,10 +771,10 @@ async fn test_redacted_events_are_reflected_in_sync() {
     let room_id = room_id!("!test:localhost");
 
     let f = EventFactory::new().room(room_id).sender(*BOB);
-    let event_id = event_id!("$1");
+    let pinned_event_id = event_id!("$1");
     let pinned_event = f
         .text_msg("in the end")
-        .event_id(event_id!("$1"))
+        .event_id(pinned_event_id)
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_raw_sync();
 
@@ -784,7 +784,7 @@ async fn test_redacted_events_are_reflected_in_sync() {
     // Mock /relations for pinned timeline event.
     server
         .mock_room_relations()
-        .match_target_event(event_id.to_owned())
+        .match_target_event(pinned_event_id.to_owned())
         .match_limit(256)
         .ok(RoomRelationsResponseTemplate::default().events(Vec::<Raw<AnyTimelineEvent>>::new()))
         .mock_once()
@@ -794,7 +794,7 @@ async fn test_redacted_events_are_reflected_in_sync() {
     // Load initial timeline items: a text message and a `m.room.pinned_events` with
     // event $1
     let room = PinnedEventsSync::new(room_id)
-        .with_pinned_event_ids(vec!["$1"])
+        .with_pinned_event_ids(vec![pinned_event_id.as_str()])
         .mock_and_sync(&client, &server)
         .await
         .expect("Sync failed");
@@ -818,12 +818,13 @@ async fn test_redacted_events_are_reflected_in_sync() {
 
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
     assert!(items[0].is_date_divider());
-    assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
+    assert_eq!(items[1].as_event().unwrap().event_id(), Some(pinned_event_id));
     assert_pending!(timeline_stream);
 
+    let redaction_event_id = event_id!("$2");
     let redaction_event = f
-        .redaction(event_id!("$1"))
-        .event_id(event_id!("$2"))
+        .redaction(pinned_event_id)
+        .event_id(redaction_event_id)
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_raw_sync();
 

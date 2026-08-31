@@ -18,15 +18,12 @@ use anyhow::Result;
 use ruma::{
     OwnedUserId, UserId,
     events::{
-        MessageLikeEventType as RumaMessageLikeEventType, StateEventType as RumaStateEventType,
-        TimelineEventType, room::power_levels::RoomPowerLevels as RumaPowerLevels,
+        MessageLikeEventType, StateEventType, TimelineEventType,
+        room::power_levels::RoomPowerLevels as RumaPowerLevels,
     },
 };
 
-use crate::{
-    error::ClientError,
-    event::{MessageLikeEventType, StateEventType},
-};
+use crate::error::ClientError;
 
 #[derive(uniffi::Object)]
 pub struct RoomPowerLevels {
@@ -46,7 +43,7 @@ impl RoomPowerLevels {
         self.inner.clone().into()
     }
 
-    fn events(&self) -> HashMap<crate::event::TimelineEventType, i64> {
+    fn events(&self) -> HashMap<crate::event::FfiTimelineEventType, i64> {
         self.inner.events.iter().map(|(key, value)| (key.clone().into(), (*value).into())).collect()
     }
 
@@ -137,7 +134,7 @@ impl RoomPowerLevels {
     /// Returns true if the current user is able to send a specific state event
     /// type in the room.
     pub fn can_own_user_send_state(&self, state_event: StateEventType) -> bool {
-        self.inner.user_can_send_state(&self.own_user_id, state_event.into())
+        self.inner.user_can_send_state(&self.own_user_id, state_event)
     }
 
     /// Returns true if the user with the given user_id is able to send a
@@ -150,13 +147,13 @@ impl RoomPowerLevels {
         state_event: StateEventType,
     ) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.user_can_send_state(&user_id, state_event.into()))
+        Ok(self.inner.user_can_send_state(&user_id, state_event))
     }
 
     /// Returns true if the current user is able to send a specific message type
     /// in the room.
     pub fn can_own_user_send_message(&self, message: MessageLikeEventType) -> bool {
-        self.inner.user_can_send_message(&self.own_user_id, message.into())
+        self.inner.user_can_send_message(&self.own_user_id, message)
     }
 
     /// Returns true if the user with the given user_id is able to send a
@@ -169,13 +166,13 @@ impl RoomPowerLevels {
         message: MessageLikeEventType,
     ) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.user_can_send_message(&user_id, message.into()))
+        Ok(self.inner.user_can_send_message(&user_id, message))
     }
 
     /// Returns true if the current user is able to pin or unpin events in the
     /// room.
     pub fn can_own_user_pin_unpin(&self) -> bool {
-        self.inner.user_can_send_state(&self.own_user_id, StateEventType::RoomPinnedEvents.into())
+        self.inner.user_can_send_state(&self.own_user_id, StateEventType::RoomPinnedEvents)
     }
 
     /// Returns true if the user with the given user_id is able to pin or unpin
@@ -184,7 +181,7 @@ impl RoomPowerLevels {
     /// The call may fail if there is an error in getting the power levels.
     pub fn can_user_pin_unpin(&self, user_id: String) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.user_can_send_state(&user_id, StateEventType::RoomPinnedEvents.into()))
+        Ok(self.inner.user_can_send_state(&user_id, StateEventType::RoomPinnedEvents))
     }
 
     /// Returns true if the current user is able to trigger a notification in
@@ -263,8 +260,8 @@ impl From<RumaPowerLevels> for RoomPowerLevelsValues {
             room_avatar: state_event_level_for(&value, &TimelineEventType::RoomAvatar),
             room_topic: state_event_level_for(&value, &TimelineEventType::RoomTopic),
             space_child: state_event_level_for(&value, &TimelineEventType::SpaceChild),
-            beacon: message_event_level_for(&value, &RumaMessageLikeEventType::Beacon.into()),
-            beacon_info: state_event_level_for(&value, &RumaStateEventType::BeaconInfo.into()),
+            beacon: message_event_level_for(&value, &MessageLikeEventType::Beacon.into()),
+            beacon_info: state_event_level_for(&value, &StateEventType::BeaconInfo.into()),
         }
     }
 }

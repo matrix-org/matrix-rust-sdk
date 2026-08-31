@@ -30,7 +30,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 pub use call::CallIntentConsensus;
 pub use create::*;
-pub use display_name::{RoomDisplayName, RoomHero};
+pub use display_name::{RoomDisplayName, RoomHero, RoomHeroWithProfile};
 pub(crate) use display_name::{RoomSummary, UpdatedRoomDisplayName};
 pub use encryption::EncryptionState;
 use eyeball::{AsyncLock, SharedObservable};
@@ -41,6 +41,8 @@ pub use room_info::{
     BaseRoomInfo, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomRecencyStamp,
     apply_redaction,
 };
+#[cfg(feature = "unstable-msc4426")]
+use ruma::profile::{Call, Status};
 use ruma::{
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomId,
     RoomVersionId, UserId,
@@ -54,6 +56,7 @@ use ruma::{
             join_rules::JoinRule,
             member::MembershipState,
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent, RoomPowerLevelsSource},
+            retention::RoomRetentionEventContent,
         },
     },
     room::RoomType,
@@ -69,7 +72,7 @@ use crate::{
     DmRoomDefinition, Error, StateStore,
     deserialized_responses::MemberEvent,
     notification_settings::RoomNotificationMode,
-    read_receipts::RoomReadReceipts,
+    read_receipts::ReadReceipts,
     store::{Result as StoreResult, SaveLockedStateStore, StateStoreExt},
     sync::UnreadNotificationsCount,
 };
@@ -205,7 +208,7 @@ impl Room {
     }
 
     /// Get the detailed information about read receipts for the room.
-    pub fn read_receipts(&self) -> RoomReadReceipts {
+    pub fn read_receipts(&self) -> ReadReceipts {
         self.info.read().read_receipts.clone()
     }
 
@@ -375,6 +378,11 @@ impl Room {
         self.info.read().base_info.max_power_level
     }
 
+    /// Get the message retention policy of this room, if set.
+    pub fn retention(&self) -> Option<RoomRetentionEventContent> {
+        self.info.read().retention().cloned()
+    }
+
     /// Get the service members in this room, if available.
     pub fn service_members(&self) -> Option<BTreeSet<OwnedUserId>> {
         self.info.read().service_members().cloned()
@@ -467,18 +475,78 @@ impl Room {
         self.store.get_user_ids(self.room_id(), RoomMemberships::JOIN).await
     }
 
+    /// The user IDs of this room's heroes, as stored, for cheaply checking
+    /// hero membership without loading their global profiles.
+    #[cfg(feature = "unstable-msc4426")]
+    pub(crate) fn hero_user_ids(&self) -> Vec<OwnedUserId> {
+        self.info.read().heroes().iter().map(|hero| hero.user_id.clone()).collect()
+    }
+
     /// Get the heroes for this room.
     ///
     /// This also filters out possible service members from the list of heroes
     /// returned by the homeserver.
-    pub fn heroes(&self) -> Vec<RoomHero> {
-        let guard = self.info.read();
-        let heroes = guard.heroes();
+    #[cfg_attr(not(feature = "unstable-msc4426"), allow(clippy::unused_async))]
+    pub async fn heroes(&self) -> Vec<RoomHeroWithProfile> {
+        let heroes: Vec<RoomHero> = {
+            let guard = self.info.read();
+            let heroes = guard.heroes();
 
-        if let Some(service_members) = guard.service_members() {
-            heroes.iter().filter(|hero| !service_members.contains(&hero.user_id)).cloned().collect()
-        } else {
-            heroes.to_vec()
+            if let Some(service_members) = guard.service_members() {
+                heroes
+                    .iter()
+                    .filter(|hero| !service_members.contains(&hero.user_id))
+                    .cloned()
+                    .collect()
+            } else {
+                heroes.to_vec()
+            }
+        };
+
+        // Short-circuiting if there is no heroes: we can't do anything.
+        if heroes.is_empty() {
+            return Vec::new();
+        }
+
+        // Return with empty profile fields when the user status feature is disabled.
+        #[cfg(not(feature = "unstable-msc4426"))]
+        {
+            heroes.into_iter().map(RoomHeroWithProfile::from).collect()
+        }
+
+        // Merge any fields from the user's persisted global profile.
+        #[cfg(feature = "unstable-msc4426")]
+        {
+            let user_ids = heroes.iter().map(|hero| hero.user_id.clone()).collect::<Vec<_>>();
+
+            let mut global_profiles =
+                self.store.get_global_profiles(&user_ids).await.unwrap_or_else(|error| {
+                    tracing::warn!(?error, "Failed to load global profiles for room heroes");
+                    Default::default()
+                });
+
+            heroes
+                .into_iter()
+                .map(|hero| {
+                    let (status, call) = global_profiles
+                        .remove(&*hero.user_id)
+                        .map(|profile| {
+                            (
+                                profile.get_static::<Status>().ok().flatten(),
+                                profile.get_static::<Call>().ok().flatten(),
+                            )
+                        })
+                        .unwrap_or_default();
+
+                    RoomHeroWithProfile {
+                        user_id: hero.user_id,
+                        display_name: hero.display_name,
+                        avatar_url: hero.avatar_url,
+                        status,
+                        call,
+                    }
+                })
+                .collect()
         }
     }
 
@@ -487,10 +555,12 @@ impl Room {
     pub async fn load_user_receipt(
         &self,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> StoreResult<Option<(OwnedEventId, Receipt)>> {
-        self.store.get_user_room_receipt_event(self.room_id(), receipt_type, thread, user_id).await
+        self.store
+            .get_user_room_receipt_event(self.room_id(), receipt_type, receipt_thread, user_id)
+            .await
     }
 
     /// Load from storage the receipts as a list of `OwnedUserId` and `Receipt`
@@ -499,11 +569,11 @@ impl Room {
     pub async fn load_event_receipts(
         &self,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> StoreResult<Vec<(OwnedUserId, Receipt)>> {
         self.store
-            .get_event_room_receipt_events(self.room_id(), receipt_type, thread, event_id)
+            .get_event_room_receipt_events(self.room_id(), receipt_type, receipt_thread, event_id)
             .await
     }
 
@@ -705,8 +775,139 @@ mod tests {
         client.receive_sync_response(response).await.unwrap();
 
         // The service member should be filtered out.
-        let heroes = room.heroes();
+        let heroes = room.heroes().await;
         assert_eq!(heroes.len(), 1);
         assert_eq!(heroes[0].user_id, alice_id);
+    }
+
+    #[async_test]
+    async fn test_human_member_ids_filters_out_service_members() {
+        let client = logged_in_base_client(None).await;
+        let user_id = &client.session_meta().unwrap().user_id;
+        let service_member_id = user_id!("@service:example.org");
+        let alice_id = user_id!("@alice:example.org");
+        let bob_id = user_id!("@bob:example.org");
+        let room_id = room_id!("!room:example.org");
+
+        let room = client.get_or_create_room(room_id, RoomState::Joined);
+        let factory = EventFactory::new().room(room_id);
+
+        let service_member_hint =
+            factory.member_hints(BTreeSet::from([service_member_id.to_owned()])).sender(user_id);
+        let alice_joins = factory.member(alice_id);
+        let service_member_joins = factory.member(service_member_id);
+        let bob_leaves = factory.member(bob_id).membership(MembershipState::Leave);
+
+        let mut sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
+            .add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .add_state_event(service_member_hint)
+                    .add_state_event(alice_joins)
+                    .add_state_event(service_member_joins)
+                    .add_state_event(bob_leaves),
+            )
+            .build_sync_response();
+
+        client.receive_sync_response(response).await.unwrap();
+
+        assert_eq!(
+            room.human_member_ids(RoomMemberships::ACTIVE).await.unwrap(),
+            vec![alice_id.to_owned()]
+        );
+        assert_eq!(
+            room.human_member_ids(RoomMemberships::empty())
+                .await
+                .unwrap()
+                .into_iter()
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([alice_id.to_owned(), bob_id.to_owned()])
+        );
+    }
+
+    #[async_test]
+    async fn test_human_member_ids_without_member_hints() {
+        let client = logged_in_base_client(None).await;
+        let alice_id = user_id!("@alice:example.org");
+        let room_id = room_id!("!room:example.org");
+
+        let room = client.get_or_create_room(room_id, RoomState::Joined);
+        let factory = EventFactory::new().room(room_id);
+
+        let alice_joins = factory.member(alice_id);
+
+        let mut sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
+            .add_joined_room(JoinedRoomBuilder::new(room_id).add_state_event(alice_joins))
+            .build_sync_response();
+
+        client.receive_sync_response(response).await.unwrap();
+
+        assert_eq!(
+            room.human_member_ids(RoomMemberships::ACTIVE).await.unwrap(),
+            vec![alice_id.to_owned()]
+        );
+    }
+
+    #[cfg(feature = "unstable-msc4426")]
+    #[async_test]
+    async fn test_room_heroes_carry_global_profile() {
+        use ruma::{
+            SecondsSinceUnixEpoch,
+            profile::{
+                CallProfileField, ProfileFieldValue, StatusProfileField, UserProfileChanges,
+                UserProfileUpdate,
+            },
+        };
+
+        use crate::store::StateChanges;
+
+        let client = logged_in_base_client(None).await;
+        let alice_id = user_id!("@alice:example.org");
+        let room_id = room_id!("!room:example.org");
+
+        let room = client.get_or_create_room(room_id, RoomState::Joined);
+
+        let mut sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
+            .add_joined_room(JoinedRoomBuilder::new(room_id).set_room_summary(json!({
+                "m.joined_member_count": 2,
+                "m.invited_member_count": 0,
+                "m.heroes": [alice_id.to_owned()],
+            })))
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        // Without a stored global profile, the hero carries no status or call.
+        let heroes = room.heroes().await;
+        assert_eq!(heroes.len(), 1);
+        assert_eq!(heroes[0].user_id, alice_id);
+        assert!(heroes[0].status.is_none());
+        assert!(heroes[0].call.is_none());
+
+        // Store a global profile carrying an `m.status` and `m.call` for the hero.
+        let mut call = CallProfileField::new();
+        call.call_joined_ts = Some(SecondsSinceUnixEpoch(1_700_000_000u32.into()));
+        let mut changes = StateChanges::default();
+        changes.global_profiles.insert(alice_id.to_owned(), {
+            let mut profile_changes = UserProfileChanges::new();
+            profile_changes.insert_updated_value(ProfileFieldValue::Status(
+                StatusProfileField::new("Working".to_owned(), "💻".to_owned()),
+            ));
+            profile_changes.insert_updated_value(ProfileFieldValue::Call(call));
+            UserProfileUpdate::Updated(profile_changes)
+        });
+        client.state_store().save_changes(&changes).await.unwrap();
+
+        // The hero now surfaces the status and call from the global profile.
+        let heroes = room.heroes().await;
+        let hero = &heroes[0];
+        let status = hero.status.as_ref().expect("status is set");
+        assert_eq!(status.text, "Working");
+        assert_eq!(status.emoji, "💻");
+        assert_eq!(
+            hero.call.as_ref().expect("call is set").call_joined_ts,
+            Some(SecondsSinceUnixEpoch(1_700_000_000u32.into()))
+        );
     }
 }

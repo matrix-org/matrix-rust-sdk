@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(target_os = "android")]
-use std::sync::Arc;
 use std::{
     fmt::Debug,
     mem,
@@ -28,18 +26,13 @@ use eyeball::SharedObservable;
 use http::header::CONTENT_LENGTH;
 #[cfg(not(target_family = "wasm"))]
 use reqwest::Certificate;
-#[cfg(target_os = "android")]
-use reqwest::ClientBuilder;
 use reqwest::tls;
-use ruma::api::{IncomingResponse, OutgoingRequest, error::FromHttpResponseError};
-#[cfg(target_os = "android")]
-use rustls::{RootCertStore, client::WebPkiServerVerifier};
-#[cfg(target_os = "android")]
-use rustls_pki_types::CertificateDer;
+use ruma::api::{IncomingResponseExt as _, OutgoingRequest, error::FromHttpResponseError};
 use tracing::{debug, info, warn};
 
 use super::{DEFAULT_REQUEST_TIMEOUT, HttpClient, TransmissionProgress, response_to_http_response};
 use crate::{
+    HttpResult,
     config::RequestConfig,
     error::{HttpError, RetryKind},
 };
@@ -50,69 +43,117 @@ impl HttpClient {
         request: http::Request<Bytes>,
         config: RequestConfig,
         send_progress: SharedObservable<TransmissionProgress>,
-    ) -> Result<R::IncomingResponse, HttpError>
+    ) -> HttpResult<R::IncomingResponse>
     where
         R: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
-        // These values were picked because we used to use the `backoff` crate, those
-        // were defined here: https://docs.rs/backoff/0.4.0/backoff/default/index.html
-        let backoff = ExponentialBuilder::new()
-            .with_min_delay(Duration::from_millis(500))
-            .with_max_delay(Duration::from_secs(60))
-            .with_total_delay(Some(Duration::from_secs(15 * 60)))
-            .without_max_times();
+        // some functions split out so they only get compiled once,
+        // not monomorphized per request type
+        fn make_backoff(config: &RequestConfig) -> ExponentialBuilder {
+            // These values were picked because we used to use the `backoff` crate, those
+            // were defined here: https://docs.rs/backoff/0.4.0/backoff/default/index.html
+            let mut backoff = ExponentialBuilder::new()
+                .with_min_delay(Duration::from_millis(500))
+                .with_max_delay(Duration::from_secs(60))
+                .with_total_delay(Some(Duration::from_secs(15 * 60)))
+                .without_max_times();
 
-        // Let's now apply any override the user or the SDK might have set.
-        let backoff = if let Some(max_delay) = config.max_retry_time {
-            backoff.with_max_delay(max_delay)
-        } else {
-            backoff
-        };
+            // Let's now apply any override the user or the SDK might have set.
+            if let Some(max_delay) = config.max_retry_time {
+                backoff = backoff.with_max_delay(max_delay)
+            }
 
-        let backoff = if let Some(max_times) = config.retry_limit {
-            // Backon behaves a bit differently to our own handcrafted max retry logic.
-            // We were counting from one while `backon` counts from zero.
-            backoff.with_max_times(max_times.saturating_sub(1))
-        } else {
+            if let Some(max_times) = config.retry_limit {
+                // Backon behaves a bit differently to our own handcrafted max retry logic.
+                // We were counting from one while `backon` counts from zero.
+                backoff = backoff.with_max_times(max_times.saturating_sub(1))
+            }
+
             backoff
-        };
+        }
+        async fn send_request_inner(
+            http_client: &reqwest::Client,
+            request: &http::Request<Bytes>,
+            timeout: Option<Duration>,
+            retry_count: &AtomicU64,
+            send_progress: SharedObservable<TransmissionProgress>,
+        ) -> HttpResult<http::Response<Bytes>> {
+            let num_attempt = retry_count.fetch_add(1, Ordering::SeqCst);
+            debug!(num_attempt, "Sending request");
+            let before = ruma::time::Instant::now();
+
+            let response = execute_request(http_client, request, timeout, send_progress).await?;
+
+            let request_duration = ruma::time::Instant::now().saturating_duration_since(before);
+
+            let status_code = response.status();
+            let response_size = ByteSize(response.body().len().try_into().unwrap_or(u64::MAX));
+            tracing::Span::current()
+                .record("status", status_code.as_u16())
+                .record("response_size", response_size.display().si_short().to_string())
+                .record("request_duration", tracing::field::debug(request_duration));
+
+            // Record interesting headers. If you add more headers, ensure they're not
+            // confidential.
+            for (header_name, header_value) in response.headers() {
+                let header_name = header_name.as_str().to_lowercase();
+
+                // Header added in case of OAuth 2.0 authentication failure, so we can correlate
+                // failures with a Sentry event emitted by the OAuth 2.0 authentication server.
+                if header_name == "x-sentry-event-id" {
+                    tracing::Span::current()
+                        .record("sentry_event_id", header_value.to_str().unwrap_or("<???>"));
+                }
+            }
+
+            Ok(response)
+        }
+        fn adjust_backoff(
+            err: &HttpError,
+            backon_suggested_timeout: Option<Duration>,
+            has_retry_limit: bool,
+        ) -> Option<Duration> {
+            match err.retry_kind() {
+                RetryKind::Transient { retry_after } => {
+                    // This bit is somewhat tricky but it's necessary so we respect the
+                    // `max_times` limit from `backon`.
+                    //
+                    // The exponential backoff in `backon` is implemented as an iterator that
+                    // returns `None` when we hit the `max_times` limit; if it returned `None`,
+                    // that means we ran out of attempts. So it's necessary to only override
+                    // the `backon_suggested_timeout` if it's `Some`.
+                    if backon_suggested_timeout.is_some() {
+                        retry_after.or(backon_suggested_timeout)
+                    } else {
+                        None
+                    }
+                }
+                RetryKind::Permanent => None,
+                RetryKind::NetworkFailure => {
+                    // If we ran into a network failure, only retry if there's some retry limit
+                    // associated to this request's configuration; otherwise, we would end up
+                    // running an infinite loop of network requests in offline mode.
+                    if has_retry_limit { backon_suggested_timeout } else { None }
+                }
+            }
+        }
 
         let retry_count = AtomicU64::new(1);
 
         let send_request = || {
             let send_progress = send_progress.clone();
-
             async {
-                let num_attempt = retry_count.fetch_add(1, Ordering::SeqCst);
-                debug!(num_attempt, "Sending request");
-                let before = ruma::time::Instant::now();
-
-                let response =
-                    send_request(&self.inner, &request, config.timeout, send_progress).await?;
-
-                let request_duration = ruma::time::Instant::now().saturating_duration_since(before);
-
-                let status_code = response.status();
-                let response_size = ByteSize(response.body().len().try_into().unwrap_or(u64::MAX));
-                tracing::Span::current()
-                    .record("status", status_code.as_u16())
-                    .record("response_size", response_size.display().si_short().to_string())
-                    .record("request_duration", tracing::field::debug(request_duration));
-
-                // Record interesting headers. If you add more headers, ensure they're not
-                // confidential.
-                for (header_name, header_value) in response.headers() {
-                    let header_name = header_name.as_str().to_lowercase();
-
-                    // Header added in case of OAuth 2.0 authentication failure, so we can correlate
-                    // failures with a Sentry event emitted by the OAuth 2.0 authentication server.
-                    if header_name == "x-sentry-event-id" {
-                        tracing::Span::current()
-                            .record("sentry_event_id", header_value.to_str().unwrap_or("<???>"));
-                    }
-                }
-
+                let response = send_request_inner(
+                    &self.inner,
+                    &request,
+                    config.timeout,
+                    &retry_count,
+                    send_progress,
+                )
+                .await?;
+                let (parts, body) = response.into_parts();
+                let response: http::Response<&[u8]> = http::Response::from_parts(parts, &body);
                 R::IncomingResponse::try_from_http_response(response).map_err(HttpError::from)
             }
         };
@@ -120,31 +161,9 @@ impl HttpClient {
         let has_retry_limit = config.retry_limit.is_some();
 
         send_request
-            .retry(backoff)
+            .retry(make_backoff(&config))
             .adjust(|err, backon_suggested_timeout| {
-                match err.retry_kind() {
-                    RetryKind::Transient { retry_after } => {
-                        // This bit is somewhat tricky but it's necessary so we respect the
-                        // `max_times` limit from `backon`.
-                        //
-                        // The exponential backoff in `backon` is implemented as an iterator that
-                        // returns `None` when we hit the `max_times` limit; if it returned `None`,
-                        // that means we ran out of attempts. So it's necessary to only override
-                        // the `backon_suggested_timeout` if it's `Some`.
-                        if backon_suggested_timeout.is_some() {
-                            retry_after.or(backon_suggested_timeout)
-                        } else {
-                            None
-                        }
-                    }
-                    RetryKind::Permanent => None,
-                    RetryKind::NetworkFailure => {
-                        // If we ran into a network failure, only retry if there's some retry limit
-                        // associated to this request's configuration; otherwise, we would end up
-                        // running an infinite loop of network requests in offline mode.
-                        if has_retry_limit { backon_suggested_timeout } else { None }
-                    }
-                }
+                adjust_backoff(err, backon_suggested_timeout, has_retry_limit)
             })
             .await
     }
@@ -159,8 +178,6 @@ pub(crate) struct HttpSettings {
     pub(crate) timeout: Option<Duration>,
     pub(crate) read_timeout: Option<Duration>,
     pub(crate) additional_root_certificates: Vec<Certificate>,
-    #[cfg(target_os = "android")]
-    pub(crate) additional_raw_root_certificates: Vec<Vec<u8>>,
     pub(crate) disable_built_in_root_certificates: bool,
 }
 
@@ -174,8 +191,6 @@ impl Default for HttpSettings {
             timeout: Some(DEFAULT_REQUEST_TIMEOUT),
             read_timeout: None,
             additional_root_certificates: Default::default(),
-            #[cfg(target_os = "android")]
-            additional_raw_root_certificates: Default::default(),
             disable_built_in_root_certificates: false,
         }
     }
@@ -200,15 +215,6 @@ impl HttpSettings {
             http_client = http_client.read_timeout(read_timeout);
         }
 
-        // On Android there is a problem that causes some certificates to be incorrectly
-        // marked as revoked, so we build our own rustls instance with the right
-        // configuration.
-        // Remove when https://github.com/rustls/rustls-platform-verifier/issues/221 is fixed.
-        #[cfg(target_os = "android")]
-        {
-            http_client = self.android_setup_webkpi_verifier(http_client)?;
-        }
-
         if self.disable_ssl_verification {
             warn!("SSL verification disabled in the HTTP client!");
             http_client = http_client.danger_accept_invalid_certs(true);
@@ -228,56 +234,9 @@ impl HttpSettings {
 
         Ok(http_client.build()?)
     }
-
-    #[cfg(target_os = "android")]
-    fn android_setup_webkpi_verifier(
-        &self,
-        client_builder: ClientBuilder,
-    ) -> Result<ClientBuilder, HttpError> {
-        if !self.disable_ssl_verification {
-            let mut root_store = RootCertStore::empty();
-
-            if self.disable_built_in_root_certificates {
-                info!("Built-in root certificates disabled in the HTTP client.");
-            } else {
-                // This seems to fix the 'revoked certificate' false positives issue
-                root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-
-                // Also load the native certs
-                let native_certs = rustls_native_certs::load_native_certs().certs;
-                root_store.add_parsable_certificates(native_certs);
-            }
-
-            if !self.additional_raw_root_certificates.is_empty() {
-                let mut additional_certs = Vec::new();
-
-                warn!(
-                    "Adding {} extra user certificates",
-                    self.additional_raw_root_certificates.len()
-                );
-
-                for certificate in self.additional_raw_root_certificates.iter() {
-                    additional_certs.push(CertificateDer::from_slice(certificate));
-                }
-
-                root_store.add_parsable_certificates(additional_certs);
-            }
-
-            let verifier = WebPkiServerVerifier::builder(Arc::new(root_store))
-                .build()
-                .map_err(HttpError::VerifierBuilder)?;
-
-            let config = rustls::ClientConfig::builder()
-                .with_webpki_verifier(verifier)
-                .with_no_client_auth();
-            Ok(client_builder.tls_backend_preconfigured(config))
-        } else {
-            Ok(client_builder)
-        }
-    }
 }
 
-pub(super) async fn send_request(
+pub(super) async fn execute_request(
     client: &reqwest::Client,
     request: &http::Request<Bytes>,
     timeout: Option<Duration>,

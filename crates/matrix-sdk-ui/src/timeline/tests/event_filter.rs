@@ -35,12 +35,12 @@ use super::TestTimeline;
 use crate::timeline::{
     AnyOtherStateEventContentChange, MsgLikeContent, MsgLikeKind, TimelineEventCondition,
     TimelineEventFilter, TimelineItem, TimelineItemContent, TimelineItemKind,
-    controller::TimelineSettings, tests::TestTimelineBuilder,
+    controller::TimelineSettings, event_filter::MembershipChangeFilter, tests::TestTimelineBuilder,
 };
 
 #[async_test]
 async fn test_default_filter() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -101,7 +101,8 @@ async fn test_default_filter() {
 async fn test_filter_always_false() {
     let timeline = TestTimelineBuilder::new()
         .settings(TimelineSettings { event_filter: Arc::new(|_, _| false), ..Default::default() })
-        .build();
+        .build()
+        .await;
 
     let f = &timeline.factory;
     timeline.handle_live_event(f.text_msg("The first message").sender(&ALICE)).await;
@@ -123,7 +124,8 @@ async fn test_custom_filter() {
             event_filter: Arc::new(|ev, _| matches!(ev, AnySyncTimelineEvent::MessageLike(_))),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -149,7 +151,8 @@ async fn test_custom_filter_for_custom_msglike_event() {
             event_filter: Arc::new(|ev, _| matches!(ev, AnySyncTimelineEvent::MessageLike(_))),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -170,7 +173,8 @@ async fn test_custom_filter_for_custom_msglike_event() {
 async fn test_hide_failed_to_parse() {
     let timeline = TestTimelineBuilder::new()
         .settings(TimelineSettings { add_failed_to_parse: false, ..Default::default() })
-        .build();
+        .build()
+        .await;
 
     // m.room.message events must have a msgtype and body in content, so this
     // event with an empty content object should fail to deserialize.
@@ -212,7 +216,8 @@ async fn test_event_filter_include_only_room_names() {
             event_filter: Arc::new(move |event, _| event_filter.filter(event)),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let f = &timeline.factory;
 
     // Add a non-encrypted message event
@@ -246,7 +251,8 @@ async fn test_event_filter_exclude_messages() {
             event_filter: Arc::new(move |event, _| event_filter.filter(event)),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let f = &timeline.factory;
 
     // Add a message event
@@ -271,14 +277,18 @@ async fn test_event_filter_exclude_messages() {
 #[async_test]
 async fn test_event_filter_include_only_membership_changes() {
     // Only return room name events
-    let event_filter = TimelineEventFilter::Include(vec![TimelineEventCondition::MembershipChange]);
+    let event_filter =
+        TimelineEventFilter::Include(vec![TimelineEventCondition::MembershipChange(
+            MembershipChangeFilter::Any,
+        )]);
 
     let timeline = TestTimelineBuilder::new()
         .settings(TimelineSettings {
             event_filter: Arc::new(move |event, _| event_filter.filter(event)),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let f = &timeline.factory;
 
     // Add Alice's join event
@@ -330,7 +340,8 @@ async fn test_event_filter_include_only_profile_changes() {
             event_filter: Arc::new(move |event, _| event_filter.filter(event)),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let f = &timeline.factory;
 
     // Add Alice's join event
@@ -377,7 +388,7 @@ async fn test_event_filter_include_only_messages_and_membership_changes() {
     // Only return room name events
     let event_filter = TimelineEventFilter::Include(vec![
         TimelineEventCondition::EventType(TimelineEventType::RoomMessage),
-        TimelineEventCondition::MembershipChange,
+        TimelineEventCondition::MembershipChange(MembershipChangeFilter::Any),
     ]);
 
     let timeline = TestTimelineBuilder::new()
@@ -385,7 +396,8 @@ async fn test_event_filter_include_only_messages_and_membership_changes() {
             event_filter: Arc::new(move |event, _| event_filter.filter(event)),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let f = &timeline.factory;
 
     // Add Alice's join event
@@ -430,14 +442,18 @@ async fn test_event_filter_include_only_messages_and_membership_changes() {
 #[async_test]
 async fn test_event_filter_exclude_membership_changes() {
     // Only return room name events
-    let event_filter = TimelineEventFilter::Exclude(vec![TimelineEventCondition::MembershipChange]);
+    let event_filter =
+        TimelineEventFilter::Exclude(vec![TimelineEventCondition::MembershipChange(
+            MembershipChangeFilter::Any,
+        )]);
 
     let timeline = TestTimelineBuilder::new()
         .settings(TimelineSettings {
             event_filter: Arc::new(move |event, _| event_filter.filter(event)),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let f = &timeline.factory;
 
     // Add Alice's join event
@@ -489,7 +505,8 @@ async fn test_event_filter_exclude_profile_changes() {
             event_filter: Arc::new(move |event, _| event_filter.filter(event)),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let f = &timeline.factory;
 
     // Add Alice's join event
@@ -537,7 +554,7 @@ async fn test_event_filter_exclude_messages_and_membership_changes() {
     // Only return room name events
     let event_filter = TimelineEventFilter::Exclude(vec![
         TimelineEventCondition::EventType(TimelineEventType::RoomMessage),
-        TimelineEventCondition::MembershipChange,
+        TimelineEventCondition::MembershipChange(MembershipChangeFilter::Any),
     ]);
 
     let timeline = TestTimelineBuilder::new()
@@ -545,7 +562,8 @@ async fn test_event_filter_exclude_messages_and_membership_changes() {
             event_filter: Arc::new(move |event, _| event_filter.filter(event)),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let f = &timeline.factory;
 
     // Add Alice's join event
@@ -585,6 +603,63 @@ async fn test_event_filter_exclude_messages_and_membership_changes() {
     assert_eq!(num_room_name_items, 1);
     assert_eq!(num_room_topic_items, 1);
     assert_eq!(num_membership_change_items, 0);
+    assert_eq!(num_profile_change_items, 2);
+}
+
+#[async_test]
+async fn test_event_filter_can_exclude_only_join_and_leave_membership_changes() {
+    let event_filter = TimelineEventFilter::Exclude(vec![
+        TimelineEventCondition::MembershipChange(MembershipChangeFilter::Join),
+        TimelineEventCondition::MembershipChange(MembershipChangeFilter::Leave),
+    ]);
+
+    let timeline = TestTimelineBuilder::new()
+        .settings(TimelineSettings {
+            event_filter: Arc::new(move |event, _| event_filter.filter(event)),
+            ..Default::default()
+        })
+        .build()
+        .await;
+    let f = &timeline.factory;
+
+    // Add Alice's join event
+    timeline.handle_live_event(f.member(&ALICE).membership(MembershipState::Join)).await;
+    // Alice changes her avatar
+    timeline
+        .handle_live_event(
+            f.member(&ALICE)
+                .avatar_url(mxc_uri!("mxc://example.org/SEsfnsuifSDFSSEF"))
+                .previous(MembershipState::Join),
+        )
+        .await;
+    // Alice sends a message and changes the room name and topic
+    timeline.handle_live_event(f.text_msg("The first message").sender(&ALICE)).await;
+    timeline.handle_live_event(f.room_name("A new room name").sender(&ALICE)).await;
+    timeline.handle_live_event(f.room_topic("A new room topic").sender(&ALICE)).await;
+    // Alice invites Bob and Bob changes his display name and leaves
+    timeline.handle_live_event(f.member(&ALICE).invited(&BOB)).await;
+    timeline
+        .handle_live_event(
+            f.member(&BOB).display_name("Big Bob 99").previous(MembershipState::Join),
+        )
+        .await;
+    timeline.handle_live_event(f.member(&BOB).leave().previous(MembershipState::Invite)).await;
+
+    // The timeline should contain everything except for the message, invite and
+    // join events
+    let event_items: Vec<Arc<TimelineItem>> = timeline.get_event_items().await;
+    let num_text_message_items = event_items.iter().filter(is_text_message_item).count();
+    let num_room_name_items = event_items.iter().filter(is_room_name_item).count();
+    let num_room_topic_items = event_items.iter().filter(is_room_topic_item).count();
+    let num_membership_change_items = event_items.iter().filter(is_membership_change_item).count();
+    let num_profile_change_items = event_items.iter().filter(is_profile_change_item).count();
+    // 2 profile changes + 1 text message + 1 room name + 1 room topic + 1 invited
+    // membership change
+    assert_eq!(event_items.len(), 6);
+    assert_eq!(num_text_message_items, 1);
+    assert_eq!(num_room_name_items, 1);
+    assert_eq!(num_room_topic_items, 1);
+    assert_eq!(num_membership_change_items, 1);
     assert_eq!(num_profile_change_items, 2);
 }
 

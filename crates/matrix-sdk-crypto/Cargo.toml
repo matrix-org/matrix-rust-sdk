@@ -9,10 +9,19 @@ name = "matrix-sdk-crypto"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version = { workspace = true }
-version = "0.17.0"
+version = "0.18.0"
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
+
+# rustls-wbpki: `cargo-machete` doesn't consider lib renames unless
+# `--with-metadata` is passed, but this errors CI further.
+
+# rustls-pki-types: this is an indirect dependency, but we need to add this to
+# control its feature flags.
+# See https://github.com/bnjbvr/cargo-machete/issues/170
+[package.metadata.cargo-machete]
+ignored = ["rustls-webpki", "rustls-pki-types"]
 
 [features]
 default = []
@@ -26,7 +35,7 @@ experimental-encrypted-state-events = [
     "ruma/unstable-msc4362"
 ]
 
-js = ["ruma/js", "vodozemac/js", "matrix-sdk-common/js"]
+js = ["ruma/js", "vodozemac/wasm_js", "matrix-sdk-common/js"]
 qrcode = ["dep:matrix-sdk-qrcode"]
 experimental-algorithms = []
 uniffi = ["dep:uniffi"]
@@ -44,15 +53,21 @@ testing = ["matrix-sdk-test"]
 # https://github.com/matrix-org/matrix-spec-proposals/pull/4385
 experimental-push-secrets = []
 
+# Enable experimental support for verifying user identities via X.509 certificates
+experimental-x509-identity-verification = ["dep:cms", "dep:pkcs1", "dep:sha2_0_10"]
+
+# Enable a pure-rust implementation of the X.509 signer and verifier, via `rustls`.
+rust-x509-verifier-impl = ["experimental-x509-identity-verification", "dep:rustls", "dep:rustls-pki-types", "dep:rustls-webpki", "dep:ring"]
+
 [dependencies]
-aes = { version = "0.8.4", default-features = false }
-aquamarine.workspace = true
+aes = { version = "0.9.2", default-features = false }
 as_variant.workspace = true
 async-trait.workspace = true
 bs58 = { version = "0.5.1", default-features = false, features = ["std"] }
 byteorder.workspace = true
 cfg-if.workspace = true
-ctr = { version = "0.9.2", default-features = false }
+cms = { version = "0.2.3", default-features = false, features = ["std"], optional = true }
+ctr = { version = "0.10.1", default-features = false }
 eyeball.workspace = true
 futures-core.workspace = true
 futures-util.workspace = true
@@ -64,19 +79,27 @@ matrix-sdk-common.workspace = true
 matrix-sdk-qrcode = { workspace = true, optional = true }
 matrix-sdk-test = { workspace = true, optional = true }  # feature = testing only
 pbkdf2.workspace = true
+pkcs1 = { version = "0.7.5", default-features = false, optional = true }
 rand.workspace = true
+ring = { version = "0.17.14", optional = true, features = ["wasm32_unknown_unknown_js"] }
 rmp-serde.workspace = true
 ruma = { workspace = true, features = ["rand", "unstable-msc3814"] }
+rustls = { version = "0.23.43", optional = true, default-features = false, features = ["std", "ring"] }
+rustls-pki-types = { version = "1.15.1", optional = true, default-features = false, features = ["alloc", "web"] }
+rustls-webpki = { version = "0.103.13", default-features = false, optional = true }
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true
 sha2.workspace = true
+# This copy of the sha2 crate is necessary because we require an older version
+# of the const-oid crate for it to be compatible with the rest of the x509 deps
+sha2_0_10 = { package = "sha2", version = "0.10.9", features = ["oid"], optional = true }
 subtle = { version = "2.6.1", default-features = false, features = ["std", "i128"] }
 thiserror.workspace = true
-time = { version = "0.3.47", default-features = false, features = ["std", "formatting"] }
+time = { version = "0.3.54", default-features = false, features = ["std", "formatting"] }
 tokio.workspace = true
 tokio-stream = { workspace = true, features = ["sync"] }
 tracing = { workspace = true, features = ["attributes"] }
-ulid = { version = "1.1.4", default-features = false, features = ["std"] }
+ulid = { version = "3.0.0", default-features = false, features = ["std"] }
 uniffi = { workspace = true, optional = true }
 url.workspace = true
 vodozemac.workspace = true
@@ -99,10 +122,17 @@ matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
 proptest.workspace = true
 rmp-serde.workspace = true
+rcgen = { workspace = true, features = ["pem", "aws_lc_rs", "x509-parser"] }
 similar-asserts.workspace = true
 # required for async_test macro
 stream_assert.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+# The x509 tests use rust-x509-verifier-impl, so we need its dependencies
+ring = { version = "0.17.14", features = ["wasm32_unknown_unknown_js"] }
+rustls = { version = "0.23.43", default-features = false, features = ["std", "ring"] }
+rustls-webpki = { version = "0.103.13", default-features = false }
+rustls-pki-types = { version = "1.15.1", default-features = false, features = ["alloc", "web"] }
 
 [lints]
 workspace = true

@@ -31,7 +31,10 @@ use super::{
     Action, MatrixDriverRequestMeta, SendToDeviceEventResponse, WidgetMachine,
     from_widget::SendEventResponse, incoming::MatrixDriverResponse,
 };
-use crate::widget::{Capabilities, StateKeySelector, machine::from_widget::DownloadFileResponse};
+use crate::widget::{
+    Capabilities, StateKeySelector,
+    machine::from_widget::{DownloadFileResponse, RtcTransportsResponse},
+};
 
 #[derive(Clone, Debug)]
 pub(crate) enum MatrixDriverRequestData {
@@ -62,6 +65,9 @@ pub(crate) enum MatrixDriverRequestData {
 
     /// Request a download of a file.
     DownloadFile(DownloadFileRequest),
+
+    /// Get the RTC transports advertised by the homeserver.
+    GetRtcTransports,
 }
 
 /// A handle to a pending `toWidget` request.
@@ -156,6 +162,20 @@ impl From<RequestOpenId> for MatrixDriverRequestData {
 
 impl MatrixDriverRequest for RequestOpenId {
     type Response = request_openid_token::v3::Response;
+}
+
+/// Request the RTC transports advertised by the homeserver.
+#[derive(Debug)]
+pub(crate) struct RequestRtcTransports;
+
+impl From<RequestRtcTransports> for MatrixDriverRequestData {
+    fn from(_: RequestRtcTransports) -> Self {
+        MatrixDriverRequestData::GetRtcTransports
+    }
+}
+
+impl MatrixDriverRequest for RequestRtcTransports {
+    type Response = RtcTransportsResponse;
 }
 
 impl FromMatrixDriverResponse for request_openid_token::v3::Response {
@@ -317,7 +337,7 @@ impl MatrixDriverRequest for SendToDeviceRequest {
 /// and `action`. Defined by [MSC4157](https://github.com/matrix-org/matrix-spec-proposals/pull/4157)
 #[derive(Deserialize, Debug, Clone)]
 pub(crate) struct UpdateDelayedEventRequest {
-    pub(crate) action: update_delayed_event::unstable::UpdateAction,
+    pub(crate) action: update_delayed_event::UpdateAction,
     pub(crate) delay_id: String,
 }
 
@@ -328,10 +348,10 @@ impl From<UpdateDelayedEventRequest> for MatrixDriverRequestData {
 }
 
 impl MatrixDriverRequest for UpdateDelayedEventRequest {
-    type Response = update_delayed_event::unstable::Response;
+    type Response = update_delayed_event::unstable_v1::Response;
 }
 
-impl FromMatrixDriverResponse for update_delayed_event::unstable::Response {
+impl FromMatrixDriverResponse for update_delayed_event::unstable_v1::Response {
     fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
         match ev {
             MatrixDriverResponse::DelayedEventUpdated(response) => Some(response),

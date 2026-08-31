@@ -130,6 +130,7 @@ impl WidgetDriver {
     ///
     /// The function returns once the widget is disconnected or any terminal
     /// error occurs.
+    #[expect(clippy::result_unit_err)]
     pub async fn run(
         mut self,
         room: Room,
@@ -260,6 +261,11 @@ impl WidgetDriver {
                                 file_data_base64,
                             })
                         }),
+
+                    MatrixDriverRequestData::GetRtcTransports => matrix_driver
+                        .get_rtc_transports()
+                        .await
+                        .map(MatrixDriverResponse::RtcTransportsReceived),
                 };
 
                 // Forward the Matrix driver response to the incoming message stream.

@@ -54,6 +54,7 @@ use ruma::{
             MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent, SyncRoomMemberEvent,
         },
     },
+    profile::{UserProfile, UserProfileUpdate},
     serde::Raw,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned, ser::Error};
@@ -161,6 +162,7 @@ mod keys {
 
     pub const ACCOUNT_DATA: &str = "account_data";
 
+    /// Room profiles.
     pub const PROFILES: &str = "profiles";
     pub const DISPLAY_NAMES: &str = "display_names";
     pub const USER_IDS: &str = "user_ids";
@@ -180,6 +182,8 @@ mod keys {
 
     pub const ROOM_USER_RECEIPTS: &str = "room_user_receipts";
     pub const ROOM_EVENT_RECEIPTS: &str = "room_event_receipts";
+
+    pub const GLOBAL_PROFILES: &str = "global_profiles";
 
     pub const CUSTOM: &str = "custom";
     pub const KV: &str = "kv";
@@ -201,6 +205,7 @@ mod keys {
         ROOM_SEND_QUEUE,
         THREAD_SUBSCRIPTIONS,
         DEPENDENT_SEND_QUEUE,
+        GLOBAL_PROFILES,
         CUSTOM,
         KV,
     ];
@@ -771,6 +776,7 @@ impl_state_store!({
             ),
             (!changes.room_account_data.is_empty(), keys::ROOM_ACCOUNT_DATA),
             (!changes.receipts.is_empty(), keys::ROOM_EVENT_RECEIPTS),
+            (!changes.global_profiles.is_empty(), keys::GLOBAL_PROFILES),
         ]
         .iter()
         .filter_map(|(id, key)| if *id { Some(*key) } else { None })
@@ -1091,6 +1097,33 @@ impl_state_store!({
                         )
                         .map_err(StoreError::Redaction)?;
                         state.put(&self.serialize_value(&redacted)?).with_key(key).build()?;
+                    }
+                }
+            }
+        }
+
+        if !changes.global_profiles.is_empty() {
+            let store = tx.object_store(keys::GLOBAL_PROFILES)?;
+            for (user_id, profile_update) in &changes.global_profiles {
+                let key = self.encode_key(keys::GLOBAL_PROFILES, user_id);
+                match profile_update {
+                    UserProfileUpdate::Updated(profile_changes) => {
+                        let existing: Option<UserProfile> = store
+                            .get(&key)
+                            .await?
+                            .map(|f| self.deserialize_value(&f))
+                            .transpose()?;
+
+                        let mut profile = existing.unwrap_or_default();
+                        profile.apply(profile_changes.clone());
+
+                        store.put(&self.serialize_value(&profile)?).with_key(key).build()?;
+                    }
+                    UserProfileUpdate::Dropped => {
+                        store.delete(&key).build()?;
+                    }
+                    _ => {
+                        warn!(%user_id, "Unhandled UserProfileUpdate variant; ignoring");
                     }
                 }
             }
@@ -1422,10 +1455,10 @@ impl_state_store!({
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
-        let key = match thread.as_str() {
+        let key = match receipt_thread.as_str() {
             Some(thread_id) => self
                 .encode_key(keys::ROOM_USER_RECEIPTS, (room_id, receipt_type, thread_id, user_id)),
             None => self.encode_key(keys::ROOM_USER_RECEIPTS, (room_id, receipt_type, user_id)),
@@ -1445,10 +1478,10 @@ impl_state_store!({
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
-        let range = match thread.as_str() {
+        let range = match receipt_thread.as_str() {
             Some(thread_id) => self.encode_to_range(
                 keys::ROOM_EVENT_RECEIPTS,
                 (room_id, receipt_type, thread_id, event_id),
@@ -2049,6 +2082,40 @@ impl_state_store!({
         transaction.commit().await?;
 
         Ok(())
+    }
+
+    async fn get_global_profile(&self, user_id: &UserId) -> Result<Option<UserProfile>> {
+        let transaction = self
+            .inner
+            .transaction(keys::GLOBAL_PROFILES)
+            .with_mode(TransactionMode::Readonly)
+            .build()?;
+        let store = transaction.object_store(keys::GLOBAL_PROFILES)?;
+        let key = self.encode_key(keys::GLOBAL_PROFILES, user_id);
+
+        store.get(&key).await?.map(|f| self.deserialize_value(&f)).transpose()
+    }
+
+    async fn get_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, UserProfile>> {
+        let transaction = self
+            .inner
+            .transaction(keys::GLOBAL_PROFILES)
+            .with_mode(TransactionMode::Readonly)
+            .build()?;
+        let store = transaction.object_store(keys::GLOBAL_PROFILES)?;
+
+        let mut profiles = BTreeMap::new();
+        for user_id in user_ids {
+            let key = self.encode_key(keys::GLOBAL_PROFILES, user_id);
+            if let Some(value) = store.get(&key).await? {
+                profiles.insert(user_id.as_ref(), self.deserialize_value(&value)?);
+            }
+        }
+
+        Ok(profiles)
     }
 
     #[allow(clippy::unused_async)]

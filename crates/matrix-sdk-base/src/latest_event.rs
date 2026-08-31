@@ -116,7 +116,7 @@ impl LatestEventValue {
     /// [`LatestEventValue`].
     pub fn event_id(&self) -> Option<OwnedEventId> {
         match self {
-            Self::Remote(event) => event.event_id(),
+            Self::Remote(event) => event.event_id().map(ToOwned::to_owned),
             Self::RemoteInvite { event_id, .. } => event_id.clone(),
             Self::LocalHasBeenSent { event_id, .. } => Some(event_id.clone()),
             Self::LocalIsSending(_) | Self::LocalCannotBeSent(_) | Self::None => None,

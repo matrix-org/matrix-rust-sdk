@@ -33,6 +33,7 @@ use ruma::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::member::{MembershipState, StrippedRoomMemberEvent, SyncRoomMemberEvent},
     },
+    profile::{UserProfile, UserProfileUpdate},
     serde::Raw,
     time::Instant,
 };
@@ -93,6 +94,7 @@ struct MemoryStoreInner {
     seen_knock_requests: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, OwnedUserId>>,
     thread_subscriptions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, StoredThreadSubscription>>,
     thread_subscriptions_catchup_tokens: Option<Vec<ThreadSubscriptionCatchupToken>>,
+    global_profiles: HashMap<OwnedUserId, UserProfile>,
     homeserver_capabilities: Option<TtlValue<Capabilities>>,
 }
 
@@ -114,7 +116,7 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Option<(OwnedEventId, Receipt)> {
         self.inner
@@ -122,7 +124,7 @@ impl MemoryStore {
             .unwrap()
             .room_user_receipts
             .get(room_id)?
-            .get(&(receipt_type.to_string(), thread.as_str().map(ToOwned::to_owned)))?
+            .get(&(receipt_type.to_string(), receipt_thread.as_str().map(ToOwned::to_owned)))?
             .get(user_id)
             .cloned()
     }
@@ -131,7 +133,7 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Option<Vec<(OwnedUserId, Receipt)>> {
         Some(
@@ -140,7 +142,7 @@ impl MemoryStore {
                 .unwrap()
                 .room_event_receipts
                 .get(room_id)?
-                .get(&(receipt_type.to_string(), thread.as_str().map(ToOwned::to_owned)))?
+                .get(&(receipt_type.to_string(), receipt_thread.as_str().map(ToOwned::to_owned)))?
                 .get(event_id)?
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone()))
@@ -537,6 +539,24 @@ impl StateStore for MemoryStore {
             }
         }
 
+        for (user_id, profile_update) in &changes.global_profiles {
+            match profile_update {
+                UserProfileUpdate::Updated(profile_changes) => {
+                    inner
+                        .global_profiles
+                        .entry(user_id.clone())
+                        .or_default()
+                        .apply(profile_changes.clone());
+                }
+                UserProfileUpdate::Dropped => {
+                    inner.global_profiles.remove(user_id);
+                }
+                _ => {
+                    warn!(%user_id, "Unhandled UserProfileUpdate variant; ignoring");
+                }
+            }
+        }
+
         debug!("Saved changes in {:?}", now.elapsed());
 
         Ok(())
@@ -772,21 +792,21 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
-        Ok(self.get_user_room_receipt_event_impl(room_id, receipt_type, thread, user_id))
+        Ok(self.get_user_room_receipt_event_impl(room_id, receipt_type, receipt_thread, user_id))
     }
 
     async fn get_event_room_receipt_events(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
         Ok(self
-            .get_event_room_receipt_events_impl(room_id, receipt_type, thread, event_id)
+            .get_event_room_receipt_events_impl(room_id, receipt_type, receipt_thread, event_id)
             .unwrap_or_default())
     }
 
@@ -1075,6 +1095,27 @@ impl StateStore for MemoryStore {
         }
 
         Ok(())
+    }
+
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+        Ok(inner.global_profiles.get(user_id).cloned())
+    }
+
+    async fn get_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, UserProfile>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+        Ok(user_ids
+            .iter()
+            .filter_map(|user_id| {
+                inner.global_profiles.get(user_id).map(|profile| (&**user_id, profile.clone()))
+            })
+            .collect())
     }
 
     async fn optimize(&self) -> Result<(), Self::Error> {

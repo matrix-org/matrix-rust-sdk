@@ -82,7 +82,7 @@ macro_rules! assert_reaction_is_updated {
 
 #[async_test]
 async fn test_add_reaction_on_non_existent_event() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     let event_id = EventId::parse("$nonexisting_unique_id").unwrap();
@@ -96,7 +96,7 @@ async fn test_add_reaction_on_non_existent_event() {
 
 #[async_test]
 async fn test_add_reaction_success() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
     let (item_id, event_id, item_pos) = send_first_message(&timeline, &mut stream).await;
 
@@ -125,8 +125,29 @@ async fn test_add_reaction_success() {
 }
 
 #[async_test]
+async fn test_add_reaction_with_extra_content() {
+    let timeline = TestTimeline::new().await;
+    let mut stream = timeline.subscribe().await;
+    let (item_id, _event_id, _item_pos) = send_first_message(&timeline, &mut stream).await;
+
+    let mut extra_content = serde_json::Map::new();
+    extra_content.insert("com.example.key".to_owned(), "value".into());
+
+    timeline
+        .toggle_reaction_local_with_extra_content(&item_id, REACTION_KEY, Some(extra_content))
+        .await
+        .unwrap();
+
+    // The extra content is forwarded along with the reaction.
+    let sent_extra_content = &timeline.data().sent_extra_content.read().await;
+    assert_eq!(sent_extra_content.len(), 1);
+    assert_let!(Some(extra_content) = &sent_extra_content[0]);
+    assert_eq!(extra_content.get("com.example.key").unwrap(), "value");
+}
+
+#[async_test]
 async fn test_redact_reaction_success() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let f = &timeline.factory;
 
     let mut stream = timeline.subscribe().await;
@@ -172,7 +193,7 @@ async fn test_redact_reaction_success() {
 
 #[async_test]
 async fn test_reactions_store_timestamp() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
     let (item_id, event_id, msg_pos) = send_first_message(&timeline, &mut stream).await;
 
@@ -192,7 +213,7 @@ async fn test_reactions_store_timestamp() {
 
 #[async_test]
 async fn test_initial_reaction_timestamp_is_stored() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
 
     let f = &timeline.factory;
     let message_event_id = EventId::new_v1(server_name!("dummy.server"));
@@ -254,7 +275,7 @@ async fn send_first_message(
 async fn test_reinserted_item_keeps_reactions() {
     // This test checks that after deduplicating events, the reactions attached to
     // the deduplicated event are not lost.
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let f = &timeline.factory;
 
     // We receive an initial update with one event and a reaction to this event.

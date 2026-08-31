@@ -14,6 +14,7 @@
 
 use std::{
     collections::HashMap,
+    ops::ControlFlow,
     sync::{Arc, Weak},
 };
 
@@ -22,10 +23,11 @@ use matrix_sdk_base::{
     linked_chunk::OwnedLinkedChunkId, serde_helpers::extract_thread_root_from_content,
     sync::RoomUpdates,
 };
-use ruma::{OwnedEventId, OwnedTransactionId};
+use ruma::{OwnedEventId, OwnedTransactionId, RoomId};
 use tokio::{
     select,
     sync::{
+        OwnedRwLockReadGuard,
         broadcast::{Receiver, Sender, error::RecvError},
         mpsc,
     },
@@ -33,8 +35,8 @@ use tokio::{
 use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, trace, warn};
 
 use super::{
-    AutoShrinkChannelPayload, EventCacheError, EventCacheInner, EventsOrigin,
-    RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate, TimelineVectorDiffs,
+    AutoShrinkMessage, Caches, CachesByRoom, EventCacheError, EventCacheInner,
+    RoomEventCacheLinkedChunkUpdate,
 };
 use crate::{
     client::WeakClient,
@@ -118,8 +120,8 @@ pub(super) async fn ignore_user_list_update_task(
 /// The auto-shrink mechanism works this way:
 ///
 /// - Each time there's a new subscriber to a [`RoomEventCache`], it will
-///   increment the active number of subscribers to that room, aka
-///   `RoomEventCacheState::subscriber_count`.
+///   increment the active number of subscribers to that room, see
+///   `RoomEventCacheState::subscribers_handle`.
 /// - When that subscriber is dropped, it will decrement that count; and notify
 ///   the task below if it reached 0.
 /// - The task spawned here, owned by the [`EventCacheInner`], will listen to
@@ -132,68 +134,88 @@ pub(super) async fn ignore_user_list_update_task(
 #[instrument(skip_all)]
 pub(super) async fn auto_shrink_linked_chunk_task(
     inner: Weak<EventCacheInner>,
-    mut rx: mpsc::Receiver<AutoShrinkChannelPayload>,
+    mut auto_shrink_receiver: mpsc::Receiver<AutoShrinkMessage>,
 ) {
-    while let Some(room_id) = rx.recv().await {
-        trace!(for_room = %room_id, "received notification to shrink");
+    while let Some(message) = auto_shrink_receiver.recv().await {
+        trace!(?message, "received notification to shrink");
 
         let Some(inner) = inner.upgrade() else {
             return;
         };
 
-        let room = {
-            let caches = match inner.all_caches_for_room(&room_id).await {
-                Ok(caches) => caches,
-                Err(err) => {
-                    warn!(for_room = %room_id, "Failed to get the `Caches`: {err}");
+        let maybe_diffs = match message {
+            AutoShrinkMessage::Room { room_id } => {
+                let ControlFlow::Continue(caches) = all_caches(inner.as_ref(), &room_id).await
+                else {
                     continue;
+                };
+
+                match caches.room().state().write().await {
+                    Ok(mut state) => state.auto_shrink_if_no_subscribers().await,
+                    Err(err) => {
+                        warn!(%room_id, ?err, "Failed to get the `RoomEventCacheStateLock`");
+                        continue;
+                    }
                 }
-            };
+            }
 
-            caches.room.clone()
-        };
+            AutoShrinkMessage::Thread { room_id, thread_id } => {
+                let ControlFlow::Continue(caches) = all_caches(inner.as_ref(), &room_id).await
+                else {
+                    continue;
+                };
 
-        trace!("Waiting for state lock…");
+                let Ok(cache) = caches.thread(thread_id.clone()).await else {
+                    warn!(%room_id, %thread_id, "Failed to get the `ThreadEventCache`");
+                    continue;
+                };
 
-        let mut state = match room.state().write().await {
-            Ok(state) => state,
-            Err(err) => {
-                warn!(for_room = %room_id, "Failed to get the `RoomEventCacheStateLock`: {err}");
-                continue;
+                match cache.state().write().await {
+                    Ok(mut state) => state.auto_shrink_if_no_subscribers().await,
+                    Err(err) => {
+                        warn!(%room_id, ?err, "Failed to get the `ThreadEventCacheStateLock`");
+                        continue;
+                    }
+                }
             }
         };
 
-        match state.auto_shrink_if_no_subscribers().await {
-            Ok(diffs) => {
-                if let Some(diffs) = diffs {
-                    // Hey, fun stuff: we shrunk the linked chunk, so there shouldn't be any
-                    // subscribers, right? RIGHT? Especially because the state is guarded behind
-                    // a lock.
-                    //
-                    // However, better safe than sorry, and it's cheap to send an update here,
-                    // so let's do it!
-                    if !diffs.is_empty() {
-                        room.update_sender().send(
-                            RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                                diffs,
-                                origin: EventsOrigin::Cache,
-                            }),
-                            None,
-                        );
-                    }
-                } else {
-                    debug!("auto-shrinking didn't happen");
-                }
+        match maybe_diffs {
+            Ok(_diffs) => {
+                // Two situations here:
+                //
+                // 1. No race, no subscribers have been registered, so it's safe
+                //    to do nothing,
+                // 2. A race, a subscriber has been created meanwhile, we **must
+                //    not** send the diff to it, otherwise it can create an
+                //    invalid state.
+                //
+                // Note that a race shouldn't be possible as we have acquired an
+                // exclusive access to the state, ensuring no subscriber can be
+                // created.
             }
 
             Err(err) => {
                 // There's not much we can do here, unfortunately.
-                warn!(for_room = %room_id, "error when attempting to shrink linked chunk: {err}");
+                warn!(?err, "error when attempting to shrink linked chunk");
             }
         }
     }
 
     info!("Auto-shrink linked chunk task has been closed, exiting");
+
+    async fn all_caches(
+        inner: &EventCacheInner,
+        room_id: &RoomId,
+    ) -> ControlFlow<(), OwnedRwLockReadGuard<CachesByRoom, Caches>> {
+        match inner.all_caches_for_room(room_id).await {
+            Ok(caches) => ControlFlow::Continue(caches),
+            Err(err) => {
+                warn!(?err, "Failed to get the `Caches`");
+                ControlFlow::Break(())
+            }
+        }
+    }
 }
 
 /// Handle [`SendQueueUpdate`] and [`RoomEventCacheLinkedChunkUpdate`] to update
@@ -439,7 +461,7 @@ async fn handle_thread_subscriber_linked_chunk_update(
                 // Shouldn't happen.
                 continue;
             };
-            subscribe_up_to = Some(event_id);
+            subscribe_up_to = Some(event_id.to_owned());
             break;
         }
     }
@@ -492,7 +514,7 @@ pub(super) async fn search_indexing_task(
                     return;
                 };
 
-                let maybe_room_cache = client.event_cache().for_room(&room_id).await;
+                let maybe_room_cache = client.event_cache().room(&room_id).await;
                 let Ok((room_cache, _drop_handles)) = maybe_room_cache else {
                     warn!(for_room = %room_id, "Failed to get RoomEventCache: {maybe_room_cache:?}");
                     continue;

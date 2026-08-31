@@ -25,11 +25,13 @@ use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::Stream;
 use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, timer};
+#[cfg(feature = "experimental-x509-identity-verification")]
+use matrix_sdk_crypto::x509::{RawX509Signer, RawX509Verifier};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     CollectStrategy, DecryptionSettings, EncryptionSettings, OlmError, OlmMachine,
-    TrustRequirement, store::DynCryptoStore, store::types::RoomPendingKeyBundleDetails,
-    types::requests::ToDeviceRequest,
+    OlmMachineBuilder, TrustRequirement, store::DynCryptoStore,
+    store::types::RoomPendingKeyBundleDetails, types::requests::ToDeviceRequest,
 };
 #[cfg(doc)]
 use ruma::DeviceId;
@@ -58,7 +60,7 @@ use crate::{
     RoomStateFilter, SessionMeta, StateStore,
     deserialized_responses::DisplayName,
     error::{Error, Result},
-    event_cache::store::{EventCacheStoreLock, EventCacheStoreLockState},
+    event_cache::store::EventCacheStoreLock,
     media::store::MediaStoreLock,
     response_processors::{self as processors, Context},
     room::{
@@ -67,7 +69,8 @@ use crate::{
     store::{
         AvatarCache, BaseStateStore, DynStateStore, MemoryStore, Result as StoreResult,
         RoomLoadSettings, StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt,
-        StoreConfig, ambiguity_map::AmbiguityCache,
+        StoreConfig,
+        ambiguity_map::{AmbiguityCache, is_member_active},
     },
     sync::{RoomUpdates, SyncResponse},
 };
@@ -119,6 +122,10 @@ pub struct BaseClient {
     /// Observable of when a user is ignored/unignored.
     pub(crate) ignore_user_list_changes: SharedObservable<Vec<String>>,
 
+    /// Broadcasts the user IDs whose global profile changed during a sync.
+    /// Requires the Profiles sliding sync extension to be enabled.
+    pub(crate) global_profile_updates_sender: broadcast::Sender<BTreeSet<OwnedUserId>>,
+
     /// The strategy to use for picking recipient devices, when sending an
     /// encrypted message.
     #[cfg(feature = "e2e-encryption")]
@@ -134,6 +141,16 @@ pub struct BaseClient {
 
     /// Whether the client supports threads or not.
     pub threading_support: ThreadingSupport,
+
+    /// If supported, the signer that allows us to sign our cross-signing key
+    /// with an X.509 certificate.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    x509_signer: Option<Arc<dyn RawX509Signer>>,
+
+    /// If supported, the verifier that allows us to verify that items have been
+    /// signed by a valid X.509 certificate.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    x509_verifier: Option<Arc<dyn RawX509Verifier>>,
 
     /// The definition of what is considered a DM room.
     pub dm_room_definition: DmRoomDefinition,
@@ -198,6 +215,7 @@ impl BaseClient {
             #[cfg(feature = "e2e-encryption")]
             olm_machine: Default::default(),
             ignore_user_list_changes: Default::default(),
+            global_profile_updates_sender: broadcast::Sender::new(16),
             #[cfg(feature = "e2e-encryption")]
             room_key_recipient_strategy: Default::default(),
             #[cfg(feature = "e2e-encryption")]
@@ -207,6 +225,10 @@ impl BaseClient {
             #[cfg(feature = "e2e-encryption")]
             handle_verification_events: true,
             threading_support,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_signer: None,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier: None,
             dm_room_definition,
         }
     }
@@ -235,16 +257,35 @@ impl BaseClient {
             crypto_store: self.crypto_store.clone(),
             olm_machine: self.olm_machine.clone(),
             ignore_user_list_changes: Default::default(),
+            global_profile_updates_sender: broadcast::Sender::new(16),
             room_key_recipient_strategy: self.room_key_recipient_strategy.clone(),
             decryption_settings: self.decryption_settings.clone(),
             handle_verification_events,
             threading_support: self.threading_support,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_signer: self.x509_signer.clone(),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier: self.x509_verifier.clone(),
             dm_room_definition: self.dm_room_definition.clone(),
         };
 
         copy.state_store.derive_from_other(&self.state_store).await?;
 
         Ok(copy)
+    }
+
+    /// Provide the signer we will use to sign master signing keys and outgoing
+    /// secret requests.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    pub fn set_x509_signer(&mut self, x509_signer: Option<Arc<dyn RawX509Signer>>) {
+        self.x509_signer = x509_signer;
+    }
+
+    /// Provide the verifier we will use to verify master signing keys and
+    /// incoming secret requests.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    pub fn set_x509_verifier(&mut self, x509_verifier: Option<Arc<dyn RawX509Verifier>>) {
+        self.x509_verifier = x509_verifier
     }
 
     /// Clones the current base client to use the same crypto store but a
@@ -379,14 +420,16 @@ impl BaseClient {
 
         // Recreate the `OlmMachine` and wipe the in-memory cache in the store
         // because we suspect it has stale data.
-        let olm_machine = OlmMachine::with_store(
-            &session_meta.user_id,
-            &session_meta.device_id,
-            self.crypto_store.clone(),
-            custom_account,
-        )
-        .await
-        .map_err(OlmError::from)?;
+        let builder = OlmMachineBuilder::new(&session_meta.user_id, &session_meta.device_id)
+            .with_crypto_store(self.crypto_store.clone())
+            .with_custom_account(custom_account);
+
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        let builder = builder
+            .with_x509_verifier(self.x509_verifier.clone())
+            .with_x509_signer(self.x509_signer.clone());
+
+        let olm_machine = builder.build().await.map_err(OlmError::from)?;
 
         *self.olm_machine.write().await = Some(olm_machine);
         Ok(())
@@ -882,6 +925,7 @@ impl BaseClient {
             }
 
             if let StateEvent::Original(e) = &member
+                && is_member_active(&e.content.membership)
                 && let Some(d) = &e.content.displayname
             {
                 let display_name = DisplayName::new(d);
@@ -1054,17 +1098,6 @@ impl BaseClient {
         // Forget the room in the state store.
         self.state_store.forget_room(room_id).await?;
 
-        // Remove the room in the event cache store too.
-        match self.event_cache_store().lock().await? {
-            // If the lock is clear, we can do the operation as expected.
-            // If the lock is dirty, we can ignore to refresh the state, we just need to remove a
-            // room. Also, we must not mark the lock as non-dirty because other operations may be
-            // critical and may need to refresh the `EventCache`' state.
-            EventCacheStoreLockState::Clean(guard) | EventCacheStoreLockState::Dirty(guard) => {
-                guard.remove_room(room_id).await?
-            }
-        }
-
         Ok(())
     }
 
@@ -1114,6 +1147,17 @@ impl BaseClient {
     /// Learn more by reading the [`RoomInfoNotableUpdate`] type.
     pub fn room_info_notable_update_receiver(&self) -> broadcast::Receiver<RoomInfoNotableUpdate> {
         self.state_store.room_info_notable_update_sender.subscribe()
+    }
+
+    /// Returns a receiver of the user IDs whose global profile changed during a
+    /// sync. Consumers can use this as a trigger to e.g. merge any global
+    /// fields into a user's room profile.
+    ///
+    /// Requires the Profiles sliding sync extension to be enabled.
+    pub fn subscribe_to_global_profile_updates(
+        &self,
+    ) -> broadcast::Receiver<BTreeSet<OwnedUserId>> {
+        self.global_profile_updates_sender.subscribe()
     }
 
     /// Checks whether the provided `user_id` belongs to an ignored user.
@@ -1265,7 +1309,12 @@ mod tests {
         BOB, InvitedRoomBuilder, LeftRoomBuilder, SyncResponseBuilder, async_test,
         event_factory::EventFactory, ruma_response_from_json,
     };
+    #[cfg(feature = "unstable-msc4426")]
+    use ruma::profile::{
+        ProfileFieldValue, StatusProfileField, UserProfileChanges, UserProfileUpdate,
+    };
     use ruma::{
+        RoomId,
         api::client::{self as api, sync::sync_events::v5},
         event_id,
         events::{StateEventType, room::member::MembershipState},
@@ -1282,6 +1331,8 @@ mod tests {
         store::{RoomLoadSettings, StateStoreExt, StoreConfig},
         test_utils::logged_in_base_client,
     };
+    #[cfg(feature = "unstable-msc4426")]
+    use crate::{RoomMemberships, store::StateChanges};
 
     #[test]
     fn test_requested_required_states() {
@@ -1756,6 +1807,140 @@ mod tests {
         assert_eq!(member.user_id(), user_id);
         assert_eq!(member.display_name().unwrap(), "Invited Alice");
         assert_eq!(member.avatar_url().unwrap().to_string(), "mxc://localhost/fewjilfewjil42");
+    }
+
+    async fn base_client_with_joined_room(room_id: &RoomId) -> BaseClient {
+        let client = logged_in_base_client(Some(user_id!("@alice:example.org"))).await;
+
+        let mut sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
+            .add_joined_room(matrix_sdk_test::JoinedRoomBuilder::new(room_id))
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        client
+    }
+
+    #[async_test]
+    async fn test_inactive_members_do_not_make_a_display_name_ambiguous() {
+        let joined_user_id = user_id!("@bob:example.org");
+        let left_user_id = user_id!("@carol:example.org");
+        let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
+
+        let client = base_client_with_joined_room(room_id).await;
+
+        // A joined member and a member who left share a display name.
+        let f = EventFactory::new().room(room_id);
+        let request = api::membership::get_member_events::v3::Request::new(room_id.to_owned());
+        let response = api::membership::get_member_events::v3::Response::new(vec![
+            f.member(joined_user_id).display_name("Amandine").into_raw(),
+            f.member(left_user_id)
+                .display_name("Amandine")
+                .membership(MembershipState::Leave)
+                .into_raw(),
+        ]);
+
+        client.receive_all_members(room_id, &request, &response).await.unwrap();
+
+        let room = client.get_room(room_id).unwrap();
+        let member = room.get_member(joined_user_id).await.expect("ok").expect("exists");
+
+        assert_eq!(member.display_name().unwrap(), "Amandine");
+        assert!(!member.name_ambiguous());
+    }
+
+    #[async_test]
+    async fn test_active_members_make_a_display_name_ambiguous() {
+        let joined_user_id = user_id!("@bob:example.org");
+        let invited_user_id = user_id!("@carol:example.org");
+        let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
+
+        let client = base_client_with_joined_room(room_id).await;
+
+        // A joined member and an invited member share a display name.
+        let f = EventFactory::new().room(room_id);
+        let request = api::membership::get_member_events::v3::Request::new(room_id.to_owned());
+        let response = api::membership::get_member_events::v3::Response::new(vec![
+            f.member(joined_user_id).display_name("Amandine").into_raw(),
+            f.member(invited_user_id)
+                .display_name("Amandine")
+                .membership(MembershipState::Invite)
+                .into_raw(),
+        ]);
+
+        client.receive_all_members(room_id, &request, &response).await.unwrap();
+
+        // Then both display names are ambiguous.
+        let room = client.get_room(room_id).unwrap();
+
+        let joined = room.get_member(joined_user_id).await.expect("ok").expect("exists");
+        assert!(joined.name_ambiguous());
+
+        let invited = room.get_member(invited_user_id).await.expect("ok").expect("exists");
+        assert!(invited.name_ambiguous());
+    }
+
+    #[cfg(feature = "unstable-msc4426")]
+    #[async_test]
+    async fn test_room_member_carries_global_profile_status() {
+        let user_id = user_id!("@alice:example.org");
+        let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
+
+        let client = BaseClient::new(
+            StoreConfig::new(CrossProcessLockConfig::SingleProcess),
+            ThreadingSupport::Disabled,
+            DmRoomDefinition::default(),
+        );
+        client
+            .activate(
+                SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
+                RoomLoadSettings::default(),
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Let the SDK know about the room, with the user as a joined member.
+        let f = EventFactory::new().sender(user_id);
+        let mut sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
+            .add_joined_room(
+                matrix_sdk_test::JoinedRoomBuilder::new(room_id).add_state_event(f.member(user_id)),
+            )
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        let room = client.get_room(room_id).unwrap();
+
+        // Without a global profile, the member has no status.
+        let member = room.get_member(user_id).await.expect("ok").expect("exists");
+        assert!(member.status().is_none());
+
+        // Save a global profile carrying an `m.status` for the member.
+        let mut changes = StateChanges::default();
+        changes.global_profiles.insert(user_id.to_owned(), {
+            let mut profile_changes = UserProfileChanges::new();
+            profile_changes.insert_updated_value(ProfileFieldValue::Status(
+                StatusProfileField::new("Working".to_owned(), "💻".to_owned()),
+            ));
+            UserProfileUpdate::Updated(profile_changes)
+        });
+        client.state_store().save_changes(&changes).await.unwrap();
+
+        // `get_member` surfaces the status from the global profile.
+        let member = room.get_member(user_id).await.expect("ok").expect("exists");
+        let status = member.status().expect("status is set");
+        assert_eq!(status.text, "Working");
+        assert_eq!(status.emoji, "💻");
+
+        // `members` surfaces it too.
+        let members = room.members(RoomMemberships::JOIN).await.unwrap();
+        let member =
+            members.iter().find(|m| m.user_id() == user_id).expect("member is in the list");
+        let status = member.status().expect("status is set");
+        assert_eq!(status.text, "Working");
+        assert_eq!(status.emoji, "💻");
     }
 
     #[async_test]

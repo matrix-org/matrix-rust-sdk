@@ -15,13 +15,14 @@
 use std::collections::HashMap;
 
 use matrix_sdk::room::power_levels::power_level_user_changes;
+use matrix_sdk_base::CallIntentConsensus;
 use matrix_sdk_ui::timeline::RoomPinnedEventsChange;
 use ruma::events::{
     StateEventContentChange, room::history_visibility::HistoryVisibility as RumaHistoryVisibility,
 };
 
 use crate::{
-    client::JoinRule, event::TimelineEventType, ruma::AssetType,
+    client::JoinRule, event::FfiTimelineEventType, ruma::AssetType,
     timeline::msg_like::MsgLikeContent, utils::Timestamp,
 };
 
@@ -40,12 +41,31 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
 
             Content::CallInvite => TimelineItemContent::CallInvite,
 
-            Content::RtcNotification { call_intent, declined_by: declinations } => {
-                TimelineItemContent::RtcNotification {
-                    call_intent: call_intent.map(|s| s.to_string()),
-                    declined_by: declinations.iter().map(|u| u.to_string()).collect(),
-                }
-            }
+            Content::RtcNotification {
+                call_intent,
+                declined_by: declinations,
+                active_call_info,
+            } => TimelineItemContent::RtcNotification {
+                // if the call is active use the live intent
+                call_intent: active_call_info
+                    .as_ref()
+                    .and_then(|a| match &a.call_intent {
+                        CallIntentConsensus::Full(intent) => Some(intent),
+                        CallIntentConsensus::Partial { intent, .. } => Some(intent),
+                        CallIntentConsensus::None => None,
+                    })
+                    .or(call_intent.as_ref())
+                    .map(|c| c.to_string()),
+                declined_by: declinations.iter().map(|u| u.to_string()).collect(),
+                active_members: active_call_info
+                    .as_ref()
+                    .map(|a| a.active_members.iter().map(|u| u.to_string()).collect::<Vec<_>>())
+                    .unwrap_or_default(),
+                is_joined: active_call_info.as_ref().map(|a| a.is_joined).unwrap_or(false),
+                call_start_ts_millis: active_call_info
+                    .and_then(|a| a.call_started_ts_millis)
+                    .map(|it| it.0.into()),
+            },
             Content::MembershipChange(membership) => {
                 let reason = match membership.content() {
                     StateEventContentChange::Original { content, .. } => content.reason.clone(),
@@ -166,6 +186,9 @@ pub enum TimelineItemContent {
     RtcNotification {
         call_intent: Option<String>,
         declined_by: Vec<String>,
+        active_members: Vec<String>,
+        call_start_ts_millis: Option<u64>,
+        is_joined: bool,
     },
     RoomMembership {
         user_id: String,
@@ -294,8 +317,8 @@ pub enum OtherState {
         change: RoomPinnedEventsChange,
     },
     RoomPowerLevels {
-        events: HashMap<TimelineEventType, i64>,
-        previous_events: Option<HashMap<TimelineEventType, i64>>,
+        events: HashMap<FfiTimelineEventType, i64>,
+        previous_events: Option<HashMap<FfiTimelineEventType, i64>>,
         users: HashMap<String, i64>,
         previous_users: Option<HashMap<String, i64>>,
         thresholds: PowerLevelChanges,

@@ -96,7 +96,7 @@ impl Builder {
                         // Return the latest known edit of the event or the event itself if it
                         // hasn't been replaced or the replacement is invalid.
                         if let Some(event_id) = event.event_id()
-                            && let Some(edit) = latest_edit_for_event.get(&event_id)
+                            && let Some(edit) = latest_edit_for_event.get(event_id)
                         {
                             let original = event.kind.raw();
                             let original_encryption_info = event.kind.encryption_info();
@@ -619,7 +619,7 @@ impl BufferOfValuesForLocalEvents {
 
 /// The [`ControlFlow::Continue`] value used by the filters.
 #[derive(Debug)]
-struct FilterContinue {
+pub struct FilterContinue {
     /// Whether the current [`LatestEventValue`] must be erased or not.
     current_value_must_be_erased: bool,
     /// When the event is a replacement, this is the targeted event ID.
@@ -663,7 +663,7 @@ fn filter_continue_with_edit(edited_event_id: OwnedEventId) -> ControlFlow<(), F
 /// - `event` is the current event in the collection of events that is scanned.
 /// - `current_value_event_id` is the event ID of the current
 ///   [`LatestEventValue`].
-fn filter_timeline_event(
+pub fn filter_timeline_event(
     event: &TimelineEvent,
     current_value_event_id: Option<&OwnedEventId>,
     own_user_id: &UserId,
@@ -1856,7 +1856,7 @@ mod builder_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         assert_remote_value_matches_room_message_with_body!(
             // We get `event_id_1` because `event_id_2` isn't a candidate,
@@ -1905,7 +1905,7 @@ mod builder_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         // Check initial state.
         let current_value = {
@@ -1966,7 +1966,7 @@ mod builder_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         // Check initial state.
         let current_value = {
@@ -2026,7 +2026,7 @@ mod builder_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         // Initial state.
         let current_value =
@@ -2081,7 +2081,7 @@ mod builder_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         // Initial state.
         let current_value = LatestEventValue::Remote(remote_room_message(event_id, "hello"));
@@ -2141,7 +2141,7 @@ mod builder_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         // Initial state.
         let current_value = LatestEventValue::Remote(remote_room_message(event_id, "hello"));
@@ -2198,7 +2198,7 @@ mod builder_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         // Check initial state.
         let current_value = {
@@ -2282,7 +2282,7 @@ mod builder_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         assert_remote_value_matches_room_message_with_body!(
             // We get `event_id_1` because it edits `event_id_0` which is a candidate.
@@ -2352,7 +2352,7 @@ mod builder_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         assert_remote_value_matches_room_message_with_body!(
             // We get `event_id_0` because the edit `event_id_1` is invalid.
@@ -2427,7 +2427,7 @@ mod builder_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         assert_remote_value_matches_room_message_with_body!(
             // We get `event_id_1` because `event_id_2` isn't a candidate,
@@ -2510,7 +2510,7 @@ mod builder_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         assert_remote_value_matches_room_message_with_body!(
             // We get `event_id_3` because `event_id_4` edits an older event.
@@ -2576,7 +2576,7 @@ mod builder_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         assert_remote_value_matches_room_message_with_body!(
             // We get `event_id_0` because `event_id_1` edits an event that is unknown.
@@ -2639,7 +2639,7 @@ mod builder_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         // We get no latest event value because no candidate event is known.
         assert!(
@@ -2687,7 +2687,7 @@ mod builder_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(&room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
         let send_queue = client.send_queue();
         let room_send_queue = send_queue.for_room(room);
@@ -3623,7 +3623,7 @@ mod builder_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         let mut buffer = BufferOfValuesForLocalEvents::new();
 
@@ -3694,7 +3694,7 @@ mod builder_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
         let send_queue = client.send_queue();
         let room = client.get_room(room_id).unwrap();
         let room_send_queue = send_queue.for_room(room);
@@ -3790,7 +3790,7 @@ mod builder_tests {
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
         let send_queue = client.send_queue();
         let room = client.get_room(room_id).unwrap();
         let room_send_queue = send_queue.for_room(room);

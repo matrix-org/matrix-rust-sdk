@@ -37,6 +37,7 @@ use ruma::{
     },
     mxc_uri, owned_event_id, owned_mxc_uri,
     presence::PresenceState,
+    profile::{ProfileFieldName, UserProfileChanges, UserProfileUpdate},
     push::Ruleset,
     room_id,
     room_version_rules::AuthorizationRules,
@@ -119,6 +120,10 @@ pub trait StateStoreIntegrationTests {
     async fn test_thread_subscriptions(&self) -> TestResult;
     /// Test thread subscriptions bulk upsert, including bumpstamp semantics.
     async fn test_thread_subscriptions_bulk_upsert(&self) -> TestResult;
+    /// Test global profiles bulk saving and merging.
+    async fn test_global_profiles_saving(&self) -> TestResult;
+    /// Test loading global profiles for several users at once.
+    async fn test_global_profiles_bulk_loading(&self) -> TestResult;
 }
 
 impl StateStoreIntegrationTests for DynStateStore {
@@ -354,7 +359,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_user_room_receipt_event(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 user_id
             )
             .await?
@@ -364,7 +369,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 first_receipt_event_id()
             )
             .await?
@@ -834,7 +839,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_user_room_receipt_event(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 user_id()
             )
             .await
@@ -845,7 +850,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 first_event_id
             )
             .await
@@ -856,7 +861,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 second_event_id
             )
             .await
@@ -872,7 +877,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             .get_user_room_receipt_event(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 user_id(),
             )
             .await
@@ -884,7 +889,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             .get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 first_event_id,
             )
             .await
@@ -900,7 +905,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 second_event_id
             )
             .await
@@ -916,7 +921,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             .get_user_room_receipt_event(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 user_id(),
             )
             .await
@@ -928,7 +933,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 first_event_id
             )
             .await
@@ -939,7 +944,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             .get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 second_event_id,
             )
             .await
@@ -956,7 +961,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_user_room_receipt_event(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Main,
+                &ReceiptThread::Main,
                 user_id()
             )
             .await
@@ -967,7 +972,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Main,
+                &ReceiptThread::Main,
                 second_event_id
             )
             .await
@@ -984,7 +989,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             .get_user_room_receipt_event(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 user_id(),
             )
             .await
@@ -996,7 +1001,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             .get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 second_event_id,
             )
             .await
@@ -1010,7 +1015,12 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_eq!(second_event_unthreaded_receipts[0].1.ts.unwrap().0, second_receipt_ts);
         // Threaded receipts should have changed
         let (threaded_user_receipt_event_id, threaded_user_receipt) = self
-            .get_user_room_receipt_event(room_id, ReceiptType::Read, ReceiptThread::Main, user_id())
+            .get_user_room_receipt_event(
+                room_id,
+                ReceiptType::Read,
+                &ReceiptThread::Main,
+                user_id(),
+            )
             .await
             .expect("Getting threaded user room receipt after save failed")
             .unwrap();
@@ -1020,7 +1030,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             .get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Main,
+                &ReceiptThread::Main,
                 second_event_id,
             )
             .await
@@ -1162,7 +1172,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_user_room_receipt_event(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 user_id
             )
             .await?
@@ -1172,12 +1182,12 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 first_receipt_event_id()
             )
             .await?
             .is_empty(),
-            "still event recepts in the store"
+            "still event receipts in the store"
         );
         assert!(self.load_send_queue_requests(room_id).await?.is_empty());
         assert!(self.load_dependent_queued_requests(room_id).await?.is_empty());
@@ -2145,6 +2155,86 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         Ok(())
     }
+
+    async fn test_global_profiles_saving(&self) -> TestResult {
+        let user_id = user_id();
+
+        assert_matches!(self.get_global_profile(user_id).await, Ok(None));
+
+        let mut changes = UserProfileChanges::new();
+        changes.updated.insert(ProfileFieldName::DisplayName, json!("Alice"));
+        changes.removed.push(ProfileFieldName::AvatarUrl);
+        let update = UserProfileUpdate::Updated(changes);
+
+        let mut changes = StateChanges::default();
+        changes.global_profiles.insert(user_id.to_owned(), update);
+        self.save_changes(&changes).await?;
+
+        let loaded = self.get_global_profile(user_id).await?.expect("Profile should be saved");
+        let loaded_map: BTreeMap<String, serde_json::Value> = loaded.into_iter().collect();
+        assert_eq!(loaded_map.get("displayname"), Some(&json!("Alice")));
+        assert!(!loaded_map.contains_key("avatar_url"));
+
+        let mut changes = UserProfileChanges::new();
+        changes.removed.push(ProfileFieldName::DisplayName);
+        changes.updated.insert(ProfileFieldName::AvatarUrl, json!("mxc://example.com/avatar"));
+        let update2 = UserProfileUpdate::Updated(changes);
+
+        let mut changes = StateChanges::default();
+        changes.global_profiles.insert(user_id.to_owned(), update2);
+        self.save_changes(&changes).await?;
+
+        let loaded2 = self.get_global_profile(user_id).await?.expect("Profile should exist");
+        let loaded_map2: BTreeMap<String, serde_json::Value> = loaded2.into_iter().collect();
+        assert!(!loaded_map2.contains_key("displayname"));
+        assert_eq!(loaded_map2.get("avatar_url"), Some(&json!("mxc://example.com/avatar")));
+
+        Ok(())
+    }
+
+    async fn test_global_profiles_bulk_loading(&self) -> TestResult {
+        let alice = user_id!("@alice:localhost");
+        let bob = user_id!("@bob:localhost");
+        let unknown = user_id!("@unknown:localhost");
+
+        let mut changes = StateChanges::default();
+        changes.global_profiles.insert(alice.to_owned(), {
+            let mut profile_changes = UserProfileChanges::new();
+            profile_changes.updated.insert(ProfileFieldName::DisplayName, json!("Alice"));
+            UserProfileUpdate::Updated(profile_changes)
+        });
+        changes.global_profiles.insert(bob.to_owned(), {
+            let mut profile_changes = UserProfileChanges::new();
+            profile_changes.updated.insert(ProfileFieldName::DisplayName, json!("Bob"));
+            UserProfileUpdate::Updated(profile_changes)
+        });
+        self.save_changes(&changes).await?;
+
+        // The bulk getter returns the stored profiles and omits unknown users.
+        let requested = [alice.to_owned(), bob.to_owned(), unknown.to_owned()];
+        let profiles = self.get_global_profiles(&requested).await?;
+
+        assert_eq!(profiles.len(), 2);
+        assert!(!profiles.contains_key(unknown));
+
+        let alice_map: BTreeMap<String, serde_json::Value> = profiles
+            .get(alice)
+            .expect("Alice's profile should be loaded")
+            .clone()
+            .into_iter()
+            .collect();
+        assert_eq!(alice_map.get("displayname"), Some(&json!("Alice")));
+
+        let bob_map: BTreeMap<String, serde_json::Value> = profiles
+            .get(bob)
+            .expect("Bob's profile should be loaded")
+            .clone()
+            .into_iter()
+            .collect();
+        assert_eq!(bob_map.get("displayname"), Some(&json!("Bob")));
+
+        Ok(())
+    }
 }
 
 /// Macro building to allow your StateStore implementation to run the entire
@@ -2336,6 +2426,18 @@ macro_rules! statestore_integration_tests {
             async fn test_thread_subscriptions_bulk_upsert() -> TestResult {
                 let store = get_store().await?.into_state_store();
                 store.test_thread_subscriptions_bulk_upsert().await
+            }
+
+            #[async_test]
+            async fn test_global_profiles_saving() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_global_profiles_saving().await
+            }
+
+            #[async_test]
+            async fn test_global_profiles_bulk_loading() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_global_profiles_bulk_loading().await
             }
         }
     };

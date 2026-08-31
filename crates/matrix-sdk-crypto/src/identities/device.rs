@@ -835,7 +835,7 @@ impl DeviceData {
         content: impl Serialize,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>, String)> {
         #[cfg(not(target_family = "wasm"))]
-        let message_id = ulid::Ulid::new().to_string();
+        let message_id = ulid::Ulid::generate().to_string();
         #[cfg(target_family = "wasm")]
         let message_id = ruma::TransactionId::new().to_string();
 

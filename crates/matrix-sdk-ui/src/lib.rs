@@ -14,6 +14,7 @@
 
 #![cfg_attr(target_family = "wasm", allow(clippy::arc_with_non_send_sync))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![recursion_limit = "256"]
 
 pub use eyeball_im;
 use ruma::html::HtmlSanitizerMode;
@@ -21,6 +22,8 @@ use ruma::html::HtmlSanitizerMode;
 pub mod encryption_sync_service;
 pub mod notification_client;
 pub mod room_list_service;
+#[cfg(feature = "experimental-search")]
+pub mod search_service;
 pub mod spaces;
 pub mod sync_service;
 pub mod timeline;

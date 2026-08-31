@@ -181,7 +181,7 @@ impl RoomInfo {
                     .flatten(),
                 _ => None,
             },
-            heroes: room.heroes().into_iter().map(Into::into).collect(),
+            heroes: room.heroes().await.into_iter().map(Into::into).collect(),
             active_members_count: room.active_members_count(),
             invited_members_count: room.invited_members_count(),
             joined_members_count: room.joined_members_count(),

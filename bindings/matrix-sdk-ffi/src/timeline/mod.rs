@@ -41,7 +41,7 @@ use ruma::{
     EventId, UInt, assign,
     events::{
         AnyMessageLikeEventContent,
-        location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
+        location::{AssetType as RumaAssetType, ZoomLevel},
         poll::{
             unstable_end::UnstablePollEndEventContent,
             unstable_response::UnstablePollResponseEventContent,
@@ -51,8 +51,7 @@ use ruma::{
             },
         },
         room::message::{
-            LocationMessageEventContent, MessageType, RoomMessageEventContentWithoutRelation,
-            TextMessageEventContent,
+            MessageType, RoomMessageEventContentWithoutRelation, TextMessageEventContent,
         },
     },
 };
@@ -66,7 +65,7 @@ use crate::{
     event::EventOrTransactionId,
     ruma::{
         AssetType, AudioInfo, FileInfo, FormattedBody, ImageInfo, Mentions, PollKind,
-        ThumbnailInfo, VideoInfo,
+        ThumbnailInfo, UserCall, UserStatus, VideoInfo,
     },
     runtime::get_runtime_handle,
     task_handle::TaskHandle,
@@ -119,12 +118,19 @@ impl Timeline {
             assign!(TextMessageEventContent::plain(caption), { formatted })
         });
 
+        let extra_content: Option<serde_json::Map<String, serde_json::Value>> = params
+            .extra_content_json
+            .map(|json| serde_json::from_str(&json))
+            .transpose()
+            .map_err(|_| RoomError::InvalidAttachmentData)?;
+
         let attachment_config = AttachmentConfig {
             info: Some(attachment_info),
             thumbnail,
             caption,
             mentions: params.mentions.map(Into::into),
             in_reply_to: in_reply_to_event_id,
+            extra_content,
             ..Default::default()
         };
 
@@ -201,6 +207,10 @@ pub struct UploadParameters {
     mentions: Option<Mentions>,
     /// Optional Event ID to reply to.
     in_reply_to: Option<String>,
+    /// Optional additional top-level fields for the media event's content,
+    /// as a serialized JSON object.
+    #[uniffi(default = None)]
+    extra_content_json: Option<String>,
 }
 
 /// A source for uploading a file
@@ -390,7 +400,23 @@ impl Timeline {
         self: Arc<Self>,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
     ) -> Result<Arc<SendHandle>, ClientError> {
-        match self.inner.send((*msg).to_owned().with_relation(None).into()).await {
+        self.send_with_extra_content(msg, None).await
+    }
+
+    /// Like [`Self::send`], but merges the given additional top-level fields
+    /// (a JSON object, encoded as a string) into the outgoing event's content.
+    pub async fn send_with_extra_content(
+        self: Arc<Self>,
+        msg: Arc<RoomMessageEventContentWithoutRelation>,
+        extra_content_json: Option<String>,
+    ) -> Result<Arc<SendHandle>, ClientError> {
+        let extra_content: Option<serde_json::Map<String, serde_json::Value>> =
+            extra_content_json.map(|json| serde_json::from_str(&json)).transpose()?;
+        match self
+            .inner
+            .send_with_extra_content((*msg).to_owned().with_relation(None).into(), extra_content)
+            .await
+        {
             Ok(handle) => Ok(Arc::new(SendHandle::new(handle))),
             Err(err) => {
                 error!("error when sending a message: {err}");
@@ -522,15 +548,15 @@ impl Timeline {
     ///
     /// If the replied to event has a thread relation, it is forwarded on the
     /// reply so that clients that support threads can render the reply
-    /// inside the thread.
+    /// inside the thread. Returns a handle to abort the pending send.
     pub async fn send_reply(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
         event_id: String,
-    ) -> Result<(), ClientError> {
+    ) -> Result<Arc<SendHandle>, ClientError> {
         let event_id = EventId::parse(&event_id).map_err(|_| RoomError::InvalidRepliedToEventId)?;
-        self.inner.send_reply((*msg).clone(), event_id).await?;
-        Ok(())
+        let handle = self.inner.send_reply((*msg).clone(), event_id).await?;
+        Ok(Arc::new(SendHandle::new(handle)))
     }
 
     /// Edits an event from the timeline.
@@ -585,29 +611,37 @@ impl Timeline {
         asset_type: Option<AssetType>,
         replied_to_event_id: Option<String>,
     ) -> Result<(), ClientError> {
-        let mut location_event_message_content =
-            LocationMessageEventContent::new(body, geo_uri.clone());
-
-        if let Some(asset_type) = asset_type {
-            location_event_message_content =
-                location_event_message_content.with_asset_type(RumaAssetType::from(asset_type));
+        if matches!(asset_type, Some(AssetType::Unknown)) {
+            return Err(ClientError::Generic {
+                msg: "cannot send a location with an unknown asset type".to_owned(),
+                details: None,
+            });
         }
 
-        let mut location_content = LocationContent::new(geo_uri);
-        location_content.description = description;
-        location_content.zoom_level = zoom_level.and_then(ZoomLevel::new);
-        location_event_message_content.location = Some(location_content);
+        let zoom_level = zoom_level
+            .map(|zoom| {
+                ZoomLevel::new(zoom).ok_or_else(|| ClientError::Generic {
+                    msg: format!("zoom level {zoom} is out of range"),
+                    details: None,
+                })
+            })
+            .transpose()?;
 
-        let room_message_event_content = RoomMessageEventContentWithoutRelation::new(
-            MessageType::Location(location_event_message_content),
-        );
+        let in_reply_to = replied_to_event_id
+            .map(|id| EventId::parse(id).map_err(|_| RoomError::InvalidRepliedToEventId))
+            .transpose()?;
 
-        if let Some(replied_to_event_id) = replied_to_event_id {
-            self.send_reply(Arc::new(room_message_event_content), replied_to_event_id).await
-        } else {
-            self.send(Arc::new(room_message_event_content)).await?;
-            Ok(())
-        }
+        self.inner
+            .send_location(
+                body,
+                geo_uri,
+                description,
+                zoom_level,
+                asset_type.map(RumaAssetType::from),
+                in_reply_to,
+            )
+            .await?;
+        Ok(())
     }
 
     /// Toggle a reaction on an event.
@@ -629,6 +663,26 @@ impl Timeline {
         key: String,
     ) -> Result<bool, ClientError> {
         Ok(self.inner.toggle_reaction(&item_id.try_into()?, &key).await?)
+    }
+
+    /// Like [`Self::toggle_reaction`], but merges the given additional
+    /// top-level fields (a JSON object, encoded as a string) into the
+    /// reaction's content when one is added.
+    ///
+    /// Removing a reaction is a redaction, which carries no content, so the
+    /// extra fields are only used when adding one.
+    pub async fn toggle_reaction_with_extra_content(
+        &self,
+        item_id: EventOrTransactionId,
+        key: String,
+        extra_content_json: Option<String>,
+    ) -> Result<bool, ClientError> {
+        let extra_content: Option<serde_json::Map<String, serde_json::Value>> =
+            extra_content_json.map(|json| serde_json::from_str(&json)).transpose()?;
+        Ok(self
+            .inner
+            .toggle_reaction_with_extra_content(&item_id.try_into()?, &key, extra_content)
+            .await?)
     }
 
     pub async fn fetch_details_for_event(&self, event_id: String) -> Result<(), ClientError> {
@@ -659,6 +713,26 @@ impl Timeline {
             .await
             .context("Item with given event ID not found")?;
         Ok(item.into())
+    }
+
+    /// Get the edit history for the given event.
+    ///
+    /// Returns all revisions of the event, in chronological order.
+    /// The first entry is the original event content, followed by each
+    /// edit in the order they were applied.
+    pub async fn edit_revisions(
+        &self,
+        event_id: String,
+    ) -> Result<Vec<EditRevisionRecord>, ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        let revisions = self.inner.edit_revisions(&event_id).await?;
+        Ok(revisions
+            .into_iter()
+            .map(|r| EditRevisionRecord {
+                content: r.content.into(),
+                timestamp: r.timestamp.map(|ts| ts.0.into()),
+            })
+            .collect())
     }
 
     /// Redacts an event from the timeline.
@@ -1064,6 +1138,21 @@ impl From<ruma::events::receipt::Receipt> for Receipt {
     }
 }
 
+/// A receipt of a user in a room, as read from the local store.
+#[derive(uniffi::Record)]
+pub struct UserReceipt {
+    /// The ID of the event the receipt is attached to.
+    pub event_id: String,
+    /// The receipt itself.
+    pub receipt: Receipt,
+}
+
+#[derive(Clone, uniffi::Record)]
+pub struct EditRevisionRecord {
+    content: TimelineItemContent,
+    timestamp: Option<u64>,
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct EventTimelineItemDebugInfo {
     model: String,
@@ -1075,8 +1164,16 @@ pub struct EventTimelineItemDebugInfo {
 pub enum ProfileDetails {
     Unavailable,
     Pending,
-    Ready { display_name: Option<String>, display_name_ambiguous: bool, avatar_url: Option<String> },
-    Error { message: String },
+    Ready {
+        display_name: Option<String>,
+        display_name_ambiguous: bool,
+        avatar_url: Option<String>,
+        status: Option<UserStatus>,
+        call: Option<UserCall>,
+    },
+    Error {
+        message: String,
+    },
 }
 
 impl From<TimelineDetails<Profile>> for ProfileDetails {
@@ -1088,6 +1185,8 @@ impl From<TimelineDetails<Profile>> for ProfileDetails {
                 display_name: profile.display_name,
                 display_name_ambiguous: profile.display_name_ambiguous,
                 avatar_url: profile.avatar_url.as_ref().map(ToString::to_string),
+                status: profile.status.map(UserStatus::from),
+                call: profile.call.map(UserCall::from),
             },
             TimelineDetails::Error(e) => Self::Error { message: e.to_string() },
         }
@@ -1103,6 +1202,8 @@ impl From<&TimelineDetails<Profile>> for ProfileDetails {
                 display_name: profile.display_name.clone(),
                 display_name_ambiguous: profile.display_name_ambiguous,
                 avatar_url: profile.avatar_url.as_ref().map(ToString::to_string),
+                status: profile.status.clone().map(UserStatus::from),
+                call: profile.call.clone().map(UserCall::from),
             },
             TimelineDetails::Error(e) => Self::Error { message: e.to_string() },
         }
@@ -1227,6 +1328,53 @@ impl From<ReceiptType> for ruma::api::client::receipt::create_receipt::v3::Recei
             ReceiptType::ReadPrivate => Self::ReadPrivate,
             ReceiptType::FullyRead => Self::FullyRead,
         }
+    }
+}
+
+impl TryFrom<ReceiptType> for ruma::events::receipt::ReceiptType {
+    type Error = ClientError;
+
+    fn try_from(value: ReceiptType) -> Result<Self, Self::Error> {
+        Ok(match value {
+            ReceiptType::Read => Self::Read,
+            ReceiptType::ReadPrivate => Self::ReadPrivate,
+            // `m.fully_read` is a marker, not an event receipt: it has no
+            // counterpart in `ruma::events::receipt::ReceiptType`.
+            ReceiptType::FullyRead => {
+                return Err(ClientError::Generic {
+                    msg: "FullyRead is a marker, not an event receipt".to_owned(),
+                    details: None,
+                });
+            }
+        })
+    }
+}
+
+/// The thread scope of a read receipt.
+#[derive(Clone, uniffi::Enum)]
+pub enum ReceiptThread {
+    /// The receipt applies to the room, regardless of threads.
+    Unthreaded,
+    /// The receipt applies to the un-threaded main timeline only.
+    Main,
+    /// The receipt applies to the thread with the given root event.
+    Thread {
+        /// The ID of the thread's root event.
+        thread_root_event_id: String,
+    },
+}
+
+impl TryFrom<ReceiptThread> for ruma::events::receipt::ReceiptThread {
+    type Error = ruma::IdParseError;
+
+    fn try_from(value: ReceiptThread) -> Result<Self, Self::Error> {
+        Ok(match value {
+            ReceiptThread::Unthreaded => Self::Unthreaded,
+            ReceiptThread::Main => Self::Main,
+            ReceiptThread::Thread { thread_root_event_id } => {
+                Self::Thread(EventId::parse(thread_root_event_id)?)
+            }
+        })
     }
 }
 
@@ -1638,5 +1786,37 @@ mod galleries {
 
             Ok(handle)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ruma::{event_id, events::receipt::ReceiptThread as RumaReceiptThread};
+
+    use super::ReceiptThread;
+
+    #[test]
+    fn test_receipt_thread_conversion() {
+        assert_eq!(
+            RumaReceiptThread::try_from(ReceiptThread::Unthreaded),
+            Ok(RumaReceiptThread::Unthreaded)
+        );
+        assert_eq!(RumaReceiptThread::try_from(ReceiptThread::Main), Ok(RumaReceiptThread::Main));
+
+        let thread_root = event_id!("$root:example.org");
+        assert_eq!(
+            RumaReceiptThread::try_from(ReceiptThread::Thread {
+                thread_root_event_id: thread_root.to_string(),
+            }),
+            Ok(RumaReceiptThread::Thread(thread_root.to_owned()))
+        );
+
+        // An invalid thread root event ID is rejected.
+        assert!(
+            RumaReceiptThread::try_from(ReceiptThread::Thread {
+                thread_root_event_id: "not an event id".to_owned(),
+            })
+            .is_err()
+        );
     }
 }

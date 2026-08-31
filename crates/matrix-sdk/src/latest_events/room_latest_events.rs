@@ -14,10 +14,9 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use async_once_cell::OnceCell;
 use matrix_sdk_base::RoomInfoNotableUpdateReasons;
 use ruma::{EventId, OwnedEventId};
-use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
+use tokio::sync::{OnceCell, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tracing::error;
 
 use super::{
@@ -169,11 +168,11 @@ impl RoomLatestEventsWriteGuard {
         // Lazy-load the `RoomEventCache`.
         let room_event_cache = match inner
             .room_event_cache
-            .get_or_try_init(async {
+            .get_or_try_init(|| async {
                 // It's fine to drop the `EventCacheDropHandles` here as the caller
                 // (`LatestEventState`) owns a clone of the `EventCache`.
                 let (room_event_cache, _drop_handles) =
-                    inner.event_cache.for_room(room.room_id()).await?;
+                    inner.event_cache.room(room.room_id()).await?;
 
                 Ok::<RoomEventCache, EventCacheError>(room_event_cache)
             })
@@ -219,11 +218,11 @@ impl RoomLatestEventsWriteGuard {
         // Lazy-load the `RoomEventCache`.
         let room_event_cache = match inner
             .room_event_cache
-            .get_or_try_init(async {
+            .get_or_try_init(|| async {
                 // It's fine to drop the `EventCacheDropHandles` here as the caller
                 // (`LatestEventState`) owns a clone of the `EventCache`.
                 let (room_event_cache, _drop_handles) =
-                    inner.event_cache.for_room(room.room_id()).await?;
+                    inner.event_cache.room(room.room_id()).await?;
 
                 Ok::<RoomEventCache, EventCacheError>(room_event_cache)
             })

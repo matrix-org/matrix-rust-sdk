@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "event-cache")]
+#[cfg(feature = "event-cache-store")]
 use std::sync::Arc;
 
-#[cfg(feature = "event-cache")]
+#[cfg(feature = "event-cache-store")]
 use matrix_sdk_base::event_cache::store::EventCacheStoreError;
-#[cfg(feature = "event-cache")]
+#[cfg(feature = "media-store")]
 use matrix_sdk_base::media::store::MediaStoreError;
 #[cfg(feature = "state-store")]
 use matrix_sdk_base::store::StoreError as StateStoreError;
@@ -89,6 +89,15 @@ pub enum Error {
 
     #[error(transparent)]
     Decode(rmp_serde::decode::Error),
+
+    #[error(transparent)]
+    DecodeString(#[from] std::string::FromUtf8Error),
+
+    #[error(transparent)]
+    DecodeStr(#[from] std::str::Utf8Error),
+
+    #[error(transparent)]
+    DecodeRuma(#[from] ruma::IdParseError),
 
     #[error(transparent)]
     Json(#[from] serde_json::Error),
@@ -168,7 +177,7 @@ impl From<Error> for StateStoreError {
     }
 }
 
-#[cfg(feature = "event-cache")]
+#[cfg(feature = "event-cache-store")]
 impl From<Error> for EventCacheStoreError {
     fn from(e: Error) -> Self {
         match e {
@@ -178,7 +187,7 @@ impl From<Error> for EventCacheStoreError {
     }
 }
 
-#[cfg(feature = "event-cache")]
+#[cfg(feature = "media-store")]
 impl From<Error> for MediaStoreError {
     fn from(e: Error) -> Self {
         match e {

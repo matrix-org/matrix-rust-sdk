@@ -17,14 +17,15 @@
 
 #[cfg(feature = "e2e-encryption")]
 use std::io::Read;
-use std::time::Duration;
+use std::{fmt, time::Duration};
 #[cfg(not(target_family = "wasm"))]
-use std::{fmt, fs::File, path::Path};
+use std::{fs::File, path::Path};
 
 use eyeball::SharedObservable;
 use futures_util::future::try_join;
 use matrix_sdk_base::media::store::IgnoreMediaRetentionPolicy;
 pub use matrix_sdk_base::media::{store::MediaRetentionPolicy, *};
+use matrix_sdk_common::{BoxFuture, SendOutsideWasm, SyncOutsideWasm};
 use mime::Mime;
 use ruma::{
     MilliSecondsSinceUnixEpoch, MxcUri, OwnedMxcUri, TransactionId, UInt,
@@ -36,6 +37,7 @@ use ruma::{
     assign,
     events::room::{MediaSource, ThumbnailInfo},
 };
+use serde_json::value::RawValue as RawJsonValue;
 #[cfg(not(target_family = "wasm"))]
 use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
 #[cfg(not(target_family = "wasm"))]
@@ -159,6 +161,17 @@ pub enum MediaError {
     /// Fetching the `max_upload_size` value from the homeserver failed.
     #[error("Fetching the `max_upload_size` value from the homeserver failed: {0}")]
     FetchMaxUploadSizeFailed(String),
+}
+
+/// A generic trait for fetching media content.
+pub trait MediaFetcher: SendOutsideWasm + SyncOutsideWasm + fmt::Debug {
+    /// Fetches the media content for the given [`MediaRequestParameters`].
+    /// Returns either a byte array or an [`crate::Error`].
+    fn fetch_media_content<'a>(
+        &'a self,
+        client: &'a Client,
+        request: &'a MediaRequestParameters,
+    ) -> BoxFuture<'a, Result<Vec<u8>, Error>>;
 }
 
 impl Media {
@@ -420,13 +433,22 @@ impl Media {
         request: &MediaRequestParameters,
         use_cache: bool,
     ) -> Result<Vec<u8>> {
-        // Ignore request parameters for local medias, notably those pending in the send
-        // queue.
-        if let Some(uri) = Self::as_local_uri(&request.source) {
-            return self.get_local_media_content(uri).await;
+        // This is a local media. Force to read the media's content from the store: it
+        // cannot exist somewhere else!
+        if Self::is_local_uri(&request.source) {
+            if let Some(content) =
+                self.client.media_store().lock().await?.get_media_content(request).await?
+            {
+                return Ok(content);
+            } else {
+                return Err(Error::MediaStore(Box::new(store::MediaStoreError::InvalidData {
+                    details: format!("Media does not exist: `{request:?}`"),
+                })));
+            }
         }
 
-        // Read from the cache.
+        // Read from the cache: if it doesn't exist, the execution continues by reading
+        // the media from the network.
         if use_cache
             && let Some(content) =
                 self.client.media_store().lock().await?.get_media_content(request).await?
@@ -434,90 +456,14 @@ impl Media {
             return Ok(content);
         }
 
-        let request_config = self
+        let content = self
             .client
-            .request_config()
-            // Downloading a file should have no timeout as we don't know the network connectivity
-            // available for the user or the file size
-            .timeout(Some(Duration::MAX));
-
-        // Use the authenticated endpoints when the server supports it.
-        let supported_versions = self.client.supported_versions().await?;
-
-        let use_auth = authenticated_media::get_content::v1::Request::PATH_BUILDER
-            .is_supported(&supported_versions);
-
-        let content: Vec<u8> = match &request.source {
-            MediaSource::Encrypted(file) => {
-                let content = if use_auth {
-                    let request =
-                        authenticated_media::get_content::v1::Request::from_uri(&file.url)?;
-                    self.client.send(request).with_request_config(request_config).await?.file
-                } else {
-                    #[allow(deprecated)]
-                    let request = media::get_content::v3::Request::from_url(&file.url)?;
-                    self.client.send(request).with_request_config(request_config).await?.file
-                };
-
-                #[cfg(feature = "e2e-encryption")]
-                let content = {
-                    let content_len = content.len();
-                    let mut cursor = std::io::Cursor::new(content);
-                    let mut reader = matrix_sdk_base::crypto::AttachmentDecryptor::new(
-                        &mut cursor,
-                        file.as_ref().clone().into(),
-                    )?;
-
-                    // Encrypted size should be the same as the decrypted size,
-                    // rounded up to a cipher block.
-                    let mut decrypted = Vec::with_capacity(content_len);
-
-                    reader.read_to_end(&mut decrypted)?;
-
-                    decrypted
-                };
-
-                content
-            }
-
-            MediaSource::Plain(uri) => {
-                if let MediaFormat::Thumbnail(settings) = &request.format {
-                    if use_auth {
-                        let mut request =
-                            authenticated_media::get_content_thumbnail::v1::Request::from_uri(
-                                uri,
-                                settings.width,
-                                settings.height,
-                            )?;
-                        request.method = Some(settings.method.clone());
-                        request.animated = Some(settings.animated);
-
-                        self.client.send(request).with_request_config(request_config).await?.file
-                    } else {
-                        #[allow(deprecated)]
-                        let request = {
-                            let mut request = media::get_content_thumbnail::v3::Request::from_url(
-                                uri,
-                                settings.width,
-                                settings.height,
-                            )?;
-                            request.method = Some(settings.method.clone());
-                            request.animated = Some(settings.animated);
-                            request
-                        };
-
-                        self.client.send(request).with_request_config(request_config).await?.file
-                    }
-                } else if use_auth {
-                    let request = authenticated_media::get_content::v1::Request::from_uri(uri)?;
-                    self.client.send(request).with_request_config(request_config).await?.file
-                } else {
-                    #[allow(deprecated)]
-                    let request = media::get_content::v3::Request::from_url(uri)?;
-                    self.client.send(request).with_request_config(request_config).await?.file
-                }
-            }
-        };
+            .inner
+            .media_fetcher
+            .read()
+            .await
+            .fetch_media_content(&self.client, request)
+            .await?;
 
         if use_cache {
             self.client
@@ -529,22 +475,6 @@ impl Media {
         }
 
         Ok(content)
-    }
-
-    /// Get a media file's content that is only available in the media cache.
-    ///
-    /// # Arguments
-    ///
-    /// * `uri` - The local MXC URI of the media content.
-    async fn get_local_media_content(&self, uri: &MxcUri) -> Result<Vec<u8>> {
-        // Read from the cache.
-        self.client
-            .media_store()
-            .lock()
-            .await?
-            .get_media_content_for_uri(uri)
-            .await?
-            .ok_or_else(|| MediaError::LocalMediaNotFound.into())
     }
 
     /// Remove a media file's content from the store.
@@ -677,6 +607,78 @@ impl Media {
         Ok(())
     }
 
+    /// Get a preview for a URL, as OpenGraph-like data.
+    ///
+    /// This is generated by the homeserver, which fetches the URL itself. Note
+    /// that servers may disable this endpoint entirely, in which case this
+    /// returns an error, and that using it in an encrypted room discloses the
+    /// URL to the homeserver.
+    ///
+    /// Uses the authenticated endpoint when the homeserver supports it,
+    /// falling back to the deprecated unauthenticated one otherwise.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL to get a preview of.
+    ///
+    /// * `ts` - The preferred point in time to return a preview for, if the
+    ///   homeserver supports returning previews for a given point in time.
+    ///
+    /// # Returns
+    ///
+    /// The OpenGraph-like data for the URL, if the homeserver returned any. It
+    /// is returned as raw JSON, since the fields are not a fixed set: they
+    /// mirror OpenGraph, with the addition of `matrix:image:size` for the
+    /// image size in bytes, and `og:image` holding an MXC URI rather than an
+    /// HTTP URL.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// if let Some(data) =
+    ///     client.media().get_media_preview("https://matrix.org", None).await?
+    /// {
+    ///     println!("Preview data: {}", data.get());
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn get_media_preview(
+        &self,
+        url: &str,
+        ts: Option<MilliSecondsSinceUnixEpoch>,
+    ) -> Result<Option<Box<RawJsonValue>>> {
+        // Use the authenticated endpoint when the server supports it.
+        let supported_versions = self.client.supported_versions().await?;
+
+        let use_auth = authenticated_media::get_media_preview::v1::Request::PATH_BUILDER
+            .is_supported(&supported_versions);
+
+        if use_auth {
+            let mut request =
+                authenticated_media::get_media_preview::v1::Request::new(url.to_owned());
+            request.ts = ts;
+
+            Ok(self.client.send(request).await?.data)
+        } else {
+            // The whole block is `allow(deprecated)`: both the endpoint and its
+            // `ts` field are deprecated since Matrix 1.11, and we only reach
+            // this branch when the homeserver is too old for the authenticated
+            // endpoint above.
+            #[allow(deprecated)]
+            {
+                let mut request = media::get_media_preview::v3::Request::new(url.to_owned());
+                request.ts = ts;
+
+                Ok(self.client.send(request).await?.data)
+            }
+        }
+    }
+
     /// Set the [`MediaRetentionPolicy`] to use for deciding whether to store or
     /// keep media content.
     ///
@@ -775,24 +777,124 @@ impl Media {
         }
     }
 
-    /// Returns the local MXC URI contained by the given source, if any.
+    /// Checks whether the MXC represents a local URI.
     ///
-    /// A local MXC URI is a URI that was generated with `make_local_uri`.
-    fn as_local_uri(source: &MediaSource) -> Option<&MxcUri> {
+    /// A local MXC URI is a URI that was generated with
+    /// [`Self::make_local_uri`].
+    fn is_local_uri(source: &MediaSource) -> bool {
         let uri = match source {
             MediaSource::Plain(uri) => uri,
             MediaSource::Encrypted(file) => &file.url,
         };
 
-        uri.server_name()
-            .is_ok_and(|server_name| server_name == LOCAL_MXC_SERVER_NAME)
-            .then_some(uri)
+        uri.server_name().is_ok_and(|server_name| server_name == LOCAL_MXC_SERVER_NAME)
+    }
+}
+
+/// A [`MediaFetcher`] that uses the default media/authenticated media endpoints
+/// to fetch new media.
+#[derive(Debug, Clone)]
+pub struct DefaultMediaFetcher;
+
+impl MediaFetcher for DefaultMediaFetcher {
+    fn fetch_media_content<'a>(
+        &'a self,
+        client: &'a Client,
+        request: &'a MediaRequestParameters,
+    ) -> BoxFuture<'a, Result<Vec<u8>, Error>> {
+        Box::pin(async move {
+            let request_config = client
+                .request_config()
+                // Downloading a file should have no timeout as we don't know the network
+                // connectivity available for the user or the file size
+                .timeout(Some(Duration::MAX));
+
+            // Use the authenticated endpoints when the server supports it.
+            let supported_versions = client.supported_versions().await?;
+
+            let use_auth = authenticated_media::get_content::v1::Request::PATH_BUILDER
+                .is_supported(&supported_versions);
+
+            match &request.source {
+                MediaSource::Encrypted(file) => {
+                    let content = if use_auth {
+                        let request =
+                            authenticated_media::get_content::v1::Request::from_uri(&file.url)?;
+                        client.send(request).with_request_config(request_config).await?.file
+                    } else {
+                        #[allow(deprecated)]
+                        let request = media::get_content::v3::Request::from_url(&file.url)?;
+                        client.send(request).with_request_config(request_config).await?.file
+                    };
+
+                    #[cfg(feature = "e2e-encryption")]
+                    let content = {
+                        let content_len = content.len();
+                        let mut cursor = std::io::Cursor::new(content);
+                        let mut reader = matrix_sdk_base::crypto::AttachmentDecryptor::new(
+                            &mut cursor,
+                            file.as_ref().clone().into(),
+                        )?;
+
+                        // Encrypted size should be the same as the decrypted size,
+                        // rounded up to a cipher block.
+                        let mut decrypted = Vec::with_capacity(content_len);
+
+                        reader.read_to_end(&mut decrypted)?;
+
+                        decrypted
+                    };
+
+                    Ok(content)
+                }
+
+                MediaSource::Plain(uri) => {
+                    if let MediaFormat::Thumbnail(settings) = &request.format {
+                        if use_auth {
+                            let mut request =
+                                authenticated_media::get_content_thumbnail::v1::Request::from_uri(
+                                    uri,
+                                    settings.width,
+                                    settings.height,
+                                )?;
+                            request.method = Some(settings.method.clone());
+                            request.animated = Some(settings.animated);
+
+                            Ok(client.send(request).with_request_config(request_config).await?.file)
+                        } else {
+                            #[allow(deprecated)]
+                            let request = {
+                                let mut request =
+                                    media::get_content_thumbnail::v3::Request::from_url(
+                                        uri,
+                                        settings.width,
+                                        settings.height,
+                                    )?;
+                                request.method = Some(settings.method.clone());
+                                request.animated = Some(settings.animated);
+                                request
+                            };
+
+                            Ok(client.send(request).with_request_config(request_config).await?.file)
+                        }
+                    } else if use_auth {
+                        let request = authenticated_media::get_content::v1::Request::from_uri(uri)?;
+                        Ok(client.send(request).with_request_config(request_config).await?.file)
+                    } else {
+                        #[allow(deprecated)]
+                        let request = media::get_content::v3::Request::from_url(uri)?;
+                        Ok(client.send(request).with_request_config(request_config).await?.file)
+                    }
+                }
+            }
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use assert_matches2::assert_matches;
+    use std::ops::Not;
+
     use ruma::{
         MxcUri,
         events::room::{EncryptedFile, MediaSource},
@@ -825,34 +927,39 @@ mod tests {
     }
 
     #[test]
-    fn test_as_local_uri() {
+    fn test_make_local_uri() {
+        let txn_id = "abcdef";
+
+        let uri = Media::make_local_uri(txn_id.into());
+        assert_eq!(uri.media_id().unwrap(), txn_id);
+    }
+
+    #[test]
+    fn test_is_local_uri() {
         let txn_id = "abcdef";
 
         // Request generated with `make_local_file_media_request`.
         let request = Media::make_local_file_media_request(txn_id.into());
-        assert_matches!(Media::as_local_uri(&request.source), Some(uri));
-        assert_eq!(uri.media_id(), Ok(txn_id));
+        assert!(Media::is_local_uri(&request.source));
 
         // Local plain source.
         let source = MediaSource::Plain(Media::make_local_uri(txn_id.into()));
-        assert_matches!(Media::as_local_uri(&source), Some(uri));
-        assert_eq!(uri.media_id(), Ok(txn_id));
+        assert!(Media::is_local_uri(&source));
 
         // Local encrypted source.
         let source = MediaSource::Encrypted(encrypted_file(&Media::make_local_uri(txn_id.into())));
-        assert_matches!(Media::as_local_uri(&source), Some(uri));
-        assert_eq!(uri.media_id(), Ok(txn_id));
+        assert!(Media::is_local_uri(&source));
 
         // Test non-local plain source.
         let source = MediaSource::Plain(owned_mxc_uri!("mxc://server.local/poiuyt"));
-        assert_matches!(Media::as_local_uri(&source), None);
+        assert!(Media::is_local_uri(&source).not());
 
         // Test non-local encrypted source.
         let source = MediaSource::Encrypted(encrypted_file(mxc_uri!("mxc://server.local/mlkjhg")));
-        assert_matches!(Media::as_local_uri(&source), None);
+        assert!(Media::is_local_uri(&source).not());
 
         // Test invalid MXC URI.
         let source = MediaSource::Plain("https://server.local/nbvcxw".into());
-        assert_matches!(Media::as_local_uri(&source), None);
+        assert!(Media::is_local_uri(&source).not());
     }
 }

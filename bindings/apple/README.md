@@ -47,6 +47,9 @@ to run the task with the argument `--profile=reldbg`).
 When building the SDK for release you should pass the `--release` argument to
 the task, which will strip away any symbols and optimise the created binary.
 
+The available profiles and the defaults used by the xtasks are documented in the
+[bindings contributing guide](../CONTRIBUTING.md#build-profiles).
+
 ### Building only the crypto SDK
 
 ```text

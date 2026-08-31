@@ -25,13 +25,15 @@ use as_variant::as_variant;
 use matrix_sdk_common::locks::RwLock;
 use ruma::{
     DeviceId, EventId, OwnedDeviceId, OwnedUserId, RoomId, UserId,
-    api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
+    api::client::keys::upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
     events::{key::verification::VerificationMethod, room::message::MessageType},
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use tracing::{error, info};
 
+#[cfg(feature = "experimental-x509-identity-verification")]
+use crate::x509::X509Verifier;
 use crate::{
     CryptoStoreError, DeviceData, VerificationRequest,
     error::SignatureError,
@@ -40,7 +42,8 @@ use crate::{
         types::{Changes, IdentityChanges},
     },
     types::{
-        MasterPubkey, SelfSigningPubkey, UserSigningPubkey, requests::OutgoingVerificationRequest,
+        CrossSigningKey, MasterPubkey, SelfSigningPubkey, UserSigningPubkey,
+        requests::OutgoingVerificationRequest,
     },
     verification::VerificationMachine,
 };
@@ -86,7 +89,18 @@ impl UserIdentity {
                 Self::Own(OwnUserIdentity { inner: i, verification_machine, store })
             }
             UserIdentityData::Other(i) => {
-                Self::Other(OtherUserIdentity { inner: i, own_identity, verification_machine })
+                // X509Verifier holds an Arc so cloning it gives us a reference to the single
+                // underlying RustRawX509Verifier
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                let x509_verifier = store.x509_verifier().cloned();
+
+                Self::Other(OtherUserIdentity {
+                    inner: i,
+                    own_identity,
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    x509_verifier,
+                    verification_machine,
+                })
             }
         }
     }
@@ -230,7 +244,33 @@ impl OwnUserIdentity {
 
         let cache = self.store.cache().await?;
         let account = cache.account().await?;
-        account.sign_master_key(&self.master_key)
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        let x509_signer = self.store.x509_signer();
+
+        let public_key = self
+            .master_key
+            .get_first_key()
+            .ok_or(SignatureError::MissingSigningKey)?
+            .to_base64()
+            .into();
+
+        let mut cross_signing_key: CrossSigningKey = (*self.master_key).as_ref().clone();
+        cross_signing_key.signatures.clear();
+        account.sign_cross_signing_key(&mut cross_signing_key)?;
+
+        // N.B. Duplicate of
+        // `matrix_sdk_crypto::olm::signing::PrivateCrossSigningIdentity::for_account`
+
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        if let Some(x509_signer) = x509_signer {
+            x509_signer.sign_cross_signing_key(&self.user_id, &mut cross_signing_key).await?;
+        }
+
+        let mut user_signed_keys = SignedKeys::new();
+        user_signed_keys.add_cross_signing_keys(public_key, cross_signing_key.to_raw());
+
+        let signed_keys = [(self.user_id().to_owned(), user_signed_keys)].into();
+        Ok(SignatureUploadRequest::new(signed_keys))
     }
 
     /// Send a verification request to our other devices.
@@ -308,6 +348,9 @@ pub struct OtherUserIdentity {
     pub(crate) inner: OtherUserIdentityData,
     pub(crate) own_identity: Option<OwnUserIdentityData>,
     pub(crate) verification_machine: VerificationMachine,
+
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    pub(crate) x509_verifier: Option<X509Verifier>,
 }
 
 impl Deref for OtherUserIdentity {
@@ -325,11 +368,27 @@ impl DerefMut for OtherUserIdentity {
 }
 
 impl OtherUserIdentity {
-    /// Is this user identity verified.
+    /// Is this user identity verified?
     pub fn is_verified(&self) -> bool {
-        self.own_identity
+        let is_cross_signed = self
+            .own_identity
             .as_ref()
-            .is_some_and(|own_identity| own_identity.is_identity_verified(&self.inner))
+            .is_some_and(|own_identity| own_identity.is_identity_verified(&self.inner));
+
+        // If we have an X.509 verifier, we can use that to verify the user
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        {
+            let is_x509_signed = || {
+                self.x509_verifier.as_ref().is_some_and(|verifier| {
+                    verifier.verify_signed_object(&self.user_id, self.inner.master_key().as_ref())
+                })
+            };
+
+            is_cross_signed || is_x509_signed()
+        }
+
+        #[cfg(not(feature = "experimental-x509-identity-verification"))]
+        is_cross_signed
     }
 
     /// Manually verify this user.
@@ -1126,6 +1185,54 @@ impl OwnUserIdentityData {
         *self.verified.read() == OwnUserIdentityVerifiedState::VerificationViolation
     }
 
+    /// Sign our own identity again, if our current X.509 signer has a later
+    /// expiry than our existing X.509 signature.
+    ///
+    /// Returns the signature upload request to upload the new X.509 signature
+    /// if a new one is needed.
+    ///
+    /// Note that this function does not update our own copy of the signature
+    /// immediately.  Rather, after we upload the new signature, the server will
+    /// notify us of the changed key, we will re-fetch it, and then store the
+    /// new result at that point.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    pub(crate) async fn refresh_x509_signature(
+        &self,
+        store: &Store,
+    ) -> Result<Option<SignatureUploadRequest>, SignatureError> {
+        // We only re-sign our identity our identity is already verified.  If it
+        // isn't already verified, then our identity should be signed by
+        // `OwnUserIdentity::verify()` instead.
+        if !self.is_verified() {
+            return Ok(None);
+        }
+
+        let cross_signing_key: &CrossSigningKey = (*self.master_key).as_ref();
+
+        if let Some(x509_signer) = store.x509_signer()
+            && x509_signer.has_later_expiry_than(&self.user_id, &cross_signing_key.signatures)
+        {
+            let mut cross_signing_key = cross_signing_key.clone();
+            cross_signing_key.signatures.clear();
+            x509_signer.sign_cross_signing_key(&self.user_id, &mut cross_signing_key).await?;
+
+            let public_key = self
+                .master_key
+                .get_first_key()
+                .ok_or(SignatureError::MissingSigningKey)?
+                .to_base64()
+                .into();
+
+            let mut user_signed_keys = SignedKeys::new();
+            user_signed_keys.add_cross_signing_keys(public_key, cross_signing_key.to_raw());
+
+            let signed_keys = [(self.user_id.to_owned(), user_signed_keys)].into();
+            Ok(Some(SignatureUploadRequest::new(signed_keys)))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Update the identity with a new master key and self signing key.
     ///
     /// Note: This will reset the verification state if the master keys differ.
@@ -1412,6 +1519,8 @@ pub(crate) mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, test_json};
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    use rcgen::{Certificate, KeyPair};
     use ruma::{TransactionId, device_id, user_id};
     use serde_json::{Value, json};
     use tokio::sync::Mutex;
@@ -1435,6 +1544,17 @@ pub(crate) mod tests {
         store::{CryptoStoreWrapper, MemoryStore},
         types::{CrossSigningKey, MasterPubkey, SelfSigningPubkey, Signatures, UserSigningPubkey},
         verification::VerificationMachine,
+    };
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    use crate::{
+        store::Store,
+        x509::{
+            RustRawX509Signer, RustRawX509Verifier, X509Signer, X509Verifier,
+            tests::{
+                ca_cert, cert_and_key_with_email_in_subject_distinguished_name,
+                cert_and_key_with_email_signed_by, create_rust_signer_and_verifier,
+            },
+        },
     };
 
     #[test]
@@ -1588,8 +1708,8 @@ pub(crate) mod tests {
         assert_eq!(*id.verified.read(), OwnUserIdentityVerifiedState::VerificationViolation);
     }
 
-    #[test]
-    fn own_identity_check_signatures() {
+    #[async_test]
+    async fn test_own_identity_check_signatures() {
         let response = own_key_query();
         let identity = get_own_identity();
         let (first, second) = device(&response);
@@ -1598,7 +1718,7 @@ pub(crate) mod tests {
         assert!(identity.is_device_signed(&second));
 
         let account = Account::with_device_id(second.user_id(), second.device_id());
-        let verification_machine = get_verification_machine(&account);
+        let verification_machine = get_verification_machine(&account).await;
 
         let first = Device {
             inner: first,
@@ -1631,7 +1751,7 @@ pub(crate) mod tests {
         let (_, device) = device(&response);
 
         let account = Account::with_device_id(device.user_id(), device.device_id());
-        let verification_machine = get_verification_machine(&account);
+        let verification_machine = get_verification_machine(&account).await;
         let public_identity = verification_machine.get_own_user_identity_data().await.unwrap();
 
         let mut device = Device {
@@ -1997,22 +2117,180 @@ pub(crate) mod tests {
         );
     }
 
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    #[async_test]
+    async fn test_sign_own_identity_with_x509() {
+        let account =
+            Account::with_device_id(user_id!("@own_user:localhost"), device_id!("DEV123"));
+        // We create a store with an X.509 signer
+        let (cert, signing_key) =
+            cert_and_key_with_email_in_subject_distinguished_name("own_user@localhost");
+
+        let (x509_signer, x509_verifier) = create_rust_signer_and_verifier(cert, signing_key);
+
+        let store = create_store_with_x509(account, x509_verifier.clone(), x509_signer).await;
+
+        // When we verify our own identity, the uploaded identity key should be
+        // signed using X.509.
+        let own_identity = store
+            .get_identity(user_id!("@own_user:localhost"))
+            .await
+            .unwrap()
+            .unwrap()
+            .own()
+            .unwrap();
+        let signature_upload_request = own_identity.verify().await.unwrap();
+        let (_, signed_key) = signature_upload_request
+            .signed_keys
+            .get(user_id!("@own_user:localhost"))
+            .unwrap()
+            .iter()
+            .next()
+            .unwrap();
+        let signed_key: CrossSigningKey = serde_json::from_str(signed_key.get()).unwrap();
+
+        assert!(x509_verifier.verify_signed_object(user_id!("@own_user:localhost"), &signed_key));
+    }
+
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    #[async_test]
+    async fn test_verify_other_identity_with_x509() {
+        // Given that a CA exists
+        let (ca_cert, ca_signing_key) = ca_cert();
+
+        // And Alice has an X.509-signed identity
+        let alice_identity_data = signed_other_identity(&ca_cert, &ca_signing_key).await;
+
+        // (And Bob exists)
+        let bob_account = Account::with_device_id(user_id!("@bob:hs.co"), device_id!("DEV123"));
+        let bob_verification_machine = get_verification_machine(&bob_account).await;
+
+        let bob_identity_data =
+            bob_verification_machine.get_own_user_identity_data().await.unwrap();
+
+        // When Bob checks Alice's identity without using X.509
+        let mut bobs_view_of_alice = OtherUserIdentity {
+            inner: alice_identity_data.clone(),
+            own_identity: Some(bob_identity_data),
+            verification_machine: bob_verification_machine.clone(),
+            x509_verifier: None,
+        };
+
+        // Then Alice is not verified
+        assert!(!bobs_view_of_alice.is_verified());
+
+        // But when Bob checks Alice's identity with a proper X.509 verifier
+        bobs_view_of_alice.x509_verifier = Some(X509Verifier::new(Arc::new(
+            RustRawX509Verifier::new_from_pem_data(&ca_cert.pem()).unwrap(),
+        )));
+
+        // Then Alice is verified
+        assert!(bobs_view_of_alice.is_verified());
+    }
+
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    #[async_test]
+    async fn test_refresh_signature() {
+        let user_id = user_id!("@own_user:localhost");
+        let account = Account::with_device_id(user_id, device_id!("DEV123"));
+
+        // We create three signers with different validity periods: an "old" signer, a
+        // "current" signer, and a "new" signer
+        let (x509_signer_old, x509_signer_current, x509_signer_new) =
+            crate::x509::tests::signers_with_different_validity();
+
+        // We sign our identity with the current signer.
+        let private_identity =
+            PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer_current))
+                .await
+                .unwrap();
+
+        // If we create a store with the old signer, it should not try to
+        // re-sign our identity.
+        let store = create_store_with_private_identity_and_x509(
+            account.deep_clone(),
+            private_identity.clone(),
+            None,
+            Some(x509_signer_old.clone()),
+        )
+        .await;
+
+        let own_identity = store.get_identity(user_id).await.unwrap().unwrap().own().unwrap();
+        assert!(own_identity.refresh_x509_signature(&store).await.unwrap().is_none());
+
+        // If we create a store with the same signer, it should not try to
+        // re-sign our identity.
+        let store = create_store_with_private_identity_and_x509(
+            account.deep_clone(),
+            private_identity.clone(),
+            None,
+            Some(x509_signer_current.clone()),
+        )
+        .await;
+
+        let own_identity = store.get_identity(user_id).await.unwrap().unwrap().own().unwrap();
+        assert!(own_identity.refresh_x509_signature(&store).await.unwrap().is_none());
+
+        // If we create a store with the newer signer, it should re-sign our
+        // identity.
+        let store = create_store_with_private_identity_and_x509(
+            account.deep_clone(),
+            private_identity.clone(),
+            None,
+            Some(x509_signer_new.clone()),
+        )
+        .await;
+
+        let own_identity = store.get_identity(user_id).await.unwrap().unwrap().own().unwrap();
+        assert!(own_identity.refresh_x509_signature(&store).await.unwrap().is_some());
+    }
+
+    /// Generate a key pair and cert, signed by the supplied certificate
+    /// authority, and return a new user's [`OtherUserIdentityData`] whose
+    /// master signing key is signed by them.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    async fn signed_other_identity(
+        ca_cert: &Certificate,
+        ca_signing_key: &KeyPair,
+    ) -> OtherUserIdentityData {
+        let (cert, signing_key) =
+            cert_and_key_with_email_signed_by("alice@hs.co", ca_cert, ca_signing_key);
+
+        let x509_signer = X509Signer::new(Arc::new(
+            RustRawX509Signer::new_from_pem_data(&cert.pem(), &signing_key.serialize_pem())
+                .unwrap(),
+        ));
+
+        let account = Account::with_device_id(user_id!("@alice:hs.co"), device_id!("DEV123"));
+
+        let private_identity =
+            PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer)).await.unwrap();
+
+        let public_identity = private_identity.to_public_identity().await.unwrap();
+
+        OtherUserIdentityData::new(
+            public_identity.master_key().clone(),
+            public_identity.self_signing_key().clone(),
+        )
+        .unwrap()
+    }
+
     /// Create an [`OtherUserIdentity`] for use in tests
     async fn other_user_identity() -> OtherUserIdentity {
-        use ruma::owned_device_id;
-
         let other_user_identity_data = get_other_identity();
 
         let account =
-            Account::with_device_id(user_id!("@own_user:localhost"), &owned_device_id!("DEV123"));
+            Account::with_device_id(user_id!("@own_user:localhost"), device_id!("DEV123"));
 
-        let verification_machine = get_verification_machine(&account);
+        let verification_machine = get_verification_machine(&account).await;
         let own_identity_data = verification_machine.get_own_user_identity_data().await.unwrap();
 
         OtherUserIdentity {
             inner: other_user_identity_data,
             own_identity: Some(own_identity_data),
             verification_machine,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier: None,
         }
     }
 
@@ -2022,8 +2300,14 @@ pub(crate) mod tests {
      *
      * Creates a new private user identity for the account.
      */
-    fn get_verification_machine(account: &Account) -> VerificationMachine {
-        let private_identity = PrivateCrossSigningIdentity::for_account(account);
+    async fn get_verification_machine(account: &Account) -> VerificationMachine {
+        let private_identity = PrivateCrossSigningIdentity::for_account(
+            account,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            None,
+        )
+        .await
+        .unwrap();
         VerificationMachine::new(
             account.static_data().clone(),
             Arc::new(Mutex::new(private_identity)),
@@ -2032,6 +2316,77 @@ pub(crate) mod tests {
                 account.device_id(),
                 MemoryStore::new(),
             )),
+        )
+    }
+
+    /**
+     * Creates a crypto store, backed by a [`MemoryStore`], for the given
+     * account, with an X.509 verifier and signer.  The private identity
+     * will not be signed by X.509.
+     */
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    async fn create_store_with_x509(
+        account: Account,
+        x509_verifier: X509Verifier,
+        x509_signer: X509Signer,
+    ) -> Store {
+        let private_identity =
+            PrivateCrossSigningIdentity::for_account(&account, None).await.unwrap();
+
+        create_store_with_private_identity_and_x509(
+            account,
+            private_identity,
+            Some(x509_verifier),
+            Some(x509_signer),
+        )
+        .await
+    }
+
+    /**
+     * Creates a crypto store, backed by a [`MemoryStore`], for the given
+     * account and private identity, with an X.509 verifier and signer.
+     */
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    async fn create_store_with_private_identity_and_x509(
+        account: Account,
+        private_identity: PrivateCrossSigningIdentity,
+        x509_verifier: Option<X509Verifier>,
+        x509_signer: Option<X509Signer>,
+    ) -> Store {
+        use crate::store::types::{Changes, IdentityChanges, PendingChanges};
+
+        let account_static_data = account.static_data().clone();
+        let crypto_store_wrapper =
+            CryptoStoreWrapper::new(account.user_id(), account.device_id(), MemoryStore::new());
+        crypto_store_wrapper
+            .save_pending_changes(PendingChanges { account: Some(account) })
+            .await
+            .unwrap();
+        let changes = Changes {
+            private_identity: Some(private_identity.clone()),
+            identities: IdentityChanges {
+                changed: vec![private_identity.to_public_identity().await.unwrap().into()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        crypto_store_wrapper.save_changes(changes).await.unwrap();
+
+        let crypto_store_wrapper = Arc::new(crypto_store_wrapper);
+        let private_identity = Arc::new(Mutex::new(private_identity));
+        let verification_machine = VerificationMachine::new(
+            account_static_data.clone(),
+            private_identity.clone(),
+            crypto_store_wrapper.clone(),
+        );
+
+        Store::new_with_x509(
+            account_static_data.clone(),
+            private_identity,
+            crypto_store_wrapper,
+            verification_machine,
+            x509_verifier,
+            x509_signer,
         )
     }
 }

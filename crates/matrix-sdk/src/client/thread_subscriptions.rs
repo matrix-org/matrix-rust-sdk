@@ -32,10 +32,7 @@ use ruma::{
     },
     assign,
 };
-use tokio::sync::{
-    Mutex, OwnedMutexGuard,
-    mpsc::{Receiver, Sender, channel},
-};
+use tokio::sync::{Mutex, Notify, OwnedMutexGuard};
 use tracing::{debug, instrument, trace, warn};
 
 use crate::{Client, Result, client::WeakClient};
@@ -121,9 +118,9 @@ pub struct ThreadSubscriptionCatchup {
     /// A weak reference to the parent [`Client`] instance.
     client: WeakClient,
 
-    /// A sender to wake up the catchup task when new catchup tokens are
+    /// A signal to wake up the catchup task when new catchup tokens are
     /// available.
-    ping_sender: Sender<()>,
+    ping: Arc<Notify>,
 
     /// A mutex to ensure there's only one writer on the thread subscriptions
     /// catchup tokens at a time.
@@ -134,14 +131,15 @@ impl ThreadSubscriptionCatchup {
     pub async fn new(client: Client) -> Arc<Self> {
         let is_outdated = Arc::new(AtomicBool::new(true));
         let weak_client = WeakClient::from_client(&client);
-        let (ping_sender, ping_receiver) = channel(8);
+        let ping = Arc::new(Notify::new());
+        let task_ping = Arc::clone(&ping);
         let uniq_mutex = Arc::new(Mutex::new(()));
 
         let this = Arc::new(Self {
             _task: OnceLock::new(),
             is_outdated,
             client: weak_client.clone(),
-            ping_sender,
+            ping,
             uniq_mutex,
         });
 
@@ -155,7 +153,7 @@ impl ThreadSubscriptionCatchup {
                     client
                         .task_monitor()
                         .spawn_infinite_task("client::thread_subscriptions_catchup", async move {
-                            Self::thread_subscriptions_catchup_task(that, ping_receiver).await;
+                            Self::thread_subscriptions_catchup_task(that, task_ping).await;
                         })
                         .abort_on_drop()
                 });
@@ -239,7 +237,7 @@ impl ThreadSubscriptionCatchup {
 
         // Wake up the catchup task, in case it's waiting.
         if !is_token_list_empty {
-            let _ = self.ping_sender.send(()).await;
+            self.ping.notify_one();
         }
 
         Ok(())
@@ -261,7 +259,7 @@ impl ThreadSubscriptionCatchup {
     ///
     /// [MSC4308]: https://github.com/matrix-org/matrix-spec-proposals/pull/4308
     #[instrument(skip_all)]
-    async fn thread_subscriptions_catchup_task(this: Arc<Self>, mut ping_receiver: Receiver<()>) {
+    async fn thread_subscriptions_catchup_task(this: Arc<Self>, ping: Arc<Notify>) {
         loop {
             // Load the current catchup token.
             let Some(guard) = this.lock().await else {
@@ -283,14 +281,9 @@ impl ThreadSubscriptionCatchup {
 
                 // Wait for a wake up.
                 trace!("Waiting for an explicit wake up to process future thread subscriptions");
-
-                if let Some(()) = ping_receiver.recv().await {
-                    trace!("Woke up!");
-                    continue;
-                }
-
-                // Channel closed, the client is shutting down.
-                break;
+                ping.notified().await;
+                trace!("Woke up!");
+                continue;
             };
 
             // We do have a tokens. Pop the last value, and use it to catch up!

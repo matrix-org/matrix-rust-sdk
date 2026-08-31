@@ -1,0 +1,1 @@
+Add `PasswordStrengthEstimator` to the FFI layer, exposing password strength estimation via the zxcvbn algorithm with caller-configurable ranking thresholds.

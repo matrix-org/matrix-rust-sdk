@@ -9,14 +9,14 @@ name = "matrix-sdk"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version.workspace = true
-version = "0.17.0"
+version = "0.18.0"
 
 [package.metadata.docs.rs]
 features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [features]
-default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite"]
+default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "rustls-aws-lc-rs"]
 testing = [
     "matrix-sdk-sqlite?/testing",
     "matrix-sdk-indexeddb?/testing",
@@ -41,7 +41,8 @@ js = [
 sqlite = [
     "dep:matrix-sdk-sqlite",
     "matrix-sdk-sqlite?/state-store",
-    "matrix-sdk-sqlite?/event-cache",
+    "matrix-sdk-sqlite?/event-cache-store",
+    "matrix-sdk-sqlite?/media-store",
 ]
 bundled-sqlite = ["sqlite", "matrix-sdk-sqlite?/bundled"]
 indexeddb = [
@@ -49,6 +50,9 @@ indexeddb = [
     "matrix-sdk-indexeddb/event-cache-store",
     "matrix-sdk-indexeddb/media-store"
 ]
+# If enabled, reqwest depends on and installs aws-lc-rs as the default crypto
+# provider for rustls
+rustls-aws-lc-rs = ["reqwest/rustls"]
 
 qrcode = ["e2e-encryption", "matrix-sdk-base/qrcode"]
 automatic-room-key-forwarding = ["e2e-encryption", "matrix-sdk-base/automatic-room-key-forwarding"]
@@ -87,30 +91,34 @@ docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode", "feder
 # Add support for inline media galleries via msgtypes
 unstable-msc4274 = ["ruma/unstable-msc4274", "matrix-sdk-base/unstable-msc4274"]
 
+# Add support for user status profile fields (m.status, m.call).
+unstable-msc4426 = ["matrix-sdk-base/unstable-msc4426"]
+
 experimental-search = ["matrix-sdk-search"]
 
 experimental-element-recent-emojis = ["matrix-sdk-base/experimental-element-recent-emojis"]
 
+experimental-x509-identity-verification = ["e2e-encryption", "matrix-sdk-base/experimental-x509-identity-verification"]
+
 [dependencies]
 anyhow = { workspace = true, optional = true }
 anymap2 = { version = "0.13.0", default-features = false }
-aquamarine.workspace = true
 as_variant.workspace = true
 assert_matches2 = { workspace = true, optional = true }
 async-channel = "2.5.0"
 async-stream.workspace = true
 async-trait.workspace = true
-async-once-cell.workspace = true
-axum = { version = "0.8.4", optional = true }
-bytes = { version = "1.11.1", default-features = false, features = ["std"] }
-bytesize = { version = "2.3.0", default-features = false, features = ["std"] }
+axum = { version = "0.8.9", optional = true }
+bytes = { version = "1.12.1", default-features = false, features = ["std"] }
+bytesize = { version = "2.4.2", default-features = false, features = ["std"] }
 cfg-if.workspace = true
-event-listener = "5.4.1"
+event-listener = "5.4.2"
 eyeball.workspace = true
 eyeball-im.workspace = true
 eyre = { version = "0.6.12", optional = true }
 futures-core.workspace = true
 futures-util = { workspace = true, features = ["async-await-macro"] }
+hex = "0.4.3"
 http.workspace = true
 imbl = { workspace = true, features = ["serde"] }
 indexmap.workspace = true
@@ -138,6 +146,7 @@ ruma = { workspace = true, features = [
     "unstable-msc3245-v1-compat",
     "unstable-msc4108",
     "unstable-msc4278",
+    "unstable-msc4262",
 ] }
 serde.workspace = true
 serde_html_form.workspace = true
@@ -146,8 +155,8 @@ sha2.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio-stream = { workspace = true, features = ["sync"] }
-tokio-util = "0.7.17"
-tower = { version = "0.5.2", features = ["util"], optional = true }
+tokio-util = "0.7.19"
+tower = { version = "0.5.3", features = ["util"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 uniffi = { workspace = true, optional = true }
 url = { workspace = true, features = ["serde"] }
@@ -160,13 +169,13 @@ zeroize.workspace = true
 backon = "1.6.0"
 # only activate reqwest's stream feature on non-wasm, the wasm part seems to not
 # support *sending* streams, which makes it useless for us.
-reqwest = { workspace = true, features = ["stream", "gzip", "http2", "rustls"] }
+reqwest = { workspace = true, features = ["stream", "gzip", "http2", "rustls-no-provider"] }
 tokio = { workspace = true, features = ["fs", "rt", "macros"] }
 wiremock = { workspace = true, optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 gloo-timers = { workspace = true, features = ["futures"] }
-reqwest = { workspace = true, features = ["gzip", "http2", "rustls"] }
+reqwest = { workspace = true, features = ["gzip", "http2", "rustls-no-provider"] }
 tokio = { workspace = true, features = ["macros"] }
 
 [dev-dependencies]
@@ -180,26 +189,22 @@ insta.workspace = true
 matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
+rand.workspace = true
+reqwest = { workspace = true, features = ["rustls"] }
 serde_urlencoded = "0.7.1"
 similar-asserts.workspace = true
 stream_assert.workspace = true
-tokio-test = "0.4.4"
+tokio-test = "0.4.5"
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
-ctor = "0.2.9"
+ctor = "1.0.12"
 proptest.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 wiremock.workspace = true
 
 [target.'cfg(target_family = "wasm")'.dev-dependencies]
 wasm-bindgen-test.workspace = true
-
-[target.'cfg(target_os = "android")'.dependencies]
-rustls = "0.23.38"
-rustls-pki-types = "1.14.0"
-rustls-native-certs = "0.8.3"
-webpki-roots = "1.0.6"
 
 [[test]]
 name = "integration"

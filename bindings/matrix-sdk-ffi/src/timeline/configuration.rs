@@ -16,18 +16,18 @@ use std::sync::Arc;
 
 use matrix_sdk_ui::timeline::{
     TimelineEventFocusThreadMode, TimelineReadReceiptTracking,
-    event_filter::{TimelineEventCondition, TimelineEventFilter as InnerTimelineEventFilter},
+    event_filter::{
+        MembershipChangeFilter, TimelineEventCondition,
+        TimelineEventFilter as InnerTimelineEventFilter,
+    },
 };
 use ruma::{
     EventId,
-    events::{AnySyncTimelineEvent, TimelineEventType},
+    events::{AnySyncTimelineEvent, MessageLikeEventType, StateEventType, TimelineEventType},
 };
 
 use super::FocusEventError;
-use crate::{
-    error::ClientError,
-    event::{MessageLikeEventType, RoomMessageEventMessageType, StateEventType},
-};
+use crate::{error::ClientError, event::RoomMessageEventMessageType};
 
 /// A timeline filter that includes or excludes events based on their type or
 /// content.
@@ -87,12 +87,8 @@ pub enum FilterTimelineEventType {
 impl From<FilterTimelineEventType> for TimelineEventType {
     fn from(value: FilterTimelineEventType) -> TimelineEventType {
         match value {
-            FilterTimelineEventType::MessageLike { event_type } => {
-                ruma::events::MessageLikeEventType::from(event_type).into()
-            }
-            FilterTimelineEventType::State { event_type } => {
-                ruma::events::StateEventType::from(event_type).into()
-            }
+            FilterTimelineEventType::MessageLike { event_type } => event_type.into(),
+            FilterTimelineEventType::State { event_type } => event_type.into(),
         }
     }
 }
@@ -104,7 +100,7 @@ pub enum FilterTimelineEventCondition {
     EventType { event_type: FilterTimelineEventType },
     /// The event is an `m.room.member` event that represents a membership
     /// change (join, leave, etc.).
-    MembershipChange,
+    MembershipChange { filter: MembershipChangeFilter },
     /// The event is an `m.room.member` event that represents a profile
     /// change (displayname or avatar URL).
     ProfileChange,
@@ -116,7 +112,9 @@ impl From<FilterTimelineEventCondition> for TimelineEventCondition {
             FilterTimelineEventCondition::EventType { event_type } => {
                 Self::EventType(event_type.into())
             }
-            FilterTimelineEventCondition::MembershipChange => Self::MembershipChange,
+            FilterTimelineEventCondition::MembershipChange { filter } => {
+                Self::MembershipChange(filter)
+            }
             FilterTimelineEventCondition::ProfileChange => Self::ProfileChange,
         }
     }

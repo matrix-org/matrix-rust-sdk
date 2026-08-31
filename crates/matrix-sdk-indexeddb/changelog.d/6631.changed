@@ -1,0 +1,1 @@
+Remove existing gossip requests when a new request for the same secret is made.

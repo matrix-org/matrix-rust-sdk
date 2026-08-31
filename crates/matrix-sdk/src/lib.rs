@@ -24,7 +24,7 @@ pub use bytes;
 pub use matrix_sdk_base::{
     CallIntentConsensus, ComposerDraft, ComposerDraftType, DraftAttachment, DraftAttachmentContent,
     DraftThumbnail, EncryptionState, PredecessorRoom, QueueWedgeError, Room as BaseRoom,
-    RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomInfo,
+    RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomHeroWithProfile, RoomInfo,
     RoomMember as BaseRoomMember, RoomMemberships, RoomRecencyStamp, RoomState, SessionMeta,
     StateChanges, StateStore, StoreError, SuccessorRoom, ThreadingSupport, deserialized_responses,
     store::{self, DynStateStore, MemoryStore, StateStoreExt},
@@ -80,7 +80,7 @@ pub use error::{
     BeaconError, Error, HttpError, HttpResult, NotificationSettingsError, RefreshTokenError,
     Result, RumaApiError,
 };
-pub use http_client::TransmissionProgress;
+pub use http_client::{SupportedAuthScheme, SupportedPathBuilder, TransmissionProgress};
 #[cfg(all(feature = "e2e-encryption", feature = "sqlite"))]
 pub use matrix_sdk_sqlite::SqliteCryptoStore;
 #[cfg(feature = "sqlite")]
@@ -101,6 +101,10 @@ pub use sliding_sync::{
 uniffi::setup_scaffolding!();
 
 pub mod live_locations_observer;
+
+#[cfg(feature = "unstable-msc4426")]
+mod automatic_call_status;
+
 #[cfg(any(test, feature = "testing"))]
 pub mod test_utils;
 

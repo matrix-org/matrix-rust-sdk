@@ -1160,6 +1160,47 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, UploadCrossSigningSignaturesEndpoint).expect_default_access_token()
     }
 
+    /// Creates a prebuilt mock for the MSC3814 endpoint that fetches the
+    /// currently stored dehydrated device.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn mock_get_dehydrated_device(&self) -> MockEndpoint<'_, GetDehydratedDeviceEndpoint> {
+        let mock = Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device$"));
+        self.mock_endpoint(mock, GetDehydratedDeviceEndpoint).expect_any_access_token()
+    }
+
+    /// Creates a prebuilt mock for the MSC3814 endpoint that uploads a fresh
+    /// dehydrated device.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn mock_put_dehydrated_device(&self) -> MockEndpoint<'_, PutDehydratedDeviceEndpoint> {
+        let mock = Mock::given(method("PUT"))
+            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device$"));
+        self.mock_endpoint(mock, PutDehydratedDeviceEndpoint).expect_any_access_token()
+    }
+
+    /// Creates a prebuilt mock for the MSC3814 endpoint that deletes the
+    /// current dehydrated device.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn mock_delete_dehydrated_device(
+        &self,
+    ) -> MockEndpoint<'_, DeleteDehydratedDeviceEndpoint> {
+        let mock = Mock::given(method("DELETE"))
+            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device$"));
+        self.mock_endpoint(mock, DeleteDehydratedDeviceEndpoint).expect_any_access_token()
+    }
+
+    /// Creates a prebuilt mock for the MSC3814 endpoint that fetches the
+    /// queued to-device events for a dehydrated device.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn mock_dehydrated_device_events(
+        &self,
+    ) -> MockEndpoint<'_, DehydratedDeviceEventsEndpoint> {
+        let mock = Mock::given(method("POST")).and(path_regex(
+            r"^/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/[^/]+/events$",
+        ));
+        self.mock_endpoint(mock, DehydratedDeviceEventsEndpoint).expect_any_access_token()
+    }
+
     /// Creates a prebuilt mock for the endpoint used to leave a room.
     pub fn mock_room_leave(&self) -> MockEndpoint<'_, RoomLeaveEndpoint> {
         let mock =
@@ -1216,7 +1257,7 @@ impl MatrixMockServer {
     /// .mount()
     /// .await;
     ///
-    /// client.account().fetch_media_preview_config_event_content().await.unwrap();
+    /// client.account().get_recent_emojis(true).await.unwrap();
     ///
     /// # anyhow::Ok(()) });
     /// ```
@@ -1241,11 +1282,12 @@ impl MatrixMockServer {
     /// let client = mock_server.client_builder().build().await;
     /// let user_id = client.user_id().unwrap();
     ///
-    /// mock.server.mock_get_recent_emojis()
+    /// mock_server.mock_get_recent_emojis()
     /// .ok(user_id, vec![(":D".to_string(), uint!(1))])
     /// .mock_once()
     /// .mount()
     /// .await;
+    ///
     /// mock_server.mock_add_recent_emojis()
     /// .ok(user_id)
     /// .mock_once()
@@ -1522,6 +1564,20 @@ impl MatrixMockServer {
         let mock =
             Mock::given(method("GET")).and(path_regex("^/_matrix/client/v1/media/download/"));
         self.mock_endpoint(mock, AuthedMediaDownloadEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to get a preview of a URL
+    /// without requiring authentication.
+    pub fn mock_media_preview(&self) -> MockEndpoint<'_, MediaPreviewEndpoint> {
+        let mock = Mock::given(method("GET")).and(path("/_matrix/media/v3/preview_url"));
+        self.mock_endpoint(mock, MediaPreviewEndpoint)
+    }
+
+    /// Create a prebuilt mock for the endpoint used to get a preview of a URL
+    /// that requires authentication.
+    pub fn mock_authed_media_preview(&self) -> MockEndpoint<'_, AuthedMediaPreviewEndpoint> {
+        let mock = Mock::given(method("GET")).and(path("/_matrix/client/v1/media/preview_url"));
+        self.mock_endpoint(mock, AuthedMediaPreviewEndpoint).expect_default_access_token()
     }
 
     /// Create a prebuilt mock for the endpoint used to download a thumbnail of
@@ -1849,6 +1905,17 @@ impl MatrixMock<'_> {
     /// conditions imposed by your matchers.
     pub fn up_to_n_times(self, num: u64) -> Self {
         Self { mock: self.mock.up_to_n_times(num), ..self }
+    }
+
+    /// Set the priority of this [`MatrixMock`].
+    ///
+    /// When several mocks match the same request, the one with the highest
+    /// priority (i.e. the lowest value, 1 being the highest and 255 the
+    /// lowest) responds to it. This is useful to mock the same endpoint
+    /// differently for the first and the subsequent requests, by combining it
+    /// with [`Self::up_to_n_times`].
+    pub fn with_priority(self, priority: u8) -> Self {
+        Self { mock: self.mock.with_priority(priority), ..self }
     }
 
     /// Mount a [`MatrixMock`] on the attached server.
@@ -2813,6 +2880,18 @@ impl<'a> MockEndpoint<'a, SyncEndpoint> {
         self
     }
 
+    /// Expect the given `set_presence` value in the request.
+    pub fn set_presence(mut self, presence: impl Into<String>) -> Self {
+        self.mock = self.mock.and(query_param("set_presence", presence.into()));
+        self
+    }
+
+    /// Expect no explicit `set_presence` value in the request.
+    pub fn set_presence_missing(mut self) -> Self {
+        self.mock = self.mock.and(query_param_is_missing("set_presence"));
+        self
+    }
+
     /// Mocks the sync endpoint, using the given function to generate the
     /// response.
     pub fn ok<F: FnOnce(&mut SyncResponseBuilder)>(self, func: F) -> MatrixMock<'a> {
@@ -2998,7 +3077,7 @@ impl<'a> MockEndpoint<'a, RoomEventEndpoint> {
     /// event has been sent with the given event id.
     pub fn ok(self, event: TimelineEvent) -> MatrixMock<'a> {
         let event_path = if self.endpoint.match_event_id {
-            let event_id = event.kind.event_id().expect("an event id is required");
+            let event_id = event.event_id().expect("an event id is required");
             // The event id should begin with `$`, which would be taken as the end of the
             // regex so we need to escape it
             event_id.as_str().replace("$", "\\$")
@@ -3675,6 +3754,16 @@ impl<'a> MockEndpoint<'a, UploadKeysEndpoint> {
             },
         })))
     }
+
+    /// Returns a successful response with the given number of signed curve25519
+    /// one-time keys.
+    pub fn ok_with_signed_curve_key_count(self, n: u32) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "one_time_key_counts": {
+                "signed_curve25519": n,
+            },
+        })))
+    }
 }
 
 /// A prebuilt mock for `POST /keys/query` request.
@@ -3820,6 +3909,112 @@ impl<'a> MockEndpoint<'a, UploadCrossSigningSignaturesEndpoint> {
     /// Returns a successful empty response.
     pub fn ok(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+    }
+}
+
+/// A prebuilt mock for the MSC3814 `GET /dehydrated_device` request.
+#[cfg(feature = "e2e-encryption")]
+pub struct GetDehydratedDeviceEndpoint;
+
+#[cfg(feature = "e2e-encryption")]
+impl<'a> MockEndpoint<'a, GetDehydratedDeviceEndpoint> {
+    /// Returns a successful response carrying the given dehydrated device.
+    pub fn ok(self, device_id: &DeviceId, device_data: Value) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "device_id": device_id,
+            "device_data": device_data,
+        })))
+    }
+
+    /// Returns a 404 response with `M_NOT_FOUND`, signalling that no device
+    /// is currently dehydrated for the user.
+    pub fn not_found(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "errcode": "M_NOT_FOUND",
+            "error": "No dehydrated device found",
+        })))
+    }
+}
+
+/// A prebuilt mock for the MSC3814 `PUT /dehydrated_device` request.
+#[cfg(feature = "e2e-encryption")]
+pub struct PutDehydratedDeviceEndpoint;
+
+#[cfg(feature = "e2e-encryption")]
+impl<'a> MockEndpoint<'a, PutDehydratedDeviceEndpoint> {
+    /// Returns a successful response echoing the supplied device ID.
+    pub fn ok(self, device_id: &DeviceId) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "device_id": device_id,
+        })))
+    }
+
+    /// Returns a successful response, computing the response body from the
+    /// `device_id` field in the request payload. Useful when the caller does
+    /// not know the device ID ahead of time.
+    pub fn ok_echo(self) -> MatrixMock<'a> {
+        self.respond_with(|req: &Request| {
+            #[derive(serde::Deserialize)]
+            struct Body {
+                device_id: OwnedDeviceId,
+            }
+            let body: Body = req.body_json().expect("dehydrated device PUT body");
+            ResponseTemplate::new(200).set_body_json(json!({ "device_id": body.device_id }))
+        })
+    }
+}
+
+/// A prebuilt mock for the MSC3814 `DELETE /dehydrated_device` request.
+#[cfg(feature = "e2e-encryption")]
+pub struct DeleteDehydratedDeviceEndpoint;
+
+#[cfg(feature = "e2e-encryption")]
+impl<'a> MockEndpoint<'a, DeleteDehydratedDeviceEndpoint> {
+    /// Returns a successful response echoing the deleted device ID.
+    pub fn ok(self, device_id: &DeviceId) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "device_id": device_id,
+        })))
+    }
+
+    /// Returns a 404 with `M_NOT_FOUND`.
+    pub fn not_found(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "errcode": "M_NOT_FOUND",
+            "error": "No dehydrated device to delete",
+        })))
+    }
+}
+
+/// A prebuilt mock for the MSC3814
+/// `POST /dehydrated_device/{device_id}/events` request.
+#[cfg(feature = "e2e-encryption")]
+pub struct DehydratedDeviceEventsEndpoint;
+
+#[cfg(feature = "e2e-encryption")]
+impl<'a> MockEndpoint<'a, DehydratedDeviceEventsEndpoint> {
+    /// Returns a successful response with the supplied events array and an
+    /// optional pagination cursor.
+    pub fn ok(self, events: Vec<Value>, next_batch: Option<&str>) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "events": events,
+            "next_batch": next_batch,
+        })))
+    }
+
+    /// Constrain the mock to only match requests whose `next_batch` body field
+    /// equals the given token. Pair with [`Self::match_missing_next_batch`]
+    /// for the initial request in a paginated flow.
+    pub fn match_next_batch(mut self, token: &str) -> Self {
+        self.mock = self.mock.and(body_partial_json(json!({ "next_batch": token })));
+        self
+    }
+
+    /// Constrain the mock to only match requests whose body has no
+    /// `next_batch` field (i.e. the first call in a paginated flow).
+    pub fn match_missing_next_batch(mut self) -> Self {
+        self.mock = self.mock.and(body_json(json!({})));
+        self
     }
 }
 
@@ -4519,6 +4714,58 @@ impl<'a> MockEndpoint<'a, MediaThumbnailEndpoint> {
     }
 }
 
+/// A prebuilt mock for `GET /media/v3/preview_url` requests.
+pub struct MediaPreviewEndpoint;
+
+impl<'a> MockEndpoint<'a, MediaPreviewEndpoint> {
+    /// Returns a successful response with OpenGraph-like data for the URL.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "og:title": "Matrix Blog Post",
+            "og:description": "This is a really cool blog post from matrix.org",
+            "og:image": "mxc://example.com/ascERGshawAWawugaAcauga",
+            "og:image:type": "image/png",
+            "og:image:height": 48,
+            "og:image:width": 48,
+            "matrix:image:size": 102_400,
+        })))
+    }
+
+    /// Returns a successful but empty response.
+    ///
+    /// Homeservers legitimately return an empty object when they could not
+    /// extract any metadata from the URL.
+    pub fn ok_empty(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+    }
+}
+
+/// A prebuilt mock for `GET /client/v1/media/preview_url` requests.
+pub struct AuthedMediaPreviewEndpoint;
+
+impl<'a> MockEndpoint<'a, AuthedMediaPreviewEndpoint> {
+    /// Returns a successful response with OpenGraph-like data for the URL.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "og:title": "Matrix Blog Post",
+            "og:description": "This is a really cool blog post from matrix.org",
+            "og:image": "mxc://example.com/ascERGshawAWawugaAcauga",
+            "og:image:type": "image/png",
+            "og:image:height": 48,
+            "og:image:width": 48,
+            "matrix:image:size": 102_400,
+        })))
+    }
+
+    /// Returns a successful but empty response.
+    ///
+    /// Homeservers legitimately return an empty object when they could not
+    /// extract any metadata from the URL.
+    pub fn ok_empty(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+    }
+}
+
 /// A prebuilt mock for `GET /client/v1/media/download` requests.
 pub struct AuthedMediaDownloadEndpoint;
 
@@ -5009,6 +5256,13 @@ impl<'a> MockEndpoint<'a, SetProfileFieldEndpoint> {
     /// Returns a successful empty response.
     pub fn ok(self) -> MatrixMock<'a> {
         self.ok_empty_json()
+    }
+
+    /// Expect the request body to set the given [`ProfileFieldValue`].
+    pub fn expect_field_value(mut self, value: ProfileFieldValue) -> Self {
+        let body = BTreeMap::from([(value.field_name(), value.value())]);
+        self.mock = self.mock.and(body_json(body));
+        self
     }
 }
 

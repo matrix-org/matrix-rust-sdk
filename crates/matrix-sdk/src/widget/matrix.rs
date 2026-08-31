@@ -28,7 +28,7 @@ use ruma::{
     EventId, OwnedDeviceId, OwnedMxcUri, OwnedUserId, RoomId, TransactionId,
     api::client::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
-        delayed_events::{self, update_delayed_event::unstable::UpdateAction},
+        delayed_events::{self, update_delayed_event::UpdateAction},
         filter::RoomEventFilter,
         to_device::send_event_to_device::v3::Request as RumaToDeviceRequest,
     },
@@ -76,6 +76,34 @@ impl MatrixDriver {
             .send(OpenIdRequest::new(user_id))
             .await
             .map_err(|error| Error::Http(Box::new(error)))
+    }
+
+    /// Fetches the RTC transports advertised by the homeserver.
+    ///
+    /// This delegates to [`Client::discover_rtc_transports`], so the MSC4143
+    /// discovery endpoint is tried first — its result is served from (and
+    /// populates) the client's in-memory cache — and the well-known foci are
+    /// used as a fallback, unless well-known discovery was disabled with
+    /// [`ClientBuilder::disable_well_known_lookup`].
+    ///
+    /// Returns an error if neither source could provide transports, so that
+    /// the widget receives an error response (as opposed to an empty list,
+    /// which would be indistinguishable from a homeserver that advertises no
+    /// transports).
+    ///
+    /// [`Client::discover_rtc_transports`]: crate::Client::discover_rtc_transports
+    /// [`ClientBuilder::disable_well_known_lookup`]: crate::ClientBuilder::disable_well_known_lookup
+    pub(crate) async fn get_rtc_transports(
+        &self,
+    ) -> Result<Vec<ruma::api::client::rtc::RtcTransport>> {
+        self.room
+            .client
+            .discover_rtc_transports()
+            .await
+            .map_err(|error| Error::Http(Box::new(error)))?
+            .ok_or_else(|| {
+                Error::UnknownError("the homeserver does not advertise any RTC transport".into())
+            })
     }
 
     /// Reads the latest `limit` events of a given `event_type` from the room's
@@ -219,8 +247,8 @@ impl MatrixDriver {
         &self,
         delay_id: String,
         action: UpdateAction,
-    ) -> Result<delayed_events::update_delayed_event::unstable::Response> {
-        let r = delayed_events::update_delayed_event::unstable::Request::new(delay_id, action);
+    ) -> Result<delayed_events::update_delayed_event::unstable_v1::Response> {
+        let r = delayed_events::update_delayed_event::unstable_v1::Request::new(delay_id, action);
         self.room.client.send(r).await.map_err(|error| Error::Http(Box::new(error)))
     }
 
@@ -254,9 +282,9 @@ impl MatrixDriver {
 
         let room_id = self.room.room_id().to_owned();
         let to_device_handle = self.room.client().add_event_handler(
-
-            async move |raw: Raw<AnyToDeviceEvent>, encryption_info: Option<EncryptionInfo>, client: Client| {
-
+            async move |raw: Raw<AnyToDeviceEvent>,
+                        encryption_info: Option<EncryptionInfo>,
+                        client: Client| {
                 // Some to-device traffic is used by the SDK for internal machinery.
                 // They should not be exposed to widgets.
                 if Self::should_filter_message_to_widget(&raw) {
@@ -270,48 +298,62 @@ impl MatrixDriver {
                     return;
                 };
 
-                let room_encrypted = room.latest_encryption_state().await
+                let room_encrypted = room
+                    .latest_encryption_state()
+                    .await
                     .map(|s| s.is_encrypted())
                     // Default consider encrypted
                     .unwrap_or(true);
-                if room_encrypted {
+
+                // Whether the to-device message reached us encrypted. `encryption_info` is
+                // `Some(..)` only when the message arrived as `m.room.encrypted` and was
+                // successfully Olm-decrypted by the SDK; clear (and UTD) messages carry `None`.
+                let encrypted = encryption_info.is_some();
+
+                if room_encrypted && !encrypted {
                     // The room is encrypted so the to-device traffic should be too.
-                    if encryption_info.is_none() {
-                        warn!(
-                            ?room_id,
-                            "Received to-device event in clear for a widget in an e2e room, dropping."
-                        );
-                        return;
-                    }
-
-                    // There are no per-room specific decryption settings (trust requirements), so we can just send it to the
-                    // widget.
-
-                    // The raw to-device event contains more fields than the widget needs, so we need to clean it up
-                    // to only type/content/sender.
-                    #[derive(Deserialize, Serialize)]
-                    struct CleanEventHelper<'a> {
-                        #[serde(rename = "type")]
-                        event_type: String,
-                        #[serde(borrow)]
-                        content: &'a RawJsonValue,
-                        sender: String,
-                    }
-
-                    let _ = serde_json::from_str::<CleanEventHelper<'_>>(raw.json().get())
-                        .and_then(|clean_event_helper| {
-                            serde_json::value::to_raw_value(&clean_event_helper)
-                        })
-                        .map_err(|err| warn!(?room_id, "Unable to process to-device message for widget: {err}"))
-                        .map(|box_value | {
-                            tx.send(Raw::from_json(box_value))
-                        });
-
-                } else {
-                    // forward to the widget
-                    // It is ok to send an encrypted to-device message even if the room is clear.
-                    let _ = tx.send(raw);
+                    warn!(
+                        ?room_id,
+                        "Received to-device event in clear for a widget in an e2e room, dropping."
+                    );
+                    return;
                 }
+
+                // There are no per-room specific decryption settings (trust requirements), so
+                // we can just send it to the widget.
+
+                // The raw to-device event contains more fields than the widget needs, so we
+                // clean it up to only type/content/sender and add the MSC3819 `encrypted`
+                // flag. It is ok to forward an encrypted to-device message even if the room is
+                // clear, so both cases go through the same path.
+                #[derive(Deserialize, Serialize)]
+                struct CleanEventHelper<'a> {
+                    #[serde(rename = "type")]
+                    event_type: String,
+                    #[serde(borrow)]
+                    content: &'a RawJsonValue,
+                    sender: String,
+                    // Never populated from the wire: it is always overwritten with the value
+                    // the SDK computed, so a remote sender cannot spoof it. (MSC3819 puts this
+                    // flag in the event's top-level namespace, this is not ideal;
+                    // ignoring any inbound value is the safe handling)
+                    #[serde(skip_deserializing)]
+                    encrypted: bool,
+                }
+
+                let _ = serde_json::from_str::<CleanEventHelper<'_>>(raw.json().get())
+                    .map(|mut clean_event_helper| {
+                        // Important, always set the `encrypted` flag based on encryption_info
+                        clean_event_helper.encrypted = encrypted;
+                        clean_event_helper
+                    })
+                    .and_then(|clean_event_helper| {
+                        serde_json::value::to_raw_value(&clean_event_helper)
+                    })
+                    .map_err(|err| {
+                        warn!(?room_id, "Unable to process to-device message for widget: {err}")
+                    })
+                    .map(|box_value| tx.send(Raw::from_json(box_value)));
             },
         );
 
@@ -606,7 +648,7 @@ mod tests {
         let new = attach_room_id(&raw, room_id);
 
         insta::with_settings!({prepend_module_to_snapshot => false}, {
-            insta::assert_json_snapshot!(new.deserialize_as::<Value>().unwrap())
+            insta::assert_json_snapshot!(new.deserialize_as::<Value>().unwrap());
         });
 
         let attached: AnyTimelineEvent = new.deserialize().unwrap();
@@ -634,7 +676,7 @@ mod tests {
         let new = attach_room_id(&raw, room_id);
 
         insta::with_settings!({prepend_module_to_snapshot => false}, {
-            insta::assert_json_snapshot!(new.deserialize_as::<Value>().unwrap())
+            insta::assert_json_snapshot!(new.deserialize_as::<Value>().unwrap());
         });
 
         let attached: AnyTimelineEvent = new.deserialize().unwrap();

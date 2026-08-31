@@ -4,6 +4,53 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.18.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.18.0) - 2026-06-02
+
+### Added
+
+- Add `RoomInfo::fully_read_event_id` to expose the user's `m.fully_read` event
+  ID. ([#6569](https://github.com/matrix-org/matrix-rust-sdk/pulls/6569))
+- Expose `Client::tile_server` on the FFI, returning a `TileServerInfo` record
+  when the homeserver advertises a map tile server through its matrix client
+  well-known
+  ([MSC3488](https://github.com/matrix-org/matrix-spec-proposals/pull/3488)).
+  The record carries a single `map_style_url` field pointing at a MapLibre
+  `style.json`.
+  ([#6610](https://github.com/matrix-org/matrix-rust-sdk/pulls/6610))
+- Expose `SqliteStoreBuilder::key` to allow clients to specify a key as a
+  32-bytes array that will be used as is, skipping the key derivation process
+  and speeding up opening DB connections. Note this should only be used for
+  truly random values with high entropy, for user-provided passphrases the
+  `SqliteStoreBuilder::passphrase` function should still be used. Some examples
+  for the bindings are:
+
+  Kotlin:
+
+  ```kotlin
+  val buffer = ByteArray(size = 32)
+  SecureRandom().nextBytes(buffer)
+  return buffer // this now contains the key
+  ```
+
+  Swift:
+
+  ```swift
+  var bytes = [UInt8](repeating: 0, count: 32)
+  SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+  return Data(bytes: bytes) // this now contains the key
+  ``` ([#6805](https://github.com/matrix-org/matrix-rust-sdk/pulls/6805))
+
+### Changed
+
+- [**breaking**] `SpaceRoomList::rooms` and
+  `SpaceRoomList::subscribe_to_room_updates` are now asynchronous.
+  ([#6561](https://github.com/matrix-org/matrix-rust-sdk/pulls/6561))
+- [**breaking**] `Client::set_pusher` now takes an `append: bool` parameter,
+  forwarded to the homeserver. Pass `true` to keep an existing pusher with the
+  same `app_id` and `pushkey` registered for other users (e.g. multi-profile
+  clients on a single device); pass `false` to preserve the previous default
+  behaviour. ([#6600](https://github.com/matrix-org/matrix-rust-sdk/pulls/6600))
+
 ## [0.17.0] - 2026-05-08
 
 ### Bug fixes

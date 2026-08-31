@@ -1,5 +1,7 @@
 //! Helpers for integration tests involving sliding sync.
 
+use std::collections::BTreeSet;
+
 use wiremock::{Match, MockServer, Request, http::Method};
 
 pub(crate) async fn check_requests(server: &MockServer, expected_requests: &[serde_json::Value]) {
@@ -166,4 +168,43 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
 
     (@assertion_config >=) => { assert_json_diff::Config::new(assert_json_diff::CompareMode::Inclusive) };
     (@assertion_config =) => { assert_json_diff::Config::new(assert_json_diff::CompareMode::Strict) };
+}
+
+pub(crate) async fn assert_sliding_sync_presence_for_conn_ids(
+    server: &MockServer,
+    expected_presence: Option<&str>,
+    expected_conn_ids: &[&str],
+) {
+    let num_expected_conn_ids = expected_conn_ids.len();
+    let expected_conn_ids =
+        expected_conn_ids.iter().map(|conn_id| (*conn_id).to_owned()).collect::<BTreeSet<_>>();
+    assert_eq!(expected_conn_ids.len(), num_expected_conn_ids, "duplicate expected conn IDs");
+
+    let mut seen_conn_ids = BTreeSet::new();
+
+    for request in &server.received_requests().await.expect("Request recording has been disabled") {
+        if !SlidingSyncMatcher.matches(request) {
+            continue;
+        }
+
+        let json_value = serde_json::from_slice::<serde_json::Value>(&request.body).unwrap();
+        let Some(conn_id) = json_value.get("conn_id").and_then(|obj| obj.as_str()) else {
+            panic!("sliding sync request missing conn_id: {json_value:?}");
+        };
+        assert!(
+            expected_conn_ids.contains(conn_id),
+            "unexpected conn id seen server side: {conn_id}"
+        );
+
+        seen_conn_ids.insert(conn_id.to_owned());
+
+        let set_presence = request
+            .url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "set_presence").then_some(value.into_owned()));
+
+        assert_eq!(set_presence.as_deref(), expected_presence, "conn_id: {conn_id}");
+    }
+
+    assert_eq!(seen_conn_ids, expected_conn_ids);
 }

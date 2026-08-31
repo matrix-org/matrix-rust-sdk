@@ -14,17 +14,17 @@
 
 use aes::{
     Aes256,
-    cipher::{IvSizeUser, KeyIvInit, KeySizeUser, StreamCipher, generic_array::GenericArray},
+    cipher::{IvSizeUser, KeyIvInit, KeySizeUser, StreamCipher},
 };
 use ctr::Ctr128BE;
 use hkdf::Hkdf;
 use hmac::{
-    Hmac, Mac as _,
+    Hmac, KeyInit as _, Mac as _,
     digest::{FixedOutput, MacError},
 };
 use pbkdf2::pbkdf2;
 use rand::{Rng, rng};
-use sha2::{Sha256, Sha512};
+use sha2::{Sha256, Sha512, digest::array::Array};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 // We could use the `keysize()` method Aes256Ctr as KeySize exposes, but it's
@@ -36,8 +36,8 @@ pub(crate) const MAC_SIZE: usize = 32;
 
 type Aes256Ctr = Ctr128BE<Aes256>;
 
-type Aes256Key = GenericArray<u8, <Aes256Ctr as KeySizeUser>::KeySize>;
-type Aes256Iv = GenericArray<u8, <Aes256Ctr as IvSizeUser>::IvSize>;
+type Aes256Key = Array<u8, <Aes256Ctr as KeySizeUser>::KeySize>;
+type Aes256Iv = Array<u8, <Aes256Ctr as IvSizeUser>::IvSize>;
 type HmacSha256Key = [u8; KEY_SIZE];
 
 /// An authentication tag for the HMAC-SHA-256 message authentication algorithm.
@@ -174,7 +174,7 @@ impl AesHmacSha2Key {
         initialization_vector: &[u8; IV_SIZE],
     ) -> Vec<u8> {
         let mut cipher =
-            Aes256Ctr::new(self.aes_key(), Aes256Iv::from_slice(initialization_vector));
+            Aes256Ctr::new(self.aes_key(), Aes256Iv::cast_from_core(initialization_vector));
         cipher.apply_keystream(&mut plaintext);
 
         plaintext
@@ -189,10 +189,10 @@ impl AesHmacSha2Key {
     /// provided besides the ciphertext for a decryption attempt.
     pub(crate) fn create_mac_tag(&self, ciphertext: &[u8]) -> HmacSha256Mac {
         let mut mac = [0u8; 32];
-        let mac_array = GenericArray::from_mut_slice(&mut mac);
+        let mac_array = Array::cast_from_core_mut(&mut mac);
 
         let mut hmac = Hmac::<Sha256>::new_from_slice(self.mac_key())
-            .expect("We should be able to create a new HMAC object from our 32 byte MAC key");
+            .expect("We should be able to initialize an HMAC object from a 32 byte key");
 
         hmac.update(ciphertext);
         hmac.finalize_into(mac_array);
@@ -208,7 +208,7 @@ impl AesHmacSha2Key {
     /// This method *must* be called before a call to
     /// [`AesHmacSha2Key::decrypt()`].
     pub(crate) fn verify_mac(&self, message: &[u8], mac: &[u8; MAC_SIZE]) -> Result<(), MacError> {
-        let mac_array = GenericArray::from_slice(mac);
+        let mac_array = Array::cast_from_core(mac);
 
         let mut hmac = Hmac::<Sha256>::new_from_slice(self.mac_key())
             .expect("We should be able to create a new HMAC object from our 32 byte MAC key");
@@ -271,7 +271,7 @@ impl AesHmacSha2Key {
 
     /// Get the encryption key.
     fn aes_key(&self) -> &Aes256Key {
-        Aes256Key::from_slice(self.aes_key.as_slice())
+        Aes256Key::cast_from_core(&self.aes_key)
     }
 
     /// Get the authentication key.

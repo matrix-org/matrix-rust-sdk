@@ -22,7 +22,10 @@ use wiremock::{
 };
 
 use crate::{
-    sliding_sync::{PartialSlidingSyncRequest, SlidingSyncMatcher, check_requests},
+    sliding_sync::{
+        PartialSlidingSyncRequest, SlidingSyncMatcher, assert_sliding_sync_presence_for_conn_ids,
+        check_requests,
+    },
     sliding_sync_then_assert_request_and_fake_response,
 };
 
@@ -168,6 +171,24 @@ async fn setup_mocking_sliding_sync_server(server: &MockServer) -> MockGuard {
         })
         .mount_as_scoped(server)
         .await
+}
+
+#[async_test]
+async fn test_encryption_sync_default_sync_presence_is_online() -> anyhow::Result<()> {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let _guard = setup_mocking_sliding_sync_server(&server).await;
+
+    let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new_for_testing()));
+    let sync_permit_guard = sync_permit.lock_owned().await;
+    let encryption_sync = EncryptionSyncService::new(client, None).await?;
+
+    encryption_sync.run_fixed_iterations(1, sync_permit_guard).await?;
+
+    assert_sliding_sync_presence_for_conn_ids(&server, None, &["encryption"]).await;
+
+    Ok(())
 }
 
 #[async_test]

@@ -913,8 +913,15 @@ mod tests {
         ) -> Self {
             let account = Account::with_device_id(user_id, device_id);
             let user_id = user_id.to_owned();
-            let private_identity =
-                Arc::new(Mutex::new(PrivateCrossSigningIdentity::for_account(&account)));
+            let private_identity = Arc::new(Mutex::new(
+                PrivateCrossSigningIdentity::for_account(
+                    &account,
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    None,
+                )
+                .await
+                .unwrap(),
+            ));
 
             let user_identity =
                 create_user_identity(&*private_identity.lock().await, is_me, is_verified, signer)

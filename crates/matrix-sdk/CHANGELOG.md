@@ -4,7 +4,51 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.18.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.18.0) - 2026-06-02
+
+### Added
+
+- Add `Client::tile_server` and a `TileServerInfo` struct to expose the
+  homeserver-advertised map tile server (`tile_server` field of the matrix
+  client well-known,
+  [MSC3488](https://github.com/matrix-org/matrix-spec-proposals/pull/3488)).
+  Returns `None` when the homeserver hasn't advertised one or the well-known is
+  unavailable.
+  ([#6610](https://github.com/matrix-org/matrix-rust-sdk/pulls/6610))
+
+### Changed
+
+- [**breaking**] `RumaApiError` is now a type alias for `UiaaResponse`, because
+  they have similar variants containing the same data. The `ClientApi` variant
+  is now `MatrixError`, and the `Uiaa` variant is `AuthResponse`.
+  ([#6574](https://github.com/matrix-org/matrix-rust-sdk/pulls/6574))
+- [**breaking**] `Pusher::set` now takes an `append: bool` parameter, forwarded
+  to the homeserver on `POST /_matrix/client/v3/pushers/set`. Pass `true` to
+  keep an existing pusher with the same `app_id` and `pushkey` registered for
+  other users (e.g. multi-profile clients on a single device); pass `false` to
+  preserve the previous default behaviour.
+  ([#6600](https://github.com/matrix-org/matrix-rust-sdk/pulls/6600))
+
+### Fixed
+
+- Upgrade Ruma to 0.16.0, fixing a deserialization issue for
+  `m.key.verification.accept` events.
+  ([#6628](https://github.com/matrix-org/matrix-rust-sdk/pulls/6628))
+- A cyclic reference of `Client` has been detected in
+  `ThreadSubscriptionCatchup`, preventing `Client` to drop correctly. This is
+  now fixed, removing a memory leak about `Client`.
+  ([#6594](https://github.com/matrix-org/matrix-rust-sdk/pulls/6594))
+- Fix a panic due to non-deterministic sorting of pinned events.
+  ([#6595](https://github.com/matrix-org/matrix-rust-sdk/pulls/6595))
+
 ## [0.17.0] - 2026-05-08
+
+### Security fixes
+
+- Reject invalid edits as candidates for the latest event.
+  ([#6454](https://github.com/matrix-org/matrix-rust-sdk/pull/6454), Moderate,
+  [CVE-2026-45057](https://www.cve.org/CVERecord?id=CVE-2026-45057),
+  [GHSA-h97m-27fx-42rx](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-h97m-27fx-42rx))
 
 ### Features
 
@@ -182,8 +226,6 @@ All notable changes to this project will be documented in this file.
   ([#6519](https://github.com/matrix-org/matrix-rust-sdk/pull/6519))
 - Add a recursion limit attribute that raises it from the default value of 128
   to 256. ([#6489](https://github.com/matrix-org/matrix-rust-sdk/pull/6489))
-- Reject invalid edits as candidates for the latest event.
-  ([#6454](https://github.com/matrix-org/matrix-rust-sdk/pull/6454))
 - Fix an infinite loop when loading pinned events from the storage.
   ([#6453](https://github.com/matrix-org/matrix-rust-sdk/pull/6453))
 - `beacon_info` stop events (`live: false`,
@@ -236,14 +278,14 @@ All notable changes to this project will be documented in this file.
   encoded Curve25519 public key.
   ([#5940](https://github.com/matrix-org/matrix-rust-sdk/pull/5940))
 - Remove an unwrap in `SlidingSync::send_sync_request` when an asynchronous task
-  panics or is cancelled.
+  panics or is canceled.
   ([#6316](https://github.com/matrix-org/matrix-rust-sdk/pull/6316))
 
 ### Refactor
 
 - [**breaking**] Upgrade Ruma to 0.15.1.
   ([#6503](https://github.com/matrix-org/matrix-rust-sdk/pull/6503))
-- Revert back to to determining lock dirtiness in
+- Revert back to determining lock dirtiness in
   `Encryption::{spin_lock_store, try_lock_once_store}` through logic defined in
   `OlmMachine`, rather than `CrossProcessLock`.
   ([#6496](https://github.com/matrix-org/matrix-rust-sdk/pull/6496))

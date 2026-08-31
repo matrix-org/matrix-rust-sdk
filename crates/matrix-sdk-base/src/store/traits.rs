@@ -45,6 +45,7 @@ use ruma::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
     },
+    profile::UserProfile,
     serde::Raw,
 };
 use serde::{Deserialize, Serialize};
@@ -273,14 +274,14 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// * `receipt_type` - The type of the receipt.
     ///
-    /// * `thread` - The thread containing this receipt.
+    /// * `receipt_thread` - The thread a receipt applies to.
     ///
     /// * `user_id` - The id of the user for whom the receipt should be fetched.
     async fn get_user_room_receipt_event(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>, Self::Error>;
 
@@ -293,7 +294,7 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// * `receipt_type` - The type of the receipts.
     ///
-    /// * `thread` - The thread containing this receipt.
+    /// * `receipt_thread` - The thread a receipt applies to.
     ///
     /// * `event_id` - The id of the event for which the receipts should be
     ///   fetched.
@@ -301,7 +302,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>, Self::Error>;
 
@@ -518,6 +519,28 @@ pub trait StateStore: AsyncTraitDeps {
         thread_id: &EventId,
     ) -> Result<Option<StoredThreadSubscription>, Self::Error>;
 
+    /// Get a user's global profile from the store.
+    ///
+    /// Global profiles are persisted as part of [`StateStore::save_changes`],
+    /// from the [`StateChanges::global_profiles`] field, following the MSC4262
+    /// update pattern: fields with an explicit `null` value are removed, while
+    /// fields not present are left unchanged.
+    ///
+    /// Returns `None` if there was no stored global profile for the given user.
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error>;
+
+    /// Get the global profiles for the given users from the store.
+    ///
+    /// See [`StateStore::get_global_profile`] for more details. Users without a
+    /// stored global profile are absent from the returned map.
+    async fn get_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, UserProfile>, Self::Error>;
+
     /// Close the store, releasing all held resources (database connections,
     /// file descriptors, file locks).
     ///
@@ -675,20 +698,20 @@ impl<T: StateStore> StateStore for &T {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>, Self::Error> {
-        (*self).get_user_room_receipt_event(room_id, receipt_type, thread, user_id).await
+        (*self).get_user_room_receipt_event(room_id, receipt_type, receipt_thread, user_id).await
     }
 
     async fn get_event_room_receipt_events(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>, Self::Error> {
-        (*self).get_event_room_receipt_events(room_id, receipt_type, thread, event_id).await
+        (*self).get_event_room_receipt_events(room_id, receipt_type, receipt_thread, event_id).await
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error> {
@@ -830,6 +853,20 @@ impl<T: StateStore> StateStore for &T {
         thread_id: &EventId,
     ) -> Result<Option<StoredThreadSubscription>, Self::Error> {
         (*self).load_thread_subscription(room, thread_id).await
+    }
+
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error> {
+        (*self).get_global_profile(user_id).await
+    }
+
+    async fn get_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, UserProfile>, Self::Error> {
+        (*self).get_global_profiles(user_ids).await
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
@@ -983,20 +1020,24 @@ impl<T: StateStore + ?Sized> StateStore for Arc<T> {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>, Self::Error> {
-        self.deref().get_user_room_receipt_event(room_id, receipt_type, thread, user_id).await
+        self.deref()
+            .get_user_room_receipt_event(room_id, receipt_type, receipt_thread, user_id)
+            .await
     }
 
     async fn get_event_room_receipt_events(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>, Self::Error> {
-        self.deref().get_event_room_receipt_events(room_id, receipt_type, thread, event_id).await
+        self.deref()
+            .get_event_room_receipt_events(room_id, receipt_type, receipt_thread, event_id)
+            .await
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error> {
@@ -1138,6 +1179,20 @@ impl<T: StateStore + ?Sized> StateStore for Arc<T> {
         thread_id: &EventId,
     ) -> Result<Option<StoredThreadSubscription>, Self::Error> {
         self.deref().load_thread_subscription(room, thread_id).await
+    }
+
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error> {
+        self.deref().get_global_profile(user_id).await
+    }
+
+    async fn get_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, UserProfile>, Self::Error> {
+        self.deref().get_global_profiles(user_ids).await
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
@@ -1301,11 +1356,11 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>, Self::Error> {
         self.0
-            .get_user_room_receipt_event(room_id, receipt_type, thread, user_id)
+            .get_user_room_receipt_event(room_id, receipt_type, receipt_thread, user_id)
             .await
             .map_err(Into::into)
     }
@@ -1314,11 +1369,11 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>, Self::Error> {
         self.0
-            .get_event_room_receipt_events(room_id, receipt_type, thread, event_id)
+            .get_event_room_receipt_events(room_id, receipt_type, receipt_thread, event_id)
             .await
             .map_err(Into::into)
     }
@@ -1473,6 +1528,20 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         self.0.remove_thread_subscription(room, thread_id).await.map_err(Into::into)
     }
 
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error> {
+        self.0.get_global_profile(user_id).await.map_err(Into::into)
+    }
+
+    async fn get_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, UserProfile>, Self::Error> {
+        self.0.get_global_profiles(user_ids).await.map_err(Into::into)
+    }
+
     async fn close(&self) -> Result<(), Self::Error> {
         self.0.close().await.map_err(Into::into)
     }
@@ -1538,6 +1607,22 @@ impl<T: StateStore> SaveLockedStateStore<T> {
             Err(IncorrectMutexGuardError.into())
         } else {
             self.store.save_changes(changes).await.map_err(Into::into)
+        }
+    }
+
+    /// Provides a means of calling [`StateStore::remove_room`] when the caller
+    /// has already acquired the underlying [`Mutex`]. Returns an error if
+    /// the [`MutexGuard`] provided does not reference the underlying
+    /// [`Mutex`].
+    pub async fn remove_room_with_guard(
+        &self,
+        guard: &MutexGuard<'_, ()>,
+        room_id: &RoomId,
+    ) -> Result<(), StoreError> {
+        if !std::ptr::eq(MutexGuard::mutex(guard), self.lock()) {
+            Err(IncorrectMutexGuardError.into())
+        } else {
+            self.store.remove_room(room_id).await.map_err(Into::into)
         }
     }
 }
@@ -1677,20 +1762,22 @@ impl<T: StateStore> StateStore for SaveLockedStateStore<T> {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>, Self::Error> {
-        self.store.get_user_room_receipt_event(room_id, receipt_type, thread, user_id).await
+        self.store.get_user_room_receipt_event(room_id, receipt_type, receipt_thread, user_id).await
     }
 
     async fn get_event_room_receipt_events(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>, Self::Error> {
-        self.store.get_event_room_receipt_events(room_id, receipt_type, thread, event_id).await
+        self.store
+            .get_event_room_receipt_events(room_id, receipt_type, receipt_thread, event_id)
+            .await
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error> {
@@ -1710,6 +1797,7 @@ impl<T: StateStore> StateStore for SaveLockedStateStore<T> {
     }
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<(), Self::Error> {
+        let _guard = self.lock.lock().await;
         self.store.remove_room(room_id).await
     }
 
@@ -1832,6 +1920,20 @@ impl<T: StateStore> StateStore for SaveLockedStateStore<T> {
         thread_id: &EventId,
     ) -> Result<(), Self::Error> {
         self.store.remove_thread_subscription(room, thread_id).await
+    }
+
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error> {
+        self.store.get_global_profile(user_id).await
+    }
+
+    async fn get_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, UserProfile>, Self::Error> {
+        self.store.get_global_profiles(user_ids).await
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
@@ -2475,6 +2577,7 @@ mod tests {
         use gloo_timers::future::sleep;
         use matrix_sdk_common::executor::spawn;
         use matrix_sdk_test::async_test;
+        use ruma::room_id;
         use tokio::sync::Mutex;
         #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
         use tokio::time::sleep;
@@ -2491,7 +2594,7 @@ mod tests {
         statestore_integration_tests!();
 
         #[async_test]
-        async fn test_state_store_only_accepts_guard_for_underlying_mutex() {
+        async fn test_save_changes_only_accepts_guard_for_underlying_mutex() {
             let state_store = SaveLockedStateStore::new(MemoryStore::new());
             let state_changes = StateChanges::default();
             state_store
@@ -2502,6 +2605,22 @@ mod tests {
             let mutex = Mutex::new(());
             state_store
                 .save_changes_with_guard(&mutex.lock().await, &state_changes)
+                .await
+                .expect_err("state store does not accept guard for unknown mutex");
+        }
+
+        #[async_test]
+        async fn test_remove_room_only_accepts_guard_for_underlying_mutex() {
+            let state_store = SaveLockedStateStore::new(MemoryStore::new());
+            let room_id = room_id!("!room");
+            state_store
+                .remove_room_with_guard(&state_store.lock().lock().await, room_id)
+                .await
+                .expect("state store accepts guard for underlying mutex");
+
+            let mutex = Mutex::new(());
+            state_store
+                .remove_room_with_guard(&mutex.lock().await, room_id)
                 .await
                 .expect_err("state store does not accept guard for unknown mutex");
         }
@@ -2548,6 +2667,36 @@ mod tests {
             // completed and therefore release the save lock
             assert_matches!(future::select(lock_task, save_task).await, Either::Left((_, save_task)) => {
                 timeout(Duration::from_millis(100), save_task)
+                    .await
+                    .expect("task completes before timeout")
+                    .expect("task completes successfully")
+                    .expect("task saves changes");
+            });
+        }
+
+        #[async_test]
+        async fn test_state_store_waits_to_acquire_lock_before_removing_room() {
+            let state_store = SaveLockedStateStore::new(MemoryStore::new().into_state_store());
+
+            // Acquire lock and hold it for 5 seconds
+            let lock_task = spawn({
+                let state_store = state_store.clone();
+                async move {
+                    let lock = state_store.lock();
+                    let _guard = lock.lock().await;
+                    sleep(Duration::from_secs(5)).await;
+                }
+            });
+
+            // Try to remove room from the state store while the lock is held by another
+            // task
+            let remove_task =
+                spawn(async move { state_store.remove_room(room_id!("!room")).await });
+
+            // Ensure that the second task does not progress until the first task has
+            // completed and therefore release the save lock
+            assert_matches!(future::select(lock_task, remove_task).await, Either::Left((_, remove_task)) => {
+                timeout(Duration::from_millis(100), remove_task)
                     .await
                     .expect("task completes before timeout")
                     .expect("task completes successfully")

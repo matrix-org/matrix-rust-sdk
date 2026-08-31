@@ -16,10 +16,11 @@ use std::cmp::Ordering;
 
 use super::{RoomListItem, Sorter};
 
-fn cmp<F>(are_latest_events_unsent: F, left: &RoomListItem, right: &RoomListItem) -> Ordering
-where
-    F: Fn(&RoomListItem, &RoomListItem) -> (bool, bool),
-{
+fn cmp(
+    are_latest_events_unsent: fn(&RoomListItem, &RoomListItem) -> (bool, bool),
+    left: &RoomListItem,
+    right: &RoomListItem,
+) -> Ordering {
     // We want latest events representing unsent events to come firsts. When
     // there is a remote latest event or no latest event, we don't want to sort
     // them.

@@ -15,6 +15,7 @@
 use std::{
     collections::BTreeSet,
     fmt,
+    ops::Deref,
     sync::{Arc, OnceLock},
 };
 
@@ -22,12 +23,12 @@ use as_variant::as_variant;
 use eyeball_im::{VectorDiff, VectorSubscriberStream};
 use eyeball_im_util::vector::{FilterMap, VectorObserverExt};
 use futures_core::Stream;
-use imbl::Vector;
+use imbl::{HashSet, Vector};
 use matrix_sdk::{
     deserialized_responses::TimelineEvent,
     event_cache::{
-        DecryptionRetryRequest, EventFocusThreadMode, PaginationStatus, RoomEventCache,
-        TimelineVectorDiffs,
+        DecryptionRetryRequest, EventCache, EventFocusedCache, PaginationStatus, PinnedEventsCache,
+        RoomEventCache, Subscriber as EventCacheSubscriber, ThreadEventCache, TimelineVectorDiffs,
     },
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
@@ -37,7 +38,8 @@ use matrix_sdk::{
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    TransactionId, UserId,
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     events::{
         AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
@@ -45,13 +47,13 @@ use ruma::{
         poll::unstable_start::UnstablePollStartEventContent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        relation::Annotation,
+        relation::{Annotation, RelationType},
         room::message::{MessageType, Relation},
     },
     room_version_rules::RoomVersionRules,
     serde::Raw,
 };
-use tokio::sync::{RwLock, RwLockWriteGuard, broadcast};
+use tokio::sync::{RwLock, RwLockWriteGuard};
 use tracing::{
     Instrument as _, Span, debug, error, field::debug, info, info_span, instrument, trace, warn,
 };
@@ -67,9 +69,9 @@ pub(super) use self::{
 };
 use super::{
     DateDividerMode, EmbeddedEvent, Error, EventSendState, EventTimelineItem, InReplyToDetails,
-    MediaUploadProgress, PaginationError, Profile, TimelineDetails, TimelineEventItemId,
-    TimelineFocus, TimelineItem, TimelineItemContent, TimelineItemKind,
-    TimelineReadReceiptTracking, VirtualTimelineItem,
+    MediaUploadProgress, Profile, TimelineDetails, TimelineEventItemId, TimelineFocus,
+    TimelineItem, TimelineItemContent, TimelineItemKind, TimelineReadReceiptTracking,
+    VirtualTimelineItem,
     algorithms::{rfind_event_by_id, rfind_event_item},
     event_item::{ReactionStatus, RemoteEventOrigin},
     item::TimelineUniqueId,
@@ -98,6 +100,19 @@ mod state_transaction;
 
 pub(super) use aggregations::*;
 pub(super) use decryption_retry_task::{CryptoDropHandles, spawn_crypto_tasks};
+use matrix_sdk_base::{CallIntentConsensus, RoomInfo};
+
+/// The outcome of [`TimelineController::should_send_receipt`].
+pub(super) enum SendReceiptDecision {
+    /// No read receipt should be sent.
+    DoNotSend,
+
+    /// A read receipt should be sent, targeting this event.
+    ///
+    /// This may differ from the event the caller asked about, since a read
+    /// receipt should not point at one of the user's own events.
+    SendTo(OwnedEventId),
+}
 
 /// Data associated to the current timeline focus.
 ///
@@ -110,6 +125,9 @@ pub(in crate::timeline) enum TimelineFocusKind {
     Live {
         /// Whether to hide in-thread events from the timeline.
         hide_threaded_events: bool,
+
+        /// The cache holding all the events for this focus.
+        event_cache: RoomEventCache,
     },
 
     /// The timeline is focused on a single event, and it can expand in one
@@ -128,15 +146,24 @@ pub(in crate::timeline) enum TimelineFocusKind {
         /// The thread mode to use for this event-focused timeline, which is
         /// part of the key for the memoized event-focused cache.
         thread_mode: TimelineEventFocusThreadMode,
+
+        /// The cache holding all the events for this focus.
+        event_cache: EventFocusedCache,
     },
 
     /// A live timeline for a thread.
     Thread {
         /// The root event for the current thread.
         root_event_id: OwnedEventId,
+
+        /// The cache holding all the events for this focus.
+        event_cache: ThreadEventCache,
     },
 
-    PinnedEvents,
+    PinnedEvents {
+        /// The cache holding all the events for this focus.
+        event_cache: PinnedEventsCache,
+    },
 }
 
 impl TimelineFocusKind {
@@ -159,14 +186,14 @@ impl TimelineFocusKind {
     /// Whether to hide in-thread events from the timeline.
     fn hide_threaded_events(&self) -> bool {
         match self {
-            TimelineFocusKind::Live { hide_threaded_events } => *hide_threaded_events,
+            TimelineFocusKind::Live { hide_threaded_events, .. } => *hide_threaded_events,
             TimelineFocusKind::Event { thread_mode, .. } => {
                 matches!(
                     thread_mode,
                     TimelineEventFocusThreadMode::Automatic { hide_threaded_events: true }
                 )
             }
-            TimelineFocusKind::Thread { .. } | TimelineFocusKind::PinnedEvents => false,
+            TimelineFocusKind::Thread { .. } | TimelineFocusKind::PinnedEvents { .. } => false,
         }
     }
 
@@ -180,8 +207,8 @@ impl TimelineFocusKind {
     fn thread_root(&self) -> Option<&EventId> {
         match self {
             TimelineFocusKind::Event { thread_root, .. } => thread_root.get().map(|v| &**v),
-            TimelineFocusKind::Live { .. } | TimelineFocusKind::PinnedEvents => None,
-            TimelineFocusKind::Thread { root_event_id } => Some(root_event_id),
+            TimelineFocusKind::Live { .. } | TimelineFocusKind::PinnedEvents { .. } => None,
+            TimelineFocusKind::Thread { root_event_id, .. } => Some(root_event_id),
         }
     }
 }
@@ -340,34 +367,80 @@ pub(super) struct InitFocusResult {
     pub focus_task: Option<BackgroundTaskHandle>,
 }
 
+/// Holds the various info about the current call
+#[derive(Clone, Debug, PartialEq)]
+pub struct ActiveCallInfo {
+    /// The list of users in the call
+    pub active_members: HashSet<OwnedUserId>,
+    /// The consensus intent of the call, audio/video
+    pub call_intent: CallIntentConsensus,
+    /// True if the user (with any device) is currently in the call, meaning
+    /// they have joined and haven't left yet.
+    pub is_joined: bool,
+    /// The timestamp of when the call started, in milliseconds since the unix
+    /// epoch. Currently, this is the origin_server_ts of the rtc.notification
+    /// event.
+    pub call_started_ts_millis: Option<MilliSecondsSinceUnixEpoch>,
+}
+
+impl ActiveCallInfo {
+    pub(crate) fn from_info(room_info: RoomInfo, owned_user_id: OwnedUserId) -> Option<Self> {
+        if room_info.has_active_room_call() {
+            Some(ActiveCallInfo {
+                active_members: HashSet::from(room_info.active_room_call_participants()),
+                call_intent: room_info.active_room_call_consensus_intent(),
+                is_joined: room_info.active_room_call_participants().contains(&owned_user_id),
+                call_started_ts_millis: None,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn with_start_time(self, timestamp: Option<MilliSecondsSinceUnixEpoch>) -> Self {
+        Self { call_started_ts_millis: timestamp, ..self }
+    }
+}
+
 impl<P: RoomDataProvider> TimelineController<P> {
-    pub(super) fn new(
+    pub(super) async fn new(
         room_data_provider: P,
-        focus: TimelineFocus,
+        focus: &TimelineFocus,
+        event_cache: &EventCache,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
         is_room_encrypted: bool,
         settings: TimelineSettings,
-    ) -> Self {
-        let focus = match focus {
-            TimelineFocus::Live { hide_threaded_events } => {
-                TimelineFocusKind::Live { hide_threaded_events }
-            }
+    ) -> Result<Self, Error> {
+        let room_id = room_data_provider.room_id();
 
-            TimelineFocus::Event { target, thread_mode, .. } => {
+        let focus = match focus {
+            TimelineFocus::Live { hide_threaded_events } => TimelineFocusKind::Live {
+                hide_threaded_events: *hide_threaded_events,
+                event_cache: event_cache.room(room_id).await?.0,
+            },
+
+            TimelineFocus::Event { target, thread_mode, num_context_events, .. } => {
                 TimelineFocusKind::Event {
-                    focused_event_id: target,
+                    event_cache: event_cache
+                        .event_focused(room_id, target, (*thread_mode).into(), *num_context_events)
+                        .await?
+                        .0,
+                    focused_event_id: target.clone(),
                     // This will be initialized in `Self::init_focus`.
                     thread_root: OnceLock::new(),
-                    thread_mode,
+                    thread_mode: *thread_mode,
                 }
             }
 
-            TimelineFocus::Thread { root_event_id, .. } => {
-                TimelineFocusKind::Thread { root_event_id }
-            }
+            TimelineFocus::Thread { root_event_id, .. } => TimelineFocusKind::Thread {
+                event_cache: event_cache.thread(room_id, root_event_id).await?.0,
+                root_event_id: root_event_id.clone(),
+            },
 
-            TimelineFocus::PinnedEvents => TimelineFocusKind::PinnedEvents,
+            TimelineFocus::PinnedEvents => TimelineFocusKind::PinnedEvents {
+                event_cache: event_cache.pinned_events(room_id).await?.0,
+            },
         };
 
         let focus = Arc::new(focus);
@@ -378,9 +451,10 @@ impl<P: RoomDataProvider> TimelineController<P> {
             internal_id_prefix,
             unable_to_decrypt_hook,
             is_room_encrypted,
+            None,
         )));
 
-        Self { state, focus, room_data_provider, settings }
+        Ok(Self { state, focus, room_data_provider, settings })
     }
 
     /// Listens to encryption state changes for the room in
@@ -492,6 +566,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         &self,
         item_id: &TimelineEventItemId,
         key: &str,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
     ) -> Result<bool, Error> {
         let mut state = self.state.write().await;
 
@@ -531,7 +606,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                     trace!("adding a reaction to a remote echo");
                     let annotation = Annotation::new(event_id.to_owned(), key.to_owned());
                     self.room_data_provider
-                        .send(ReactionEventContent::from(annotation).into())
+                        .send(ReactionEventContent::from(annotation).into(), extra_content)
                         .await?;
                     return Ok(true);
                 }
@@ -726,6 +801,51 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
     pub(super) async fn handle_fully_read_marker(&self, fully_read_event_id: OwnedEventId) {
         self.state.write().await.handle_fully_read_marker(fully_read_event_id);
+    }
+
+    pub(super) async fn handle_active_call_update(
+        &self,
+        maybe_active_call: Option<ActiveCallInfo>,
+    ) {
+        let mut state = self.state.write().await;
+        let mut txn = state.transaction();
+
+        // Store the current active call info in metadata for new RtcNotification items
+        txn.meta.active_call = maybe_active_call.clone();
+
+        if let Some(existing_event_id) = &txn.meta.active_rtc_notification_event_id {
+            // Clean up the notification event
+            let last_notification = rfind_event_by_id(&txn.items, existing_event_id);
+            if let Some((last_idx, last_notification)) = last_notification {
+                let updated_content = match last_notification.content() {
+                    TimelineItemContent::RtcNotification {
+                        call_intent,
+                        declined_by,
+                        active_call_info: _active_call_info,
+                    } => Some(TimelineItemContent::RtcNotification {
+                        call_intent: call_intent.to_owned(),
+                        declined_by: declined_by.clone(),
+                        active_call_info: maybe_active_call
+                            .clone()
+                            .map(|info| info.with_start_time(last_notification.timestamp.into())),
+                    }),
+                    _ => None,
+                };
+                if let Some(new_content) = updated_content {
+                    let new_event_item = last_notification.inner.with_content(new_content);
+                    let new_timeline_item =
+                        TimelineItem::new(new_event_item, last_notification.internal_id.clone());
+                    txn.items.replace(last_idx, new_timeline_item);
+                }
+
+                if maybe_active_call.is_none() {
+                    // There is no active rtc_notification anymore
+                    txn.meta.active_rtc_notification_event_id = None;
+                }
+            }
+        }
+
+        txn.commit();
     }
 
     pub(super) async fn handle_ephemeral_events(
@@ -1098,7 +1218,12 @@ impl<P: RoomDataProvider> TimelineController<P> {
         self.state
             .read()
             .await
-            .latest_user_read_receipt(user_id, receipt_thread, &self.room_data_provider)
+            .latest_user_read_receipt(
+                user_id,
+                receipt_thread,
+                &self.room_data_provider,
+                read_receipts::ImplicitReadReceipts::Include,
+            )
             .await
     }
 
@@ -1329,21 +1454,17 @@ impl TimelineController {
     ///
     /// Should be called only once after creation of the [`TimelineController`],
     /// with all its fields set.
-    pub(super) async fn init_focus(
-        &self,
-        focus: &TimelineFocus,
-        room_event_cache: &RoomEventCache,
-    ) -> Result<InitFocusResult, Error> {
-        match focus {
-            TimelineFocus::Live { .. } => {
+    pub(super) async fn init_focus(&self) -> Result<InitFocusResult, Error> {
+        match self.focus.deref() {
+            TimelineFocusKind::Live { event_cache, .. } => {
                 // Retrieve the cached events, and add them to the timeline.
-                let events = room_event_cache.events().await?;
+                let events = event_cache.events().await?;
 
                 let has_events = !events.is_empty();
 
                 self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
 
-                match room_event_cache.pagination().status().get() {
+                match event_cache.pagination().status().get() {
                     PaginationStatus::Idle { hit_timeline_start } => {
                         if hit_timeline_start {
                             // Eagerly insert the timeline start item, since pagination claims
@@ -1357,41 +1478,21 @@ impl TimelineController {
                 Ok(InitFocusResult { has_events, focus_task: None })
             }
 
-            TimelineFocus::Event { target: event_id, num_context_events, thread_mode } => {
-                // Use the event-focused cache from the event cache layer.
-                let event_cache_thread_mode = match thread_mode {
-                    TimelineEventFocusThreadMode::ForceThread => EventFocusThreadMode::ForceThread,
-                    TimelineEventFocusThreadMode::Automatic { .. } => {
-                        EventFocusThreadMode::Automatic
-                    }
-                };
-
-                let cache = room_event_cache
-                    .get_or_create_event_focused_cache(
-                        event_id.clone(),
-                        *num_context_events,
-                        event_cache_thread_mode,
-                    )
-                    .await
-                    .map_err(PaginationError::EventCache)?;
-
-                let (events, receiver) = cache.subscribe().await;
+            TimelineFocusKind::Event {
+                focused_event_id: event_id,
+                thread_mode,
+                thread_root: focus_thread_root,
+                event_cache,
+                ..
+            } => {
+                let (events, receiver) = event_cache.subscribe().await?;
 
                 let has_events = !events.is_empty();
 
                 // Ask the cache for the thread root, if it managed to extract one or decided
                 // that the target event was the thread root.
-                match &*self.focus {
-                    TimelineFocusKind::Event { thread_root: focus_thread_root, .. } => {
-                        if let Some(thread_root) = cache.thread_root().await {
-                            focus_thread_root.get_or_init(|| thread_root);
-                        }
-                    }
-                    TimelineFocusKind::Live { .. }
-                    | TimelineFocusKind::Thread { .. }
-                    | TimelineFocusKind::PinnedEvents => {
-                        panic!("unexpected focus for an event-focused timeline")
-                    }
+                if let Some(thread_root) = event_cache.thread_root().await? {
+                    focus_thread_root.get_or_init(|| thread_root);
                 }
 
                 self.replace_with_initial_remote_events(events, RemoteEventOrigin::Pagination)
@@ -1406,7 +1507,7 @@ impl TimelineController {
                         event_focused_task(
                             event_id.clone(),
                             (*thread_mode).into(),
-                            room_event_cache.clone(),
+                            event_cache.clone(),
                             self.clone(),
                             receiver,
                         ),
@@ -1416,9 +1517,8 @@ impl TimelineController {
                 Ok(InitFocusResult { has_events, focus_task: Some(task) })
             }
 
-            TimelineFocus::Thread { root_event_id, .. } => {
-                let (has_events, receiver) =
-                    self.init_with_thread_root(root_event_id, room_event_cache).await?;
+            TimelineFocusKind::Thread { event_cache, .. } => {
+                let (has_events, subscriber) = self.init_with_thread_root(event_cache).await?;
 
                 let room = &self.room_data_provider;
                 let span = info_span!(
@@ -1433,22 +1533,16 @@ impl TimelineController {
                     .task_monitor()
                     .spawn_infinite_task(
                         "timeline::thread_event_cache_updates",
-                        thread_updates_task(
-                            receiver,
-                            room_event_cache.clone(),
-                            self.clone(),
-                            root_event_id.clone(),
-                        )
-                        .instrument(span),
+                        thread_updates_task(subscriber, event_cache.clone(), self.clone())
+                            .instrument(span),
                     )
                     .abort_on_drop();
 
                 Ok(InitFocusResult { has_events, focus_task: Some(task) })
             }
 
-            TimelineFocus::PinnedEvents => {
-                let (initial_events, pinned_events_recv) =
-                    room_event_cache.subscribe_to_pinned_events().await?;
+            TimelineFocusKind::PinnedEvents { event_cache } => {
+                let (initial_events, pinned_events_recv) = event_cache.subscribe().await?;
 
                 let has_events = !initial_events.is_empty();
 
@@ -1463,12 +1557,8 @@ impl TimelineController {
                     .client()
                     .task_monitor()
                     .spawn_infinite_task(
-                        "timeline::pinned_event_cache_updates",
-                        pinned_events_task(
-                            room_event_cache.clone(),
-                            self.clone(),
-                            pinned_events_recv,
-                        ),
+                        "timeline::pinned_events_cache_updates",
+                        pinned_events_task(event_cache.clone(), self.clone(), pinned_events_recv),
                     )
                     .abort_on_drop();
 
@@ -1485,11 +1575,9 @@ impl TimelineController {
     /// inserted in the timeline.
     pub(super) async fn init_with_thread_root(
         &self,
-        root_event_id: &OwnedEventId,
-        room_event_cache: &RoomEventCache,
-    ) -> Result<(bool, broadcast::Receiver<TimelineVectorDiffs>), Error> {
-        let (events, receiver) =
-            room_event_cache.subscribe_to_thread(root_event_id.clone()).await?;
+        event_cache: &ThreadEventCache,
+    ) -> Result<(bool, EventCacheSubscriber<TimelineVectorDiffs>), Error> {
+        let (events, subscriber) = event_cache.subscribe().await?;
         let has_events = !events.is_empty();
 
         // For each event, we also need to find the related events, as they don't
@@ -1498,7 +1586,7 @@ impl TimelineController {
         let mut related_events = Vector::new();
         for event_id in events.iter().filter_map(|event| event.event_id()) {
             if let Some((_original, related)) =
-                room_event_cache.find_event_with_relations(&event_id, None).await?
+                event_cache.find_event_with_relations(event_id, None).await?
             {
                 related_events.extend(related);
             }
@@ -1515,7 +1603,7 @@ impl TimelineController {
             .await;
         }
 
-        Ok((has_events, receiver))
+        Ok((has_events, subscriber))
     }
 
     /// Given an event identifier, will fetch the details for the event it's
@@ -1618,83 +1706,144 @@ impl TimelineController {
         }
     }
 
-    /// Check whether the given receipt should be sent.
+    /// Decide whether a read receipt should be sent, and which event it should
+    /// target.
     ///
-    /// Returns `false` if the given receipt is older than the current one.
+    /// The returned event may differ from `event_id`: a read receipt should not
+    /// point at one of the user's own events (see the Matrix spec's [Receipts
+    /// module]), so if `event_id` is one of theirs, the latest unread event
+    /// before it that is targeted instead.
+    ///
+    /// - When there's no such earlier event and `is_marking_room_as_read` is
+    ///   `false`, [`SendReceiptDecision::DoNotSend`] is returned.
+    /// - When `is_marking_room_as_read` is `true`, the receipt falls back to
+    ///   `event_id` itself if it is explicitly unread, so that the homeserver
+    ///   still recomputes the push/badge count.
+    ///
+    /// [Receipts module]: https://spec.matrix.org/latest/client-server-api/#receipts
     pub(super) async fn should_send_receipt(
         &self,
         receipt_type: &SendReceiptType,
         receipt_thread: &ReceiptThread,
         event_id: &EventId,
-    ) -> bool {
+        is_marking_room_as_read: bool,
+    ) -> SendReceiptDecision {
         let own_user_id = self.room().own_user_id();
         let state = self.state.read().await;
         let room = self.room();
+        let all_remote_events = state.items.all_remote_events();
 
-        match receipt_type {
-            SendReceiptType::Read => {
-                if let Some((old_pub_read, _)) = state
-                    .meta
-                    .user_receipt(
-                        own_user_id,
-                        ReceiptType::Read,
-                        receipt_thread.clone(),
-                        room,
-                        state.items.all_remote_events(),
-                    )
-                    .await
-                {
-                    trace!(%old_pub_read, "found a previous public receipt");
-                    if let Some(relative_pos) = TimelineMetadata::compare_events_positions(
-                        &old_pub_read,
-                        event_id,
-                        state.items.all_remote_events(),
-                    ) {
-                        trace!(
-                            "event referred to new receipt is {relative_pos:?} the previous receipt"
-                        );
-                        return relative_pos == RelativePosition::After;
+        // Resolve the event the receipt should target, redirecting away from the
+        // user's own events for read receipts.
+        let target_event_id = match receipt_type {
+            SendReceiptType::Read | SendReceiptType::ReadPrivate => {
+                let is_own_event = all_remote_events
+                    .get_by_event_id(event_id)
+                    .and_then(|event_meta| event_meta.sender.as_deref())
+                    == Some(own_user_id);
+
+                if is_own_event {
+                    let filter_out_thread_events = match self.focus() {
+                        TimelineFocusKind::Thread { .. } | TimelineFocusKind::Event { .. } => false,
+                        TimelineFocusKind::Live { hide_threaded_events, .. } => {
+                            *hide_threaded_events
+                        }
+                        TimelineFocusKind::PinnedEvents { .. } => true,
+                    };
+
+                    let previous_event = all_remote_events
+                        .iter()
+                        .rev()
+                        // Only consider the events that precede the requested one.
+                        .skip_while(|event_meta| event_meta.event_id != *event_id)
+                        .skip(1)
+                        // Never point a read receipt at one of the user's own events.
+                        .filter(|event_meta| event_meta.sender.as_deref() != Some(own_user_id))
+                        .find_map(|event_meta| {
+                            if !filter_out_thread_events {
+                                Some(event_meta.event_id.clone())
+                            } else if event_meta.thread_root_id.is_none() {
+                                if let Some(TimelineEventItemId::EventId(aggregated_event_id)) =
+                                    state.meta.aggregations.is_aggregation_of(
+                                        &TimelineEventItemId::EventId(event_meta.event_id.clone()),
+                                    )
+                                    && let Some(target_meta) =
+                                        all_remote_events.get_by_event_id(aggregated_event_id)
+                                    && target_meta.thread_root_id.is_some()
+                                {
+                                    None
+                                } else {
+                                    Some(event_meta.event_id.clone())
+                                }
+                            } else {
+                                None
+                            }
+                        });
+
+                    match previous_event {
+                        Some(event_id) => event_id,
+                        // Nothing from another user to point at. When marking the room as read,
+                        // fall back to the user's own event so the homeserver still recomputes
+                        // its push/badge count; otherwise there's nothing to send.
+                        None if is_marking_room_as_read => event_id.to_owned(),
+                        None => return SendReceiptDecision::DoNotSend,
                     }
+                } else {
+                    event_id.to_owned()
                 }
             }
+
+            _ => event_id.to_owned(),
+        };
+
+        // Find the real receipt the homeserver already knows about.
+        let previous_event_id = match receipt_type {
+            SendReceiptType::Read => state
+                .meta
+                .user_receipt(
+                    own_user_id,
+                    ReceiptType::Read,
+                    receipt_thread.clone(),
+                    room,
+                    all_remote_events,
+                    read_receipts::ImplicitReadReceipts::Exclude,
+                )
+                .await
+                .map(|(event_id, _)| event_id),
 
             // Implicit read receipts are saved as public read receipts, so get the latest. It also
             // doesn't make sense to have a private read receipt behind a public one.
-            SendReceiptType::ReadPrivate => {
-                if let Some((old_priv_read, _)) =
-                    state.latest_user_read_receipt(own_user_id, receipt_thread.clone(), room).await
-                {
-                    trace!(%old_priv_read, "found a previous private receipt");
-                    if let Some(relative_pos) = TimelineMetadata::compare_events_positions(
-                        &old_priv_read,
-                        event_id,
-                        state.items.all_remote_events(),
-                    ) {
-                        trace!(
-                            "event referred to new receipt is {relative_pos:?} the previous receipt"
-                        );
-                        return relative_pos == RelativePosition::After;
-                    }
-                }
-            }
+            SendReceiptType::ReadPrivate => state
+                .latest_user_read_receipt(
+                    own_user_id,
+                    receipt_thread.clone(),
+                    room,
+                    read_receipts::ImplicitReadReceipts::Exclude,
+                )
+                .await
+                .map(|(event_id, _)| event_id),
 
-            SendReceiptType::FullyRead => {
-                if let Some(prev_event_id) = self.room_data_provider.load_fully_read_marker().await
-                    && let Some(relative_pos) = TimelineMetadata::compare_events_positions(
-                        &prev_event_id,
-                        event_id,
-                        state.items.all_remote_events(),
-                    )
-                {
-                    return relative_pos == RelativePosition::After;
-                }
-            }
+            SendReceiptType::FullyRead => self.room_data_provider.load_fully_read_marker().await,
 
-            _ => {}
+            _ => None,
+        };
+
+        // Don't send anything if the resolved event isn't more recent than that.
+        if let Some(previous_event_id) = previous_event_id {
+            trace!(%previous_event_id, "found a previous receipt");
+            if let Some(relative_pos) = TimelineMetadata::compare_events_positions(
+                &previous_event_id,
+                &target_event_id,
+                all_remote_events,
+            ) && relative_pos != RelativePosition::After
+            {
+                return SendReceiptDecision::DoNotSend;
+            }
         }
 
-        // Let the server handle unknown receipts.
-        true
+        // No previous receipt was found (or it's an unknown one): let the server
+        // handle it.
+        SendReceiptDecision::SendTo(target_event_id)
     }
 
     /// Returns the latest event identifier, even if it's not visible, or if
@@ -1703,12 +1852,12 @@ impl TimelineController {
         let state = self.state.read().await;
         let filter_out_thread_events = match self.focus() {
             TimelineFocusKind::Thread { .. } => false,
-            TimelineFocusKind::Live { hide_threaded_events } => *hide_threaded_events,
+            TimelineFocusKind::Live { hide_threaded_events, .. } => *hide_threaded_events,
             TimelineFocusKind::Event { .. } => {
                 // For event-focused timelines, filtering is handled in the event cache layer.
                 false
             }
-            TimelineFocusKind::PinnedEvents => true,
+            TimelineFocusKind::PinnedEvents { .. } => true,
         };
 
         state
@@ -1795,6 +1944,20 @@ impl<P: RoomDataProvider> TimelineController<P> {
     /// Returns the timeline focus of the [`TimelineController`].
     pub(super) fn focus(&self) -> &TimelineFocusKind {
         &self.focus
+    }
+
+    /// Find an event by ID in this timeline, along with its related events.
+    ///
+    /// The related events can be filtered by relation type.
+    pub(in crate::timeline) async fn find_event_with_relations(
+        &self,
+        event_id: &EventId,
+        filter: Option<Vec<RelationType>>,
+    ) -> Result<(TimelineEvent, Vec<TimelineEvent>), Error> {
+        self.room_data_provider
+            .load_or_fetch_event_with_relations(event_id, filter)
+            .await
+            .map_err(Into::into)
     }
 }
 

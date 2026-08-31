@@ -512,7 +512,7 @@ mod tests {
     use imbl::{Vector, vector};
 
     use super::{
-        super::{Chunk, ChunkIdentifierGenerator, LinkedChunk, Update},
+        super::{Chunk, ChunkIdentifier, ChunkIdentifierGenerator, LinkedChunk, Update},
         VectorDiff,
     };
 
@@ -807,11 +807,10 @@ mod tests {
             assert_eq!(diffs.len(), 1);
             assert_matches!(&diffs[0], VectorDiff::Clear);
 
-            // 1 chunk in the `UpdateToVectorDiff` mapper.
+            // 0 chunk in the `UpdateToVectorDiff` mapper, because the new chunk is lazily
+            // created.
             let chunks = &as_vector.mapper.chunks;
-            assert_eq!(chunks.len(), 1);
-            assert_eq!(chunks[0].0, ChunkIdentifierGenerator::FIRST_IDENTIFIER);
-            assert_eq!(chunks[0].1, 0);
+            assert!(chunks.is_empty());
         }
 
         // And we can push again.
@@ -822,6 +821,14 @@ mod tests {
             assert_eq!(diffs.len(), 2);
             assert_matches!(&diffs[0], VectorDiff::Append { .. });
             assert_matches!(&diffs[1], VectorDiff::Append { .. });
+
+            // 2 chunks in the `UpdateToVectorDiff` mapper.
+            let chunks = &as_vector.mapper.chunks;
+            assert_eq!(chunks.len(), 2);
+            assert_eq!(chunks[0].0, ChunkIdentifierGenerator::FIRST_IDENTIFIER);
+            assert_eq!(chunks[0].1, 3);
+            assert_eq!(chunks[1].0, ChunkIdentifier(1));
+            assert_eq!(chunks[1].1, 1);
         }
     }
 

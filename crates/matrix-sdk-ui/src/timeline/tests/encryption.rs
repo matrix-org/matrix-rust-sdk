@@ -675,7 +675,7 @@ async fn test_retry_message_decryption_highlighted() {
 #[async_test]
 async fn test_utd_cause_for_nonmember_event_is_found() {
     // Given a timeline
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     // When we add an event with "membership: leave"
@@ -696,7 +696,7 @@ async fn test_utd_cause_for_nonmember_event_is_found() {
 #[async_test]
 async fn test_utd_cause_for_nonmember_event_is_found_unstable_prefix() {
     // Given a timeline
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     // When we add an event with "io.element.msc4115.membership: leave"
@@ -721,7 +721,7 @@ async fn test_utd_cause_for_nonmember_event_is_found_unstable_prefix() {
 #[async_test]
 async fn test_utd_cause_for_member_event_is_unknown() {
     // Given a timeline
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     // When we add an event with "membership: join"
@@ -742,7 +742,7 @@ async fn test_utd_cause_for_member_event_is_unknown() {
 #[async_test]
 async fn test_utd_cause_for_missing_membership_is_unknown() {
     // Given a timeline
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     // When we add an event with no membership in unsigned

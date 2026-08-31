@@ -58,7 +58,7 @@ use crate::{
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt, repeat_vars,
+        SqliteKeyValueStoreConnExt,
     },
 };
 
@@ -467,6 +467,7 @@ pub(crate) async fn run_migrations(
     }
 
     if version < 17 {
+        debug!("Upgrading database to version 17");
         let store = store.clone();
         conn.with_transaction(move |txn| {
             txn.execute_batch(include_str!(
@@ -496,6 +497,33 @@ pub(crate) async fn run_migrations(
                 "../migrations/crypto_store/017_drop_old_secrets_inbox.sql"
             ))?;
             txn.set_db_version(17)
+        })
+        .await?;
+    }
+
+    if version < 18 {
+        debug!("Upgrading database to version 18");
+        let store = store.clone();
+        conn.with_transaction(move |txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/018_add_gossip_request_info.sql"
+            ))?;
+            let mut select_query =
+                txn.prepare("SELECT request_id, sent_out, data FROM key_requests")?;
+            let mut requests = select_query.query([])?;
+            let mut update_query =
+                txn.prepare("UPDATE OR REPLACE key_requests SET info = ?1 WHERE request_id = ?2")?;
+            while let Some(row) = requests.next()? {
+                let Ok(request) = store.deserialize_key_request(
+                    row.get::<_, Vec<u8>>(2)?.as_ref(),
+                    row.get::<_, bool>(1)?,
+                ) else {
+                    continue;
+                };
+                let info = store.encode_key("key_requests", request.info.as_key());
+                update_query.execute((info, row.get::<_, Vec<u8>>(0)?))?;
+            }
+            txn.set_db_version(18)
         })
         .await?;
     }
@@ -535,6 +563,7 @@ trait SqliteConnectionExt {
         request_id: &[u8],
         sent_out: bool,
         data: &[u8],
+        info: &[u8],
     ) -> rusqlite::Result<()>;
 
     fn set_direct_withheld(
@@ -646,12 +675,17 @@ impl SqliteConnectionExt for rusqlite::Connection {
         request_id: &[u8],
         sent_out: bool,
         data: &[u8],
+        info: &[u8],
     ) -> rusqlite::Result<()> {
+        // The first `ON CONFLICT` cause will update a request if we try to save
+        // it again.  The second `ON CONFLICT` will replace an old request for
+        // the same key/secret with the new request.
         self.execute(
-            "INSERT INTO key_requests (request_id, sent_out, data)
-            VALUES (?1, ?2, ?3)
-            ON CONFLICT (request_id) DO UPDATE SET sent_out = ?2, data = ?3",
-            (request_id, sent_out, data),
+            "INSERT INTO key_requests (request_id, sent_out, data, info)
+            VALUES (?1, ?2, ?3, ?4)
+            ON CONFLICT (request_id) DO UPDATE SET sent_out = ?2, data = ?3, info = ?4
+            ON CONFLICT (info) DO UPDATE SET request_id = ?1, sent_out = ?2, data = ?3",
+            (request_id, sent_out, data, info),
         )?;
         Ok(())
     }
@@ -752,7 +786,7 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
         session_id: Key,
     ) -> Result<Option<(Vec<u8>, Vec<u8>, bool)>> {
         Ok(self
-            .query_row(
+            .query_one(
                 "SELECT room_id, data, backed_up FROM inbound_group_session WHERE session_id = ?",
                 (session_id,),
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
@@ -774,10 +808,10 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
         _backup_version: Option<&str>,
     ) -> Result<RoomKeyCounts> {
         let total = self
-            .query_row("SELECT count(*) FROM inbound_group_session", (), |row| row.get(0))
+            .query_one("SELECT count(*) FROM inbound_group_session", (), |row| row.get(0))
             .await?;
         let backed_up = self
-            .query_row(
+            .query_one(
                 "SELECT count(*) FROM inbound_group_session WHERE backed_up = TRUE",
                 (),
                 |row| row.get(0),
@@ -858,16 +892,17 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
             return Ok(());
         }
 
-        let session_ids_len = session_ids.len();
-
         self.chunk_large_query_over(session_ids, None, move |txn, session_ids| {
-            // Safety: placeholders is not generated using any user input except the number
-            // of session IDs, so it is safe from injection.
-            let sql_params = repeat_vars(session_ids_len);
-            let query = format!("UPDATE inbound_group_session SET backed_up = TRUE where session_id IN ({sql_params})");
-            txn.prepare(&query)?.execute(params_from_iter(session_ids.iter()))?;
+            // Safety: host parameters are not generated using any user input except the
+            // number of session IDs, so it is safe from injection.
+            let query = format!(
+                "UPDATE inbound_group_session SET backed_up = TRUE where session_id IN ({})",
+                session_ids.host_parameters()
+            );
+            txn.prepare(&query)?.execute(params_from_iter(session_ids))?;
             Ok(Vec::<()>::new())
-        }).await?;
+        })
+        .await?;
 
         Ok(())
     }
@@ -879,7 +914,7 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
 
     async fn get_outbound_group_session(&self, room_id: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
-            .query_row(
+            .query_one(
                 "SELECT data FROM outbound_group_session WHERE room_id = ?",
                 (room_id,),
                 |row| row.get(0),
@@ -890,7 +925,7 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
 
     async fn get_device(&self, user_id: Key, device_id: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
-            .query_row(
+            .query_one(
                 "SELECT data FROM device WHERE user_id = ? AND device_id = ?",
                 (user_id, device_id),
                 |row| row.get(0),
@@ -909,14 +944,14 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
 
     async fn get_user_identity(&self, user_id: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
-            .query_row("SELECT data FROM identity WHERE user_id = ?", (user_id,), |row| row.get(0))
+            .query_one("SELECT data FROM identity WHERE user_id = ?", (user_id,), |row| row.get(0))
             .await
             .optional()?)
     }
 
     async fn has_olm_hash(&self, data: Vec<u8>) -> Result<bool> {
         Ok(self
-            .query_row("SELECT count(*) FROM olm_hash WHERE data = ?", (data,), |row| {
+            .query_one("SELECT count(*) FROM olm_hash WHERE data = ?", (data,), |row| {
                 row.get::<_, i32>(0)
             })
             .await?
@@ -953,7 +988,7 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
         request_id: Key,
     ) -> Result<Option<(Vec<u8>, bool)>> {
         Ok(self
-            .query_row(
+            .query_one(
                 "SELECT data, sent_out FROM key_requests WHERE request_id = ?",
                 (request_id,),
                 |row| Ok((row.get(0)?, row.get(1)?)),
@@ -962,12 +997,13 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
             .optional()?)
     }
 
-    async fn get_outgoing_secret_requests(&self) -> Result<Vec<(Vec<u8>, bool)>> {
+    async fn get_secret_request_by_info(&self, info: Key) -> Result<Option<(Vec<u8>, bool)>> {
         Ok(self
-            .prepare("SELECT data, sent_out FROM key_requests", |mut stmt| {
-                stmt.query(())?.mapped(|row| Ok((row.get(0)?, row.get(1)?))).collect()
+            .query_one("SELECT data, sent_out FROM key_requests WHERE info = ?", (info,), |row| {
+                Ok((row.get(0)?, row.get(1)?))
             })
-            .await?)
+            .await
+            .optional()?)
     }
 
     async fn get_unsent_secret_requests(&self) -> Result<Vec<Vec<u8>>> {
@@ -1002,7 +1038,7 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
         room_id: Key,
     ) -> Result<Option<Vec<u8>>> {
         Ok(self
-            .query_row(
+            .query_one(
                 "SELECT data FROM direct_withheld_info WHERE session_id = ?1 AND room_id = ?2",
                 (session_id, room_id),
                 |row| row.get(0),
@@ -1021,7 +1057,7 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
 
     async fn get_room_settings(&self, room_id: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
-            .query_row("SELECT data FROM room_settings WHERE room_id = ?", (room_id,), |row| {
+            .query_one("SELECT data FROM room_settings WHERE room_id = ?", (room_id,), |row| {
                 row.get(0)
             })
             .await
@@ -1034,7 +1070,7 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
         sender_user: Key,
     ) -> Result<Option<Vec<u8>>> {
         Ok(self
-            .query_row(
+            .query_one(
                 "SELECT bundle_data FROM received_room_key_bundle WHERE room_id = ? AND sender_user_id = ?",
                 (room_id, sender_user),
                 |row| { row.get(0) },
@@ -1045,7 +1081,7 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
 
     async fn get_room_pending_key_bundle(&self, room_id: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
-            .query_row(
+            .query_one(
                 "SELECT data FROM rooms_pending_key_bundle WHERE room_id = ?",
                 (room_id,),
                 |row| row.get(0),
@@ -1248,7 +1284,13 @@ impl CryptoStore for SqliteCryptoStore {
                 for request in changes.key_requests {
                     let request_id = this.encode_key("key_requests", request.request_id.as_bytes());
                     let serialized_request = this.serialize_value(&request)?;
-                    txn.set_key_request(&request_id, request.sent_out, &serialized_request)?;
+                    let serialized_info = this.encode_key("key_requests", request.info.as_key());
+                    txn.set_key_request(
+                        &request_id,
+                        request.sent_out,
+                        &serialized_request,
+                        &serialized_info,
+                    )?;
                 }
 
                 for (room_id, data) in changes.withheld_session_info {
@@ -1613,14 +1655,14 @@ impl CryptoStore for SqliteCryptoStore {
         &self,
         key_info: &SecretInfo,
     ) -> Result<Option<GossipRequest>> {
-        let requests = self.read().await?.get_outgoing_secret_requests().await?;
-        for (request, sent_out) in requests {
-            let request = self.deserialize_key_request(&request, sent_out)?;
-            if request.info == *key_info {
-                return Ok(Some(request));
-            }
-        }
-        Ok(None)
+        let key_info = self.encode_key("key_requests", key_info.as_key());
+        Ok(self
+            .read()
+            .await?
+            .get_secret_request_by_info(key_info)
+            .await?
+            .map(|(value, sent_out)| self.deserialize_key_request(&value, sent_out))
+            .transpose()?)
     }
 
     async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>> {
@@ -1802,7 +1844,7 @@ impl CryptoStore for SqliteCryptoStore {
             .write()
             .await?
             .with_transaction(move |txn| {
-                txn.query_row(
+                txn.query_one(
                     "INSERT INTO lease_locks (key, holder, expiration)
                     VALUES (?1, ?2, ?3)
                     ON CONFLICT (key)
@@ -2265,8 +2307,8 @@ mod tests {
 
     /// Test that we migrate the secrets inbox properly.
     ///
-    /// The format for the secrets inbox changed in version 15.  Previously, the
-    /// secrets inbox stored a full `GossippedSecrets` struct.  In version 15,
+    /// The format for the secrets inbox changed in version 17.  Previously, the
+    /// secrets inbox stored a full `GossippedSecrets` struct.  In version 17,
     /// the secrets inbox now stores only the secret.
     #[async_test]
     async fn test_secrets_inbox_migration() {
@@ -2342,6 +2384,151 @@ mod tests {
             store.get_secrets_from_inbox(&SecretName::CrossSigningMasterKey).await.unwrap();
         assert_eq!(secrets.len(), 1);
         assert_eq!(secrets[0].deref(), "It is a secret to everybody");
+    }
+
+    /// Test that we migrate the key requests table properly.
+    ///
+    /// Version 18 added a new column, with a unique index on the column,
+    /// meaning that it can now only store one request per requested secret/key.
+    /// Test that when we migrate from an older version that has multiple
+    /// requests for the same secret, it only keeps one.
+    #[async_test]
+    async fn test_key_requests_migration() {
+        use matrix_sdk_crypto::{GossipRequest, SecretInfo};
+        use ruma::{TransactionId, events::secret::request::SecretName, owned_user_id};
+
+        use crate::utils::{EncryptableStore, SqliteAsyncConnExt};
+
+        // Create a database with version 16
+        let tmpdir = tempdir().unwrap();
+        let config = SqliteStoreConfig::new(tmpdir.path());
+        let pool = config.build_pool_of_connections(super::DATABASE_NAME).unwrap();
+        let conn = pool.get().await.unwrap();
+        let version = super::initialize_store(&conn, 0).await.unwrap();
+        let old_data_store = SqliteCryptoStore::create_raw(
+            config.secret.clone(),
+            pool,
+            conn,
+            config.pool_config(),
+            config.runtime_config(),
+        )
+        .await
+        .unwrap();
+        super::run_migrations(&old_data_store, version, Some(16)).await.unwrap();
+        old_data_store.write().await.unwrap().wal_checkpoint().await;
+
+        // Store a secret using the old format
+        let recovery_request1 = GossipRequest {
+            request_recipient: owned_user_id!("@alice:example.com"),
+            request_id: TransactionId::new(),
+            info: SecretInfo::SecretRequest(SecretName::RecoveryKey),
+            sent_out: true,
+        };
+        let serialized_recovery_request1 =
+            old_data_store.serialize_value(&recovery_request1).unwrap();
+        let recovery_request2 = GossipRequest {
+            request_recipient: owned_user_id!("@alice:example.com"),
+            request_id: TransactionId::new(),
+            info: SecretInfo::SecretRequest(SecretName::RecoveryKey),
+            sent_out: true,
+        };
+        let serialized_recovery_request2 =
+            old_data_store.serialize_value(&recovery_request2).unwrap();
+        let msk_request = GossipRequest {
+            request_recipient: owned_user_id!("@alice:example.com"),
+            request_id: TransactionId::new(),
+            info: SecretInfo::SecretRequest(SecretName::CrossSigningMasterKey),
+            sent_out: true,
+        };
+        let serialized_msk_request = old_data_store.serialize_value(&msk_request).unwrap();
+        let recovery_request1_clone = recovery_request1.clone();
+        let recovery_request2_clone = recovery_request2.clone();
+        let msk_request_clone = msk_request.clone();
+        old_data_store
+            .write()
+            .await
+            .unwrap()
+            .prepare(
+                "INSERT INTO key_requests (request_id, sent_out, data) VALUES (?1, ?2, ?3)",
+                move |mut stmt| {
+                    stmt.execute((
+                        old_data_store.encode_key(
+                            "key_requests",
+                            recovery_request1_clone.request_id.as_bytes(),
+                        ),
+                        recovery_request1_clone.sent_out,
+                        serialized_recovery_request1,
+                    ))?;
+                    stmt.execute((
+                        old_data_store.encode_key(
+                            "key_requests",
+                            recovery_request2_clone.request_id.as_bytes(),
+                        ),
+                        recovery_request2_clone.sent_out,
+                        serialized_recovery_request2,
+                    ))?;
+                    stmt.execute((
+                        old_data_store
+                            .encode_key("key_requests", msk_request_clone.request_id.as_bytes()),
+                        msk_request_clone.sent_out,
+                        serialized_msk_request,
+                    ))
+                },
+            )
+            .await
+            .unwrap();
+
+        // After we open the store, the data will be migrated
+        let store = SqliteCryptoStore::open_with_config(&config).await.unwrap();
+
+        // and we should be able to read one request for the recovery key and
+        // one request for the MSK
+        if let Some(GossipRequest {
+            request_id,
+            info: SecretInfo::SecretRequest(SecretName::RecoveryKey),
+            ..
+        }) = store
+            .get_secret_request_by_info(&SecretInfo::SecretRequest(SecretName::RecoveryKey))
+            .await
+            .unwrap()
+        {
+            if request_id == recovery_request1.request_id {
+                assert!(
+                    store
+                        .get_outgoing_secret_requests(&recovery_request2.request_id)
+                        .await
+                        .unwrap()
+                        .is_none()
+                );
+            } else if request_id == recovery_request2.request_id {
+                assert!(
+                    store
+                        .get_outgoing_secret_requests(&recovery_request1.request_id)
+                        .await
+                        .unwrap()
+                        .is_none()
+                );
+            } else {
+                panic!("unexpected record found");
+            }
+        } else {
+            panic!("expected to get a secret request");
+        }
+        if let Some(GossipRequest {
+            request_id,
+            info: SecretInfo::SecretRequest(SecretName::CrossSigningMasterKey),
+            ..
+        }) = store
+            .get_secret_request_by_info(&SecretInfo::SecretRequest(
+                SecretName::CrossSigningMasterKey,
+            ))
+            .await
+            .unwrap()
+        {
+            assert_eq!(request_id, msk_request.request_id);
+        } else {
+            panic!("expected to get a secret request");
+        }
     }
 
     async fn get_store(

@@ -206,6 +206,9 @@ impl BaseClient {
 
         context.state_changes.ambiguity_maps = ambiguity_cache.cache;
 
+        // Persist any global profile updates received through the profiles extension.
+        context.state_changes.global_profiles = extensions.profiles.users.clone();
+
         // Save the changes and apply them.
         processors::changes::save_and_apply(
             context,
@@ -215,6 +218,29 @@ impl BaseClient {
             None,
         )
         .await?;
+
+        // Profile-only updates don't modify any rooms, so nothing else broadcasts
+        // them. Surface the change so subscribers can react accordingly.
+        if !extensions.profiles.is_empty() {
+            let _ = self
+                .global_profile_updates_sender
+                .send(extensions.profiles.users.keys().cloned().collect());
+
+            // Nudge `RoomInfo` so hero status/call fields are re-read.
+            #[cfg(feature = "unstable-msc4426")]
+            for room in self.state_store.rooms() {
+                if room
+                    .hero_user_ids()
+                    .iter()
+                    .any(|user_id| extensions.profiles.users.contains_key(user_id))
+                {
+                    room.update_room_info_with_store_guard(state_store_guard, |room_info| {
+                        (room_info, crate::RoomInfoNotableUpdateReasons::HEROES)
+                    })
+                    .map_err(crate::StoreError::from)?;
+                }
+            }
+        }
 
         let mut context = processors::Context::default();
 
@@ -298,11 +324,15 @@ mod tests {
                 pinned_events::RoomPinnedEventsEventContent,
             },
         },
-        mxc_uri, owned_event_id, owned_mxc_uri, owned_user_id, room_alias_id, room_id,
+        mxc_uri, owned_event_id, owned_mxc_uri, owned_user_id,
+        profile::{ProfileFieldName, UserProfileChanges, UserProfileUpdate},
+        room_alias_id, room_id,
         serde::Raw,
         uint, user_id,
     };
     use serde_json::json;
+    #[cfg(feature = "unstable-msc4426")]
+    use stream_assert::{assert_pending, assert_ready};
 
     use super::http;
     use crate::{
@@ -431,6 +461,146 @@ mod tests {
             )
             .await
             .expect("Failed to process sync");
+    }
+
+    #[async_test]
+    async fn test_profiles_extension_is_persisted_from_sliding_sync() {
+        let client = logged_in_base_client(None).await;
+
+        let alice = user_id!("@alice:e.uk");
+        let bob = user_id!("@bob:e.uk");
+
+        // Given a sliding sync response carrying the profiles extension (MSC4262)
+        // for two users, and no rooms.
+        let mut response = http::Response::new("0".to_owned());
+        response.extensions.profiles.users.insert(
+            alice.to_owned(),
+            make_profile_update(ProfileFieldName::DisplayName, json!("Alice")),
+        );
+        response.extensions.profiles.users.insert(
+            bob.to_owned(),
+            make_profile_update(ProfileFieldName::DisplayName, json!("Bob")),
+        );
+
+        // When the response is processed.
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        // Then both users' global profiles are persisted in the store.
+        let store = client.state_store();
+
+        let alice_profile = store
+            .get_global_profile(alice)
+            .await
+            .expect("Failed to read profile")
+            .expect("Alice's profile should be saved");
+        let alice_map: BTreeMap<String, serde_json::Value> = alice_profile.into_iter().collect();
+        assert_eq!(alice_map.get("displayname"), Some(&json!("Alice")));
+
+        let bob_profile = store
+            .get_global_profile(bob)
+            .await
+            .expect("Failed to read profile")
+            .expect("Bob's profile should be saved");
+        let bob_map: BTreeMap<String, serde_json::Value> = bob_profile.into_iter().collect();
+        assert_eq!(bob_map.get("displayname"), Some(&json!("Bob")));
+
+        // When a subsequent response only carries an update for Alice.
+        let mut response = http::Response::new("1".to_owned());
+        response.extensions.profiles.users.insert(
+            alice.to_owned(),
+            make_profile_update(ProfileFieldName::DisplayName, json!("Alice Updated")),
+        );
+
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        // Then Alice's profile is updated, and Bob's remains unchanged.
+        let alice_profile = store
+            .get_global_profile(alice)
+            .await
+            .expect("Failed to read profile")
+            .expect("Alice's profile should be saved");
+        let alice_map: BTreeMap<String, serde_json::Value> = alice_profile.into_iter().collect();
+        assert_eq!(alice_map.get("displayname"), Some(&json!("Alice Updated")));
+
+        let bob_profile = store
+            .get_global_profile(bob)
+            .await
+            .expect("Failed to read profile")
+            .expect("Bob's profile should still be saved");
+        let bob_map: BTreeMap<String, serde_json::Value> = bob_profile.into_iter().collect();
+        assert_eq!(bob_map.get("displayname"), Some(&json!("Bob")));
+    }
+
+    #[async_test]
+    async fn test_profiles_extension_broadcasts_global_profile_updates() {
+        let client = logged_in_base_client(None).await;
+
+        let alice = user_id!("@alice:e.uk");
+        let bob = user_id!("@bob:e.uk");
+
+        // Given a subscriber to global profile updates.
+        let mut global_profile_updates = client.subscribe_to_global_profile_updates();
+
+        // When a sliding sync response carries the profiles extension for two users.
+        let mut response = http::Response::new("0".to_owned());
+        response.extensions.profiles.users.insert(
+            alice.to_owned(),
+            make_profile_update(ProfileFieldName::DisplayName, json!("Alice")),
+        );
+        response.extensions.profiles.users.insert(
+            bob.to_owned(),
+            make_profile_update(ProfileFieldName::DisplayName, json!("Bob")),
+        );
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        // Then the changed user IDs are broadcast.
+        let users =
+            global_profile_updates.recv().await.expect("should receive a global profile update");
+        assert_eq!(users.len(), 2);
+        assert!(users.contains(alice));
+        assert!(users.contains(bob));
+
+        // When a subsequent response only carries an update for Alice.
+        let mut response = http::Response::new("1".to_owned());
+        response.extensions.profiles.users.insert(
+            alice.to_owned(),
+            make_profile_update(ProfileFieldName::DisplayName, json!("Alice Updated")),
+        );
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        // Then only Alice is broadcast.
+        let users =
+            global_profile_updates.recv().await.expect("should receive a global profile update");
+        assert_eq!(users.len(), 1);
+        assert!(users.contains(alice));
     }
 
     #[async_test]
@@ -1488,6 +1658,74 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[cfg(feature = "unstable-msc4426")]
+    #[async_test]
+    async fn test_hero_global_profile_update_triggers_notable_update() {
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!r:e.uk");
+        let alice = owned_user_id!("@alice:e.uk");
+
+        // Given a room where Alice is a hero.
+        let mut room = http::response::Room::new();
+        room.heroes = Some(vec![assign!(http::response::Hero::new(alice.clone()), {
+            name: Some("Alice".to_owned()),
+        })]);
+        let response = response_with_room(room_id, room);
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        let room = client.get_room(room_id).expect("The room should be known");
+        let mut room_info_subscriber = room.subscribe_info();
+        let mut room_info_notable_update = client.room_info_notable_update_receiver();
+
+        assert_pending!(room_info_subscriber);
+
+        // When a subsequent sync carries only a profiles-extension update for Alice.
+        let mut response = http::Response::new("1".to_owned());
+        response.extensions.profiles.users.insert(
+            alice.clone(),
+            make_profile_update(ProfileFieldName::Status, json!({ "text": "Away", "emoji": "🌴" })),
+        );
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        // Then a `HEROES` notable update is emitted for the room, so consumers
+        // re-read the hero profiles.
+        assert_matches!(
+            room_info_notable_update.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(reasons.contains(RoomInfoNotableUpdateReasons::HEROES));
+            }
+        );
+        assert!(room_info_notable_update.is_empty());
+
+        // And the `RoomInfo` observable is notified too, so that subscribers of
+        // `Room::subscribe_info` re-read the hero profiles as well.
+        assert_ready!(room_info_subscriber);
+        assert_pending!(room_info_subscriber);
+
+        // Sanity check: Alice's hero carries the new status.
+        let heroes = room.heroes().await;
+        assert_eq!(heroes.len(), 1);
+        assert_eq!(heroes[0].user_id, alice);
+        let status = heroes[0].status.as_ref().expect("Alice's status should be set");
+        assert_eq!(status.text, "Away");
+        assert_eq!(status.emoji, "🌴");
     }
 
     #[async_test]
@@ -2695,5 +2933,11 @@ mod tests {
         }))
         .expect("Failed to create state event")
         .cast_unchecked()
+    }
+
+    fn make_profile_update(field: ProfileFieldName, value: serde_json::Value) -> UserProfileUpdate {
+        let mut changes = UserProfileChanges::new();
+        changes.updated.insert(field, value);
+        UserProfileUpdate::Updated(changes)
     }
 }

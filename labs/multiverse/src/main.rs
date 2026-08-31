@@ -1,4 +1,5 @@
 #![allow(clippy::large_enum_variant)]
+#![recursion_limit = "256"]
 
 use std::{
     collections::{HashMap, HashSet},
@@ -149,9 +150,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    let event_cache = client.event_cache();
-    event_cache.config_mut().experimental_auto_backpagination = true;
-    event_cache.subscribe()?;
+    client.event_cache().subscribe()?;
 
     let terminal = ratatui::init();
     execute!(stdout(), EnableMouseCapture)?;
@@ -743,22 +742,20 @@ impl App {
                                 Enter => {
                                     if let Some(query) = view.get_text() {
                                         if *is_global {
-                                            let mut search =
-                                                self.client.search_messages(query, 5).build();
+                                            let search =
+                                                self.client.search_messages(query).build_events();
+                                            pin_mut!(search);
 
                                             let mut all_results = HashMap::new();
-                                            loop {
-                                                let Ok(results) = search.next_events().await else {
+                                            while let Some(result) = search.next().await {
+                                                let Ok(page) = result else {
                                                     continue;
                                                 };
-                                                let Some(results) = results else {
-                                                    break;
-                                                };
-                                                for (room_id, event_id) in results {
+                                                for (room_id, event) in page {
                                                     all_results
                                                         .entry(room_id)
                                                         .or_insert_with(Vec::new)
-                                                        .push(event_id);
+                                                        .push(event);
                                                 }
                                             }
 
@@ -773,13 +770,12 @@ impl App {
                                         } else if let Some((query, room)) =
                                             view.get_text().zip(self.room_view.room())
                                         {
-                                            let mut room_search = room.search_messages(query, 5);
+                                            let room_search = room.search_messages_events(query);
+                                            pin_mut!(room_search);
 
                                             let mut all_results = Vec::new();
-                                            while let Some(results) =
-                                                room_search.next_events().await?
-                                            {
-                                                all_results.extend(results);
+                                            while let Some(result) = room_search.next().await {
+                                                all_results.extend(result?);
                                             }
                                             view.set_results(vec![(None, all_results)]);
                                         }
@@ -921,6 +917,7 @@ async fn configure_client(cli: Cli) -> Result<Client> {
             auto_enable_backups: true,
         })
         .with_enable_share_history_on_invite(true)
+        .with_enable_automatic_back_pagination(true)
         .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
         .search_index_store(SearchIndexStoreKind::UnencryptedDirectory(
             session_path.join("indexData"),
