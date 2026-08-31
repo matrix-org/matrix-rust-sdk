@@ -421,6 +421,15 @@ impl InnerSas {
     }
 
     pub fn emoji(&self) -> Option<[Emoji; 7]> {
+        // The emoji representation must only be offered when the emoji method
+        // was part of the negotiated short auth string methods, i.e. it was
+        // listed in the `m.key.verification.accept` event. Otherwise the two
+        // sides may present representations that cannot be compared to each
+        // other.
+        if !self.supports_emoji() {
+            return None;
+        }
+
         match self {
             InnerSas::KeysExchanged(s) => Some(s.get_emoji()),
             InnerSas::MacReceived(s) => Some(s.get_emoji()),
@@ -429,6 +438,10 @@ impl InnerSas {
     }
 
     pub fn emoji_index(&self) -> Option<[u8; 7]> {
+        if !self.supports_emoji() {
+            return None;
+        }
+
         match self {
             InnerSas::KeysExchanged(s) => Some(s.get_emoji_index()),
             InnerSas::MacReceived(s) => Some(s.get_emoji_index()),
