@@ -255,7 +255,7 @@ impl ThreadEventCache {
         let mut state = self.inner.state.write().await?;
 
         let (stored_prev_batch_token, timeline_event_diffs) =
-            state.handle_sync(timeline, read_receipts).await?;
+            state.handle_sync(timeline, &read_receipts).await?;
 
         // Now that all events have been added, we can trigger the
         // `pagination_token_notifier`.
@@ -273,6 +273,12 @@ impl ThreadEventCache {
                 // handled by it.
                 None,
             );
+        }
+
+        if let Some(read_receipts) = read_receipts.into_inner() {
+            state
+                .update_sender
+                .send(ThreadEventCacheUpdate::AddReadReceiptEvent { event: read_receipts }, None);
         }
 
         Ok(())
