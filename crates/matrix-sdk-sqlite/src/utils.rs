@@ -125,6 +125,12 @@ pub(crate) trait SqliteAsyncConnExt {
         E: From<rusqlite::Error> + Send + 'static,
         F: FnOnce(&Transaction<'_>) -> Result<T, E> + Send + 'static;
 
+    /// Chunk a large query over some keys.
+    ///
+    /// Imagine there is a _dynamic_ query that runs potentially large number of
+    /// parameters, so much that the maximum number of parameters can be hit.
+    /// Then, this helper is for you. It will execute the query on chunks of
+    /// parameters.
     async fn chunk_large_query_over<Query, Res>(
         &self,
         mut keys_to_chunk: Vec<Key>,
@@ -133,7 +139,7 @@ pub(crate) trait SqliteAsyncConnExt {
     ) -> Result<Vec<Res>>
     where
         Res: Send + 'static,
-        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static;
+        Query: Fn(&Transaction<'_>, ChunkFromLargeQuery<Key>) -> Result<Vec<Res>> + Send + 'static;
 
     /// Apply the [`RuntimeConfig`].
     ///
@@ -352,12 +358,6 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         .map_err(E::from)?
     }
 
-    /// Chunk a large query over some keys.
-    ///
-    /// Imagine there is a _dynamic_ query that runs potentially large number of
-    /// parameters, so much that the maximum number of parameters can be hit.
-    /// Then, this helper is for you. It will execute the query on chunks of
-    /// parameters.
     async fn chunk_large_query_over<Query, Res>(
         &self,
         keys_to_chunk: Vec<Key>,
@@ -366,7 +366,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
     ) -> Result<Vec<Res>>
     where
         Res: Send + 'static,
-        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static,
+        Query: Fn(&Transaction<'_>, ChunkFromLargeQuery<Key>) -> Result<Vec<Res>> + Send + 'static,
     {
         self.with_transaction(move |txn| {
             txn.chunk_large_query_over(keys_to_chunk, result_capacity, do_query)
@@ -391,6 +391,7 @@ fn map_interact_err(error: InteractError) -> rusqlite::Error {
 }
 
 pub(crate) trait SqliteTransactionExt {
+    /// See [`SqliteAsyncConnExt::chunk_large_query_over`].
     fn chunk_large_query_over<Key, Query, Res>(
         &self,
         keys_to_chunk: Vec<Key>,
@@ -399,7 +400,37 @@ pub(crate) trait SqliteTransactionExt {
     ) -> Result<Vec<Res>>
     where
         Res: Send + 'static,
-        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static;
+        Query: Fn(&Transaction<'_>, ChunkFromLargeQuery<Key>) -> Result<Vec<Res>> + Send + 'static;
+}
+
+/// Represent the new chunk prepared by
+/// [`SqliteAsyncConnExt::chunk_large_query_over`] or
+/// [`SqliteTransactionExt::chunk_large_query_over`].
+#[repr(transparent)]
+pub(crate) struct ChunkFromLargeQuery<Key>(Vec<Key>);
+
+impl<Key> IntoIterator for ChunkFromLargeQuery<Key> {
+    type Item = Key;
+    type IntoIter = std::vec::IntoIter<Key>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<Key> ChunkFromLargeQuery<Key> {
+    /// Return the correct number of host parameters (the `?` variable in an SQL
+    /// query) equals to the size of the chunk.
+    pub fn host_parameters(&self) -> impl fmt::Display + use<Key> {
+        repeat_vars(self.0.len())
+    }
+
+    /// Iterate over the keys in the chunk, by reference.
+    ///
+    /// To get an owned iterator, see the `IntoIterator` implementation.
+    pub fn iter(&self) -> std::slice::Iter<'_, Key> {
+        self.0.iter()
+    }
 }
 
 impl SqliteTransactionExt for Transaction<'_> {
@@ -411,7 +442,7 @@ impl SqliteTransactionExt for Transaction<'_> {
     ) -> Result<Vec<Res>>
     where
         Res: Send + 'static,
-        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static,
+        Query: Fn(&Transaction<'_>, ChunkFromLargeQuery<Key>) -> Result<Vec<Res>> + Send + 'static,
     {
         // Divide by 2 to allow space for more static parameters (not part of
         // `keys_to_chunk`).
@@ -424,7 +455,7 @@ impl SqliteTransactionExt for Transaction<'_> {
             // Chunking isn't necessary.
             let chunk = keys_to_chunk;
 
-            Ok(do_query(self, chunk)?)
+            Ok(do_query(self, ChunkFromLargeQuery(chunk))?)
         } else {
             // Chunking _is_ necessary.
 
@@ -438,7 +469,7 @@ impl SqliteTransactionExt for Transaction<'_> {
                 let chunk = keys_to_chunk;
                 keys_to_chunk = tail;
 
-                all_results.extend(do_query(self, chunk)?);
+                all_results.extend(do_query(self, ChunkFromLargeQuery(chunk))?);
             }
 
             Ok(all_results)

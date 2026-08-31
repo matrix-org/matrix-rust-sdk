@@ -51,7 +51,7 @@ use crate::{
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt, repeat_vars,
+        SqliteKeyValueStoreConnExt,
     },
 };
 
@@ -931,8 +931,8 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         let keys_length = keys.len();
 
         self.chunk_large_query_over(keys, Some(keys_length), |txn, keys| {
-            let sql_params = repeat_vars(keys.len());
-            let sql = format!("SELECT value FROM kv_blob WHERE key IN ({sql_params})");
+            let sql =
+                format!("SELECT value FROM kv_blob WHERE key IN ({})", keys.host_parameters());
 
             let params = rusqlite::params_from_iter(keys);
 
@@ -976,11 +976,11 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         event_type: Key,
         state_keys: Vec<Key>,
     ) -> Result<Vec<(bool, Vec<u8>)>> {
-        self.chunk_large_query_over(state_keys, None, move |txn, state_keys: Vec<Key>| {
-            let sql_params = repeat_vars(state_keys.len());
+        self.chunk_large_query_over(state_keys, None, move |txn, state_keys| {
             let sql = format!(
                 "SELECT stripped, data FROM state_event
-                 WHERE room_id = ? AND event_type = ? AND state_key IN ({sql_params})"
+                 WHERE room_id = ? AND event_type = ? AND state_key IN ({})",
+                state_keys.host_parameters()
             );
 
             let params = rusqlite::params_from_iter(
@@ -1022,9 +1022,9 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         let user_ids_length = user_ids.len();
 
         self.chunk_large_query_over(user_ids, Some(user_ids_length), move |txn, user_ids| {
-            let sql_params = repeat_vars(user_ids.len());
             let sql = format!(
-                "SELECT user_id, data FROM profile WHERE room_id = ? AND user_id IN ({sql_params})"
+                "SELECT user_id, data FROM profile WHERE room_id = ? AND user_id IN ({})",
+                user_ids.host_parameters(),
             );
 
             let params = rusqlite::params_from_iter(iter::once(room_id.clone()).chain(user_ids));
@@ -1042,9 +1042,9 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         let user_ids_length = user_ids.len();
 
         self.chunk_large_query_over(user_ids, Some(user_ids_length), move |txn, user_ids| {
-            let sql_params = repeat_vars(user_ids.len());
             let sql = format!(
-                "SELECT user_id, profile_data FROM global_profiles WHERE user_id IN ({sql_params})"
+                "SELECT user_id, profile_data FROM global_profiles WHERE user_id IN ({})",
+                user_ids.host_parameters(),
             );
 
             let params = rusqlite::params_from_iter(user_ids);
@@ -1066,9 +1066,9 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
             .await?
         } else {
             self.chunk_large_query_over(memberships, None, move |txn, memberships| {
-                let sql_params = repeat_vars(memberships.len());
                 let sql = format!(
-                    "SELECT data FROM member WHERE room_id = ? AND membership IN ({sql_params})"
+                    "SELECT data FROM member WHERE room_id = ? AND membership IN ({})",
+                    memberships.host_parameters(),
                 );
 
                 let params =
@@ -1120,9 +1120,9 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         let names_length = names.len();
 
         self.chunk_large_query_over(names, Some(names_length), move |txn, names| {
-            let sql_params = repeat_vars(names.len());
             let sql = format!(
-                "SELECT name, data FROM display_name WHERE room_id = ? AND name IN ({sql_params})"
+                "SELECT name, data FROM display_name WHERE room_id = ? AND name IN ({})",
+                names.host_parameters()
             );
 
             let params = rusqlite::params_from_iter(iter::once(room_id.clone()).chain(names));

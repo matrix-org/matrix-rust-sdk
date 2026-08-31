@@ -1584,7 +1584,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                             FROM event_chunks \
                             WHERE linked_chunk_id = ? AND event_id IN ({}) \
                             ORDER BY chunk_id ASC, position ASC",
-                            repeat_vars(event_ids_and_hashed_event_ids.len()),
+                            event_ids_and_hashed_event_ids.host_parameters(),
                         );
 
                         let parameters = params_from_iter(
