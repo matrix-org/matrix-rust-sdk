@@ -227,8 +227,14 @@ impl ThreadSubscriptionCatchup {
         let mut tokens = guard.load_catchup_tokens().await?.unwrap_or_default();
 
         if let Some(token) = token {
-            trace!(?token, "Saving catchup token");
-            tokens.push(token);
+            // Gappy syncs on a busy account can cause the same catchup token to be sent
+            // repeatedly. We dedupe the tokens here to prevent duplicate catchup requests.
+            if tokens.contains(&token) {
+                trace!(?token, "Skipping duplicate catchup token");
+            } else {
+                trace!(?token, "Saving catchup token");
+                tokens.push(token);
+            }
         } else {
             trace!("No catchup token to save");
         }
@@ -443,6 +449,25 @@ mod tests {
 
         // And we are not outdated anymore!
         assert!(tsc.is_outdated().not());
+    }
+
+    #[async_test]
+    async fn test_save_catchup_token_deduplicates() {
+        let client = MockClientBuilder::new(None).build().await;
+
+        let tsc = client.thread_subscription_catchup();
+        let guard = tsc.lock().await.unwrap();
+
+        let token =
+            ThreadSubscriptionCatchupToken { from: "from".to_owned(), to: Some("to".to_owned()) };
+
+        // When the same catchup token is saved twice,
+        tsc.save_catchup_token(&guard, Some(token.clone())).await.unwrap();
+        tsc.save_catchup_token(&guard, Some(token.clone())).await.unwrap();
+
+        // Then it must only appear once in the stored list.
+        let tokens = guard.load_catchup_tokens().await.unwrap();
+        assert_eq!(tokens, Some(vec![token]));
     }
 }
 
