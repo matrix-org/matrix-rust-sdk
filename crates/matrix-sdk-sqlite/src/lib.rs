@@ -13,7 +13,12 @@
 // limitations under the License.
 
 #![cfg_attr(
-    not(any(feature = "state-store", feature = "crypto-store", feature = "event-cache")),
+    not(any(
+        feature = "state-store",
+        feature = "crypto-store",
+        feature = "event-cache-store",
+        feature = "media-store"
+    )),
     allow(dead_code, unused_imports)
 )]
 
@@ -21,9 +26,9 @@ mod connection;
 #[cfg(feature = "crypto-store")]
 mod crypto_store;
 mod error;
-#[cfg(feature = "event-cache")]
+#[cfg(feature = "event-cache-store")]
 mod event_cache_store;
-#[cfg(feature = "event-cache")]
+#[cfg(feature = "media-store")]
 mod media_store;
 #[cfg(feature = "state-store")]
 mod state_store;
@@ -40,9 +45,9 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 #[cfg(feature = "crypto-store")]
 pub use self::crypto_store::SqliteCryptoStore;
 pub use self::error::OpenStoreError;
-#[cfg(feature = "event-cache")]
+#[cfg(feature = "event-cache-store")]
 pub use self::event_cache_store::SqliteEventCacheStore;
-#[cfg(feature = "event-cache")]
+#[cfg(feature = "media-store")]
 pub use self::media_store::SqliteMediaStore;
 #[cfg(feature = "state-store")]
 pub use self::state_store::{DATABASE_NAME as STATE_STORE_DATABASE_NAME, SqliteStateStore};

@@ -24,8 +24,6 @@ use url::Url;
 
 use super::{WidgetSettings, url_params};
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 /// Serialization struct for URL parameters for the Element Call widget.
 /// These are documented at https://github.com/element-hq/element-call/blob/livekit/docs/url-params.md
 ///
@@ -35,15 +33,15 @@ use super::{WidgetSettings, url_params};
 ///
 /// # Example:
 ///
-/// ```
-/// ElementCallParams {
+/// ```no_compile
+/// # use matrix_sdk::widget::settings::element_call::ElementCallUrlParams;
+/// ElementCallUrlParams {
 ///     // Required parameters:
 ///     user_id: "@1234",
 ///     room_id: "$1234",
-///     ...
 ///     // Optional configuration:
 ///     hide_screensharing: Some(true),
-///     ..ElementCallParams::default()
+///     ..Default::default()
 /// }
 /// ```
 /// will become: `my.url? ...requires_parameters... &hide_screensharing=true`
@@ -51,6 +49,8 @@ use super::{WidgetSettings, url_params};
 /// URLs parameters is that the `intent` implies defaults for all configuration
 /// values in the widget itself. Setting the URL parameter specifically will
 /// overwrite those defaults.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ElementCallUrlParams {
     user_id: String,
     room_id: String,

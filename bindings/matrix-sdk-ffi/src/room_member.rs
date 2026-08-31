@@ -1,7 +1,10 @@
 use matrix_sdk::room::{RoomMember as SdkRoomMember, RoomMemberRole};
 use ruma::{UserId, events::room::power_levels::UserPowerLevel};
 
-use crate::error::{ClientError, NotYetImplemented};
+use crate::{
+    error::{ClientError, NotYetImplemented},
+    ruma::{UserCall, UserStatus},
+};
 
 #[derive(Clone, uniffi::Enum)]
 pub enum MembershipState {
@@ -90,6 +93,8 @@ pub struct RoomMember {
     pub user_id: String,
     pub display_name: Option<String>,
     pub avatar_url: Option<String>,
+    pub status: Option<UserStatus>,
+    pub call: Option<UserCall>,
     pub membership: MembershipState,
     pub is_name_ambiguous: bool,
     pub power_level: PowerLevel,
@@ -107,6 +112,8 @@ impl TryFrom<SdkRoomMember> for RoomMember {
             user_id: m.user_id().to_string(),
             display_name: m.display_name().map(|s| s.to_owned()),
             avatar_url: m.avatar_url().map(|a| a.to_string()),
+            status: m.status().cloned().map(UserStatus::from),
+            call: m.call().cloned().map(UserCall::from),
             membership: m.membership().clone().try_into()?,
             is_name_ambiguous: m.name_ambiguous(),
             power_level: m.power_level().try_into()?,

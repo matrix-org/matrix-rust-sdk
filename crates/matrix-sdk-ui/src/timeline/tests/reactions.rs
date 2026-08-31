@@ -125,6 +125,27 @@ async fn test_add_reaction_success() {
 }
 
 #[async_test]
+async fn test_add_reaction_with_extra_content() {
+    let timeline = TestTimeline::new().await;
+    let mut stream = timeline.subscribe().await;
+    let (item_id, _event_id, _item_pos) = send_first_message(&timeline, &mut stream).await;
+
+    let mut extra_content = serde_json::Map::new();
+    extra_content.insert("com.example.key".to_owned(), "value".into());
+
+    timeline
+        .toggle_reaction_local_with_extra_content(&item_id, REACTION_KEY, Some(extra_content))
+        .await
+        .unwrap();
+
+    // The extra content is forwarded along with the reaction.
+    let sent_extra_content = &timeline.data().sent_extra_content.read().await;
+    assert_eq!(sent_extra_content.len(), 1);
+    assert_let!(Some(extra_content) = &sent_extra_content[0]);
+    assert_eq!(extra_content.get("com.example.key").unwrap(), "value");
+}
+
+#[async_test]
 async fn test_redact_reaction_success() {
     let timeline = TestTimeline::new().await;
     let f = &timeline.factory;

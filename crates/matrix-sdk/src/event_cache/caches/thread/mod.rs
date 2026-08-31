@@ -22,11 +22,14 @@ use std::{fmt, sync::Arc};
 
 use matrix_sdk_base::{
     event_cache::Event,
+    read_receipts::ReadReceipts,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
-    EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, events::relation::RelationType,
+    EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
+    events::{AnySyncEphemeralRoomEvent, relation::RelationType},
     room_version_rules::RoomVersionRules,
+    serde::Raw,
 };
 use tokio::sync::{Notify, broadcast::Sender, mpsc};
 use tracing::{instrument, trace};
@@ -35,7 +38,7 @@ use self::pagination::ThreadPagination;
 pub(in super::super) use self::state::ThreadEventCacheState;
 pub(super) use self::updates::ThreadEventCacheUpdateSender;
 #[cfg(feature = "e2e-encryption")]
-use super::super::redecryptor::ResolvedUtd;
+use super::super::redecryptor::MaybeResolvedEvent;
 use super::{
     super::{
         Result,
@@ -111,6 +114,7 @@ impl ThreadEventCache {
                     ThreadEventCacheState::new(
                         room_id.clone(),
                         thread_id.clone(),
+                        weak_room.clone(),
                         own_user_id,
                         room_version_rules,
                         store_guard,
@@ -156,6 +160,36 @@ impl ThreadEventCache {
         &self.inner.thread_id
     }
 
+    /// Get the number of unread messages.
+    ///
+    /// To get multiple information about the read receipts, use
+    /// [`Self::read_receipts`] as it involves a single lock.
+    pub async fn num_unread_messages(&self) -> Result<u64> {
+        Ok(self.inner.state.read().await?.thread_info.read_receipts.num_unread)
+    }
+
+    /// Get the number of unread notifications.
+    ///
+    /// To get multiple information about the read receipts, use
+    /// [`Self::read_receipts`] as it involves a single lock.
+    pub async fn num_unread_notifications(&self) -> Result<u64> {
+        Ok(self.inner.state.read().await?.thread_info.read_receipts.num_notifications)
+    }
+
+    /// Get the number of unread mentions, that is, messages causing a highlight
+    /// in a room.
+    ///
+    /// To get multiple information about the read receipts, use
+    /// [`Self::read_receipts`] as it involves a single lock.
+    pub async fn num_unread_mentions(&self) -> Result<u64> {
+        Ok(self.inner.state.read().await?.thread_info.read_receipts.num_mentions)
+    }
+
+    /// Get the detailed information about read receipts for this thread.
+    pub async fn read_receipts(&self) -> Result<ReadReceipts> {
+        Ok(self.inner.state.read().await?.thread_info.read_receipts.clone())
+    }
+
     /// Subscribe to this thread updates, after getting the initial list of
     /// events.
     ///
@@ -197,7 +231,7 @@ impl ThreadEventCache {
     /// Handle a [`JoinedRoomUpdate`].
     #[instrument(skip_all, fields(room_id = %self.inner.room_id, thread_root = %self.inner.thread_id))]
     pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
-        self.handle_timeline(updates.timeline).await?;
+        self.handle_timeline(updates.timeline, updates.ephemeral).await?;
 
         Ok(())
     }
@@ -205,15 +239,22 @@ impl ThreadEventCache {
     /// Handle a [`LeftRoomUpdate`].
     #[instrument(skip_all, fields(room_id = %self.inner.room_id, thread_root = %self.inner.thread_id))]
     pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
-        self.handle_timeline(updates.timeline).await?;
+        self.handle_timeline(updates.timeline, Vec::new()).await?;
 
         Ok(())
     }
 
     /// Handle a [`Timeline`], i.e. new events received by a sync for this
     /// thread.
-    async fn handle_timeline(&self, timeline: Timeline) -> Result<()> {
-        if timeline.events.is_empty() && timeline.prev_batch.is_none() {
+    async fn handle_timeline(
+        &self,
+        timeline: Timeline,
+        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+    ) -> Result<()> {
+        if timeline.events.is_empty()
+            && timeline.prev_batch.is_none()
+            && ephemeral_events.is_empty()
+        {
             return Ok(());
         }
 
@@ -221,7 +262,8 @@ impl ThreadEventCache {
 
         let mut state = self.inner.state.write().await?;
 
-        let (stored_prev_batch_token, timeline_event_diffs) = state.handle_sync(timeline).await?;
+        let (stored_prev_batch_token, timeline_event_diffs) =
+            state.handle_sync(timeline, ephemeral_events).await?;
 
         // Now that all events have been added, we can trigger the
         // `pagination_token_notifier`.
@@ -245,7 +287,8 @@ impl ThreadEventCache {
     ///
     /// It starts by looking into loaded events in `EventLinkedChunk` before
     /// looking inside the storage.
-    pub(super) async fn find_event(
+    #[cfg(test)]
+    async fn find_event(
         &self,
         event_id: &EventId,
     ) -> Result<Option<(super::EventLocation, Event)>> {
@@ -282,32 +325,52 @@ impl ThreadEventCache {
     }
 
     /// Try to locate the events in the linked chunk corresponding to the given
-    /// list of decrypted events, and replace them, while alerting observers
+    /// list of resolved events, and replace them, while alerting observers
     /// about the update.
     ///
     /// Return `true` if at least one event has been updated.
     #[cfg(feature = "e2e-encryption")]
-    pub(in super::super) async fn replace_utds(&self, events: &[ResolvedUtd]) -> Result<bool> {
+    pub(in super::super) async fn replace_in_memory_utds(
+        &self,
+        resolved_events: &[MaybeResolvedEvent],
+    ) -> Result<bool> {
         let mut state = self.inner.state.write().await?;
-        let timeline_event_diffs = state.replace_utds(events).await?;
+        let timeline_event_diffs = state.replace_in_memory_utds(resolved_events)?;
 
-        Ok(
-            if let Some(timeline_event_diffs) = timeline_event_diffs
-                && !timeline_event_diffs.is_empty()
-            {
-                state.update_sender.send(
-                    TimelineVectorDiffs {
-                        diffs: timeline_event_diffs,
-                        origin: EventsOrigin::Cache,
-                    },
-                    Some(RoomEventCacheGenericUpdate { room_id: self.inner.room_id.clone() }),
-                );
+        // Drain the updates to the store, events have already been updated before
+        // calling this method.
+        let _ = state.thread_linked_chunk_mut().store_updates().take();
 
-                true
-            } else {
-                false
-            },
-        )
+        state
+            .post_process_upserted_events(
+                resolved_events.iter().filter_map(|resolved_event| resolved_event.as_resolved()),
+                // Read receipt events aren't encrypted, so we can't have decrypted a new
+                // one here. As a result, we don't have any new receipt events to
+                // post-process, so we can just pass `None` here.
+                //
+                // Note: read receipts may be updated anyhow in the post-processing step,
+                // as the redecryption may have decrypted some events that don't count as
+                // unreads.
+                None,
+            )
+            .await?;
+
+        let timeline_event_diffs = timeline_event_diffs
+            .into_iter()
+            .flatten()
+            .chain(state.thread_linked_chunk_mut().updates_as_vector_diffs())
+            .collect::<Vec<_>>();
+
+        Ok(if !timeline_event_diffs.is_empty() {
+            state.update_sender.send(
+                TimelineVectorDiffs { diffs: timeline_event_diffs, origin: EventsOrigin::Cache },
+                Some(RoomEventCacheGenericUpdate { room_id: self.inner.room_id.clone() }),
+            );
+
+            true
+        } else {
+            false
+        })
     }
 }
 
@@ -664,11 +727,8 @@ mod timed_tests {
         assert_matches!(
             thread_stream.recv().await,
             Ok(TimelineVectorDiffs { diffs, .. }) => {
-                assert_eq!(diffs.len(), 2);
+                assert_eq!(diffs.len(), 1);
                 assert_matches!(&diffs[0], VectorDiff::Clear);
-                assert_matches!(&diffs[1], VectorDiff::Append { values } => {
-                    assert!(values.is_empty());
-                });
             }
         );
 
@@ -699,19 +759,13 @@ mod timed_tests {
         assert!(thread_events.is_empty());
 
         // The event cache store is totally empty.
-        let linked_chunk = from_all_chunks::<3, _, _>(
+        assert!(
             event_cache_store
                 .load_all_chunks(LinkedChunkId::Thread(room_id, thread_root))
                 .await
-                .unwrap(),
-        )
-        .unwrap()
-        .unwrap();
-
-        // Note: while the event cache store could return `None` here, clearing it will
-        // reset it to its initial form, maintaining the invariant that it
-        // contains a single items chunk that's empty.
-        assert_eq!(linked_chunk.num_items(), 0);
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[async_test]

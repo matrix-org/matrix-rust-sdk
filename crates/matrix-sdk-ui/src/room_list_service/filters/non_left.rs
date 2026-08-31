@@ -16,10 +16,7 @@ use matrix_sdk_base::RoomState;
 
 use super::{super::RoomListItem, Filter};
 
-fn matches<F>(state: F, room: &RoomListItem) -> bool
-where
-    F: Fn(&RoomListItem) -> RoomState,
-{
+fn matches(state: fn(&RoomListItem) -> RoomState, room: &RoomListItem) -> bool {
     match state(room) {
         RoomState::Joined | RoomState::Invited | RoomState::Knocked => true,
         RoomState::Left | RoomState::Banned => false,

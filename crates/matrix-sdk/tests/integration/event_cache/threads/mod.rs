@@ -1,3 +1,5 @@
+mod read_receipts;
+
 use std::time::Duration;
 
 use assert_matches2::assert_let;
@@ -183,10 +185,8 @@ async fn test_ignored_user_empties_threads() {
     // We do receive a clear.
     {
         assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = thread_stream.recv());
-        assert_eq!(diffs.len(), 2);
+        assert_eq!(diffs.len(), 1);
         assert_let!(VectorDiff::Clear = &diffs[0]);
-        assert_let!(VectorDiff::Append { values } = &diffs[1]);
-        assert!(values.is_empty());
     }
 
     // Receiving new events still works.

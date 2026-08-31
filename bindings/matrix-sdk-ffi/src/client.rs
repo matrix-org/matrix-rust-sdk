@@ -44,7 +44,6 @@ use matrix_sdk::{
             discovery::get_authorization_server_metadata::v1::Prompt as RumaOAuthPrompt,
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             room::{Visibility, create_room},
-            rtc::RtcTransport,
             session::get_login_types,
             user_directory::search_users,
         },
@@ -62,6 +61,8 @@ use matrix_sdk::{
     sync::Notification,
     task_monitor::BackgroundTaskFailureReason,
 };
+#[cfg(feature = "experimental-x509-identity-verification")]
+use matrix_sdk_base::crypto::x509::RawX509Signature;
 use matrix_sdk_common::{
     SendOutsideWasm, SyncOutsideWasm, cross_process_lock::CrossProcessLockConfig, stream::StreamExt,
 };
@@ -75,18 +76,18 @@ use matrix_sdk_ui::{
 };
 use mime::Mime;
 use oauth2::Scope;
-#[cfg(feature = "unstable-msc4426")]
-use ruma::api::client::profile::{Call, Status};
 use ruma::{
     OwnedDeviceId, OwnedMxcUri, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
     api::{
+        FeatureFlag,
         client::{
             alias::get_alias,
             discovery::get_authorization_server_metadata::v1::{
                 AccountManagementActionData, DeviceDeleteData, DeviceViewData,
             },
-            profile::{AvatarUrl, DisplayName},
+            profile::{AvatarUrl, Call, DisplayName, ProfileFieldName, StaticProfileField, Status},
             room::create_room::{RoomPowerLevelsContentOverride, v3::CreationContent},
+            rtc::RtcTransport,
             uiaa::{EmailUserIdentifier, UserIdentifier},
         },
         error::ErrorKind,
@@ -127,8 +128,6 @@ use super::{
     room::{Room, room_info::RoomInfo},
     session_verification::SessionVerificationController,
 };
-#[cfg(feature = "unstable-msc4426")]
-use crate::ruma::{UserCall, UserStatus};
 use crate::{
     ClientError,
     authentication::{
@@ -149,7 +148,7 @@ use crate::{
     room_preview::RoomPreview,
     ruma::{
         AccountDataEvent, AccountDataEventType, AuthData, InviteAvatars, MediaPreviewConfig,
-        MediaPreviews, MediaSource, PresenceState, RoomAccountDataEvent,
+        MediaPreviews, MediaSource, PresenceState, RoomAccountDataEvent, UserCall, UserStatus,
     },
     runtime::get_runtime_handle,
     spaces::SpaceService,
@@ -285,6 +284,13 @@ pub trait BeaconInfoListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, update: BeaconInfoUpdate);
 }
 
+/// A listener for the current user's global profile.
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait ProfileListener: SyncOutsideWasm + SendOutsideWasm {
+    /// Called whenever the current user's global profile changes.
+    fn on_update(&self, profile: UserProfile);
+}
+
 /// Information about the old and new key that caused a duplicate key upload
 /// error in /keys/upload.
 #[derive(uniffi::Record)]
@@ -318,6 +324,35 @@ pub trait RoomAccountDataListener: SyncOutsideWasm + SendOutsideWasm {
 pub trait SyncNotificationListener: SyncOutsideWasm + SendOutsideWasm {
     /// Called when a notifying event is received during sync.
     fn on_notification(&self, notification: NotificationItem, room_id: String);
+}
+
+/// A foreign trait for low-level types which can sign messages using an
+/// X.509-certified key pair.
+#[cfg(feature = "experimental-x509-identity-verification")]
+#[matrix_sdk_ffi_macros::export(with_foreign)]
+pub trait RawX509Signer: SyncOutsideWasm + SendOutsideWasm + Debug {
+    /// Create a signature for the given message using our private key
+    ///
+    /// Note: the matrix-rust-sdk implementation supports asynchronous signing,
+    /// but (for now) in this FFI we only support synchronous.
+    fn sign(&self, message: Vec<u8>) -> Result<RawX509Signature, ClientError>;
+
+    /// Return the "not after" time for the certificate's validity period as a
+    /// number of milliseconds since the UNIX epoch.
+    fn validity_not_after(&self) -> Result<u64, ClientError>;
+}
+
+/// A foreign trait for low-level types which can verify messages which were
+/// signed using an X.509-certified key pair.
+#[cfg(feature = "experimental-x509-identity-verification")]
+#[matrix_sdk_ffi_macros::export(with_foreign)]
+pub trait RawX509Verifier: SyncOutsideWasm + SendOutsideWasm + Debug {
+    /// Check if the given signature is a valid X.509 signature for the given
+    /// message.
+    ///
+    /// Also validates that the certificate used for the signature is issued via
+    /// one of our trusted CAs.
+    fn verify(&self, message: Vec<u8>, sig: RawX509Signature) -> bool;
 }
 
 #[derive(Clone, Copy, uniffi::Record)]
@@ -434,7 +469,7 @@ impl Client {
         match store_mode {
             CrossProcessLockConfig::MultiProcess { holder_name } => {
                 if session_delegate.is_none() {
-                    return Err(anyhow::anyhow!(
+                    Err(anyhow::anyhow!(
                         "missing session delegates with multi-process lock configuration"
                     ))?;
                 }
@@ -1094,6 +1129,18 @@ impl Client {
         Ok(self.inner.reset_supported_versions().await?)
     }
 
+    /// Change whether this client is allowed to look up the homeserver's
+    /// `/.well-known/matrix/client` file.
+    ///
+    /// Some deployments must not emit any request to the well-known URI of
+    /// their domain. When disabled, [`Client::tile_server`] returns `None`,
+    /// [`Client::well_known_rtc_transports`] returns an empty list, and
+    /// [`Client::discover_rtc_transports`] doesn't fall back to the well-known
+    /// `m.rtc_foci`, relying only on the MSC4143 discovery endpoint.
+    pub fn disable_well_known_lookup(&self, disable: bool) {
+        self.inner.disable_well_known_lookup(disable);
+    }
+
     /// Empty the well-known cache.
     ///
     /// Since the SDK caches the well-known, it's possible to have a stale
@@ -1370,6 +1417,32 @@ impl Client {
         Ok(self.inner.account().get_cached_avatar_url().await?.map(Into::into))
     }
 
+    /// Subscribe to the current user's profile.
+    ///
+    /// Emits the current value immediately, if present, then again whenever the
+    /// user's profile changes during sync.
+    ///
+    /// **Note:** Without the Profiles sliding sync extension enabled only an
+    /// empty profile will be emitted and no updates will be published.
+    pub fn subscribe_to_own_profile(
+        &self,
+        listener: Box<dyn ProfileListener>,
+    ) -> Result<Arc<TaskHandle>, ClientError> {
+        let user_id = self.inner.user_id().context("No user ID found")?.to_owned();
+        let stream = self.inner.subscribe_to_own_profile()?;
+
+        Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            pin_mut!(stream);
+
+            while let Some(profile) = stream.next().await {
+                match UserProfile::from_profile(&user_id, &profile) {
+                    Ok(profile) => listener.on_update(profile),
+                    Err(error) => error!("Failed to convert global profile update: {error}"),
+                }
+            }
+        }))))
+    }
+
     pub fn device_id(&self) -> Result<String, ClientError> {
         let device_id = self.inner.device_id().context("No Device ID found")?;
         Ok(device_id.to_string())
@@ -1546,7 +1619,7 @@ impl Client {
     /// server. However, if the `Client` has been built from a server URL or
     /// name, then the homeserver has been discovered, and we know both.
     pub fn server(&self) -> Option<String> {
-        self.inner.server().map(ToString::to_string)
+        self.inner.server().map(|s| s.to_string())
     }
 
     pub fn rooms(&self) -> Vec<Arc<Room>> {
@@ -1776,6 +1849,9 @@ impl Client {
         listener: Box<dyn IgnoredUsersListener>,
     ) -> Arc<TaskHandle> {
         let mut subscriber = self.inner.subscribe_to_ignore_user_list_changes();
+
+        listener.call(subscriber.next_now());
+
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(user_ids) = subscriber.next().await {
                 listener.call(user_ids);
@@ -2055,8 +2131,8 @@ impl Client {
 
                 for file_name in [
                     PathBuf::from(STATE_STORE_DATABASE_NAME),
-                    PathBuf::from(format!("{STATE_STORE_DATABASE_NAME}.wal")),
-                    PathBuf::from(format!("{STATE_STORE_DATABASE_NAME}.shm")),
+                    PathBuf::from(format!("{STATE_STORE_DATABASE_NAME}-wal")),
+                    PathBuf::from(format!("{STATE_STORE_DATABASE_NAME}-shm")),
                 ] {
                     let file_path = store_path.join(file_name);
                     if file_path.exists() {
@@ -2084,13 +2160,36 @@ impl Client {
     }
 
     /// Checks if the server supports the LiveKit RTC focus for placing calls.
+    ///
+    /// Transports are discovered through the authenticated
+    /// `GET /_matrix/client/v1/rtc/transports` endpoint (MSC4143). If the
+    /// homeserver doesn't implement it, the well-known `m.rtc_foci` are used as
+    /// a fallback, unless well-known discovery was disabled with
+    /// [`ClientBuilder::disable_well_known_lookup`] or
+    /// [`Client::disable_well_known_lookup`].
     pub async fn is_livekit_rtc_supported(&self) -> Result<bool, ClientError> {
-        Ok(self
+        let transports = self.inner.discover_rtc_transports().await?.unwrap_or_default();
+        Ok(transports.iter().any(|focus| matches!(focus, RtcTransport::LiveKit { .. })))
+    }
+
+    /// Checks if the server supports the Profiles sliding sync extension.
+    pub async fn is_profiles_sliding_sync_extension_supported(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.unstable_features().await?.contains(&FeatureFlag::from("org.matrix.msc4262")))
+    }
+
+    /// Checks if the server supports user status.
+    pub async fn is_user_status_supported(&self) -> Result<bool, ClientError> {
+        let supports_profiles_sync_extension =
+            self.is_profiles_sliding_sync_extension_supported().await?;
+
+        let can_set_status_field = self
             .inner
-            .rtc_foci()
+            .homeserver_capabilities()
+            .extended_profile_fields()
             .await?
-            .iter()
-            .any(|focus| matches!(focus, RtcTransport::LiveKit(_))))
+            .can_set_field(&ProfileFieldName::Status);
+
+        Ok(supports_profiles_sync_extension && can_set_status_field)
     }
 
     /// Get information about the homeserver's advertised map tile server, if
@@ -2123,9 +2222,11 @@ impl Client {
         listener: Box<dyn MediaPreviewConfigListener>,
     ) -> Result<Arc<TaskHandle>, ClientError> {
         let (initial_value, stream) = self.inner.account().observe_media_preview_config().await?;
+
+        // Send the initial value to the listener.
+        listener.on_change(initial_value.map(|config| config.into()));
+
         Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            // Send the initial value to the listener.
-            listener.on_change(initial_value.map(|config| config.into()));
             // Listen for changes and notify the listener.
             pin_mut!(stream);
             while let Some(media_preview_config) = stream.next().await {
@@ -2231,18 +2332,6 @@ impl Client {
                 }
             }
         }))))
-    }
-
-    /// Whether to enable automatic backpagination under certain conditions
-    /// (e.g. when processing read receipts).
-    ///
-    /// This is an experimental feature, and might cause performance issues on
-    /// large accounts. Use with caution.
-    ///
-    /// This must be called after creating a client, but before subscribing to
-    /// the event cache (so, before spawning a sync service or a timeline).
-    pub fn enable_automatic_backpagination(&self) {
-        self.inner.event_cache().config_mut().experimental_auto_backpagination = true;
     }
 
     pub fn homeserver_capabilities(&self) -> HomeserverCapabilities {
@@ -2500,14 +2589,12 @@ pub struct UserProfile {
     pub avatar_url: Option<String>,
 
     /// The user's status (MSC4426 `m.status` profile field), if set.
-    #[cfg(feature = "unstable-msc4426")]
     pub status: Option<UserStatus>,
 
     /// Set when the user is in a call (MSC4426 `m.call` profile field).
     ///
     /// `None` means the user is not in a call. `Some(UserCall { call_joined_ts:
     /// None })` means the user is in a call but the join time wasn't recorded.
-    #[cfg(feature = "unstable-msc4426")]
     pub call: Option<UserCall>,
 }
 
@@ -2516,23 +2603,31 @@ impl UserProfile {
     /// API.
     pub(crate) async fn fetch(account: &Account, user_id: &UserId) -> Result<Self, ClientError> {
         let response = account.fetch_user_profile_of(user_id).await?;
-        let display_name = response.get_static::<DisplayName>()?;
-        let avatar_url = response.get_static::<AvatarUrl>()?.map(|url| url.to_string());
+        Self::from_profile(user_id, &response.data)
+    }
 
-        #[cfg(feature = "unstable-msc4426")]
-        let status = response.get_static::<Status>()?.map(UserStatus::from);
-        #[cfg(feature = "unstable-msc4426")]
-        let call = response.get_static::<Call>()?.map(UserCall::from);
+    /// Build a [`UserProfile`] from a [`ruma::profile::UserProfile`].
+    fn from_profile(
+        user_id: &UserId,
+        profile: &ruma::profile::UserProfile,
+    ) -> Result<Self, ClientError> {
+        let display_name = Self::get_field::<DisplayName>(profile)?;
+        let avatar_url = Self::get_field::<AvatarUrl>(profile)?.map(|url| url.to_string());
+        let status = Self::get_field::<Status>(profile)?.map(UserStatus::from);
+        let call = Self::get_field::<Call>(profile)?.map(UserCall::from);
 
-        Ok(UserProfile {
-            user_id: user_id.to_string(),
-            display_name,
-            avatar_url,
-            #[cfg(feature = "unstable-msc4426")]
-            status,
-            #[cfg(feature = "unstable-msc4426")]
-            call,
-        })
+        Ok(UserProfile { user_id: user_id.to_string(), display_name, avatar_url, status, call })
+    }
+
+    /// Reads a static profile field, tolerating an explicit `null` value by
+    /// treating it as absent while still surfacing genuine decode errors.
+    fn get_field<F: StaticProfileField>(
+        profile: &ruma::profile::UserProfile,
+    ) -> Result<Option<F::Value>, ClientError> {
+        match profile.get(F::NAME) {
+            Some(value) if !value.is_null() => Ok(Some(serde_json::from_value(value.clone())?)),
+            _ => Ok(None),
+        }
     }
 }
 
@@ -2542,15 +2637,12 @@ impl From<&search_users::v3::User> for UserProfile {
             user_id: value.user_id.to_string(),
             display_name: value.display_name.clone(),
             avatar_url: value.avatar_url.as_ref().map(|url| url.to_string()),
-            #[cfg(feature = "unstable-msc4426")]
             status: None,
-            #[cfg(feature = "unstable-msc4426")]
             call: None,
         }
     }
 }
 
-#[cfg(feature = "unstable-msc4426")]
 #[matrix_sdk_ffi_macros::export]
 impl Client {
     /// Set the current user's status (MSC4426 `m.status` profile field).
@@ -2573,6 +2665,12 @@ impl Client {
         status_res?;
         call_res?;
         Ok(())
+    }
+
+    /// Enable or disable automatic mirroring of this device's MatrixRTC
+    /// participation into the MSC4426 `m.call` profile field.
+    pub fn enable_automatic_call_status(&self, enabled: bool) {
+        self.inner.enable_automatic_call_status(enabled);
     }
 }
 
@@ -3234,15 +3332,7 @@ impl TryFrom<JoinRule> for RumaJoinRule {
 }
 
 fn ruma_allow_rules_from_ffi(value: Vec<AllowRule>) -> Result<Vec<RumaAllowRule>, ClientError> {
-    let mut ret = Vec::with_capacity(value.len());
-    for rule in value {
-        let rule: Result<RumaAllowRule, ClientError> = rule.try_into();
-        match rule {
-            Ok(rule) => ret.push(rule),
-            Err(error) => return Err(error),
-        }
-    }
-    Ok(ret)
+    value.into_iter().map(TryInto::try_into).collect()
 }
 
 impl TryFrom<AllowRule> for RumaAllowRule {
@@ -3562,5 +3652,31 @@ mod tests {
         // We're back to the initial state: no content scanner, default fetcher
         assert!(client.content_scanner().await.is_none());
         assert_eq!(format!("{:?}", client.inner.get_media_fetcher().await), "DefaultMediaFetcher");
+    }
+
+    #[test]
+    fn test_from_profile_tolerates_null_fields() {
+        use ruma::profile::{ProfileFieldName, UserProfile as RumaUserProfile};
+        use serde_json::Value as JsonValue;
+
+        use super::UserProfile;
+
+        let user_id = ruma::user_id!("@user:example.com");
+
+        // A display name with avatar/status/call explicitly set as `null` JSON values.
+        let mut profile = RumaUserProfile::new();
+        profile
+            .set(ProfileFieldName::DisplayName.as_str().to_owned(), serde_json::json!("Example"));
+        profile.set(ProfileFieldName::AvatarUrl.as_str().to_owned(), JsonValue::Null);
+        profile.set(ProfileFieldName::Status.as_str().to_owned(), JsonValue::Null);
+        profile.set(ProfileFieldName::Call.as_str().to_owned(), JsonValue::Null);
+
+        let converted = UserProfile::from_profile(user_id, &profile)
+            .expect("null fields must not abort the profile conversion");
+
+        assert_eq!(converted.display_name.as_deref(), Some("Example"));
+        assert!(converted.avatar_url.is_none());
+        assert!(converted.status.is_none());
+        assert!(converted.call.is_none());
     }
 }

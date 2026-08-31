@@ -33,8 +33,7 @@ impl SearchIndexWriter {
     }
 
     pub(crate) fn add(&self, document: TantivyDocument) -> Result<OpStamp, IndexError> {
-        Ok(self.inner.add_document(document)?) // TODO: This is blocking. Handle
-        // it.
+        Ok(self.inner.add_document(document)?) // TODO: This is blocking. Handle it.
     }
 
     pub(crate) fn remove(&self, event_id: &EventId) {
@@ -45,5 +44,9 @@ impl SearchIndexWriter {
     pub(crate) fn commit(&mut self) -> Result<OpStamp, TantivyError> {
         self.last_commit_opstamp = self.inner.commit()?; // TODO: This is blocking. Handle it.
         Ok(self.last_commit_opstamp)
+    }
+
+    pub(crate) fn wait_merging_threads(self) -> Result<(), TantivyError> {
+        self.inner.wait_merging_threads()
     }
 }

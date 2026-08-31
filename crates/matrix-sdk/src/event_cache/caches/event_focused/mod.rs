@@ -43,7 +43,7 @@ use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{instrument, trace};
 
 #[cfg(feature = "e2e-encryption")]
-use super::super::redecryptor::ResolvedUtd;
+use super::super::redecryptor::{MaybeResolvedEvent, TryResolveEvents};
 use super::{
     super::{
         EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate,
@@ -659,15 +659,24 @@ impl EventFocusedCache {
     }
 
     /// Try to locate the events in the linked chunk corresponding to the given
-    /// list of decrypted events, and replace them, while alerting observers
+    /// list of resolved events, and replace them, while alerting observers
     /// about the update.
     #[cfg(feature = "e2e-encryption")]
-    pub async fn replace_utds(&self, events: &[ResolvedUtd]) -> Result<()> {
-        let mut guard = self.inner.write().await?;
+    pub(in super::super) async fn replace_in_memory_utds(
+        &self,
+        resolved_events: &[MaybeResolvedEvent],
+    ) -> Result<()> {
+        let mut state = self.inner.write().await?;
 
-        if guard.chunk.replace_utds(events) {
-            guard.propagate_changes();
-            guard.notify_subscribers(EventsOrigin::Cache);
+        // `Redecryptor` tried to resolve the events partly based on in-store events.
+        // Because this cache doesn't persist anything in the store, `Redecryptor` is
+        // unable to resolve some events present here. To address that, let's try to
+        // resolve events here with the current `EventLinkedChunk`.
+        let new_resolved_events = resolved_events.try_resolve_events(&state.chunk);
+
+        if state.chunk.replace_utds(&new_resolved_events) {
+            state.propagate_changes();
+            state.notify_subscribers(EventsOrigin::Cache);
         }
 
         Ok(())

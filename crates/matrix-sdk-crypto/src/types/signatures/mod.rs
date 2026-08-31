@@ -15,6 +15,8 @@ limitations under the License.
 */
 
 mod signature;
+#[cfg(feature = "experimental-x509-identity-verification")]
+mod x509_signature;
 
 use std::collections::{BTreeMap, btree_map::IntoIter};
 
@@ -23,6 +25,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vodozemac::Ed25519Signature;
 
 pub use self::signature::Signature;
+#[cfg(feature = "experimental-x509-identity-verification")]
+pub use self::x509_signature::{X509_SIGNATURE_ALGORITHM, X509Signature};
 
 /// Represents a signature that could not be decoded.
 ///
@@ -201,7 +205,7 @@ mod test {
         ]));
 
         with_settings!({sort_maps => true, prepend_module_to_snapshot => false}, {
-            assert_json_snapshot!(signatures)
+            assert_json_snapshot!(signatures);
         });
     }
 }

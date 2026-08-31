@@ -54,7 +54,7 @@ use ruma::{
             MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent, SyncRoomMemberEvent,
         },
     },
-    profile::UserProfile,
+    profile::{UserProfile, UserProfileUpdate},
     serde::Raw,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned, ser::Error};
@@ -1106,13 +1106,26 @@ impl_state_store!({
             let store = tx.object_store(keys::GLOBAL_PROFILES)?;
             for (user_id, profile_update) in &changes.global_profiles {
                 let key = self.encode_key(keys::GLOBAL_PROFILES, user_id);
-                let existing: Option<UserProfile> =
-                    store.get(&key).await?.map(|f| self.deserialize_value(&f)).transpose()?;
+                match profile_update {
+                    UserProfileUpdate::Updated(profile_changes) => {
+                        let existing: Option<UserProfile> = store
+                            .get(&key)
+                            .await?
+                            .map(|f| self.deserialize_value(&f))
+                            .transpose()?;
 
-                let mut profile = existing.unwrap_or_default();
-                profile.merge(profile_update.clone());
+                        let mut profile = existing.unwrap_or_default();
+                        profile.apply(profile_changes.clone());
 
-                store.put(&self.serialize_value(&profile)?).with_key(key).build()?;
+                        store.put(&self.serialize_value(&profile)?).with_key(key).build()?;
+                    }
+                    UserProfileUpdate::Dropped => {
+                        store.delete(&key).build()?;
+                    }
+                    _ => {
+                        warn!(%user_id, "Unhandled UserProfileUpdate variant; ignoring");
+                    }
+                }
             }
         }
 
@@ -1442,10 +1455,10 @@ impl_state_store!({
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
-        let key = match thread.as_str() {
+        let key = match receipt_thread.as_str() {
             Some(thread_id) => self
                 .encode_key(keys::ROOM_USER_RECEIPTS, (room_id, receipt_type, thread_id, user_id)),
             None => self.encode_key(keys::ROOM_USER_RECEIPTS, (room_id, receipt_type, user_id)),
@@ -1465,10 +1478,10 @@ impl_state_store!({
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
-        let range = match thread.as_str() {
+        let range = match receipt_thread.as_str() {
             Some(thread_id) => self.encode_to_range(
                 keys::ROOM_EVENT_RECEIPTS,
                 (room_id, receipt_type, thread_id, event_id),

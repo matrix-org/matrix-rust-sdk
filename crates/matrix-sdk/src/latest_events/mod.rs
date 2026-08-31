@@ -341,7 +341,7 @@ impl RegisteredRooms {
                     value @ Some(_) => value,
                     None => {
                         let _timer = timer!(
-                            tracing::Level::INFO,
+                            tracing::Level::DEBUG,
                             format!("Creating `RoomLatestEvents` for {room_id:?}"),
                         );
 

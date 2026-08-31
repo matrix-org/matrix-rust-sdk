@@ -28,11 +28,13 @@ use matrix_sdk_common::{
         RawChunk, Update, relational::RelationalLinkedChunk,
     },
 };
-use ruma::{EventId, OwnedEventId, RoomId, events::relation::RelationType};
+use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId, events::relation::RelationType};
 use tracing::error;
 
-use super::{EventCacheStore, EventCacheStoreError, Result, extract_event_relation};
-use crate::event_cache::{Event, Gap};
+use super::{
+    super::{Event, Gap, thread::ThreadInfo},
+    EventCacheStore, EventCacheStoreError, Result, extract_event_relation,
+};
 
 /// In-memory, non-persistent implementation of the `EventCacheStore`.
 ///
@@ -50,8 +52,14 @@ pub struct MemoryStore {
 
 #[derive(Debug)]
 struct MemoryStoreInner {
+    /// Leases for the cross-process lock.
     leases: HashMap<String, Lease>,
+
+    /// All events organised in a `LinkedChunk`.
     events: RelationalLinkedChunk<OwnedEventId, Event, Gap>,
+
+    /// List of all threads.
+    threads: HashMap<(OwnedRoomId, OwnedEventId), ThreadInfo>,
 }
 
 impl Default for MemoryStore {
@@ -60,6 +68,7 @@ impl Default for MemoryStore {
             inner: Arc::new(StdRwLock::new(MemoryStoreInner {
                 leases: Default::default(),
                 events: RelationalLinkedChunk::new(),
+                threads: HashMap::new(),
             })),
         }
     }
@@ -155,8 +164,47 @@ impl EventCacheStore for MemoryStore {
             .map_err(|err| EventCacheStoreError::InvalidData { details: err })
     }
 
-    async fn clear_all_events(&self) -> Result<(), Self::Error> {
-        self.inner.write().unwrap().events.clear();
+    async fn load_thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<ThreadInfo, Self::Error> {
+        let mut inner = self.inner.write().unwrap();
+        let threads = &mut inner.threads;
+
+        let key = (room_id.to_owned(), thread_id.to_owned());
+
+        let thread_info = threads.entry(key).or_default();
+
+        Ok(thread_info.clone())
+    }
+
+    async fn update_thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+        thread_info: &ThreadInfo,
+    ) -> Result<(), Self::Error> {
+        let mut inner = self.inner.write().unwrap();
+        let threads = &mut inner.threads;
+
+        let key = (room_id.to_owned(), thread_id.to_owned());
+
+        *threads.get_mut(&key).expect("The thread entry must exist") = thread_info.clone();
+
+        Ok(())
+    }
+
+    async fn clear_all_events(&self, room_id: Option<&RoomId>) -> Result<(), Self::Error> {
+        match room_id {
+            Some(room_id) => {
+                self.inner.write().unwrap().events.clear_room(room_id);
+            }
+            None => {
+                self.inner.write().unwrap().events.clear();
+            }
+        }
+
         Ok(())
     }
 

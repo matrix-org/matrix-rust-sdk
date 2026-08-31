@@ -114,6 +114,7 @@
 //! [MSC3061]: https://github.com/matrix-org/matrix-spec/pull/1655#issuecomment-2213152255
 
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     pin::Pin,
     sync::Weak,
@@ -155,7 +156,10 @@ use tracing::{info, instrument, trace, warn};
 use super::RoomEventCache;
 use super::{
     EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheGenericUpdate,
-    RoomEventCacheUpdate, TimelineVectorDiffs, caches::room::RoomEventCacheLinkedChunkUpdate,
+    RoomEventCacheUpdate, TimelineVectorDiffs,
+    caches::{
+        EventLocation, event_linked_chunk::EventLinkedChunk, room::RoomEventCacheLinkedChunkUpdate,
+    },
 };
 use crate::{Client, Result, Room, encryption::backups::BackupState, room::PushContext};
 
@@ -164,8 +168,112 @@ type OwnedSessionId = String;
 
 type EventIdAndUtd = (OwnedEventId, Raw<AnySyncTimelineEvent>);
 type EventIdAndEvent = (OwnedEventId, DecryptedRoomEvent);
-pub(in crate::event_cache) type ResolvedUtd =
-    (OwnedEventId, DecryptedRoomEvent, Option<Vec<Action>>);
+
+#[derive(Clone)]
+pub(super) struct ResolvedUtd {
+    pub event_id: OwnedEventId,
+    decrypted_event: DecryptedRoomEvent,
+    actions: Option<Vec<Action>>,
+}
+
+#[derive(Clone)]
+pub(super) enum MaybeResolvedEvent {
+    NotYet(ResolvedUtd),
+    Resolved(TimelineEvent),
+}
+
+impl MaybeResolvedEvent {
+    pub fn try_resolve_event(self, mut unresolved_event: TimelineEvent) -> Self {
+        match self {
+            Self::NotYet(resolved_utd) => {
+                // There is a race between the multiple sources of updates. It's possible
+                // that two sources trigger a decryption for the same event (for example,
+                // the room key stream and the event cache updates). It is then likely that
+                // the event has been already resolved. This race is fine, but we should
+                // avoid to replace an event that has already been resolved as it is a
+                // non-negligible operation.
+                //
+                // Note that a simple check like “event's kind is `UnableToDecrypt`” is not
+                // enough. The event can already be decrypted but its encryption info can
+                // change. So we must ensure they are also different.
+                if matches!(unresolved_event.kind, TimelineEventKind::UnableToDecrypt { .. })
+                    || unresolved_event.encryption_info()
+                        != Some(&resolved_utd.decrypted_event.encryption_info)
+                {
+                    unresolved_event.kind =
+                        TimelineEventKind::Decrypted(resolved_utd.decrypted_event);
+
+                    if let Some(actions) = resolved_utd.actions {
+                        unresolved_event.set_push_actions(actions);
+                    }
+
+                    // The unresolved event becomes resolved :-].
+                    Self::Resolved(unresolved_event)
+                } else {
+                    Self::NotYet(resolved_utd)
+                }
+            }
+
+            Self::Resolved(event) => Self::Resolved(event),
+        }
+    }
+
+    pub fn as_resolved(&self) -> Option<&TimelineEvent> {
+        if let Self::Resolved(event) = self { Some(event) } else { None }
+    }
+}
+
+/// Internal trait to resolve events on a `&[MaybeResolvedEvent]` with the help
+/// of `Cow` to avoid copying if no event is newly resolved.
+pub(super) trait TryResolveEvents {
+    fn try_resolve_events(
+        &self,
+        event_linked_chunk: &EventLinkedChunk,
+    ) -> Cow<'_, [MaybeResolvedEvent]>;
+}
+
+impl TryResolveEvents for [MaybeResolvedEvent] {
+    fn try_resolve_events(
+        &self,
+        event_linked_chunk: &EventLinkedChunk,
+    ) -> Cow<'_, [MaybeResolvedEvent]> {
+        let mut new_resolved_events = Cow::Borrowed(self);
+
+        for (nth, resolved_event) in self.iter().enumerate() {
+            match resolved_event {
+                MaybeResolvedEvent::NotYet(resolved_utd) => {
+                    // Event has not been resolved. Let's try to locate the corresponding event with
+                    // the provided `EventLinkedChunk` and try to resolve it.
+
+                    if let Some((_location, event)) =
+                        event_linked_chunk.find_event(&resolved_utd.event_id)
+                    {
+                        let new_resolved_event = MaybeResolvedEvent::NotYet(resolved_utd.clone())
+                            .try_resolve_event(event);
+
+                        if matches!(new_resolved_event, MaybeResolvedEvent::Resolved(_)) {
+                            // Use `slice::get_unchecked_mut` to avoid a bounds check.
+                            //
+                            // SAFETY: `self` and `new_resolved_events` have the same size and
+                            // represent the same data. Thus, the index `nth` exists in
+                            // `new_resolved_events`.
+                            unsafe {
+                                *new_resolved_events.to_mut().get_unchecked_mut(nth) =
+                                    new_resolved_event;
+                            }
+                        }
+                    }
+                }
+
+                MaybeResolvedEvent::Resolved(_event) => {
+                    // Event has already been resolved. Nothing to do.
+                }
+            }
+        }
+
+        new_resolved_events
+    }
+}
 
 /// The information sent across the channel to the long-running task requesting
 /// that the supplied set of sessions be retried.
@@ -342,9 +450,9 @@ impl EventCache {
     async fn on_resolved_utds(
         &self,
         room_id: &RoomId,
-        events: Vec<ResolvedUtd>,
+        resolved_utds: Vec<ResolvedUtd>,
     ) -> Result<(), EventCacheError> {
-        if events.is_empty() {
+        if resolved_utds.is_empty() {
             trace!("No events were redecrypted or updated, nothing to replace");
             return Ok(());
         }
@@ -352,64 +460,72 @@ impl EventCache {
         timer!("Resolving UTDs");
 
         let event_ids: BTreeSet<_> =
-            events.iter().cloned().map(|(event_id, _, _)| event_id).collect();
+            resolved_utds.iter().map(|resolved_utd| resolved_utd.event_id.clone()).collect();
 
         let all_caches = self.inner.all_caches_for_room(room_id).await?;
+        let mut maybe_resolved_events = Vec::with_capacity(resolved_utds.len());
 
-        // Resolve on the room cache.
+        // # Room cache, thread caches, and pinned-event cache
+        //
+        // For each resolved UTD, find the corresponding event (either in-store or
+        // in-memory of the room cache), build the resolved event, and replace it in the
+        // store. We use the room cache for that because it contains all events (there
+        // is an exception with the event-focused cache, see below).
+        //
+        // # Event-focused cache
+        //
+        // Events received by the sync or pagination are not forwarded to the
+        // event-focused cache: it handles its own set of events. All of them live
+        // in-memory, there are not put in the store by any cache. So this cache will
+        // miss all UTD resolutions. To address that, the event-focused cache
+        // resolves UTD on its own, without the general logic described above.
         {
             let room_cache = &all_caches.room;
             let mut state = room_cache.state().write().await?;
 
-            let mut new_events = Vec::with_capacity(events.len());
+            let mut maybe_resolved_in_memory_events = Vec::new();
 
-            for (event_id, decrypted, actions) in &events {
-                if let Some((location, mut target_event)) = state.find_event(event_id).await?
-                    && (
-                        // There is a race between the multiple sources of updates. It's possible
-                        // that two sources trigger a decryption for the same event (for example,
-                        // the room key stream and the event cache updates). It is then likely that
-                        // the event has been already resolved. This race is fine, but we should
-                        // avoid to replace an event that has already been resolved as it is a
-                        // non-negligible operation.
-                        //
-                        // Note that a simple check like “event's kind is `UnableToDecrypt`” is not
-                        // enough. The event can already be decrypted but its encryption info can
-                        // change. So we must ensure they are also different.
-                        matches!(target_event.kind, TimelineEventKind::UnableToDecrypt { .. })
-                            || target_event.encryption_info() != Some(&decrypted.encryption_info)
-                    )
-                {
-                    target_event.kind = TimelineEventKind::Decrypted(decrypted.clone());
+            for resolved_utd in resolved_utds {
+                // Try to locate the event (either in-store or in-memory).
+                if let Some((location, event)) = state.find_event(&resolved_utd.event_id).await? {
+                    let maybe_resolved_event =
+                        MaybeResolvedEvent::NotYet(resolved_utd).try_resolve_event(event);
 
-                    if let Some(actions) = actions {
-                        target_event.set_push_actions(actions.clone());
+                    // It is an in-memory event, let's keep it apart to replace in-memory UTDs.
+                    if matches!(location, EventLocation::Memory(_)) {
+                        maybe_resolved_in_memory_events.push(maybe_resolved_event.clone());
                     }
 
-                    // TODO: `replace_event_at()` propagates changes to the store for every
-                    // event, we should probably have a bulk version of this?
-                    state.replace_event_at(location, target_event.clone()).await?;
-                    new_events.push(target_event);
+                    // Even is known, let's keep it for later, even if unresolved.
+                    maybe_resolved_events.push(maybe_resolved_event);
+                } else {
+                    // Event is unknown by the room cache, the thread caches, nor the pinned-events
+                    // cache. However, it might be known by an event-focused cache! So let's keep it
+                    // for later.
+                    maybe_resolved_events.push(MaybeResolvedEvent::NotYet(resolved_utd));
                 }
             }
 
-            // Read receipt events aren't encrypted, so we can't have decrypted a new
-            // one here. As a result, we don't have any new receipt events to
-            // post-process, so we can just pass `None` here.
-            //
-            // Note: read receipts may be updated anyhow in the post-processing step,
-            // as the redecryption may have decrypted some events that don't count as
-            // unreads.
-            let receipt_event = None;
+            // Replace all resolved events in the store.
+            state
+                .save_events(
+                    maybe_resolved_events
+                        .iter()
+                        .filter_map(|resolved_event| resolved_event.as_resolved())
+                        .cloned(),
+                )
+                .await?;
 
-            state.post_process_new_events(new_events, receipt_event).await?;
+            // Now, replace the in-memory events.
+            let timeline_event_diffs = state
+                .replace_in_memory_utds(&maybe_resolved_in_memory_events)
+                .await?
+                .unwrap_or_default();
 
-            let updates_as_vector_diffs = state.room_linked_chunk_mut().updates_as_vector_diffs();
-
-            if !updates_as_vector_diffs.is_empty() {
-                room_cache.update_sender().send(
+            if !timeline_event_diffs.is_empty() {
+                state.update_sender.send(
                     RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                        diffs: updates_as_vector_diffs,
+                        diffs: timeline_event_diffs,
                         origin: EventsOrigin::Cache,
                     }),
                     Some(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),
@@ -417,7 +533,7 @@ impl EventCache {
             }
         }
 
-        // Resolve on the thread caches.
+        // Resolve in-memory UTDs on the thread caches.
         {
             // TODO: This ain't great for performance; there shouldn't be
             // that many thread caches alive at the same time, but they could
@@ -432,7 +548,7 @@ impl EventCache {
                         // If at least one event has been replaced, return the `thread_id` and the
                         // `thread_cache` to update the thread summary later.
                         thread_cache
-                            .replace_utds(&events)
+                            .replace_in_memory_utds(&maybe_resolved_events)
                             .await?
                             .then(|| (thread_id.clone(), thread_cache.clone())),
                     )
@@ -450,25 +566,22 @@ impl EventCache {
             }
         }
 
-        // Resolve on the pinned-events cache.
+        // Resolve in-memory UTDs on the pinned-events cache.
         if let Some(pinned_events_cache) = all_caches.pinned_events.get() {
-            pinned_events_cache.replace_utds(&events).await?;
+            pinned_events_cache.replace_in_memory_utds(&maybe_resolved_events).await?;
         }
 
-        // Resolve on the event-focused caches.
+        // Resolve in-memory UTDs on the event-focused caches.
         {
             // TODO: This ain't great for performance; there shouldn't be that many
             // event-focused caches alive at the same time, but they could
             // accumulate over time. Consider keeping track of which linked chunk
             // contains which event ID, to avoid doing the linear searches here.
-            try_join_all(
-                all_caches
-                    .event_focused
-                    .read()
-                    .await
-                    .values()
-                    .map(|event_focused_cache| event_focused_cache.replace_utds(&events)),
-            )
+            try_join_all(all_caches.event_focused.read().await.values().map(
+                |event_focused_cache| {
+                    event_focused_cache.replace_in_memory_utds(&maybe_resolved_events)
+                },
+            ))
             .await?;
         }
 
@@ -595,7 +708,7 @@ impl EventCache {
         for (event_id, event) in events {
             // If we managed to decrypt the event, and we should have to since we received
             // the room key for this specific event, then replace the event.
-            if let Some((decrypted, actions)) = self
+            if let Some((decrypted_event, actions)) = self
                 .decrypt_event(
                     room_id,
                     room.as_ref(),
@@ -604,14 +717,14 @@ impl EventCache {
                 )
                 .await
             {
-                decrypted_events.push((event_id, decrypted, actions));
+                decrypted_events.push(ResolvedUtd { event_id, decrypted_event, actions });
             }
         }
 
-        let event_ids: BTreeSet<_> =
-            decrypted_events.iter().map(|(event_id, _, _)| event_id).collect();
+        if !decrypted_events.is_empty() && tracing::level_enabled!(tracing::Level::TRACE) {
+            let event_ids: BTreeSet<_> =
+                decrypted_events.iter().map(|resolved_utd| &resolved_utd.event_id).collect();
 
-        if !event_ids.is_empty() {
             trace!(?event_ids, "Successfully redecrypted events");
         }
 
@@ -641,15 +754,19 @@ impl EventCache {
                     && event.encryption_info != new_encryption_info
                 {
                     event.encryption_info = new_encryption_info;
-                    updated_events.push((event_id, event, None));
+                    updated_events.push(ResolvedUtd {
+                        event_id,
+                        decrypted_event: event,
+                        actions: None,
+                    });
                 }
             }
         }
 
-        let event_ids: BTreeSet<_> =
-            updated_events.iter().map(|(event_id, _, _)| event_id).collect();
+        if !updated_events.is_empty() && tracing::level_enabled!(tracing::Level::TRACE) {
+            let event_ids: BTreeSet<_> =
+                updated_events.iter().map(|resolved_utd| &resolved_utd.event_id).collect();
 
-        if !event_ids.is_empty() {
             trace!(?event_ids, "Replacing the encryption info of some events");
         }
 
@@ -1140,6 +1257,7 @@ mod tests {
         event_cache::{
             Event, Gap,
             store::{EventCacheStore, EventCacheStoreError, MemoryStore},
+            thread::ThreadInfo,
         },
         linked_chunk::{
             ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, Position,
@@ -1280,8 +1398,25 @@ mod tests {
             self.memory_store.load_previous_chunk(linked_chunk_id, before_chunk_identifier).await
         }
 
-        async fn clear_all_events(&self) -> Result<(), Self::Error> {
-            self.memory_store.clear_all_events().await
+        async fn load_thread_info(
+            &self,
+            room_id: &RoomId,
+            thread_id: &EventId,
+        ) -> Result<ThreadInfo, Self::Error> {
+            self.memory_store.load_thread_info(room_id, thread_id).await
+        }
+
+        async fn update_thread_info(
+            &self,
+            room_id: &RoomId,
+            thread_id: &EventId,
+            thread_info: &ThreadInfo,
+        ) -> Result<(), Self::Error> {
+            self.memory_store.update_thread_info(room_id, thread_id, thread_info).await
+        }
+
+        async fn clear_all_events(&self, room_id: Option<&RoomId>) -> Result<(), Self::Error> {
+            self.memory_store.clear_all_events(room_id).await
         }
 
         async fn filter_duplicated_events(

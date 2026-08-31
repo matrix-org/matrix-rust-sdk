@@ -21,10 +21,10 @@ use thiserror::Error;
 
 /// The current version and keys used in the database.
 pub mod current {
-    use super::{Version, v4};
+    use super::{Version, v7};
 
-    pub const VERSION: Version = Version::V4;
-    pub use v4::keys;
+    pub const VERSION: Version = Version::V7;
+    pub use v7::keys;
 }
 
 /// Opens a connection to the IndexedDB database and takes care of upgrading it
@@ -60,6 +60,12 @@ pub enum Version {
     V3 = 3,
     /// Version 4 of the database, for details see [`v4`].
     V4 = 4,
+    /// Version 5 of the database, for details see [`v5`].
+    V5 = 5,
+    /// Version 6 of the database, for details see [`v6`].
+    V6 = 6,
+    /// Version 7 of the database, for details see [`v7`].
+    V7 = 7,
 }
 
 impl Version {
@@ -70,7 +76,10 @@ impl Version {
             Self::V1 => v1::upgrade(transaction).map(Some),
             Self::V2 => v2::upgrade(transaction).map(Some),
             Self::V3 => v3::upgrade(transaction).map(Some),
-            Self::V4 => Ok(None),
+            Self::V4 => v4::upgrade(transaction).map(Some),
+            Self::V5 => v5::upgrade(transaction).map(Some),
+            Self::V6 => v6::upgrade(transaction).map(Some),
+            Self::V7 => Ok(None),
         }
     }
 }
@@ -89,6 +98,9 @@ impl TryFrom<u32> for Version {
             2 => Ok(Version::V2),
             3 => Ok(Version::V3),
             4 => Ok(Version::V4),
+            5 => Ok(Version::V5),
+            6 => Ok(Version::V6),
+            7 => Ok(Version::V7),
             v => Err(UnknownVersionError(v)),
         }
     }
@@ -329,6 +341,108 @@ mod v4 {
 
         let events = transaction.object_store(keys::EVENTS)?;
         events.clear()?;
+
+        Ok(())
+    }
+
+    /// Upgrade database from `v4` to `v5`
+    pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
+        v5::empty_event_cache(transaction)?;
+        v5::create_threads_object_store(transaction.db())?;
+        Ok(Version::V5)
+    }
+}
+
+pub mod v5 {
+    use indexed_db_futures::Build;
+
+    pub mod keys {
+        // Re-use all the same keys from `v4`.
+        pub use super::super::v4::keys::*;
+
+        // Add new keys.
+        pub const THREADS: &str = "threads";
+        pub const THREADS_KEY_PATH: &str = "id";
+    }
+    use super::*;
+
+    pub fn empty_event_cache(transaction: &Transaction<'_>) -> Result<(), Error> {
+        let linked_chunks = transaction.object_store(keys::LINKED_CHUNKS)?;
+        linked_chunks.clear()?;
+
+        let gaps = transaction.object_store(keys::GAPS)?;
+        gaps.clear()?;
+
+        let events = transaction.object_store(keys::EVENTS)?;
+        events.clear()?;
+
+        Ok(())
+    }
+
+    pub fn create_threads_object_store(db: &Database) -> Result<(), Error> {
+        let _ = db
+            .create_object_store(keys::THREADS)
+            .with_key_path(keys::THREADS_KEY_PATH.into())
+            .build()?;
+
+        Ok(())
+    }
+
+    /// Upgrade database from `v5` to `v6`
+    pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
+        v6::empty_event_cache(transaction)?;
+        Ok(Version::V6)
+    }
+}
+
+mod v6 {
+    // Re-use all the same keys from `v5`.
+    pub use super::v5::keys;
+    use super::*;
+
+    /// Prior iterations of this implementation of the event cache store did not
+    /// properly handle deleting events - namely, subsequent events in the same
+    /// chunk did not have their indices decremented after an event was deleted.
+    /// This caused bugs when callers tried to address events by position, as
+    /// the assumption is that deletions do not leave gaps between indices,
+    /// but rather shift higher indices down.
+    ///
+    /// The implementation has now been fixed, but it is also necessary to clear
+    /// existing data where the indices may have gaps due to deletions that
+    /// happened before this fix.
+    pub fn empty_event_cache(transaction: &Transaction<'_>) -> Result<(), Error> {
+        let linked_chunks = transaction.object_store(keys::LINKED_CHUNKS)?;
+        linked_chunks.clear()?;
+
+        let gaps = transaction.object_store(keys::GAPS)?;
+        gaps.clear()?;
+
+        let events = transaction.object_store(keys::EVENTS)?;
+        events.clear()?;
+
+        let threads = transaction.object_store(keys::THREADS)?;
+        threads.clear()?;
+
+        Ok(())
+    }
+
+    /// Upgrade database from `v6` to `v7`
+    pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
+        v7::empty_threads(transaction)?;
+        Ok(Version::V7)
+    }
+}
+
+mod v7 {
+    // Re-use all the same keys from `v6`.
+    pub use super::v6::keys;
+    use super::*;
+
+    /// Clear the threads table, so we can add the new non-optional, encoded
+    /// `info` column at runtime.
+    pub fn empty_threads(transaction: &Transaction<'_>) -> Result<(), Error> {
+        let threads = transaction.object_store(keys::THREADS)?;
+        threads.clear()?;
 
         Ok(())
     }

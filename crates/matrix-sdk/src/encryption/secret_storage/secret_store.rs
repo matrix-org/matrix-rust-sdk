@@ -33,7 +33,7 @@ use zeroize::Zeroize;
 use super::{DecryptionError, Result, SecretStorageError};
 use crate::{Client, encryption::backups::EnableBackupError};
 
-#[cfg_attr(doc, aquamarine::aquamarine)]
+#[cfg_attr(doc, doc = include_str!("../../../../../.cargo/mermaid.html"))]
 /// Secure key/value storage for Matrix users.
 ///
 /// The `SecretStore` struct encapsulates the secret storage mechanism for

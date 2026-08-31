@@ -328,6 +328,7 @@ enum LogTarget {
     MatrixSdk,
     MatrixSdkClient,
     MatrixSdkCrypto,
+    MatrixSdkCryptoIdentitiesManager,
     MatrixSdkCryptoAccount,
     MatrixSdkEventCache,
     MatrixSdkEventCacheStore,
@@ -340,6 +341,9 @@ enum LogTarget {
     // SDK UI modules.
     MatrixSdkUiTimeline,
     MatrixSdkUiNotificationClient,
+
+    // SDK search modules
+    MatrixSdkSearch,
 }
 
 impl LogTarget {
@@ -358,6 +362,7 @@ impl LogTarget {
             LogTarget::MatrixSdk => "matrix_sdk",
             LogTarget::MatrixSdkClient => "matrix_sdk::client",
             LogTarget::MatrixSdkCrypto => "matrix_sdk_crypto",
+            LogTarget::MatrixSdkCryptoIdentitiesManager => "matrix_sdk_crypto::identities::manager",
             LogTarget::MatrixSdkCryptoAccount => "matrix_sdk_crypto::olm::account",
             LogTarget::MatrixSdkOauth => "matrix_sdk::authentication::oauth",
             LogTarget::MatrixSdkHttpClient => "matrix_sdk::http_client",
@@ -368,6 +373,7 @@ impl LogTarget {
             LogTarget::MatrixSdkEventCacheStore => "matrix_sdk_sqlite::event_cache_store",
             LogTarget::MatrixSdkUiTimeline => "matrix_sdk_ui::timeline",
             LogTarget::MatrixSdkUiNotificationClient => "matrix_sdk_ui::notification_client",
+            LogTarget::MatrixSdkSearch => "matrix_sdk_search",
         }
     }
 }
@@ -378,6 +384,7 @@ const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
     (LogTarget::MatrixSdk, LogLevel::Info),
     (LogTarget::MatrixSdkClient, LogLevel::Trace),
     (LogTarget::MatrixSdkCrypto, LogLevel::Debug),
+    (LogTarget::MatrixSdkCryptoIdentitiesManager, LogLevel::Info),
     (LogTarget::MatrixSdkCryptoAccount, LogLevel::Trace),
     (LogTarget::MatrixSdkOauth, LogLevel::Trace),
     (LogTarget::MatrixSdkHttpClient, LogLevel::Debug),
@@ -393,7 +400,8 @@ const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
     (LogTarget::MatrixSdkCommonDeserializedResponses, LogLevel::Warn),
     (LogTarget::MatrixSdkBaseStoreAmbiguityMap, LogLevel::Warn),
     (LogTarget::MatrixSdkUiNotificationClient, LogLevel::Info),
-    (LogTarget::MatrixSdkBaseResponseProcessors, LogLevel::Debug),
+    (LogTarget::MatrixSdkBaseResponseProcessors, LogLevel::Info),
+    (LogTarget::MatrixSdkSearch, LogLevel::Info),
 ];
 
 const IMMUTABLE_LOG_TARGETS: &[LogTarget] = &[
@@ -420,6 +428,8 @@ pub enum TraceLogPacks {
     SyncProfiling,
     /// Enables all the logs relevant to the latest events.
     LatestEvents,
+    /// Enables all the logs relevant to message search.
+    Search,
 }
 
 impl TraceLogPacks {
@@ -452,6 +462,7 @@ impl TraceLogPacks {
                 LogTarget::MatrixSdkSendQueue,
                 LogTarget::MatrixSdkEventCache,
             ],
+            TraceLogPacks::Search => &[LogTarget::MatrixSdkSearch],
         }
     }
 }
@@ -534,15 +545,13 @@ impl TracingConfiguration {
                     // Initialize the Sentry client with the given options.
                     let sentry_guard = sentry::init((
                         sentry_config.dsn,
-                        sentry::ClientOptions {
-                            traces_sampler: Some(Arc::new(|ctx| {
+                        sentry::ClientOptions::new()
+                            .traces_sampler(|ctx| {
                                 // Make sure bridge spans are always uploaded
                                 if ctx.name() == BRIDGE_SPAN_NAME { 1.0 } else { 0.0 }
-                            })),
-                            attach_stacktrace: true,
-                            release: Some(env!("VERGEN_GIT_SHA").into()),
-                            ..sentry::ClientOptions::default()
-                        },
+                            })
+                            .attach_stacktrace(true)
+                            .release(env!("VERGEN_GIT_SHA")),
                     ));
 
                     sentry::configure_scope(|scope| {
@@ -812,6 +821,7 @@ mod tests {
             matrix_sdk=info,
             matrix_sdk::client=trace,
             matrix_sdk_crypto=debug,
+            matrix_sdk_crypto::identities::manager=info,
             matrix_sdk_crypto::olm::account=trace,
             matrix_sdk::authentication::oauth=trace,
             matrix_sdk::http_client=debug,
@@ -827,7 +837,8 @@ mod tests {
             matrix_sdk_common::deserialized_responses=warn,
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=info,
-            matrix_sdk_base::response_processors=debug,
+            matrix_sdk_base::response_processors=info,
+            matrix_sdk_search=info,
             super_duper_app=error"#
                 .split('\n')
                 .map(|s| s.trim())
@@ -858,6 +869,7 @@ mod tests {
             matrix_sdk=info,
             matrix_sdk::client=trace,
             matrix_sdk_crypto=trace,
+            matrix_sdk_crypto::identities::manager=trace,
             matrix_sdk_crypto::olm::account=trace,
             matrix_sdk::authentication::oauth=trace,
             matrix_sdk::http_client=trace,
@@ -874,6 +886,7 @@ mod tests {
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=trace,
             matrix_sdk_base::response_processors=trace,
+            matrix_sdk_search=trace,
             super_duper_app=trace,
             some_other_span=trace"#
                 .split('\n')
@@ -905,6 +918,7 @@ mod tests {
             matrix_sdk=info,
             matrix_sdk::client=trace,
             matrix_sdk_crypto=debug,
+            matrix_sdk_crypto::identities::manager=info,
             matrix_sdk_crypto::olm::account=trace,
             matrix_sdk::authentication::oauth=trace,
             matrix_sdk::http_client=debug,
@@ -920,7 +934,8 @@ mod tests {
             matrix_sdk_common::deserialized_responses=trace,
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=info,
-            matrix_sdk_base::response_processors=debug,
+            matrix_sdk_base::response_processors=info,
+            matrix_sdk_search=info,
             super_duper_app=info"#
                 .split('\n')
                 .map(|s| s.trim())

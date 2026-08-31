@@ -32,7 +32,7 @@ use super::{
 };
 
 /// Load a linked chunk's full metadata, making sure the chunks are
-/// according to their their links.
+/// correct according to their links.
 ///
 /// Returns `None` if there's no such linked chunk in the store, or an
 /// error if the linked chunk is malformed.

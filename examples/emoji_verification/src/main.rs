@@ -56,8 +56,8 @@ async fn print_devices(user_id: &UserId, client: &Client) {
 async fn sas_verification_handler(client: Client, sas: SasVerification) {
     println!(
         "Starting verification with {} {}",
-        &sas.other_device().user_id(),
-        &sas.other_device().device_id()
+        sas.other_device().user_id(),
+        sas.other_device().device_id()
     );
     print_devices(sas.other_device().user_id(), &client).await;
     sas.accept().await.unwrap();

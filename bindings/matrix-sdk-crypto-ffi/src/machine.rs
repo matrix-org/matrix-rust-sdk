@@ -25,7 +25,7 @@ use ruma::{
     DeviceKeyAlgorithm, EventId, OneTimeKeyAlgorithm, OwnedTransactionId, OwnedUserId, RoomId,
     UserId,
     api::{
-        IncomingResponse,
+        IncomingResponseExt as _,
         client::{
             backup::add_backup_keys::v3::Response as KeysBackupResponse,
             keys::{
@@ -52,16 +52,15 @@ use tokio::runtime::Runtime;
 use zeroize::Zeroize;
 
 use crate::{
-    BackupKeys, BackupRecoveryKey, BootstrapCrossSigningError, BootstrapCrossSigningResult,
-    CrossSigningKeyExport, CrossSigningStatus, DecodeError, DecryptedEvent, Device, DeviceLists,
-    EncryptionSettings, EventEncryptionAlgorithm, KeyImportError, KeysImportResult,
-    MegolmV1BackupKey, ProgressListener, Request, RequestType, RequestVerificationResult,
-    RoomKeyCounts, RoomSettings, Sas, SignatureUploadRequest, StartSasResult, UserIdentity,
-    Verification, VerificationRequest,
+    BackupKeys, BackupRecoveryKey, BootstrapCrossSigningResult, CrossSigningKeyExport,
+    CrossSigningStatus, DecodeError, DecryptedEvent, Device, DeviceLists, EncryptionSettings,
+    EventEncryptionAlgorithm, KeyImportError, KeysImportResult, MegolmV1BackupKey,
+    ProgressListener, Request, RequestType, RequestVerificationResult, RoomKeyCounts, RoomSettings,
+    Sas, SignatureUploadRequest, StartSasResult, UserIdentity, Verification, VerificationRequest,
     dehydrated_devices::DehydratedDevices,
     error::{
-        CryptoStoreError, DecryptionError, SecretImportError, SecretsBundleExportError,
-        SignatureError,
+        BootstrapCrossSigningError, CryptoStoreError, DecryptionError, SecretImportError,
+        SecretsBundleExportError, SignatureError,
     },
     parse_user_id,
     responses::{OwnedResponse, response_from_string},

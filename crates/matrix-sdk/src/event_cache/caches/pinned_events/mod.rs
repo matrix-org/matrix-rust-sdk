@@ -37,7 +37,7 @@ use tracing::{debug, instrument, trace, warn};
 
 pub(super) use self::updates::PinnedEventsCacheUpdateSender;
 #[cfg(feature = "e2e-encryption")]
-use super::super::redecryptor::ResolvedUtd;
+use super::super::redecryptor::MaybeResolvedEvent;
 use super::{
     super::{
         EventCacheError, EventsOrigin, Result,
@@ -208,10 +208,8 @@ impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
     ///
     /// This method should be used only for updates that happen *outside*
     /// the in-memory linked chunk. Such updates must be applied
-    /// onto the ordering tracker as well as to the persistent
-    /// storage.
+    /// onto the persistent storage.
     async fn apply_store_only_updates(&mut self, updates: Vec<Update<Event, Gap>>) -> Result<()> {
-        self.state.chunk.order_tracker.map_updates(&updates);
         self.send_updates_to_store(updates).await
     }
 
@@ -336,7 +334,12 @@ impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
 
         {
             let mut current_chunk_identifier = last_chunk.identifier;
-            self.state.chunk.replace_with(Some(last_chunk), chunk_id_gen)?;
+            self.state.chunk.shrink_to_last_reloaded_chunk(
+                Some(last_chunk),
+                chunk_id_gen,
+                // This cache doesn't use the `OrderTracker`.
+                None,
+            )?;
 
             // Reload the entire chunk.
             while let Some(previous_chunk) =
@@ -504,15 +507,22 @@ impl PinnedEventsCache {
     }
 
     /// Try to locate the events in the linked chunk corresponding to the given
-    /// list of decrypted events, and replace them, while alerting observers
+    /// list of resolved events, and replace them, while alerting observers
     /// about the update.
     #[cfg(feature = "e2e-encryption")]
-    pub(in super::super) async fn replace_utds(&self, events: &[ResolvedUtd]) -> Result<()> {
-        let mut guard = self.inner.state.write().await?;
+    pub(in super::super) async fn replace_in_memory_utds(
+        &self,
+        resolved_events: &[MaybeResolvedEvent],
+    ) -> Result<()> {
+        let mut state = self.inner.state.write().await?;
 
-        if guard.state.chunk.replace_utds(events) {
-            guard.propagate_changes().await?;
-            guard.notify_subscribers(EventsOrigin::Cache);
+        // Drain the updates to the store, events have already been updated before
+        // calling this method.
+        let _ = state.state.chunk.store_updates().take();
+
+        if state.state.chunk.replace_utds(resolved_events) {
+            state.propagate_changes().await?;
+            state.notify_subscribers(EventsOrigin::Cache);
         }
 
         Ok(())

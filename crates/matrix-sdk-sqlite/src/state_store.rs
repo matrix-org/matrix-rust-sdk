@@ -34,7 +34,7 @@ use ruma::{
             member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
         },
     },
-    profile::UserProfile,
+    profile::{UserProfile, UserProfileUpdate},
     serde::Raw,
 };
 use rusqlite::{OptionalExtension, Transaction};
@@ -51,7 +51,7 @@ use crate::{
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt, repeat_vars,
+        SqliteKeyValueStoreConnExt,
     },
 };
 
@@ -248,7 +248,7 @@ impl SqliteStateStore {
                             "SELECT stripped, data FROM state_event
                              WHERE room_id = ? AND event_type = ?",
                         )?
-                        .query_row([room_id, event_type], |row| {
+                        .query_one([room_id, event_type], |row| {
                             Ok((row.get::<_, bool>(0)?, row.get::<_, Vec<u8>>(1)?))
                         })
                         .optional()?;
@@ -749,7 +749,7 @@ impl SqliteConnectionStateStoreExt for rusqlite::Connection {
     }
 
     fn get_room_info(&self, room_id: &[u8]) -> rusqlite::Result<Option<Vec<u8>>> {
-        self.query_row("SELECT data FROM room_info WHERE room_id = ?", (room_id,), |row| row.get(0))
+        self.query_one("SELECT data FROM room_info WHERE room_id = ?", (room_id,), |row| row.get(0))
             .optional()
     }
 
@@ -782,7 +782,7 @@ impl SqliteConnectionStateStoreExt for rusqlite::Connection {
         room_id: &[u8],
         event_id: &[u8],
     ) -> rusqlite::Result<Option<Vec<u8>>> {
-        self.query_row(
+        self.query_one(
             "SELECT data FROM state_event WHERE room_id = ? AND event_id = ?",
             (room_id, event_id),
             |row| row.get(0),
@@ -922,7 +922,7 @@ impl SqliteConnectionStateStoreExt for rusqlite::Connection {
 trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
     async fn get_kv_blob(&self, key: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
-            .query_row("SELECT value FROM kv_blob WHERE key = ?", (key,), |row| row.get(0))
+            .query_one("SELECT value FROM kv_blob WHERE key = ?", (key,), |row| row.get(0))
             .await
             .optional()?)
     }
@@ -931,8 +931,8 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         let keys_length = keys.len();
 
         self.chunk_large_query_over(keys, Some(keys_length), |txn, keys| {
-            let sql_params = repeat_vars(keys.len());
-            let sql = format!("SELECT value FROM kv_blob WHERE key IN ({sql_params})");
+            let sql =
+                format!("SELECT value FROM kv_blob WHERE key IN ({})", keys.host_parameters());
 
             let params = rusqlite::params_from_iter(keys);
 
@@ -976,11 +976,11 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         event_type: Key,
         state_keys: Vec<Key>,
     ) -> Result<Vec<(bool, Vec<u8>)>> {
-        self.chunk_large_query_over(state_keys, None, move |txn, state_keys: Vec<Key>| {
-            let sql_params = repeat_vars(state_keys.len());
+        self.chunk_large_query_over(state_keys, None, move |txn, state_keys| {
             let sql = format!(
                 "SELECT stripped, data FROM state_event
-                 WHERE room_id = ? AND event_type = ? AND state_key IN ({sql_params})"
+                 WHERE room_id = ? AND event_type = ? AND state_key IN ({})",
+                state_keys.host_parameters()
             );
 
             let params = rusqlite::params_from_iter(
@@ -1022,9 +1022,9 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         let user_ids_length = user_ids.len();
 
         self.chunk_large_query_over(user_ids, Some(user_ids_length), move |txn, user_ids| {
-            let sql_params = repeat_vars(user_ids_length);
             let sql = format!(
-                "SELECT user_id, data FROM profile WHERE room_id = ? AND user_id IN ({sql_params})"
+                "SELECT user_id, data FROM profile WHERE room_id = ? AND user_id IN ({})",
+                user_ids.host_parameters(),
             );
 
             let params = rusqlite::params_from_iter(iter::once(room_id.clone()).chain(user_ids));
@@ -1042,9 +1042,9 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         let user_ids_length = user_ids.len();
 
         self.chunk_large_query_over(user_ids, Some(user_ids_length), move |txn, user_ids| {
-            let sql_params = repeat_vars(user_ids_length);
             let sql = format!(
-                "SELECT user_id, profile_data FROM global_profiles WHERE user_id IN ({sql_params})"
+                "SELECT user_id, profile_data FROM global_profiles WHERE user_id IN ({})",
+                user_ids.host_parameters(),
             );
 
             let params = rusqlite::params_from_iter(user_ids);
@@ -1066,9 +1066,9 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
             .await?
         } else {
             self.chunk_large_query_over(memberships, None, move |txn, memberships| {
-                let sql_params = repeat_vars(memberships.len());
                 let sql = format!(
-                    "SELECT data FROM member WHERE room_id = ? AND membership IN ({sql_params})"
+                    "SELECT data FROM member WHERE room_id = ? AND membership IN ({})",
+                    memberships.host_parameters(),
                 );
 
                 let params =
@@ -1088,7 +1088,7 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
 
     async fn get_global_account_data(&self, event_type: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
-            .query_row(
+            .query_one(
                 "SELECT data FROM global_account_data WHERE event_type = ?",
                 (event_type,),
                 |row| row.get(0),
@@ -1103,7 +1103,7 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         event_type: Key,
     ) -> Result<Option<Vec<u8>>> {
         Ok(self
-            .query_row(
+            .query_one(
                 "SELECT data FROM room_account_data WHERE room_id = ? AND event_type = ?",
                 (room_id, event_type),
                 |row| row.get(0),
@@ -1120,9 +1120,9 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         let names_length = names.len();
 
         self.chunk_large_query_over(names, Some(names_length), move |txn, names| {
-            let sql_params = repeat_vars(names.len());
             let sql = format!(
-                "SELECT name, data FROM display_name WHERE room_id = ? AND name IN ({sql_params})"
+                "SELECT name, data FROM display_name WHERE room_id = ? AND name IN ({})",
+                names.host_parameters()
             );
 
             let params = rusqlite::params_from_iter(iter::once(room_id.clone()).chain(names));
@@ -1140,14 +1140,14 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         &self,
         room_id: Key,
         receipt_type: Key,
-        thread: Key,
+        receipt_thread: Key,
         user_id: Key,
     ) -> Result<Option<Vec<u8>>> {
         Ok(self
-            .query_row(
+            .query_one(
                 "SELECT data FROM receipt
                  WHERE room_id = ? AND receipt_type = ? AND thread = ? and user_id = ?",
-                (room_id, receipt_type, thread, user_id),
+                (room_id, receipt_type, receipt_thread, user_id),
                 |row| row.get(0),
             )
             .await
@@ -1602,27 +1602,37 @@ impl StateStore for SqliteStateStore {
                     }
                 }
 
-                if !global_profiles.is_empty() {
-                    let mut select_stmt = txn.prepare_cached(
-                        "SELECT profile_data FROM global_profiles WHERE user_id = ?",
-                    )?;
-                    let mut insert_stmt = txn.prepare_cached(
-                        "INSERT OR REPLACE INTO global_profiles (user_id, profile_data) VALUES (?, ?)",
-                    )?;
+                for (raw_user_id, profile_update) in global_profiles {
+                    let user_id = this.encode_key(keys::GLOBAL_PROFILES, &raw_user_id);
+                    match profile_update {
+                        UserProfileUpdate::Updated(profile_changes) => {
+                            let existing_data: Option<Vec<u8>> = txn
+                                .prepare_cached(
+                                    "SELECT profile_data FROM global_profiles WHERE user_id = ?",
+                                )?
+                                .query_one([&user_id], |row| row.get(0))
+                                .optional()?;
 
-                    for (user_id, profile_update) in global_profiles {
-                        let user_id = this.encode_key(keys::GLOBAL_PROFILES, &user_id);
-                        let existing_data: Option<Vec<u8>> =
-                            select_stmt.query_row([&user_id], |row| row.get(0)).optional()?;
+                            let mut profile: UserProfile = existing_data
+                                .map(|data| this.deserialize_json(&data))
+                                .transpose()?
+                                .unwrap_or_default();
+                            profile.apply(profile_changes);
 
-                        let mut profile: UserProfile = existing_data
-                            .map(|data| this.deserialize_json(&data))
-                            .transpose()?
-                            .unwrap_or_default();
-                        profile.merge(profile_update);
-
-                        let serialized = this.serialize_json(&profile)?;
-                        insert_stmt.execute((&user_id, serialized))?;
+                            let serialized = this.serialize_json(&profile)?;
+                            txn.prepare_cached(
+                                "INSERT OR REPLACE INTO global_profiles (user_id, profile_data) VALUES (?, ?)",
+                            )?
+                            .execute((&user_id, serialized))?;
+                        }
+                        // The user left all shared rooms, so drop their stored profile.
+                        UserProfileUpdate::Dropped => {
+                            txn.prepare_cached("DELETE FROM global_profiles WHERE user_id = ?")?
+                                .execute([&user_id])?;
+                        }
+                        _ => {
+                            warn!(%raw_user_id, "Unhandled UserProfileUpdate variant; ignoring");
+                        }
                     }
                 }
 
@@ -1912,19 +1922,20 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
         let room_id = self.encode_key(keys::RECEIPT, room_id);
         let receipt_type = self.encode_key(keys::RECEIPT, receipt_type.to_string());
         // We cannot have a NULL primary key so we rely on serialization instead of the
         // string representation.
-        let thread = self.encode_key(keys::RECEIPT, rmp_serde::to_vec_named(&thread)?);
+        let receipt_thread =
+            self.encode_key(keys::RECEIPT, rmp_serde::to_vec_named(receipt_thread)?);
         let user_id = self.encode_key(keys::RECEIPT, user_id);
 
         self.read()
             .await?
-            .get_user_receipt(room_id, receipt_type, thread, user_id)
+            .get_user_receipt(room_id, receipt_type, receipt_thread, user_id)
             .await?
             .map(|value| {
                 self.deserialize_json::<ReceiptData>(&value).map(|d| (d.event_id, d.receipt))
@@ -1936,19 +1947,20 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
         let room_id = self.encode_key(keys::RECEIPT, room_id);
         let receipt_type = self.encode_key(keys::RECEIPT, receipt_type.to_string());
         // We cannot have a NULL primary key so we rely on serialization instead of the
         // string representation.
-        let thread = self.encode_key(keys::RECEIPT, rmp_serde::to_vec_named(&thread)?);
+        let receipt_thread =
+            self.encode_key(keys::RECEIPT, rmp_serde::to_vec_named(receipt_thread)?);
         let event_id = self.encode_key(keys::RECEIPT, event_id);
 
         self.read()
             .await?
-            .get_event_receipts(room_id, receipt_type, thread, event_id)
+            .get_event_receipts(room_id, receipt_type, receipt_thread, event_id)
             .await?
             .iter()
             .map(|value| {
@@ -2415,7 +2427,7 @@ impl StateStore for SqliteStateStore {
         Ok(self
             .read()
             .await?
-            .query_row(
+            .query_one(
                 "SELECT status, bump_stamp FROM thread_subscriptions WHERE room_id = ? AND event_id = ?",
                 (room_id, thread_id),
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<u64>>(1)?))

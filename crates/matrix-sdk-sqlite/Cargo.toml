@@ -11,12 +11,13 @@ rust-version.workspace = true
 rustdoc-args = ["--generate-link-to-definition"]
 
 [features]
-default = ["state-store", "event-cache"]
+default = ["state-store", "event-cache-store", "media-store"]
 testing = ["matrix-sdk-crypto?/testing"]
 
 bundled = ["rusqlite/bundled"]
 crypto-store = ["dep:matrix-sdk-base", "dep:matrix-sdk-crypto"]
-event-cache = ["dep:matrix-sdk-base"]
+event-cache-store = ["dep:matrix-sdk-base"]
+media-store = ["dep:matrix-sdk-base"]
 state-store = ["dep:matrix-sdk-base"]
 
 experimental-encrypted-state-events = [
@@ -38,7 +39,7 @@ matrix-sdk-store-encryption.workspace = true
 num_cpus = { version = "1.17.0", default-features = false }
 rmp-serde.workspace = true
 ruma.workspace = true
-rusqlite = { version = "0.37.0", default-features = false, features = ["limits"] }
+rusqlite = { version = "0.40.1", default-features = false, features = ["limits", "fallible_uint", "cache"] }
 serde.workspace = true
 serde_json.workspace = true
 serde_path_to_error = { version = "0.1.20", default-features = false }
@@ -50,7 +51,7 @@ zeroize.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
-glob = "0.3.3"
+glob = "0.3.4"
 matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-common.workspace = true
 matrix-sdk-crypto = { workspace = true, features = ["testing"] }

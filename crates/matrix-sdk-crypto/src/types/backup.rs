@@ -174,7 +174,7 @@ mod tests {
         });
 
         with_settings!({sort_maps =>true}, {
-            assert_json_snapshot!(info)
+            assert_json_snapshot!(info);
         });
 
         let info = RoomKeyBackupInfo::Other {

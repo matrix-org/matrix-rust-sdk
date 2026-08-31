@@ -14,10 +14,7 @@
 
 use super::{super::RoomListItem, Filter};
 
-fn matches<F>(is_low_priority: F, room: &RoomListItem) -> bool
-where
-    F: Fn(&RoomListItem) -> bool,
-{
+fn matches(is_low_priority: fn(&RoomListItem) -> bool, room: &RoomListItem) -> bool {
     is_low_priority(room)
 }
 

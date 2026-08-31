@@ -23,6 +23,9 @@ unstable-msc3956 = ["ruma/unstable-msc3956"]
 # Add support for inline media galleries via msgtypes
 unstable-msc4274 = ["matrix-sdk/unstable-msc4274"]
 
+# Add support for user status profile fields (m.status, m.call).
+unstable-msc4426 = ["matrix-sdk/unstable-msc4426"]
+
 # Enable the global, reactive search service built on top of the SDK's
 # message search.
 experimental-search = ["matrix-sdk/experimental-search"]
@@ -41,7 +44,7 @@ async-stream.workspace = true
 async_cell.workspace = true
 bitflags.workspace = true
 chrono.workspace = true
-emojis = { version = "0.8.0", default-features = false }
+emojis = { version = "0.9.0", default-features = false }
 eyeball.workspace = true
 eyeball-im.workspace = true
 eyeball-im-util.workspace = true

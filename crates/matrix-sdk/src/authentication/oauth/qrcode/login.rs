@@ -97,7 +97,7 @@ async fn finish_login<Q>(
 
             return Err(QRCodeLoginError::UnexpectedMessage {
                 expected: "m.login.protocol_accepted",
-                received: message,
+                received: Box::new(message),
             });
         }
     }
@@ -176,7 +176,7 @@ async fn finish_login<Q>(
 
             return Err(QRCodeLoginError::UnexpectedMessage {
                 expected: "m.login.secrets",
-                received: message,
+                received: Box::new(message),
             });
         }
     };
@@ -410,7 +410,7 @@ impl<'a> IntoFuture for LoginWithGeneratedQrCode<'a> {
 
                     return Err(QRCodeLoginError::UnexpectedMessage {
                         expected: "m.login.protocols",
-                        received: message,
+                        received: Box::new(message),
                     });
                 }
             };
@@ -499,7 +499,6 @@ mod test {
     use matrix_sdk_test::async_test;
     use serde_json::json;
     use tokio_util::sync::CancellationToken;
-    use vodozemac::ecies::CheckCode;
 
     use super::*;
     use crate::{
@@ -549,7 +548,7 @@ mod test {
     /// existing device, of the QR login dance.
     async fn grant_login(
         alice: SecureChannel,
-        check_code_receiver: tokio::sync::oneshot::Receiver<CheckCode>,
+        check_code_receiver: tokio::sync::oneshot::Receiver<u8>,
         behavior: AliceBehaviour,
     ) {
         let alice = alice.connect().await.expect("Alice should be able to connect the channel");
@@ -557,9 +556,8 @@ mod test {
         let check_code =
             check_code_receiver.await.expect("We should receive the check code from bob");
 
-        let mut alice = alice
-            .confirm(check_code.to_digit())
-            .expect("Alice should be able to confirm the secure channel");
+        let mut alice =
+            alice.confirm(check_code).expect("Alice should be able to confirm the secure channel");
 
         let message = alice
             .receive_json()
@@ -697,7 +695,7 @@ mod test {
 
         // The other side isn't yet sure that it's talking to the right device, show
         // a check code so they can confirm.
-        let check_code = channel.check_code().to_digit();
+        let check_code = channel.check_code();
 
         let check_code_sender =
             cctx_receiver.await.expect("Alice should receive the CheckCodeSender");

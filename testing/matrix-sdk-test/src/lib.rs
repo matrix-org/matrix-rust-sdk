@@ -4,7 +4,7 @@ use http::Response;
 pub use matrix_sdk_test_macros::async_test;
 use ruma::{
     RoomId, UserId,
-    api::{IncomingResponse, OutgoingResponse},
+    api::{IncomingResponse, IncomingResponseExt as _, OutgoingResponse, OutgoingResponseExt as _},
     room_id,
     serde::{Base64, base64::UrlSafe},
     user_id,
@@ -97,8 +97,10 @@ pub fn ruma_response_from_json<ResponseType: IncomingResponse>(
     json: &serde_json::Value,
 ) -> ResponseType {
     let json_bytes = serde_json::to_vec(json).expect("JSON-serialization of response value failed");
-    let http_response =
-        Response::builder().status(200).body(json_bytes).expect("Failed to build HTTP response");
+    let http_response = Response::builder()
+        .status(200)
+        .body(json_bytes.as_slice())
+        .expect("Failed to build HTTP response");
     ResponseType::try_from_http_response(http_response).expect("Can't parse the response json")
 }
 

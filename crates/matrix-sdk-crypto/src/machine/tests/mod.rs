@@ -25,7 +25,13 @@ use matrix_sdk_common::{
     },
     executor::spawn,
 };
-use matrix_sdk_test::{async_test, message_like_event_content, ruma_response_from_json, test_json};
+use matrix_sdk_test::{
+    async_test, message_like_event_content, ruma_response_from_json,
+    test_json::{
+        self,
+        keys_query_sets::{KeyQueryResponseTemplate, KeyQueryResponseTemplateDeviceOptions},
+    },
+};
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::events::{
     StateEvent,
@@ -35,7 +41,7 @@ use ruma::{
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm,
     RoomId, TransactionId, UserId,
     api::client::{
-        keys::{get_keys, upload_keys},
+        keys::{get_keys, get_keys::v3::Response as KeysQueryResponse, upload_keys},
         sync::sync_events::DeviceLists,
     },
     device_id,
@@ -50,16 +56,17 @@ use ruma::{
     serde::Raw,
     uint, user_id,
 };
+use serde::Deserialize;
 use serde_json::json;
 use vodozemac::{
-    Ed25519PublicKey,
+    Ed25519PublicKey, Ed25519SecretKey,
     megolm::{GroupSession, SessionConfig},
 };
 
 use super::CrossSigningBootstrapRequests;
 use crate::{
-    Account, DecryptionSettings, DeviceData, EncryptionSettings, LocalTrust, MegolmError, OlmError,
-    OlmMachineBuilder, RoomEventDecryptionResult, TrustRequirement,
+    Account, DecryptionSettings, Device, DeviceData, EncryptionSettings, LocalTrust, MegolmError,
+    OlmError, OlmMachineBuilder, RoomEventDecryptionResult, TrustRequirement,
     error::{EventError, OlmResult},
     machine::{
         EncryptionSyncChanges, OlmMachine,
@@ -384,6 +391,143 @@ async fn test_keys_query() {
     let device = machine.store().get_device(alice_id, alice_device_id).await.unwrap().unwrap();
     assert_eq!(device.user_id(), alice_id);
     assert_eq!(device.device_id(), alice_device_id);
+}
+
+#[async_test]
+async fn test_late_keys_query_response_updates_own_device() {
+    // Inspired by a bug report[1], even though it looks like the client behaved
+    // OK in that situation: the user was told their brand-new device was
+    // unverified, and it looks like the root cause was that the server dropped
+    // their identity information after the client has uploaded it successfully.
+    //
+    // Either way, it seemed good to have a test that confirms that even if
+    // we've created a device and checked whether it's verified before we
+    // receive the identity information from /keys/query, we change our minds
+    // and consider it verified after we have received that information.
+    //
+    // [1]: https://github.com/element-hq/element-web-rageshakes/issues/33537
+
+    use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
+
+    // Given we just created a new device and all its keys
+    let device_id = device_id!("MYDEVICE");
+    let machine = OlmMachine::new(DataSet::own_id(), device_id).await;
+    machine.bootstrap_cross_signing(false).await.unwrap();
+
+    // And it's not verified yet because we have not yet received identity
+    // information via /keys/query
+    let device =
+        machine.get_device(DataSet::own_id(), machine.device_id(), None).await.unwrap().unwrap();
+
+    assert!(!device.is_cross_signing_trusted());
+
+    // When we receive that identity information
+    let keys_query = build_keys_query_for_device(&device, &machine).await;
+    machine.receive_keys_query_response(&TransactionId::new(), &keys_query).await.unwrap();
+
+    // Then the device is verified
+    let device =
+        machine.get_device(DataSet::own_id(), machine.device_id(), None).await.unwrap().unwrap();
+
+    assert!(device.is_cross_signing_trusted());
+}
+
+/// Given an OlmMachine and Device, build a /keys/query response that contains
+/// identity information and a device signature, so this device will be verified
+/// after we process this.
+async fn build_keys_query_for_device(device: &Device, machine: &OlmMachine) -> KeysQueryResponse {
+    let account_private_key = steal_account_private_key(machine).await;
+    let device_public_key = device.device_keys.curve25519_key().unwrap();
+    let machine_private_keys = extract_private_keys(machine).await;
+
+    let builder = KeyQueryResponseTemplate::new(machine.user_id().to_owned())
+        .with_cross_signing_keys(
+            machine_private_keys.master_key,
+            machine_private_keys.self_signing_key,
+            machine_private_keys.user_signing_key,
+        )
+        .with_device(
+            device.device_id(),
+            &device_public_key,
+            &account_private_key,
+            KeyQueryResponseTemplateDeviceOptions::new().verified(true),
+        );
+
+    builder.build_response()
+}
+
+/// Hack to extract the private key information from an OlmMachine. We do this
+/// via "pickling" the underlying account and then deserializing the pickled
+/// info.
+///
+/// Note: this does not represent a security hole: owning an OlmMachine means
+/// you are in control of its secrets, we just made it hard to extract the
+/// actual private key because it's usually not what you want, so we are trying
+/// to persuade you not to do it. In our case, for testing, we want to simulate
+/// a valid /keys/query response so we need to make use of it.
+///
+/// This function will fail if the serialization format of vodozemac's
+/// `AccountPickle` struct changes.
+async fn steal_account_private_key(machine: &OlmMachine) -> Box<Ed25519SecretKey> {
+    /// Fake version of `vodozemac::types::ed25519::SecretKeys`
+    #[derive(Deserialize)]
+    enum SecretKeysHack {
+        Normal(Box<Ed25519SecretKey>),
+    }
+
+    /// Fake version of `vodozemac::olm::account::AccountPickle`
+    #[derive(Deserialize)]
+    struct AccountPickleHack {
+        /// In the real `AccountPickle`, `signing_key` is an
+        /// Ed25519KeypairPickle, which is an alias for `SecretKeys`.
+        signing_key: SecretKeysHack,
+    }
+
+    // Serialize the underlying AccountPickle which contains the account's private
+    // key
+    let account_pickle =
+        machine.inner.store.transaction().await.account().await.unwrap().pickle().pickle;
+
+    let serialized_account_pickle = serde_json::to_vec(&account_pickle).unwrap();
+
+    // Deserialize it as our fake struct, so we can access its info.
+    let account_pickle_hack: AccountPickleHack =
+        serde_json::from_slice(&serialized_account_pickle).unwrap();
+
+    let SecretKeysHack::Normal(signing_key) = account_pickle_hack.signing_key;
+
+    signing_key
+}
+
+/// The private keys of an OlmMachine
+struct ExtractedPrivateKeys {
+    master_key: Ed25519SecretKey,
+    self_signing_key: Ed25519SecretKey,
+    user_signing_key: Ed25519SecretKey,
+}
+
+/// Get the private keys out of an OlmMachine so we can use them to craft a
+/// /keys/query response containing our identity info.
+async fn extract_private_keys(machine: &OlmMachine) -> ExtractedPrivateKeys {
+    let pi = machine.inner.store.private_identity();
+    let lock = pi.lock().await;
+
+    let master_key = Ed25519SecretKey::from_base64(
+        &lock.master_key.lock().await.as_ref().unwrap().export_seed(),
+    )
+    .unwrap();
+
+    let self_signing_key = Ed25519SecretKey::from_base64(
+        &lock.self_signing_key.lock().await.as_ref().unwrap().export_seed(),
+    )
+    .unwrap();
+
+    let user_signing_key = Ed25519SecretKey::from_base64(
+        &lock.user_signing_key.lock().await.as_ref().unwrap().export_seed(),
+    )
+    .unwrap();
+
+    ExtractedPrivateKeys { master_key, self_signing_key, user_signing_key }
 }
 
 #[async_test]

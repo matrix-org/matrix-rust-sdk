@@ -13,10 +13,10 @@ jobs:
   msrv:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
-    - uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # cargo-hack
+    - uses: taiki-e/install-action@b6ff580856c41316412a0b9b60540fbc6f8c82cc # v 2.86.7
       with:
         tool: cargo-hack
     - run: cargo hack check --rust-version --workspace --all-targets

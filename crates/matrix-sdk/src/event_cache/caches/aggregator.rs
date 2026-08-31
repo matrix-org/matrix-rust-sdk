@@ -18,23 +18,34 @@ use matrix_sdk_base::{
     serde_helpers::{extract_redaction_target, extract_relation, extract_thread_root},
     sync::Timeline,
 };
-use ruma::{OwnedEventId, events::relation::RelationType, room_version_rules::RedactionRules};
+use ruma::{
+    OwnedEventId,
+    events::{
+        AnySyncEphemeralRoomEvent,
+        receipt::{ReceiptThread, SyncReceiptEvent},
+        relation::RelationType,
+    },
+    room_version_rules::RedactionRules,
+    serde::Raw,
+};
+use tracing::error;
 
 use super::{
     super::{Result, states::StateLockReadGuard},
     room::RoomEventCacheState,
-    thread::ThreadEventCache,
+    thread::ThreadEventCacheState,
 };
 
 pub fn aggregate_timeline_for_room(timeline: Timeline) -> Timeline {
     timeline
 }
 
-pub async fn aggregate_timeline_for_threads(
-    timeline: &Timeline,
-    existing_threads: &HashMap<OwnedEventId, ThreadEventCache>,
-    room_event_cache: StateLockReadGuard<'_, RoomEventCacheState>,
-    redaction_rules: &RedactionRules,
+pub async fn aggregate_timeline_for_threads<'sync, 'state>(
+    timeline: &'sync Timeline,
+    ephemerals: &'sync [Raw<AnySyncEphemeralRoomEvent>],
+    existing_threads: StateLockReadGuard<'state, HashMap<OwnedEventId, ThreadEventCacheState>>,
+    maybe_room: Option<StateLockReadGuard<'state, RoomEventCacheState>>,
+    redaction_rules: &'sync RedactionRules,
 ) -> Result<HashMap<OwnedEventId, Timeline>> {
     let mut new_events_by_thread = HashMap::new();
 
@@ -77,9 +88,14 @@ pub async fn aggregate_timeline_for_threads(
 
                         // Not in `timeline`, okay, look for the related event in the `room` as it
                         // knows about all the events, and then extract its thread root.
-                        None => room_event_cache.find_event(&related_event_id).await?.and_then(
-                            |(_location, related_event)| extract_thread_root(related_event.raw()),
-                        ),
+                        None => match &maybe_room {
+                            Some(room) => room.find_event(&related_event_id).await?.and_then(
+                                |(_location, related_event)| {
+                                    extract_thread_root(related_event.raw())
+                                },
+                            ),
+                            None => None,
+                        },
                     } {
                         new_events_by_thread
                             .entry(thread_root)
@@ -106,22 +122,26 @@ pub async fn aggregate_timeline_for_threads(
                 // Otherwise, this event might be a redaction that applies to a thread.
                 else if let Some(redaction_target) =
                     extract_redaction_target(event.raw(), redaction_rules)
-                    && room_event_cache.find_event(&redaction_target).await?.is_some()
+                    && match &maybe_room {
+                        Some(room) => room.find_event(&redaction_target).await?.is_some(),
+                        None => false,
+                    }
                 {
-                    // The redacted event exists (in the room, because it contains _all_ the
-                    // events) **but** the event has been redacted (in
-                    // the room). It's no more possible to extract its
-                    // thread root (because this information has been removed).
+                    // The redacted event exists (in the room, because it
+                    // contains _all_ the events) **but** the event has been
+                    // redacted (in the room). It's no more possible to extract
+                    // its thread root (because this information has been
+                    // removed).
                     //
-                    // But we need to know if the event is part of a thread to apply the
-                    // redaction in the thread too. No other choice than
-                    // doing a full search…
+                    // But we need to know if the event is part of a thread to
+                    // apply the redaction in the thread too. No other choice
+                    // than doing a full search…
 
                     let mut associated_thread_root = None;
 
-                    for (thread_root, thread) in existing_threads {
+                    for thread in existing_threads.values() {
                         if thread.find_event(&redaction_target).await?.is_some() {
-                            associated_thread_root = Some(thread_root.clone());
+                            associated_thread_root = Some(thread.thread_id.clone());
                             break;
                         }
                     }
@@ -135,6 +155,34 @@ pub async fn aggregate_timeline_for_threads(
                             .push(event.clone());
                     }
                 }
+            }
+        }
+    }
+
+    // We must also look in the `ephemeral` events. Maybe the `timeline` is empty,
+    // but some ephemeral events target specific threads.
+    for ephemeral in ephemerals {
+        match ephemeral.deserialize() {
+            Ok(AnySyncEphemeralRoomEvent::Receipt(SyncReceiptEvent { content, .. })) => {
+                for thread_root in content.values().flat_map(|receipts_by_event| {
+                    receipts_by_event.values().flat_map(|receipts| {
+                        receipts.values().filter_map(|receipt| match &receipt.thread {
+                            ReceiptThread::Thread(thread_id) => Some(thread_id),
+                            _ => None,
+                        })
+                    })
+                }) {
+                    new_events_by_thread
+                        .entry(thread_root.to_owned())
+                        .or_insert_with(default_timeline);
+                }
+            }
+
+            // Not a read receipt; not interested for now.
+            Ok(_) => {}
+
+            Err(err) => {
+                error!(%err, "error when deserializing an ephemeral event");
             }
         }
     }

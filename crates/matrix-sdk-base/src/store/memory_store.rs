@@ -33,7 +33,7 @@ use ruma::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::member::{MembershipState, StrippedRoomMemberEvent, SyncRoomMemberEvent},
     },
-    profile::UserProfile,
+    profile::{UserProfile, UserProfileUpdate},
     serde::Raw,
     time::Instant,
 };
@@ -116,7 +116,7 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Option<(OwnedEventId, Receipt)> {
         self.inner
@@ -124,7 +124,7 @@ impl MemoryStore {
             .unwrap()
             .room_user_receipts
             .get(room_id)?
-            .get(&(receipt_type.to_string(), thread.as_str().map(ToOwned::to_owned)))?
+            .get(&(receipt_type.to_string(), receipt_thread.as_str().map(ToOwned::to_owned)))?
             .get(user_id)
             .cloned()
     }
@@ -133,7 +133,7 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Option<Vec<(OwnedUserId, Receipt)>> {
         Some(
@@ -142,7 +142,7 @@ impl MemoryStore {
                 .unwrap()
                 .room_event_receipts
                 .get(room_id)?
-                .get(&(receipt_type.to_string(), thread.as_str().map(ToOwned::to_owned)))?
+                .get(&(receipt_type.to_string(), receipt_thread.as_str().map(ToOwned::to_owned)))?
                 .get(event_id)?
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone()))
@@ -540,9 +540,21 @@ impl StateStore for MemoryStore {
         }
 
         for (user_id, profile_update) in &changes.global_profiles {
-            let mut profile = inner.global_profiles.get(user_id).cloned().unwrap_or_default();
-            profile.merge(profile_update.clone());
-            inner.global_profiles.insert(user_id.clone(), profile);
+            match profile_update {
+                UserProfileUpdate::Updated(profile_changes) => {
+                    inner
+                        .global_profiles
+                        .entry(user_id.clone())
+                        .or_default()
+                        .apply(profile_changes.clone());
+                }
+                UserProfileUpdate::Dropped => {
+                    inner.global_profiles.remove(user_id);
+                }
+                _ => {
+                    warn!(%user_id, "Unhandled UserProfileUpdate variant; ignoring");
+                }
+            }
         }
 
         debug!("Saved changes in {:?}", now.elapsed());
@@ -780,21 +792,21 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
-        Ok(self.get_user_room_receipt_event_impl(room_id, receipt_type, thread, user_id))
+        Ok(self.get_user_room_receipt_event_impl(room_id, receipt_type, receipt_thread, user_id))
     }
 
     async fn get_event_room_receipt_events(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
         Ok(self
-            .get_event_room_receipt_events_impl(room_id, receipt_type, thread, event_id)
+            .get_event_room_receipt_events_impl(room_id, receipt_type, receipt_thread, event_id)
             .unwrap_or_default())
     }
 

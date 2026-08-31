@@ -23,7 +23,7 @@ use std::{
 use async_trait::async_trait;
 use deadpool_sync::InteractError;
 use itertools::Itertools;
-use matrix_sdk_store_encryption::StoreCipher;
+use matrix_sdk_store_encryption::{EncryptableValue, StoreCipher};
 use ruma::{OwnedEventId, OwnedRoomId, serde::Raw, time::SystemTime};
 use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction, limits::Limit};
 use serde::{Serialize, de::DeserializeOwned};
@@ -97,6 +97,17 @@ pub(crate) trait SqliteAsyncConnExt {
         P: Params + Send + 'static,
         F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + Send + 'static;
 
+    async fn query_one<T, P, F>(
+        &self,
+        sql: impl AsRef<str> + Send + 'static,
+        params: P,
+        f: F,
+    ) -> rusqlite::Result<T>
+    where
+        T: Send + 'static,
+        P: Params + Send + 'static,
+        F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + Send + 'static;
+
     async fn query_many<T, P, F>(
         &self,
         sql: impl AsRef<str> + Send + 'static,
@@ -114,6 +125,12 @@ pub(crate) trait SqliteAsyncConnExt {
         E: From<rusqlite::Error> + Send + 'static,
         F: FnOnce(&Transaction<'_>) -> Result<T, E> + Send + 'static;
 
+    /// Chunk a large query over some keys.
+    ///
+    /// Imagine there is a _dynamic_ query that runs potentially large number of
+    /// parameters, so much that the maximum number of parameters can be hit.
+    /// Then, this helper is for you. It will execute the query on chunks of
+    /// parameters.
     async fn chunk_large_query_over<Query, Res>(
         &self,
         mut keys_to_chunk: Vec<Key>,
@@ -122,7 +139,7 @@ pub(crate) trait SqliteAsyncConnExt {
     ) -> Result<Vec<Res>>
     where
         Res: Send + 'static,
-        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static;
+        Query: Fn(&Transaction<'_>, ChunkFromLargeQuery<Key>) -> Result<Vec<Res>> + Send + 'static;
 
     /// Apply the [`RuntimeConfig`].
     ///
@@ -289,6 +306,22 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
             .map_err(map_interact_err)?
     }
 
+    async fn query_one<T, P, F>(
+        &self,
+        sql: impl AsRef<str> + Send + 'static,
+        params: P,
+        f: F,
+    ) -> rusqlite::Result<T>
+    where
+        T: Send + 'static,
+        P: Params + Send + 'static,
+        F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + Send + 'static,
+    {
+        self.interact(move |conn| conn.query_one(sql.as_ref(), params, f))
+            .await
+            .map_err(map_interact_err)?
+    }
+
     async fn query_many<T, P, F>(
         &self,
         sql: impl AsRef<str> + Send + 'static,
@@ -325,12 +358,6 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         .map_err(E::from)?
     }
 
-    /// Chunk a large query over some keys.
-    ///
-    /// Imagine there is a _dynamic_ query that runs potentially large number of
-    /// parameters, so much that the maximum number of parameters can be hit.
-    /// Then, this helper is for you. It will execute the query on chunks of
-    /// parameters.
     async fn chunk_large_query_over<Query, Res>(
         &self,
         keys_to_chunk: Vec<Key>,
@@ -339,7 +366,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
     ) -> Result<Vec<Res>>
     where
         Res: Send + 'static,
-        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static,
+        Query: Fn(&Transaction<'_>, ChunkFromLargeQuery<Key>) -> Result<Vec<Res>> + Send + 'static,
     {
         self.with_transaction(move |txn| {
             txn.chunk_large_query_over(keys_to_chunk, result_capacity, do_query)
@@ -364,6 +391,7 @@ fn map_interact_err(error: InteractError) -> rusqlite::Error {
 }
 
 pub(crate) trait SqliteTransactionExt {
+    /// See [`SqliteAsyncConnExt::chunk_large_query_over`].
     fn chunk_large_query_over<Key, Query, Res>(
         &self,
         keys_to_chunk: Vec<Key>,
@@ -372,7 +400,37 @@ pub(crate) trait SqliteTransactionExt {
     ) -> Result<Vec<Res>>
     where
         Res: Send + 'static,
-        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static;
+        Query: Fn(&Transaction<'_>, ChunkFromLargeQuery<Key>) -> Result<Vec<Res>> + Send + 'static;
+}
+
+/// Represent the new chunk prepared by
+/// [`SqliteAsyncConnExt::chunk_large_query_over`] or
+/// [`SqliteTransactionExt::chunk_large_query_over`].
+#[repr(transparent)]
+pub(crate) struct ChunkFromLargeQuery<Key>(Vec<Key>);
+
+impl<Key> IntoIterator for ChunkFromLargeQuery<Key> {
+    type Item = Key;
+    type IntoIter = std::vec::IntoIter<Key>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<Key> ChunkFromLargeQuery<Key> {
+    /// Return the correct number of host parameters (the `?` variable in an SQL
+    /// query) equals to the size of the chunk.
+    pub fn host_parameters(&self) -> impl fmt::Display + use<Key> {
+        host_parameters(self.0.len())
+    }
+
+    /// Iterate over the keys in the chunk, by reference.
+    ///
+    /// To get an owned iterator, see the `IntoIterator` implementation.
+    pub fn iter(&self) -> std::slice::Iter<'_, Key> {
+        self.0.iter()
+    }
 }
 
 impl SqliteTransactionExt for Transaction<'_> {
@@ -384,7 +442,7 @@ impl SqliteTransactionExt for Transaction<'_> {
     ) -> Result<Vec<Res>>
     where
         Res: Send + 'static,
-        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static,
+        Query: Fn(&Transaction<'_>, ChunkFromLargeQuery<Key>) -> Result<Vec<Res>> + Send + 'static,
     {
         // Divide by 2 to allow space for more static parameters (not part of
         // `keys_to_chunk`).
@@ -397,7 +455,7 @@ impl SqliteTransactionExt for Transaction<'_> {
             // Chunking isn't necessary.
             let chunk = keys_to_chunk;
 
-            Ok(do_query(self, chunk)?)
+            Ok(do_query(self, ChunkFromLargeQuery(chunk))?)
         } else {
             // Chunking _is_ necessary.
 
@@ -411,7 +469,7 @@ impl SqliteTransactionExt for Transaction<'_> {
                 let chunk = keys_to_chunk;
                 keys_to_chunk = tail;
 
-                all_results.extend(do_query(self, chunk)?);
+                all_results.extend(do_query(self, ChunkFromLargeQuery(chunk))?);
             }
 
             Ok(all_results)
@@ -542,14 +600,14 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
         let encrypted_cipher = self.get_kv("cipher").await.map_err(OpenStoreError::LoadCipher)?;
 
         let cipher = if let Some(encrypted) = encrypted_cipher {
-            match secret {
-                Secret::PassPhrase(ref passphrase) => StoreCipher::import(passphrase, &encrypted)?,
-                Secret::Key(ref key) => StoreCipher::import_with_key(key, &encrypted)?,
+            match &secret {
+                Secret::PassPhrase(passphrase) => StoreCipher::import(passphrase, &encrypted)?,
+                Secret::Key(key) => StoreCipher::import_with_key(key.as_slice(), &encrypted)?,
             }
         } else {
             let cipher = StoreCipher::new()?;
-            let export = match secret {
-                Secret::PassPhrase(ref passphrase) => {
+            let export = match &secret {
+                Secret::PassPhrase(passphrase) => {
                     #[cfg(not(test))]
                     {
                         cipher.export(passphrase)
@@ -559,7 +617,7 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
                         cipher._insecure_export_fast_for_testing(passphrase)
                     }
                 }
-                Secret::Key(ref key) => cipher.export_with_key(key),
+                Secret::Key(key) => cipher.export_with_key(key.as_slice()),
             };
             self.set_kv("cipher", export?).await.map_err(OpenStoreError::SaveCipher)?;
             cipher
@@ -598,8 +656,8 @@ impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
 }
 
 /// Repeat `?` n times, where n is defined by `count`. `?` are comma-separated.
-pub(crate) fn repeat_vars(count: usize) -> impl fmt::Display {
-    assert_ne!(count, 0, "Can't generate zero repeated vars");
+pub(crate) fn host_parameters(count: usize) -> impl fmt::Display {
+    assert_ne!(count, 0, "Can't generate zero host parameters");
 
     iter::repeat_n("?", count).format(",")
 }
@@ -641,12 +699,15 @@ pub(crate) trait EncryptableStore {
         }
     }
 
-    fn encode_value(&self, value: Vec<u8>) -> Result<Vec<u8>> {
+    fn encode_value<V>(&self, value: V) -> Result<Vec<u8>>
+    where
+        V: EncryptableValue + Into<Vec<u8>>,
+    {
         if let Some(key) = self.get_cypher() {
             let encrypted = key.encrypt_value_data(value)?;
             Ok(rmp_serde::to_vec_named(&encrypted)?)
         } else {
-            Ok(value)
+            Ok(value.into())
         }
     }
 
@@ -713,16 +774,16 @@ mod unit_tests {
     use super::*;
 
     #[test]
-    fn can_generate_repeated_vars() {
-        assert_eq!(repeat_vars(1).to_string(), "?");
-        assert_eq!(repeat_vars(2).to_string(), "?,?");
-        assert_eq!(repeat_vars(5).to_string(), "?,?,?,?,?");
+    fn test_can_generate_host_parameters() {
+        assert_eq!(host_parameters(1).to_string(), "?");
+        assert_eq!(host_parameters(2).to_string(), "?,?");
+        assert_eq!(host_parameters(5).to_string(), "?,?,?,?,?");
     }
 
     #[test]
-    #[should_panic(expected = "Can't generate zero repeated vars")]
-    fn generating_zero_vars_panics() {
-        repeat_vars(0);
+    #[should_panic(expected = "Can't generate zero host parameters")]
+    fn test_generating_zero_host_parameters_panics() {
+        host_parameters(0);
     }
 
     #[test]

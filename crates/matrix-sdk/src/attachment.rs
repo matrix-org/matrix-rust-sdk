@@ -200,6 +200,10 @@ pub struct AttachmentConfig {
     /// Reply parameters for the attachment (replied-to event and thread-related
     /// metadata).
     pub reply: Option<Reply>,
+
+    /// Additional top-level fields to include in the media event's content.
+    /// The event's own fields take precedence on conflicts.
+    pub extra_content: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 impl AttachmentConfig {
@@ -272,6 +276,19 @@ impl AttachmentConfig {
     /// * `reply` - The reply information of the message.
     pub fn reply(mut self, reply: Option<Reply>) -> Self {
         self.reply = reply;
+        self
+    }
+
+    /// Set additional top-level fields for the media event's content.
+    ///
+    /// # Arguments
+    ///
+    /// * `extra_content` - The additional fields.
+    pub fn extra_content(
+        mut self,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
+    ) -> Self {
+        self.extra_content = extra_content;
         self
     }
 }

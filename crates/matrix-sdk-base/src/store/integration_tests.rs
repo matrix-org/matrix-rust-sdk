@@ -37,7 +37,7 @@ use ruma::{
     },
     mxc_uri, owned_event_id, owned_mxc_uri,
     presence::PresenceState,
-    profile::UserProfileUpdate,
+    profile::{ProfileFieldName, UserProfileChanges, UserProfileUpdate},
     push::Ruleset,
     room_id,
     room_version_rules::AuthorizationRules,
@@ -359,7 +359,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_user_room_receipt_event(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 user_id
             )
             .await?
@@ -369,7 +369,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 first_receipt_event_id()
             )
             .await?
@@ -839,7 +839,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_user_room_receipt_event(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 user_id()
             )
             .await
@@ -850,7 +850,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 first_event_id
             )
             .await
@@ -861,7 +861,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 second_event_id
             )
             .await
@@ -877,7 +877,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             .get_user_room_receipt_event(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 user_id(),
             )
             .await
@@ -889,7 +889,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             .get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 first_event_id,
             )
             .await
@@ -905,7 +905,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 second_event_id
             )
             .await
@@ -921,7 +921,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             .get_user_room_receipt_event(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 user_id(),
             )
             .await
@@ -933,7 +933,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 first_event_id
             )
             .await
@@ -944,7 +944,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             .get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 second_event_id,
             )
             .await
@@ -961,7 +961,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_user_room_receipt_event(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Main,
+                &ReceiptThread::Main,
                 user_id()
             )
             .await
@@ -972,7 +972,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Main,
+                &ReceiptThread::Main,
                 second_event_id
             )
             .await
@@ -989,7 +989,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             .get_user_room_receipt_event(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 user_id(),
             )
             .await
@@ -1001,7 +1001,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             .get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 second_event_id,
             )
             .await
@@ -1015,7 +1015,12 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_eq!(second_event_unthreaded_receipts[0].1.ts.unwrap().0, second_receipt_ts);
         // Threaded receipts should have changed
         let (threaded_user_receipt_event_id, threaded_user_receipt) = self
-            .get_user_room_receipt_event(room_id, ReceiptType::Read, ReceiptThread::Main, user_id())
+            .get_user_room_receipt_event(
+                room_id,
+                ReceiptType::Read,
+                &ReceiptThread::Main,
+                user_id(),
+            )
             .await
             .expect("Getting threaded user room receipt after save failed")
             .unwrap();
@@ -1025,7 +1030,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             .get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Main,
+                &ReceiptThread::Main,
                 second_event_id,
             )
             .await
@@ -1167,7 +1172,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_user_room_receipt_event(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 user_id
             )
             .await?
@@ -1177,12 +1182,12 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
-                ReceiptThread::Unthreaded,
+                &ReceiptThread::Unthreaded,
                 first_receipt_event_id()
             )
             .await?
             .is_empty(),
-            "still event recepts in the store"
+            "still event receipts in the store"
         );
         assert!(self.load_send_queue_requests(room_id).await?.is_empty());
         assert!(self.load_dependent_queued_requests(room_id).await?.is_empty());
@@ -2156,10 +2161,10 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         assert_matches!(self.get_global_profile(user_id).await, Ok(None));
 
-        let mut fields = BTreeMap::new();
-        fields.insert("displayname".to_owned(), json!("Alice"));
-        fields.insert("avatar_url".to_owned(), json!(null));
-        let update = UserProfileUpdate::from_iter(fields);
+        let mut changes = UserProfileChanges::new();
+        changes.updated.insert(ProfileFieldName::DisplayName, json!("Alice"));
+        changes.removed.push(ProfileFieldName::AvatarUrl);
+        let update = UserProfileUpdate::Updated(changes);
 
         let mut changes = StateChanges::default();
         changes.global_profiles.insert(user_id.to_owned(), update);
@@ -2170,10 +2175,10 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_eq!(loaded_map.get("displayname"), Some(&json!("Alice")));
         assert!(!loaded_map.contains_key("avatar_url"));
 
-        let mut fields = BTreeMap::new();
-        fields.insert("displayname".to_owned(), json!(null));
-        fields.insert("avatar_url".to_owned(), json!("mxc://example.com/avatar"));
-        let update2 = UserProfileUpdate::from_iter(fields);
+        let mut changes = UserProfileChanges::new();
+        changes.removed.push(ProfileFieldName::DisplayName);
+        changes.updated.insert(ProfileFieldName::AvatarUrl, json!("mxc://example.com/avatar"));
+        let update2 = UserProfileUpdate::Updated(changes);
 
         let mut changes = StateChanges::default();
         changes.global_profiles.insert(user_id.to_owned(), update2);
@@ -2193,14 +2198,16 @@ impl StateStoreIntegrationTests for DynStateStore {
         let unknown = user_id!("@unknown:localhost");
 
         let mut changes = StateChanges::default();
-        changes.global_profiles.insert(
-            alice.to_owned(),
-            UserProfileUpdate::from_iter([("displayname".to_owned(), json!("Alice"))]),
-        );
-        changes.global_profiles.insert(
-            bob.to_owned(),
-            UserProfileUpdate::from_iter([("displayname".to_owned(), json!("Bob"))]),
-        );
+        changes.global_profiles.insert(alice.to_owned(), {
+            let mut profile_changes = UserProfileChanges::new();
+            profile_changes.updated.insert(ProfileFieldName::DisplayName, json!("Alice"));
+            UserProfileUpdate::Updated(profile_changes)
+        });
+        changes.global_profiles.insert(bob.to_owned(), {
+            let mut profile_changes = UserProfileChanges::new();
+            profile_changes.updated.insert(ProfileFieldName::DisplayName, json!("Bob"));
+            UserProfileUpdate::Updated(profile_changes)
+        });
         self.save_changes(&changes).await?;
 
         // The bulk getter returns the stored profiles and omits unknown users.

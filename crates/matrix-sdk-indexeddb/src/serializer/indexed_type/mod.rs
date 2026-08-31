@@ -22,7 +22,6 @@ pub mod constants;
 pub mod range;
 pub mod traits;
 
-use gloo_utils::format::JsValueSerdeExt;
 use indexed_db_futures::KeyRange;
 use range::IndexedKeyRange;
 use serde::{Serialize, de::DeserializeOwned};
@@ -190,7 +189,7 @@ impl IndexedTypeSerializer {
         T: Indexed,
         T::IndexedType: DeserializeOwned,
     {
-        let indexed: T::IndexedType = value.into_serde()?;
+        let indexed: T::IndexedType = serde_wasm_bindgen::from_value(value)?;
         T::from_indexed(indexed, &self.inner).map_err(IndexedTypeSerializerError::Indexing)
     }
 }

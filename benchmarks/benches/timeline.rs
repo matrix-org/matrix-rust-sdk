@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_test::{JoinedRoomBuilder, event_factory::EventFactory};

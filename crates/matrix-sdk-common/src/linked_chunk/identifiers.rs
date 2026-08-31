@@ -59,6 +59,15 @@ impl LinkedChunkId<'_> {
         }
     }
 
+    pub fn room_id(&self) -> &RoomId {
+        match self {
+            Self::Room(room_id)
+            | Self::Thread(room_id, ..)
+            | Self::PinnedEvents(room_id, ..)
+            | Self::EventFocused(room_id, ..) => room_id,
+        }
+    }
+
     pub fn to_owned(&self) -> OwnedLinkedChunkId {
         match self {
             LinkedChunkId::Room(room_id) => OwnedLinkedChunkId::Room((*room_id).to_owned()),

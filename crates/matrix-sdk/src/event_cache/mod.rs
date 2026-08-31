@@ -30,6 +30,7 @@
 use std::{
     collections::HashMap,
     fmt,
+    num::NonZeroUsize,
     ops::Deref,
     sync::{Arc, OnceLock, RwLock as StdRwLock, RwLockReadGuard, RwLockWriteGuard},
 };
@@ -55,7 +56,7 @@ use crate::{
     paginators::PaginatorError,
 };
 
-mod automatic_pagination;
+mod back_pagination_queue;
 mod caches;
 mod deduplicator;
 mod persistence;
@@ -68,7 +69,7 @@ mod tasks;
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
 
 pub use self::{
-    automatic_pagination::AutomaticPagination,
+    back_pagination_queue::BackPaginationQueue,
     caches::{
         TimelineVectorDiffs,
         event_focused::{EventFocusThreadMode, EventFocusedCache, EventFocusedCacheKey},
@@ -241,7 +242,11 @@ impl fmt::Debug for EventCache {
 
 impl EventCache {
     /// Create a new [`EventCache`] for the given client.
-    pub(crate) fn new(client: &Arc<ClientInner>, event_cache_store: EventCacheStoreLock) -> Self {
+    pub(crate) fn new(
+        client: &Arc<ClientInner>,
+        event_cache_store: EventCacheStoreLock,
+        enable_automatic_back_pagination: bool,
+    ) -> Self {
         let (generic_update_sender, _) = channel(128);
         let (linked_chunk_update_sender, _) = channel(128);
 
@@ -264,7 +269,8 @@ impl EventCache {
                 linked_chunk_update_sender,
                 #[cfg(feature = "e2e-encryption")]
                 redecryption_channels,
-                automatic_pagination: OnceLock::new(),
+                enable_automatic_back_pagination,
+                back_pagination_queue: OnceLock::new(),
                 thread_subscriber_sender,
             }),
         }
@@ -359,13 +365,19 @@ impl EventCache {
             )
             .abort_on_drop();
 
-            if self.config().experimental_auto_backpagination {
-                // Run the deferred initialization of the automatic pagination request sender, that
-                // is shared with every room.
-                trace!("spawning the automatic paginations API");
-                self.inner.automatic_pagination.get_or_init(|| AutomaticPagination::new(Arc::downgrade(&self.inner), task_monitor));
+            if self.inner.enable_automatic_back_pagination {
+                // Deferred initialization of the shared back-pagination queue.
+                trace!("spawning the back-pagination queue");
+                let max_concurrent = self.config().max_concurrent_back_paginations;
+                self.inner.back_pagination_queue.get_or_init(|| {
+                    BackPaginationQueue::new(
+                        Arc::downgrade(&self.inner),
+                        max_concurrent,
+                        task_monitor,
+                    )
+                });
             } else {
-                trace!("automatic paginations API is disabled");
+                trace!("back-pagination queue is disabled");
             }
 
             Arc::new(EventCacheDropHandles {
@@ -461,6 +473,13 @@ impl EventCache {
         ))
     }
 
+    /// Forget all caches related to a single room.
+    ///
+    /// This will notify any live observers that the room has been cleared.
+    pub async fn forget_room(&self, room_id: &RoomId) -> Result<()> {
+        self.inner.forget_room(room_id).await
+    }
+
     /// Cleanly clear all the rooms' event caches.
     ///
     /// This will notify any live observers that the room has been cleared.
@@ -481,11 +500,12 @@ impl EventCache {
         self.inner.generic_update_sender.subscribe()
     }
 
-    /// Returns a reference to the [`AutomaticPagination`] API, if enabled at
-    /// construction with the
-    /// [`EventCacheConfig::experimental_auto_backpagination`] flag.
-    pub fn automatic_pagination(&self) -> Option<AutomaticPagination> {
-        self.inner.automatic_pagination.get().cloned()
+    /// Returns the shared [`BackPaginationQueue`], if enabled at construction
+    /// with [`ClientBuilder::with_enable_automatic_back_pagination`].
+    ///
+    /// [`ClientBuilder::with_enable_automatic_back_pagination`]: crate::ClientBuilder::with_enable_automatic_back_pagination
+    pub fn back_pagination_queue(&self) -> Option<BackPaginationQueue> {
+        self.inner.back_pagination_queue.get().cloned()
     }
 }
 
@@ -498,26 +518,12 @@ pub struct EventCacheConfig {
     /// Maximum number of pinned events to load, for any room.
     pub max_pinned_events_to_load: usize,
 
-    /// Whether to automatically backpaginate a room under certain conditions.
+    /// The maximum number of back-paginations the background queue runs at
+    /// once, across all rooms and use cases. Bounds server load.
     ///
-    /// Off by default.
-    pub experimental_auto_backpagination: bool,
-
-    /// The maximum number of allowed room paginations, for a given room, that
-    /// can be executed in the automatic paginations task.
-    ///
-    /// After that number of paginations, the task will stop executing
-    /// paginations for that room *in the background* (user-requested
-    /// paginations will still be executed, of course).
-    ///
-    /// Defaults to [`EventCacheConfig::DEFAULT_ROOM_PAGINATION_CREDITS`].
-    pub room_pagination_per_room_credit: usize,
-
-    /// The number of messages to paginate in a single batch, when executing an
-    /// automatic pagination request.
-    ///
-    /// Defaults to [`EventCacheConfig::DEFAULT_ROOM_PAGINATION_BATCH_SIZE`].
-    pub room_pagination_batch_size: u16,
+    /// Defaults to
+    /// [`EventCacheConfig::DEFAULT_MAX_CONCURRENT_BACK_PAGINATIONS`].
+    pub max_concurrent_back_paginations: NonZeroUsize,
 }
 
 impl EventCacheConfig {
@@ -528,15 +534,9 @@ impl EventCacheConfig {
     /// loading the pinned events.
     pub const DEFAULT_MAX_CONCURRENT_REQUESTS: usize = 8;
 
-    /// The default number of credits to give to a room for automatic
-    /// paginations (see also
-    /// [`EventCacheConfig::room_pagination_per_room_credit`]).
-    pub const DEFAULT_ROOM_PAGINATION_CREDITS: usize = 20;
-
-    /// The default number of messages to paginate in a single batch, when
-    /// executing an automatic pagination request (see also
-    /// [`EventCacheConfig::room_pagination_batch_size`]).
-    pub const DEFAULT_ROOM_PAGINATION_BATCH_SIZE: u16 = 30;
+    /// The default maximum number of concurrent background back-paginations
+    /// (see also [`EventCacheConfig::max_concurrent_back_paginations`]).
+    pub const DEFAULT_MAX_CONCURRENT_BACK_PAGINATIONS: NonZeroUsize = NonZeroUsize::new(3).unwrap();
 }
 
 impl Default for EventCacheConfig {
@@ -544,9 +544,7 @@ impl Default for EventCacheConfig {
         Self {
             max_pinned_events_concurrent_requests: Self::DEFAULT_MAX_CONCURRENT_REQUESTS,
             max_pinned_events_to_load: Self::DEFAULT_MAX_EVENTS_TO_LOAD,
-            room_pagination_per_room_credit: Self::DEFAULT_ROOM_PAGINATION_CREDITS,
-            room_pagination_batch_size: Self::DEFAULT_ROOM_PAGINATION_BATCH_SIZE,
-            experimental_auto_backpagination: false,
+            max_concurrent_back_paginations: Self::DEFAULT_MAX_CONCURRENT_BACK_PAGINATIONS,
         }
     }
 }
@@ -609,11 +607,18 @@ struct EventCacheInner {
     #[cfg(feature = "e2e-encryption")]
     redecryption_channels: redecryptor::RedecryptorChannels,
 
+    /// Whether to spawn the [`BackPaginationQueue`] at subscription time; set
+    /// once, at construction, via
+    /// [`ClientBuilder::with_enable_automatic_back_pagination`].
+    ///
+    /// [`ClientBuilder::with_enable_automatic_back_pagination`]: crate::ClientBuilder::with_enable_automatic_back_pagination
+    enable_automatic_back_pagination: bool,
+
     /// State for the automatic pagination mechanism.
     ///
-    /// Depends on the [`EventCacheConfig::experimental_auto_backpagination`]
-    /// flag to be set at subscription time.
-    automatic_pagination: OnceLock<AutomaticPagination>,
+    /// Deferred initialization: spawned at subscription time, if
+    /// `enable_automatic_back_pagination` is set.
+    back_pagination_queue: OnceLock<BackPaginationQueue>,
 }
 
 impl EventCacheInner {
@@ -621,7 +626,21 @@ impl EventCacheInner {
         self.client.get().ok_or(EventCacheError::ClientDropped)
     }
 
-    /// Clears all the room's data.
+    /// Clear a single room's data.
+    async fn forget_room(&self, room_id: &RoomId) -> Result<()> {
+        // The constraints are very similar to what we do in `clear_all_rooms`. See this
+        // information to understand them.
+
+        let mut caches_for_all_rooms = self.by_room.write().await;
+        self.state.clear_and_reload(&caches_for_all_rooms, Some(room_id)).await?;
+
+        // Finally, we forget all the caches if any exists in memory.
+        caches_for_all_rooms.remove(room_id);
+
+        Ok(())
+    }
+
+    /// Clears all the rooms' data.
     async fn clear_all_rooms(&self) -> Result<()> {
         // Okay, here's where things get delicate.
         //
@@ -649,7 +668,11 @@ impl EventCacheInner {
         // same time, we'll have to take the lock for *all* the live caches and
         // for the states, so as to properly clear the underlying storage.
 
-        self.state.clear_and_reload(self.by_room.write().await).await?;
+        // We acquire an exclusive access to `by_room`.
+        let caches_for_all_rooms = self.by_room.write().await;
+
+        // Then, we can clear and reload the states for all the rooms.
+        self.state.clear_and_reload(&caches_for_all_rooms, None).await?;
 
         Ok(())
     }
@@ -691,7 +714,9 @@ impl EventCacheInner {
         }
 
         // Invited rooms.
-        // TODO: we don't anything with `updates.invite` at this point.
+        //
+        // We don't handle `updates.invite` because they contain stripped-state events,
+        // which is not handled by the Event Cache for the moment.
 
         Ok(())
     }
@@ -734,7 +759,7 @@ impl EventCacheInner {
                         "we must have called `EventCache::subscribe()` before calling here.",
                     ),
                     &self.state,
-                    self.automatic_pagination.get().cloned(),
+                    self.back_pagination_queue.get().cloned(),
                 )
                 .await?;
 

@@ -1742,9 +1742,9 @@ mod tests {
         let (alice, bob) = get_sas_pair(None);
 
         let mut content = bob.as_content();
-        let mut method = content.method_mut();
+        let method = content.method_mut();
 
-        match &mut method {
+        match method {
             AcceptMethod::SasV1(c) => {
                 c.commitment = Base64::empty();
             }
@@ -1781,9 +1781,9 @@ mod tests {
         let (alice, bob) = get_sas_pair(None);
 
         let mut content = bob.as_content();
-        let mut method = content.method_mut();
+        let method = content.method_mut();
 
-        match &mut method {
+        match method {
             AcceptMethod::SasV1(c) => {
                 c.short_authentication_string = vec![];
             }

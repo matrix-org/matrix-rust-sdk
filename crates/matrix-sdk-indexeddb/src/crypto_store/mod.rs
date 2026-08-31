@@ -469,8 +469,9 @@ impl IndexeddbCryptoStore {
             None => {
                 debug!("IndexedDbCryptoStore: encrypting new store cipher");
                 let cipher = StoreCipher::new().map_err(CryptoStoreError::backend)?;
-                let export =
-                    cipher.export_with_key(&chacha_key).map_err(CryptoStoreError::backend)?;
+                let export = cipher
+                    .export_with_key(chacha_key.as_slice())
+                    .map_err(CryptoStoreError::backend)?;
                 save_store_cipher(&db, &export).await?;
                 cipher
             }

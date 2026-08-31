@@ -26,6 +26,8 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::RoomInfo;
 use ruma::OwnedEventId;
+#[cfg(feature = "unstable-msc4426")]
+use ruma::{OwnedUserId, UserId};
 use tokio::sync::broadcast::{Receiver, error::RecvError};
 use tracing::{error, instrument, trace, warn};
 
@@ -291,6 +293,35 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
     }
 }
 
+/// Long-lived task that refreshes displayed sender profiles when the users'
+/// global profiles change. The controller filters to the senders it shows.
+#[cfg(feature = "unstable-msc4426")]
+pub(in crate::timeline) async fn global_profile_updates_task(
+    mut global_profile_updates_stream: Receiver<BTreeSet<OwnedUserId>>,
+    timeline_controller: TimelineController,
+) {
+    trace!("spawned the global profile updates task!");
+
+    loop {
+        match global_profile_updates_stream.recv().await {
+            Ok(user_ids) => {
+                let sender_ids: BTreeSet<&UserId> =
+                    user_ids.iter().map(|user_id| user_id.as_ref()).collect();
+                timeline_controller.force_update_sender_profiles(&sender_ids).await;
+            }
+
+            Err(RecvError::Lagged(num_missed)) => {
+                warn!("missed {num_missed} global profile updates, ignoring those missed");
+            }
+
+            Err(RecvError::Closed) => {
+                trace!("channel closed, exiting the global profile updates handler");
+                break;
+            }
+        }
+    }
+}
+
 /// Long-lived task that forwards [`RoomSendQueueUpdate`]s (local echoes) to the
 /// timeline.
 pub(in crate::timeline) async fn room_send_queue_update_task(
@@ -320,8 +351,9 @@ pub(in crate::timeline) async fn room_send_queue_update_task(
 pub(in crate::timeline) async fn rtc_membership_update_task(
     mut room_info: EyeballSubscriber<RoomInfo>,
     timeline_controller: TimelineController,
+    initial_call_info: Option<ActiveCallInfo>,
 ) {
-    let mut prev_info = None;
+    let mut prev_info = initial_call_info;
     let own_user = timeline_controller.room().own_user_id().to_owned();
 
     while let Some(info) = room_info.next().await {

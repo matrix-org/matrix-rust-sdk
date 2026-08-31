@@ -14,7 +14,6 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use futures_util::pin_mut;
 use matrix_sdk::Client;
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
@@ -26,8 +25,8 @@ use matrix_sdk_ui::{
 };
 
 use crate::{
-    TaskHandle, error::ClientError, helpers::unwrap_or_clone_arc, room_list::RoomListService,
-    runtime::get_runtime_handle,
+    TaskHandle, error::ClientError, helpers::unwrap_or_clone_arc, platform::tracing::Span,
+    room_list::RoomListService, runtime::get_runtime_handle,
 };
 
 #[derive(uniffi::Enum)]
@@ -80,11 +79,11 @@ impl SyncService {
     }
 
     pub fn state(&self, listener: Box<dyn SyncServiceStateObserver>) -> Arc<TaskHandle> {
-        let state_stream = self.inner.state();
+        let mut state_stream = self.inner.state();
+
+        listener.on_update(state_stream.next_now().into());
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(state_stream);
-
             while let Some(state) = state_stream.next().await {
                 listener.on_update(state.into());
             }
@@ -157,6 +156,13 @@ impl SyncServiceBuilder {
     pub fn with_room_list_timeline_limit(self: Arc<Self>, limit: u32) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
         let builder = this.builder.with_room_list_timeline_limit(limit);
+        Arc::new(Self { builder, ..this })
+    }
+
+    /// Set a parent tracing Span for the tasks within this sync service.
+    pub fn with_parent_span(self: Arc<Self>, span: Arc<Span>) -> Arc<Self> {
+        let this = unwrap_or_clone_arc(self);
+        let builder = this.builder.with_parent_span(span.inner().clone());
         Arc::new(Self { builder, ..this })
     }
 
