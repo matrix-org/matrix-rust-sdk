@@ -454,11 +454,9 @@ async fn test_redact_message() {
     assert!(item.as_event().unwrap().content().is_redacted());
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-    assert_eq!(timeline_updates.len(), 2);
+    assert_eq!(timeline_updates.len(), 1);
 
     assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
-    assert!(item.as_event().unwrap().content().is_redacted());
-    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[1]);
     assert!(item.as_event().unwrap().content().is_redacted());
 
     // Redacting a local event works.
