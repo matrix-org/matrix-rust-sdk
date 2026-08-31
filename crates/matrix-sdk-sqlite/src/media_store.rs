@@ -48,7 +48,7 @@ use crate::{
     error::{Error, Result},
     utils::{
         EncryptableStore, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt, SqliteTransactionExt, repeat_vars, time_to_timestamp,
+        SqliteKeyValueStoreConnExt, SqliteTransactionExt, time_to_timestamp,
     },
 };
 
@@ -671,7 +671,7 @@ impl MediaStoreInner for SqliteMediaStore {
                         }
 
                         txn.chunk_large_query_over(rows_to_remove, None, |txn, row_ids| {
-                            let sql_params = repeat_vars(row_ids.len());
+                            let sql_params = row_ids.host_parameters();
                             let query = format!("DELETE FROM media WHERE rowid IN ({sql_params})");
                             txn.prepare(&query)?.execute(params_from_iter(row_ids))?;
                             Ok(Vec::<()>::new())

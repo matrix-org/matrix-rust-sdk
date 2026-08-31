@@ -58,7 +58,7 @@ use crate::{
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt, repeat_vars,
+        SqliteKeyValueStoreConnExt,
     },
 };
 
@@ -893,13 +893,16 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
         }
 
         self.chunk_large_query_over(session_ids, None, move |txn, session_ids| {
-            // Safety: placeholders is not generated using any user input except the number
-            // of session IDs, so it is safe from injection.
-            let sql_params = repeat_vars(session_ids.len());
-            let query = format!("UPDATE inbound_group_session SET backed_up = TRUE where session_id IN ({sql_params})");
-            txn.prepare(&query)?.execute(params_from_iter(session_ids.iter()))?;
+            // Safety: host parameters are not generated using any user input except the
+            // number of session IDs, so it is safe from injection.
+            let query = format!(
+                "UPDATE inbound_group_session SET backed_up = TRUE where session_id IN ({})",
+                session_ids.host_parameters()
+            );
+            txn.prepare(&query)?.execute(params_from_iter(session_ids))?;
             Ok(Vec::<()>::new())
-        }).await?;
+        })
+        .await?;
 
         Ok(())
     }
