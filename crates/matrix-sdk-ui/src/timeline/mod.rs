@@ -733,7 +733,13 @@ impl Timeline {
                 self.room().redact(event_id, reason, None).await.map_err(RedactError::HttpError)?;
             }
             TimelineItemHandle::Local(handle) => {
-                if !handle.abort().await.map_err(RoomSendQueueError::StorageError)? {
+                // Forward the reason: if the local echo was being sent and the send wins the
+                // race, the server-side redaction that materializes the abort carries it.
+                if !handle
+                    .abort_with_reason(reason.map(ToOwned::to_owned))
+                    .await
+                    .map_err(RoomSendQueueError::StorageError)?
+                {
                     return Err(RedactError::InvalidLocalEchoState.into());
                 }
             }

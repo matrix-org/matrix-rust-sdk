@@ -1608,6 +1608,7 @@ impl QueueStorage {
     async fn cancel_event(
         &self,
         transaction_id: &TransactionId,
+        reason: Option<String>,
     ) -> Result<bool, RoomSendQueueStorageError> {
         let guard = self.store.lock().await;
 
@@ -1623,7 +1624,12 @@ impl QueueStorage {
                     transaction_id,
                     ChildTransactionId::new(),
                     MilliSecondsSinceUnixEpoch::now(),
-                    DependentQueuedRequestKind::RedactEvent,
+                    match reason {
+                        Some(reason) => {
+                            DependentQueuedRequestKind::RedactEventWithReason { reason }
+                        }
+                        None => DependentQueuedRequestKind::RedactEvent,
+                    },
                 )
                 .await?;
 
@@ -2060,7 +2066,8 @@ impl QueueStorage {
         let reactions_and_medias =
             dependent_requests.into_iter().filter_map(|dep| match dep.kind {
                 DependentQueuedRequestKind::EditEvent { .. }
-                | DependentQueuedRequestKind::RedactEvent => {
+                | DependentQueuedRequestKind::RedactEvent
+                | DependentQueuedRequestKind::RedactEventWithReason { .. } => {
                     // TODO: reflect local edits/redacts too?
                     None
                 }
@@ -2278,7 +2285,13 @@ impl QueueStorage {
                 }
             }
 
-            DependentQueuedRequestKind::RedactEvent => {
+            kind @ (DependentQueuedRequestKind::RedactEvent
+            | DependentQueuedRequestKind::RedactEventWithReason { .. }) => {
+                let reason = match kind {
+                    DependentQueuedRequestKind::RedactEventWithReason { reason } => Some(reason),
+                    _ => None,
+                };
+
                 if let Some(parent_key) = parent_key {
                     let Some(event_id) = parent_key.into_event_id() else {
                         return Err(RoomSendQueueError::StorageError(
@@ -2295,11 +2308,12 @@ impl QueueStorage {
                     // changed the shape of a room.redaction after v11, so keep it simple and try
                     // once here.
 
-                    // Note: no reason is provided because we materialize the intent of "cancel
-                    // sending the parent event".
-
                     if let Err(err) = room
-                        .redact(&event_id, None, Some(dependent_request.own_transaction_id.into()))
+                        .redact(
+                            &event_id,
+                            reason.as_deref(),
+                            Some(dependent_request.own_transaction_id.into()),
+                        )
                         .await
                     {
                         warn!("error when sending a redact for {event_id}: {err}");
@@ -2825,8 +2839,25 @@ impl SendHandle {
     ///
     /// Returns true if the sending could be aborted, false if not (i.e. the
     /// event had already been sent).
-    #[instrument(skip(self), fields(room_id = %self.room.inner.room.room_id(), txn_id = %self.transaction_id))]
     pub async fn abort(&self) -> Result<bool, RoomSendQueueStorageError> {
+        self.abort_with_reason(None).await
+    }
+
+    /// Aborts the sending of the event, if it wasn't sent yet, with an
+    /// optional reason.
+    ///
+    /// If the event was being sent when the abort was requested and the send
+    /// succeeds, the event is redacted server-side; the given reason is
+    /// applied to that redaction. It is unused in every other case (the local
+    /// echo is simply dropped).
+    ///
+    /// Returns true if the sending could be aborted, false if not (i.e. the
+    /// event had already been sent).
+    #[instrument(skip(self), fields(room_id = %self.room.inner.room.room_id(), txn_id = %self.transaction_id))]
+    pub async fn abort_with_reason(
+        &self,
+        reason: Option<String>,
+    ) -> Result<bool, RoomSendQueueStorageError> {
         trace!("received an abort request");
 
         let queue = &self.room.inner.queue;
@@ -2849,7 +2880,7 @@ impl SendHandle {
             // code path below, that handles aborting sending of an event.
         }
 
-        if queue.cancel_event(&self.transaction_id).await? {
+        if queue.cancel_event(&self.transaction_id, reason).await? {
             trace!("successful abort");
 
             // Wake up the queue, in case it was blocked on this request being wedged.
@@ -3113,7 +3144,7 @@ impl SendRedactionHandle {
 
         let queue = &self.room.inner.queue;
 
-        if queue.cancel_event(&self.transaction_id).await? {
+        if queue.cancel_event(&self.transaction_id, None).await? {
             trace!("successful redaction abort");
 
             // Wake up the queue, in case it was blocked on this request being wedged.
@@ -3143,7 +3174,13 @@ fn canonicalize_dependent_requests(
     for d in dependent {
         let prevs = by_txn.entry(d.parent_transaction_id.clone()).or_default();
 
-        if prevs.iter().any(|prev| matches!(prev.kind, DependentQueuedRequestKind::RedactEvent)) {
+        if prevs.iter().any(|prev| {
+            matches!(
+                prev.kind,
+                DependentQueuedRequestKind::RedactEvent
+                    | DependentQueuedRequestKind::RedactEventWithReason { .. }
+            )
+        }) {
             // The parent event has already been flagged for redaction, don't consider the
             // other dependent events.
             continue;
@@ -3175,7 +3212,8 @@ fn canonicalize_dependent_requests(
                 prevs.push(d);
             }
 
-            DependentQueuedRequestKind::RedactEvent => {
+            DependentQueuedRequestKind::RedactEvent
+            | DependentQueuedRequestKind::RedactEventWithReason { .. } => {
                 // Remove every other dependent action.
                 prevs.clear();
                 prevs.push(d);
