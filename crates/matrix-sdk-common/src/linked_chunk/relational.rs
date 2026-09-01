@@ -221,19 +221,16 @@ where
                             self.items.entry(linked_chunk_id.to_owned()).or_default();
 
                         // Ensure item does not already exist in another position
-                        // in this linked chunk
+                        // in this linked chunk.
+                        //
+                        // Note that we do not check `items_chunks`, going through each
+                        // `ItemRow` is very slow. So, it is imperative that `items` is
+                        // kept in sync with `items_chunks` in order for the check below
+                        // to be sufficient.
                         if let Some((_, position)) = linked_chunk_items.get(&item_id)
                             && position.is_some()
                         {
                             return Err(RelationalLinkedChunkError::ItemAlreadyInLinkedChunk);
-                        }
-                        for row in &self.items_chunks {
-                            if row.linked_chunk_id == linked_chunk_id
-                                && let Either::Item(id) = &row.item
-                                && id == &item_id
-                            {
-                                return Err(RelationalLinkedChunkError::ItemAlreadyInLinkedChunk);
-                            }
                         }
 
                         // Ensure position is not occupied by another item. If position
