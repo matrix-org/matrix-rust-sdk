@@ -834,7 +834,8 @@ impl SendHandle {
 
 #[matrix_sdk_ffi_macros::export]
 impl SendHandle {
-    /// Try to abort the sending of the current event.
+    /// Try to abort the sending of the current event, with an optional
+    /// `reason` applied to the redaction when the event went out anyway.
     ///
     /// If this returns `true`, then the sending could be aborted, because the
     /// event hasn't been sent yet. Otherwise, if this returns `false`, the
@@ -842,27 +843,8 @@ impl SendHandle {
     ///
     /// This has an effect only on the first call; subsequent calls will always
     /// return `false`.
-    async fn abort(self: Arc<Self>) -> Result<bool, ClientError> {
-        self.abort_with_reason(None).await
-    }
-
-    /// Try to abort the sending of the current event, with an optional reason.
-    ///
-    /// If the event was being sent when the abort was requested and the send
-    /// succeeds, the event is redacted server-side; the given reason is
-    /// applied to that redaction. It is unused in every other case (the local
-    /// echo is simply dropped).
-    ///
-    /// If this returns `true`, then the sending could be aborted, because the
-    /// event hasn't been sent yet. Otherwise, if this returns `false`, the
-    /// event had already been sent and could not be aborted.
-    ///
-    /// This has an effect only on the first call; subsequent calls will always
-    /// return `false`.
-    async fn abort_with_reason(
-        self: Arc<Self>,
-        reason: Option<String>,
-    ) -> Result<bool, ClientError> {
+    #[uniffi::method(default(reason = None))]
+    async fn abort(self: Arc<Self>, reason: Option<String>) -> Result<bool, ClientError> {
         if let Some(inner) = self.inner.lock().await.take() {
             Ok(inner
                 .abort_with_reason(reason)
