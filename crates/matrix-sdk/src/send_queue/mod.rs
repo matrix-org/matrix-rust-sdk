@@ -2316,7 +2316,6 @@ impl QueueStorage {
         let reactions_and_medias =
             dependent_requests.into_iter().filter_map(|dep| match dep.kind {
                 DependentQueuedRequestKind::EditEvent { .. }
-                | DependentQueuedRequestKind::RedactEvent
                 | DependentQueuedRequestKind::RedactEventWithReason { .. } => {
                     // TODO: reflect local edits/redacts too?
                     None
@@ -2580,14 +2579,7 @@ impl QueueStorage {
                 }
             }
 
-            kind @ (DependentQueuedRequestKind::RedactEvent
-            | DependentQueuedRequestKind::RedactEventWithReason { .. }) => {
-                let reason = match kind {
-                    DependentQueuedRequestKind::RedactEventWithReason { reason } => reason,
-                    // The legacy variant carries no reason.
-                    _ => None,
-                };
-
+            DependentQueuedRequestKind::RedactEventWithReason { reason } => {
                 if let Some(parent_key) = parent_key {
                     let Some(event_id) = parent_key.into_event_id() else {
                         return Err(RoomSendQueueError::StorageError(
@@ -3479,11 +3471,7 @@ fn canonicalize_dependent_requests(
         let prevs = by_txn.entry(d.parent_transaction_id.clone()).or_default();
 
         if prevs.iter().any(|prev| {
-            matches!(
-                prev.kind,
-                DependentQueuedRequestKind::RedactEvent
-                    | DependentQueuedRequestKind::RedactEventWithReason { .. }
-            )
+            matches!(prev.kind, DependentQueuedRequestKind::RedactEventWithReason { .. })
         }) {
             // The parent event has already been flagged for redaction, don't
             // consider the other dependent events.
@@ -3516,8 +3504,7 @@ fn canonicalize_dependent_requests(
                 prevs.push(d);
             }
 
-            DependentQueuedRequestKind::RedactEvent
-            | DependentQueuedRequestKind::RedactEventWithReason { .. } => {
+            DependentQueuedRequestKind::RedactEventWithReason { .. } => {
                 // Remove every other dependent action.
                 prevs.clear();
                 prevs.push(d);
