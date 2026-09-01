@@ -18,6 +18,7 @@ use matrix_sdk::{
     },
     test_utils::mocks::{MatrixMock, MatrixMockServer, RoomMessagesResponseTemplate},
 };
+use matrix_sdk_base::media::store::MemoryMediaStore;
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use matrix_sdk_test::{
     ALICE, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder, async_test,
@@ -26,7 +27,7 @@ use matrix_sdk_test::{
 #[cfg(feature = "unstable-msc4274")]
 use ruma::events::room::message::GalleryItemType;
 use ruma::{
-    MxcUri, OwnedEventId, OwnedTransactionId, TransactionId, event_id,
+    EventId, MxcUri, OwnedEventId, OwnedTransactionId, TransactionId, UserId, event_id,
     events::{
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent, Mentions,
         MessageLikeEventContent as _,
@@ -132,6 +133,26 @@ fn mock_jpeg_upload<'a>(
           "content_uri": mxc
         }))
     })
+}
+
+/// Mocks the already-sent image event whose attachment a media edit replaces;
+/// it is read to validate the edit before anything is queued.
+async fn mock_edited_image_event(
+    mock: &MatrixMockServer,
+    own_user_id: &UserId,
+    edited_event_id: &EventId,
+) {
+    let f = EventFactory::new();
+    mock.mock_room_event()
+        .match_event_id()
+        .ok(f
+            .image("original.jpeg".to_owned(), owned_mxc_uri!("mxc://sdk.rs/original"))
+            .sender(own_user_id)
+            .event_id(edited_event_id)
+            .into())
+        .mock_once()
+        .mount()
+        .await;
 }
 
 // A macro to assert on a stream of `RoomSendQueueUpdate`s.
@@ -4288,17 +4309,7 @@ async fn test_edit_with_attachment() {
 
     // The already-sent media event whose attachment is being replaced.
     let edited_event_id = event_id!("$edited");
-    let f = EventFactory::new();
-    mock.mock_room_event()
-        .match_event_id()
-        .ok(f
-            .image("original.jpeg".to_owned(), owned_mxc_uri!("mxc://sdk.rs/original"))
-            .sender(&own_user_id)
-            .event_id(edited_event_id)
-            .into())
-        .mock_once()
-        .mount()
-        .await;
+    mock_edited_image_event(&mock, &own_user_id, edited_event_id).await;
 
     mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
@@ -4370,6 +4381,113 @@ async fn test_edit_with_attachment() {
     // And the edit is sent.
     assert_update!((global_watch, watch) => sent { txn = transaction_id, event_id = event_id!("$edit") });
     assert!(watch.is_empty());
+}
+
+#[async_test]
+async fn test_edit_with_attachment_survives_restart() {
+    let store = Arc::new(MemoryStore::new());
+    let media_store = Arc::new(MemoryMediaStore::new());
+
+    let mock = MatrixMockServer::new().await;
+
+    let room_id = room_id!("!a:b.c");
+    let edited_event_id = event_id!("$edited");
+
+    let client = mock
+        .client_builder()
+        .on_builder(|builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::SingleProcess)
+                    .state_store(store.clone())
+                    .media_store(media_store.clone()),
+            )
+        })
+        .build()
+        .await;
+
+    let room = mock.sync_joined_room(&client, room_id).await;
+    let own_user_id = client.user_id().unwrap().to_owned();
+
+    // The already-sent media event whose attachment is being replaced.
+    mock_edited_image_event(&mock, &own_user_id, edited_event_id).await;
+
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+
+    // Disable the send queue, so the edit is queued but neither uploaded nor sent
+    // before the client goes away.
+    let q = client.send_queue();
+    q.set_enabled(false).await;
+
+    let transaction_id = TransactionId::new();
+    room.send_queue()
+        .edit_with_attachment(
+            edited_event_id,
+            "surprise.jpeg",
+            mime::IMAGE_JPEG,
+            b"hello world".to_vec(),
+            AttachmentConfig::new().txn_id(transaction_id.clone()),
+        )
+        .await
+        .expect("queuing the attachment edit works");
+
+    sleep(Duration::from_millis(300)).await;
+
+    // Nothing has been uploaded nor sent: the mocks above are the only ones
+    // mounted.
+    mock.verify_and_reset().await;
+
+    {
+        // Kill the client, let it close background tasks.
+        drop(q);
+        drop(room);
+        drop(client);
+        sleep(Duration::from_secs(1)).await;
+    }
+
+    // The upload and the edit are performed by the new client, from the persisted
+    // requests and the media that's still in the shared media store.
+    mock.mock_room_state_encryption().plain().mount().await;
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+    mock.mock_upload()
+        .expect_mime_type("image/jpeg")
+        .ok(mxc_uri!("mxc://sdk.rs/media"))
+        .mock_once()
+        .mount()
+        .await;
+    mock.mock_room_send().ok(event_id!("$edit")).mock_once().mount().await;
+
+    let new_client = mock
+        .client_builder()
+        .on_builder(|builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::SingleProcess)
+                    .state_store(store)
+                    .media_store(media_store),
+            )
+        })
+        .build()
+        .await;
+
+    new_client.send_queue().respawn_tasks_for_rooms_with_unsent_requests().await;
+
+    sleep(Duration::from_secs(1)).await;
+
+    // The sent event is the replacement, carrying the uploaded media in both the
+    // fallback content and the canonical copy inside the relation.
+    let requests = mock.server().received_requests().await.unwrap();
+    let sent = requests
+        .iter()
+        .rfind(|req| req.url.path().contains("/send/"))
+        .expect("the edit must have been sent");
+    let body: serde_json::Value = sent.body_json().unwrap();
+
+    assert_eq!(body["m.relates_to"]["rel_type"], "m.replace");
+    assert_eq!(body["m.relates_to"]["event_id"], "$edited");
+    assert_eq!(body["url"], "mxc://sdk.rs/media");
+    assert_eq!(body["m.new_content"]["url"], "mxc://sdk.rs/media");
+
+    // The upload and the send both happened (asserted by the mocks' expectations).
+    mock.verify_and_reset().await;
 }
 
 #[async_test]

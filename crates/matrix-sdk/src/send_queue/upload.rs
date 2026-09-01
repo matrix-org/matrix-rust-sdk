@@ -227,10 +227,17 @@ impl RoomSendQueue {
     /// event, using the send queue.
     ///
     /// The new attachment (and its optional thumbnail) is uploaded the same
-    /// way [`Self::send_attachment`] uploads one, including while offline: the
-    /// uploads are queued, persisted, and survive an application restart. Once
-    /// they complete, an `m.replace` edit of `edited_event_id` carrying the
-    /// new media is sent.
+    /// way [`Self::send_attachment`] uploads one: the uploads are queued,
+    /// persisted, and survive an application restart, including while
+    /// offline. Once they complete, an `m.replace` edit of `edited_event_id`
+    /// carrying the new media is sent.
+    ///
+    /// Note that nothing is queued until the edited event has been validated,
+    /// which requires reading it: it is looked up in the event cache first,
+    /// and fetched from the homeserver when it's missing there. Calling this
+    /// for an event that isn't cached while offline thus fails with
+    /// [`EditError::Fetch`](crate::room::edit::EditError::Fetch), and has no
+    /// effect.
     ///
     /// The replacement must keep the media kind of the original event (an
     /// image stays an image, a video stays a video, and so on): clients are
