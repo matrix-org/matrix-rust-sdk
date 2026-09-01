@@ -1233,7 +1233,7 @@ impl PartialEq<u64> for ChunkIdentifier {
 /// The position of something inside a [`Chunk`].
 ///
 /// It's a pair of a chunk position and an item index.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Position(ChunkIdentifier, usize);
 
 impl Position {

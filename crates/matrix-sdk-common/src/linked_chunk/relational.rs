@@ -84,6 +84,9 @@ pub struct RelationalLinkedChunk<ItemId, Item, Gap> {
     /// Items chunks.
     items_chunks: Vec<ItemRow<ItemId, Gap>>,
 
+    /// Occupied positions.
+    items_positions: HashSet<(OwnedLinkedChunkId, Position)>,
+
     /// The items' content themselves.
     items: HashMap<OwnedLinkedChunkId, BTreeMap<ItemId, (Item, Option<Position>)>>,
 }
@@ -134,7 +137,12 @@ where
 {
     /// Create a new relational linked chunk.
     pub fn new() -> Self {
-        Self { chunks: Vec::new(), items_chunks: Vec::new(), items: HashMap::new() }
+        Self {
+            chunks: Vec::new(),
+            items_chunks: Vec::new(),
+            items_positions: HashSet::new(),
+            items: HashMap::new(),
+        }
     }
 
     /// Remove all the chunks and items for a particular room for this
@@ -143,6 +151,7 @@ where
         self.chunks.retain(|ChunkRow { linked_chunk_id, .. }| linked_chunk_id.room_id() != room_id);
         self.items_chunks
             .retain(|ItemRow { linked_chunk_id, .. }| linked_chunk_id.room_id() != room_id);
+        self.items_positions.retain(|(linked_chunk_id, _)| linked_chunk_id.room_id() != room_id);
         self.items.retain(|key, _| key.room_id() != room_id);
     }
 
@@ -150,6 +159,7 @@ where
     pub fn clear(&mut self) {
         self.chunks.clear();
         self.items_chunks.clear();
+        self.items_positions.clear();
         self.items.clear();
     }
 
@@ -225,18 +235,14 @@ where
                             }
                         }
 
-                        // Ensure position is not occupied by another item
-                        for (_, position) in linked_chunk_items.values() {
-                            if let Some(position) = position
-                                && *position == at
-                            {
-                                return Err(RelationalLinkedChunkError::PositionAlreadyOccupied);
-                            }
-                        }
-                        for row in &self.items_chunks {
-                            if row.linked_chunk_id == linked_chunk_id && row.position == at {
-                                return Err(RelationalLinkedChunkError::PositionAlreadyOccupied);
-                            }
+                        // Ensure position is not occupied by another item. If position
+                        // is already occupied, return an error. Otherwise, record given
+                        // position as occupied.
+                        let items_positions_key = (linked_chunk_id.to_owned(), at);
+                        if self.items_positions.contains(&items_positions_key) {
+                            return Err(RelationalLinkedChunkError::PositionAlreadyOccupied);
+                        } else {
+                            self.items_positions.insert(items_positions_key);
                         }
 
                         linked_chunk_items.insert(item_id.clone(), (item.clone(), Some(at)));
@@ -280,6 +286,7 @@ where
 
                 Update::RemoveItem { at } => {
                     let mut entry_to_remove = None;
+                    let mut position_to_remove = Option::<Position>::None;
 
                     for (
                         nth,
@@ -289,6 +296,14 @@ where
                         // Filter by linked chunk id.
                         if linked_chunk_id != &*linked_chunk_id_candidate {
                             continue;
+                        }
+
+                        // Track the largest index in the chunk to remove.
+                        if position.chunk_identifier() == at.chunk_identifier()
+                            && position_to_remove
+                                .is_none_or(|inner| inner.index() < position.index())
+                        {
+                            position_to_remove.replace(*position);
                         }
 
                         // Find the item to remove.
@@ -307,6 +322,10 @@ where
                     }
 
                     self.items_chunks.remove(entry_to_remove.expect("Remove an unknown item"));
+                    self.items_positions.remove(&(
+                        linked_chunk_id.to_owned(),
+                        position_to_remove.expect("Remove an unknown item"),
+                    ));
 
                     // We deliberately keep the item in the items collection.
                     self.items.entry(linked_chunk_id.to_owned()).and_modify(|items| {
@@ -341,12 +360,13 @@ where
                                 (linked_chunk_id == linked_chunk_id_candidate
                                     && position.chunk_identifier() == at.chunk_identifier()
                                     && position.index() >= at.index())
-                                .then_some(nth)
+                                .then_some((nth, *position))
                             },
                         )
                         .collect::<Vec<_>>();
 
-                    for index_to_remove in indices_to_remove.into_iter().rev() {
+                    for (index_to_remove, position) in indices_to_remove.into_iter().rev() {
+                        self.items_positions.remove(&(linked_chunk_id.to_owned(), position));
                         self.items_chunks.remove(index_to_remove);
                     }
 
@@ -365,6 +385,7 @@ where
                 Update::Clear => {
                     self.chunks.retain(|chunk| chunk.linked_chunk_id != linked_chunk_id);
                     self.items_chunks.retain(|chunk| chunk.linked_chunk_id != linked_chunk_id);
+                    self.items_positions.retain(|(id, _)| id.as_ref() != linked_chunk_id);
                     // We deliberately leave the items in the items collection.
                     self.items.entry(linked_chunk_id.to_owned()).and_modify(|items| {
                         for (_, pos) in items.values_mut() {
