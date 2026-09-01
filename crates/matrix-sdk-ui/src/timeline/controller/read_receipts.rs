@@ -324,7 +324,7 @@ impl ReadReceiptsState {
 
         // We are going to add receipts for hidden events to this item.
         //
-        // However: since we may be inserting an event at a random position, the
+        // However, since we may be inserting an event at a random position, the
         // previous timeline item may already be holding some hidden read
         // receipts. As a result, we need to be careful here: if we're inserting
         // after an event that holds hidden read receipts, then we should steal
@@ -332,23 +332,31 @@ impl ReadReceiptsState {
         //
         // Find the event, go past it, and keep a reference to the previous rendered
         // timeline item, if any.
-        let mut events_iter = timeline_items.all_remote_events().iter();
-        let mut prev_event_and_item_index = None;
+        let Some(current_event_index) = timeline_items.position_by_event_id(event_id) else {
+            warn!("Could not find event {event_id} in timeline");
+            return all_receipts;
+        };
+        let mut prev_events_iter = timeline_items.all_remote_events().range(0..current_event_index);
+        let previous_events_that_can_show_read_receipts =
+            prev_events_iter.by_ref().filter(|event| event.can_show_read_receipts).filter_map(
+                |event| event.timeline_item_index.map(|item_index| (&event.event_id, item_index)),
+            );
 
-        for meta in events_iter.by_ref() {
-            if meta.event_id == event_id {
-                break;
-            }
-            if let Some(item_index) = meta.timeline_item_index {
-                prev_event_and_item_index = Some((meta.event_id.clone(), item_index));
-            }
-        }
+        // Ok, the event we're searching for is the last item in our list.
+        //
+        // Let's just clone the event ID and copy the index to avoid double borrow of
+        // the `events_iter`.
+        let prev_event_and_item_index = previous_events_that_can_show_read_receipts
+            .last()
+            .map(|(event_id, index)| (event_id.clone(), index));
 
-        // Include receipts from all the following events that are hidden or can't show
-        // read receipts.
+        // Include receipts from the following events that are hidden or can't show
+        // read receipts until the next event that is visible and can show read
+        // receipts.
+        let next_events_iter = timeline_items.all_remote_events().range(current_event_index + 1..);
         let mut hidden = Vec::new();
         for hidden_receipt_event_meta in
-            events_iter.take_while(|meta| !meta.visible || !meta.can_show_read_receipts)
+            next_events_iter.take_while(|meta| !meta.visible || !meta.can_show_read_receipts)
         {
             if let Some(event_receipts) =
                 self.get_event_receipts(&hidden_receipt_event_meta.event_id)
