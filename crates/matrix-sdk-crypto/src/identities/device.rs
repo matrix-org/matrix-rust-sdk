@@ -1213,4 +1213,61 @@ pub(crate) mod tests {
             Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap(),
         );
     }
+
+    /// A device signed by its owner's self-signing key becomes trusted when
+    /// the owner's identity is verified via X.509, even though we never
+    /// cross-signed the identity ourselves.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    #[matrix_sdk_test::async_test]
+    async fn test_x509_verified_owner_confers_device_trust() {
+        use std::sync::Arc;
+
+        use ruma::device_id;
+
+        use crate::{
+            machine::test_helpers::create_signed_device_of_unverified_user,
+            olm::{Account, PrivateCrossSigningIdentity},
+            x509::{
+                RustRawX509Signer, RustRawX509Verifier, X509Signer, X509Verifier,
+                tests::{ca_cert, cert_and_key_with_email_signed_by},
+            },
+        };
+
+        // Given Alice's identity is signed with an X.509 certificate chaining
+        // to a CA...
+        let (ca_certificate, ca_signing_key) = ca_cert();
+        let (certificate, signing_key) =
+            cert_and_key_with_email_signed_by("alice@hs.co", &ca_certificate, &ca_signing_key);
+        let x509_signer = X509Signer::new(Arc::new(
+            RustRawX509Signer::new_from_pem_data(&certificate.pem(), &signing_key.serialize_pem())
+                .unwrap(),
+        ));
+        let account = Account::with_device_id(user_id!("@alice:hs.co"), device_id!("ALICEDEV"));
+        let alice_private_identity =
+            PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer)).await.unwrap();
+
+        // ...and her device is signed by her self-signing key, but we have not
+        // cross-signed her identity ourselves.
+        let mut device =
+            create_signed_device_of_unverified_user(account.device_keys(), &alice_private_identity)
+                .await;
+        assert!(device.is_cross_signed_by_owner());
+
+        // Without a verifier for the CA, the device is not trusted.
+        assert!(!device.is_cross_signing_trusted());
+
+        // With a verifier trusting the CA, the device is trusted.
+        device.x509_verifier = Some(X509Verifier::new(Arc::new(
+            RustRawX509Verifier::new_from_pem_data(&ca_certificate.pem()).unwrap(),
+        )));
+        assert!(device.is_cross_signing_trusted());
+        assert!(device.is_verified());
+
+        // A verifier trusting a *different* CA does not trust the device.
+        let (wrong_ca_certificate, _) = ca_cert();
+        device.x509_verifier = Some(X509Verifier::new(Arc::new(
+            RustRawX509Verifier::new_from_pem_data(&wrong_ca_certificate.pem()).unwrap(),
+        )));
+        assert!(!device.is_cross_signing_trusted());
+    }
 }
