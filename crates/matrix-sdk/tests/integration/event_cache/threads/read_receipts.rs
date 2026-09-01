@@ -24,8 +24,6 @@
 //! This avoids potential race conditions where a sync could be done, but the
 //! processing by the event cache isn't, at the time we check the unread counts.
 
-use std::time::Duration;
-
 use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
@@ -37,7 +35,6 @@ use ruma::{
     },
     room_id,
 };
-use tokio::time::sleep;
 
 /// Test that the unread count increases when new messages arrive and no read
 /// receipt is known.
@@ -245,9 +242,7 @@ async fn test_unread_count_receipt_only_no_new_message() {
         )
         .await;
 
-    // Can't wait on `thread_updates` because there is no update “read receipt
-    // update” for threads.
-    sleep(Duration::from_millis(100)).await;
+    assert_let_timeout!(Ok(_) = thread_updates.recv());
 
     // Only ev3 (after the receipt) is unread now.
     assert_eq!(thread.num_unread_messages().await.unwrap(), 1);
@@ -368,7 +363,6 @@ async fn test_unread_count_accumulates_across_syncs() {
         .await;
 
     assert_let_timeout!(Ok(_) = thread_updates.recv());
-
     assert_eq!(thread.num_unread_messages().await.unwrap(), 2);
 
     // Second sync: one more message, still no receipt.
@@ -403,6 +397,7 @@ async fn test_state_event_does_not_increment_unread() {
 
     server.sync_joined_room(&client, room_id).await;
     let (thread, _drop_handles) = event_cache.thread(room_id, thread_id).await.unwrap();
+    let mut generic_room_updates = event_cache.subscribe_to_room_generic_updates();
 
     server
         .sync_room(
@@ -416,8 +411,7 @@ async fn test_state_event_does_not_increment_unread() {
         )
         .await;
 
-    sleep(Duration::from_millis(100)).await;
-
+    assert_let_timeout!(Ok(_) = generic_room_updates.recv());
     assert_eq!(thread.num_unread_messages().await.unwrap(), 0);
 }
 
@@ -643,10 +637,7 @@ async fn test_unread_counts_updated_after_duplicate_only_sync_response() {
         )
         .await;
 
-    // We don't get an update about the read receipt (because threads can't do
-    // that), and we don't get an update about new event because it's been
-    // deduplicated. So. Just wait a little bit :-].
-    sleep(Duration::from_millis(100)).await;
+    assert_let_timeout!(Ok(_) = thread_updates.recv());
 
     // The message counts are properly updated (zero new message unread after $2).
     assert_eq!(thread.num_unread_messages().await.unwrap(), 0);
