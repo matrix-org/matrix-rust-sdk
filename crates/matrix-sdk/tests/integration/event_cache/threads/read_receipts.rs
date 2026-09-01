@@ -24,7 +24,9 @@
 //! This avoids potential race conditions where a sync could be done, but the
 //! processing by the event cache isn't, at the time we check the unread counts.
 
-use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
+use std::time::Duration;
+
+use matrix_sdk::{assert_let_timeout, sleep::sleep, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
     event_id,
@@ -323,6 +325,9 @@ async fn test_unread_count_pending_receipt() {
 
     assert_let_timeout!(Ok(_) = thread_updates.recv());
 
+    // Fix a bit of flakiness in some configuration.
+    sleep(Duration::from_millis(100)).await;
+
     // The pending receipt resolves: only ev4 (after $future) is unread.
     let read_receipts = thread.read_receipts().await.unwrap();
     assert_eq!(read_receipts.num_unread, 1);
@@ -569,6 +574,9 @@ async fn test_compute_unread_counts_considers_active_receipt() {
         .await;
 
     assert_let_timeout!(Ok(_) = thread_updates.recv());
+
+    // Fix a bit of flakiness in some configuration.
+    sleep(Duration::from_millis(100)).await;
 
     // The message counts are properly updated (two messages after $2).
     assert_eq!(thread.num_unread_messages().await.unwrap(), 2);
