@@ -1624,12 +1624,7 @@ impl QueueStorage {
                     transaction_id,
                     ChildTransactionId::new(),
                     MilliSecondsSinceUnixEpoch::now(),
-                    match reason {
-                        Some(reason) => {
-                            DependentQueuedRequestKind::RedactEventWithReason { reason }
-                        }
-                        None => DependentQueuedRequestKind::RedactEvent,
-                    },
+                    DependentQueuedRequestKind::RedactEventWithReason { reason },
                 )
                 .await?;
 
@@ -2288,7 +2283,8 @@ impl QueueStorage {
             kind @ (DependentQueuedRequestKind::RedactEvent
             | DependentQueuedRequestKind::RedactEventWithReason { .. }) => {
                 let reason = match kind {
-                    DependentQueuedRequestKind::RedactEventWithReason { reason } => Some(reason),
+                    DependentQueuedRequestKind::RedactEventWithReason { reason } => reason,
+                    // The legacy variant carries no reason.
                     _ => None,
                 };
 
@@ -3354,7 +3350,7 @@ mod tests {
         let redact = DependentQueuedRequest {
             own_transaction_id: ChildTransactionId::new(),
             parent_transaction_id: txn.clone(),
-            kind: DependentQueuedRequestKind::RedactEvent,
+            kind: DependentQueuedRequestKind::RedactEventWithReason { reason: None },
             parent_key: None,
             created_at: MilliSecondsSinceUnixEpoch::now(),
         };
@@ -3389,7 +3385,7 @@ mod tests {
         let res = canonicalize_dependent_requests(&inputs);
 
         assert_eq!(res.len(), 1);
-        assert_matches!(&res[0].kind, DependentQueuedRequestKind::RedactEvent);
+        assert_matches!(&res[0].kind, DependentQueuedRequestKind::RedactEventWithReason { .. });
         assert_eq!(res[0].parent_transaction_id, txn);
     }
 
@@ -3438,7 +3434,7 @@ mod tests {
             // This one pertains to txn1.
             DependentQueuedRequest {
                 own_transaction_id: child1.clone(),
-                kind: DependentQueuedRequestKind::RedactEvent,
+                kind: DependentQueuedRequestKind::RedactEventWithReason { reason: None },
                 parent_transaction_id: txn1.clone(),
                 parent_key: None,
                 created_at: MilliSecondsSinceUnixEpoch::now(),
@@ -3466,7 +3462,10 @@ mod tests {
         for dependent in res {
             if dependent.own_transaction_id == child1 {
                 assert_eq!(dependent.parent_transaction_id, txn1);
-                assert_matches!(dependent.kind, DependentQueuedRequestKind::RedactEvent);
+                assert_matches!(
+                    dependent.kind,
+                    DependentQueuedRequestKind::RedactEventWithReason { .. }
+                );
             } else {
                 assert_eq!(dependent.parent_transaction_id, txn2);
                 assert_matches!(dependent.kind, DependentQueuedRequestKind::EditEvent { .. });
