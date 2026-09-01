@@ -24,6 +24,8 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace};
 
 use super::OutboundGroupSession;
+#[cfg(feature = "experimental-x509-identity-verification")]
+use crate::x509::X509Verifier;
 #[cfg(doc)]
 use crate::{Device, UserIdentity};
 use crate::{
@@ -265,6 +267,8 @@ pub(crate) async fn collect_recipients_for_share_strategy(
                     user_devices,
                     &own_identity,
                     &device_owner_identity,
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    store.x509_verifier(),
                 );
                 update_recipients_for_user(&mut result, outbound, user_id, recipient_devices);
             }
@@ -285,6 +289,8 @@ pub(crate) async fn collect_recipients_for_share_strategy(
                 if has_identity_verification_violation(
                     own_identity.as_ref(),
                     device_owner_identity.as_ref(),
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    store.x509_verifier(),
                 ) {
                     verified_users_with_new_identities.push(user_id.to_owned());
                     // No point considering the individual devices of this user.
@@ -296,6 +302,8 @@ pub(crate) async fn collect_recipients_for_share_strategy(
                         user_devices,
                         &own_identity,
                         &device_owner_identity,
+                        #[cfg(feature = "experimental-x509-identity-verification")]
+                        store.x509_verifier(),
                     );
 
                 match recipient_devices {
@@ -353,6 +361,8 @@ pub(crate) async fn collect_recipients_for_share_strategy(
                 if has_identity_verification_violation(
                     own_identity.as_ref(),
                     device_owner_identity.as_ref(),
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    store.x509_verifier(),
                 ) {
                     verified_users_with_new_identities.push(user_id.to_owned());
                     // No point considering the individual devices of this user.
@@ -381,6 +391,8 @@ pub(crate) async fn collect_recipients_for_share_strategy(
                     user_devices,
                     &own_identity,
                     &device_owner_identity,
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    store.x509_verifier(),
                 );
 
                 update_recipients_for_user(&mut result, outbound, user_id, recipient_devices);
@@ -516,6 +528,8 @@ pub(crate) async fn split_devices_for_share_strategy(
                     device,
                     &own_identity,
                     &device_owner_identity,
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    store.x509_verifier(),
                 ) {
                     blocked_devices.push((device.clone(), withheld_code));
                 } else {
@@ -548,6 +562,8 @@ pub(crate) async fn split_devices_for_share_strategy(
                 if has_identity_verification_violation(
                     own_identity.as_ref(),
                     device_owner_identity.as_ref(),
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    store.x509_verifier(),
                 ) {
                     verified_users_with_new_identities.insert(user_id.to_owned());
                 } else {
@@ -555,6 +571,8 @@ pub(crate) async fn split_devices_for_share_strategy(
                         device,
                         own_identity.as_ref(),
                         device_owner_identity.as_ref(),
+                        #[cfg(feature = "experimental-x509-identity-verification")]
+                        store.x509_verifier(),
                     ) {
                         ErrorOnVerifiedUserProblemDeviceDecision::Ok => {
                             allowed_devices.push(device.clone())
@@ -602,6 +620,8 @@ pub(crate) async fn split_devices_for_share_strategy(
                 if has_identity_verification_violation(
                     own_identity.as_ref(),
                     device_owner_identity.as_ref(),
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    store.x509_verifier(),
                 ) {
                     verified_users_with_new_identities.insert(user_id.to_owned());
                 } else if let Some(device_owner_identity) = device_owner_identity {
@@ -633,6 +653,8 @@ pub(crate) async fn split_devices_for_share_strategy(
                         device,
                         &own_identity,
                         &device_owner_identity,
+                        #[cfg(feature = "experimental-x509-identity-verification")]
+                        store.x509_verifier(),
                     )
                 {
                     blocked_devices.push((device.clone(), withheld_code));
@@ -659,17 +681,24 @@ pub(crate) async fn withheld_code_for_device_for_share_strategy(
     share_strategy: CollectStrategy,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> OlmResult<Option<WithheldCode>> {
     match share_strategy {
         CollectStrategy::AllDevices => Ok(withheld_code_for_device_for_all_devices_strategy(
             device,
             own_identity,
             device_owner_identity,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
         )),
         CollectStrategy::ErrorOnVerifiedUserProblem => {
             if has_identity_verification_violation(
                 own_identity.as_ref(),
                 device_owner_identity.as_ref(),
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                x509_verifier,
             ) {
                 return Err(OlmError::SessionRecipientCollectionError(
                     SessionRecipientCollectionError::VerifiedUserChangedIdentity(vec![
@@ -681,6 +710,8 @@ pub(crate) async fn withheld_code_for_device_for_share_strategy(
                 device,
                 own_identity.as_ref(),
                 device_owner_identity.as_ref(),
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                x509_verifier,
             ) {
                 ErrorOnVerifiedUserProblemDeviceDecision::Ok => Ok(None),
                 ErrorOnVerifiedUserProblemDeviceDecision::Withhold(code) => Ok(Some(code)),
@@ -716,6 +747,8 @@ pub(crate) async fn withheld_code_for_device_for_share_strategy(
             if has_identity_verification_violation(
                 own_identity.as_ref(),
                 device_owner_identity.as_ref(),
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                x509_verifier,
             ) {
                 Err(OlmError::SessionRecipientCollectionError(
                     SessionRecipientCollectionError::VerifiedUserChangedIdentity(vec![
@@ -738,6 +771,8 @@ pub(crate) async fn withheld_code_for_device_for_share_strategy(
                 device,
                 own_identity,
                 device_owner_identity,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                x509_verifier,
             ))
         }
     }
@@ -775,12 +810,17 @@ fn split_devices_for_user_for_all_devices_strategy(
     user_devices: HashMap<OwnedDeviceId, DeviceData>,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> RecipientDevicesForUser {
     let (left, right) = user_devices.into_values().partition_map(|d| {
         if let Some(withheld_code) = withheld_code_for_device_for_all_devices_strategy(
             &d,
             own_identity,
             device_owner_identity,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
         ) {
             Either::Right((d, withheld_code))
         } else {
@@ -798,6 +838,9 @@ fn withheld_code_for_device_for_all_devices_strategy(
     device_data: &DeviceData,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> Option<WithheldCode> {
     if device_data.is_blacklisted() {
         Some(WithheldCode::Blacklisted)
@@ -806,6 +849,8 @@ fn withheld_code_for_device_for_all_devices_strategy(
             device_data,
             own_identity.as_ref(),
             device_owner_identity.as_ref(),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
         )
     {
         Some(WithheldCode::Unverified)
@@ -826,13 +871,21 @@ fn should_withhold_to_dehydrated_device(
     device: &DeviceData,
     own_identity: Option<&OwnUserIdentityData>,
     device_owner_identity: Option<&UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> bool {
     device_owner_identity.is_none_or(|owner_id| {
         // Dehydrated devices must be signed by their owners
         !device.is_cross_signed_by_owner(owner_id) ||
 
         // If the user has changed identity since we verified them, withhold the message
-        (owner_id.was_previously_verified() && !is_user_verified(own_identity, owner_id))
+        (owner_id.was_previously_verified() && !is_user_verified(
+            own_identity,
+            owner_id,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
+        ))
     })
 }
 
@@ -852,6 +905,9 @@ fn split_devices_for_user_for_error_on_verified_user_problem_strategy(
     user_devices: HashMap<OwnedDeviceId, DeviceData>,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> ErrorOnVerifiedUserProblemResult {
     let mut recipient_devices = RecipientDevicesForUser::default();
 
@@ -864,6 +920,8 @@ fn split_devices_for_user_for_error_on_verified_user_problem_strategy(
             &d,
             own_identity.as_ref(),
             device_owner_identity.as_ref(),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
         ) {
             ErrorOnVerifiedUserProblemDeviceDecision::Ok => {
                 recipient_devices.allowed_devices.push(d)
@@ -898,13 +956,22 @@ fn handle_device_for_user_for_error_on_verified_user_problem_strategy(
     device: &DeviceData,
     own_identity: Option<&OwnUserIdentityData>,
     device_owner_identity: Option<&UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> ErrorOnVerifiedUserProblemDeviceDecision {
     if device.is_blacklisted() {
         ErrorOnVerifiedUserProblemDeviceDecision::Withhold(WithheldCode::Blacklisted)
     } else if device.local_trust_state() == LocalTrust::Ignored {
         // Ignore the trust state of that device and share
         ErrorOnVerifiedUserProblemDeviceDecision::Ok
-    } else if is_unsigned_device_of_verified_user(own_identity, device_owner_identity, device) {
+    } else if is_unsigned_device_of_verified_user(
+        own_identity,
+        device_owner_identity,
+        device,
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        x509_verifier,
+    ) {
         ErrorOnVerifiedUserProblemDeviceDecision::UnsignedOfVerified
     } else if device.is_dehydrated()
         && device_owner_identity.is_none_or(|owner_id| {
@@ -980,12 +1047,17 @@ fn split_devices_for_user_for_only_trusted_devices(
     user_devices: HashMap<OwnedDeviceId, DeviceData>,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> RecipientDevicesForUser {
     let (left, right) = user_devices.into_values().partition_map(|d| {
         if let Some(withheld_code) = withheld_code_for_device_for_only_trusted_devices_strategy(
             &d,
             own_identity,
             device_owner_identity,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
         ) {
             Either::Right((d, withheld_code))
         } else {
@@ -1002,10 +1074,18 @@ fn withheld_code_for_device_for_only_trusted_devices_strategy(
     device_data: &DeviceData,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> Option<WithheldCode> {
     match (
         device_data.local_trust_state(),
-        device_data.is_cross_signing_trusted(own_identity, device_owner_identity),
+        device_data.is_cross_signing_trusted(
+            own_identity,
+            device_owner_identity,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
+        ),
     ) {
         (LocalTrust::BlackListed, _) => Some(WithheldCode::Blacklisted),
         (LocalTrust::Ignored | LocalTrust::Verified, _) => None,
@@ -1018,10 +1098,17 @@ fn is_unsigned_device_of_verified_user(
     own_identity: Option<&OwnUserIdentityData>,
     device_owner_identity: Option<&UserIdentityData>,
     device_data: &DeviceData,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> bool {
     device_owner_identity.is_some_and(|device_owner_identity| {
-        is_user_verified(own_identity, device_owner_identity)
-            && !device_data.is_cross_signed_by_owner(device_owner_identity)
+        is_user_verified(
+            own_identity,
+            device_owner_identity,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
+        ) && !device_data.is_cross_signed_by_owner(device_owner_identity)
     })
 }
 
@@ -1034,20 +1121,35 @@ fn is_unsigned_device_of_verified_user(
 fn has_identity_verification_violation(
     own_identity: Option<&OwnUserIdentityData>,
     device_owner_identity: Option<&UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> bool {
     device_owner_identity.is_some_and(|device_owner_identity| {
         device_owner_identity.was_previously_verified()
-            && !is_user_verified(own_identity, device_owner_identity)
+            && !is_user_verified(
+                own_identity,
+                device_owner_identity,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                x509_verifier,
+            )
     })
 }
 
 fn is_user_verified(
     own_identity: Option<&OwnUserIdentityData>,
     user_identity: &UserIdentityData,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> bool {
     match user_identity {
         UserIdentityData::Own(own_identity) => own_identity.is_verified(),
-        UserIdentityData::Other(other_identity) => other_identity.is_verified(own_identity),
+        UserIdentityData::Other(other_identity) => other_identity.is_verified(
+            own_identity,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
+        ),
     }
 }
 
@@ -1306,6 +1408,8 @@ mod tests {
                 CollectStrategy::AllDevices,
                 &own_identity_data,
                 &dan_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -1456,6 +1560,8 @@ mod tests {
                 CollectStrategy::OnlyTrustedDevices,
                 &own_identity_data,
                 &dan_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -1472,6 +1578,8 @@ mod tests {
                 CollectStrategy::OnlyTrustedDevices,
                 &own_identity_data,
                 &dan_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -1488,6 +1596,8 @@ mod tests {
                 CollectStrategy::OnlyTrustedDevices,
                 &own_identity_data,
                 &dave_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -1599,6 +1709,8 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &carol_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -1617,6 +1729,8 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &carol_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
         );
@@ -1685,6 +1799,8 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &bob_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -1764,6 +1880,8 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &bob_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -1861,6 +1979,8 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &own_user_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
         );
@@ -1943,6 +2063,8 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &bob_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -2022,6 +2144,8 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &bob_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -2098,6 +2222,8 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &bob_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
         );
@@ -2139,6 +2265,8 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &bob_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -2214,6 +2342,8 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &own_user_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
         );
@@ -2252,6 +2382,8 @@ mod tests {
             CollectStrategy::ErrorOnVerifiedUserProblem,
             &own_identity_data,
             &own_user_identity_data,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            None,
         )
         .await
         .unwrap();

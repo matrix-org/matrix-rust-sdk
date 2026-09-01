@@ -115,6 +115,12 @@ impl UserIdentity {
     /// For another user's identity, it means that we have verified our own
     /// identity as above, *and* that the other user's identity has been signed
     /// by our own user-signing key.
+    ///
+    /// Alternatively, if experimental X.509 identity verification is enabled,
+    /// an X.509 verifier is configured, and this is another user's identity,
+    /// we consider this identity verified if it carries a valid X.509
+    /// signature chaining to one of our trusted CAs, regardless of whether
+    /// our own identity is verified or even present.
     pub fn is_verified(&self) -> bool {
         match self {
             UserIdentity::Own(u) => u.is_verified(),
@@ -370,22 +376,11 @@ impl DerefMut for OtherUserIdentity {
 impl OtherUserIdentity {
     /// Is this user identity verified?
     pub fn is_verified(&self) -> bool {
-        let is_cross_signed = self.inner.is_verified(self.own_identity.as_ref());
-
-        // If we have an X.509 verifier, we can use that to verify the user
-        #[cfg(feature = "experimental-x509-identity-verification")]
-        {
-            let is_x509_signed = || {
-                self.x509_verifier.as_ref().is_some_and(|verifier| {
-                    verifier.verify_signed_object(&self.user_id, self.inner.master_key().as_ref())
-                })
-            };
-
-            is_cross_signed || is_x509_signed()
-        }
-
-        #[cfg(not(feature = "experimental-x509-identity-verification"))]
-        is_cross_signed
+        self.inner.is_verified(
+            self.own_identity.as_ref(),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            self.x509_verifier.as_ref(),
+        )
     }
 
     /// Manually verify this user.
@@ -808,13 +803,37 @@ impl OtherUserIdentityData {
     /// The identity of another user is verified if our own identity is
     /// verified and has signed this identity with our user-signing key.
     ///
+    /// Alternatively, if experimental X.509 identity verification is enabled
+    /// and an X.509 verifier is configured, we consider this identity verified
+    /// if it carries a valid X.509 signature chaining to one of our trusted
+    /// CAs, regardless of whether our own identity is verified or even
+    /// present.
+    ///
     /// User verification, device trust and the room key sharing strategies
     /// should all go through this method, such that their answers cannot
     /// disagree.
-    pub(crate) fn is_verified(&self, own_identity: Option<&OwnUserIdentityData>) -> bool {
-        own_identity.is_some_and(|own_identity| {
+    pub(crate) fn is_verified(
+        &self,
+        own_identity: Option<&OwnUserIdentityData>,
+        #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+            &X509Verifier,
+        >,
+    ) -> bool {
+        let is_cross_signed = own_identity.is_some_and(|own_identity| {
             own_identity.is_verified() && own_identity.is_identity_signed(self)
-        })
+        });
+
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        {
+            is_cross_signed
+                // Check X.509 signature without a let binding so we short-circuit if we are cross-signed
+                || x509_verifier.is_some_and(|verifier| {
+                    verifier.verify_signed_object(self.user_id(), self.master_key().as_ref())
+                })
+        }
+
+        #[cfg(not(feature = "experimental-x509-identity-verification"))]
+        is_cross_signed
     }
 
     #[cfg(test)]
@@ -1722,6 +1741,8 @@ pub(crate) mod tests {
             verification_machine: verification_machine.clone(),
             own_identity: Some(identity.clone()),
             device_owner_identity: Some(UserIdentityData::Own(identity.clone())),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier: None,
         };
 
         let second = Device {
@@ -1729,6 +1750,8 @@ pub(crate) mod tests {
             verification_machine,
             own_identity: Some(identity.clone()),
             device_owner_identity: Some(UserIdentityData::Own(identity.clone())),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier: None,
         };
 
         assert!(!second.is_locally_trusted());
@@ -1756,6 +1779,8 @@ pub(crate) mod tests {
             verification_machine: verification_machine.clone(),
             own_identity: Some(public_identity.clone()),
             device_owner_identity: Some(public_identity.clone().into()),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier: None,
         };
 
         assert!(!device.is_verified());
