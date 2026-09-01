@@ -370,10 +370,7 @@ impl DerefMut for OtherUserIdentity {
 impl OtherUserIdentity {
     /// Is this user identity verified?
     pub fn is_verified(&self) -> bool {
-        let is_cross_signed = self
-            .own_identity
-            .as_ref()
-            .is_some_and(|own_identity| own_identity.is_identity_verified(&self.inner));
+        let is_cross_signed = self.inner.is_verified(self.own_identity.as_ref());
 
         // If we have an X.509 verifier, we can use that to verify the user
         #[cfg(feature = "experimental-x509-identity-verification")]
@@ -806,6 +803,20 @@ impl OtherUserIdentityData {
         })
     }
 
+    /// Check if this identity is verified from our point of view.
+    ///
+    /// The identity of another user is verified if our own identity is
+    /// verified and has signed this identity with our user-signing key.
+    ///
+    /// User verification, device trust and the room key sharing strategies
+    /// should all go through this method, such that their answers cannot
+    /// disagree.
+    pub(crate) fn is_verified(&self, own_identity: Option<&OwnUserIdentityData>) -> bool {
+        own_identity.is_some_and(|own_identity| {
+            own_identity.is_verified() && own_identity.is_identity_signed(self)
+        })
+    }
+
     #[cfg(test)]
     pub(crate) async fn from_private(identity: &crate::olm::PrivateCrossSigningIdentity) -> Self {
         let master_key = identity.master_key.lock().await.as_ref().unwrap().public_key().clone();
@@ -1085,25 +1096,11 @@ impl OwnUserIdentityData {
         &self.user_signing_key
     }
 
-    /// Check if the given user identity has been verified.
-    ///
-    /// The identity of another user is verified iff our own identity is
-    /// verified and if our own identity has signed the other user's
-    /// identity.
-    ///
-    /// # Arguments
-    ///
-    /// * `identity` - The identity of another user which we want to check has
-    ///   been verified.
-    pub fn is_identity_verified(&self, identity: &OtherUserIdentityData) -> bool {
-        self.is_verified() && self.is_identity_signed(identity)
-    }
-
     /// Check if the given identity has been signed by this identity.
     ///
     /// Note that, normally, you'll also want to check that the
     /// `OwnUserIdentityData` has been verified; for that,
-    /// [`Self::is_identity_verified`] is more appropriate.
+    /// [`OtherUserIdentityData::is_verified`] is more appropriate.
     ///
     /// # Arguments
     ///

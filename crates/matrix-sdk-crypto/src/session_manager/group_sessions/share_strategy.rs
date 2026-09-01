@@ -1047,9 +1047,7 @@ fn is_user_verified(
 ) -> bool {
     match user_identity {
         UserIdentityData::Own(own_identity) => own_identity.is_verified(),
-        UserIdentityData::Other(other_identity) => {
-            own_identity.is_some_and(|oi| oi.is_identity_verified(other_identity))
-        }
+        UserIdentityData::Other(other_identity) => other_identity.is_verified(own_identity),
     }
 }
 

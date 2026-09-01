@@ -301,7 +301,7 @@ impl Device {
         self.device_owner_identity.as_ref().is_some_and(|id| match id {
             UserIdentityData::Own(own_identity) => own_identity.is_verified(),
             UserIdentityData::Other(other_identity) => {
-                self.own_identity.as_ref().is_some_and(|oi| oi.is_identity_verified(other_identity))
+                other_identity.is_verified(self.own_identity.as_ref())
             }
         })
     }
@@ -767,23 +767,19 @@ impl DeviceData {
         own_identity: &Option<OwnUserIdentityData>,
         device_owner: &Option<UserIdentityData>,
     ) -> bool {
-        own_identity.as_ref().zip(device_owner.as_ref()).is_some_and(
-            |(own_identity, device_identity)| {
-                match device_identity {
-                    UserIdentityData::Own(_) => {
-                        own_identity.is_verified() && own_identity.is_device_signed(self)
-                    }
+        device_owner.as_ref().is_some_and(|device_identity| match device_identity {
+            UserIdentityData::Own(_) => own_identity.as_ref().is_some_and(|own_identity| {
+                own_identity.is_verified() && own_identity.is_device_signed(self)
+            }),
 
-                    // If it's a device from someone else, first check
-                    // that our user has verified the other user and then
-                    // check if the other user has signed this device.
-                    UserIdentityData::Other(device_identity) => {
-                        own_identity.is_identity_verified(device_identity)
-                            && device_identity.is_device_signed(self)
-                    }
-                }
-            },
-        )
+            // If it's a device from someone else, first check that our user
+            // has verified the other user and then check if the other user
+            // has signed this device.
+            UserIdentityData::Other(device_identity) => {
+                device_identity.is_verified(own_identity.as_ref())
+                    && device_identity.is_device_signed(self)
+            }
+        })
     }
 
     pub(crate) fn is_cross_signed_by_owner(
