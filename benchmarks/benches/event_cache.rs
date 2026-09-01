@@ -104,12 +104,6 @@ fn handle_room_updates(c: &mut Criterion) {
         });
 
         for (store_name, store_builder) in &store_builders {
-            // TODO: Remove this conditional block when memory store performance
-            // is improved. At the moment, it takes too long and is causing CI to
-            // timeout.
-            if *store_name == "memory" && num_rooms == 100 {
-                continue;
-            }
             let client = runtime.block_on(async {
                 let event_cache_store = store_builder().await;
 
