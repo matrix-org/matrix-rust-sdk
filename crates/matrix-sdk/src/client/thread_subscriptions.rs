@@ -77,20 +77,14 @@ impl GuardedStoreAccess {
     }
 
     /// Saves the tokens in the database.
-    ///
-    /// Returns whether the list of tokens is empty or not.
     #[instrument(skip_all, fields(num_tokens = tokens.len()))]
-    async fn save_catchup_tokens(
-        &self,
-        tokens: Vec<ThreadSubscriptionCatchupToken>,
-    ) -> Result<bool> {
+    async fn save_catchup_tokens(&self, tokens: Vec<ThreadSubscriptionCatchupToken>) -> Result<()> {
         let store = self.client.state_store();
-        let is_empty = if tokens.is_empty() {
+        if tokens.is_empty() {
             store.remove_kv_data(StateStoreDataKey::ThreadSubscriptionsCatchupTokens).await?;
 
             trace!("Marking thread subscriptions as not outdated \\o/");
             self.is_outdated.store(false, atomic::Ordering::SeqCst);
-            true
         } else {
             store
                 .set_kv_data(
@@ -101,9 +95,9 @@ impl GuardedStoreAccess {
 
             trace!("Marking thread subscriptions as outdated.");
             self.is_outdated.store(true, atomic::Ordering::SeqCst);
-            false
-        };
-        Ok(is_empty)
+        }
+
+        Ok(())
     }
 }
 
@@ -234,16 +228,14 @@ impl ThreadSubscriptionCatchup {
             } else {
                 trace!(?token, "Saving catchup token");
                 tokens.push(token);
+
+                guard.save_catchup_tokens(tokens).await?;
+
+                // Wake up the catchup task, in case it's waiting.
+                self.ping.notify_one();
             }
         } else {
             trace!("No catchup token to save");
-        }
-
-        let is_token_list_empty = guard.save_catchup_tokens(tokens).await?;
-
-        // Wake up the catchup task, in case it's waiting.
-        if !is_token_list_empty {
-            self.ping.notify_one();
         }
 
         Ok(())
