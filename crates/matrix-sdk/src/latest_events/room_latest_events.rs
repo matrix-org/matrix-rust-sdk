@@ -26,8 +26,8 @@ use super::{
 use crate::{
     Room,
     event_cache::{
-        BATCH_SIZE, BackPaginationOutcome, BackPaginationRequest, EventCache, EventCacheError,
-        Priority, RoomEventCache,
+        BackPaginationOutcome, EventCache, EventCacheError, RoomEventCache,
+        back_pagination_queue::{self, BackPaginationRequest},
     },
     room::WeakRoom,
     send_queue::RoomSendQueueUpdate,
@@ -328,9 +328,9 @@ impl RoomLatestEventsWriteGuard {
 
         let handle = match queue.enqueue(BackPaginationRequest {
             room_id: room_id.clone(),
-            priority: Priority::High,
+            priority: back_pagination_queue::Priority::High,
             stop: Box::new(stop),
-            batch_size: BATCH_SIZE,
+            batch_size: back_pagination_queue::BATCH_SIZE,
             max_batches: None,
         }) {
             Ok(handle) => handle,

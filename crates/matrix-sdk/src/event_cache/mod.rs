@@ -56,7 +56,7 @@ use crate::{
     paginators::PaginatorError,
 };
 
-mod back_pagination_queue;
+pub(crate) mod back_pagination_queue;
 mod caches;
 mod deduplicator;
 mod persistence;
@@ -68,7 +68,6 @@ mod tasks;
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
 
-pub(crate) use self::back_pagination_queue::{BATCH_SIZE, BackPaginationRequest, Priority};
 pub use self::{
     back_pagination_queue::BackPaginationQueue,
     caches::{
