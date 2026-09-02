@@ -24,7 +24,7 @@
 //! sync, if that is not desirable, the offline support for the [`SyncService`]
 //! may be enabled using the [`SyncServiceBuilder::with_offline_mode`] setting.
 
-use std::{sync::Arc, time::Duration};
+use std::{future::pending, sync::Arc, time::Duration};
 
 use eyeball::{SharedObservable, Subscriber};
 use futures_util::{
@@ -173,7 +173,10 @@ impl SyncTaskSupervisor {
                     receiver.recv().await.unwrap_or_else(TerminationReport::supervisor_error);
 
                 match report.origin {
-                    TerminationOrigin::EncryptionSync | TerminationOrigin::RoomList => {}
+                    // An `IgnoreUserListChange` never reaches this channel.
+                    TerminationOrigin::EncryptionSync
+                    | TerminationOrigin::RoomList
+                    | TerminationOrigin::IgnoreUserListChange => {}
                     // Since the sync service aren't running anymore, we can only receive a report
                     // from the supervisor. It would have probably made sense to have separate
                     // channels for reports the sync services send and the user can send using the
@@ -249,6 +252,9 @@ impl SyncTaskSupervisor {
         let offline_mode = inner.with_offline_mode;
         let parent_span = inner.parent_span.clone();
 
+        let mut ignore_user_list_stream =
+            room_list_service.client().subscribe_to_ignore_user_list_changes();
+
         let future = async move {
             loop {
                 let (room_list_task, encryption_sync_task) = Self::spawn_child_tasks(
@@ -262,20 +268,19 @@ impl SyncTaskSupervisor {
 
                 sync_permit_guard = MaybeAcquiredPermit::Unacquired(encryption_sync_permit.clone());
 
-                let report = if let Some(report) = receiver.recv().await {
-                    report
-                } else {
-                    info!("internal channel has been closed?");
-                    // We should still stop the child tasks in the unlikely scenario that our
-                    // receiver died.
-                    TerminationReport::supervisor_error()
-                };
+                let report =
+                    Self::wait_for_termination(&mut receiver, &mut ignore_user_list_stream).await;
+
+                let ignore_user_list_changed =
+                    matches!(report.origin, TerminationOrigin::IgnoreUserListChange);
 
                 // If one service failed, make sure to request stopping the other one.
                 let (stop_room_list, stop_encryption) = match &report.origin {
                     TerminationOrigin::EncryptionSync => (true, false),
                     TerminationOrigin::RoomList => (false, true),
-                    TerminationOrigin::Supervisor => (true, true),
+                    TerminationOrigin::Supervisor | TerminationOrigin::IgnoreUserListChange => {
+                        (true, true)
+                    }
                 };
 
                 // Stop both services, and wait for the streams to properly finish: at some
@@ -287,7 +292,8 @@ impl SyncTaskSupervisor {
                         warn!(?report, "unable to stop room list service: {err:#}");
                     }
 
-                    if report.has_expired() {
+                    // A cleared event cache refills only from a fresh session.
+                    if report.has_expired() || ignore_user_list_changed {
                         room_list_service.expire_sync_session().await;
                     }
                 }
@@ -309,6 +315,18 @@ impl SyncTaskSupervisor {
                 if let Err(err) = encryption_sync_task.await {
                     error!("when awaiting encryption sync: {err:#}");
                 }
+
+                let report = if ignore_user_list_changed {
+                    match Self::drain_child_reports(&mut receiver) {
+                        Some(report) => report,
+                        None => {
+                            info!("Restarting the syncs after an ignore user list change");
+                            continue;
+                        }
+                    }
+                } else {
+                    report
+                };
 
                 if let Some(error) = report.error {
                     if offline_mode {
@@ -344,6 +362,52 @@ impl SyncTaskSupervisor {
         let task = spawn(future);
 
         (task, termination_sender)
+    }
+
+    /// Wait for a [`TerminationReport`], or an ignore user list change.
+    async fn wait_for_termination(
+        receiver: &mut Receiver<TerminationReport>,
+        ignore_user_list_stream: &mut Subscriber<Vec<String>>,
+    ) -> TerminationReport {
+        let wait_for_report = async {
+            receiver.recv().await.unwrap_or_else(|| {
+                // A dead receiver must still stop the child tasks.
+                info!("internal channel has been closed?");
+                TerminationReport::supervisor_error()
+            })
+        };
+
+        let wait_for_ignore_user_list_change = async {
+            match ignore_user_list_stream.next().await {
+                Some(_) => TerminationReport::ignore_user_list_change(),
+                None => {
+                    info!("Ignore user list stream has closed");
+                    pending().await
+                }
+            }
+        };
+
+        pin_mut!(wait_for_report);
+        pin_mut!(wait_for_ignore_user_list_change);
+
+        match select(wait_for_report, wait_for_ignore_user_list_change).await {
+            Either::Left((report, _)) | Either::Right((report, _)) => report,
+        }
+    }
+
+    /// Drop the reports of the stopped child tasks, keeping a racing stop.
+    fn drain_child_reports(
+        receiver: &mut Receiver<TerminationReport>,
+    ) -> Option<TerminationReport> {
+        let mut supervisor_report = None;
+
+        while let Ok(report) = receiver.try_recv() {
+            if matches!(report.origin, TerminationOrigin::Supervisor) {
+                supervisor_report = Some(report);
+            }
+        }
+
+        supervisor_report
     }
 
     async fn spawn_child_tasks(
@@ -701,6 +765,7 @@ enum TerminationOrigin {
     EncryptionSync,
     RoomList,
     Supervisor,
+    IgnoreUserListChange,
 }
 
 #[derive(Debug)]
@@ -737,6 +802,11 @@ impl TerminationReport {
     /// [`TerminationOrigin::Supervisor`] and `error` set to `None`.
     fn supervisor() -> Self {
         Self { origin: TerminationOrigin::Supervisor, error: None }
+    }
+
+    /// Report that the ignore user list changed, which is not an error.
+    fn ignore_user_list_change() -> Self {
+        Self { origin: TerminationOrigin::IgnoreUserListChange, error: None }
     }
 
     /// Check whether the termination is due to an expired sliding sync session.

@@ -252,6 +252,91 @@ async fn test_sync_service_client_sync_presence_is_used_by_both_syncs() -> anyho
 }
 
 #[async_test]
+async fn test_sync_service_restarts_when_ignore_user_list_changes() -> anyhow::Result<()> {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_pos = Arc::new(Mutex::new(0));
+
+    // A room list request without a `pos` starts a fresh sliding sync session.
+    let session_starts = Arc::new(Mutex::new(0));
+    let observed_session_starts = session_starts.clone();
+
+    let _guard = Mock::given(SlidingSyncMatcher)
+        .respond_with(move |request: &Request| {
+            let partial_request: PartialSlidingSyncRequest = request.body_json().unwrap();
+
+            if partial_request.conn_id.as_deref() != Some("room-list") {
+                return ResponseTemplate::new(200)
+                    .set_body_json(json!({
+                        "txn_id": partial_request.txn_id,
+                        "pos": "0"
+                    }))
+                    .set_delay(Duration::from_millis(50));
+            }
+
+            if !request.url.query_pairs().any(|(key, _)| key == "pos") {
+                *session_starts.lock().unwrap() += 1;
+            }
+
+            let mut pos = room_pos.lock().unwrap();
+            *pos += 1;
+
+            // Ignore Bob only after a few responses carried a valid `pos`.
+            let extensions = if *pos >= 3 {
+                json!({
+                    "account_data": {
+                        "global": [{
+                            "type": "m.ignored_user_list",
+                            "content": { "ignored_users": { "@bob:localhost": {} } }
+                        }]
+                    }
+                })
+            } else {
+                json!({})
+            };
+
+            ResponseTemplate::new(200)
+                .set_body_json(json!({
+                    "txn_id": partial_request.txn_id,
+                    "pos": (*pos).to_string(),
+                    "extensions": extensions,
+                }))
+                .set_delay(Duration::from_millis(50))
+        })
+        .mount_as_scoped(&server)
+        .await;
+
+    let sync_service = SyncService::builder(client).build().await.unwrap();
+    let mut state_stream = sync_service.state();
+
+    sync_service.start().await;
+    assert_next_matches!(state_stream, State::Running);
+
+    for _ in 0..50 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        if *observed_session_starts.lock().unwrap() > 1 {
+            break;
+        }
+    }
+
+    // Let the syncs run some more, so a restart loop would show up as well.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // No client ever sees the restart in the state.
+    assert_pending!(state_stream);
+
+    sync_service.stop().await;
+    assert_next_matches!(state_stream, State::Idle);
+
+    // The initial session, and the one restarted for the ignore user list.
+    assert_eq!(*observed_session_starts.lock().unwrap(), 2);
+
+    Ok(())
+}
+
+#[async_test]
 async fn test_sync_service_offline_mode() {
     let mock_server = MatrixMockServer::new().await;
     let client = mock_server.client_builder().build().await;
