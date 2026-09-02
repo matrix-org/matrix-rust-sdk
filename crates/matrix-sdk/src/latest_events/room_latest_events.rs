@@ -17,7 +17,7 @@ use std::{collections::HashMap, ops::ControlFlow, sync::Arc};
 use matrix_sdk_base::RoomInfoNotableUpdateReasons;
 use ruma::{EventId, OwnedEventId, UserId, events::room::power_levels::RoomPowerLevels};
 use tokio::sync::{OnceCell, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, instrument, warn};
 
 use super::{
     LatestEvent, filter_timeline_event,
@@ -300,6 +300,7 @@ impl RoomLatestEventsWriteGuard {
     /// automatic backpagination is disabled.
     ///
     /// [`BackPaginationQueue`]: crate::event_cache::BackPaginationQueue
+    #[instrument(skip_all, fields(room_id = %room_event_cache.room_id()))]
     async fn back_paginate_for_candidate(
         room: &Room,
         room_event_cache: &RoomEventCache,
@@ -314,20 +315,16 @@ impl RoomLatestEventsWriteGuard {
         let power_levels = power_levels.cloned();
         let stop = move |outcome: &BackPaginationOutcome| {
             let found = outcome.events.iter().any(|event| {
-                matches!(
-                    filter_timeline_event(event, None, &own_user_id, power_levels.as_ref()),
-                    ControlFlow::Break(())
-                )
+                filter_timeline_event(event, None, &own_user_id, power_levels.as_ref()).is_break()
             });
 
             if found { ControlFlow::Break(()) } else { ControlFlow::Continue(()) }
         };
 
-        let room_id = room_event_cache.room_id().to_owned();
-        debug!(%room_id, "started backfill request for latest events");
+        debug!("started backfill request for latest events");
 
         let handle = match queue.enqueue(BackPaginationRequest {
-            room_id: room_id.clone(),
+            room_id: room_event_cache.room_id().to_owned(),
             priority: back_pagination_queue::Priority::High,
             stop: Box::new(stop),
             batch_size: back_pagination_queue::BATCH_SIZE,
@@ -335,14 +332,14 @@ impl RoomLatestEventsWriteGuard {
         }) {
             Ok(handle) => handle,
             Err(err) => {
-                warn!(%room_id, "couldn't enqueue a latest-event backfill request: {err}");
+                warn!("couldn't enqueue a latest-event backfill request: {err}");
                 return;
             }
         };
 
         handle.join().await;
 
-        debug!(%room_id, "finished backfill request for latest events");
+        debug!("finished backfill request for latest events");
     }
 }
 
