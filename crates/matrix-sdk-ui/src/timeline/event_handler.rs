@@ -1229,18 +1229,31 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 position: TimelineItemPosition::UpdateAt { timeline_item_index: idx },
                 ..
             } => {
-                trace!("Updating timeline item at position {idx}");
+                // The event cache redacts the raw event independently of the aggregations
+                // system, which reaches us here as an `UpdateAt`. If the item is already
+                // redacted (via the aggregations system, applied earlier in the diff batch),
+                // skip it to avoid a spurious duplicate update.
+                let already_redacted = item.content().is_redacted()
+                    && self.items[*idx]
+                        .as_event()
+                        .is_some_and(|existing| existing.content().is_redacted());
 
-                // Update all events that replied to this previously encrypted message.
-                Self::maybe_update_responses(
-                    self.meta,
-                    self.items,
-                    decrypted_event_id,
-                    EmbeddedEvent::from_timeline_item(&item),
-                );
+                if already_redacted {
+                    trace!("Item at position {idx} is already redacted, skipping the update");
+                } else {
+                    trace!("Updating timeline item at position {idx}");
 
-                let internal_id = self.items[*idx].internal_id.clone();
-                self.items.replace(*idx, TimelineItem::new(item, internal_id));
+                    // Update all events that replied to this previously encrypted message.
+                    Self::maybe_update_responses(
+                        self.meta,
+                        self.items,
+                        decrypted_event_id,
+                        EmbeddedEvent::from_timeline_item(&item),
+                    );
+
+                    let internal_id = self.items[*idx].internal_id.clone();
+                    self.items.replace(*idx, TimelineItem::new(item, internal_id));
+                }
             }
         }
 
