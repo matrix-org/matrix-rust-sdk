@@ -14,7 +14,7 @@
 
 mod builder;
 
-use std::ops::{ControlFlow, Deref, DerefMut, Not};
+use std::ops::{Deref, DerefMut, Not};
 
 pub use builder::filter_timeline_event;
 use builder::{BufferOfValuesForLocalEvents, Builder};
@@ -24,17 +24,9 @@ pub use matrix_sdk_base::latest_event::{
 };
 use matrix_sdk_base::{RoomInfoNotableUpdateReasons, RoomState};
 use ruma::{EventId, OwnedEventId, UserId, events::room::power_levels::RoomPowerLevels};
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{error, info, instrument, trace, warn};
 
-use crate::{
-    Room,
-    event_cache::{
-        BATCH_SIZE, BackPaginationOutcome, BackPaginationRequest, BackPaginationStopReason,
-        Priority, RoomEventCache,
-    },
-    room::WeakRoom,
-    send_queue::RoomSendQueueUpdate,
-};
+use crate::{Room, event_cache::RoomEventCache, room::WeakRoom, send_queue::RoomSendQueueUpdate};
 
 /// The latest event of a room or a thread.
 ///
@@ -88,6 +80,29 @@ impl LatestEvent {
         self.current_value.get().await
     }
 
+    /// Whether back-paginating the room could give this latest event a value it
+    /// cannot compute from what's currently in memory.
+    ///
+    /// `false` when a remote candidate is already in reach, and when a local
+    /// latest event value is waiting: the send queue has the priority, so the
+    /// event cache isn't consulted at all in that case.
+    pub(super) async fn needs_back_pagination(
+        &self,
+        room_event_cache: &RoomEventCache,
+        own_user_id: &UserId,
+        power_levels: Option<&RoomPowerLevels>,
+    ) -> bool {
+        if self.buffer_of_values_for_local_events.is_empty().not() {
+            return false;
+        }
+
+        let current_event = self.current_value.get().await;
+        let new_value =
+            Builder::new_remote(room_event_cache, current_event, own_user_id, power_levels).await;
+
+        !matches!(new_value, Some(LatestEventValue::Remote(_)))
+    }
+
     /// Update the inner latest event value, based on the event cache
     /// (specifically with the [`RoomEventCache`]), if and only if there is no
     /// local latest event value waiting.
@@ -111,93 +126,14 @@ impl LatestEvent {
         }
 
         let current_event = self.current_value.get().await;
-        let mut new_value =
-            Builder::new_remote(room_event_cache, current_event.clone(), own_user_id, power_levels)
-                .await;
-
-        // No remote candidate in memory: back-paginate this room's history until a
-        // suitable event surfaces (or the timeline start is reached), then recompute.
-        if !matches!(new_value, Some(LatestEventValue::Remote(_)))
-            && self.backfill_for_candidate(room_event_cache, own_user_id, power_levels).await
-        {
-            new_value =
-                Builder::new_remote(room_event_cache, current_event, own_user_id, power_levels)
-                    .await;
-        }
+        let new_value =
+            Builder::new_remote(room_event_cache, current_event, own_user_id, power_levels).await;
 
         trace!(value = ?new_value, "Computed a remote `LatestEventValue`");
 
         if let Some(new_value) = new_value {
             self.update(new_value).await;
         }
-    }
-
-    /// Back-paginate the room until a suitable latest-event candidate is loaded
-    /// into memory or the start of the timeline is reached.
-    ///
-    /// Enqueues a high-priority request on the shared [`BackPaginationQueue`],
-    /// with a stop predicate that fires as soon as a freshly loaded batch
-    /// contains a suitable latest-event candidate, and awaits it. No-ops if
-    /// automatic backpagination is disabled.
-    ///
-    /// Returns `true` if a candidate was surfaced (so it's worth recomputing
-    /// the value), `false` otherwise.
-    async fn backfill_for_candidate(
-        &self,
-        room_event_cache: &RoomEventCache,
-        own_user_id: &UserId,
-        power_levels: Option<&RoomPowerLevels>,
-    ) -> bool {
-        let Some(room) = self.weak_room.get() else {
-            return false;
-        };
-        let Some(queue) = room.client().event_cache().back_pagination_queue() else {
-            return false;
-        };
-
-        let own_user_id = own_user_id.to_owned();
-        let power_levels = power_levels.cloned();
-        let stop = move |outcome: &BackPaginationOutcome| {
-            let found = outcome.events.iter().any(|event| {
-                matches!(
-                    filter_timeline_event(event, None, &own_user_id, power_levels.as_ref()),
-                    ControlFlow::Break(())
-                )
-            });
-
-            if found { ControlFlow::Break(()) } else { ControlFlow::Continue(()) }
-        };
-
-        let room_id = room_event_cache.room_id().to_owned();
-        debug!(%room_id, "started backfill request for latest events");
-
-        let handle = match queue.enqueue(BackPaginationRequest {
-            room_id: room_id.clone(),
-            priority: Priority::High,
-            stop: Box::new(stop),
-            batch_size: BATCH_SIZE,
-            max_batches: None,
-        }) {
-            Ok(handle) => handle,
-            Err(err) => {
-                warn!(%room_id, "couldn't enqueue a latest-event backfill request: {err}");
-                return false;
-            }
-        };
-
-        let reason = handle.join().await.reason;
-
-        debug!(%room_id, "finished backfill request for latest events");
-
-        // Both outcomes may have loaded events into memory: `StopConditionMet` found
-        // a candidate, and `ReachedTimelineStart` means the remaining history (which
-        // can include the candidate) was pulled in a final batch. The other end
-        // states loaded nothing worth recomputing for.
-        matches!(
-            reason,
-            BackPaginationStopReason::StopConditionMet
-                | BackPaginationStopReason::ReachedTimelineStart
-        )
     }
 
     /// Update the inner latest event value, based on the send queue
@@ -491,78 +427,6 @@ mod tests_latest_event {
             );
             assert!(is_none.not());
         }
-    }
-
-    /// When no latest-event candidate is present in memory, but one exists
-    /// behind a gap, `update_with_event_cache` back-paginates to surface it.
-    #[async_test]
-    async fn test_update_with_event_cache_backfills_for_a_candidate() {
-        use matrix_sdk_base::event_cache::Gap;
-        use ruma::event_id;
-
-        use crate::test_utils::mocks::RoomMessagesResponseTemplate;
-
-        let room_id = room_id!("!r0");
-        let sender = user_id!("@bob:example.org");
-
-        let server = MatrixMockServer::new().await;
-        let client = server
-            .client_builder()
-            .on_builder(|builder| builder.with_enable_automatic_back_pagination(true))
-            .build()
-            .await;
-        let weak_client = WeakClient::from_client(&client);
-
-        client.base_client().get_or_create_room(room_id, RoomState::Joined);
-
-        // A linked chunk with a single gap: no events in memory (so no candidate),
-        // but a token to paginate from. Set up directly so no sync (and thus no
-        // competing read-receipt pagination) races the backfill.
-        client
-            .event_cache_store()
-            .lock()
-            .await
-            .unwrap()
-            .as_clean()
-            .unwrap()
-            .handle_linked_chunk_updates(
-                LinkedChunkId::Room(room_id),
-                vec![Update::NewGapChunk {
-                    previous: None,
-                    new: ChunkIdentifier::new(0),
-                    next: None,
-                    gap: Gap { token: "prev_batch".to_owned() },
-                }],
-            )
-            .await
-            .unwrap();
-
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
-        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
-
-        // A displayable message lives behind the gap.
-        let f = EventFactory::new().room(room_id).sender(sender);
-        server
-            .mock_room_messages()
-            .match_from("prev_batch")
-            .ok(RoomMessagesResponseTemplate::default()
-                .events(vec![f.text_msg("hello").event_id(event_id!("$1"))]))
-            .mock_once()
-            .mount()
-            .await;
-
-        let weak_room = WeakRoom::new(weak_client, room_id.to_owned());
-        let (mut latest_event, _) = With::unzip(LatestEvent::new(&weak_room, None));
-
-        // No candidate in memory yet.
-        assert_matches!(latest_event.current_value.get().await, LatestEventValue::None);
-
-        latest_event.update_with_event_cache(&room_event_cache, sender, None).await;
-
-        // The backfill surfaced the message; the latest event resolved to it.
-        assert_matches!(latest_event.current_value.get().await, LatestEventValue::Remote(_));
     }
 
     #[async_test]

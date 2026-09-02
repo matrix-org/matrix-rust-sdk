@@ -12,19 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, ops::ControlFlow, sync::Arc};
 
 use matrix_sdk_base::RoomInfoNotableUpdateReasons;
-use ruma::{EventId, OwnedEventId};
+use ruma::{EventId, OwnedEventId, UserId, events::room::power_levels::RoomPowerLevels};
 use tokio::sync::{OnceCell, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
-use tracing::error;
+use tracing::{debug, error, warn};
 
 use super::{
-    LatestEvent,
+    LatestEvent, filter_timeline_event,
     latest_event::{IsLatestEventValueNone, With},
 };
 use crate::{
-    event_cache::{EventCache, EventCacheError, RoomEventCache},
+    Room,
+    event_cache::{
+        BATCH_SIZE, BackPaginationOutcome, BackPaginationRequest, EventCache, EventCacheError,
+        Priority, RoomEventCache,
+    },
     room::WeakRoom,
     send_queue::RoomSendQueueUpdate,
 };
@@ -185,6 +189,25 @@ impl RoomLatestEventsWriteGuard {
             }
         };
 
+        // No remote candidate in memory: back-paginate this room's history until a
+        // suitable event surfaces (or the timeline start is reached), and only then
+        // compute the value, so it's computed and applied once. Skip the check
+        // entirely when automatic back-pagination is disabled, so this path costs
+        // nothing beyond what it did before the feature existed.
+        if room.client().event_cache().back_pagination_queue().is_some()
+            && for_the_room
+                .needs_back_pagination(room_event_cache, own_user_id, power_levels.as_ref())
+                .await
+        {
+            Self::back_paginate_for_candidate(
+                &room,
+                room_event_cache,
+                own_user_id,
+                power_levels.as_ref(),
+            )
+            .await;
+        }
+
         for_the_room
             .update_with_event_cache(room_event_cache, own_user_id, power_levels.as_ref())
             .await;
@@ -266,5 +289,149 @@ impl RoomLatestEventsWriteGuard {
         };
 
         self.inner.for_the_room.update_with_room_info(room, reasons).await;
+    }
+
+    /// Back-paginate the room until a suitable latest-event candidate is loaded
+    /// into memory or the start of the timeline is reached.
+    ///
+    /// Enqueues a high-priority request on the shared [`BackPaginationQueue`],
+    /// with a stop predicate that fires as soon as a freshly loaded batch
+    /// contains a suitable latest-event candidate, and awaits it. No-ops if
+    /// automatic backpagination is disabled.
+    ///
+    /// [`BackPaginationQueue`]: crate::event_cache::BackPaginationQueue
+    async fn back_paginate_for_candidate(
+        room: &Room,
+        room_event_cache: &RoomEventCache,
+        own_user_id: &UserId,
+        power_levels: Option<&RoomPowerLevels>,
+    ) {
+        let Some(queue) = room.client().event_cache().back_pagination_queue() else {
+            return;
+        };
+
+        let own_user_id = own_user_id.to_owned();
+        let power_levels = power_levels.cloned();
+        let stop = move |outcome: &BackPaginationOutcome| {
+            let found = outcome.events.iter().any(|event| {
+                matches!(
+                    filter_timeline_event(event, None, &own_user_id, power_levels.as_ref()),
+                    ControlFlow::Break(())
+                )
+            });
+
+            if found { ControlFlow::Break(()) } else { ControlFlow::Continue(()) }
+        };
+
+        let room_id = room_event_cache.room_id().to_owned();
+        debug!(%room_id, "started backfill request for latest events");
+
+        let handle = match queue.enqueue(BackPaginationRequest {
+            room_id: room_id.clone(),
+            priority: Priority::High,
+            stop: Box::new(stop),
+            batch_size: BATCH_SIZE,
+            max_batches: None,
+        }) {
+            Ok(handle) => handle,
+            Err(err) => {
+                warn!(%room_id, "couldn't enqueue a latest-event backfill request: {err}");
+                return;
+            }
+        };
+
+        handle.join().await;
+
+        debug!(%room_id, "finished backfill request for latest events");
+    }
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod tests {
+    use assert_matches::assert_matches;
+    use matrix_sdk_base::{
+        RoomState,
+        event_cache::Gap,
+        linked_chunk::{ChunkIdentifier, LinkedChunkId, Update},
+    };
+    use matrix_sdk_test::{async_test, event_factory::EventFactory};
+    use ruma::{event_id, room_id, user_id};
+
+    use super::RoomLatestEvents;
+    use crate::{
+        client::WeakClient,
+        latest_events::LatestEventValue,
+        room::WeakRoom,
+        test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
+    };
+
+    /// When no latest-event candidate is present in memory, but one exists
+    /// behind a gap, `update_with_event_cache` back-paginates to surface it.
+    #[async_test]
+    async fn test_update_with_event_cache_backfills_for_a_candidate() {
+        let room_id = room_id!("!r0");
+        let sender = user_id!("@bob:example.org");
+
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.with_enable_automatic_back_pagination(true))
+            .build()
+            .await;
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+        // A linked chunk with a single gap: no events in memory (so no candidate),
+        // but a token to paginate from. Set up directly so no sync (and thus no
+        // competing read-receipt pagination) races the backfill.
+        client
+            .event_cache_store()
+            .lock()
+            .await
+            .unwrap()
+            .as_clean()
+            .unwrap()
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![Update::NewGapChunk {
+                    previous: None,
+                    new: ChunkIdentifier::new(0),
+                    next: None,
+                    gap: Gap { token: "prev_batch".to_owned() },
+                }],
+            )
+            .await
+            .unwrap();
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        // A displayable message lives behind the gap.
+        let f = EventFactory::new().room(room_id).sender(sender);
+        server
+            .mock_room_messages()
+            .match_from("prev_batch")
+            .ok(RoomMessagesResponseTemplate::default()
+                .events(vec![f.text_msg("hello").event_id(event_id!("$1"))]))
+            .mock_once()
+            .mount()
+            .await;
+
+        let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.to_owned());
+        let room_latest_events = RoomLatestEvents::new(weak_room, event_cache);
+
+        // No candidate in memory yet.
+        assert_matches!(
+            room_latest_events.read().await.for_room().get().await,
+            LatestEventValue::None
+        );
+
+        room_latest_events.write().await.update_with_event_cache().await;
+
+        // The backfill surfaced the message; the latest event resolved to it.
+        assert_matches!(
+            room_latest_events.read().await.for_room().get().await,
+            LatestEventValue::Remote(_)
+        );
     }
 }
