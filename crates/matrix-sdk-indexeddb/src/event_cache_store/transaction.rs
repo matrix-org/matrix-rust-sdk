@@ -27,9 +27,10 @@ use crate::{
     event_cache_store::{
         serializer::indexed_types::{
             IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventError,
-            IndexedEventEventIdKey, IndexedEventIdKey, IndexedEventPositionKey,
-            IndexedEventRelationKey, IndexedEventRoomKey, IndexedGapIdKey, IndexedLease,
-            IndexedLeaseIdKey, IndexedNextChunkIdKey, IndexedThread, IndexedThreadIdKey,
+            IndexedEventEventIdKey, IndexedEventIdKey, IndexedEventOutOfBandKey,
+            IndexedEventPositionKey, IndexedEventRelationKey, IndexedEventRoomKey, IndexedGapIdKey,
+            IndexedLease, IndexedLeaseIdKey, IndexedNextChunkIdKey, IndexedThread,
+            IndexedThreadIdKey,
         },
         types::{Chunk, ChunkType, Event, Gap, Lease, Position, Thread},
     },
@@ -432,6 +433,15 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
             self.serializer().inner(),
         );
         self.get_items_by_key::<Event, IndexedEventRelationKey>(range).await
+    }
+
+    pub async fn contains_out_of_band_event(
+        &self,
+        linked_chunk_id: LinkedChunkId<'_>,
+        event_id: &EventId,
+    ) -> Result<bool, TransactionError> {
+        let key = self.serializer().encode_key((linked_chunk_id, event_id));
+        self.contains_key::<Event, IndexedEventOutOfBandKey>(key).await
     }
 
     /// Adds an event to IndexedDB.
