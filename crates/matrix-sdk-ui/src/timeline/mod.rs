@@ -575,11 +575,14 @@ impl Timeline {
             }
 
             TimelineItemHandle::Local(handle) => {
-                // Relations are filled by the editing code itself.
                 let new_content: AnyMessageLikeEventContent = match new_content {
                     EditedContent::RoomMessage(message) => {
                         if item.content.is_message() {
-                            AnyMessageLikeEventContent::RoomMessage(message.into())
+                            // The replacement becomes the pending event itself, so restore its
+                            // relations, which the payload can't carry by type.
+                            AnyMessageLikeEventContent::RoomMessage(
+                                message.with_relation(item.content.relation()),
+                            )
                         } else {
                             return Err(EditError::ContentMismatch {
                                 original: item.content.debug_string().to_owned(),
