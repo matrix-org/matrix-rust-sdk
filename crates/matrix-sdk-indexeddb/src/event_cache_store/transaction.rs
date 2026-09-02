@@ -466,14 +466,9 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
             return Err(TransactionError::Serialization(Box::new(IndexedEventError::NoEventId)));
         };
 
-        let contains_out_of_band_event =
-            self.contains_out_of_band_event(event.linked_chunk_id(), event_id).await?;
-
-        let indexed = if matches!(event, Event::InBand(_)) && contains_out_of_band_event {
-            self.put_item(event)?
-        } else {
-            self.add_item(event)?
-        };
+        let promote = matches!(event, Event::InBand(_))
+            && self.contains_out_of_band_event(event.linked_chunk_id(), event_id).await?;
+        let indexed = if promote { self.put_item(event)? } else { self.add_item(event)? };
 
         self.update_events_by_event_id(event_id, |existing| {
             existing.with_content(event.content().clone())
