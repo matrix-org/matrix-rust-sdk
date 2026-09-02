@@ -462,19 +462,18 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     /// the intermediary type [`IndexedEvent`] in case inspection
     /// is needed.
     pub async fn add_event(&self, event: &Event) -> Result<IndexedEvent, TransactionError> {
-        let linked_chunk_id = event.linked_chunk_id();
         let Some(event_id) = event.event_id() else {
             return Err(TransactionError::Serialization(Box::new(IndexedEventError::NoEventId)));
         };
 
-        let existing = self.get_event_by_id(linked_chunk_id, event_id).await?;
+        let contains_out_of_band_event =
+            self.contains_out_of_band_event(event.linked_chunk_id(), event_id).await?;
 
-        let indexed =
-            if matches!(event, Event::InBand(_)) && matches!(existing, Some(Event::OutOfBand(_))) {
-                self.put_item(event)?
-            } else {
-                self.add_item(event)?
-            };
+        let indexed = if matches!(event, Event::InBand(_)) && contains_out_of_band_event {
+            self.put_item(event)?
+        } else {
+            self.add_item(event)?
+        };
 
         self.update_events_by_event_id(event_id, |existing| {
             existing.with_content(event.content().clone())
