@@ -313,6 +313,11 @@ impl RoomLatestEventsWriteGuard {
 
         let own_user_id = own_user_id.to_owned();
         let power_levels = power_levels.cloned();
+
+        // This filters each batch to spot a candidate and `Builder::new_remote`
+        // filters the same events again when it computes the value afterwards. That
+        // second pass can't be skipped though as an event's edits are newer than it
+        // and a stop condition only ever sees the batch it just loaded.
         let stop = move |outcome: &BackPaginationOutcome| {
             let found = outcome.events.iter().any(|event| {
                 filter_timeline_event(event, None, &own_user_id, power_levels.as_ref()).is_break()
