@@ -49,7 +49,7 @@ use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 
 pub use self::{builder::*, client::VersionBuilderError, error::*, list::*};
 use self::{cache::restore_sliding_sync_state, client::SlidingSyncResponseProcessor};
-use crate::{Client, Result, config::RequestConfig};
+use crate::{Client, Result, config::RequestConfig, sync::subscribe_to_room_latest_events};
 
 /// The Sliding Sync instance.
 ///
@@ -321,6 +321,25 @@ impl SlidingSync {
         let must_process_rooms_response = self.must_process_rooms_response().await;
 
         trace!(yes = must_process_rooms_response, "Must process rooms response?");
+
+        // Register the response's rooms with the latest-events machinery. This must
+        // happen BEFORE the response is processed (so the rooms are registered by the
+        // time the event cache broadcasts its updates), but deliberately OUTSIDE the
+        // `state_store_lock` region below: the latest-events computation task awaits
+        // `state_store_lock` itself (to persist a computed value) while holding locks
+        // of its own, so the two lock orders are inverted. Registering outside the
+        // locked region keeps that region to genuine state-store work, and stops a
+        // stall in the latest-events subsystem from wedging every sliding sync
+        // connection and every store-touching operation.
+        if must_process_rooms_response {
+            debug!(
+                rooms = sliding_sync_response.rooms.len(),
+                "Subscribing the response's rooms to latest events"
+            );
+
+            subscribe_to_room_latest_events(&self.inner.client, sliding_sync_response.rooms.keys())
+                .await;
+        }
 
         // Transform a Sliding Sync Response to a `SyncResponse`.
         //
