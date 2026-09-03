@@ -28,6 +28,14 @@ use tracing::{error, info, instrument, trace, warn};
 
 use crate::{Room, event_cache::RoomEventCache, room::WeakRoom, send_queue::RoomSendQueueUpdate};
 
+/// Whether back-paginating a room could give its latest event a value it
+/// cannot compute from what's currently in memory.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum NeedMoreEvents {
+    Yes,
+    No,
+}
+
 /// The latest event of a room or a thread.
 ///
 /// Use [`LatestEvent::subscribe`] to get a stream of updates.
@@ -80,29 +88,6 @@ impl LatestEvent {
         self.current_value.get().await
     }
 
-    /// Whether back-paginating the room could give this latest event a value it
-    /// cannot compute from what's currently in memory.
-    ///
-    /// `false` when a remote candidate is already in reach, and when a local
-    /// latest event value is waiting: the send queue has the priority, so the
-    /// event cache isn't consulted at all in that case.
-    pub(super) async fn needs_back_pagination(
-        &self,
-        room_event_cache: &RoomEventCache,
-        own_user_id: &UserId,
-        power_levels: Option<&RoomPowerLevels>,
-    ) -> bool {
-        if self.buffer_of_values_for_local_events.is_empty().not() {
-            return false;
-        }
-
-        let current_event = self.current_value.get().await;
-        let new_value =
-            Builder::new_remote(room_event_cache, current_event, own_user_id, power_levels).await;
-
-        !matches!(new_value, Some(LatestEventValue::Remote(_)))
-    }
-
     /// Update the inner latest event value, based on the event cache
     /// (specifically with the [`RoomEventCache`]), if and only if there is no
     /// local latest event value waiting.
@@ -112,17 +97,20 @@ impl LatestEvent {
     /// send queue. Indeed, anything coming from the send queue has the priority
     /// over the anything coming from the event cache. We believe it provides a
     /// better user experience.
+    ///
+    /// Returns whether back-paginating the room could yield a value that can't
+    /// be computed from what's currently in memory.
     pub async fn update_with_event_cache(
         &mut self,
         room_event_cache: &RoomEventCache,
         own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
-    ) {
+    ) -> NeedMoreEvents {
         if self.buffer_of_values_for_local_events.is_empty().not() {
             // At least one `LatestEventValue` exists for local events (i.e. coming from the
             // send queue). In this case, we don't overwrite the current value with a newly
             // computed one from the event cache.
-            return;
+            return NeedMoreEvents::No;
         }
 
         let current_event = self.current_value.get().await;
@@ -131,9 +119,16 @@ impl LatestEvent {
 
         trace!(value = ?new_value, "Computed a remote `LatestEventValue`");
 
+        let need_more_events = match new_value {
+            Some(LatestEventValue::Remote(_)) => NeedMoreEvents::No,
+            _ => NeedMoreEvents::Yes,
+        };
+
         if let Some(new_value) = new_value {
             self.update(new_value).await;
         }
+
+        need_more_events
     }
 
     /// Update the inner latest event value, based on the send queue
