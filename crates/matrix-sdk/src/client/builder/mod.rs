@@ -46,7 +46,7 @@ use matrix_sdk_sqlite::SqliteStoreConfig;
 use reqwest::Certificate;
 use ruma::{
     OwnedServerName, ServerName,
-    api::{MatrixVersion, SupportedVersions, error::FromHttpResponseError},
+    api::{FeatureFlag, MatrixVersion, SupportedVersions, error::FromHttpResponseError},
     presence::PresenceState,
 };
 use thiserror::Error;
@@ -125,6 +125,7 @@ pub struct ClientBuilder {
     respect_login_well_known: bool,
     well_known_lookup_disabled: bool,
     server_versions: Option<BTreeSet<MatrixVersion>>,
+    unstable_features: BTreeSet<FeatureFlag>,
     handle_refresh_tokens: bool,
     base_client: Option<BaseClient>,
     #[cfg(feature = "e2e-encryption")]
@@ -165,6 +166,7 @@ impl ClientBuilder {
             respect_login_well_known: true,
             well_known_lookup_disabled: false,
             server_versions: None,
+            unstable_features: Default::default(),
             handle_refresh_tokens: false,
             base_client: None,
             #[cfg(feature = "e2e-encryption")]
@@ -505,6 +507,20 @@ impl ClientBuilder {
         self
     }
 
+    /// Specify the unstable features advertised by the homeserver manually,
+    /// alongside the versions given to
+    /// [`server_versions()`][Self::server_versions].
+    ///
+    /// This is only used if `server_versions()` is called too, and is helpful
+    /// for test code that doesn't care to mock the `/versions` endpoint.
+    pub(crate) fn unstable_features(
+        mut self,
+        value: impl IntoIterator<Item = FeatureFlag>,
+    ) -> Self {
+        self.unstable_features = value.into_iter().collect();
+        self
+    }
+
     #[cfg(not(target_family = "wasm"))]
     fn http_settings(&mut self) -> &mut HttpSettings {
         self.http_cfg.get_or_insert_with(Default::default).settings()
@@ -726,7 +742,7 @@ impl ClientBuilder {
         let supported_versions = match self.server_versions {
             Some(versions) => Cached(TtlValue::without_expiry(SupportedVersions {
                 versions,
-                features: Default::default(),
+                features: self.unstable_features,
             })),
             None => NotSet,
         };
