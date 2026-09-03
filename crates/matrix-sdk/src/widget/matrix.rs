@@ -34,9 +34,8 @@ use ruma::{
     },
     assign,
     events::{
-        AnyMessageLikeEventContent, AnyStateEvent, AnyStateEventContent, AnySyncStateEvent,
-        AnySyncTimelineEvent, AnyTimelineEvent, AnyToDeviceEvent, AnyToDeviceEventContent,
-        MessageLikeEventType, StateEventType, TimelineEventType, ToDeviceEventType,
+        AnyStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, AnyToDeviceEvent,
+        AnyToDeviceEventContent, StateEventType, TimelineEventType, ToDeviceEventType,
         room::MediaSource,
     },
     serde::{Base64, Raw, from_raw_json_value},
@@ -215,27 +214,18 @@ impl MatrixDriver {
                 self.room.send_state_event_raw(&type_str, &key, content).await?.event_id,
             ),
 
-            (None, Some(delayed_event_parameters)) => {
-                let r = delayed_events::delayed_message_event::unstable::Request::new_raw(
-                    self.room.room_id().to_owned(),
-                    TransactionId::new(),
-                    MessageLikeEventType::from(type_str),
-                    delayed_event_parameters,
-                    Raw::<AnyMessageLikeEventContent>::from_json(content),
-                );
-                self.room.client.send(r).await.map(|r| r.into())?
-            }
+            (None, Some(delayed_event_parameters)) => self
+                .room
+                .send_raw(&type_str, content)
+                .with_delay(delayed_event_parameters)
+                .await?
+                .into(),
 
-            (Some(key), Some(delayed_event_parameters)) => {
-                let r = delayed_events::delayed_state_event::unstable::Request::new_raw(
-                    self.room.room_id().to_owned(),
-                    key,
-                    StateEventType::from(type_str),
-                    delayed_event_parameters,
-                    Raw::<AnyStateEventContent>::from_json(content),
-                );
-                self.room.client.send(r).await.map(|r| r.into())?
-            }
+            (Some(key), Some(delayed_event_parameters)) => self
+                .room
+                .send_delayed_state_event_raw(&type_str, &key, content, delayed_event_parameters)
+                .await?
+                .into(),
         })
     }
 
@@ -248,8 +238,7 @@ impl MatrixDriver {
         delay_id: String,
         action: UpdateAction,
     ) -> Result<delayed_events::update_delayed_event::unstable_v1::Response> {
-        let r = delayed_events::update_delayed_event::unstable_v1::Request::new(delay_id, action);
-        self.room.client.send(r).await.map_err(|error| Error::Http(Box::new(error)))
+        self.room.update_delayed_event(delay_id, action).await
     }
 
     /// Starts forwarding new room events. Once the returned `EventReceiver`
