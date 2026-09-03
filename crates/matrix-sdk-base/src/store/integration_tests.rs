@@ -1127,7 +1127,7 @@ impl StateStoreIntegrationTests for DynStateStore {
                 &txn,
                 ChildTransactionId::new(),
                 MilliSecondsSinceUnixEpoch::now(),
-                DependentQueuedRequestKind::RedactEvent,
+                DependentQueuedRequestKind::RedactEventWithReason { reason: None },
             )
             .await?;
         }
@@ -1670,7 +1670,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             &txn0,
             child_txn.clone(),
             MilliSecondsSinceUnixEpoch::now(),
-            DependentQueuedRequestKind::RedactEvent,
+            DependentQueuedRequestKind::RedactEventWithReason { reason: None },
         )
         .await?;
 
@@ -1680,7 +1680,10 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_eq!(dependents[0].parent_transaction_id, txn0);
         assert_eq!(dependents[0].own_transaction_id, child_txn);
         assert!(dependents[0].parent_key.is_none());
-        assert_matches!(dependents[0].kind, DependentQueuedRequestKind::RedactEvent);
+        assert_matches!(
+            dependents[0].kind,
+            DependentQueuedRequestKind::RedactEventWithReason { .. }
+        );
 
         // Update the event id.
         let (event, event_type) = event0.raw();
@@ -1715,7 +1718,10 @@ impl StateStoreIntegrationTests for DynStateStore {
                 assert_eq!(received_event_type.as_str(), event_type);
             }
         );
-        assert_matches!(dependents[0].kind, DependentQueuedRequestKind::RedactEvent);
+        assert_matches!(
+            dependents[0].kind,
+            DependentQueuedRequestKind::RedactEventWithReason { .. }
+        );
 
         // Now remove it.
         let removed = self
@@ -1745,7 +1751,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             &txn0,
             ChildTransactionId::new(),
             MilliSecondsSinceUnixEpoch::now(),
-            DependentQueuedRequestKind::RedactEvent,
+            DependentQueuedRequestKind::RedactEventWithReason { reason: None },
         )
         .await?;
         assert_eq!(self.load_dependent_queued_requests(room_id).await?.len(), 1);
@@ -1788,7 +1794,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             &txn,
             child_txn.clone(),
             MilliSecondsSinceUnixEpoch::now(),
-            DependentQueuedRequestKind::RedactEvent,
+            DependentQueuedRequestKind::RedactEventWithReason { reason: None },
         )
         .await?;
 
@@ -1798,7 +1804,10 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_eq!(dependents[0].parent_transaction_id, txn);
         assert_eq!(dependents[0].own_transaction_id, child_txn);
         assert!(dependents[0].parent_key.is_none());
-        assert_matches!(dependents[0].kind, DependentQueuedRequestKind::RedactEvent);
+        assert_matches!(
+            dependents[0].kind,
+            DependentQueuedRequestKind::RedactEventWithReason { .. }
+        );
 
         // Make it a reaction, instead of a redaction.
         self.update_dependent_queued_request(
