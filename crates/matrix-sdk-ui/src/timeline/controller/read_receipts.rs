@@ -353,7 +353,10 @@ impl ReadReceiptsState {
         // Include receipts from the following events that are hidden or can't show
         // read receipts until the next event that is visible and can show read
         // receipts.
-        let next_events_iter = timeline_items.all_remote_events().range(current_event_index + 1..);
+
+        // Start by creating an iterator from the following event, if possible.
+        let next_events_iter =
+            timeline_items.all_remote_events().range(current_event_index..).skip(1);
         let mut hidden = Vec::new();
         for hidden_receipt_event_meta in
             next_events_iter.take_while(|meta| !meta.visible || !meta.can_show_read_receipts)
