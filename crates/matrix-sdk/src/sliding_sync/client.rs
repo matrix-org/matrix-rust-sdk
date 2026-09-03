@@ -17,7 +17,7 @@ use tokio::sync::MutexGuard;
 use tracing::error;
 
 use super::{SlidingSync, SlidingSyncBuilder};
-use crate::{Client, Result, sync::subscribe_to_room_latest_events};
+use crate::{Client, Result};
 
 /// A sliding sync version.
 #[derive(Clone, Debug)]
@@ -209,8 +209,6 @@ impl SlidingSyncResponseProcessor {
         requested_required_states: &RequestedRequiredStates,
         state_store_guard: &MutexGuard<'_, ()>,
     ) -> Result<()> {
-        subscribe_to_room_latest_events(&self.client, response.rooms.keys()).await;
-
         let previously_joined_rooms = self
             .client
             .joined_rooms()
@@ -383,13 +381,17 @@ mod tests {
         user_id,
     };
     use serde_json::json;
-    use tokio::task::yield_now;
+    use tokio::{
+        task::yield_now,
+        time::{Duration, sleep, timeout},
+    };
 
     use super::{Version, VersionBuilder};
     use crate::{
         SlidingSyncList, SlidingSyncMode,
         error::Result,
         sliding_sync::{VersionBuilderError, client::SlidingSyncResponseProcessor, http},
+        sync::subscribe_to_room_latest_events,
         test_utils::{client::MockClientBuilder, mocks::MatrixMockServer},
     };
 
@@ -682,6 +684,73 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_latest_events_registration_does_not_require_state_store_lock() -> Result<()> {
+        let client = MockClientBuilder::new(None).build().await;
+        let room_id = room_id!("!r0");
+
+        // Enable the event cache (required for the latest events).
+        client.event_cache().subscribe()?;
+
+        let sliding_sync = client
+            .sliding_sync("test")?
+            .add_list(
+                SlidingSyncList::builder("all")
+                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+            )
+            .build()
+            .await?;
+
+        // Hold `state_store_lock` ourselves, standing in for the latest-events
+        // background computation task, which can itself await this very lock
+        // while it holds a per-room lock of its own.
+        let state_store_guard = client.base_client().state_store_lock().lock().await;
+
+        let server_response = assign!(http::Response::new("0".to_owned()), {
+            rooms: BTreeMap::from([(
+                room_id.to_owned(),
+                http::response::Room::default(),
+            )]),
+        });
+
+        // `handle_response` also needs `state_store_lock` (to process the room
+        // response), so it must block on that further down — but registering
+        // the room with the latest events must NOT require the lock we're
+        // holding, or this would deadlock against a real latest-events
+        // computation.
+        let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
+        let cloned_sliding_sync = sliding_sync.clone();
+        let handle = tokio::spawn(async move {
+            cloned_sliding_sync
+                .handle_response(
+                    server_response,
+                    &mut pos_guard,
+                    RequestedRequiredStates::default(),
+                )
+                .await
+        });
+
+        // Give `handle_response` a chance to run up to the point where it
+        // needs `state_store_lock`.
+        sleep(Duration::from_millis(100)).await;
+
+        // The room has been registered with the latest events already, even
+        // though we're still holding `state_store_lock`.
+        assert!(client.latest_events().await.is_listening_to_room(room_id).await);
+
+        // `handle_response` is still stuck waiting for the lock we're holding.
+        assert!(!handle.is_finished());
+
+        drop(state_store_guard);
+
+        timeout(Duration::from_secs(5), handle)
+            .await
+            .expect("handle_response should not deadlock")
+            .expect("the task should not panic")?;
+
+        Ok(())
+    }
+
+    #[async_test]
     async fn test_read_receipt_can_trigger_a_notable_update_reason() {
         use ruma::api::client::sync::sync_events::v5 as http;
 
@@ -696,6 +765,11 @@ mod tests {
         let room = http::response::Room::new();
         let mut response = http::Response::new("5".to_owned());
         response.rooms.insert(room_id.to_owned(), room);
+
+        // Mirror the production order in `SlidingSync::handle_response`: register the
+        // response's rooms with the latest events before processing the response, since
+        // `handle_room_response` no longer does so itself.
+        subscribe_to_room_latest_events(&client, response.rooms.keys()).await;
 
         let mut processor = SlidingSyncResponseProcessor::new(client.clone());
         {
@@ -741,6 +815,8 @@ mod tests {
         });
         let mut response = http::Response::new("5".to_owned());
         response.rooms.insert(room_id.to_owned(), room);
+
+        subscribe_to_room_latest_events(&client, response.rooms.keys()).await;
 
         let mut processor = SlidingSyncResponseProcessor::new(client.clone());
         {
