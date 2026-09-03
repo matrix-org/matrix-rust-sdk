@@ -37,7 +37,7 @@ use super::{
         event_focused::{EventFocusedCacheKey, EventFocusedCacheState},
         pinned_events::PinnedEventsCacheState,
         room::{self, RoomEventCacheState},
-        thread::ThreadEventCacheState,
+        thread::{self, ThreadEventCacheState},
     },
 };
 
@@ -520,10 +520,10 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
 
                 let updates_as_vector_diffs = thread_state.reload(preprocessing).await?;
                 thread_state.update_sender.send(
-                    TimelineVectorDiffs {
+                    thread::ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
                         diffs: updates_as_vector_diffs,
                         origin: EventsOrigin::Cache,
-                    },
+                    }),
                     Some(room::RoomEventCacheGenericUpdate { room_id: room_id.clone() }),
                 );
             }

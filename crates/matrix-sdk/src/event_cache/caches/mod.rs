@@ -312,23 +312,33 @@ impl Caches {
             avatar_changes,
         } = updates;
 
+        // Filter ephemeral events.
+        let original_ephemeral = original_ephemeral
+            .into_iter()
+            .filter_map(|ephemeral_event| ephemeral_event.deserialize().ok())
+            .collect::<Vec<_>>();
+
         // Room.
         {
-            let updates = JoinedRoomUpdate {
-                timeline: aggregator::aggregate_timeline_for_room(&original_timeline),
-                ephemeral: original_ephemeral.clone(),
+            let (timeline, read_receipts) =
+                aggregator::aggregate_timeline_and_read_receipts_for_room(
+                    &original_timeline,
+                    &original_ephemeral,
+                );
+
+            room.handle_joined_room_update(
+                timeline,
+                read_receipts,
                 account_data,
                 ambiguity_changes,
                 avatar_changes,
-                ..Default::default()
-            };
-
-            room.handle_joined_room_update(updates).await?;
+            )
+            .await?;
         }
 
         // Threads.
         {
-            let timeline_for_threads = {
+            let timeline_and_read_receipts_for_threads = {
                 // To aggregate the timelines for threads, we need to lookup in the room cache
                 // and the thread caches. We acquire a read lock over all the caches, and select
                 // the room cache and thread cache' states.
@@ -338,7 +348,7 @@ impl Caches {
                 );
                 let all_states = all_states_lock.read().await?;
 
-                aggregator::aggregate_timeline_for_threads(
+                aggregator::aggregate_timeline_and_read_receipts_for_threads(
                     &original_timeline,
                     &original_ephemeral,
                     all_states.threads(),
@@ -348,18 +358,12 @@ impl Caches {
                 .await?
             };
 
-            for (thread_id, timeline) in timeline_for_threads {
-                let updates = JoinedRoomUpdate {
-                    timeline,
-                    ephemeral: original_ephemeral.clone(),
-                    ..Default::default()
-                };
-
+            for (thread_id, (timeline, read_receipts)) in timeline_and_read_receipts_for_threads {
                 // Update the thread summary if and only if there are new events.
-                let update_thread_summary = updates.timeline.events.is_empty().not();
+                let update_thread_summary = timeline.events.is_empty().not();
 
                 let thread = self.thread(thread_id).await?;
-                thread.handle_joined_room_update(updates).await?;
+                thread.handle_joined_room_update(timeline, read_receipts).await?;
 
                 if update_thread_summary {
                     let new_thread_summary =
@@ -372,16 +376,13 @@ impl Caches {
 
         // Pinned-events.
         if let Some(pinned_events) = pinned_events.get() {
-            let updates = JoinedRoomUpdate {
-                timeline: aggregator::aggregate_timeline_for_pinned_events(
-                    &original_timeline,
-                    &pinned_events.state().read().await?.current_event_ids(),
-                    &internals.room_version_rules.redaction,
-                ),
-                ..Default::default()
-            };
+            let timeline = aggregator::aggregate_timeline_for_pinned_events(
+                &original_timeline,
+                &pinned_events.state().read().await?.current_event_ids(),
+                &internals.room_version_rules.redaction,
+            );
 
-            pinned_events.handle_joined_room_update(updates).await?;
+            pinned_events.handle_joined_room_update(timeline).await?;
         }
 
         // Event-focused.
@@ -416,18 +417,15 @@ impl Caches {
 
         // Room.
         {
-            let updates = LeftRoomUpdate {
-                timeline: aggregator::aggregate_timeline_for_room(&original_timeline),
-                ambiguity_changes,
-                ..Default::default()
-            };
+            let (timeline, _read_receipts) =
+                aggregator::aggregate_timeline_and_read_receipts_for_room(&original_timeline, &[]);
 
-            room.handle_left_room_update(updates).await?;
+            room.handle_left_room_update(timeline, ambiguity_changes).await?;
         }
 
         // Threads.
         {
-            let timeline_for_threads = {
+            let timeline_and_read_receipts_for_threads = {
                 // To aggregate the timelines for threads, we need to lookup in the room cache
                 // and the thread caches. We acquire a read lock over all the caches, and select
                 // the room cache and thread cache' states.
@@ -437,7 +435,7 @@ impl Caches {
                 );
                 let all_caches_states = all_caches_states_lock.read().await?;
 
-                aggregator::aggregate_timeline_for_threads(
+                aggregator::aggregate_timeline_and_read_receipts_for_threads(
                     &original_timeline,
                     &[],
                     all_caches_states.threads(),
@@ -447,26 +445,21 @@ impl Caches {
                 .await?
             };
 
-            for (thread_id, timeline) in timeline_for_threads {
-                let updates = LeftRoomUpdate { timeline, ..Default::default() };
-
+            for (thread_id, (timeline, _read_receipts)) in timeline_and_read_receipts_for_threads {
                 let thread = self.thread(thread_id).await?;
-                thread.handle_left_room_update(updates).await?;
+                thread.handle_left_room_update(timeline).await?;
             }
         }
 
         // Pinned-events.
         if let Some(pinned_events) = pinned_events.get() {
-            let updates = LeftRoomUpdate {
-                timeline: aggregator::aggregate_timeline_for_pinned_events(
-                    &original_timeline,
-                    &pinned_events.state().read().await?.current_event_ids(),
-                    &internals.room_version_rules.redaction,
-                ),
-                ..Default::default()
-            };
+            let timeline = aggregator::aggregate_timeline_for_pinned_events(
+                &original_timeline,
+                &pinned_events.state().read().await?.current_event_ids(),
+                &internals.room_version_rules.redaction,
+            );
 
-            pinned_events.handle_left_room_update(updates).await?;
+            pinned_events.handle_left_room_update(timeline).await?;
         }
 
         // Event-focused.

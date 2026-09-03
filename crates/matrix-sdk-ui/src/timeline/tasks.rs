@@ -20,7 +20,8 @@ use eyeball::Subscriber as EyeballSubscriber;
 use matrix_sdk::{
     event_cache::{
         EventFocusThreadMode, EventFocusedCache, EventsOrigin, PinnedEventsCache, RoomEventCache,
-        RoomEventCacheUpdate, Subscriber, ThreadEventCache, TimelineVectorDiffs,
+        RoomEventCacheUpdate, Subscriber, ThreadEventCache, ThreadEventCacheUpdate,
+        TimelineVectorDiffs,
     },
     send_queue::RoomSendQueueUpdate,
 };
@@ -145,7 +146,7 @@ pub(in crate::timeline) async fn event_focused_task(
 /// For a thread-focused timeline, a long-lived task that will listen to the
 /// underlying thread updates.
 pub(in crate::timeline) async fn thread_updates_task(
-    mut thread_event_cache_subscriber: Subscriber<TimelineVectorDiffs>,
+    mut thread_event_cache_subscriber: Subscriber<ThreadEventCacheUpdate>,
     event_cache: ThreadEventCache,
     timeline_controller: TimelineController,
 ) {
@@ -169,20 +170,31 @@ pub(in crate::timeline) async fn thread_updates_task(
             }
         };
 
-        trace!("Received new timeline events diffs");
+        match update {
+            ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, origin }) => {
+                trace!("Received new timeline events diffs");
 
-        let origin = match update.origin {
-            EventsOrigin::Sync => RemoteEventOrigin::Sync,
-            EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
-            EventsOrigin::Cache => RemoteEventOrigin::Cache,
-        };
+                let origin = match origin {
+                    EventsOrigin::Sync => RemoteEventOrigin::Sync,
+                    EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
+                    EventsOrigin::Cache => RemoteEventOrigin::Cache,
+                };
 
-        let has_diffs = !update.diffs.is_empty();
+                let has_diffs = !diffs.is_empty();
 
-        timeline_controller.handle_remote_events_with_diffs(update.diffs, origin).await;
+                timeline_controller.handle_remote_events_with_diffs(diffs, origin).await;
 
-        if has_diffs && matches!(origin, RemoteEventOrigin::Cache) {
-            timeline_controller.retry_event_decryption(None).await;
+                if has_diffs && matches!(origin, RemoteEventOrigin::Cache) {
+                    timeline_controller.retry_event_decryption(None).await;
+                }
+            }
+
+            ThreadEventCacheUpdate::AddReadReceiptEvent { event } => {
+                trace!("Received a new read receipt event from sync.");
+
+                // TODO: ephemeral (read receipts) should be handled by the event cache (#4113).
+                timeline_controller.handle_read_receipt_event(event).await;
+            }
         }
     }
 
@@ -258,11 +270,11 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
                 }
             }
 
-            RoomEventCacheUpdate::AddEphemeralEvents { events } => {
-                trace!("Received new ephemeral events from sync.");
+            RoomEventCacheUpdate::AddReadReceiptEvent { event } => {
+                trace!("Received a new read receipt event from sync.");
 
                 // TODO: ephemeral (read receipts) should be handled by the event cache (#4113).
-                timeline_controller.handle_ephemeral_events(events).await;
+                timeline_controller.handle_read_receipt_event(event).await;
             }
 
             RoomEventCacheUpdate::UpdateMembers { ambiguity_changes, avatar_changes } => {
