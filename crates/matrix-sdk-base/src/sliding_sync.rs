@@ -1414,6 +1414,100 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_invited_room_stays_invited_when_a_later_response_has_no_invite_state() {
+        // Given a logged-in client that knows about an invited room…
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!r:e.uk");
+        let user_id = user_id!("@u:e.uk");
+
+        let mut room = http::response::Room::new();
+        set_room_invited(&mut room, user_id, user_id);
+        let response = response_with_room(room_id, room);
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        // (sanity: state is invite)
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Invited);
+
+        // When a later response mentions the room again, but has no `invite_state` and
+        // no membership event…
+        let response = response_with_room(room_id, http::response::Room::new());
+        let sync_resp = client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        // … the room is still invited, and still reported as such.
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Invited);
+        assert!(sync_resp.rooms.invited.contains_key(room_id));
+        assert!(!sync_resp.rooms.joined.contains_key(room_id));
+    }
+
+    #[async_test]
+    async fn test_invited_room_becomes_joined_from_required_state_event() {
+        // Given a logged-in client that knows about an invited room…
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!r:e.uk");
+        let user_id = user_id!("@u:e.uk");
+
+        let mut room = http::response::Room::new();
+        set_room_invited(&mut room, user_id, user_id);
+        let response = response_with_room(room_id, room);
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        // (sanity: state is invite)
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Invited);
+
+        let mut room_info_notable_update = client.room_info_notable_update_receiver();
+
+        // When the invite is accepted, the server sends the new membership event in
+        // `required_state`…
+        let mut room = http::response::Room::new();
+        set_room_joined(&mut room, user_id);
+        let response = response_with_room(room_id, room);
+        let sync_resp = client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        // … and the room becomes joined.
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Joined);
+
+        assert!(sync_resp.rooms.joined.contains_key(room_id));
+        assert!(!sync_resp.rooms.invited.contains_key(room_id));
+
+        // The membership change is notable.
+        assert_matches!(
+            room_info_notable_update.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(reasons.contains(RoomInfoNotableUpdateReasons::MEMBERSHIP));
+            }
+        );
+    }
+
+    #[async_test]
     async fn test_avatar_is_found_in_invitation_room_when_processing_sliding_sync_response() {
         // Given a logged-in client
         let client = logged_in_base_client(None).await;
