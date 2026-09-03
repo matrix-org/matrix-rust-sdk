@@ -11,7 +11,7 @@ use matrix_sdk::{
     assert_next_with_timeout, assert_recv_with_timeout,
     config::SyncSettings,
     room::{Receipts, RoomMemberRole, edit::EditedContent},
-    test_utils::mocks::MatrixMockServer,
+    test_utils::mocks::{MatrixMockServer, PushRuleIdSpec},
 };
 use matrix_sdk_base::{EncryptionState, RoomMembersUpdate, RoomState};
 use matrix_sdk_common::executor::spawn;
@@ -19,6 +19,7 @@ use matrix_sdk_test::{
     DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, async_test,
     event_factory::EventFactory,
     mocks::mock_encryption_state,
+    notification_settings::{build_ruleset, get_server_default_ruleset},
     test_json::{self, sync::CUSTOM_ROOM_POWER_LEVELS},
 };
 use ruma::{
@@ -37,7 +38,9 @@ use ruma::{
             message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
         },
     },
-    int, mxc_uri, owned_event_id, owned_user_id, room_id, thirdparty, user_id,
+    int, mxc_uri, owned_event_id, owned_user_id,
+    push::RuleKind,
+    room_id, thirdparty, user_id,
 };
 use serde_json::json;
 use stream_assert::assert_pending;
@@ -1491,4 +1494,166 @@ async fn test_set_own_member_display_name() {
         .await;
 
     room.set_own_member_display_name(Some(new_name.to_owned())).await.unwrap();
+}
+
+#[async_test]
+async fn test_join_carries_the_notification_mode_of_the_replaced_room() -> Result<(), anyhow::Error>
+{
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let user = user_id!("@example:localhost");
+    let old_room_id = room_id!("!old_room:localhost");
+    let new_room_id = room_id!("!new_room:localhost");
+
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            let f = EventFactory::new();
+            builder.add_global_account_data(f.push_rules(build_ruleset(vec![(
+                RuleKind::Room,
+                old_room_id,
+                false,
+            )])));
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(old_room_id).add_state_event(
+                    f.room_tombstone("This room has been replaced", new_room_id)
+                        .room(old_room_id)
+                        .sender(user)
+                        .event_id(event_id!("$tombstone:localhost")),
+                ),
+            );
+        })
+        .await;
+
+    server.mock_room_join(new_room_id).ok().mount().await;
+    server
+        .mock_set_push_rules(RuleKind::Room, PushRuleIdSpec::Some(new_room_id.as_str()))
+        .ok()
+        .expect(1)
+        .named("set the mode on the new room")
+        .mount()
+        .await;
+
+    client.join_room_by_id(new_room_id).await?;
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_join_reads_the_replaced_room_from_the_create_event() -> Result<(), anyhow::Error> {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let user = user_id!("@example:localhost");
+    let old_room_id = room_id!("!old_room:localhost");
+    let new_room_id = room_id!("!new_room:localhost");
+
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            let f = EventFactory::new();
+            builder.add_global_account_data(f.push_rules(build_ruleset(vec![(
+                RuleKind::Room,
+                old_room_id,
+                false,
+            )])));
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(new_room_id).add_state_event(
+                    f.create(user, RoomVersionId::V2)
+                        .predecessor(old_room_id)
+                        .room(new_room_id)
+                        .sender(user)
+                        .event_id(event_id!("$create_new_room:localhost")),
+                ),
+            );
+        })
+        .await;
+
+    server.mock_room_join(new_room_id).ok().mount().await;
+    server
+        .mock_set_push_rules(RuleKind::Room, PushRuleIdSpec::Some(new_room_id.as_str()))
+        .ok()
+        .expect(1)
+        .named("set the mode on the new room")
+        .mount()
+        .await;
+
+    client.join_room_by_id(new_room_id).await?;
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_join_leaves_the_default_in_place_when_the_replaced_room_followed_it()
+-> Result<(), anyhow::Error> {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let user = user_id!("@example:localhost");
+    let old_room_id = room_id!("!old_room:localhost");
+    let new_room_id = room_id!("!new_room:localhost");
+
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            let f = EventFactory::new();
+            builder.add_global_account_data(f.push_rules(get_server_default_ruleset()));
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(old_room_id).add_state_event(
+                    f.room_tombstone("This room has been replaced", new_room_id)
+                        .room(old_room_id)
+                        .sender(user)
+                        .event_id(event_id!("$tombstone:localhost")),
+                ),
+            );
+        })
+        .await;
+
+    server.mock_room_join(new_room_id).ok().mount().await;
+    server
+        .mock_set_push_rules(RuleKind::Room, PushRuleIdSpec::Any)
+        .ok()
+        .expect(0)
+        .named("no mode is set")
+        .mount()
+        .await;
+
+    client.join_room_by_id(new_room_id).await?;
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_join_a_room_that_replaces_nothing_sets_no_mode() -> Result<(), anyhow::Error> {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let old_room_id = room_id!("!old_room:localhost");
+    let new_room_id = room_id!("!new_room:localhost");
+
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            let f = EventFactory::new();
+            builder.add_global_account_data(f.push_rules(build_ruleset(vec![(
+                RuleKind::Room,
+                old_room_id,
+                false,
+            )])));
+        })
+        .await;
+
+    server.mock_room_join(new_room_id).ok().mount().await;
+    server
+        .mock_set_push_rules(RuleKind::Room, PushRuleIdSpec::Any)
+        .ok()
+        .expect(0)
+        .named("no mode is set")
+        .mount()
+        .await;
+
+    client.join_room_by_id(new_room_id).await?;
+
+    Ok(())
 }
