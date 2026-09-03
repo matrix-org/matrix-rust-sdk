@@ -198,13 +198,7 @@ impl RoomLatestEventsWriteGuard {
             NeedMoreEvents::Yes
         ) && room.client().event_cache().back_pagination_queue().is_some()
         {
-            Self::back_paginate_for_candidate(
-                &room,
-                room_event_cache,
-                own_user_id,
-                power_levels.as_ref(),
-            )
-            .await;
+            Self::back_paginate_for_candidate(&room, own_user_id, power_levels.as_ref()).await;
 
             for_the_room
                 .update_with_event_cache(room_event_cache, own_user_id, power_levels.as_ref())
@@ -299,10 +293,9 @@ impl RoomLatestEventsWriteGuard {
     /// automatic backpagination is disabled.
     ///
     /// [`BackPaginationQueue`]: crate::event_cache::BackPaginationQueue
-    #[instrument(skip_all, fields(room_id = %room_event_cache.room_id()))]
+    #[instrument(skip_all, fields(room_id = %room.room_id()))]
     async fn back_paginate_for_candidate(
         room: &Room,
-        room_event_cache: &RoomEventCache,
         own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
     ) {
@@ -328,7 +321,7 @@ impl RoomLatestEventsWriteGuard {
         debug!("started backfill request for latest events");
 
         let handle = match queue.enqueue(BackPaginationRequest {
-            room_id: room_event_cache.room_id().to_owned(),
+            room_id: room.room_id().to_owned(),
             priority: back_pagination_queue::Priority::High,
             stop: Box::new(stop),
             batch_size: back_pagination_queue::BATCH_SIZE,
