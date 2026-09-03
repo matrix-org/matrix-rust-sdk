@@ -21,6 +21,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use base64::Engine as _;
 use deadpool_sync::InteractError;
 use itertools::Itertools;
 use matrix_sdk_store_encryption::{EncryptableValue, StoreCipher};
@@ -595,17 +596,59 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
     /// Get the [`StoreCipher`] of the database or create it.
     async fn get_or_create_store_cipher(
         &self,
-        mut secret: Secret,
+        secret: Secret,
     ) -> Result<StoreCipher, OpenStoreError> {
-        let encrypted_cipher = self.get_kv("cipher").await.map_err(OpenStoreError::LoadCipher)?;
+        const STORAGE_KEY: &str = "cipher";
+
+        let encrypted_cipher =
+            self.get_kv(STORAGE_KEY).await.map_err(OpenStoreError::LoadCipher)?;
 
         let cipher = if let Some(encrypted) = encrypted_cipher {
             match &secret {
                 Secret::PassPhrase(passphrase) => StoreCipher::import(passphrase, &encrypted)?,
                 Secret::Key(key) => StoreCipher::import_with_key(key.as_slice(), &encrypted)?,
+                Secret::HighEntropyPassPhrase(passphrase) => {
+                    // Element X apps used the passphrase-based secret variant even though the
+                    // underlying secret was a randomly generated key.
+                    //
+                    // The `HighEntropyPassPhrase` variant was introduced to migrate these cipher
+                    // exports from a passphrase-based setup to a key-based setup.
+                    //
+                    // We first attempt to decrypt the cipher using the provided high-entropy
+                    // passphrase as a key. If this results in a KDF mismatch, it indicates that
+                    // the export was originally encrypted with the high-entropy passphrase being
+                    // used as a passphrase instead.
+                    //
+                    // In that case, we re-encrypt the cipher using the key-based setup. On the next
+                    // import attempt, `import_with_key()` can then decrypt it successfully.
+                    match StoreCipher::import_with_key(passphrase.as_slice(), &encrypted) {
+                        Ok(cipher) => cipher,
+                        Err(matrix_sdk_store_encryption::Error::KdfMismatch) => {
+                            // EX generated a byte array for a key but converted it into a string by
+                            // base64 encoding it to use it as a passphrase. So let's do that as
+                            // well.
+                            let mut base64_passphrase =
+                                base64::prelude::BASE64_STANDARD.encode(passphrase);
+
+                            let cipher = StoreCipher::import(&base64_passphrase, &encrypted);
+                            base64_passphrase.zeroize();
+
+                            let cipher = cipher?;
+                            let export = cipher.export_with_key(passphrase.as_slice())?;
+
+                            self.set_kv(STORAGE_KEY, export)
+                                .await
+                                .map_err(OpenStoreError::SaveCipher)?;
+
+                            cipher
+                        }
+                        Err(e) => return Err(e.into()),
+                    }
+                }
             }
         } else {
             let cipher = StoreCipher::new()?;
+
             let export = match &secret {
                 Secret::PassPhrase(passphrase) => {
                     #[cfg(not(test))]
@@ -618,11 +661,16 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
                     }
                 }
                 Secret::Key(key) => cipher.export_with_key(key.as_slice()),
-            };
-            self.set_kv("cipher", export?).await.map_err(OpenStoreError::SaveCipher)?;
+                Secret::HighEntropyPassPhrase(passphrase) => {
+                    cipher.export_with_key(passphrase.as_slice())
+                }
+            }?;
+
+            self.set_kv(STORAGE_KEY, export).await.map_err(OpenStoreError::SaveCipher)?;
+
             cipher
         };
-        secret.zeroize();
+
         Ok(cipher)
     }
 }

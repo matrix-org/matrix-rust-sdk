@@ -30,6 +30,7 @@ experimental-push-secrets = [
 [dependencies]
 as_variant.workspace = true
 async-trait.workspace = true
+base64.workspace = true
 deadpool = { version = "0.13", default-features = false, features = ["managed", "rt_tokio_1"] }
 deadpool-sync = { version = "0.2", default-features = false }
 itertools.workspace = true
