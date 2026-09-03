@@ -2580,7 +2580,7 @@ mod encrypted_tests {
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteStateStore;
-    use crate::{SqliteStoreConfig, utils::SqliteAsyncConnExt};
+    use crate::{SqliteStoreConfig, Synchronous, utils::SqliteAsyncConnExt};
 
     static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
@@ -2644,6 +2644,37 @@ mod encrypted_tests {
         // The value passed to `SqliteStoreConfig` is in bytes. It stays in
         // bytes in SQLite.
         assert_eq!(journal_size_limit, 1500);
+    }
+
+    #[async_test]
+    async fn test_synchronous() {
+        // The values SQLite reports for `OFF`, `NORMAL`, `FULL` and `EXTRA`.
+        let all = [
+            (Synchronous::Off, 0),
+            (Synchronous::Normal, 1),
+            (Synchronous::Full, 2),
+            (Synchronous::Extra, 3),
+        ];
+
+        for (synchronous, expected) in all {
+            let tmpdir_path = new_state_store_workspace();
+            let store_open_config = SqliteStoreConfig::new(tmpdir_path).synchronous(synchronous);
+
+            let store = SqliteStateStore::open_with_config(&store_open_config).await.unwrap();
+
+            // `PRAGMA synchronous` is per-connection, so every connection must carry it.
+            let write_conn = store.write().await.unwrap();
+            let read_conn = store.read().await.unwrap();
+
+            for conn in [&*write_conn, &read_conn] {
+                let value = conn
+                    .query_row("PRAGMA synchronous", (), |row| row.get::<_, u8>(0))
+                    .await
+                    .unwrap();
+
+                assert_eq!(value, expected);
+            }
+        }
     }
 
     statestore_integration_tests!();

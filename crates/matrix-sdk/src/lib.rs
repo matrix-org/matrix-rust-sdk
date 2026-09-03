@@ -86,7 +86,7 @@ pub use matrix_sdk_sqlite::SqliteCryptoStore;
 #[cfg(feature = "sqlite")]
 pub use matrix_sdk_sqlite::{
     STATE_STORE_DATABASE_NAME, SqliteEventCacheStore, SqliteMediaStore, SqliteStateStore,
-    SqliteStoreConfig,
+    SqliteStoreConfig, Synchronous,
 };
 pub use media::Media;
 pub use pusher::Pusher;
