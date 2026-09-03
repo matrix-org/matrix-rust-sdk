@@ -141,17 +141,19 @@ impl SpaceService {
     /// Returns the room IDs of all known direct parents of the given child
     /// space or room.
     ///
-    /// This is a much cheaper version of `joinedParentsOfChild()` that doesn't
-    /// build any `SpaceRoom` instances, it only reads the existing space graph.
+    /// This is a much cheaper version of [`Self::joined_parents_of_child()`]
+    /// that doesn't build any `SpaceRoom` instances, it only reads the
+    /// existing space graph.
     ///
     /// The returned IDs are always joined spaces, as that's all the space graph
     /// includes. Note that an empty result either means that the child is a
     /// top-level space (which has no direct parents) or the child isn't part of
     /// the space graph at all.
-    /// See `topLevelAncestorsOf()` if you need that particular level of detail.
+    /// See [`Self::top_level_ancestors_of()`] if you need that particular level
+    /// of detail.
     ///
-    /// Note: Unlike `topLevelJoinedSpaces()`, this method does not recompute
-    /// the space graph nor notify subscribers about changes.
+    /// Note: Unlike [`Self::top_level_joined_spaces()`], this method does not
+    /// recompute the space graph nor notify subscribers about changes.
     pub async fn joined_parent_ids_of_child(
         &self,
         child_id: String,
@@ -170,14 +172,14 @@ impl SpaceService {
     /// multiple top-level spaces (in no order).
     ///
     /// A top-level space is its own only ancestor, which makes
-    /// `topLevelAncestorsOf(id) == [id]` a cheap top-level space check.
+    /// `top_level_ancestors_of(id) == [id]` a cheap top-level space check.
     ///
     /// Returns an empty vector if the room isn't part of the graph, which is
     /// notably the case for a room that was joined too recently for the graph
     /// to have been rebuilt.
     ///
-    /// Note: Unlike `topLevelJoinedSpaces()`, this method does not recompute
-    /// the space graph nor notify subscribers about changes.
+    /// Note: Unlike [`Self::top_level_joined_spaces()`], this method does not
+    /// recompute the space graph nor notify subscribers about changes.
     pub async fn top_level_ancestors_of(
         &self,
         child_id: String,

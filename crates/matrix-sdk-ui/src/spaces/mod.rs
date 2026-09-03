@@ -29,7 +29,7 @@
 
 use std::{
     cmp::Ordering,
-    collections::{BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     sync::Arc,
 };
 
@@ -383,26 +383,26 @@ impl SpaceService {
     /// A room/space can be the child of multiple spaces, so this might return
     /// multiple top-level spaces (in no order).
     ///
-    /// A top-level space is its own only ancestor, which makes
-    /// `top_level_ancestors_of(id) == [id]` a cheap top-level space check.
+    /// A top-level space is its own only ancestor, so a returned set holding
+    /// just `child_id` is a cheap top-level space check.
     ///
-    /// Returns an empty vector if the room isn't part of the graph, which is
+    /// Returns an empty set if the room isn't part of the graph, which is
     /// notably the case for a room that was joined too recently for the graph
     /// to have been rebuilt.
     ///
     /// Note: Unlike [`Self::top_level_joined_spaces()`], this method does not
     /// recompute the space graph nor notify subscribers about changes.
-    pub async fn top_level_ancestors_of(&self, child_id: &RoomId) -> Vec<OwnedRoomId> {
+    pub async fn top_level_ancestors_of(&self, child_id: &RoomId) -> HashSet<OwnedRoomId> {
         let space_state = self.space_state.lock().await;
         let graph = &space_state.graph;
 
         if !graph.has_node(child_id) {
-            return Vec::new();
+            return HashSet::new();
         }
 
         let mut queue = VecDeque::from([child_id.to_owned()]);
         let mut visited = HashSet::from([child_id.to_owned()]);
-        let mut roots = BTreeSet::new();
+        let mut roots = HashSet::new();
         while let Some(current) = queue.pop_front() {
             let parents = graph.parents_of(&current);
             if parents.is_empty() {
@@ -416,7 +416,7 @@ impl SpaceService {
                 }
             }
         }
-        roots.into_iter().collect()
+        roots
     }
 
     /// Returns the corresponding `SpaceRoom` for the given room ID, or `None`
@@ -1490,23 +1490,22 @@ mod tests {
 
         let space_service = SpaceService::new(client.clone()).await;
 
-        // Then a room several levels down resolves to both top-level spaces,
-        // ordered by room ID.
+        // Then a room several levels down resolves to both top-level spaces.
         assert_eq!(
             space_service.top_level_ancestors_of(leaf_room_id).await,
-            vec![top_level_space_id_1.to_owned(), top_level_space_id_2.to_owned()]
+            HashSet::from([top_level_space_id_1.to_owned(), top_level_space_id_2.to_owned()])
         );
 
         // And so does the subspace they share.
         assert_eq!(
             space_service.top_level_ancestors_of(middle_space_id).await,
-            vec![top_level_space_id_1.to_owned(), top_level_space_id_2.to_owned()]
+            HashSet::from([top_level_space_id_1.to_owned(), top_level_space_id_2.to_owned()])
         );
 
         // And a top-level space is its own only ancestor.
         assert_eq!(
             space_service.top_level_ancestors_of(top_level_space_id_1).await,
-            vec![top_level_space_id_1.to_owned()]
+            HashSet::from([top_level_space_id_1.to_owned()])
         );
 
         // And a room the graph doesn't know about has no ancestors, which is how it
@@ -1569,7 +1568,8 @@ mod tests {
 
         assert_eq!(ancestors_of_1.len(), 1);
         assert_eq!(ancestors_of_1, ancestors_of_2);
-        assert!([space_id_1, space_id_2].contains(&&*ancestors_of_1[0]));
+        let root = ancestors_of_1.iter().next().unwrap();
+        assert!([space_id_1, space_id_2].contains(&&**root));
     }
 
     #[async_test]
