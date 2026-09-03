@@ -138,6 +138,57 @@ impl SpaceService {
         Ok(parents.into_iter().map(Into::into).collect())
     }
 
+    /// Returns the room IDs of all known direct parents of the given child
+    /// space or room.
+    ///
+    /// This is a much cheaper version of `joinedParentsOfChild()` that doesn't
+    /// build any `SpaceRoom` instances, it only reads the existing space graph.
+    ///
+    /// The returned IDs are always joined spaces, as that's all the space graph
+    /// includes. Note that an empty result either means that the child is a
+    /// top-level space (which has no direct parents) or the child isn't part of
+    /// the space graph at all.
+    /// See `topLevelAncestorsOf()` if you need that particular level of detail.
+    ///
+    /// Note: Unlike `topLevelJoinedSpaces()`, this method does not recompute
+    /// the space graph nor notify subscribers about changes.
+    pub async fn joined_parent_ids_of_child(
+        &self,
+        child_id: String,
+    ) -> Result<Vec<String>, ClientError> {
+        let child_id = RoomId::parse(child_id)?;
+
+        let parent_ids = self.inner.joined_parent_ids_of_child(&child_id).await;
+
+        Ok(parent_ids.into_iter().map(Into::into).collect())
+    }
+
+    /// Returns the room IDs of the top-level joined space(s) that the given
+    /// child room/space descends from, by walking the space graph upwards.
+    ///
+    /// A room/space can be the child of multiple spaces, so this might return
+    /// multiple top-level spaces (in no order).
+    ///
+    /// A top-level space is its own only ancestor, which makes
+    /// `topLevelAncestorsOf(id) == [id]` a cheap top-level space check.
+    ///
+    /// Returns an empty vector if the room isn't part of the graph, which is
+    /// notably the case for a room that was joined too recently for the graph
+    /// to have been rebuilt.
+    ///
+    /// Note: Unlike `topLevelJoinedSpaces()`, this method does not recompute
+    /// the space graph nor notify subscribers about changes.
+    pub async fn top_level_ancestors_of(
+        &self,
+        child_id: String,
+    ) -> Result<Vec<String>, ClientError> {
+        let child_id = RoomId::parse(child_id)?;
+
+        let ancestor_ids = self.inner.top_level_ancestors_of(&child_id).await;
+
+        Ok(ancestor_ids.into_iter().map(Into::into).collect())
+    }
+
     /// Returns the corresponding `SpaceRoom` for the given room ID, or `None`
     /// if it isn't known.
     pub async fn get_space_room(&self, room_id: String) -> Result<Option<SpaceRoom>, ClientError> {
