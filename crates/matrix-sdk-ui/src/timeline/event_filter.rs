@@ -55,6 +55,10 @@ pub enum TimelineEventCondition {
     /// The event is an `m.room.member` event that represents a profile
     /// change (displayname or avatar URL).
     ProfileChange,
+    /// The event is a custom message-like event type.
+    AnyCustomMessageLikeEvent,
+    /// The event is a custom state event type.
+    AnyCustomStateEvent,
 }
 
 /// The membership states that should be included/excluded from the timeline
@@ -116,6 +120,18 @@ impl TimelineEventCondition {
                     matches!(ev.membership_change(), MembershipChange::ProfileChanged { .. })
                 }
                 _ => false,
+            },
+            Self::AnyCustomMessageLikeEvent => match event {
+                AnySyncTimelineEvent::MessageLike(_) => {
+                    matches!(event.event_type(), TimelineEventType::_Custom(_))
+                }
+                AnySyncTimelineEvent::State(_) => false,
+            },
+            Self::AnyCustomStateEvent => match event {
+                AnySyncTimelineEvent::State(_) => {
+                    matches!(event.event_type(), TimelineEventType::_Custom(_))
+                }
+                AnySyncTimelineEvent::MessageLike(_) => false,
             },
         }
     }

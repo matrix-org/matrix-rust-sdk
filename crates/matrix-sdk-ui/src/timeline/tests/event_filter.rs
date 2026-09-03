@@ -21,7 +21,7 @@ use matrix_sdk::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{ALICE, BOB, async_test, sync_timeline_event};
 use ruma::{
     events::{
-        AnySyncTimelineEvent, TimelineEventType,
+        AnySyncTimelineEvent, MessageLikeEventType, StateEventType, TimelineEventType,
         room::{
             member::MembershipState,
             message::{MessageType, RedactedRoomMessageEventContent},
@@ -663,6 +663,79 @@ async fn test_event_filter_can_exclude_only_join_and_leave_membership_changes() 
     assert_eq!(num_profile_change_items, 2);
 }
 
+#[async_test]
+async fn test_event_filter_exclude_any_custom_message_like_event_type() {
+    // Don't return any custom message-like events
+    let event_filter =
+        TimelineEventFilter::Exclude(vec![TimelineEventCondition::AnyCustomMessageLikeEvent]);
+
+    let timeline = TestTimelineBuilder::new()
+        .settings(TimelineSettings {
+            event_filter: Arc::new(move |event, _| event_filter.filter(event)),
+            ..Default::default()
+        })
+        .build()
+        .await;
+    let f = &timeline.factory;
+
+    // Add a normal message event that will be kept
+    timeline.handle_live_event(f.text_msg("Hey").sender(&ALICE)).await;
+    // And a custom message event that will be filtered out
+    timeline.handle_live_event(f.custom_message_like_event().sender(&ALICE)).await;
+    // Add a couple of room name state events
+    timeline.handle_live_event(f.room_name("A new room name").sender(&ALICE)).await;
+    timeline.handle_live_event(f.room_name("A new room name (again)").sender(&ALICE)).await;
+    // And a different state event
+    timeline.handle_live_event(f.room_topic("A new room topic").sender(&ALICE)).await;
+
+    // The timeline should contain everything except for the message event.
+    let event_items: Vec<Arc<TimelineItem>> = timeline.get_event_items().await;
+    let num_normal_text_message_items = event_items.iter().filter(is_text_message_item).count();
+    let num_custom_text_message_items =
+        event_items.iter().filter(is_custom_text_message_item).count();
+    let num_room_name_items = event_items.iter().filter(is_room_name_item).count();
+    let num_room_topic_items = event_items.iter().filter(is_room_topic_item).count();
+    assert_eq!(event_items.len(), 4);
+    assert_eq!(num_normal_text_message_items, 1);
+    assert_eq!(num_custom_text_message_items, 0);
+    assert_eq!(num_room_name_items, 2);
+    assert_eq!(num_room_topic_items, 1);
+}
+
+#[async_test]
+async fn test_event_filter_exclude_any_custom_state_event_type() {
+    // Don't return any custom state events
+    let event_filter =
+        TimelineEventFilter::Exclude(vec![TimelineEventCondition::AnyCustomStateEvent]);
+
+    let timeline = TestTimelineBuilder::new()
+        .settings(TimelineSettings {
+            event_filter: Arc::new(move |event, _| event_filter.filter(event)),
+            ..Default::default()
+        })
+        .build()
+        .await;
+    let f = &timeline.factory;
+
+    // Add customs state event that will be filtered out
+    timeline.handle_live_event(f.custom_state_event().sender(&ALICE)).await;
+    // Add a couple of room name state events
+    timeline.handle_live_event(f.room_name("A new room name").sender(&ALICE)).await;
+    timeline.handle_live_event(f.room_name("A new room name (again)").sender(&ALICE)).await;
+    // And a different state event
+    timeline.handle_live_event(f.room_topic("A new room topic").sender(&ALICE)).await;
+
+    // The timeline should contain everything except for the message event.
+    let event_items: Vec<Arc<TimelineItem>> = timeline.get_event_items().await;
+    let num_custom_state_items = event_items.iter().filter(is_custom_state_item).count();
+    let num_room_name_items = event_items.iter().filter(is_room_name_item).count();
+    let num_room_topic_items = event_items.iter().filter(is_room_topic_item).count();
+    assert_eq!(event_items.len(), 3);
+    assert_eq!(num_custom_state_items, 0);
+    assert_eq!(num_room_name_items, 2);
+    assert_eq!(num_room_topic_items, 1);
+}
+
 impl TestTimeline {
     async fn get_event_items(&self) -> Vec<Arc<TimelineItem>> {
         self.controller
@@ -687,6 +760,27 @@ fn is_text_message_item(item: &&Arc<TimelineItem>) -> bool {
         },
         _ => false,
     }
+}
+
+fn is_custom_text_message_item(item: &&Arc<TimelineItem>) -> bool {
+    let msg_like = item.as_event().and_then(|e| e.content.as_msglike()).map(|e| e.kind.clone());
+    match msg_like {
+        Some(MsgLikeKind::Other(other)) => {
+            matches!(other.event_type, MessageLikeEventType::_Custom(_))
+        }
+        _ => false,
+    }
+}
+
+fn is_custom_state_item(item: &&Arc<TimelineItem>) -> bool {
+    let event_type = item
+        .as_event()
+        .and_then(|e| match e.content() {
+            TimelineItemContent::OtherState(state) => Some(state.content()),
+            _ => None,
+        })
+        .map(|e| e.event_type());
+    matches!(event_type, Some(StateEventType::_Custom(_)))
 }
 
 fn is_room_name_item(item: &&Arc<TimelineItem>) -> bool {
