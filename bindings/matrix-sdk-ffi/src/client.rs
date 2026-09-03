@@ -1483,7 +1483,7 @@ impl Client {
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<String, ClientError> {
         let mime_type: mime::Mime = mime_type.parse().context("Parsing mime type")?;
-        let request = self.inner.media().upload(&mime_type, data, None);
+        let mut request = self.inner.media().upload(&mime_type, data, None);
 
         if let Some(progress_watcher) = progress_watcher {
             let mut subscriber = request.subscribe_to_send_progress();
@@ -1502,15 +1502,26 @@ impl Client {
     pub async fn get_media_content(
         &self,
         media_source: Arc<MediaSource>,
+        progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Vec<u8>, ClientError> {
         let source = (*media_source).clone().media_source;
 
         debug!(?source, "requesting media file");
-        Ok(self
+        let mut request = self
             .inner
             .media()
-            .get_media_content(&MediaRequestParameters { source, format: MediaFormat::File }, true)
-            .await?)
+            .get_media_content(&MediaRequestParameters { source, format: MediaFormat::File }, true);
+
+        if let Some(progress_watcher) = progress_watcher {
+            let mut subscriber = request.subscribe_to_receive_progress();
+            get_runtime_handle().spawn(async move {
+                while let Some(progress) = subscriber.next().await {
+                    progress_watcher.transmission_progress(progress.into());
+                }
+            });
+        }
+
+        Ok(request.await?)
     }
 
     pub async fn get_media_thumbnail(
@@ -1518,24 +1529,32 @@ impl Client {
         media_source: Arc<MediaSource>,
         width: u64,
         height: u64,
+        progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Vec<u8>, ClientError> {
         let source = (*media_source).clone().media_source;
 
         debug!(?source, width, height, "requesting media thumbnail");
-        Ok(self
-            .inner
-            .media()
-            .get_media_content(
-                &MediaRequestParameters {
-                    source,
-                    format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                        UInt::new(width).unwrap(),
-                        UInt::new(height).unwrap(),
-                    )),
-                },
-                true,
-            )
-            .await?)
+        let mut request = self.inner.media().get_media_content(
+            &MediaRequestParameters {
+                source,
+                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
+                    UInt::new(width).unwrap(),
+                    UInt::new(height).unwrap(),
+                )),
+            },
+            true,
+        );
+
+        if let Some(progress_watcher) = progress_watcher {
+            let mut subscriber = request.subscribe_to_receive_progress();
+            get_runtime_handle().spawn(async move {
+                while let Some(progress) = subscriber.next().await {
+                    progress_watcher.transmission_progress(progress.into());
+                }
+            });
+        }
+
+        Ok(request.await?)
     }
 
     /// Get the homeserver-generated preview for a URL, as OpenGraph JSON.
@@ -3705,5 +3724,62 @@ mod tests {
         assert!(converted.avatar_url.is_none());
         assert!(converted.status.is_none());
         assert!(converted.call.is_none());
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_media_content_reports_download_progress() {
+        use std::sync::Arc;
+
+        use matrix_sdk::{
+            ruma::{
+                api::MatrixVersion, events::room::MediaSource as RumaMediaSource, owned_mxc_uri,
+            },
+            test_utils::mocks::MatrixMockServer,
+        };
+        use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
+        use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
+
+        use crate::client::{ProgressWatcher, TransmissionProgress};
+
+        struct ChannelProgressWatcher(UnboundedSender<TransmissionProgress>);
+
+        impl ProgressWatcher for ChannelProgressWatcher {
+            fn transmission_progress(&self, progress: TransmissionProgress) {
+                let _ = self.0.send(progress);
+            }
+        }
+
+        let server = MatrixMockServer::new().await;
+        let sdk_client = server
+            .client_builder()
+            .server_versions(vec![MatrixVersion::V1_1])
+            .on_builder(|b| b.cross_process_store_config(CrossProcessLockConfig::SingleProcess))
+            .build()
+            .await;
+
+        server.mock_media_download().ok_plain_text().expect(1).mount().await;
+
+        let client = super::Client::new(sdk_client, None, None).await.expect("build ffi client");
+
+        let media_source = Arc::new(crate::ruma::MediaSource {
+            media_source: RumaMediaSource::Plain(owned_mxc_uri!("mxc://localhost/textfile")),
+        });
+
+        let (tx, mut rx) = unbounded_channel();
+        let watcher: Box<dyn ProgressWatcher> = Box::new(ChannelProgressWatcher(tx));
+
+        let content =
+            client.get_media_content(media_source, Some(watcher)).await.expect("get media content");
+
+        assert_eq!(content, b"Hello, World!");
+
+        let mut last = None;
+        while let Some(progress) = rx.recv().await {
+            last = Some(progress);
+        }
+        let last = last.expect("expected at least one progress update");
+        assert_eq!(last.current, content.len() as u64);
+        assert_eq!(last.total, content.len() as u64);
     }
 }

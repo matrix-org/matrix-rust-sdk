@@ -26,8 +26,9 @@ use api::{
     public_server_key::PublicServerKeyRequest,
 };
 use matrix_sdk::{
-    BoxFuture, Client, Error, IdParseError,
+    BoxFuture, Client, Error, IdParseError, SharedObservable, TransmissionProgress,
     encryption::vodozemac::pk_encryption::Message,
+    futures::RequestProgress,
     locks::Mutex,
     media::{MediaFetcher, MediaRequestParameters},
     ruma::events::room::MediaSource,
@@ -96,6 +97,7 @@ impl ContentScanner {
         &self,
         client: &Client,
         media_source: &MediaSource,
+        progress: Option<SharedObservable<TransmissionProgress>>,
     ) -> Result<DownloadAndScanMediaResponse, Error> {
         match &media_source {
             MediaSource::Encrypted(encrypted) => {
@@ -108,6 +110,10 @@ impl ContentScanner {
                         public_server_key,
                         *encrypted.clone(),
                     ))
+                    .with_progress_observable(RequestProgress {
+                        receive: progress,
+                        ..Default::default()
+                    })
                     .await?)
             }
             MediaSource::Plain(mxc) => {
@@ -119,6 +125,10 @@ impl ContentScanner {
                         server_name.as_str(),
                         media_id,
                     ))
+                    .with_progress_observable(RequestProgress {
+                        receive: progress,
+                        ..Default::default()
+                    })
                     .await?)
             }
         }
@@ -215,9 +225,11 @@ impl MediaFetcher for ContentScannerMediaFetcher {
         &'a self,
         client: &'a Client,
         request: &'a MediaRequestParameters,
+        progress: Option<SharedObservable<TransmissionProgress>>,
     ) -> BoxFuture<'a, matrix_sdk::Result<Vec<u8>, Error>> {
         Box::pin(async move {
-            let content = self.content_scanner.get_media(client, &request.source).await?.content;
+            let content =
+                self.content_scanner.get_media(client, &request.source, progress).await?.content;
             #[cfg(feature = "e2e-encryption")]
             let content = {
                 match &request.source {
@@ -292,7 +304,10 @@ mod tests {
     use assert_matches2::assert_matches;
     #[cfg(feature = "e2e-encryption")]
     use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
-    use matrix_sdk::{HttpError, RumaApiError, test_utils::mocks::MatrixMockServer};
+    use matrix_sdk::{
+        HttpError, RumaApiError, SharedObservable, TransmissionProgress,
+        test_utils::mocks::MatrixMockServer,
+    };
     use matrix_sdk_test::async_test;
     use ruma::{
         api::{
@@ -355,7 +370,43 @@ mod tests {
         let content_scanner = ContentScanner::new(content_scanner_server.uri());
         let media_source =
             MediaSource::Plain(owned_mxc_uri!("mxc://matrix.org/RhfpOXOzAwzkuqcmbgMwQUrJ"));
-        content_scanner.get_media(&client, &media_source).await.expect("Get media");
+        content_scanner
+            .get_media(&client, &media_source, Default::default())
+            .await
+            .expect("Get media");
+    }
+
+    #[async_test]
+    async fn test_get_media_reports_download_progress() {
+        let server = MatrixMockServer::new().await;
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_11]).build().await;
+
+        let content_scanner_server = MockServer::start().await;
+        let body = vec![1, 2, 3, 4, 5, 6, 7, 8, 9];
+        Mock::given(method("GET"))
+            .and(path_regex(r"/_matrix/media_proxy/unstable/download/.+/.+"))
+            .and(header_exists("Authorization"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.clone()))
+            .mount(&content_scanner_server)
+            .await;
+
+        let content_scanner = ContentScanner::new(content_scanner_server.uri());
+        let media_source =
+            MediaSource::Plain(owned_mxc_uri!("mxc://matrix.org/RhfpOXOzAwzkuqcmbgMwQUrJ"));
+
+        let progress = SharedObservable::new(TransmissionProgress::default());
+        let subscriber = progress.subscribe();
+        let response = content_scanner
+            .get_media(&client, &media_source, Some(progress))
+            .await
+            .expect("Get media");
+
+        assert_eq!(response.content, body);
+
+        let progress = subscriber.get();
+        assert_eq!(progress.current, body.len());
+        assert_eq!(progress.total, body.len());
     }
 
     #[async_test]
@@ -378,8 +429,10 @@ mod tests {
         let content_scanner = ContentScanner::new(content_scanner_server.uri());
         let media_source =
             MediaSource::Plain(owned_mxc_uri!("mxc://matrix.org/ckTaStcNnFXLzKApkBmgRDoC"));
-        let err =
-            content_scanner.get_media(&client, &media_source).await.expect_err("Get media error");
+        let err = content_scanner
+            .get_media(&client, &media_source, Default::default())
+            .await
+            .expect_err("Get media error");
         let client_error = err.as_client_api_error().expect("Get client error");
         assert_eq!(client_error.status_code, StatusCode::FORBIDDEN);
         assert_eq!(
@@ -420,7 +473,10 @@ mod tests {
             file_info,
             hashes,
         )));
-        content_scanner.get_media(&client, &media_source).await.expect("Get media");
+        content_scanner
+            .get_media(&client, &media_source, Default::default())
+            .await
+            .expect("Get media");
     }
 
     #[async_test]
@@ -456,7 +512,7 @@ mod tests {
             hashes,
         )));
         let err = content_scanner
-            .get_media(&client, &media_source)
+            .get_media(&client, &media_source, Default::default())
             .await
             .expect_err("Invalid type error");
         let client_error = err.as_client_api_error().expect("Invalid error");
