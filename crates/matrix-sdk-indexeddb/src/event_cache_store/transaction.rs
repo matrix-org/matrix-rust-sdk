@@ -26,10 +26,10 @@ use crate::{
     error::AsyncErrorDeps,
     event_cache_store::{
         serializer::indexed_types::{
-            IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventIdKey,
-            IndexedEventPositionKey, IndexedEventRelationKey, IndexedEventRoomKey, IndexedGapIdKey,
-            IndexedLease, IndexedLeaseIdKey, IndexedNextChunkIdKey, IndexedThread,
-            IndexedThreadIdKey,
+            IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventError,
+            IndexedEventEventIdKey, IndexedEventIdKey, IndexedEventPositionKey,
+            IndexedEventRelationKey, IndexedEventRoomKey, IndexedGapIdKey, IndexedLease,
+            IndexedLeaseIdKey, IndexedNextChunkIdKey, IndexedThread, IndexedThreadIdKey,
         },
         types::{Chunk, ChunkType, Event, Gap, Lease, Position, Thread},
     },
@@ -340,6 +340,16 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.get_item_by_key::<Event, IndexedEventIdKey>(key).await
     }
 
+    /// Query IndexedDB for events that match the given event id across all
+    /// linked chunks.
+    pub async fn get_events_by_event_id(
+        &self,
+        event_id: &EventId,
+    ) -> Result<Vec<Event>, TransactionError> {
+        let key = self.serializer().encode_key::<_, IndexedEventEventIdKey>(event_id);
+        self.get_items_by_key::<Event, IndexedEventEventIdKey>(key).await
+    }
+
     /// Query IndexedDB for events that match the given event id in the given
     /// room. If more than one item is found, an error is returned.
     pub async fn get_event_by_room(
@@ -434,25 +444,71 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     /// This functionality allows events to be promoted from
     /// out-of-band events to in-band events, but not vice versa.
     ///
+    /// Additionally, if an event with the same ID already exists anywhere
+    /// in the store, every instance is updated with the provided content, i.e.,
+    /// across all linked chunks.
+    ///
     /// When the event is successfully added, the function returns
     /// the intermediary type [`IndexedEvent`] in case inspection
     /// is needed.
     pub async fn add_event(&self, event: &Event) -> Result<IndexedEvent, TransactionError> {
-        let existing =
-            self.get_event_by_id(event.linked_chunk_id(), event.event_id().unwrap()).await?;
-        if matches!(event, Event::InBand(_)) && matches!(existing, Some(Event::OutOfBand(_))) {
-            self.put_event(event).await
-        } else {
-            self.add_item(event).await
-        }
+        let linked_chunk_id = event.linked_chunk_id();
+        let Some(event_id) = event.event_id() else {
+            return Err(TransactionError::Serialization(Box::new(IndexedEventError::NoEventId)));
+        };
+
+        let existing = self.get_event_by_id(linked_chunk_id, event_id).await?;
+
+        let indexed =
+            if matches!(event, Event::InBand(_)) && matches!(existing, Some(Event::OutOfBand(_))) {
+                self.put_item(event).await?
+            } else {
+                self.add_item(event).await?
+            };
+
+        self.update_events_by_event_id(event_id, |existing| {
+            existing.with_content(event.content().clone())
+        })
+        .await?;
+
+        Ok(indexed)
     }
 
     /// Puts an event in IndexedDB. If an event with the same key already
-    /// exists, it will be overwritten. When the item is successfully put, the
-    /// function returns the intermediary type [`IndexedEvent`] in case
-    /// inspection is needed.
+    /// exists in it will be overwritten.
+    ///
+    /// Additionally, if an event with the same ID exists in any other linked
+    /// chunk, every instance is updated with the provided content.
+    ///
+    /// When the item is successfully put, the function returns the intermediary
+    /// type [`IndexedEvent`] in case inspection is needed.
     pub async fn put_event(&self, event: &Event) -> Result<IndexedEvent, TransactionError> {
-        self.put_item(event).await
+        let Some(event_id) = event.event_id() else {
+            return Err(TransactionError::Serialization(Box::new(IndexedEventError::NoEventId)));
+        };
+
+        let indexed = self.put_item(event).await?;
+
+        self.update_events_by_event_id(event_id, |existing| {
+            existing.with_content(event.content().clone())
+        })
+        .await?;
+
+        Ok(indexed)
+    }
+
+    /// Update all events in the store matching the given event ID by reading
+    /// them, applying the function `F`, and then writing them back to
+    /// IndexedDB.
+    ///
+    /// Note that this is a potentially expensive operation, as IndexedDB
+    /// does not provide modification utilities.
+    pub async fn update_events_by_event_id<F: Fn(Event) -> Event>(
+        &self,
+        event_id: &EventId,
+        f: F,
+    ) -> Result<(), TransactionError> {
+        self.update_items_by_key_components::<Event, IndexedEventEventIdKey, F>(event_id, f).await
     }
 
     /// Update events in the given position range matching the given linked
