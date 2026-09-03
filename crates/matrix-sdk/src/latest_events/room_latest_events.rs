@@ -21,7 +21,7 @@ use tracing::{debug, error, instrument, warn};
 
 use super::{
     LatestEvent, filter_timeline_event,
-    latest_event::{IsLatestEventValueNone, With},
+    latest_event::{IsLatestEventValueNone, NeedMoreEvents, With},
 };
 use crate::{
     Room,
@@ -189,15 +189,14 @@ impl RoomLatestEventsWriteGuard {
             }
         };
 
-        // No remote candidate in memory: back-paginate this room's history until a
-        // suitable event surfaces (or the timeline start is reached), and only then
-        // compute the value, so it's computed and applied once. Skip the check
-        // entirely when automatic back-pagination is disabled, so this path costs
-        // nothing beyond what it did before the feature existed.
-        if room.client().event_cache().back_pagination_queue().is_some()
-            && for_the_room
-                .needs_back_pagination(room_event_cache, own_user_id, power_levels.as_ref())
-                .await
+        // The room is left without a latest event so back-paginate its history
+        // until a suitable event surfaces, then recompute.
+        if matches!(
+            for_the_room
+                .update_with_event_cache(room_event_cache, own_user_id, power_levels.as_ref())
+                .await,
+            NeedMoreEvents::Yes
+        ) && room.client().event_cache().back_pagination_queue().is_some()
         {
             Self::back_paginate_for_candidate(
                 &room,
@@ -206,11 +205,11 @@ impl RoomLatestEventsWriteGuard {
                 power_levels.as_ref(),
             )
             .await;
-        }
 
-        for_the_room
-            .update_with_event_cache(room_event_cache, own_user_id, power_levels.as_ref())
-            .await;
+            for_the_room
+                .update_with_event_cache(room_event_cache, own_user_id, power_levels.as_ref())
+                .await;
+        }
 
         for latest_event in per_thread.values_mut() {
             latest_event
