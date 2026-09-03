@@ -411,9 +411,8 @@ impl SpaceService {
                 continue;
             }
             for parent in parents {
-                let parent = parent.to_owned();
-                if visited.insert(parent.clone()) {
-                    queue.push_back(parent);
+                if visited.insert(parent.to_owned()) {
+                    queue.push_back(parent.to_owned());
                 }
             }
         }
