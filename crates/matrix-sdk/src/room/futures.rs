@@ -28,7 +28,10 @@ use mime::Mime;
 use ruma::events::{MessageLikeUnsigned, SyncMessageLikeEvent};
 use ruma::{
     OwnedTransactionId, TransactionId,
-    api::client::message::send_message_event,
+    api::client::{
+        delayed_events::{DelayParameters, delayed_message_event},
+        message::send_message_event,
+    },
     assign,
     events::{AnyMessageLikeEventContent, MessageLikeEventContent},
     serde::Raw,
@@ -170,6 +173,35 @@ impl<'a> SendRawMessageLikeEvent<'a> {
         self.request_config = Some(request_config);
         self
     }
+
+    /// Send the event as a delayed event ([MSC4140]) instead of sending it
+    /// right away.
+    ///
+    /// The homeserver holds on to the event and only distributes it to the room
+    /// once the delay elapses. Until then the event can be cancelled, restarted
+    /// or sent immediately with [`Room::update_delayed_event`], using the
+    /// `delay_id` from the response.
+    ///
+    /// The event is prepared exactly like an immediate one: in particular it
+    /// is encrypted if the room is encrypted. Note that this happens when the
+    /// event is *scheduled*: the room key is shared with the members of the
+    /// room at that point, so a member joining before the delay elapses won't
+    /// be able to decrypt the event, and restarting the delay does not
+    /// re-encrypt it.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`Error::UnsupportedHomeserverFeature`] if the homeserver
+    /// does not advertise support for delayed events, see
+    /// [`Client::can_homeserver_send_delayed_events`]. Without that check the
+    /// homeserver would ignore the delay and send the event right away.
+    ///
+    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+    /// [`Error::UnsupportedHomeserverFeature`]: crate::Error::UnsupportedHomeserverFeature
+    /// [`Client::can_homeserver_send_delayed_events`]: crate::Client::can_homeserver_send_delayed_events
+    pub fn with_delay(self, delay: DelayParameters) -> SendDelayedRawMessageLikeEvent<'a> {
+        SendDelayedRawMessageLikeEvent { inner: self, delay }
+    }
 }
 
 impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
@@ -177,58 +209,11 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        #[cfg_attr(not(feature = "e2e-encryption"), allow(unused_mut))]
-        let Self {
-            room,
-            mut event_type,
-            mut content,
-            tracing_span,
-            transaction_id,
-            request_config,
-        } = self;
+        let Self { room, event_type, content, tracing_span, transaction_id, request_config } = self;
 
         let fut = async move {
-            room.ensure_room_joined()?;
-
-            let txn_id = transaction_id.unwrap_or_else(TransactionId::new);
-            Span::current().record("transaction_id", tracing::field::debug(&txn_id));
-
-            #[cfg(not(feature = "e2e-encryption"))]
-            trace!("Sending plaintext event to room because we don't have encryption support.");
-
-            #[cfg(feature = "e2e-encryption")]
-            let mut encryption_info: Option<EncryptionInfo> = None;
-            #[cfg(not(feature = "e2e-encryption"))]
-            let encryption_info: Option<EncryptionInfo> = None;
-
-            #[cfg(feature = "e2e-encryption")]
-            if room.latest_encryption_state().await?.is_encrypted() {
-                Span::current().record("is_room_encrypted", true);
-                // Reactions are currently famously not encrypted, skip encrypting
-                // them until they are.
-                if event_type == "m.reaction" {
-                    trace!("Sending plaintext event because of the event type.");
-                } else {
-                    trace!(
-                        room_id = ?room.room_id(),
-                        "Sending encrypted event because the room is encrypted.",
-                    );
-
-                    ensure_room_encryption_ready(room).await?;
-
-                    let olm = room.client.olm_machine().await;
-                    let olm = olm.as_ref().expect("Olm machine wasn't started");
-
-                    let result =
-                        olm.encrypt_room_event_raw(room.room_id(), event_type, &content).await?;
-                    content = result.content.cast();
-                    encryption_info = Some(result.encryption_info);
-                    event_type = "m.room.encrypted";
-                }
-            } else {
-                Span::current().record("is_room_encrypted", false);
-                trace!("Sending plaintext event because the room is NOT encrypted.");
-            }
+            let PreparedMessageLikeEvent { txn_id, event_type, content, encryption_info } =
+                prepare_message_like_event(room, event_type, content, transaction_id).await?;
 
             let request = send_message_event::v3::Request::new_raw(
                 room.room_id().to_owned(),
@@ -247,6 +232,139 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
 
         Box::pin(fut.instrument(tracing_span))
     }
+}
+
+/// Future returned by [`SendRawMessageLikeEvent::with_delay`].
+#[allow(missing_debug_implementations)]
+pub struct SendDelayedRawMessageLikeEvent<'a> {
+    inner: SendRawMessageLikeEvent<'a>,
+    delay: DelayParameters,
+}
+
+impl<'a> SendDelayedRawMessageLikeEvent<'a> {
+    /// Set a transaction ID for this event.
+    ///
+    /// See [`SendRawMessageLikeEvent::with_transaction_id`].
+    pub fn with_transaction_id(mut self, txn_id: &TransactionId) -> Self {
+        self.inner = self.inner.with_transaction_id(txn_id);
+        self
+    }
+
+    /// Assign a given [`RequestConfig`] to configure how this request should
+    /// behave with respect to the network.
+    pub fn with_request_config(mut self, request_config: RequestConfig) -> Self {
+        self.inner = self.inner.with_request_config(request_config);
+        self
+    }
+}
+
+impl<'a> IntoFuture for SendDelayedRawMessageLikeEvent<'a> {
+    type Output = Result<delayed_message_event::unstable::Response>;
+    boxed_into_future!(extra_bounds: 'a);
+
+    fn into_future(self) -> Self::IntoFuture {
+        let Self {
+            inner:
+                SendRawMessageLikeEvent {
+                    room,
+                    event_type,
+                    content,
+                    tracing_span,
+                    transaction_id,
+                    request_config,
+                },
+            delay,
+        } = self;
+
+        let fut = async move {
+            // Check this first: it is pointless to share a room key for an event we
+            // are not going to send.
+            room.client.ensure_delayed_events_supported().await?;
+
+            let PreparedMessageLikeEvent { txn_id, event_type, content, encryption_info: _ } =
+                prepare_message_like_event(room, event_type, content, transaction_id).await?;
+
+            let request = delayed_message_event::unstable::Request::new_raw(
+                room.room_id().to_owned(),
+                txn_id,
+                event_type.into(),
+                delay,
+                content,
+            );
+
+            let response = room.client.send(request).with_request_config(request_config).await?;
+
+            info!(delay_id = response.delay_id, "Scheduled delayed event in room");
+
+            Ok(response)
+        };
+
+        Box::pin(fut.instrument(tracing_span))
+    }
+}
+
+/// A message-like event that is ready to be handed to the homeserver.
+struct PreparedMessageLikeEvent<'a> {
+    txn_id: OwnedTransactionId,
+    /// The type to send, `m.room.encrypted` if the content was encrypted.
+    event_type: &'a str,
+    content: Raw<AnyMessageLikeEventContent>,
+    /// The encryption info, if the content was encrypted.
+    encryption_info: Option<EncryptionInfo>,
+}
+
+/// The steps shared by every way of sending a message-like event: check that
+/// the room is joined, pick a transaction ID, and encrypt the content if the
+/// room is encrypted.
+#[cfg_attr(not(feature = "e2e-encryption"), allow(unused_mut))]
+async fn prepare_message_like_event<'a>(
+    room: &Room,
+    mut event_type: &'a str,
+    mut content: Raw<AnyMessageLikeEventContent>,
+    transaction_id: Option<OwnedTransactionId>,
+) -> Result<PreparedMessageLikeEvent<'a>> {
+    room.ensure_room_joined()?;
+
+    let txn_id = transaction_id.unwrap_or_else(TransactionId::new);
+    Span::current().record("transaction_id", tracing::field::debug(&txn_id));
+
+    #[cfg(not(feature = "e2e-encryption"))]
+    trace!("Sending plaintext event to room because we don't have encryption support.");
+
+    #[cfg(feature = "e2e-encryption")]
+    let mut encryption_info: Option<EncryptionInfo> = None;
+    #[cfg(not(feature = "e2e-encryption"))]
+    let encryption_info: Option<EncryptionInfo> = None;
+
+    #[cfg(feature = "e2e-encryption")]
+    if room.latest_encryption_state().await?.is_encrypted() {
+        Span::current().record("is_room_encrypted", true);
+        // Reactions are currently famously not encrypted, skip encrypting
+        // them until they are.
+        if event_type == "m.reaction" {
+            trace!("Sending plaintext event because of the event type.");
+        } else {
+            trace!(
+                room_id = ?room.room_id(),
+                "Sending encrypted event because the room is encrypted.",
+            );
+
+            ensure_room_encryption_ready(room).await?;
+
+            let olm = room.client.olm_machine().await;
+            let olm = olm.as_ref().expect("Olm machine wasn't started");
+
+            let result = olm.encrypt_room_event_raw(room.room_id(), event_type, &content).await?;
+            content = result.content.cast();
+            encryption_info = Some(result.encryption_info);
+            event_type = "m.room.encrypted";
+        }
+    } else {
+        Span::current().record("is_room_encrypted", false);
+        trace!("Sending plaintext event because the room is NOT encrypted.");
+    }
+
+    Ok(PreparedMessageLikeEvent { txn_id, event_type, content, encryption_info })
 }
 
 /// Future returned by [`Room::send_attachment`].

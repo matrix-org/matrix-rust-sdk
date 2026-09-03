@@ -14,8 +14,14 @@
 
 //! Augmented [`ClientBuilder`] that can set up an already logged-in user.
 
+use std::collections::BTreeSet;
+
 use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings};
-use ruma::{OwnedDeviceId, OwnedUserId, api::MatrixVersion, owned_device_id, owned_user_id};
+use ruma::{
+    OwnedDeviceId, OwnedUserId,
+    api::{FeatureFlag, MatrixVersion},
+    owned_device_id, owned_user_id,
+};
 
 use crate::{
     Client, ClientBuilder, SessionTokens, authentication::matrix::MatrixSession,
@@ -28,6 +34,7 @@ pub struct MockClientBuilder {
     builder: ClientBuilder,
     auth_state: AuthState,
     server_versions: ServerVersions,
+    unstable_features: BTreeSet<FeatureFlag>,
 }
 
 impl MockClientBuilder {
@@ -51,6 +58,7 @@ impl MockClientBuilder {
                 device_id: None,
             },
             server_versions: ServerVersions::Default,
+            unstable_features: Default::default(),
         }
     }
 
@@ -63,6 +71,17 @@ impl MockClientBuilder {
     /// Set the cached server versions in the client.
     pub fn server_versions(mut self, versions: Vec<MatrixVersion>) -> Self {
         self.server_versions = ServerVersions::Custom(versions);
+        self
+    }
+
+    /// Set the unstable features the homeserver advertises, alongside the
+    /// cached server versions.
+    ///
+    /// This has no effect if [`no_server_versions()`][Self::no_server_versions]
+    /// is called: the features are then discovered from the (mocked)
+    /// `/versions` endpoint like the versions.
+    pub fn unstable_features(mut self, features: impl IntoIterator<Item = FeatureFlag>) -> Self {
+        self.unstable_features = features.into_iter().collect();
         self
     }
 
@@ -129,7 +148,7 @@ impl MockClientBuilder {
         let mut builder = self.builder;
 
         if let Some(versions) = self.server_versions.into_vec() {
-            builder = builder.server_versions(versions);
+            builder = builder.server_versions(versions).unstable_features(self.unstable_features);
         }
 
         let client = builder.build().await.expect("building client failed");

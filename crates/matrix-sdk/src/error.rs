@@ -34,6 +34,7 @@ use reqwest::Error as ReqwestError;
 use ruma::{
     IdParseError,
     api::{
+        FeatureFlag,
         client::uiaa::{UiaaInfo, UiaaResponse},
         error::{ErrorKind, FromHttpResponseError, IntoHttpError, RetryAfter},
     },
@@ -347,6 +348,12 @@ pub enum Error {
     /// different.
     #[error("wrong room state: {0}")]
     WrongRoomState(Box<WrongRoomState>),
+
+    /// The homeserver does not advertise support for an unstable feature this
+    /// operation depends on, in the `unstable_features` of its `/versions`
+    /// response.
+    #[error("the homeserver does not support the `{0}` unstable feature")]
+    UnsupportedHomeserverFeature(FeatureFlag),
 
     /// Session callbacks have been set multiple times.
     #[error("session callbacks have been set multiple times")]

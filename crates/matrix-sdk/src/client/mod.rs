@@ -2937,6 +2937,41 @@ impl Client {
         Ok(self.unstable_features().await?.contains(&FeatureFlag::from("org.matrix.msc4028")))
     }
 
+    /// Check whether the homeserver supports delayed events ([MSC4140]), i.e.
+    /// whether it advertises `org.matrix.msc4140` in the `unstable_features` of
+    /// its `/versions` response.
+    ///
+    /// The delayed-event APIs ([`SendRawMessageLikeEvent::with_delay`],
+    /// [`Room::send_delayed_state_event_raw`] and
+    /// [`Room::update_delayed_event`]) check this themselves and fail with
+    /// [`Error::UnsupportedHomeserverFeature`] otherwise, so this is mostly
+    /// useful to decide up front whether a feature relying on delayed events
+    /// can be offered at all.
+    ///
+    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+    /// [`SendRawMessageLikeEvent::with_delay`]: crate::room::futures::SendRawMessageLikeEvent::with_delay
+    pub async fn can_homeserver_send_delayed_events(&self) -> HttpResult<bool> {
+        Ok(self.unstable_features().await?.contains(&FeatureFlag::Msc4140))
+    }
+
+    /// Fail with [`Error::UnsupportedHomeserverFeature`] unless the homeserver
+    /// supports delayed events ([MSC4140]).
+    ///
+    /// This must be checked before scheduling a delayed event: the delayed
+    /// variants of `/send` and `/state` only differ from the regular ones by
+    /// the unstable `org.matrix.msc4140.delay` query parameter, which a
+    /// homeserver without support silently ignores, sending the event right
+    /// away instead of holding on to it.
+    ///
+    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+    pub(crate) async fn ensure_delayed_events_supported(&self) -> Result<()> {
+        if self.can_homeserver_send_delayed_events().await? {
+            Ok(())
+        } else {
+            Err(Error::UnsupportedHomeserverFeature(FeatureFlag::Msc4140))
+        }
+    }
+
     /// Get information of all our own devices.
     ///
     /// # Examples
