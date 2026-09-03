@@ -316,7 +316,7 @@ struct PreparedMessageLikeEvent<'a> {
 /// The steps shared by every way of sending a message-like event: check that
 /// the room is joined, pick a transaction ID, and encrypt the content if the
 /// room is encrypted.
-#[cfg_attr(not(feature = "e2e-encryption"), allow(unused_mut))]
+#[cfg_attr(not(feature = "e2e-encryption"), allow(unused_mut, clippy::unused_async))]
 async fn prepare_message_like_event<'a>(
     room: &Room,
     mut event_type: &'a str,

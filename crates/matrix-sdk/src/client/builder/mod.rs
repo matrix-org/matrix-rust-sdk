@@ -513,6 +513,7 @@ impl ClientBuilder {
     ///
     /// This is only used if `server_versions()` is called too, and is helpful
     /// for test code that doesn't care to mock the `/versions` endpoint.
+    #[cfg(any(test, feature = "testing"))]
     pub(crate) fn unstable_features(
         mut self,
         value: impl IntoIterator<Item = FeatureFlag>,
