@@ -141,7 +141,7 @@ async fn test_e2ee_state_events() -> Result<()> {
         AnyStateEventContent::RoomName(content) = rename_event
     );
 
-    assert_eq!("Dog Photos", content.name);
+    assert_eq!(Some("Dog Photos"), content.name.as_deref());
 
     Ok(())
 }

@@ -41,7 +41,7 @@ pub struct LiveLocationShare {
     /// The user ID of the person sharing their live location.
     pub user_id: String,
     /// The time when location sharing started.
-    pub start_ts: u64,
+    pub start_ts: Option<u64>,
     /// The duration that the location sharing will be live.
     /// Meaning that the location will stop being shared at ts + timeout.
     pub timeout: u64,
@@ -135,7 +135,7 @@ impl LiveLocationsObserver {
 impl From<SdkLiveLocationShare> for LiveLocationShare {
     fn from(share: SdkLiveLocationShare) -> Self {
         let beacon_id = share.beacon_id.into();
-        let start_ts = share.beacon_info.ts.0.into();
+        let start_ts = share.beacon_info.ts.map(|ts| ts.0.into());
         let timeout = share.beacon_info.timeout.as_millis() as u64;
         let asset = share.beacon_info.asset.type_.into();
         let last_location = share.last_location.map(|l| LastLocation {

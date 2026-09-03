@@ -89,7 +89,7 @@ async fn test_back_pagination() {
                 prev_content
             }) = state.content()
         );
-        assert_eq!(content.name, "New room name");
+        assert_eq!(content.name.as_deref(), Some("New room name"));
         assert_eq!(prev_content.as_ref().unwrap().name.as_ref().unwrap(), "Old room name");
     }
 
@@ -822,7 +822,7 @@ async fn test_empty_chunk() {
                 prev_content
             }) = state.content()
         );
-        assert_eq!(content.name, "New room name");
+        assert_eq!(content.name.as_deref(), Some("New room name"));
         assert_eq!(prev_content.as_ref().unwrap().name.as_ref().unwrap(), "Old room name");
     }
 
@@ -919,7 +919,7 @@ async fn test_until_num_items_with_empty_chunk() {
                 prev_content
             }) = state.content()
         );
-        assert_eq!(content.name, "New room name");
+        assert_eq!(content.name.as_deref(), Some("New room name"));
         assert_eq!(prev_content.as_ref().unwrap().name.as_ref().unwrap(), "Old room name");
     }
 

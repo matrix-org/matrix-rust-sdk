@@ -1,13 +1,12 @@
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, UserId,
     events::{
-        AnyPossiblyRedactedStateEventContent, AnyStrippedStateEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, PossiblyRedactedStateEventContent, RedactContent,
-        RedactedStateEventContent, StateEventType, StaticEventContent, StaticStateEventContent,
-        StrippedStateEvent, SyncStateEvent,
+        AnyStateEventContent, AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+        RedactContent, RedactedStateEventContent, StateEventType, StaticEventContent,
+        StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
         room::{
             create::{StrippedRoomCreateEvent, SyncRoomCreateEvent},
-            member::PossiblyRedactedRoomMemberEventContent,
+            member::RoomMemberEventContent,
         },
     },
     room_version_rules::RedactionRules,
@@ -29,7 +28,7 @@ use crate::room::RoomCreateWithCreatorEventContent;
     from = "MinimalStateEventSerdeHelper<C>",
     into = "MinimalStateEventSerdeHelper<C>"
 )]
-pub struct MinimalStateEvent<C: PossiblyRedactedStateEventContent + RedactContent> {
+pub struct MinimalStateEvent<C: StaticStateEventContent + RedactContent> {
     /// The event's content.
     pub content: C,
     /// The event's ID, if known.
@@ -38,7 +37,7 @@ pub struct MinimalStateEvent<C: PossiblyRedactedStateEventContent + RedactConten
 
 impl<C> MinimalStateEvent<C>
 where
-    C: PossiblyRedactedStateEventContent + RedactContent,
+    C: StaticStateEventContent + RedactContent,
     C::Redacted: Into<C>,
 {
     /// Redacts this event.
@@ -65,7 +64,7 @@ enum MinimalStateEventSerdeHelper<C> {
 
 impl<C> From<MinimalStateEventSerdeHelper<C>> for MinimalStateEvent<C>
 where
-    C: PossiblyRedactedStateEventContent + RedactContent,
+    C: StaticStateEventContent + RedactContent,
 {
     fn from(value: MinimalStateEventSerdeHelper<C>) -> Self {
         match value {
@@ -79,7 +78,7 @@ where
 
 impl<C> From<MinimalStateEvent<C>> for MinimalStateEventSerdeHelper<C>
 where
-    C: PossiblyRedactedStateEventContent + RedactContent,
+    C: StaticStateEventContent + RedactContent,
 {
     fn from(value: MinimalStateEvent<C>) -> Self {
         Self::PossiblyRedacted(value.into())
@@ -94,7 +93,7 @@ struct MinimalStateEventSerdeHelperInner<C> {
 
 impl<C> From<MinimalStateEventSerdeHelperInner<C>> for MinimalStateEvent<C>
 where
-    C: PossiblyRedactedStateEventContent + RedactContent,
+    C: StaticStateEventContent + RedactContent,
 {
     fn from(value: MinimalStateEventSerdeHelperInner<C>) -> Self {
         let MinimalStateEventSerdeHelperInner { content, event_id } = value;
@@ -104,7 +103,7 @@ where
 
 impl<C> From<MinimalStateEvent<C>> for MinimalStateEventSerdeHelperInner<C>
 where
-    C: PossiblyRedactedStateEventContent + RedactContent,
+    C: StaticStateEventContent + RedactContent,
 {
     fn from(value: MinimalStateEvent<C>) -> Self {
         let MinimalStateEvent { content, event_id } = value;
@@ -113,18 +112,17 @@ where
 }
 
 /// A minimal `m.room.member` event.
-pub type MinimalRoomMemberEvent = MinimalStateEvent<PossiblyRedactedRoomMemberEventContent>;
+pub type MinimalRoomMemberEvent = MinimalStateEvent<RoomMemberEventContent>;
 
-impl<C1, C2> From<SyncStateEvent<C1>> for MinimalStateEvent<C2>
+impl<C> From<SyncStateEvent<C>> for MinimalStateEvent<C>
 where
-    C1: StaticStateEventContent + RedactContent + Into<C2>,
-    C1::Redacted: RedactedStateEventContent + Into<C2>,
-    C2: PossiblyRedactedStateEventContent + RedactContent,
+    C: StaticStateEventContent + RedactContent,
+    C::Redacted: RedactedStateEventContent + Into<C>,
 {
-    fn from(ev: SyncStateEvent<C1>) -> Self {
+    fn from(ev: SyncStateEvent<C>) -> Self {
         match ev {
             SyncStateEvent::Original(ev) => {
-                Self { content: ev.content.into(), event_id: Some(ev.event_id) }
+                Self { content: ev.content, event_id: Some(ev.event_id) }
             }
             SyncStateEvent::Redacted(ev) => {
                 Self { content: ev.content.into(), event_id: Some(ev.event_id) }
@@ -133,16 +131,15 @@ where
     }
 }
 
-impl<C1, C2> From<&SyncStateEvent<C1>> for MinimalStateEvent<C2>
+impl<C> From<&SyncStateEvent<C>> for MinimalStateEvent<C>
 where
-    C1: Clone + StaticStateEventContent + RedactContent + Into<C2>,
-    C1::Redacted: Clone + RedactedStateEventContent + Into<C2>,
-    C2: PossiblyRedactedStateEventContent + RedactContent,
+    C: Clone + StaticStateEventContent + RedactContent,
+    C::Redacted: Clone + RedactedStateEventContent + Into<C>,
 {
-    fn from(ev: &SyncStateEvent<C1>) -> Self {
+    fn from(ev: &SyncStateEvent<C>) -> Self {
         match ev {
             SyncStateEvent::Original(ev) => {
-                Self { content: ev.content.clone().into(), event_id: Some(ev.event_id.clone()) }
+                Self { content: ev.content.clone(), event_id: Some(ev.event_id.clone()) }
             }
             SyncStateEvent::Redacted(ev) => {
                 Self { content: ev.content.clone().into(), event_id: Some(ev.event_id.clone()) }
@@ -174,7 +171,7 @@ impl From<&SyncRoomCreateEvent> for MinimalStateEvent<RoomCreateWithCreatorEvent
 
 impl<C> From<StrippedStateEvent<C>> for MinimalStateEvent<C>
 where
-    C: PossiblyRedactedStateEventContent + RedactContent,
+    C: StaticStateEventContent + RedactContent,
 {
     fn from(event: StrippedStateEvent<C>) -> Self {
         Self { content: event.content, event_id: None }
@@ -183,7 +180,7 @@ where
 
 impl<C> From<&StrippedStateEvent<C>> for MinimalStateEvent<C>
 where
-    C: Clone + PossiblyRedactedStateEventContent + RedactContent,
+    C: Clone + StaticStateEventContent + RedactContent,
 {
     fn from(event: &StrippedStateEvent<C>) -> Self {
         Self { content: event.content.clone(), event_id: None }
@@ -263,7 +260,7 @@ impl<T: AnyStateEventEnum> RawStateEventWithKeys<T> {
 
     /// Try to deserialize the raw event and return it as a
     /// [`MinimalStateEvent`] using the selected variant of
-    /// [`AnyPossiblyRedactedStateEventContent`].
+    /// [`AnyStateEventContent`].
     ///
     /// This method should only be called if the variant is already known. It is
     /// considered a developer error for `as_variant_fn` to return `None`, but
@@ -280,8 +277,8 @@ impl<T: AnyStateEventEnum> RawStateEventWithKeys<T> {
         as_variant_fn: F,
     ) -> Option<MinimalStateEvent<C>>
     where
-        F: FnOnce(AnyPossiblyRedactedStateEventContent) -> Option<C>,
-        C: StaticEventContent + PossiblyRedactedStateEventContent + RedactContent,
+        F: FnOnce(AnyStateEventContent) -> Option<C>,
+        C: StaticEventContent + StaticStateEventContent + RedactContent,
     {
         let any_event = self.deserialize()?;
         let any_content = any_event.get_content();
@@ -391,7 +388,7 @@ impl RawStateEventWithKeys<AnyStrippedStateEvent> {
     pub fn deserialize_as<F, C>(&mut self, as_variant_fn: F) -> Option<&StrippedStateEvent<C>>
     where
         F: FnOnce(&AnyStrippedStateEvent) -> Option<&StrippedStateEvent<C>>,
-        C: StaticEventContent + PossiblyRedactedStateEventContent,
+        C: StaticEventContent + StaticStateEventContent,
     {
         let any_event = self.deserialize()?;
         let event = as_variant_fn(any_event);
@@ -425,7 +422,7 @@ pub trait AnyStateEventEnum: DeserializeOwned {
     fn get_event_type(&self) -> StateEventType;
 
     /// Get the content of the state event.
-    fn get_content(&self) -> AnyPossiblyRedactedStateEventContent;
+    fn get_content(&self) -> AnyStateEventContent;
 
     /// Get the ID of the state event, if any.
     fn get_event_id(&self) -> Option<&EventId>;
@@ -443,7 +440,7 @@ impl AnyStateEventEnum for AnySyncStateEvent {
         self.event_type()
     }
 
-    fn get_content(&self) -> AnyPossiblyRedactedStateEventContent {
+    fn get_content(&self) -> AnyStateEventContent {
         self.content()
     }
 
@@ -466,7 +463,7 @@ impl AnyStateEventEnum for AnyStrippedStateEvent {
         self.event_type()
     }
 
-    fn get_content(&self) -> AnyPossiblyRedactedStateEventContent {
+    fn get_content(&self) -> AnyStateEventContent {
         self.content()
     }
 
@@ -485,7 +482,7 @@ impl AnyStateEventEnum for AnyStrippedStateEvent {
 
 #[cfg(test)]
 mod tests {
-    use ruma::{event_id, events::room::name::PossiblyRedactedRoomNameEventContent};
+    use ruma::{event_id, events::room::name::RoomNameEventContent};
 
     use super::MinimalStateEvent;
 
@@ -494,36 +491,32 @@ mod tests {
         let event_id = event_id!("$event");
 
         // The old format with `Original` and `Redacted` variants works.
-        let event =
-            serde_json::from_str::<MinimalStateEvent<PossiblyRedactedRoomNameEventContent>>(
-                r#"{"Original":{"content":{"name":"My Room"},"event_id":"$event"}}"#,
-            )
-            .unwrap();
+        let event = serde_json::from_str::<MinimalStateEvent<RoomNameEventContent>>(
+            r#"{"Original":{"content":{"name":"My Room"},"event_id":"$event"}}"#,
+        )
+        .unwrap();
         assert_eq!(event.content.name.as_deref(), Some("My Room"));
         assert_eq!(event.event_id.as_deref(), Some(event_id));
 
-        let event =
-            serde_json::from_str::<MinimalStateEvent<PossiblyRedactedRoomNameEventContent>>(
-                r#"{"Redacted":{"content":{},"event_id":"$event"}}"#,
-            )
-            .unwrap();
+        let event = serde_json::from_str::<MinimalStateEvent<RoomNameEventContent>>(
+            r#"{"Redacted":{"content":{},"event_id":"$event"}}"#,
+        )
+        .unwrap();
         assert_eq!(event.content.name, None);
         assert_eq!(event.event_id.as_deref(), Some(event_id));
 
         // The new format works.
-        let event =
-            serde_json::from_str::<MinimalStateEvent<PossiblyRedactedRoomNameEventContent>>(
-                r#"{"PossiblyRedacted":{"content":{"name":"My Room"},"event_id":"$event"}}"#,
-            )
-            .unwrap();
+        let event = serde_json::from_str::<MinimalStateEvent<RoomNameEventContent>>(
+            r#"{"PossiblyRedacted":{"content":{"name":"My Room"},"event_id":"$event"}}"#,
+        )
+        .unwrap();
         assert_eq!(event.content.name.as_deref(), Some("My Room"));
         assert_eq!(event.event_id.as_deref(), Some(event_id));
 
-        let event =
-            serde_json::from_str::<MinimalStateEvent<PossiblyRedactedRoomNameEventContent>>(
-                r#"{"PossiblyRedacted":{"content":{},"event_id":"$event"}}"#,
-            )
-            .unwrap();
+        let event = serde_json::from_str::<MinimalStateEvent<RoomNameEventContent>>(
+            r#"{"PossiblyRedacted":{"content":{},"event_id":"$event"}}"#,
+        )
+        .unwrap();
         assert_eq!(event.content.name, None);
         assert_eq!(event.event_id.as_deref(), Some(event_id));
     }

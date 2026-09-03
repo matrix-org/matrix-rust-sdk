@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{OwnedRoomId, events::room::tombstone::PossiblyRedactedRoomTombstoneEventContent};
+use ruma::{OwnedRoomId, events::room::tombstone::RoomTombstoneEventContent};
 
 use super::Room;
 
@@ -34,7 +34,7 @@ impl Room {
     /// event has been received. It's faster than using this method.
     ///
     /// [`m.room.tombstone`]: https://spec.matrix.org/v1.14/client-server-api/#mroomtombstone
-    pub fn tombstone_content(&self) -> Option<PossiblyRedactedRoomTombstoneEventContent> {
+    pub fn tombstone_content(&self) -> Option<RoomTombstoneEventContent> {
         self.info.read().tombstone().cloned()
     }
 

@@ -98,7 +98,7 @@ async fn test_receive_room_encryption_event_via_sync() {
     let (event, _) = assert_ready!(event_subscriber);
     assert_eq!(
         event.as_original().unwrap().content.algorithm,
-        EventEncryptionAlgorithm::MegolmV1AesSha2
+        Some(EventEncryptionAlgorithm::MegolmV1AesSha2)
     );
 
     // Now we receive an event with an invalid content but a valid type
@@ -371,7 +371,7 @@ async fn test_receive_room_name_event_via_sync() {
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     let (event, _) = assert_ready!(event_subscriber);
-    assert_eq!(event.as_original().unwrap().content.name, "My room");
+    assert_eq!(event.as_original().unwrap().content.name.as_deref(), Some("My room"));
 
     // Now we receive an event with an invalid content but a valid type
     // and state key.
@@ -1217,7 +1217,7 @@ async fn test_receive_room_topic_event_via_sync() {
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     let (event, _) = assert_ready!(event_subscriber);
-    assert_eq!(event.as_original().unwrap().content.topic, room_topic);
+    assert_eq!(event.as_original().unwrap().content.topic.as_deref(), Some(room_topic));
 
     // Now we receive an event with an invalid content but a valid type
     // and state key.
@@ -1355,7 +1355,10 @@ async fn test_receive_room_tombstone_event_via_sync() {
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     let (event, _) = assert_ready!(event_subscriber);
-    assert_eq!(event.as_original().unwrap().content.replacement_room, tombstone_replacement);
+    assert_eq!(
+        event.as_original().unwrap().content.replacement_room.as_deref(),
+        Some(tombstone_replacement)
+    );
 
     // Now we receive an event with an invalid content but a valid type
     // and state key.

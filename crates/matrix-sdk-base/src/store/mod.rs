@@ -704,7 +704,7 @@ impl StateChanges {
         &self,
         room_id: &RoomId,
         state_key: &K,
-    ) -> Option<&Raw<StrippedStateEvent<C::PossiblyRedacted>>>
+    ) -> Option<&Raw<StrippedStateEvent<C>>>
     where
         C: StaticEventContent<IsPrefix = ruma::events::False> + StaticStateEventContent,
         C::StateKey: Borrow<K>,
@@ -725,13 +725,13 @@ impl StateChanges {
         &self,
         room_id: &RoomId,
         state_key: &K,
-    ) -> Option<StrippedStateEvent<C::PossiblyRedacted>>
+    ) -> Option<StrippedStateEvent<C>>
     where
         C: StaticEventContent<IsPrefix = ruma::events::False>
             + StaticStateEventContent
-            + RedactContent,
+            + RedactContent
+            + DeserializeOwned,
         C::Redacted: RedactedStateEventContent,
-        C::PossiblyRedacted: StaticEventContent + DeserializeOwned,
         C::StateKey: Borrow<K>,
         K: AsRef<str> + ?Sized,
     {

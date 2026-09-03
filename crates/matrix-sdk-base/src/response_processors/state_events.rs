@@ -475,7 +475,10 @@ pub fn is_tombstone_event_valid(
         return true;
     };
 
-    let mut successor_room_id = tombstone.replacement_room.clone();
+    let Some(mut successor_room_id) = tombstone.replacement_room.clone() else {
+        // `true` means no problem. No successor = no problem here.
+        return true;
+    };
 
     loop {
         // We must check immediately if the `successor_room_id` is in `already_seen` in

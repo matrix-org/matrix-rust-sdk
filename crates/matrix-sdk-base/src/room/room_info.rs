@@ -26,30 +26,24 @@ use ruma::{
     RoomAliasId, RoomId, RoomVersionId,
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     events::{
-        AnyPossiblyRedactedStateEventContent, AnyStrippedStateEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, StateEventType,
-        call::member::{
-            CallMemberStateKey, MembershipData, PossiblyRedactedCallMemberEventContent,
-        },
+        AnyStateEventContent, AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+        StateEventType,
+        call::member::{CallMemberEventContent, CallMemberStateKey, MembershipData},
         direct::OwnedDirectUserIdentifier,
-        member_hints::PossiblyRedactedMemberHintsEventContent,
+        member_hints::MemberHintsEventContent,
         room::{
-            avatar::{self, PossiblyRedactedRoomAvatarEventContent},
-            canonical_alias::PossiblyRedactedRoomCanonicalAliasEventContent,
-            encryption::PossiblyRedactedRoomEncryptionEventContent,
-            guest_access::{GuestAccess, PossiblyRedactedRoomGuestAccessEventContent},
-            history_visibility::{
-                HistoryVisibility, PossiblyRedactedRoomHistoryVisibilityEventContent,
-            },
-            join_rules::{JoinRule, PossiblyRedactedRoomJoinRulesEventContent},
-            name::PossiblyRedactedRoomNameEventContent,
-            pinned_events::{
-                PossiblyRedactedRoomPinnedEventsEventContent, RoomPinnedEventsEventContent,
-            },
+            avatar::{self, RoomAvatarEventContent},
+            canonical_alias::RoomCanonicalAliasEventContent,
+            encryption::RoomEncryptionEventContent,
+            guest_access::{GuestAccess, RoomGuestAccessEventContent},
+            history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
+            join_rules::{JoinRule, RoomJoinRulesEventContent},
+            name::RoomNameEventContent,
+            pinned_events::RoomPinnedEventsEventContent,
             redaction::SyncRoomRedactionEvent,
             retention::RoomRetentionEventContent,
-            tombstone::PossiblyRedactedRoomTombstoneEventContent,
-            topic::PossiblyRedactedRoomTopicEventContent,
+            tombstone::RoomTombstoneEventContent,
+            topic::RoomTopicEventContent,
         },
         rtc::notification::CallIntent,
         tag::{TagEventContent, TagName, Tags},
@@ -175,42 +169,40 @@ impl Room {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BaseRoomInfo {
     /// The avatar URL of this room.
-    pub(crate) avatar: Option<MinimalStateEvent<PossiblyRedactedRoomAvatarEventContent>>,
+    pub(crate) avatar: Option<MinimalStateEvent<RoomAvatarEventContent>>,
     /// The canonical alias of this room.
-    pub(crate) canonical_alias:
-        Option<MinimalStateEvent<PossiblyRedactedRoomCanonicalAliasEventContent>>,
+    pub(crate) canonical_alias: Option<MinimalStateEvent<RoomCanonicalAliasEventContent>>,
     /// The `m.room.create` event content of this room.
     pub(crate) create: Option<MinimalStateEvent<RoomCreateWithCreatorEventContent>>,
     /// A list of user ids this room is considered as direct message, if this
     /// room is a DM.
     pub(crate) dm_targets: HashSet<OwnedDirectUserIdentifier>,
     /// The `m.room.encryption` event content that enabled E2EE in this room.
-    pub(crate) encryption: Option<PossiblyRedactedRoomEncryptionEventContent>,
+    pub(crate) encryption: Option<RoomEncryptionEventContent>,
     /// The guest access policy of this room.
-    pub(crate) guest_access: Option<MinimalStateEvent<PossiblyRedactedRoomGuestAccessEventContent>>,
+    pub(crate) guest_access: Option<MinimalStateEvent<RoomGuestAccessEventContent>>,
     /// The history visibility policy of this room.
-    pub(crate) history_visibility:
-        Option<MinimalStateEvent<PossiblyRedactedRoomHistoryVisibilityEventContent>>,
+    pub(crate) history_visibility: Option<MinimalStateEvent<RoomHistoryVisibilityEventContent>>,
     /// The join rule policy of this room.
-    pub(crate) join_rules: Option<MinimalStateEvent<PossiblyRedactedRoomJoinRulesEventContent>>,
+    pub(crate) join_rules: Option<MinimalStateEvent<RoomJoinRulesEventContent>>,
     /// The maximal power level that can be found in this room.
     pub(crate) max_power_level: i64,
     /// The member hints for the room as per MSC4171, including service members,
     /// if available.
-    pub(crate) member_hints: Option<MinimalStateEvent<PossiblyRedactedMemberHintsEventContent>>,
+    pub(crate) member_hints: Option<MinimalStateEvent<MemberHintsEventContent>>,
     /// The `m.room.name` of this room.
-    pub(crate) name: Option<MinimalStateEvent<PossiblyRedactedRoomNameEventContent>>,
+    pub(crate) name: Option<MinimalStateEvent<RoomNameEventContent>>,
     /// The message retention policy of this room.
     pub(crate) retention: Option<MinimalStateEvent<RoomRetentionEventContent>>,
     /// The `m.room.tombstone` event content of this room.
-    pub(crate) tombstone: Option<MinimalStateEvent<PossiblyRedactedRoomTombstoneEventContent>>,
+    pub(crate) tombstone: Option<MinimalStateEvent<RoomTombstoneEventContent>>,
     /// The topic of this room.
-    pub(crate) topic: Option<MinimalStateEvent<PossiblyRedactedRoomTopicEventContent>>,
+    pub(crate) topic: Option<MinimalStateEvent<RoomTopicEventContent>>,
     /// All minimal state events that containing one or more running matrixRTC
     /// memberships.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub(crate) rtc_member_events:
-        BTreeMap<CallMemberStateKey, MinimalStateEvent<PossiblyRedactedCallMemberEventContent>>,
+        BTreeMap<CallMemberStateKey, MinimalStateEvent<CallMemberEventContent>>,
     /// Whether this room has been manually marked as unread.
     #[serde(default)]
     pub(crate) is_marked_unread: bool,
@@ -227,7 +219,7 @@ pub struct BaseRoomInfo {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub(crate) fully_read_event_id: Option<OwnedEventId>,
     /// The `m.room.pinned_events` of this room.
-    pub(crate) pinned_events: Option<PossiblyRedactedRoomPinnedEventsEventContent>,
+    pub(crate) pinned_events: Option<RoomPinnedEventsEventContent>,
 }
 
 impl BaseRoomInfo {
@@ -257,7 +249,7 @@ impl BaseRoomInfo {
                 // fail to deserialize or that are redacted (i.e. they don't contain the
                 // algorithm used for encryption).
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomEncryption)
+                    as_variant!(any_event, AnyStateEventContent::RoomEncryption)
                 }) && event.content.algorithm.is_some()
                 {
                     self.encryption = Some(event.content);
@@ -268,7 +260,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomAvatar, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomAvatar)
+                    as_variant!(any_event, AnyStateEventContent::RoomAvatar)
                 }) {
                     self.avatar = Some(event);
                     true
@@ -279,7 +271,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomName, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomName)
+                    as_variant!(any_event, AnyStateEventContent::RoomName)
                 }) {
                     self.name = Some(event);
                     true
@@ -291,10 +283,8 @@ impl BaseRoomInfo {
             // `m.room.create` CANNOT be overwritten.
             (StateEventType::RoomCreate, "") if self.create.is_none() => {
                 if let Some(any_event) = raw_event.deserialize()
-                    && let Some(content) = as_variant!(
-                        any_event.get_content(),
-                        AnyPossiblyRedactedStateEventContent::RoomCreate
-                    )
+                    && let Some(content) =
+                        as_variant!(any_event.get_content(), AnyStateEventContent::RoomCreate)
                 {
                     self.create = Some(MinimalStateEvent {
                         content: RoomCreateWithCreatorEventContent::from_event_content(
@@ -310,10 +300,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomHistoryVisibility, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(
-                        any_event,
-                        AnyPossiblyRedactedStateEventContent::RoomHistoryVisibility
-                    )
+                    as_variant!(any_event, AnyStateEventContent::RoomHistoryVisibility)
                 }) {
                     self.history_visibility = Some(event);
                     true
@@ -324,7 +311,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomRetention, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomRetention)
+                    as_variant!(any_event, AnyStateEventContent::RoomRetention)
                 }) {
                     self.retention = Some(event);
                     true
@@ -335,7 +322,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomGuestAccess, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomGuestAccess)
+                    as_variant!(any_event, AnyStateEventContent::RoomGuestAccess)
                 }) {
                     self.guest_access = Some(event);
                     true
@@ -346,7 +333,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::MemberHints, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::MemberHints)
+                    as_variant!(any_event, AnyStateEventContent::MemberHints)
                 }) {
                     self.member_hints = Some(event);
                     true
@@ -357,7 +344,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomJoinRules, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomJoinRules)
+                    as_variant!(any_event, AnyStateEventContent::RoomJoinRules)
                 }) {
                     match &event.content.join_rule {
                         JoinRule::Invite
@@ -382,7 +369,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomCanonicalAlias, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomCanonicalAlias)
+                    as_variant!(any_event, AnyStateEventContent::RoomCanonicalAlias)
                 }) {
                     self.canonical_alias = Some(event);
                     true
@@ -393,7 +380,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomTopic, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomTopic)
+                    as_variant!(any_event, AnyStateEventContent::RoomTopic)
                 }) {
                     self.topic = Some(event);
                     true
@@ -404,7 +391,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomTombstone, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomTombstone)
+                    as_variant!(any_event, AnyStateEventContent::RoomTombstone)
                 }) {
                     self.tombstone = Some(event);
                     true
@@ -415,7 +402,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomPowerLevels, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomPowerLevels)
+                    as_variant!(any_event, AnyStateEventContent::RoomPowerLevels)
                 }) {
                     let new_max = i64::from(
                         event
@@ -444,10 +431,8 @@ impl BaseRoomInfo {
             (StateEventType::CallMember, _) => {
                 if let Ok(call_member_key) = raw_event.state_key.parse::<CallMemberStateKey>() {
                     if let Some(any_event) = raw_event.deserialize()
-                        && let Some(content) = as_variant!(
-                            any_event.get_content(),
-                            AnyPossiblyRedactedStateEventContent::CallMember
-                        )
+                        && let Some(content) =
+                            as_variant!(any_event.get_content(), AnyStateEventContent::CallMember)
                     {
                         let mut event = MinimalStateEvent {
                             content,
@@ -477,7 +462,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomPinnedEvents, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomPinnedEvents)
+                    as_variant!(any_event, AnyStateEventContent::RoomPinnedEvents)
                 }) {
                     self.pinned_events = Some(event.content);
                     true
@@ -814,10 +799,7 @@ impl RoomInfo {
     }
 
     /// Set the encryption event content in this room.
-    pub fn set_encryption_event(
-        &mut self,
-        event: Option<PossiblyRedactedRoomEncryptionEventContent>,
-    ) {
+    pub fn set_encryption_event(&mut self, event: Option<RoomEncryptionEventContent>) {
         self.base_info.encryption = event;
     }
 
@@ -856,8 +838,7 @@ impl RoomInfo {
             && current_hints
                 .content
                 .service_members
-                .as_ref()
-                .is_some_and(|current_members| *current_members != new.content.service_members)
+                 != new.content.service_members
         {
             // And reset the computed value in that case
             self.summary.active_service_members = None;
@@ -915,7 +896,7 @@ impl RoomInfo {
     /// Update the room avatar.
     pub fn update_avatar(&mut self, url: Option<OwnedMxcUri>) {
         self.base_info.avatar = url.map(|url| {
-            let mut content = PossiblyRedactedRoomAvatarEventContent::new();
+            let mut content = RoomAvatarEventContent::new();
             content.url = Some(url);
 
             MinimalStateEvent { content, event_id: None }
@@ -1068,7 +1049,7 @@ impl RoomInfo {
         self.base_info
             .guest_access
             .as_ref()
-            .and_then(|event| event.content.guest_access.as_ref())
+            .map(|event| &event.content.guest_access)
             .unwrap_or(&GuestAccess::Forbidden)
     }
 
@@ -1105,7 +1086,7 @@ impl RoomInfo {
     /// Return the service members for this room if the `m.member_hints` event
     /// is available
     pub fn service_members(&self) -> Option<&BTreeSet<OwnedUserId>> {
-        self.base_info.member_hints.as_ref()?.content.service_members.as_ref()
+        Some(&self.base_info.member_hints.as_ref()?.content.service_members)
     }
 
     /// Get the name of this room.
@@ -1119,7 +1100,7 @@ impl RoomInfo {
     }
 
     /// Get the content of the `m.room.tombstone` event if any.
-    pub fn tombstone(&self) -> Option<&PossiblyRedactedRoomTombstoneEventContent> {
+    pub fn tombstone(&self) -> Option<&RoomTombstoneEventContent> {
         Some(&self.base_info.tombstone.as_ref()?.content)
     }
 
@@ -1268,7 +1249,7 @@ impl RoomInfo {
 
     /// Returns the current pinned event ids for this room.
     pub fn pinned_event_ids(&self) -> Option<Vec<OwnedEventId>> {
-        self.base_info.pinned_events.clone().and_then(|c| c.pinned)
+        self.base_info.pinned_events.clone().map(|c| c.pinned)
     }
 
     /// Returns the event ID of the user's `m.fully_read` marker for this room,
@@ -1286,8 +1267,7 @@ impl RoomInfo {
         self.base_info
             .pinned_events
             .as_ref()
-            .and_then(|content| content.pinned.as_deref())
-            .is_some_and(|pinned| pinned.contains(&event_id.to_owned()))
+            .is_some_and(|content| content.pinned.contains(&event_id.to_owned()))
     }
 
     /// Returns the computed read receipts for this room.
@@ -1580,7 +1560,7 @@ mod tests {
             encryption_state_synced: true,
             latest_event_value: LatestEventValue::None,
             base_info: Box::new(
-                assign!(BaseRoomInfo::new(), { pinned_events: Some(RoomPinnedEventsEventContent::new(vec![owned_event_id!("$a")]).into()) }),
+                assign!(BaseRoomInfo::new(), { pinned_events: Some(RoomPinnedEventsEventContent::new(vec![owned_event_id!("$a")])) }),
             ),
             read_receipts: Default::default(),
             warned_about_unknown_room_version_rules: Arc::new(false.into()),
@@ -1975,7 +1955,7 @@ mod tests {
         });
 
         let info: RoomInfo = serde_json::from_value(info_json.clone()).unwrap();
-        assert_eq!(info.base_info.member_hints.unwrap().content.service_members.unwrap(), expected);
+        assert_eq!(info.base_info.member_hints.unwrap().content.service_members, expected);
         assert_eq!(info.summary.active_service_members, Some(2));
 
         // We receive a new event with the same values as the stored ones
@@ -1991,7 +1971,7 @@ mod tests {
         info.handle_state_event(&mut raw_state_event_with_keys);
 
         // Nothing changed
-        assert_eq!(info.base_info.member_hints.unwrap().content.service_members.unwrap(), expected);
+        assert_eq!(info.base_info.member_hints.unwrap().content.service_members, expected);
         // And the computed value is kept
         assert_eq!(info.summary.active_service_members, Some(2));
 
@@ -2009,10 +1989,7 @@ mod tests {
         info.handle_state_event(&mut raw_state_event_with_keys);
 
         // The new member hints were applied
-        assert_eq!(
-            info.base_info.member_hints.unwrap().content.service_members.unwrap(),
-            new_member_hints
-        );
+        assert_eq!(info.base_info.member_hints.unwrap().content.service_members, new_member_hints);
         // And the computed value is reset
         assert!(info.summary.active_service_members.is_none());
     }

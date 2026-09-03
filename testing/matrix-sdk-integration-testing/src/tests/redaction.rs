@@ -68,8 +68,8 @@ async fn test_redacting_name() -> Result<()> {
     let room_name_event = raw_event.cast::<RoomNameEventContent>().deserialize()?;
     let sync_room_name_event = room_name_event.as_sync().expect("event is sync event");
     assert_eq!(
-        sync_room_name_event.as_original().expect("event exists").content.name,
-        "Inappropriate text"
+        sync_room_name_event.as_original().expect("event exists").content.name.as_deref(),
+        Some("Inappropriate text")
     );
 
     room.redact(sync_room_name_event.event_id(), None, None).await?;
@@ -141,8 +141,8 @@ async fn test_redacting_name_static() -> Result<()> {
         .deserialize()?;
     let sync_room_name_event = room_name_event.as_sync().expect("event is sync event");
     assert_eq!(
-        sync_room_name_event.as_original().expect("event exists").content.name,
-        "Inappropriate text"
+        sync_room_name_event.as_original().expect("event exists").content.name.as_deref(),
+        Some("Inappropriate text")
     );
 
     room.redact(sync_room_name_event.event_id(), None, None).await?;

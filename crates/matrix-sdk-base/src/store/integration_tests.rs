@@ -279,8 +279,9 @@ impl StateStoreIntegrationTests for DynStateStore {
                 .as_original()
                 .expect("room topic is not redacted yet")
                 .content
-                .topic,
-            "😀"
+                .topic
+                .as_deref(),
+            Some("😀")
         );
 
         let mut changes = StateChanges::default();

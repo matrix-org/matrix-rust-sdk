@@ -116,7 +116,7 @@ async fn test_start_live_location_share_for_room() {
 
     assert_eq!(content.description, Some("Live Share".to_owned()));
     assert_eq!(content.timeout, Duration::from_millis(3000));
-    assert_eq!(content.ts, MilliSecondsSinceUnixEpoch(uint!(1_636_829_458)));
+    assert_eq!(content.ts, Some(MilliSecondsSinceUnixEpoch(uint!(1_636_829_458))));
     assert_eq!(content.asset.type_, AssetType::Self_);
 
     assert!(content.live);
@@ -250,7 +250,7 @@ async fn test_stop_sharing_live_location() {
 
     assert_eq!(content.description, Some("Live Share".to_owned()));
     assert_eq!(content.timeout, Duration::from_millis(3000));
-    assert_eq!(content.ts, MilliSecondsSinceUnixEpoch(uint!(1_636_829_458)));
+    assert_eq!(content.ts, Some(MilliSecondsSinceUnixEpoch(uint!(1_636_829_458))));
     assert_eq!(content.asset.type_, AssetType::Self_);
 
     assert!(!content.live);

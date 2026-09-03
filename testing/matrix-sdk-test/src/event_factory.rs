@@ -33,10 +33,10 @@ use ruma::{
         AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
         AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations,
         EphemeralRoomEventContent, EventContentFromType, False, GlobalAccountDataEventContent,
-        Mentions, MessageLikeEvent, MessageLikeEventContent, PossiblyRedactedStateEventContent,
-        RedactContent, RedactedMessageLikeEventContent, RedactedStateEventContent,
-        RoomAccountDataEventContent, StateEvent, StateEventContent, StaticEventContent,
-        StaticStateEventContent, StrippedStateEvent, SyncMessageLikeEvent, SyncStateEvent,
+        Mentions, MessageLikeEvent, MessageLikeEventContent, RedactContent,
+        RedactedMessageLikeEventContent, RedactedStateEventContent, RoomAccountDataEventContent,
+        StateEvent, StateEventContent, StaticEventContent, StaticStateEventContent,
+        StrippedStateEvent, SyncMessageLikeEvent, SyncStateEvent,
         beacon::BeaconEventContent,
         beacon_info::BeaconInfoEventContent,
         call::{
@@ -753,7 +753,7 @@ impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuil
 }
 
 impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
-    for Raw<StrippedStateEvent<E::PossiblyRedacted>>
+    for Raw<StrippedStateEvent<E>>
 where
     E: StaticStateEventContent,
 {
@@ -763,15 +763,12 @@ where
 }
 
 impl<E: StaticEventContent<IsPrefix = False> + StateEventContent> From<EventBuilder<E>>
-    for StrippedStateEvent<E::PossiblyRedacted>
+    for StrippedStateEvent<E>
 where
-    E: StaticStateEventContent,
-    E::PossiblyRedacted: PossiblyRedactedStateEventContent + EventContentFromType,
+    E: StaticStateEventContent + EventContentFromType,
 {
     fn from(val: EventBuilder<E>) -> Self {
-        Raw::<StrippedStateEvent<E::PossiblyRedacted>>::from(val)
-            .deserialize()
-            .expect("expected stripped state")
+        Raw::<StrippedStateEvent<E>>::from(val).deserialize().expect("expected stripped state")
     }
 }
 
