@@ -29,7 +29,7 @@
 
 use std::{
     cmp::Ordering,
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
     sync::Arc,
 };
 
@@ -350,6 +350,91 @@ impl SpaceService {
         .await
     }
 
+    /// Returns the room IDs of all known direct parents of the given child
+    /// space or room.
+    ///
+    /// This is a much cheaper version of [`Self::joined_parents_of_child()`]
+    /// that doesn't build any [`SpaceRoom`] instances, it only reads the
+    /// existing space graph.
+    ///
+    /// The returned IDs are always joined spaces, as that's all the space graph
+    /// includes. Note that an empty result either means that the child is a
+    /// top-level space (which has no direct parents) or the child isn't
+    /// part of the space graph at all.
+    /// See [`Self::top_level_ancestors_of()`] if you need that particular level
+    /// of detail.
+    pub async fn joined_parent_ids_of_child(&self, child_id: &RoomId) -> Vec<OwnedRoomId> {
+        self.space_state
+            .lock()
+            .await
+            .graph
+            .parents_of(child_id)
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect()
+    }
+
+    /// Returns the room IDs of the top-level joined spaces the given room
+    /// descends from, by walking the space graph upwards.
+    ///
+    /// This is the cheap way of answering "which top-level space should this
+    /// room be presented under?": the entire walk runs against a single
+    /// snapshot of the graph, under a single lock, and performs no store or
+    /// network access.
+    ///
+    /// A room can be the child of several spaces, so the hierarchy is a
+    /// directed acyclic graph rather than a tree, and more than one top-level
+    /// space may be returned. The IDs are ordered by room ID, *not* by their
+    /// distance to `room_id`, and not in the order used by
+    /// [`Self::top_level_joined_spaces()`]. If `room_id` is itself a top-level
+    /// joined space then it is its own only ancestor, which makes
+    /// `top_level_ancestors_of(id) == [id]` a cheap top-level space check.
+    ///
+    /// Returns an empty vector if the room isn't part of the graph, which is
+    /// notably the case for a room that was joined too recently for the graph
+    /// to have been rebuilt.
+    ///
+    /// Note: Unlike [`Self::top_level_joined_spaces()`], this method does not
+    /// recompute the graph, nor does it notify subscribers about changes.
+    /// Callers reacting to a freshly accepted invite should drive off
+    /// [`Self::subscribe_to_top_level_joined_spaces()`] instead of calling
+    /// this straight after joining.
+    pub async fn top_level_ancestors_of(&self, room_id: &RoomId) -> Vec<OwnedRoomId> {
+        let space_state = self.space_state.lock().await;
+        let graph = &space_state.graph;
+
+        if !graph.has_node(room_id) {
+            return Vec::new();
+        }
+
+        let mut queue = VecDeque::from([room_id.to_owned()]);
+        let mut visited = HashSet::from([room_id.to_owned()]);
+        let mut roots = BTreeSet::new();
+
+        // The graph has had its cycles removed at build time, so this walk
+        // terminates; `visited` additionally avoids walking the same node
+        // twice when it's reachable through several branches.
+        while let Some(current) = queue.pop_front() {
+            let parents = graph.parents_of(&current);
+
+            if parents.is_empty() {
+                // A node without parents is necessarily a joined space: only
+                // joined spaces are given outgoing edges.
+                roots.insert(current);
+                continue;
+            }
+
+            for parent in parents {
+                let parent = parent.to_owned();
+                if visited.insert(parent.clone()) {
+                    queue.push_back(parent);
+                }
+            }
+        }
+
+        roots.into_iter().collect()
+    }
+
     /// Returns the corresponding `SpaceRoom` for the given room ID, or `None`
     /// if it isn't known.
     pub async fn get_space_room(&self, room_id: &RoomId) -> Option<SpaceRoom> {
@@ -530,6 +615,11 @@ impl SpaceService {
                         None
                     }
                 })
+                // Note: this filter, together with the fact that the loop only
+                // ever adds edges out of a joined space, is what guarantees
+                // that the parent end of every edge is a joined space. Both
+                // `joined_parent_ids_of_child` and `top_level_ancestors_of`
+                // rely on it to return joined spaces without re-checking.
                 .filter(|parent| joined_space_ids.contains(&**parent))
                 .for_each(|parent| graph.add_edge(parent, space.room_id().to_owned()));
             } else {
