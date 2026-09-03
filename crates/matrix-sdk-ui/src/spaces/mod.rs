@@ -29,7 +29,7 @@
 
 use std::{
     cmp::Ordering,
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     sync::Arc,
 };
 
@@ -350,6 +350,75 @@ impl SpaceService {
         .await
     }
 
+    /// Returns the room IDs of all known direct parents of the given child
+    /// space or room.
+    ///
+    /// This is a much cheaper version of [`Self::joined_parents_of_child()`]
+    /// that doesn't build any [`SpaceRoom`] instances, it only reads the
+    /// existing space graph.
+    ///
+    /// The returned IDs are always joined spaces, as that's all the space graph
+    /// includes. Note that an empty result either means that the child is a
+    /// top-level space (which has no direct parents) or the child isn't
+    /// part of the space graph at all.
+    /// See [`Self::top_level_ancestors_of()`] if you need that particular level
+    /// of detail.
+    ///
+    /// Note: Unlike [`Self::top_level_joined_spaces()`], this method does not
+    /// recompute the space graph nor notify subscribers about changes.
+    pub async fn joined_parent_ids_of_child(&self, child_id: &RoomId) -> Vec<OwnedRoomId> {
+        self.space_state
+            .lock()
+            .await
+            .graph
+            .parents_of(child_id)
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect()
+    }
+
+    /// Returns the room IDs of the top-level joined space(s) that the given
+    /// child room/space descends from, by walking the space graph upwards.
+    ///
+    /// A room/space can be the child of multiple spaces, so this might return
+    /// multiple top-level spaces (in no order).
+    ///
+    /// A top-level space is its own only ancestor, so a returned set holding
+    /// just `child_id` is a cheap top-level space check.
+    ///
+    /// Returns an empty set if the room isn't part of the graph, which is
+    /// notably the case for a room that was joined too recently for the graph
+    /// to have been rebuilt.
+    ///
+    /// Note: Unlike [`Self::top_level_joined_spaces()`], this method does not
+    /// recompute the space graph nor notify subscribers about changes.
+    pub async fn top_level_ancestors_of(&self, child_id: &RoomId) -> HashSet<OwnedRoomId> {
+        let space_state = self.space_state.lock().await;
+        let graph = &space_state.graph;
+
+        if !graph.has_node(child_id) {
+            return HashSet::new();
+        }
+
+        let mut queue = VecDeque::from([child_id.to_owned()]);
+        let mut visited = HashSet::from([child_id.to_owned()]);
+        let mut roots = HashSet::new();
+        while let Some(current) = queue.pop_front() {
+            let parents = graph.parents_of(&current);
+            if parents.is_empty() {
+                // A node without parents must be a joined space.
+                roots.insert(current);
+                continue;
+            }
+            for parent in parents {
+                if visited.insert(parent.to_owned()) {
+                    queue.push_back(parent.to_owned());
+                }
+            }
+        }
+        roots
+    }
+
     /// Returns the corresponding `SpaceRoom` for the given room ID, or `None`
     /// if it isn't known.
     pub async fn get_space_room(&self, room_id: &RoomId) -> Option<SpaceRoom> {
@@ -530,6 +599,11 @@ impl SpaceService {
                         None
                     }
                 })
+                // Note: this filter, together with the fact that the loop only
+                // ever adds edges out of a joined space, is what guarantees
+                // that the parent end of every edge is a joined space. Both
+                // `joined_parent_ids_of_child` and `top_level_ancestors_of`
+                // rely on it to return joined spaces without re-checking.
                 .filter(|parent| joined_space_ids.contains(&**parent))
                 .for_each(|parent| graph.add_edge(parent, space.room_id().to_owned()));
             } else {
@@ -1275,6 +1349,227 @@ mod tests {
             parents.iter().map(|space| space.room_id.to_owned()).collect::<Vec<_>>(),
             vec![parent_space_id_1, parent_space_id_2]
         );
+    }
+
+    #[async_test]
+    async fn test_joined_parent_ids_of_child() {
+        // Given a space with three parent spaces, two of which are joined,
+        // and a plain room.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let parent_space_id_1 = room_id!("!parent_space_1:example.org");
+        let parent_space_id_2 = room_id!("!parent_space_2:example.org");
+        let unknown_parent_space_id = room_id!("!unknown_parent_space:example.org");
+        let child_space_id = room_id!("!child_space:example.org");
+        let child_room_id = room_id!("!child_room:example.org");
+
+        add_space_rooms(
+            vec![
+                MockSpaceRoomParameters {
+                    room_id: child_space_id,
+                    order: None,
+                    parents: vec![parent_space_id_1, parent_space_id_2, unknown_parent_space_id],
+                    children: vec![child_room_id],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: parent_space_id_1,
+                    order: None,
+                    parents: vec![],
+                    children: vec![child_space_id],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: parent_space_id_2,
+                    order: None,
+                    parents: vec![],
+                    children: vec![child_space_id],
+                    power_level: None,
+                },
+            ],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
+
+        let space_service = SpaceService::new(client.clone()).await;
+
+        // When retrieving the parent IDs of the child space.
+        let parent_ids = space_service.joined_parent_ids_of_child(child_space_id).await;
+
+        // Then only the two joined parent spaces are returned, ordered by room ID.
+        // The unjoined one never made it into the graph in the first place, since
+        // `m.space.parent` events pointing at a room that isn't a joined space are
+        // dropped while building it.
+        assert_eq!(parent_ids, vec![parent_space_id_1.to_owned(), parent_space_id_2.to_owned()]);
+
+        // And the result matches the one of the more expensive
+        // `joined_parents_of_child`.
+        assert_eq!(
+            space_service
+                .joined_parents_of_child(child_space_id)
+                .await
+                .into_iter()
+                .map(|space| space.room_id)
+                .collect::<Vec<_>>(),
+            parent_ids
+        );
+
+        // And a plain room, which is only known as the child of a joined space,
+        // still reports its parent.
+        assert_eq!(
+            space_service.joined_parent_ids_of_child(child_room_id).await,
+            vec![child_space_id.to_owned()]
+        );
+
+        // And a top-level space has no parents at all.
+        assert!(space_service.joined_parent_ids_of_child(parent_space_id_1).await.is_empty());
+
+        // And neither does a room the graph doesn't know about.
+        assert!(
+            space_service
+                .joined_parent_ids_of_child(room_id!("!unknown_room:example.org"))
+                .await
+                .is_empty()
+        );
+    }
+
+    #[async_test]
+    async fn test_top_level_ancestors_of() {
+        // Given two top-level spaces sharing a subspace, which in turn contains a
+        // plain room.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let top_level_space_id_1 = room_id!("!top_level_space_1:example.org");
+        let top_level_space_id_2 = room_id!("!top_level_space_2:example.org");
+        let middle_space_id = room_id!("!middle_space:example.org");
+        let leaf_room_id = room_id!("!leaf_room:example.org");
+
+        add_space_rooms(
+            vec![
+                MockSpaceRoomParameters {
+                    room_id: top_level_space_id_1,
+                    order: None,
+                    parents: vec![],
+                    children: vec![middle_space_id],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: top_level_space_id_2,
+                    order: None,
+                    parents: vec![],
+                    children: vec![middle_space_id],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: middle_space_id,
+                    order: None,
+                    parents: vec![top_level_space_id_1, top_level_space_id_2],
+                    children: vec![leaf_room_id],
+                    power_level: None,
+                },
+            ],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
+
+        let space_service = SpaceService::new(client.clone()).await;
+
+        // Then a room several levels down resolves to both top-level spaces.
+        assert_eq!(
+            space_service.top_level_ancestors_of(leaf_room_id).await,
+            HashSet::from([top_level_space_id_1.to_owned(), top_level_space_id_2.to_owned()])
+        );
+
+        // And so does the subspace they share.
+        assert_eq!(
+            space_service.top_level_ancestors_of(middle_space_id).await,
+            HashSet::from([top_level_space_id_1.to_owned(), top_level_space_id_2.to_owned()])
+        );
+
+        // And a top-level space is its own only ancestor.
+        assert_eq!(
+            space_service.top_level_ancestors_of(top_level_space_id_1).await,
+            HashSet::from([top_level_space_id_1.to_owned()])
+        );
+
+        // And a room the graph doesn't know about has no ancestors, which is how it
+        // can be told apart from a top-level space.
+        assert!(
+            space_service
+                .top_level_ancestors_of(room_id!("!unknown_room:example.org"))
+                .await
+                .is_empty()
+        );
+    }
+
+    #[async_test]
+    async fn test_top_level_ancestors_of_cyclic_spaces() {
+        // Given two spaces that are each other's parent, which the homeserver
+        // doesn't prevent.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let space_id_1 = room_id!("!cycle_space_1:example.org");
+        let space_id_2 = room_id!("!cycle_space_2:example.org");
+
+        add_space_rooms(
+            vec![
+                MockSpaceRoomParameters {
+                    room_id: space_id_1,
+                    order: None,
+                    parents: vec![],
+                    children: vec![space_id_2],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: space_id_2,
+                    order: None,
+                    parents: vec![],
+                    children: vec![space_id_1],
+                    power_level: None,
+                },
+            ],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
+
+        let space_service = SpaceService::new(client.clone()).await;
+
+        // Then the walk terminates, on the cycle-free graph the service builds:
+        // one of the two back edges has been removed, leaving a single root that
+        // both spaces resolve to. Which of the two it is depends on the order the
+        // de-cycling happens to visit them in, which isn't part of the contract,
+        // so it isn't asserted here.
+        let ancestors_of_1 = space_service.top_level_ancestors_of(space_id_1).await;
+        let ancestors_of_2 = space_service.top_level_ancestors_of(space_id_2).await;
+
+        assert_eq!(ancestors_of_1.len(), 1);
+        assert_eq!(ancestors_of_1, ancestors_of_2);
+        let root = ancestors_of_1.iter().next().unwrap();
+        assert!([space_id_1, space_id_2].contains(&&**root));
     }
 
     #[async_test]
