@@ -585,6 +585,16 @@ impl EventCache {
             .await?;
         }
 
+        // Resolve in-memory UTDs on the specific-events caches.
+        {
+            try_join_all(all_caches.specific_events.read().await.iter().map(
+                |specific_events_cache| {
+                    specific_events_cache.replace_in_memory_utds(&maybe_resolved_events)
+                },
+            ))
+            .await?;
+        }
+
         let report =
             RedecryptorReport::ResolvedUtds { room_id: room_id.to_owned(), events: event_ids };
         let _ = self.inner.redecryption_channels.utd_reporter.send(report);
