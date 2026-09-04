@@ -135,9 +135,8 @@ async fn test_subscribe_to_to_device_messages_never_yields_internal_types() {
         .unwrap();
 
     let send_encrypted = async |event_type: &str, content: serde_json::Value| {
-        let synced = server
-            .mock_capture_put_to_device_then_sync_back(bob.user_id().unwrap(), &alice)
-            .await;
+        let synced =
+            server.mock_capture_put_to_device_then_sync_back(bob.user_id().unwrap(), &alice).await;
 
         bob.encryption()
             .encrypt_and_send_raw_to_device(
