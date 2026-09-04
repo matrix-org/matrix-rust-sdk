@@ -71,6 +71,7 @@ mod read_receipts;
 mod redaction;
 mod rtc;
 mod shields;
+mod thread;
 mod virt;
 
 /// A timeline instance used only for testing purposes in unit tests.
@@ -293,6 +294,14 @@ struct TestRoomDataProvider {
 
     /// Events redacted with that room data providier.
     pub redacted: Arc<RwLock<Vec<OwnedEventId>>>,
+
+    /// Events that can be loaded with [`RoomDataProvider::load_event`], by
+    /// event id. Configurable at construction, static for the lifetime of
+    /// the provider.
+    loadable_events: HashMap<OwnedEventId, TimelineEvent>,
+
+    /// Event ids requested via [`RoomDataProvider::load_event`], in order.
+    pub loaded_events: Arc<RwLock<Vec<OwnedEventId>>>,
 }
 
 impl TestRoomDataProvider {
@@ -303,6 +312,12 @@ impl TestRoomDataProvider {
 
     fn with_fully_read_marker(mut self, event_id: OwnedEventId) -> Self {
         self.fully_read_marker = Some(event_id);
+        self
+    }
+
+    fn with_loadable_event(mut self, event: TimelineEvent) -> Self {
+        let event_id = event.event_id().expect("a loadable event must have an event id");
+        self.loadable_events.insert(event_id.to_owned(), event);
         self
     }
 }
@@ -428,8 +443,12 @@ impl RoomDataProvider for TestRoomDataProvider {
         SharedObservable::new(info).subscribe()
     }
 
-    async fn load_event<'a>(&'a self, _event_id: &'a EventId) -> matrix_sdk::Result<TimelineEvent> {
-        unimplemented!();
+    async fn load_event<'a>(&'a self, event_id: &'a EventId) -> matrix_sdk::Result<TimelineEvent> {
+        self.loaded_events.write().await.push(event_id.to_owned());
+        self.loadable_events
+            .get(event_id)
+            .cloned()
+            .ok_or_else(|| matrix_sdk::Error::UnknownError("event not found".into()))
     }
 
     async fn load_or_fetch_event_with_relations<'a>(

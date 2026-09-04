@@ -679,21 +679,14 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         }
     }
 
-    // Attempt to load a thread's latest reply as an embedded timeline item, either
-    // using the event cache or the storage.
-    #[instrument(skip(self, room_data_provider))]
-    async fn fetch_latest_thread_reply(
-        &mut self,
-        event_id: &EventId,
+    /// Attempt to embed a thread's already-loaded latest reply as a timeline
+    /// item. The caller loads the event once and shares it with the receipt
+    /// computation, as each load can be a store lookup or a network round trip.
+    async fn embed_latest_thread_reply(
+        &self,
+        event: TimelineEvent,
         room_data_provider: &P,
     ) -> Option<Box<EmbeddedEvent>> {
-        let event = RoomDataProvider::load_event(room_data_provider, event_id)
-            .await
-            .inspect_err(|err| {
-                warn!("Failed to load thread latest event: {err}");
-            })
-            .ok()?;
-
         EmbeddedEvent::try_from_timeline_event(event, room_data_provider, &self.meta)
             .await
             .inspect_err(|err| {
@@ -710,6 +703,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         &self,
         event: &TimelineEvent,
         summary: &SdkThreadSummary,
+        latest_reply_event: Option<&TimelineEvent>,
         room_data_provider: &P,
         settings: &TimelineSettings,
     ) -> (Option<OwnedEventId>, Option<OwnedEventId>) {
@@ -724,21 +718,24 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         // As an exception to handle the latest "implicit" read receipt (which is the
         // latest event sent by the user): if the latest event has been sent by
         // the current user, then we consider that as a read receipt.
-        #[allow(clippy::collapsible_if)] // clippy has poor taste
-        if let Some(ref latest_reply) = summary.latest_reply {
-            if let Ok(event) = RoomDataProvider::load_event(room_data_provider, latest_reply)
-                .await
-                .inspect_err(|err| {
-                    warn!("Failed to load thread latest event: {err}");
-                })
+        //
+        // The latest reply is loaded once by the caller (it also feeds the
+        // embedded reply preview); loading it here again doubled the loads for
+        // every thread root in the timeline.
+        if let (Some(latest_reply), Some(event)) =
+            (summary.latest_reply.as_ref(), latest_reply_event)
+        {
+            // The caller is trusted to have loaded exactly `summary.latest_reply`,
+            // but that pairing is no longer visible here. Verify it rather than
+            // assume: the wrong event would attribute the implicit receipt to
+            // another sender.
+            if event.event_id() != Some(latest_reply.as_ref()) {
+                warn!("thread latest reply event does not match the summary; ignoring it");
+            } else if let Some(sender) = event.sender()
+                && sender == self.meta.own_user_id
             {
-                // Parse the sender.
-                if let Some(sender) = event.sender()
-                    && sender == self.meta.own_user_id
-                {
-                    let latest = Some(latest_reply.clone());
-                    return (latest.clone(), latest);
-                }
+                let latest = Some(latest_reply.clone());
+                return (latest.clone(), latest);
             }
         }
 
@@ -790,15 +787,35 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             event.push_actions().is_some_and(|actions| actions.iter().any(Action::is_highlight));
 
         let thread_summary = if let ThreadSummaryStatus::Some(ref summary) = event.thread_summary {
-            let latest_reply_item = if let Some(ref latest_reply) = summary.latest_reply {
-                self.fetch_latest_thread_reply(latest_reply, room_data_provider).await
+            // Load the latest reply once; both the embedded preview and the
+            // implicit-receipt computation need it, and each load can be a
+            // store lookup or a network round trip.
+            let latest_reply_event = if let Some(ref latest_reply) = summary.latest_reply {
+                RoomDataProvider::load_event(room_data_provider, latest_reply)
+                    .await
+                    .inspect_err(|err| {
+                        warn!("Failed to load thread latest event: {err}");
+                    })
+                    .ok()
             } else {
                 None
             };
 
             let (own_thread_public_receipt, own_thread_private_receipt) = self
-                .compute_summary_thread_receipts(&event, summary, room_data_provider, settings)
+                .compute_summary_thread_receipts(
+                    &event,
+                    summary,
+                    latest_reply_event.as_ref(),
+                    room_data_provider,
+                    settings,
+                )
                 .await;
+
+            let latest_reply_item = if let Some(latest_reply_event) = latest_reply_event {
+                self.embed_latest_thread_reply(latest_reply_event, room_data_provider).await
+            } else {
+                None
+            };
 
             Some(ThreadSummary {
                 latest_event: TimelineDetails::from_initial_value(latest_reply_item),
