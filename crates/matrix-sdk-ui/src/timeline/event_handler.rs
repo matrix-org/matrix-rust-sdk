@@ -44,8 +44,8 @@ use tracing::{debug, error, field::debug, instrument, trace, warn};
 
 use super::{
     BeaconInfo, EmbeddedEvent, EncryptedMessage, EventTimelineItem, InReplyToDetails,
-    LiveLocationState, MsgLikeContent, MsgLikeKind, OtherState, ReactionStatus, Sticker,
-    ThreadSummary, TimelineDetails, TimelineItem, TimelineItemContent,
+    LiveLocationState, MsgLikeContent, MsgLikeKind, OtherState, Sticker, ThreadSummary,
+    TimelineDetails, TimelineItem, TimelineItemContent,
     controller::{
         Aggregation, AggregationKind, ObservableItemsTransaction, PendingEditKind,
         TimelineMetadata, TimelineStateTransaction, find_item_and_apply_aggregation,
@@ -60,7 +60,9 @@ use super::{
 };
 use crate::{
     timeline::{
-        TimelineUniqueId, algorithms::rfind_event_item, controller::aggregations::PendingEdit,
+        TimelineUniqueId,
+        algorithms::rfind_event_item,
+        controller::aggregations::{AggregationSendHandle, PendingEdit},
         event_item::OtherMessageLike,
     },
     unable_to_decrypt_hook::UtdHookManager,
@@ -732,7 +734,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     fn new_aggregation(&self, kind: AggregationKind) -> Aggregation {
         let own_id = self.ctx.flow.timeline_item_id();
         match &self.ctx.flow {
-            Flow::Local { .. } => Aggregation::new_local(own_id, kind),
+            Flow::Local { send_handle, .. } => Aggregation::new_local(
+                own_id,
+                kind,
+                send_handle.clone().map(AggregationSendHandle::Event),
+            ),
             Flow::Remote { .. } => Aggregation::new(own_id, kind),
         }
     }
@@ -777,23 +783,10 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     fn handle_reaction(&mut self, relates_to: OwnedEventId, reaction_key: String) {
         let target = TimelineEventItemId::EventId(relates_to);
 
-        // Add the aggregation to the manager.
-        let reaction_status = match &self.ctx.flow {
-            Flow::Local { send_handle, .. } => {
-                // This is a local echo for a reaction to a remote event.
-                ReactionStatus::LocalToRemote(send_handle.clone())
-            }
-            Flow::Remote { event_id, .. } => {
-                // This is the remote echo for a reaction to a remote event.
-                ReactionStatus::RemoteToRemote(event_id.clone())
-            }
-        };
-
         let aggregation = self.new_aggregation(AggregationKind::Reaction {
             key: reaction_key,
             sender: self.ctx.sender.clone(),
             timestamp: self.ctx.timestamp,
-            reaction_status,
         });
 
         self.meta.aggregations.add(target.clone(), aggregation.clone());

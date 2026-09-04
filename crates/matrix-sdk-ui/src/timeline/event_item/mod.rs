@@ -22,7 +22,7 @@ use indexmap::IndexMap;
 use matrix_sdk::{
     Error, Room,
     deserialized_responses::{EncryptionInfo, ShieldState},
-    send_queue::{SendHandle, SendReactionHandle},
+    send_queue::SendHandle,
 };
 use matrix_sdk_base::deserialized_responses::ShieldStateCode;
 #[cfg(feature = "unstable-msc4426")]
@@ -802,29 +802,13 @@ pub enum EventItemOrigin {
     Cache,
 }
 
-/// What's the status of a reaction?
-#[derive(Clone, Debug)]
-pub enum ReactionStatus {
-    /// It's a local reaction to a local echo.
-    ///
-    /// The handle is missing only in testing contexts.
-    LocalToLocal(Option<SendReactionHandle>),
-    /// It's a local reaction to a remote event.
-    ///
-    /// The handle is missing only in testing contexts.
-    LocalToRemote(Option<SendHandle>),
-    /// It's a remote reaction to a remote event.
-    ///
-    /// The event id is that of the reaction event (not the target event).
-    RemoteToRemote(OwnedEventId),
-}
-
 /// Information about a single reaction stored in [`ReactionsByKeyBySender`].
 #[derive(Clone, Debug)]
 pub struct ReactionInfo {
     pub timestamp: MilliSecondsSinceUnixEpoch,
-    /// Current status of this reaction.
-    pub status: ReactionStatus,
+    /// Send state of the reaction when it's one of our own local echoes;
+    /// `None` when it came from the server.
+    pub send_state: Option<EventSendState>,
 }
 
 /// Reactions grouped by key first, then by sender.

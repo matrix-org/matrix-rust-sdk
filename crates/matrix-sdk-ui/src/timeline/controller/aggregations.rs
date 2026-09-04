@@ -39,9 +39,13 @@
 
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
-use matrix_sdk::{check_validity_of_replacement_events, deserialized_responses::EncryptionInfo};
+use matrix_sdk::{
+    check_validity_of_replacement_events,
+    deserialized_responses::EncryptionInfo,
+    send_queue::{RoomSendQueueStorageError, SendHandle, SendReactionHandle, SendRedactionHandle},
+};
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
     events::{
         AnySyncTimelineEvent, beacon_info::BeaconInfoEventContent,
         poll::unstable_start::NewUnstablePollStartEventContentWithoutRelation,
@@ -55,8 +59,8 @@ use tracing::{error, info, trace, warn};
 use super::{ObservableItemsTransaction, rfind_event_by_item_id};
 use crate::timeline::{
     BeaconInfo, EventSendState, EventTimelineItem, LiveLocationState, MsgLikeContent, MsgLikeKind,
-    PollState, ReactionInfo, ReactionStatus, TimelineEventItemId, TimelineItem,
-    TimelineItemContent, event_item::beacon_info_matches,
+    PollState, ReactionInfo, TimelineEventItemId, TimelineItem, TimelineItemContent,
+    event_item::beacon_info_matches,
 };
 
 #[derive(Clone)]
@@ -120,9 +124,6 @@ pub(crate) enum AggregationKind {
         sender: OwnedUserId,
         /// Timestamp at which the reaction has been sent.
         timestamp: MilliSecondsSinceUnixEpoch,
-        /// The send status of the reaction this is, with handles to abort it if
-        /// we can, etc.
-        reaction_status: ReactionStatus,
     },
 
     /// An event has been redacted.
@@ -159,6 +160,27 @@ pub(crate) enum AggregationKind {
     },
 }
 
+/// The handle to abort an aggregation while it's still a local echo.
+#[derive(Clone, Debug)]
+pub(crate) enum AggregationSendHandle {
+    /// The aggregation was queued as a regular event.
+    Event(SendHandle),
+    /// A reaction to a local echo, queued as a child request of that echo.
+    Reaction(SendReactionHandle),
+    /// A redaction, queued as a dedicated request.
+    Redaction(SendRedactionHandle),
+}
+
+impl AggregationSendHandle {
+    pub async fn abort(&self) -> Result<bool, RoomSendQueueStorageError> {
+        match self {
+            Self::Event(handle) => handle.abort().await,
+            Self::Reaction(handle) => handle.abort().await,
+            Self::Redaction(handle) => handle.abort().await,
+        }
+    }
+}
+
 /// An aggregation is an event related to another event (for instance a
 /// reaction, a poll's response, etc.).
 ///
@@ -178,6 +200,9 @@ pub(crate) struct Aggregation {
     /// `None` when the aggregation came from the server; `Some` for one of our
     /// local echoes, with the same states as a standalone local event.
     pub send_state: Option<EventSendState>,
+
+    /// Lets one of our local echoes be aborted while it's still pending.
+    pub send_handle: Option<AggregationSendHandle>,
 }
 
 /// Get the poll state from a given [`TimelineItemContent`].
@@ -237,12 +262,21 @@ fn rtc_notification_declinations_from_item<'a>(
 impl Aggregation {
     /// Create an aggregation received from the server.
     pub fn new(own_id: TimelineEventItemId, kind: AggregationKind) -> Self {
-        Self { kind, own_id, send_state: None }
+        Self { kind, own_id, send_state: None, send_handle: None }
     }
 
     /// Create an aggregation for one of our local echoes.
-    pub fn new_local(own_id: TimelineEventItemId, kind: AggregationKind) -> Self {
-        Self { kind, own_id, send_state: Some(EventSendState::NotSentYet { progress: None }) }
+    pub fn new_local(
+        own_id: TimelineEventItemId,
+        kind: AggregationKind,
+        send_handle: Option<AggregationSendHandle>,
+    ) -> Self {
+        Self {
+            kind,
+            own_id,
+            send_state: Some(EventSendState::NotSentYet { progress: None }),
+            send_handle,
+        }
     }
 
     /// Whether this is one of our local echoes that hasn't been sent yet.
@@ -299,7 +333,7 @@ impl Aggregation {
                 Err(err) => ApplyAggregationResult::Error(err),
             },
 
-            AggregationKind::Reaction { key, sender, timestamp, reaction_status } => {
+            AggregationKind::Reaction { key, sender, timestamp } => {
                 let Some(reactions) = event.content().reactions() else {
                     // An item that can't hold any reactions.
                     return ApplyAggregationResult::LeftItemIntact;
@@ -307,24 +341,10 @@ impl Aggregation {
 
                 let previous_reaction = reactions.get(key).and_then(|by_user| by_user.get(sender));
 
-                // If the reaction was already added to the item, we don't need to add it back.
-                //
-                // Search for a previous reaction that would be equivalent.
-
+                // Same reaction, same origin: already applied.
                 let is_same = previous_reaction.is_some_and(|prev| {
                     prev.timestamp == *timestamp
-                        && matches!(
-                            (&prev.status, reaction_status),
-                            (ReactionStatus::LocalToLocal(_), ReactionStatus::LocalToLocal(_))
-                                | (
-                                    ReactionStatus::LocalToRemote(_),
-                                    ReactionStatus::LocalToRemote(_),
-                                )
-                                | (
-                                    ReactionStatus::RemoteToRemote(_),
-                                    ReactionStatus::RemoteToRemote(_),
-                                )
-                        )
+                        && same_send_state_kind(prev.send_state.as_ref(), self.send_state.as_ref())
                 });
 
                 if is_same {
@@ -338,7 +358,7 @@ impl Aggregation {
 
                     reactions.entry(key.clone()).or_default().insert(
                         sender.clone(),
-                        ReactionInfo { timestamp: *timestamp, status: reaction_status.clone() },
+                        ReactionInfo { timestamp: *timestamp, send_state: self.send_state.clone() },
                     );
 
                     ApplyAggregationResult::UpdatedItem
@@ -784,7 +804,7 @@ impl Aggregations {
             && let Some(found) = aggregations.iter_mut().find(|agg| agg.own_id == from)
         {
             found.own_id = to.clone();
-            found.send_state = Some(EventSendState::Sent { event_id: event_id.clone() });
+            found.send_state = Some(EventSendState::Sent { event_id });
 
             match &mut found.kind {
                 AggregationKind::PollResponse { .. }
@@ -802,11 +822,8 @@ impl Aggregations {
                     find_item_and_apply_aggregation(self, items, &target, found, rules);
                 }
 
-                AggregationKind::Reaction { reaction_status, .. } => {
-                    // Mark the reaction as becoming remote, and signal that update to the
-                    // caller.
-                    *reaction_status = ReactionStatus::RemoteToRemote(event_id);
-
+                AggregationKind::Reaction { .. } => {
+                    // Reflect the sent state on the item.
                     let found = found.clone();
                     find_item_and_apply_aggregation(self, items, &target, found, rules);
                 }
@@ -821,6 +838,19 @@ impl Aggregations {
     /// aggregation.
     pub fn is_aggregation_of(&self, item: &TimelineEventItemId) -> Option<&TimelineEventItemId> {
         self.inverted_map.get(item)
+    }
+
+    /// Find the latest reaction with the given key sent by `sender` on
+    /// `target`.
+    pub fn find_reaction(
+        &self,
+        target: &TimelineEventItemId,
+        key: &str,
+        sender: &UserId,
+    ) -> Option<&Aggregation> {
+        self.related_events.get(target)?.iter().rev().find(|agg| {
+            matches!(&agg.kind, AggregationKind::Reaction { key: k, sender: s, .. } if k == key && s == sender)
+        })
     }
 }
 
@@ -997,6 +1027,16 @@ fn edit_item(
     }
 
     true
+}
+
+/// Whether two optional send states are of the same kind (ignoring their
+/// payload, e.g. upload progress).
+fn same_send_state_kind(a: Option<&EventSendState>, b: Option<&EventSendState>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => std::mem::discriminant(a) == std::mem::discriminant(b),
+        _ => false,
+    }
 }
 
 /// Find an item identified by the target identifier, and apply the aggregation

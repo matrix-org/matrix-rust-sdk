@@ -29,7 +29,7 @@ use stream_assert::{assert_next_matches, assert_pending};
 use tokio::time::timeout;
 
 use crate::timeline::{
-    ReactionStatus, TimelineEventItemId, TimelineItem, event_item::RemoteEventOrigin,
+    EventSendState, TimelineEventItemId, TimelineItem, event_item::RemoteEventOrigin,
     tests::TestTimeline,
 };
 
@@ -70,11 +70,11 @@ macro_rules! assert_reaction_is_updated {
         let reactions = event.content().reactions().cloned().unwrap_or_default();
         let reactions = reactions.get(&REACTION_KEY.to_owned()).unwrap();
         let reaction = reactions.get(*ALICE).unwrap();
-        match reaction.status {
-            ReactionStatus::LocalToRemote(_) | ReactionStatus::LocalToLocal(_) => {
+        match &reaction.send_state {
+            Some(EventSendState::NotSentYet { .. } | EventSendState::SendingFailed { .. }) => {
                 assert!(!$is_remote_echo)
             }
-            ReactionStatus::RemoteToRemote(_) => assert!($is_remote_echo),
+            Some(EventSendState::Sent { .. }) | None => assert!($is_remote_echo),
         };
         event
     }};

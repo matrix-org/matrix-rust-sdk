@@ -55,9 +55,8 @@ use matrix_sdk_ui::{
     room_list_service::RoomListLoadingState,
     sync_service::SyncService,
     timeline::{
-        EventSendState, EventTimelineItem, ReactionStatus, RoomExt, TimelineBuilder,
-        TimelineDetails, TimelineEventFocusThreadMode, TimelineEventItemId, TimelineFocus,
-        TimelineItem,
+        EventSendState, EventTimelineItem, RoomExt, TimelineBuilder, TimelineDetails,
+        TimelineEventFocusThreadMode, TimelineEventItemId, TimelineFocus, TimelineItem,
     },
 };
 use similar_asserts::assert_eq;
@@ -205,13 +204,12 @@ async fn test_toggling_reaction() -> Result<()> {
             let reactions = event.content().reactions().cloned().unwrap_or_default();
             let reactions = reactions.get(&reaction_key).unwrap();
             let reaction = reactions.get(&user_id).unwrap();
-            assert_matches!(reaction.status, ReactionStatus::LocalToRemote(..));
+            assert_matches!(reaction.send_state, Some(EventSendState::NotSentYet { .. }));
         }
 
-        // Remote echo is added twice: one from the Send Queue because the event is sent
-        // and inserted in the Event Cache and one from the Event Cache via the sync.
-        // The difference is it gets a read receipt, that's why we get a second update.
-        for timeline_update in timeline_updates.iter().skip(1) {
+        // Then the reaction is marked as sent, and its remote echo, inserted in the
+        // Event Cache by the Send Queue, replaces it.
+        for (i, timeline_update) in timeline_updates.iter().enumerate().skip(1) {
             let event = assert_event_is_updated!(timeline_update, event_id, message_position);
 
             let reactions = event.content().reactions().cloned().unwrap_or_default();
@@ -219,7 +217,11 @@ async fn test_toggling_reaction() -> Result<()> {
             assert_eq!(reactions.keys().count(), 1);
 
             let reaction = reactions.get(&user_id).unwrap();
-            assert_matches!(reaction.status, ReactionStatus::RemoteToRemote(..));
+            if i == 1 {
+                assert_matches!(reaction.send_state, Some(EventSendState::Sent { .. }));
+            } else {
+                assert_matches!(reaction.send_state, None);
+            }
 
             // Remote event should have a timestamp <= than now.
             // Note: this can actually be equal because if the timestamp from
