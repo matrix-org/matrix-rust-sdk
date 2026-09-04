@@ -33,13 +33,14 @@ use ruma::{
 };
 use tracing::{error, trace};
 
-use crate::DEFAULT_SANITIZER_MODE;
+use crate::{DEFAULT_SANITIZER_MODE, timeline::EventSendState};
 
 /// An `m.room.message` event or extensible event, including edits.
 #[derive(Clone)]
 pub struct Message {
     pub(in crate::timeline) msgtype: MessageType,
     pub(in crate::timeline) edited: bool,
+    pub(in crate::timeline) edit_send_state: Option<EventSendState>,
     pub(in crate::timeline) mentions: Option<Mentions>,
 }
 
@@ -53,7 +54,7 @@ impl Message {
     ) -> Self {
         msgtype.sanitize(DEFAULT_SANITIZER_MODE, remove_reply_fallback);
 
-        let mut ret = Self { msgtype, edited: false, mentions };
+        let mut ret = Self { msgtype, edited: false, edit_send_state: None, mentions };
 
         if let Some(edit) = edit {
             ret.apply_edit(edit);
@@ -88,6 +89,13 @@ impl Message {
     /// `false`).
     pub fn is_edited(&self) -> bool {
         self.edited
+    }
+
+    /// Send state of our own pending edits of this message: a failed edit wins
+    /// over a pending one, which wins over a sent one. `None` when there is no
+    /// local edit.
+    pub fn edit_send_state(&self) -> Option<&EventSendState> {
+        self.edit_send_state.as_ref()
     }
 
     /// Get the mentions of this message.
@@ -170,7 +178,7 @@ pub(crate) fn extract_poll_edit_content(
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { msgtype: _, edited, mentions: _ } = self;
+        let Self { msgtype: _, edited, edit_send_state: _, mentions: _ } = self;
         // since timeline items are logged, don't include all fields here so
         // people don't leak personal data in bug reports
         f.debug_struct("Message").field("edited", edited).finish_non_exhaustive()

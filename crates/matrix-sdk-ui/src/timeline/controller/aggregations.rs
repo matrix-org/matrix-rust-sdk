@@ -39,9 +39,14 @@
 
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
-use matrix_sdk::{check_validity_of_replacement_events, deserialized_responses::EncryptionInfo};
+use as_variant::as_variant;
+use matrix_sdk::{
+    check_validity_of_replacement_events,
+    deserialized_responses::EncryptionInfo,
+    send_queue::{RoomSendQueueStorageError, SendHandle, SendReactionHandle, SendRedactionHandle},
+};
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
     events::{
         AnySyncTimelineEvent, beacon_info::BeaconInfoEventContent,
         poll::unstable_start::NewUnstablePollStartEventContentWithoutRelation,
@@ -54,8 +59,8 @@ use tracing::{error, info, trace, warn};
 
 use super::{ObservableItemsTransaction, rfind_event_by_item_id};
 use crate::timeline::{
-    BeaconInfo, EventTimelineItem, LiveLocationState, MsgLikeContent, MsgLikeKind, PollState,
-    ReactionInfo, ReactionStatus, TimelineEventItemId, TimelineItem, TimelineItemContent,
+    BeaconInfo, EventSendState, EventTimelineItem, LiveLocationState, MsgLikeContent, MsgLikeKind,
+    PollState, ReactionInfo, TimelineEventItemId, TimelineItem, TimelineItemContent,
     event_item::beacon_info_matches,
 };
 
@@ -120,18 +125,13 @@ pub(crate) enum AggregationKind {
         sender: OwnedUserId,
         /// Timestamp at which the reaction has been sent.
         timestamp: MilliSecondsSinceUnixEpoch,
-        /// The send status of the reaction this is, with handles to abort it if
-        /// we can, etc.
-        reaction_status: ReactionStatus,
     },
 
     /// An event has been redacted.
-    Redaction {
-        /// Whether this aggregation results from the local echo of a redaction.
-        /// Local echoes of redactions are applied reversibly whereas remote
-        /// echoes of redactions are applied irreversibly.
-        is_local: bool,
-    },
+    ///
+    /// Our own pending redactions are applied reversibly, sent or remote ones
+    /// irreversibly; see [`Aggregation::is_local`].
+    Redaction,
 
     /// An event has been edited.
     ///
@@ -161,6 +161,27 @@ pub(crate) enum AggregationKind {
     },
 }
 
+/// The handle to abort an aggregation while it's still a local echo.
+#[derive(Clone, Debug)]
+pub(crate) enum AggregationSendHandle {
+    /// The aggregation was queued as a regular event.
+    Event(SendHandle),
+    /// A reaction to a local echo, queued as a child request of that echo.
+    Reaction(SendReactionHandle),
+    /// A redaction, queued as a dedicated request.
+    Redaction(SendRedactionHandle),
+}
+
+impl AggregationSendHandle {
+    pub async fn abort(&self) -> Result<bool, RoomSendQueueStorageError> {
+        match self {
+            Self::Event(handle) => handle.abort().await,
+            Self::Reaction(handle) => handle.abort().await,
+            Self::Redaction(handle) => handle.abort().await,
+        }
+    }
+}
+
 /// An aggregation is an event related to another event (for instance a
 /// reaction, a poll's response, etc.).
 ///
@@ -176,6 +197,13 @@ pub(crate) struct Aggregation {
     /// and it will transition into an event id when the aggregation is a
     /// remote echo (i.e. has been received in a sync response):
     pub own_id: TimelineEventItemId,
+
+    /// `None` when the aggregation came from the server; `Some` for one of our
+    /// local echoes, with the same states as a standalone local event.
+    pub send_state: Option<EventSendState>,
+
+    /// Lets one of our local echoes be aborted while it's still pending.
+    pub send_handle: Option<AggregationSendHandle>,
 }
 
 /// Get the poll state from a given [`TimelineItemContent`].
@@ -233,9 +261,28 @@ fn rtc_notification_declinations_from_item<'a>(
 }
 
 impl Aggregation {
-    /// Create a new [`Aggregation`].
+    /// Create an aggregation received from the server.
     pub fn new(own_id: TimelineEventItemId, kind: AggregationKind) -> Self {
-        Self { kind, own_id }
+        Self { kind, own_id, send_state: None, send_handle: None }
+    }
+
+    /// Create an aggregation for one of our local echoes.
+    pub fn new_local(
+        own_id: TimelineEventItemId,
+        kind: AggregationKind,
+        send_handle: Option<AggregationSendHandle>,
+    ) -> Self {
+        Self {
+            kind,
+            own_id,
+            send_state: Some(EventSendState::NotSentYet { progress: None }),
+            send_handle,
+        }
+    }
+
+    /// Whether this is one of our local echoes that hasn't been sent yet.
+    pub fn is_local(&self) -> bool {
+        !matches!(self.send_state, None | Some(EventSendState::Sent { .. }))
     }
 
     /// Apply an aggregation in-place to a given [`TimelineItemContent`].
@@ -262,15 +309,23 @@ impl Aggregation {
                 }
             }
 
-            AggregationKind::Redaction { is_local } => {
+            AggregationKind::Redaction => {
+                let is_local = self.is_local();
                 let is_local_redacted =
                     event.content().is_redacted() && event.unredacted_item.is_some();
                 let is_remote_redacted =
                     event.content().is_redacted() && event.unredacted_item.is_none();
-                if *is_local && is_local_redacted || !*is_local && is_remote_redacted {
-                    ApplyAggregationResult::LeftItemIntact
+                if is_local && is_local_redacted || !is_local && is_remote_redacted {
+                    if event.redaction_send_state.is_some() && self.send_state.is_none() {
+                        // The remote echo of a redaction we sent: nothing pending anymore.
+                        event.to_mut().redaction_send_state = None;
+                        ApplyAggregationResult::UpdatedItem
+                    } else {
+                        ApplyAggregationResult::LeftItemIntact
+                    }
                 } else {
-                    let new_item = event.redact(&rules.redaction, *is_local);
+                    let mut new_item = event.redact(&rules.redaction, is_local);
+                    new_item.redaction_send_state = self.send_state.clone();
                     *event = Cow::Owned(new_item);
                     ApplyAggregationResult::UpdatedItem
                 }
@@ -286,7 +341,7 @@ impl Aggregation {
                 Err(err) => ApplyAggregationResult::Error(err),
             },
 
-            AggregationKind::Reaction { key, sender, timestamp, reaction_status } => {
+            AggregationKind::Reaction { key, sender, timestamp } => {
                 let Some(reactions) = event.content().reactions() else {
                     // An item that can't hold any reactions.
                     return ApplyAggregationResult::LeftItemIntact;
@@ -294,24 +349,10 @@ impl Aggregation {
 
                 let previous_reaction = reactions.get(key).and_then(|by_user| by_user.get(sender));
 
-                // If the reaction was already added to the item, we don't need to add it back.
-                //
-                // Search for a previous reaction that would be equivalent.
-
+                // Same reaction, same origin: already applied.
                 let is_same = previous_reaction.is_some_and(|prev| {
                     prev.timestamp == *timestamp
-                        && matches!(
-                            (&prev.status, reaction_status),
-                            (ReactionStatus::LocalToLocal(_), ReactionStatus::LocalToLocal(_))
-                                | (
-                                    ReactionStatus::LocalToRemote(_),
-                                    ReactionStatus::LocalToRemote(_),
-                                )
-                                | (
-                                    ReactionStatus::RemoteToRemote(_),
-                                    ReactionStatus::RemoteToRemote(_),
-                                )
-                        )
+                        && same_send_state_kind(prev.send_state.as_ref(), self.send_state.as_ref())
                 });
 
                 if is_same {
@@ -325,7 +366,7 @@ impl Aggregation {
 
                     reactions.entry(key.clone()).or_default().insert(
                         sender.clone(),
-                        ReactionInfo { timestamp: *timestamp, status: reaction_status.clone() },
+                        ReactionInfo { timestamp: *timestamp, send_state: self.send_state.clone() },
                     );
 
                     ApplyAggregationResult::UpdatedItem
@@ -395,8 +436,8 @@ impl Aggregation {
                 ApplyAggregationResult::Error(AggregationError::CantUndoPollEnd)
             }
 
-            AggregationKind::Redaction { is_local } => {
-                if *is_local {
+            AggregationKind::Redaction => {
+                if self.is_local() {
                     if event.unredacted_item.is_some() {
                         // Unapply local redaction.
                         *event = Cow::Owned(event.unredact());
@@ -468,6 +509,50 @@ impl Aggregation {
                 // One cannot un-decline a call
                 ApplyAggregationResult::Error(AggregationError::CantUndoRtcDecline)
             }
+        }
+    }
+
+    /// Reflect this aggregation's send state on the item it applies to,
+    /// without reapplying its content. Returns whether the item changed.
+    fn apply_send_state(
+        &self,
+        siblings: &[Aggregation],
+        event: &mut Cow<'_, EventTimelineItem>,
+    ) -> bool {
+        match &self.kind {
+            AggregationKind::Reaction { key, sender, .. } => {
+                let has_entry = event
+                    .content()
+                    .reactions()
+                    .and_then(|reactions| reactions.get(key)?.get(sender))
+                    .is_some();
+                if !has_entry {
+                    return false;
+                }
+                let reactions =
+                    event.to_mut().content_mut().reactions_mut().expect("reactions was Some above");
+                if let Some(info) =
+                    reactions.get_mut(key).and_then(|by_user| by_user.get_mut(sender))
+                {
+                    info.send_state = self.send_state.clone();
+                }
+                true
+            }
+
+            AggregationKind::Edit(_) => {
+                event.to_mut().content_mut().set_edit_send_state(edit_send_state(siblings))
+            }
+
+            AggregationKind::Redaction => {
+                event.to_mut().redaction_send_state = self.send_state.clone();
+                true
+            }
+
+            AggregationKind::PollResponse { .. }
+            | AggregationKind::PollEnd { .. }
+            | AggregationKind::BeaconUpdate { .. }
+            | AggregationKind::BeaconStop { .. }
+            | AggregationKind::CallDeclined { .. } => false,
         }
     }
 }
@@ -549,7 +634,7 @@ impl Aggregations {
     pub fn add(&mut self, related_to: TimelineEventItemId, aggregation: Aggregation) {
         // If the aggregation is a redaction, it invalidates all the other aggregations;
         // remove them.
-        if matches!(aggregation.kind, AggregationKind::Redaction { .. }) {
+        if matches!(aggregation.kind, AggregationKind::Redaction) {
             for agg in self.related_events.remove(&related_to).unwrap_or_default() {
                 self.inverted_map.remove(&agg.own_id);
             }
@@ -560,7 +645,7 @@ impl Aggregations {
         if let Some(previous_aggregations) = self.related_events.get(&related_to)
             && previous_aggregations
                 .iter()
-                .any(|agg| matches!(agg.kind, AggregationKind::Redaction { .. }))
+                .any(|agg| matches!(agg.kind, AggregationKind::Redaction))
         {
             return;
         }
@@ -575,7 +660,7 @@ impl Aggregations {
         //    event.
         // 3. The remote echo received via sync.
         //
-        // The transition from states 1 to 2 is handled in `mark_aggregation_as_sent()`.
+        // The transition from states 1 to 2 is handled in `update_send_state()`.
         // So here we need to handle the transition from states 2 to 3. We need to
         // replace the local echo by the remote echo, which might have more data, like
         // the raw JSON.
@@ -646,19 +731,18 @@ impl Aggregations {
                 }
                 ApplyAggregationResult::Edit => {
                     // This edit has been removed; try to find another that still applies.
-                    if let Some(aggregations) = self.related_events.get(found) {
-                        if resolve_edits(aggregations, items, &mut cowed) {
-                            items.replace(
-                                item_pos,
-                                TimelineItem::new(cowed.into_owned(), item.internal_id.to_owned()),
-                            );
-                        } else {
-                            // No other edit was found, leave the item as is.
-                            // TODO likely need to change the item to indicate
-                            // it's been un-edited etc.
-                        }
-                    } else {
-                        // No other edits apply.
+                    let resolved = self
+                        .related_events
+                        .get(found)
+                        .is_some_and(|aggregations| resolve_edits(aggregations, items, &mut cowed));
+                    // Otherwise nothing is pending anymore.
+                    // TODO likely need to change the item to indicate
+                    // it's been un-edited etc.
+                    if resolved || cowed.to_mut().content_mut().set_edit_send_state(None) {
+                        items.replace(
+                            item_pos,
+                            TimelineItem::new(cowed.into_owned(), item.internal_id.to_owned()),
+                        );
                     }
                 }
             }
@@ -746,62 +830,86 @@ impl Aggregations {
         }
     }
 
-    /// Mark an aggregation event as being sent (i.e. it transitions from an
-    /// local transaction id to its remote event id counterpart), by
-    /// updating the internal mappings.
+    /// Update the send state of one of our local aggregations, identified by
+    /// its transaction id, and reflect it on the item it applies to.
     ///
-    /// When an aggregation has been marked as sent, it may need to be reapplied
-    /// to the corresponding [`TimelineItemContent`]; this is why we're also
-    /// passing the context to apply an aggregation here.
-    pub fn mark_aggregation_as_sent(
+    /// Returns `false` if no aggregation has this transaction id.
+    pub fn update_send_state(
         &mut self,
         txn_id: OwnedTransactionId,
-        event_id: OwnedEventId,
+        send_state: EventSendState,
         items: &mut ObservableItemsTransaction<'_>,
         rules: &RoomVersionRules,
     ) -> bool {
         let from = TimelineEventItemId::TransactionId(txn_id);
-        let to = TimelineEventItemId::EventId(event_id.clone());
 
-        let Some(target) = self.inverted_map.remove(&from) else {
+        let Some(target) = self.inverted_map.get(&from).cloned() else {
             return false;
         };
 
-        if let Some(aggregations) = self.related_events.get_mut(&target)
-            && let Some(found) = aggregations.iter_mut().find(|agg| agg.own_id == from)
-        {
-            found.own_id = to.clone();
+        let sent_event_id =
+            as_variant!(&send_state, EventSendState::Sent { event_id } => event_id.clone());
 
-            match &mut found.kind {
-                AggregationKind::PollResponse { .. }
-                | AggregationKind::PollEnd { .. }
-                | AggregationKind::Edit(..)
-                | AggregationKind::BeaconUpdate { .. }
-                | AggregationKind::BeaconStop { .. }
-                | AggregationKind::CallDeclined { .. } => {
-                    // Nothing particular to do.
+        if let Some(event_id) = &sent_event_id {
+            let to = TimelineEventItemId::EventId(event_id.clone());
+            let remote_echo_received = self
+                .related_events
+                .get(&target)
+                .is_some_and(|aggs| aggs.iter().any(|agg| agg.own_id == to));
+            if remote_echo_received {
+                // The remote echo got there first: forget the local echo and let the remote
+                // one settle the item.
+                let remote = self.related_events.get_mut(&target).and_then(|aggs| {
+                    aggs.retain(|agg| agg.own_id != from);
+                    aggs.iter().find(|agg| agg.own_id == to).cloned()
+                });
+                self.inverted_map.remove(&from);
+                if let Some(remote) = remote {
+                    find_item_and_apply_aggregation(self, items, &target, remote, rules);
                 }
-
-                AggregationKind::Redaction { is_local } => {
-                    // Mark the redaction as being remote and apply it (irreversibly).
-                    *is_local = false;
-
-                    let found = found.clone();
-                    find_item_and_apply_aggregation(self, items, &target, found, rules);
-                }
-
-                AggregationKind::Reaction { reaction_status, .. } => {
-                    // Mark the reaction as becoming remote, and signal that update to the
-                    // caller.
-                    *reaction_status = ReactionStatus::RemoteToRemote(event_id);
-
-                    let found = found.clone();
-                    find_item_and_apply_aggregation(self, items, &target, found, rules);
-                }
+                return true;
             }
         }
 
-        self.inverted_map.insert(to, target);
+        let updated = {
+            let Some(aggregations) = self.related_events.get_mut(&target) else {
+                return false;
+            };
+            let Some(found) = aggregations.iter_mut().find(|agg| agg.own_id == from) else {
+                return false;
+            };
+
+            found.send_state = Some(send_state);
+
+            if let Some(event_id) = &sent_event_id {
+                found.own_id = TimelineEventItemId::EventId(event_id.clone());
+            }
+
+            found.clone()
+        };
+
+        if let Some(event_id) = sent_event_id {
+            self.inverted_map.remove(&from);
+            self.inverted_map.insert(TimelineEventItemId::EventId(event_id), target.clone());
+        }
+
+        let sent_redaction = matches!(updated.kind, AggregationKind::Redaction)
+            && matches!(updated.send_state, Some(EventSendState::Sent { .. }));
+
+        if sent_redaction {
+            // A sent redaction becomes irreversible: reapply it.
+            find_item_and_apply_aggregation(self, items, &target, updated, rules);
+        } else if let Some((idx, item)) = rfind_event_by_item_id(items, &target) {
+            let siblings = self.related_events.get(&target).map(Vec::as_slice).unwrap_or(&[]);
+            let mut cowed = Cow::Borrowed(&*item);
+            if updated.apply_send_state(siblings, &mut cowed) {
+                let new_item = TimelineItem::new(cowed.into_owned(), item.internal_id.to_owned());
+                items.replace(idx, new_item);
+            }
+        } else {
+            trace!("couldn't find aggregation's target {target:?} to reflect its send state");
+        }
+
         true
     }
 
@@ -809,6 +917,19 @@ impl Aggregations {
     /// aggregation.
     pub fn is_aggregation_of(&self, item: &TimelineEventItemId) -> Option<&TimelineEventItemId> {
         self.inverted_map.get(item)
+    }
+
+    /// Find the latest reaction with the given key sent by `sender` on
+    /// `target`.
+    pub fn find_reaction(
+        &self,
+        target: &TimelineEventItemId,
+        key: &str,
+        sender: &UserId,
+    ) -> Option<&Aggregation> {
+        self.related_events.get(target)?.iter().rev().find(|agg| {
+            matches!(&agg.kind, AggregationKind::Reaction { key: k, sender: s, .. } if k == key && s == sender)
+        })
     }
 }
 
@@ -830,6 +951,13 @@ fn resolve_edits(
 
     for a in aggregations {
         if let AggregationKind::Edit(pending_edit) = &a.kind {
+            // One of our own edits is always the most recent, even once sent but not
+            // echoed yet.
+            if a.send_state.is_some() {
+                best_edit = Some((pending_edit.clone(), true));
+                break;
+            }
+
             match &a.own_id {
                 TimelineEventItemId::TransactionId(_) => {
                     // A local echo is always the most recent edit: use this one.
@@ -877,7 +1005,12 @@ fn resolve_edits(
     }
 
     if let Some((edit, is_local_echo)) = best_edit {
-        edit_item(event, edit, is_local_echo)
+        if edit_item(event, edit, is_local_echo) {
+            event.to_mut().content_mut().set_edit_send_state(edit_send_state(aggregations));
+            true
+        } else {
+            false
+        }
     } else {
         false
     }
@@ -985,6 +1118,32 @@ fn edit_item(
     }
 
     true
+}
+
+/// Whether two optional send states are of the same kind (ignoring their
+/// payload, e.g. upload progress).
+fn same_send_state_kind(a: Option<&EventSendState>, b: Option<&EventSendState>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => std::mem::discriminant(a) == std::mem::discriminant(b),
+        _ => false,
+    }
+}
+
+/// The send state to expose for an item's edits: a failed edit blocks the
+/// later ones, so it wins over pending, which wins over sent.
+fn edit_send_state(aggregations: &[Aggregation]) -> Option<EventSendState> {
+    let rank = |s: &EventSendState| match s {
+        EventSendState::SendingFailed { .. } => 2,
+        EventSendState::NotSentYet { .. } => 1,
+        EventSendState::Sent { .. } => 0,
+    };
+    aggregations
+        .iter()
+        .filter(|a| matches!(a.kind, AggregationKind::Edit(_)))
+        .filter_map(|a| a.send_state.as_ref())
+        .max_by_key(|s| rank(s))
+        .cloned()
 }
 
 /// Find an item identified by the target identifier, and apply the aggregation

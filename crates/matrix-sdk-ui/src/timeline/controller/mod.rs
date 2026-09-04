@@ -32,6 +32,7 @@ use matrix_sdk::{
     },
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
+        SendRedactionHandle,
     },
     task_monitor::BackgroundTaskHandle,
 };
@@ -73,7 +74,7 @@ use super::{
     TimelineItem, TimelineItemContent, TimelineItemKind, TimelineReadReceiptTracking,
     VirtualTimelineItem,
     algorithms::{rfind_event_by_id, rfind_event_item},
-    event_item::{ReactionStatus, RemoteEventOrigin},
+    event_item::RemoteEventOrigin,
     item::TimelineUniqueId,
     subscriber::TimelineSubscriber,
     traits::RoomDataProvider,
@@ -576,12 +577,22 @@ impl<P: RoomDataProvider> TimelineController<P> {
         };
 
         let user_id = self.room_data_provider.own_user_id();
-        let prev_status = item
-            .content()
-            .reactions()
-            .and_then(|map| Some(map.get(key)?.get(user_id)?.status.clone()));
+        let target = item.identifier();
 
-        let Some(prev_status) = prev_status else {
+        // The item says whether we reacted; the registry has the handle and event id.
+        let has_reaction = item.content().reactions().is_some_and(|reactions| {
+            reactions.get(key).is_some_and(|by_user| by_user.contains_key(user_id))
+        });
+        let previous = has_reaction
+            .then(|| state.meta.aggregations.find_reaction(&target, key, user_id).cloned())
+            .flatten();
+
+        if has_reaction && previous.is_none() {
+            warn!("reaction is on the item but unknown to the aggregations");
+            return Ok(false);
+        }
+
+        let Some(previous) = previous else {
             // Adding the new reaction.
             match item.handle() {
                 TimelineItemHandle::Local(send_handle) => {
@@ -614,88 +625,75 @@ impl<P: RoomDataProvider> TimelineController<P> {
         };
 
         trace!("removing a previous reaction");
-        match prev_status {
-            ReactionStatus::LocalToLocal(send_reaction_handle) => {
-                if let Some(handle) = send_reaction_handle {
-                    if !handle.abort().await.map_err(|err| Error::SendQueueError(err.into()))? {
-                        // Impossible state: the reaction has moved from local to echo under our
-                        // feet, but the timeline was supposed to be locked!
-                        warn!("unexpectedly unable to abort sending of local reaction");
-                    }
-                } else {
-                    warn!("no send reaction handle (this should only happen in testing contexts)");
+
+        if previous.is_local() {
+            // Aborting the local echo is enough: its discard removes the reaction.
+            if let Some(handle) = &previous.send_handle {
+                if !handle.abort().await.map_err(|err| Error::SendQueueError(err.into()))? {
+                    // Impossible state: the reaction has moved from local to echo under our
+                    // feet, but the timeline was supposed to be locked!
+                    warn!("unexpectedly unable to abort sending of local reaction");
                 }
+            } else {
+                warn!("no send handle (this should only happen in testing contexts)");
             }
+            return Ok(false);
+        }
 
-            ReactionStatus::LocalToRemote(send_handle) => {
-                // No need to reflect the change ourselves, since handling the discard of the
-                // local echo will take care of it.
-                trace!("aborting send of the previous reaction that was a local echo");
-                if let Some(handle) = send_handle {
-                    if !handle.abort().await.map_err(|err| Error::SendQueueError(err.into()))? {
-                        // Impossible state: the reaction has moved from local to echo under our
-                        // feet, but the timeline was supposed to be locked!
-                        warn!("unexpectedly unable to abort sending of local reaction");
-                    }
-                } else {
-                    warn!("no send handle (this should only happen in testing contexts)");
-                }
-            }
+        let TimelineEventItemId::EventId(event_id) = previous.own_id else {
+            warn!("sent reaction without an event id");
+            return Ok(false);
+        };
 
-            ReactionStatus::RemoteToRemote(event_id) => {
-                // Assume the redaction will work; we'll re-add the reaction if it didn't.
-                let Some(annotated_event_id) =
-                    item.as_remote().map(|event_item| event_item.event_id.clone())
-                else {
-                    warn!("remote reaction to remote event, but the associated item isn't remote");
-                    return Ok(false);
-                };
+        // Assume the redaction will work; we'll re-add the reaction if it didn't.
+        let Some(annotated_event_id) =
+            item.as_remote().map(|event_item| event_item.event_id.clone())
+        else {
+            warn!("remote reaction to remote event, but the associated item isn't remote");
+            return Ok(false);
+        };
 
-                let mut reactions = item.content().reactions().cloned().unwrap_or_default();
-                let reaction_info = reactions.remove_reaction(user_id, key);
+        let mut reactions = item.content().reactions().cloned().unwrap_or_default();
+        let reaction_info = reactions.remove_reaction(user_id, key);
 
-                if reaction_info.is_some() {
+        if reaction_info.is_some() {
+            let new_item = item.with_reactions(reactions);
+            state.items.replace(item_pos, new_item);
+        } else {
+            warn!(
+                "reaction is missing on the item, not removing it locally, \
+                 but sending redaction."
+            );
+        }
+
+        // Release the lock before running the request.
+        drop(state);
+
+        trace!("sending redact for a previous reaction");
+        if let Err(err) = self.room_data_provider.redact(&event_id, None, None).await {
+            if let Some(reaction_info) = reaction_info {
+                debug!("sending redact failed, adding the reaction back to the list");
+
+                let mut state = self.state.write().await;
+                if let Some((item_pos, item)) = rfind_event_by_id(&state.items, &annotated_event_id)
+                {
+                    // Re-add the reaction to the mapping.
+                    let mut reactions = item.content().reactions().cloned().unwrap_or_default();
+                    reactions
+                        .entry(key.to_owned())
+                        .or_default()
+                        .insert(user_id.to_owned(), reaction_info);
                     let new_item = item.with_reactions(reactions);
                     state.items.replace(item_pos, new_item);
                 } else {
                     warn!(
-                        "reaction is missing on the item, not removing it locally, \
-                         but sending redaction."
+                        "couldn't find item to re-add reaction anymore; \
+                         maybe it's been redacted?"
                     );
                 }
-
-                // Release the lock before running the request.
-                drop(state);
-
-                trace!("sending redact for a previous reaction");
-                if let Err(err) = self.room_data_provider.redact(&event_id, None, None).await {
-                    if let Some(reaction_info) = reaction_info {
-                        debug!("sending redact failed, adding the reaction back to the list");
-
-                        let mut state = self.state.write().await;
-                        if let Some((item_pos, item)) =
-                            rfind_event_by_id(&state.items, &annotated_event_id)
-                        {
-                            // Re-add the reaction to the mapping.
-                            let mut reactions =
-                                item.content().reactions().cloned().unwrap_or_default();
-                            reactions
-                                .entry(key.to_owned())
-                                .or_default()
-                                .insert(user_id.to_owned(), reaction_info);
-                            let new_item = item.with_reactions(reactions);
-                            state.items.replace(item_pos, new_item);
-                        } else {
-                            warn!(
-                                "couldn't find item to re-add reaction anymore; \
-                                 maybe it's been redacted?"
-                            );
-                        }
-                    }
-
-                    return Err(err);
-                }
             }
+
+            return Err(err);
         }
 
         Ok(false)
@@ -933,23 +931,16 @@ impl<P: RoomDataProvider> TimelineController<P> {
         });
 
         let Some((idx, item)) = result else {
-            // Event wasn't found as a standalone item.
-            //
-            // If it was just sent, try to find if it matches a corresponding aggregation,
-            // and mark it as sent in that case.
-            if let Some(new_event_id) = new_event_id {
-                if txn.meta.aggregations.mark_aggregation_as_sent(
-                    txn_id.to_owned(),
-                    new_event_id.to_owned(),
-                    &mut txn.items,
-                    &txn.meta.room_version_rules,
-                ) {
-                    trace!("Aggregation marked as sent");
-                    txn.commit();
-                    return;
-                }
-
-                trace!("Sent aggregation was not found");
+            // Not a standalone item: maybe one of our aggregations.
+            if txn.meta.aggregations.update_send_state(
+                txn_id.to_owned(),
+                send_state,
+                &mut txn.items,
+                &txn.meta.room_version_rules,
+            ) {
+                trace!("Updated the send state of an aggregation");
+                txn.commit();
+                return;
             }
 
             warn!("Timeline item not found, can't update send state");
@@ -1276,8 +1267,13 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 self.handle_local_reaction(key, send_handle, applies_to).await;
             }
 
-            LocalEchoContent::Redaction { redacts, send_error, .. } => {
-                self.handle_local_redaction(echo.transaction_id.clone(), redacts).await;
+            LocalEchoContent::Redaction { redacts, send_handle, send_error, .. } => {
+                self.handle_local_redaction(
+                    echo.transaction_id.clone(),
+                    redacts,
+                    Some(send_handle),
+                )
+                .await;
 
                 if let Some(send_error) = send_error {
                     self.update_event_send_state(
@@ -1309,15 +1305,14 @@ impl<P: RoomDataProvider> TimelineController<P> {
         let target = TimelineEventItemId::TransactionId(applies_to);
 
         let reaction_txn_id = send_handle.transaction_id().to_owned();
-        let reaction_status = ReactionStatus::LocalToLocal(Some(send_handle));
-        let aggregation = Aggregation::new(
+        let aggregation = Aggregation::new_local(
             TimelineEventItemId::TransactionId(reaction_txn_id),
             AggregationKind::Reaction {
                 key: reaction_key.clone(),
                 sender: self.room_data_provider.own_user_id().to_owned(),
                 timestamp: MilliSecondsSinceUnixEpoch::now(),
-                reaction_status,
             },
+            Some(AggregationSendHandle::Reaction(send_handle)),
         );
 
         tr.meta.aggregations.add(target.clone(), aggregation.clone());
@@ -1337,15 +1332,17 @@ impl<P: RoomDataProvider> TimelineController<P> {
         &self,
         txn_id: OwnedTransactionId,
         redacts: OwnedEventId,
+        send_handle: Option<SendRedactionHandle>,
     ) {
         let mut state = self.state.write().await;
         let mut tr = state.transaction();
 
         let target = TimelineEventItemId::EventId(redacts);
 
-        let aggregation = Aggregation::new(
+        let aggregation = Aggregation::new_local(
             TimelineEventItemId::TransactionId(txn_id),
-            AggregationKind::Redaction { is_local: true },
+            AggregationKind::Redaction,
+            send_handle.map(AggregationSendHandle::Redaction),
         );
 
         tr.meta.aggregations.add(target.clone(), aggregation.clone());

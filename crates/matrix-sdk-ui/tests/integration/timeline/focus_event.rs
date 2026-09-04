@@ -16,6 +16,7 @@
 
 use std::time::Duration;
 
+use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
@@ -27,7 +28,9 @@ use matrix_sdk::{
     },
 };
 use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
-use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineEventFocusThreadMode, TimelineFocus};
+use matrix_sdk_ui::timeline::{
+    EventSendState, TimelineBuilder, TimelineEventFocusThreadMode, TimelineFocus,
+};
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
 use stream_assert::assert_pending;
 use tokio::time::sleep;
@@ -305,6 +308,14 @@ async fn test_focused_timeline_local_echoes() {
     let reactions = event_item.content().reactions().cloned().unwrap_or_default();
     assert_eq!(reactions.len(), 1);
     assert!(reactions.get("✨").unwrap().get(client.user_id().unwrap()).is_some());
+
+    // The send isn't mocked, so it fails, which shows on the reaction.
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 1);
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+    let reactions = item.as_event().unwrap().content().reactions().cloned().unwrap_or_default();
+    let reaction = reactions.get("✨").unwrap().get(client.user_id().unwrap()).unwrap();
+    assert_matches!(reaction.send_state, Some(EventSendState::SendingFailed { .. }));
 
     // And nothing more.
     sleep(Duration::from_millis(100)).await;

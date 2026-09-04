@@ -424,11 +424,20 @@ async fn test_send_edit() {
         )
         .await;
 
+    // The edit was sent, which is reflected on the item.
+    let edit_item =
+        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => value);
+    assert_matches!(
+        edit_item.content().as_message().unwrap().edit_send_state(),
+        Some(EventSendState::Sent { .. })
+    );
+
     let edit_item =
         assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => value);
     let edit_message = edit_item.content().as_message().unwrap();
     assert_eq!(edit_message.body(), "Hello, Room!");
     assert!(edit_message.is_edited());
+    assert_matches!(edit_message.edit_send_state(), None);
     assert_matches!(edit_item.original_json(), Some(_));
     // The remote echo populated the edit's JSON.
     assert_matches!(edit_item.latest_edit_json(), Some(_));
@@ -1350,4 +1359,68 @@ async fn test_edit_revisions_multiple_edits() {
 
     assert_let!(Some(msg) = revisions[2].content.as_message());
     assert_eq!(msg.body(), "Hello, Everyone!");
+}
+
+#[async_test]
+async fn test_failed_edit_send_state_is_exposed() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut timeline_stream) = timeline.subscribe().await;
+
+    let f = EventFactory::new();
+    let own_user = client.user_id().unwrap();
+    let event_id = event_id!("$mine");
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello").sender(own_user).event_id(event_id)),
+        )
+        .await;
+
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 2);
+    assert_let!(VectorDiff::PushBack { value: item } = &timeline_updates[0]);
+    let item_id = item.as_event().unwrap().identifier();
+
+    // The edit fails unrecoverably.
+    server.mock_room_send().error_too_large().mock_once().mount().await;
+
+    timeline
+        .edit(
+            &item_id,
+            EditedContent::RoomMessage(RoomMessageEventContentWithoutRelation::text_plain(
+                "edited",
+            )),
+        )
+        .await
+        .unwrap();
+
+    // The edit is applied, pending.
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 1);
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+    let msg = item.as_event().unwrap().content().as_message().unwrap();
+    assert_eq!(msg.body(), "edited");
+    assert_matches!(msg.edit_send_state(), Some(EventSendState::NotSentYet { .. }));
+
+    // Then reported as failed, content kept.
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 1);
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+    let msg = item.as_event().unwrap().content().as_message().unwrap();
+    assert_eq!(msg.body(), "edited");
+    assert_matches!(
+        msg.edit_send_state(),
+        Some(EventSendState::SendingFailed { is_recoverable: false, .. })
+    );
+
+    assert_pending!(timeline_stream);
 }
