@@ -39,6 +39,7 @@
 
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
+use as_variant::as_variant;
 use matrix_sdk::{
     check_validity_of_replacement_events,
     deserialized_responses::EncryptionInfo,
@@ -510,6 +511,50 @@ impl Aggregation {
             }
         }
     }
+
+    /// Reflect this aggregation's send state on the item it applies to,
+    /// without reapplying its content. Returns whether the item changed.
+    fn apply_send_state(
+        &self,
+        siblings: &[Aggregation],
+        event: &mut Cow<'_, EventTimelineItem>,
+    ) -> bool {
+        match &self.kind {
+            AggregationKind::Reaction { key, sender, .. } => {
+                let has_entry = event
+                    .content()
+                    .reactions()
+                    .and_then(|reactions| reactions.get(key)?.get(sender))
+                    .is_some();
+                if !has_entry {
+                    return false;
+                }
+                let reactions =
+                    event.to_mut().content_mut().reactions_mut().expect("reactions was Some above");
+                if let Some(info) =
+                    reactions.get_mut(key).and_then(|by_user| by_user.get_mut(sender))
+                {
+                    info.send_state = self.send_state.clone();
+                }
+                true
+            }
+
+            AggregationKind::Edit(_) => {
+                event.to_mut().content_mut().set_edit_send_state(edit_send_state(siblings))
+            }
+
+            AggregationKind::Redaction => {
+                event.to_mut().redaction_send_state = self.send_state.clone();
+                true
+            }
+
+            AggregationKind::PollResponse { .. }
+            | AggregationKind::PollEnd { .. }
+            | AggregationKind::BeaconUpdate { .. }
+            | AggregationKind::BeaconStop { .. }
+            | AggregationKind::CallDeclined { .. } => false,
+        }
+    }
 }
 
 /// Manager for all known existing aggregations to all events in the timeline.
@@ -615,7 +660,7 @@ impl Aggregations {
         //    event.
         // 3. The remote echo received via sync.
         //
-        // The transition from states 1 to 2 is handled in `mark_aggregation_as_sent()`.
+        // The transition from states 1 to 2 is handled in `update_send_state()`.
         // So here we need to handle the transition from states 2 to 3. We need to
         // replace the local echo by the remote echo, which might have more data, like
         // the raw JSON.
@@ -686,19 +731,18 @@ impl Aggregations {
                 }
                 ApplyAggregationResult::Edit => {
                     // This edit has been removed; try to find another that still applies.
-                    if let Some(aggregations) = self.related_events.get(found) {
-                        if resolve_edits(aggregations, items, &mut cowed) {
-                            items.replace(
-                                item_pos,
-                                TimelineItem::new(cowed.into_owned(), item.internal_id.to_owned()),
-                            );
-                        } else {
-                            // No other edit was found, leave the item as is.
-                            // TODO likely need to change the item to indicate
-                            // it's been un-edited etc.
-                        }
-                    } else {
-                        // No other edits apply.
+                    let resolved = self
+                        .related_events
+                        .get(found)
+                        .is_some_and(|aggregations| resolve_edits(aggregations, items, &mut cowed));
+                    // Otherwise nothing is pending anymore.
+                    // TODO likely need to change the item to indicate
+                    // it's been un-edited etc.
+                    if resolved || cowed.to_mut().content_mut().set_edit_send_state(None) {
+                        items.replace(
+                            item_pos,
+                            TimelineItem::new(cowed.into_owned(), item.internal_id.to_owned()),
+                        );
                     }
                 }
             }
@@ -786,58 +830,86 @@ impl Aggregations {
         }
     }
 
-    /// Mark an aggregation event as being sent (i.e. it transitions from an
-    /// local transaction id to its remote event id counterpart), by
-    /// updating the internal mappings.
+    /// Update the send state of one of our local aggregations, identified by
+    /// its transaction id, and reflect it on the item it applies to.
     ///
-    /// When an aggregation has been marked as sent, it may need to be reapplied
-    /// to the corresponding [`TimelineItemContent`]; this is why we're also
-    /// passing the context to apply an aggregation here.
-    pub fn mark_aggregation_as_sent(
+    /// Returns `false` if no aggregation has this transaction id.
+    pub fn update_send_state(
         &mut self,
         txn_id: OwnedTransactionId,
-        event_id: OwnedEventId,
+        send_state: EventSendState,
         items: &mut ObservableItemsTransaction<'_>,
         rules: &RoomVersionRules,
     ) -> bool {
         let from = TimelineEventItemId::TransactionId(txn_id);
-        let to = TimelineEventItemId::EventId(event_id.clone());
 
-        let Some(target) = self.inverted_map.remove(&from) else {
+        let Some(target) = self.inverted_map.get(&from).cloned() else {
             return false;
         };
 
-        if let Some(aggregations) = self.related_events.get_mut(&target)
-            && let Some(found) = aggregations.iter_mut().find(|agg| agg.own_id == from)
-        {
-            found.own_id = to.clone();
-            found.send_state = Some(EventSendState::Sent { event_id });
+        let sent_event_id =
+            as_variant!(&send_state, EventSendState::Sent { event_id } => event_id.clone());
 
-            match &mut found.kind {
-                AggregationKind::PollResponse { .. }
-                | AggregationKind::PollEnd { .. }
-                | AggregationKind::Edit(..)
-                | AggregationKind::BeaconUpdate { .. }
-                | AggregationKind::BeaconStop { .. }
-                | AggregationKind::CallDeclined { .. } => {
-                    // Nothing particular to do.
+        if let Some(event_id) = &sent_event_id {
+            let to = TimelineEventItemId::EventId(event_id.clone());
+            let remote_echo_received = self
+                .related_events
+                .get(&target)
+                .is_some_and(|aggs| aggs.iter().any(|agg| agg.own_id == to));
+            if remote_echo_received {
+                // The remote echo got there first: forget the local echo and let the remote
+                // one settle the item.
+                let remote = self.related_events.get_mut(&target).and_then(|aggs| {
+                    aggs.retain(|agg| agg.own_id != from);
+                    aggs.iter().find(|agg| agg.own_id == to).cloned()
+                });
+                self.inverted_map.remove(&from);
+                if let Some(remote) = remote {
+                    find_item_and_apply_aggregation(self, items, &target, remote, rules);
                 }
-
-                AggregationKind::Redaction => {
-                    // The redaction is now remote: apply it irreversibly.
-                    let found = found.clone();
-                    find_item_and_apply_aggregation(self, items, &target, found, rules);
-                }
-
-                AggregationKind::Reaction { .. } => {
-                    // Reflect the sent state on the item.
-                    let found = found.clone();
-                    find_item_and_apply_aggregation(self, items, &target, found, rules);
-                }
+                return true;
             }
         }
 
-        self.inverted_map.insert(to, target);
+        let updated = {
+            let Some(aggregations) = self.related_events.get_mut(&target) else {
+                return false;
+            };
+            let Some(found) = aggregations.iter_mut().find(|agg| agg.own_id == from) else {
+                return false;
+            };
+
+            found.send_state = Some(send_state);
+
+            if let Some(event_id) = &sent_event_id {
+                found.own_id = TimelineEventItemId::EventId(event_id.clone());
+            }
+
+            found.clone()
+        };
+
+        if let Some(event_id) = sent_event_id {
+            self.inverted_map.remove(&from);
+            self.inverted_map.insert(TimelineEventItemId::EventId(event_id), target.clone());
+        }
+
+        let sent_redaction = matches!(updated.kind, AggregationKind::Redaction)
+            && matches!(updated.send_state, Some(EventSendState::Sent { .. }));
+
+        if sent_redaction {
+            // A sent redaction becomes irreversible: reapply it.
+            find_item_and_apply_aggregation(self, items, &target, updated, rules);
+        } else if let Some((idx, item)) = rfind_event_by_item_id(items, &target) {
+            let siblings = self.related_events.get(&target).map(Vec::as_slice).unwrap_or(&[]);
+            let mut cowed = Cow::Borrowed(&*item);
+            if updated.apply_send_state(siblings, &mut cowed) {
+                let new_item = TimelineItem::new(cowed.into_owned(), item.internal_id.to_owned());
+                items.replace(idx, new_item);
+            }
+        } else {
+            trace!("couldn't find aggregation's target {target:?} to reflect its send state");
+        }
+
         true
     }
 
@@ -1048,6 +1120,16 @@ fn edit_item(
     true
 }
 
+/// Whether two optional send states are of the same kind (ignoring their
+/// payload, e.g. upload progress).
+fn same_send_state_kind(a: Option<&EventSendState>, b: Option<&EventSendState>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => std::mem::discriminant(a) == std::mem::discriminant(b),
+        _ => false,
+    }
+}
+
 /// The send state to expose for an item's edits: a failed edit blocks the
 /// later ones, so it wins over pending, which wins over sent.
 fn edit_send_state(aggregations: &[Aggregation]) -> Option<EventSendState> {
@@ -1062,16 +1144,6 @@ fn edit_send_state(aggregations: &[Aggregation]) -> Option<EventSendState> {
         .filter_map(|a| a.send_state.as_ref())
         .max_by_key(|s| rank(s))
         .cloned()
-}
-
-/// Whether two optional send states are of the same kind (ignoring their
-/// payload, e.g. upload progress).
-fn same_send_state_kind(a: Option<&EventSendState>, b: Option<&EventSendState>) -> bool {
-    match (a, b) {
-        (None, None) => true,
-        (Some(a), Some(b)) => std::mem::discriminant(a) == std::mem::discriminant(b),
-        _ => false,
-    }
 }
 
 /// Find an item identified by the target identifier, and apply the aggregation

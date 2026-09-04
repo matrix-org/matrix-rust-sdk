@@ -931,23 +931,16 @@ impl<P: RoomDataProvider> TimelineController<P> {
         });
 
         let Some((idx, item)) = result else {
-            // Event wasn't found as a standalone item.
-            //
-            // If it was just sent, try to find if it matches a corresponding aggregation,
-            // and mark it as sent in that case.
-            if let Some(new_event_id) = new_event_id {
-                if txn.meta.aggregations.mark_aggregation_as_sent(
-                    txn_id.to_owned(),
-                    new_event_id.to_owned(),
-                    &mut txn.items,
-                    &txn.meta.room_version_rules,
-                ) {
-                    trace!("Aggregation marked as sent");
-                    txn.commit();
-                    return;
-                }
-
-                trace!("Sent aggregation was not found");
+            // Not a standalone item: maybe one of our aggregations.
+            if txn.meta.aggregations.update_send_state(
+                txn_id.to_owned(),
+                send_state,
+                &mut txn.items,
+                &txn.meta.room_version_rules,
+            ) {
+                trace!("Updated the send state of an aggregation");
+                txn.commit();
+                return;
             }
 
             warn!("Timeline item not found, can't update send state");

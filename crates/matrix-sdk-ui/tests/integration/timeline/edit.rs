@@ -424,11 +424,20 @@ async fn test_send_edit() {
         )
         .await;
 
+    // The edit was sent, which is reflected on the item.
+    let edit_item =
+        assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => value);
+    assert_matches!(
+        edit_item.content().as_message().unwrap().edit_send_state(),
+        Some(EventSendState::Sent { .. })
+    );
+
     let edit_item =
         assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => value);
     let edit_message = edit_item.content().as_message().unwrap();
     assert_eq!(edit_message.body(), "Hello, Room!");
     assert!(edit_message.is_edited());
+    assert_matches!(edit_message.edit_send_state(), None);
     assert_matches!(edit_item.original_json(), Some(_));
     // The remote echo populated the edit's JSON.
     assert_matches!(edit_item.latest_edit_json(), Some(_));
