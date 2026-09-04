@@ -272,6 +272,15 @@ impl RegisteredRooms {
         }
     }
 
+    /// Ask [`compute_latest_events_task`] to compute the `LatestEventValue`s of
+    /// `room_id`, without waiting on the Event Cache (so the sync usually) or
+    /// the Send Queue.
+    fn trigger_computation(&self, room_id: &RoomId) {
+        let _ = self
+            .latest_event_queue_sender
+            .send(LatestEventQueueUpdate::EventCache { room_id: room_id.to_owned() });
+    }
+
     /// Get a handle to a [`RoomLatestEvents`] given a room ID and an optional
     /// thread ID.
     ///
@@ -285,13 +294,19 @@ impl RegisteredRooms {
         room_id: &RoomId,
         thread_id: Option<&EventId>,
     ) -> Result<Option<RoomLatestEvents>, LatestEventsError> {
+        /// Returns whether the `LatestEventValue` restored by
+        /// `RoomLatestEvents` is of kind `None`. If it is, the caller should
+        /// trigger a computation - maybe the system has migrated to a new
+        /// version and the value has been erased, while it is still possible to
+        /// compute a correct one - but only once it has inserted all the
+        /// `LatestEvent`s it needs, otherwise the computation can run before
+        /// they exist and skip them.
         fn create_and_insert_room_latest_events(
             room_id: &RoomId,
             rooms: &mut HashMap<OwnedRoomId, RoomLatestEvents>,
             weak_client: &WeakClient,
             event_cache: &EventCache,
-            latest_event_queue_sender: &mpsc::UnboundedSender<LatestEventQueueUpdate>,
-        ) {
+        ) -> bool {
             let (room_latest_events, is_latest_event_value_none) =
                 With::unzip(RoomLatestEvents::new(
                     WeakRoom::new(weak_client.clone(), room_id.to_owned()),
@@ -301,15 +316,7 @@ impl RegisteredRooms {
             // Insert the new `RoomLatestEvents`.
             rooms.insert(room_id.to_owned(), room_latest_events);
 
-            // If the `LatestEventValue` restored by `RoomLatestEvents` is of kind `None`,
-            // let's try to re-compute it without waiting on the Event Cache (so the sync
-            // usually) or the Send Queue. Maybe the system has migrated to a new version
-            // and the `LatestEventValue` has been erased, while it is still possible to
-            // compute a correct value.
-            if is_latest_event_value_none {
-                let _ = latest_event_queue_sender
-                    .send(LatestEventQueueUpdate::EventCache { room_id: room_id.to_owned() });
-            }
+            is_latest_event_value_none
         }
 
         Ok(match thread_id {
@@ -321,21 +328,19 @@ impl RegisteredRooms {
             Some(thread_id) => {
                 // Snapshot the handle and release the map lock before awaiting the
                 // per-room write lock below. See [`Self::rooms`].
-                let room_latest_events = {
+                let (room_latest_events, must_trigger_computation) = {
                     let mut rooms = self.rooms.write().await;
 
                     // The `RoomLatestEvents` doesn't exist. Let's create and insert it.
-                    if rooms.contains_key(room_id).not() {
-                        create_and_insert_room_latest_events(
+                    let must_trigger_computation = rooms.contains_key(room_id).not()
+                        && create_and_insert_room_latest_events(
                             room_id,
                             rooms.deref_mut(),
                             &self.weak_client,
                             &self.event_cache,
-                            &self.latest_event_queue_sender,
                         );
-                    }
 
-                    rooms.get(room_id).cloned()
+                    (rooms.get(room_id).cloned(), must_trigger_computation)
                 };
 
                 if let Some(room_latest_events) = &room_latest_events {
@@ -346,6 +351,12 @@ impl RegisteredRooms {
                     if room_latest_events.has_thread(thread_id).not() {
                         room_latest_events.create_and_insert_latest_event_for_thread(thread_id);
                     }
+                }
+
+                // The `LatestEvent` of the thread now exists, so the computation covers it
+                // too.
+                if must_trigger_computation {
+                    self.trigger_computation(room_id);
                 }
 
                 room_latest_events
@@ -368,14 +379,15 @@ impl RegisteredRooms {
 
                         let mut rooms = self.rooms.write().await;
 
-                        if rooms.contains_key(room_id).not() {
-                            create_and_insert_room_latest_events(
+                        if rooms.contains_key(room_id).not()
+                            && create_and_insert_room_latest_events(
                                 room_id,
                                 rooms.deref_mut(),
                                 &self.weak_client,
                                 &self.event_cache,
-                                &self.latest_event_queue_sender,
-                            );
+                            )
+                        {
+                            self.trigger_computation(room_id);
                         }
 
                         rooms.get(room_id).cloned()
