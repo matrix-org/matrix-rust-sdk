@@ -25,25 +25,47 @@
 //! event-focused cache): caller-supplied sets have no natural persistent
 //! identity, so nothing is written to the store.
 
-use std::{collections::BTreeSet, fmt};
+use std::{
+    collections::BTreeSet,
+    fmt,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering as AtomicOrdering},
+    },
+};
 
 use matrix_sdk_base::{
-    apply_redaction, event_cache::Event, linked_chunk::Position,
-    serde_helpers::extract_redaction_target, sync::Timeline,
+    apply_redaction,
+    event_cache::Event,
+    linked_chunk::Position,
+    serde_helpers::extract_redaction_target,
+    sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
     EventId, OwnedEventId, events::room::redaction::SyncRoomRedactionEvent,
     room_version_rules::RoomVersionRules,
 };
-use tokio::sync::broadcast::Sender;
+use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::trace;
 
+#[cfg(feature = "e2e-encryption")]
+use super::super::redecryptor::{MaybeResolvedEvent, TryResolveEvents};
 use super::{
-    super::{EventsOrigin, Result, states::StateLockWriteGuard},
+    super::{
+        EventCacheError, EventsOrigin, Result,
+        states::{
+            CacheStateLock, StateLock, StateLockWriteGuard, selectors::SpecificEventsStateSelector,
+        },
+    },
     TimelineVectorDiffs,
     event_linked_chunk::EventLinkedChunk,
+    pinned_events::load_events_with_relations,
 };
 use crate::room::WeakRoom;
+
+/// Monotonic source of instance IDs, so several caches can coexist for the
+/// same room, each with its own state.
+static NEXT_INSTANCE_ID: AtomicU64 = AtomicU64::new(0);
 
 /// State of a [`SpecificEventsCache`].
 pub struct SpecificEventsCacheState {
@@ -225,4 +247,204 @@ impl<'a> StateLockWriteGuard<'a, SpecificEventsCacheState> {
             let _ = self.state.update_sender.send(TimelineVectorDiffs { diffs, origin });
         }
     }
+}
+
+/// An event cache for a caller-supplied set of event IDs.
+///
+/// Cloning is shallow, and thus is cheap to do.
+#[derive(Clone)]
+pub struct SpecificEventsCache {
+    inner: Arc<SpecificEventsCacheInner>,
+}
+
+/// The (non-cloneable) details of the `SpecificEventsCache`.
+struct SpecificEventsCacheInner {
+    /// State of this `SpecificEventsCache`.
+    state: CacheStateLock<SpecificEventsStateSelector>,
+}
+
+impl SpecificEventsCache {
+    /// Creates a new, empty [`SpecificEventsCache`] for the given room and
+    /// event IDs; call [`Self::reload`] to load the events.
+    pub(in super::super) async fn new(
+        weak_room: WeakRoom,
+        mut event_ids: Vec<OwnedEventId>,
+        state: &StateLock,
+    ) -> Result<Self> {
+        let room = weak_room.get().ok_or(EventCacheError::ClientDropped)?;
+        let room_id = room.room_id().to_owned();
+        let room_version_rules = room.clone_info().room_version_rules_or_default();
+        let instance_id = NEXT_INSTANCE_ID.fetch_add(1, AtomicOrdering::Relaxed);
+
+        dedup_event_ids(&mut event_ids);
+
+        let cache_state = state
+            .try_insert_once_with(
+                SpecificEventsStateSelector::new(room_id, instance_id),
+                |_store_guard| async {
+                    Ok(SpecificEventsCacheState {
+                        room: weak_room.clone(),
+                        room_version_rules,
+                        event_ids: event_ids.clone(),
+                        chunk: EventLinkedChunk::new(),
+                        update_sender: Sender::new(32),
+                    })
+                },
+            )
+            .await?;
+
+        Ok(Self { inner: Arc::new(SpecificEventsCacheInner { state: cache_state }) })
+    }
+
+    /// Load the events for the current set of IDs, notifying subscribers of
+    /// the changes.
+    ///
+    /// The events are fetched with no lock held: loading goes through the
+    /// event cache, which needs the state lock too.
+    pub(in super::super) async fn reload(&self) -> Result<()> {
+        let (room, event_ids) = {
+            let guard = self.inner.state.read().await?;
+            (guard.state.room.get(), guard.state.event_ids.clone())
+        };
+
+        let Some(room) = room else {
+            // The client is shutting down; there's nothing sensible to reload.
+            return Ok(());
+        };
+
+        let max_concurrent_requests =
+            room.client().event_cache().config().max_pinned_events_concurrent_requests;
+
+        let events = load_events_with_relations(&room, event_ids.clone(), max_concurrent_requests)
+            .await
+            .ok_or(EventCacheError::UnableToLoadSpecificEvents)?;
+
+        let mut guard = self.inner.state.write().await?;
+
+        // A newer set is being loaded by someone else: let it win.
+        if !guard.state.has_event_ids(&event_ids) {
+            return Ok(());
+        }
+
+        guard.replace_all_events(events);
+
+        Ok(())
+    }
+
+    /// Return a reference to the state.
+    pub(super) fn state(&self) -> &CacheStateLock<SpecificEventsStateSelector> {
+        &self.inner.state
+    }
+
+    /// Read all current events (the caller-supplied events and their loaded
+    /// relations).
+    pub async fn events(&self) -> Result<Vec<Event>> {
+        let guard = self.inner.state.read().await?;
+
+        Ok(guard.state.chunk.events().map(|(_position, event)| event.clone()).collect())
+    }
+
+    /// Subscribe to live updates from this cache.
+    pub async fn subscribe(&self) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>)> {
+        let guard = self.inner.state.read().await?;
+        let events = guard.state.chunk.events().map(|(_position, event)| event.clone()).collect();
+        let recv = guard.state.update_sender.subscribe();
+
+        Ok((events, recv))
+    }
+
+    /// Replace the set of event IDs this cache is about, reloading the events
+    /// if the set changed.
+    ///
+    /// There is no state event to observe for caller-supplied sets, so this is
+    /// the caller's way of keeping the set up to date. If the events can't be
+    /// loaded, the previous set is kept.
+    pub async fn set_event_ids(&self, mut event_ids: Vec<OwnedEventId>) -> Result<()> {
+        dedup_event_ids(&mut event_ids);
+
+        let previous_event_ids = {
+            let mut guard = self.inner.state.write().await?;
+
+            if guard.state.has_event_ids(&event_ids) {
+                return Ok(());
+            }
+
+            std::mem::replace(&mut guard.state.event_ids, event_ids.clone())
+        };
+
+        if let Err(err) = self.reload().await {
+            let mut guard = self.inner.state.write().await?;
+
+            if guard.state.has_event_ids(&event_ids) {
+                guard.state.event_ids = previous_event_ids;
+            }
+
+            return Err(err);
+        }
+
+        Ok(())
+    }
+
+    /// Handle a joined-room update from sync.
+    ///
+    /// The caller is expected to have filtered the timeline down to events
+    /// related to this cache's events already (see
+    /// [`super::aggregator::aggregate_timeline_for_pinned_events`]).
+    pub(in super::super) async fn handle_joined_room_update(
+        &self,
+        updates: JoinedRoomUpdate,
+    ) -> Result<()> {
+        if updates.timeline.events.is_empty() {
+            return Ok(());
+        }
+
+        self.inner.state.write().await?.handle_sync(updates.timeline)
+    }
+
+    /// Handle a left-room update from sync.
+    pub(in super::super) async fn handle_left_room_update(
+        &self,
+        updates: LeftRoomUpdate,
+    ) -> Result<()> {
+        if updates.timeline.events.is_empty() {
+            return Ok(());
+        }
+
+        self.inner.state.write().await?.handle_sync(updates.timeline)
+    }
+
+    /// Try to locate the events in the linked chunk corresponding to the given
+    /// list of resolved events, and replace them, while alerting observers
+    /// about the update.
+    #[cfg(feature = "e2e-encryption")]
+    pub(in super::super) async fn replace_in_memory_utds(
+        &self,
+        resolved_events: &[MaybeResolvedEvent],
+    ) -> Result<()> {
+        let mut guard = self.inner.state.write().await?;
+
+        // This cache doesn't persist anything in the store, so try to resolve
+        // events against the in-memory linked chunk.
+        let resolved_events = resolved_events.try_resolve_events(&guard.state.chunk);
+
+        if guard.state.chunk.replace_utds(&resolved_events) {
+            guard.drain_store_updates();
+            guard.notify_subscribers(EventsOrigin::Cache);
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(not(tarpaulin_include))]
+impl fmt::Debug for SpecificEventsCache {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SpecificEventsCache").finish_non_exhaustive()
+    }
+}
+
+/// Remove duplicate IDs, keeping the first occurrence.
+fn dedup_event_ids(event_ids: &mut Vec<OwnedEventId>) {
+    let mut seen = BTreeSet::new();
+    event_ids.retain(|event_id| seen.insert(event_id.clone()));
 }
