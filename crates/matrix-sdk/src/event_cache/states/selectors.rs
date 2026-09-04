@@ -21,7 +21,7 @@ use ruma::{OwnedEventId, OwnedRoomId};
 
 use super::{
     super::EventCacheError, EventFocusedCacheKey, EventFocusedCacheState, PinnedEventsCacheState,
-    RoomEventCacheState, State, StateForRoom, ThreadEventCacheState,
+    RoomEventCacheState, SpecificEventsCacheState, State, StateForRoom, ThreadEventCacheState,
 };
 
 /// Trait to select a specific state of a cache inside a [`State`].
@@ -249,5 +249,52 @@ impl CacheState for EventFocusedStateSelector {
 impl From<&EventFocusedStateSelector> for EventCacheError {
     fn from(value: &EventFocusedStateSelector) -> Self {
         Self::EventFocusedNotFound { room_id: value.0.clone(), event_focused_id: value.1.clone() }
+    }
+}
+
+/// Select a [`SpecificEventsCacheState`] in [`State`].
+#[derive(Debug)]
+pub struct SpecificEventsStateSelector(OwnedRoomId, u64);
+
+impl SpecificEventsStateSelector {
+    pub fn new(room_id: OwnedRoomId, instance_id: u64) -> Self {
+        Self(room_id, instance_id)
+    }
+}
+
+impl CacheState for SpecificEventsStateSelector {
+    type Item = SpecificEventsCacheState;
+
+    fn select<'state>(&self, state: &'state State) -> Option<&'state Self::Item> {
+        state
+            .by_room
+            .get(&self.0)
+            .and_then(|state_for_room| state_for_room.specific_events.get(&self.1))
+    }
+
+    fn select_mut<'state>(&self, state: &'state mut State) -> Option<&'state mut Self::Item> {
+        state
+            .by_room
+            .get_mut(&self.0)
+            .and_then(|state_for_room| state_for_room.specific_events.get_mut(&self.1))
+    }
+
+    fn insert_once(&self, state: &mut State, cache_state: Self::Item) -> bool {
+        let specific_events = &mut state.by_room.entry(self.0.clone()).or_default().specific_events;
+
+        match specific_events.entry(self.1) {
+            Entry::Occupied(_) => false,
+            Entry::Vacant(entry) => {
+                entry.insert(cache_state);
+
+                true
+            }
+        }
+    }
+}
+
+impl From<&SpecificEventsStateSelector> for EventCacheError {
+    fn from(value: &SpecificEventsStateSelector) -> Self {
+        Self::SpecificEventsNotFound { room_id: value.0.clone(), instance_id: value.1 }
     }
 }
