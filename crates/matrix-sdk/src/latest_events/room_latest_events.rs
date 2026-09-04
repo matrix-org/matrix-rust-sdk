@@ -190,7 +190,7 @@ impl RoomLatestEventsWriteGuard {
         };
 
         // The room is left without a latest event so back-paginate its history
-        // until a suitable event surfaces, then recompute.
+        // in the background until a suitable event surfaces.
         if matches!(
             for_the_room
                 .update_with_event_cache(room_event_cache, own_user_id, power_levels.as_ref())
@@ -198,11 +198,7 @@ impl RoomLatestEventsWriteGuard {
             NeedMoreEvents::Yes
         ) && room.client().event_cache().back_pagination_queue().is_some()
         {
-            Self::back_paginate_for_candidate(&room, own_user_id, power_levels.as_ref()).await;
-
-            for_the_room
-                .update_with_event_cache(room_event_cache, own_user_id, power_levels.as_ref())
-                .await;
+            Self::back_paginate_for_candidate(&room, own_user_id, power_levels.as_ref());
         }
 
         for latest_event in per_thread.values_mut() {
@@ -289,12 +285,15 @@ impl RoomLatestEventsWriteGuard {
     ///
     /// Enqueues a high-priority request on the shared [`BackPaginationQueue`],
     /// with a stop predicate that fires as soon as a freshly loaded batch
-    /// contains a suitable latest-event candidate, and awaits it. No-ops if
-    /// automatic backpagination is disabled.
+    /// contains a suitable latest-event candidate. No-ops if automatic
+    /// backpagination is disabled.
+    ///
+    /// Fire-and-forget as the events it loads emit an event cache update which
+    /// will trigger a recomputation.
     ///
     /// [`BackPaginationQueue`]: crate::event_cache::BackPaginationQueue
     #[instrument(skip_all, fields(room_id = %room.room_id()))]
-    async fn back_paginate_for_candidate(
+    fn back_paginate_for_candidate(
         room: &Room,
         own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
@@ -320,23 +319,18 @@ impl RoomLatestEventsWriteGuard {
 
         debug!("started backfill request for latest events");
 
-        let handle = match queue.enqueue(BackPaginationRequest {
+        match queue.enqueue(BackPaginationRequest {
             room_id: room.room_id().to_owned(),
             priority: back_pagination_queue::Priority::High,
             stop: Box::new(stop),
             batch_size: back_pagination_queue::BATCH_SIZE,
             max_batches: None,
         }) {
-            Ok(handle) => handle,
-            Err(err) => {
-                warn!("couldn't enqueue a latest-event backfill request: {err}");
-                return;
-            }
-        };
-
-        handle.join().await;
-
-        debug!("finished backfill request for latest events");
+            // Nobody awaits the result, so detach the handle to let the request run to
+            // completion instead of cancelling it on drop.
+            Ok(handle) => handle.detach(),
+            Err(err) => warn!("couldn't enqueue a latest-event backfill request: {err}"),
+        }
     }
 }
 
@@ -353,6 +347,7 @@ mod tests {
 
     use super::RoomLatestEvents;
     use crate::{
+        assert_let_timeout,
         client::WeakClient,
         latest_events::LatestEventValue,
         room::WeakRoom,
@@ -419,6 +414,14 @@ mod tests {
             room_latest_events.read().await.for_room().get().await,
             LatestEventValue::None
         );
+
+        let mut updates = event_cache.subscribe_to_room_generic_updates();
+
+        room_latest_events.write().await.update_with_event_cache().await;
+
+        // The backfill runs in the background; wait for the events it loads, then
+        // recompute as the update it emits would.
+        assert_let_timeout!(Ok(_) = updates.recv());
 
         room_latest_events.write().await.update_with_event_cache().await;
 
