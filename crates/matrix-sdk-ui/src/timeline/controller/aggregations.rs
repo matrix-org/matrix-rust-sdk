@@ -315,9 +315,16 @@ impl Aggregation {
                 let is_remote_redacted =
                     event.content().is_redacted() && event.unredacted_item.is_none();
                 if is_local && is_local_redacted || !is_local && is_remote_redacted {
-                    ApplyAggregationResult::LeftItemIntact
+                    if event.redaction_send_state.is_some() && self.send_state.is_none() {
+                        // The remote echo of a redaction we sent: nothing pending anymore.
+                        event.to_mut().redaction_send_state = None;
+                        ApplyAggregationResult::UpdatedItem
+                    } else {
+                        ApplyAggregationResult::LeftItemIntact
+                    }
                 } else {
-                    let new_item = event.redact(&rules.redaction, is_local);
+                    let mut new_item = event.redact(&rules.redaction, is_local);
+                    new_item.redaction_send_state = self.send_state.clone();
                     *event = Cow::Owned(new_item);
                     ApplyAggregationResult::UpdatedItem
                 }
@@ -872,6 +879,13 @@ fn resolve_edits(
 
     for a in aggregations {
         if let AggregationKind::Edit(pending_edit) = &a.kind {
+            // One of our own edits is always the most recent, even once sent but not
+            // echoed yet.
+            if a.send_state.is_some() {
+                best_edit = Some((pending_edit.clone(), true));
+                break;
+            }
+
             match &a.own_id {
                 TimelineEventItemId::TransactionId(_) => {
                     // A local echo is always the most recent edit: use this one.
@@ -919,7 +933,12 @@ fn resolve_edits(
     }
 
     if let Some((edit, is_local_echo)) = best_edit {
-        edit_item(event, edit, is_local_echo)
+        if edit_item(event, edit, is_local_echo) {
+            event.to_mut().content_mut().set_edit_send_state(edit_send_state(aggregations));
+            true
+        } else {
+            false
+        }
     } else {
         false
     }
@@ -1027,6 +1046,22 @@ fn edit_item(
     }
 
     true
+}
+
+/// The send state to expose for an item's edits: a failed edit blocks the
+/// later ones, so it wins over pending, which wins over sent.
+fn edit_send_state(aggregations: &[Aggregation]) -> Option<EventSendState> {
+    let rank = |s: &EventSendState| match s {
+        EventSendState::SendingFailed { .. } => 2,
+        EventSendState::NotSentYet { .. } => 1,
+        EventSendState::Sent { .. } => 0,
+    };
+    aggregations
+        .iter()
+        .filter(|a| matches!(a.kind, AggregationKind::Edit(_)))
+        .filter_map(|a| a.send_state.as_ref())
+        .max_by_key(|s| rank(s))
+        .cloned()
 }
 
 /// Whether two optional send states are of the same kind (ignoring their

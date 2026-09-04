@@ -87,6 +87,7 @@ pub use self::{
 };
 use super::ReactionsByKeyBySender;
 use crate::timeline::{
+    EventSendState,
     controller::ActiveCallInfo,
     event_handler::{HandleAggregationKind, TimelineAction},
 };
@@ -540,6 +541,28 @@ impl TimelineItemContent {
             *r = reactions;
         }
         cloned
+    }
+
+    /// Record the send state of our pending edits on an editable content.
+    /// Returns whether the content can carry it at all.
+    pub(in crate::timeline) fn set_edit_send_state(
+        &mut self,
+        send_state: Option<EventSendState>,
+    ) -> bool {
+        if let Self::MsgLike(msglike) = self {
+            match &mut msglike.kind {
+                MsgLikeKind::Message(message) => {
+                    message.edit_send_state = send_state;
+                    return true;
+                }
+                MsgLikeKind::Poll(poll) => {
+                    poll.edit_send_state = send_state;
+                    return true;
+                }
+                _ => {}
+            }
+        }
+        false
     }
 }
 
