@@ -11,7 +11,9 @@ rust-version.workspace = true
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [package.metadata.cargo-machete]
-ignored = ["getrandom", "getrandom_0_2"] # We manually enable a feature for each.
+# getrandom: we manually enable a feature for each.
+# serde_bytes: we only use it in a `#[serde(with = "...")]` attribute.
+ignored = ["getrandom", "getrandom_0_2", "serde_bytes"]
 
 [features]
 js = ["dep:getrandom", "getrandom?/wasm_js"]
@@ -27,6 +29,7 @@ pbkdf2.workspace = true
 rand = { workspace = true, features = ["thread_rng"] }
 rmp-serde.workspace = true
 serde = { workspace = true, features = ["derive"] }
+serde_bytes = "0.11"
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true

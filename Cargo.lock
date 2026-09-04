@@ -3995,6 +3995,7 @@ dependencies = [
  "rand 0.10.2",
  "rmp-serde",
  "serde",
+ "serde_bytes",
  "serde_json",
  "sha2 0.11.0",
  "thiserror 2.0.19",
