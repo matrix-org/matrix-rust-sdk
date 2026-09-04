@@ -27,7 +27,7 @@ use matrix_sdk::{
 use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{
     EventSendState, RoomExt as _, TimelineBuilder, TimelineDetails, TimelineEventFocusThreadMode,
-    TimelineEventItemId, TimelineFocus, VirtualTimelineItem,
+    TimelineEventItemId, TimelineFocus, TimelineReadReceiptTracking, VirtualTimelineItem,
 };
 use ruma::{
     MilliSecondsSinceUnixEpoch,
@@ -301,6 +301,71 @@ async fn test_extract_bundled_thread_summary() {
     assert!(value.is_date_divider());
 
     assert_pending!(stream);
+}
+
+#[async_test]
+async fn test_thread_root_loads_its_latest_reply_once() {
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    let room_id = room_id!("!a:b.c");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let thread_root_id = event_id!("$thread_root");
+    let latest_reply_id = event_id!("$latest_reply");
+
+    let thread_root = f
+        .text_msg("thready thread mcthreadface")
+        .event_id(thread_root_id)
+        .with_bundled_thread_summary(
+            f.text_msg("the last one!").event_id(latest_reply_id).into(),
+            1,
+            false,
+        );
+
+    // The thread root comes from /context. The event-focused cache does not
+    // save the bundled latest reply, so each load of the reply is a request to
+    // /event.
+    server
+        .mock_room_event_context()
+        .ok(RoomContextResponseTemplate::new(thread_root.into_event()))
+        .mock_once()
+        .mount()
+        .await;
+
+    // The latest reply is needed both for the embedded reply preview and for
+    // the implicit read receipt check, but it must be loaded only once.
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(f.text_msg("the last one!").event_id(latest_reply_id).into_event())
+        .expect(1)
+        .mount()
+        .await;
+
+    let timeline = TimelineBuilder::new(&room)
+        .with_focus(TimelineFocus::Event {
+            target: thread_root_id.to_owned(),
+            num_context_events: 2,
+            thread_mode: TimelineEventFocusThreadMode::Automatic { hide_threaded_events: false },
+        })
+        .track_read_marker_and_receipts(TimelineReadReceiptTracking::AllEvents)
+        .build()
+        .await
+        .unwrap();
+
+    let (items, _stream) = timeline.subscribe().await;
+
+    // A date divider and the thread root.
+    assert_eq!(items.len(), 2);
+    let item = items[1].as_event().unwrap();
+    assert_eq!(item.event_id(), Some(thread_root_id));
+    assert_let!(Some(summary) = item.content().thread_summary());
+    assert_let!(TimelineDetails::Ready(latest_event) = &summary.latest_event);
+    assert_eq!(latest_event.content.as_message().unwrap().body(), "the last one!");
+
+    server.verify_and_reset().await;
 }
 
 #[async_test]
