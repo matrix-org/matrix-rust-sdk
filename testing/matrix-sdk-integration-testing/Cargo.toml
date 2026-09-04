@@ -27,7 +27,7 @@ assert_matches2.workspace = true
 assign = "1"
 eyeball.workspace = true
 eyeball-im.workspace = true
-futures = { version = "0.3.29", features = ["executor"] }
+futures = { version = "0.3.34", features = ["executor"] }
 futures-core.workspace = true
 futures-util.workspace = true
 http.workspace = true

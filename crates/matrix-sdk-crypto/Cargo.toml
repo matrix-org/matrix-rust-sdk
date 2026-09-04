@@ -58,7 +58,7 @@ experimental-x509-identity-verification = ["dep:cms", "dep:pkcs1", "dep:sha2_0_1
 rust-x509-verifier-impl = ["experimental-x509-identity-verification", "dep:rustls", "dep:rustls-pki-types", "dep:rustls-webpki", "dep:ring"]
 
 [dependencies]
-aes = { version = "0.9.2", default-features = false }
+aes = { version = "0.9.3", default-features = false }
 as_variant.workspace = true
 async-trait.workspace = true
 bs58 = { version = "0.5.1", default-features = false, features = ["std"] }
@@ -84,7 +84,7 @@ rmp-serde.workspace = true
 ruma = { workspace = true, features = ["rand", "unstable-msc3814"] }
 rustls = { workspace = true, optional = true, default-features = false, features = ["std", "ring"] }
 rustls-pki-types = { version = "1.15.1", optional = true, default-features = false, features = ["alloc", "web"] }
-rustls-webpki = { version = "0.103.13", default-features = false, optional = true }
+rustls-webpki = { version = "0.103.15", default-features = false, optional = true }
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true
 sha2.workspace = true
@@ -93,7 +93,7 @@ sha2.workspace = true
 sha2_0_10 = { package = "sha2", version = "0.10.9", features = ["oid"], optional = true }
 subtle = { version = "2.6.1", default-features = false, features = ["std", "i128"] }
 thiserror.workspace = true
-time = { version = "0.3.54", default-features = false, features = ["std", "formatting"] }
+time = { version = "0.3.55", default-features = false, features = ["std", "formatting"] }
 tokio.workspace = true
 tokio-stream = { workspace = true, features = ["sync"] }
 tracing = { workspace = true, features = ["attributes"] }
@@ -129,7 +129,7 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 # The x509 tests use rust-x509-verifier-impl, so we need its dependencies
 ring = { version = "0.17.14", features = ["wasm32_unknown_unknown_js"] }
 rustls = { workspace = true, default-features = false, features = ["std", "ring"] }
-rustls-webpki = { version = "0.103.13", default-features = false }
+rustls-webpki = { version = "0.103.15", default-features = false }
 rustls-pki-types = { version = "1.15.1", default-features = false, features = ["alloc", "web"] }
 
 [lints]
