@@ -30,7 +30,12 @@ use crate::{
 };
 
 /// Type holding the [`LatestEvent`] for a room and for all its threads.
-#[derive(Debug)]
+///
+/// Cloning is cheap (the single field is `Arc`-based) and yields a handle onto
+/// the same shared state: it exists so callers can snapshot handles out of
+/// `RegisteredRooms::rooms` and release the map lock *before* awaiting the
+/// per-room lock.
+#[derive(Clone, Debug)]
 pub(super) struct RoomLatestEvents {
     /// The state of this type.
     state: Arc<RwLock<RoomLatestEventsState>>,

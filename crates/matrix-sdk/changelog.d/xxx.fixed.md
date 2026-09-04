@@ -1,0 +1,1 @@
+Fix a deadlock that could wedge the latest events subsystem, and the state store with it. Registering a room or a thread with `LatestEvents` could park a sliding sync response handler, which holds the state store lock for its whole duration. `LatestEvents::listen_and_subscribe_to_thread` also no longer panics if the thread is forgotten concurrently: it returns `None`.
