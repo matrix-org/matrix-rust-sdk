@@ -38,6 +38,7 @@ use ruma::{
 use tokio::{spawn, sync::broadcast, task::yield_now, time::sleep};
 
 mod read_receipts;
+mod specific_events;
 mod threads;
 
 macro_rules! assert_event_id {
