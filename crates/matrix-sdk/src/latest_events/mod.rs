@@ -200,6 +200,7 @@ impl LatestEvents {
         };
 
         let room_latest_events = room_latest_events.read().await;
+
         // The thread entry was created by `for_thread` above, but its per-room lock
         // was released in between, so a concurrent `forget_thread` may have removed
         // it: `None` is correct in that case.
@@ -328,7 +329,7 @@ impl RegisteredRooms {
             Some(thread_id) => {
                 // Snapshot the handle and release the map lock before awaiting the
                 // per-room write lock below. See [`Self::rooms`].
-                let (room_latest_events, must_trigger_computation) = {
+                let (room_latest_events, mut must_trigger_computation) = {
                     let mut rooms = self.rooms.write().await;
 
                     // The `RoomLatestEvents` doesn't exist. Let's create and insert it.
@@ -350,6 +351,11 @@ impl RegisteredRooms {
                     // create and insert it.
                     if room_latest_events.has_thread(thread_id).not() {
                         room_latest_events.create_and_insert_latest_event_for_thread(thread_id);
+
+                        // The `LatestEvent` of a thread is never restored from the store, it
+                        // is always created with a `LatestEventValue` of kind `None`, so it
+                        // always needs a computation.
+                        must_trigger_computation = true;
                     }
                 }
 
@@ -1498,6 +1504,78 @@ mod tests {
         // wait on the system to finish this, and assert the final
         // `LatestEventValue`.
         yield_now().await;
+        assert_matches!(latest_event_stream.next_now().await, LatestEventValue::Remote(_));
+
+        assert_pending!(latest_event_stream);
+    }
+
+    /// Same as
+    /// [`test_latest_event_value_is_initialized_by_the_event_cache_lazily`],
+    /// but for a thread of an already-registered room, which has thus already
+    /// had its own computation: the `LatestEvent` of a thread is always created
+    /// with a `LatestEventValue` of kind `None`, so it needs a computation of
+    /// its own.
+    #[async_test]
+    async fn test_thread_latest_event_value_is_initialized_by_the_event_cache_lazily() {
+        let room_id = owned_room_id!("!r0");
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id).room(&room_id);
+        let event_id_0 = event_id!("$ev0");
+        let thread_id = event_id!("$thread");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // Prelude.
+        {
+            // Create the room.
+            client.base_client().get_or_create_room(&room_id, RoomState::Joined);
+
+            // Initialise the event cache store.
+            client
+                .event_cache_store()
+                .lock()
+                .await
+                .expect("Could not acquire the event cache lock")
+                .as_clean()
+                .expect("Could not acquire a clean event cache lock")
+                .handle_linked_chunk_updates(
+                    LinkedChunkId::Room(&room_id),
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(0),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(0), 0),
+                            items: vec![
+                                event_factory.text_msg("hello").event_id(event_id_0).into(),
+                            ],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let latest_events = client.latest_events().await;
+
+        // Register the room, and let its computation run to completion.
+        assert!(latest_events.listen_to_room(&room_id).await.unwrap());
+        settle_tasks().await;
+
+        // Now register the thread.
+        let mut latest_event_stream = latest_events
+            .listen_and_subscribe_to_thread(&room_id, thread_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        settle_tasks().await;
         assert_matches!(latest_event_stream.next_now().await, LatestEventValue::Remote(_));
 
         assert_pending!(latest_event_stream);
