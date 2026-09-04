@@ -114,7 +114,7 @@ tracing-appender.workspace = true
 tracing-core.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url.workspace = true
-uuid = { version = "1.4.1", default-features = false, features = ["std", "v4"] }
+uuid = { version = "1.26.1", default-features = false, features = ["std", "v4"] }
 zeroize.workspace = true
 zxcvbn.workspace = true
 oauth2.workspace = true
