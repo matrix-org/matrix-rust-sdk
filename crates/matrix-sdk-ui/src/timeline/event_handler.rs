@@ -727,21 +727,28 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
     }
 
+    /// Build an aggregation owned by the event being handled: a pending local
+    /// echo when the flow is local, a remote one otherwise.
+    fn new_aggregation(&self, kind: AggregationKind) -> Aggregation {
+        let own_id = self.ctx.flow.timeline_item_id();
+        match &self.ctx.flow {
+            Flow::Local { .. } => Aggregation::new_local(own_id, kind),
+            Flow::Remote { .. } => Aggregation::new(own_id, kind),
+        }
+    }
+
     #[instrument(skip(self, edit_kind))]
     fn handle_edit(&mut self, edited_event_id: OwnedEventId, edit_kind: PendingEditKind) {
         let target = TimelineEventItemId::EventId(edited_event_id.clone());
 
         let encryption_info =
             as_variant!(&self.ctx.flow, Flow::Remote { encryption_info, .. } => encryption_info.clone()).flatten();
-        let aggregation = Aggregation::new(
-            self.ctx.flow.timeline_item_id(),
-            AggregationKind::Edit(PendingEdit {
-                kind: edit_kind,
-                edit_json: self.ctx.flow.raw_event().cloned(),
-                encryption_info,
-                bundled_item_owner: None,
-            }),
-        );
+        let aggregation = self.new_aggregation(AggregationKind::Edit(PendingEdit {
+            kind: edit_kind,
+            edit_json: self.ctx.flow.raw_event().cloned(),
+            encryption_info,
+            bundled_item_owner: None,
+        }));
 
         self.meta.aggregations.add(target.clone(), aggregation.clone());
 
@@ -782,15 +789,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         };
 
-        let aggregation = Aggregation::new(
-            self.ctx.flow.timeline_item_id(),
-            AggregationKind::Reaction {
-                key: reaction_key,
-                sender: self.ctx.sender.clone(),
-                timestamp: self.ctx.timestamp,
-                reaction_status,
-            },
-        );
+        let aggregation = self.new_aggregation(AggregationKind::Reaction {
+            key: reaction_key,
+            sender: self.ctx.sender.clone(),
+            timestamp: self.ctx.timestamp,
+            reaction_status,
+        });
 
         self.meta.aggregations.add(target.clone(), aggregation.clone());
         find_item_and_apply_aggregation(
@@ -804,14 +808,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
     fn handle_poll_response(&mut self, poll_event_id: OwnedEventId, answers: Vec<String>) {
         let target = TimelineEventItemId::EventId(poll_event_id);
-        let aggregation = Aggregation::new(
-            self.ctx.flow.timeline_item_id(),
-            AggregationKind::PollResponse {
-                sender: self.ctx.sender.clone(),
-                timestamp: self.ctx.timestamp,
-                answers,
-            },
-        );
+        let aggregation = self.new_aggregation(AggregationKind::PollResponse {
+            sender: self.ctx.sender.clone(),
+            timestamp: self.ctx.timestamp,
+            answers,
+        });
         self.meta.aggregations.add(target.clone(), aggregation.clone());
         find_item_and_apply_aggregation(
             &self.meta.aggregations,
@@ -824,10 +825,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
     fn handle_poll_end(&mut self, poll_event_id: OwnedEventId) {
         let target = TimelineEventItemId::EventId(poll_event_id);
-        let aggregation = Aggregation::new(
-            self.ctx.flow.timeline_item_id(),
-            AggregationKind::PollEnd { end_date: self.ctx.timestamp },
-        );
+        let aggregation =
+            self.new_aggregation(AggregationKind::PollEnd { end_date: self.ctx.timestamp });
         self.meta.aggregations.add(target.clone(), aggregation.clone());
         find_item_and_apply_aggregation(
             &self.meta.aggregations,
@@ -884,10 +883,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     #[instrument(skip(self, location))]
     fn handle_beacon_update(&mut self, beacon_info_event_id: OwnedEventId, location: BeaconInfo) {
         let target = TimelineEventItemId::EventId(beacon_info_event_id);
-        let aggregation = Aggregation::new(
-            self.ctx.flow.timeline_item_id(),
-            AggregationKind::BeaconUpdate { location },
-        );
+        let aggregation = self.new_aggregation(AggregationKind::BeaconUpdate { location });
         self.meta.aggregations.add(target.clone(), aggregation.clone());
         find_item_and_apply_aggregation(
             &self.meta.aggregations,
@@ -916,12 +912,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
 
         let target = TimelineEventItemId::EventId(redacted.clone());
-        let aggregation = Aggregation::new(
-            self.ctx.flow.timeline_item_id(),
-            AggregationKind::Redaction {
-                is_local: false, // We can only get here for remote echoes of redactions.
-            },
-        );
+        let aggregation = self.new_aggregation(AggregationKind::Redaction);
         self.meta.aggregations.add(target.clone(), aggregation.clone());
 
         find_item_and_apply_aggregation(
@@ -968,10 +959,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// event and adding the new decliner to the list via the manager.
     fn handle_call_declined(&mut self, notification_event_id: OwnedEventId) {
         let target = TimelineEventItemId::EventId(notification_event_id);
-        let aggregation = Aggregation::new(
-            self.ctx.flow.timeline_item_id(),
-            AggregationKind::CallDeclined { sender: self.ctx.sender.clone() },
-        );
+        let aggregation =
+            self.new_aggregation(AggregationKind::CallDeclined { sender: self.ctx.sender.clone() });
         self.meta.aggregations.add(target.clone(), aggregation.clone());
         find_item_and_apply_aggregation(
             &self.meta.aggregations,

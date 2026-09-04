@@ -1310,7 +1310,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
         let reaction_txn_id = send_handle.transaction_id().to_owned();
         let reaction_status = ReactionStatus::LocalToLocal(Some(send_handle));
-        let aggregation = Aggregation::new(
+        let aggregation = Aggregation::new_local(
             TimelineEventItemId::TransactionId(reaction_txn_id),
             AggregationKind::Reaction {
                 key: reaction_key.clone(),
@@ -1343,9 +1343,9 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
         let target = TimelineEventItemId::EventId(redacts);
 
-        let aggregation = Aggregation::new(
+        let aggregation = Aggregation::new_local(
             TimelineEventItemId::TransactionId(txn_id),
-            AggregationKind::Redaction { is_local: true },
+            AggregationKind::Redaction,
         );
 
         tr.meta.aggregations.add(target.clone(), aggregation.clone());
