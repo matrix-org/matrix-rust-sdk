@@ -40,6 +40,7 @@ pub mod pagination;
 pub mod pinned_events;
 mod read_receipts;
 pub mod room;
+pub mod specific_events;
 pub mod subscriber;
 pub mod thread;
 

@@ -115,6 +115,16 @@ pub enum EventCacheError {
         thread_id: OwnedEventId,
     },
 
+    /// Specific-events cache is not found.
+    #[error("Specific-events cache `{instance_id}` of room `{room_id}` is not found.")]
+    SpecificEventsNotFound {
+        /// The room ID of the specific-events cache.
+        room_id: OwnedRoomId,
+
+        /// The instance ID of the specific-events cache.
+        instance_id: u64,
+    },
+
     /// Pinned-events cache are not found.
     #[error("Pinned-events cache for room `{room_id}` are not found.")]
     PinnedEventsNotFound {
@@ -171,6 +181,10 @@ pub enum EventCacheError {
     /// list, incorrectly.
     #[error("Unable to load any of the pinned events.")]
     UnableToLoadPinnedEvents,
+
+    /// None of the events of a specific-events cache could be loaded.
+    #[error("Unable to load any of the specific events.")]
+    UnableToLoadSpecificEvents,
 
     /// An error happened when reading the metadata of a linked chunk, upon
     /// reload.
