@@ -29,7 +29,7 @@ use zeroize::Zeroize;
 
 use crate::{
     client::Client, error::ClientError, ruma::AuthData, runtime::get_runtime_handle,
-    task_handle::TaskHandle,
+    task_handle::TaskHandle, timeline::ShieldState,
 };
 
 #[derive(uniffi::Object)]
@@ -42,6 +42,56 @@ pub struct Encryption {
     /// the FFI `Client` and thus the SDK `Client` alive. Otherwise, we
     /// would need to repeat the hack done in the FFI `Client::drop` method.
     pub(crate) _client: Arc<Client>,
+}
+
+/// The encryption data of an event that was sent encrypted (and which we
+/// managed to decrypt).
+#[derive(Clone, uniffi::Record)]
+pub struct EventEncryptionInfo {
+    /// The user id this event is cryptographically attested to come from.
+    ///
+    /// For a to-device message this is what should be trusted, rather than the
+    /// `sender` claimed in the event JSON.
+    pub sender_id: String,
+    /// The device the event was sent from, as claimed by the sender.
+    pub sender_device_id: Option<String>,
+    /// The curve25519 key of the device that sent the event.
+    pub sender_curve25519_key: Option<String>,
+    /// The megolm session the event was sent in, if it was sent with megolm.
+    pub session_id: Option<String>,
+    /// The shield to show for this event, lax interpretation.
+    pub shield_state: ShieldState,
+    /// The shield to show for this event, strict interpretation.
+    pub shield_state_strict: ShieldState,
+}
+
+impl From<&matrix_sdk_base::deserialized_responses::EncryptionInfo> for EventEncryptionInfo {
+    fn from(info: &matrix_sdk_base::deserialized_responses::EncryptionInfo) -> Self {
+        use matrix_sdk_base::deserialized_responses::AlgorithmInfo;
+        use matrix_sdk_ui::timeline::TimelineEventShieldState;
+
+        let sender_curve25519_key = match &info.algorithm_info {
+            AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, .. } => Some(curve25519_key.clone()),
+            AlgorithmInfo::OlmV1Curve25519AesSha2 { curve25519_public_key_base64 } => {
+                Some(curve25519_public_key_base64.clone())
+            }
+        };
+
+        Self {
+            sender_id: info.sender.to_string(),
+            sender_device_id: info.sender_device.as_ref().map(ToString::to_string),
+            sender_curve25519_key,
+            session_id: info.session_id().map(ToOwned::to_owned),
+            shield_state: TimelineEventShieldState::from(
+                info.verification_state.to_shield_state_lax(),
+            )
+            .into(),
+            shield_state_strict: TimelineEventShieldState::from(
+                info.verification_state.to_shield_state_strict(),
+            )
+            .into(),
+        }
+    }
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]

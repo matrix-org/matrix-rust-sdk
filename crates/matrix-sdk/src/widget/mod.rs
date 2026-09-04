@@ -18,7 +18,7 @@
 use std::{fmt, time::Duration};
 
 use async_channel::{Receiver, Sender};
-use futures_util::StreamExt;
+use futures_util::{StreamExt, pin_mut};
 use matrix_sdk_common::executor::spawn;
 use ruma::api::client::delayed_events::DelayParameters;
 use serde::de::{self, Deserialize, Deserializer, Visitor};
@@ -289,10 +289,12 @@ impl WidgetDriver {
 
                 let mut events = matrix_driver.events();
                 let mut state_updates = matrix_driver.state_updates();
-                let mut to_device_events = matrix_driver.to_device_events();
+                let to_device_events = matrix_driver.to_device_events();
                 let incoming_msg_tx = incoming_msg_tx.clone();
 
                 spawn(async move {
+                    pin_mut!(to_device_events);
+
                     loop {
                         tokio::select! {
                             _ = stop_forwarding.cancelled() => {
@@ -310,7 +312,7 @@ impl WidgetDriver {
                                 let _ = incoming_msg_tx.send(IncomingMessage::StateUpdateReceived(state));
                             }
 
-                            Some(event) = to_device_events.recv() => {
+                            Some(event) = to_device_events.next() => {
                                 // Forward all events to the incoming messages stream.
                                 let _ = incoming_msg_tx.send(IncomingMessage::ToDeviceReceived(event));
                             }
