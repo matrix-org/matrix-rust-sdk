@@ -70,6 +70,15 @@ pub(super) struct Caches {
     pub event_focused:
         Arc<RwLock<HashMap<event_focused::EventFocusedCacheKey, event_focused::EventFocusedCache>>>,
 
+    /// All the [`SpecificEventsCache`], created on demand.
+    ///
+    /// [`SpecificEventsCache`]: specific_events::SpecificEventsCache
+    //
+    // TODO: caches are kept alive for the lifetime of the room's caches;
+    // an eviction strategy (e.g. dropping caches nobody subscribes to
+    // anymore) is to be discussed.
+    pub specific_events: Arc<RwLock<Vec<specific_events::SpecificEventsCache>>>,
+
     /// Internals data, used to lazily create caches.
     internals: CachesInternals,
 }
@@ -161,6 +170,7 @@ impl Caches {
             threads: Arc::new(RwLock::new(HashMap::new())),
             pinned_events: OnceCell::new(),
             event_focused: Arc::new(RwLock::new(HashMap::new())),
+            specific_events: Arc::new(RwLock::new(Vec::new())),
             internals: CachesInternals {
                 state: state.clone(),
                 auto_shrink_sender,
@@ -288,9 +298,30 @@ impl Caches {
         )
     }
 
+    /// Create a [`SpecificEventsCache`] for the given set of event IDs. It
+    /// isn't loaded yet.
+    ///
+    /// [`SpecificEventsCache`]: specific_events::SpecificEventsCache
+    pub async fn specific_events(
+        &self,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<specific_events::SpecificEventsCache> {
+        let cache = specific_events::SpecificEventsCache::new(
+            self.room.weak_room().clone(),
+            event_ids,
+            &self.internals.state,
+        )
+        .await?;
+
+        self.specific_events.write().await.push(cache.clone());
+
+        Ok(cache)
+    }
+
     /// Update all the event caches with a [`JoinedRoomUpdate`].
     pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
-        let Self { room, threads: _, pinned_events, event_focused, internals } = &self;
+        let Self { room, threads: _, pinned_events, event_focused, specific_events, internals } =
+            &self;
 
         // This method will compute a `JoinedRoomUpdate` for each cache. The game is to
         // avoid cloning useless data or to clone as few data as possible. That's a fun
@@ -392,12 +423,31 @@ impl Caches {
             let _ = event_focused;
         }
 
+        // Specific-events.
+        {
+            let specific_events = specific_events.read().await;
+
+            for specific_events in specific_events.iter() {
+                let updates = JoinedRoomUpdate {
+                    timeline: aggregator::aggregate_timeline_for_pinned_events(
+                        &original_timeline,
+                        &specific_events.state().read().await?.current_event_ids(),
+                        &internals.room_version_rules.redaction,
+                    ),
+                    ..Default::default()
+                };
+
+                specific_events.handle_joined_room_update(updates).await?;
+            }
+        }
+
         Ok(())
     }
 
     /// Update all the event caches with a [`LeftRoomUpdate`].
     pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
-        let Self { room, threads: _, pinned_events, event_focused, internals } = &self;
+        let Self { room, threads: _, pinned_events, event_focused, specific_events, internals } =
+            &self;
 
         // This method will compute a `JoinedRoomUpdate` for each cache. The game is to
         // avoid cloning useless data or to clone as few data as possible. That's a fun
@@ -477,6 +527,24 @@ impl Caches {
             let _ = event_focused;
         }
 
+        // Specific-events.
+        {
+            let specific_events = specific_events.read().await;
+
+            for specific_events in specific_events.iter() {
+                let updates = LeftRoomUpdate {
+                    timeline: aggregator::aggregate_timeline_for_pinned_events(
+                        &original_timeline,
+                        &specific_events.state().read().await?.current_event_ids(),
+                        &internals.room_version_rules.redaction,
+                    ),
+                    ..Default::default()
+                };
+
+                specific_events.handle_left_room_update(updates).await?;
+            }
+        }
+
         Ok(())
     }
 
@@ -498,6 +566,15 @@ impl Caches {
 
             for event_focused in event_focused.values() {
                 events.extend(event_focused.events().await?);
+            }
+        }
+
+        // The specific-events caches also only live in memory.
+        {
+            let specific_events = self.specific_events.read().await;
+
+            for specific_events in specific_events.iter() {
+                events.extend(specific_events.events().await?);
             }
         }
 
@@ -526,7 +603,7 @@ impl Caches {
             state.store.get_room_events(self.room.room_id(), event_type, session_id).await?
         };
 
-        // The only cache to not store its events is the event-focused cache. Its events
+        // The event-focused and specific-events caches don't store their events; they
         // only live in memory.
         {
             let event_focused = self.event_focused.read().await;
@@ -534,6 +611,21 @@ impl Caches {
             for event_focused in event_focused.values() {
                 events.extend(
                     event_focused
+                        .events()
+                        .await?
+                        .into_iter()
+                        .filter(|event| event_type == event.kind.event_type().as_deref())
+                        .filter(|event| session_id == event.kind.session_id()),
+                );
+            }
+        }
+
+        {
+            let specific_events = self.specific_events.read().await;
+
+            for specific_events in specific_events.iter() {
+                events.extend(
+                    specific_events
                         .events()
                         .await?
                         .into_iter()
