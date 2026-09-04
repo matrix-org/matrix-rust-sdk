@@ -696,6 +696,18 @@ mod tests {
         test_utils::mocks::MatrixMockServer,
     };
 
+    /// Let the spawned tasks of a test reach their next await point.
+    ///
+    /// `#[async_test]` runs on a current-thread runtime, so a spawned task
+    /// only makes progress while the test itself yields. The number of yields
+    /// is arbitrary: it only needs to be more than the number of await points
+    /// those tasks go through before they park.
+    async fn settle_tasks() {
+        for _ in 0..50 {
+            yield_now().await;
+        }
+    }
+
     #[async_test]
     async fn test_latest_events_are_lazy() {
         let room_id_0 = room_id!("!r0");
@@ -762,6 +774,105 @@ mod tests {
             // … which is thread 2.0.
             assert!(room_2.per_thread().contains_key(thread_id_2_0));
         }
+    }
+
+    /// No actor may hold the registered-rooms map lock while awaiting a
+    /// per-room lock.
+    ///
+    /// The map lock is write-preferring, so an actor parked on a per-room lock
+    /// while holding it puts every other map user behind the queued writer.
+    /// That is enough to wedge the whole subsystem, and the state store with
+    /// it. Three locks are involved:
+    ///
+    /// - `S`, the `state_store_lock`,
+    /// - `M`, the registered-rooms map lock,
+    /// - `R`, the per-room `RoomLatestEvents` lock of one room,
+    ///
+    /// and three actors, all of which really do take them in this order:
+    ///
+    /// - the computation task holds `R` for the whole computation and then
+    ///   awaits `S` to persist the value (`LatestEvent::store`),
+    /// - a thread registration awaits `R` (`for_thread`),
+    /// - a sliding sync response holds `S` and then registers the response's
+    ///   rooms, which reaches into the map
+    ///   (`SlidingSyncResponseProcessor::handle_room_response`).
+    ///
+    /// If the thread registration awaits `R` while holding `M`, those three
+    /// close a cycle - the sliding sync response waits on `M`, the thread
+    /// registration waits on `R`, the computation task waits on `S` - and none
+    /// of them ever makes progress.
+    ///
+    /// Rather than reproducing that cycle, which needs the computation task to
+    /// be paused mid-computation, this test checks the invariant it violates:
+    /// `R` is held busy, every actor that awaits it is parked on it, and `M`
+    /// must still be usable.
+    #[async_test]
+    async fn test_map_stays_available_while_a_per_room_lock_is_busy() {
+        let room_id = room_id!("!x");
+        let thread_id = event_id!("$thread");
+        let other_thread_id = event_id!("$other-thread");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        client.event_cache().subscribe().unwrap();
+
+        let latest_events = client.latest_events().await;
+        let registered_rooms = latest_events.state.registered_rooms.clone();
+
+        // The room and one thread are registered, so `R` exists and the computation
+        // triggered by the registration is done with.
+        assert!(latest_events.listen_to_thread(room_id, thread_id).await.unwrap());
+        settle_tasks().await;
+
+        // Hold `R` for the rest of the test.
+        let room_guard = {
+            let rooms = registered_rooms.rooms.read().await;
+
+            rooms.get(room_id).unwrap().write().await
+        };
+
+        // The computation task now has an update for this room, so it awaits `R`.
+        let _ = registered_rooms
+            .latest_event_queue_sender
+            .send(LatestEventQueueUpdate::EventCache { room_id: room_id.to_owned() });
+        settle_tasks().await;
+
+        // `forget_thread` awaits `R` too.
+        let forget = matrix_sdk_common::executor::spawn({
+            let latest_events = latest_events.clone();
+
+            async move { latest_events.forget_thread(room_id, thread_id).await }
+        });
+        settle_tasks().await;
+
+        // And so does a thread registration.
+        let register = matrix_sdk_common::executor::spawn({
+            let latest_events = latest_events.clone();
+
+            async move { latest_events.listen_and_subscribe_to_thread(room_id, other_thread_id).await }
+        });
+        settle_tasks().await;
+
+        // All three are parked on `R`, but `M` must still be usable.
+        drop(
+            timeout(Duration::from_secs(2), registered_rooms.rooms.write())
+                .await
+                .expect("the registered-rooms map is wedged"),
+        );
+
+        // And they all complete once `R` is released.
+        drop(room_guard);
+
+        timeout(Duration::from_secs(2), forget).await.expect("`forget_thread` is stuck").unwrap();
+
+        let subscriber = timeout(Duration::from_secs(2), register)
+            .await
+            .expect("the thread registration is stuck")
+            .unwrap()
+            .unwrap();
+        assert!(subscriber.is_some());
     }
 
     #[async_test]
