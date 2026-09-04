@@ -186,7 +186,7 @@ use crate::{
         power_levels::{RoomPowerLevelChanges, RoomPowerLevelsExt},
         privacy_settings::RoomPrivacySettings,
     },
-    sync::RoomUpdate,
+    sync::{RoomUpdate, State},
     utils::{IntoRawMessageLikeEventContent, IntoRawStateEventContent},
 };
 
@@ -678,6 +678,47 @@ impl Room {
         });
         let drop_guard = self.client().event_handler_drop_guard(typing_event_handler_handle);
         (drop_guard, receiver)
+    }
+
+    /// Subscribe to the state events of a given type in this room.
+    ///
+    /// The returned stream yields the full list of state events of that type,
+    /// one per state key, as [`get_state_events()`][Self::get_state_events]
+    /// would return it: first as it currently is, then after every sync
+    /// response that reported state changes of that type for this room.
+    ///
+    /// Reading the state can fail, in which case the error is yielded and the
+    /// stream carries on with the next sync. The stream ends when the
+    /// [`Client`] is dropped.
+    pub fn subscribe_to_state_events(
+        &self,
+        event_type: StateEventType,
+    ) -> impl Stream<Item = Result<Vec<RawAnySyncOrStrippedState>>> + use<> {
+        let room = self.clone();
+        let mut room_updates = self.subscribe_to_updates();
+
+        stream! {
+            // Emit the current state first. We subscribed to the room updates before
+            // reading it, so a change happening in between isn't missed; it may be
+            // reported twice instead, which is harmless for a snapshot.
+            yield room.get_state_events(event_type.clone()).await;
+
+            loop {
+                match room_updates.recv().await {
+                    Ok(update) => {
+                        if !has_state_events_of_type(&update, &event_type) {
+                            continue;
+                        }
+                    }
+                    // Sync responses were missed because they weren't consumed fast
+                    // enough; a fresh snapshot catches up on all of them at once.
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+
+                yield room.get_state_events(event_type.clone()).await;
+            }
+        }
     }
 
     /// Subscribe to updates about users who are in "pin violation" i.e. their
@@ -4923,6 +4964,25 @@ pub struct RoomMemberWithSenderInfo {
     /// The info of the sender of the event `room_member` is based on, if
     /// available.
     pub sender_info: Option<RoomMember>,
+}
+
+/// Whether a room update reports state events of the given type, in the state
+/// section of the sync response (state events found in the timeline are not
+/// considered).
+fn has_state_events_of_type(update: &RoomUpdate, event_type: &StateEventType) -> bool {
+    // We only care about the state of rooms we are in.
+    let RoomUpdate::Joined { updates, .. } = update else {
+        return false;
+    };
+
+    let (State::Before(state_events) | State::After(state_events)) = &updates.state;
+
+    state_events.iter().any(|raw| {
+        raw.get_field::<StateEventType>("type")
+            .ok()
+            .flatten()
+            .is_some_and(|received_type| received_type == *event_type)
+    })
 }
 
 #[cfg(all(test, not(target_family = "wasm")))]
