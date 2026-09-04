@@ -685,63 +685,74 @@ impl PinnedEventsCache {
             return Ok(Some(Vec::new()));
         }
 
-        let mut num_successful_loads = 0;
-
-        let mut loaded_events: Vec<Event> =
-            stream::iter(pinned_event_ids.clone().into_iter().map(|event_id| {
-                let room = room.clone();
-                let filter = vec![RelationType::Annotation, RelationType::Replacement];
-                let request_config = RequestConfig::default().retry_limit(3);
-
-                async move {
-                    let (target, mut relations) = room
-                        .load_or_fetch_event_with_relations(
-                            &event_id,
-                            Some(filter),
-                            Some(request_config),
-                        )
-                        .await?;
-
-                    relations.insert(0, target);
-                    Ok::<_, crate::Error>(relations)
-                }
-            }))
-            .buffer_unordered(max_concurrent_requests)
-            // Count successful queries.
-            .inspect(|result| {
-                if result.is_ok() {
-                    num_successful_loads += 1;
-                }
-            })
-            // Get rid of error results.
-            .flat_map(stream::iter)
-            // Flatten the list of `Vec<Event>` into a list of `Event`.
-            .flat_map(stream::iter)
-            .collect()
-            .await;
-
-        if num_successful_loads != pinned_event_ids.len() {
-            warn!(
-                "only successfully loaded {} out of {} pinned events",
-                num_successful_loads,
-                pinned_event_ids.len()
-            );
-        }
-
-        if loaded_events.is_empty() {
-            // If the list of loaded events is empty, we ran into an error to load *all* the
-            // pinned events, which needs to be reported to the caller.
-            return Err(EventCacheError::UnableToLoadPinnedEvents);
-        }
-
-        // Since we have all the events and their related events, we can't nicely sort
-        // them, since we've lost all ordering information from using /event or
-        // /relations. Resort to sorting using chronological ordering (oldest ->
-        // newest).
-        loaded_events.sort_by(compare_pinned_items);
-
-        Ok(Some(loaded_events))
+        // If nothing could be loaded, we ran into an error to load *all* the pinned
+        // events, which needs to be reported to the caller.
+        load_events_with_relations(&room, pinned_event_ids, max_concurrent_requests)
+            .await
+            .map(Some)
+            .ok_or(EventCacheError::UnableToLoadPinnedEvents)
     }
+}
+
+/// Load the given events, using the cache first and then requesting them from
+/// the homeserver, along with their reactions and edits, performing at most
+/// `max_concurrent_requests` requests at once.
+///
+/// Events that can't be loaded are skipped with a warning; `None` is returned
+/// when none of them could be. Since ordering information is lost when going
+/// through `/event` and `/relations`, the result is sorted chronologically
+/// (oldest to newest).
+pub(super) async fn load_events_with_relations(
+    room: &Room,
+    event_ids: Vec<OwnedEventId>,
+    max_concurrent_requests: usize,
+) -> Option<Vec<Event>> {
+    let num_requested = event_ids.len();
+    let mut num_successful_loads = 0;
+
+    let mut loaded_events: Vec<Event> = stream::iter(event_ids.into_iter().map(|event_id| {
+        let room = room.clone();
+        let filter = vec![RelationType::Annotation, RelationType::Replacement];
+        let request_config = RequestConfig::default().retry_limit(3);
+
+        async move {
+            let (target, mut relations) = room
+                .load_or_fetch_event_with_relations(&event_id, Some(filter), Some(request_config))
+                .await?;
+
+            relations.insert(0, target);
+            Ok::<_, crate::Error>(relations)
+        }
+    }))
+    .buffer_unordered(max_concurrent_requests)
+    // Count successful queries.
+    .inspect(|result| {
+        if result.is_ok() {
+            num_successful_loads += 1;
+        }
+    })
+    // Get rid of error results.
+    .flat_map(stream::iter)
+    // Flatten the list of `Vec<Event>` into a list of `Event`.
+    .flat_map(stream::iter)
+    .collect()
+    .await;
+
+    if num_successful_loads != num_requested {
+        warn!("only successfully loaded {num_successful_loads} out of {num_requested} events");
+    }
+
+    if num_requested > 0 && num_successful_loads == 0 {
+        return None;
+    }
+
+    // An event may be both requested and a relation of another one.
+    let mut seen = BTreeSet::new();
+    loaded_events.retain(|event| event.event_id().is_none_or(|id| seen.insert(id.to_owned())));
+
+    loaded_events.sort_by(compare_pinned_items);
+
+    Some(loaded_events)
 }
 
 impl fmt::Debug for PinnedEventsCache {
