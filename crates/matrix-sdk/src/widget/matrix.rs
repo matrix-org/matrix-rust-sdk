@@ -18,9 +18,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use as_variant::as_variant;
+use async_stream::stream;
+use futures_core::Stream;
 use matrix_sdk_base::{
     crypto::CollectStrategy,
-    deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState},
+    deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaFormat, MediaRequestParameters},
     sync::State,
 };
@@ -52,8 +54,8 @@ use tracing::{error, trace, warn};
 
 use super::{StateKeySelector, machine::SendEventResponse};
 use crate::{
-    Client, Error, Result, Room, event_handler::EventHandlerDropGuard, room::MessagesOptions,
-    sync::RoomUpdate, widget::machine::SendToDeviceEventResponse,
+    Error, Result, Room, client::is_internal_to_device_type, event_handler::EventHandlerDropGuard,
+    room::MessagesOptions, sync::RoomUpdate, widget::machine::SendToDeviceEventResponse,
 };
 
 /// Thin wrapper around a [`Room`] that provides functionality relevant for
@@ -275,29 +277,20 @@ impl MatrixDriver {
         StateUpdateReceiver { room_updates: self.room.subscribe_to_updates() }
     }
 
-    /// Starts forwarding new room events. Once the returned `EventReceiver`
-    /// is dropped, forwarding will be stopped.
-    pub(crate) fn to_device_events(&self) -> EventReceiver<Raw<AnyToDeviceEvent>> {
-        let (tx, rx) = unbounded_channel();
+    /// Starts forwarding new to-device messages. Once the returned stream is
+    /// dropped, forwarding will be stopped.
+    pub(crate) fn to_device_events(&self) -> impl Stream<Item = Raw<AnyToDeviceEvent>> + use<> {
+        let room = self.room.clone();
+        // Every custom to-device type: the widget machine filters by capability. The
+        // SDK's internal crypto traffic is already left out.
+        let messages = room.client().subscribe_to_to_device_messages(vec![]);
 
-        let room_id = self.room.room_id().to_owned();
-        let to_device_handle = self.room.client().add_event_handler(
-            async move |raw: Raw<AnyToDeviceEvent>,
-                        encryption_info: Option<EncryptionInfo>,
-                        client: Client| {
-                // Some to-device traffic is used by the SDK for internal machinery.
-                // They should not be exposed to widgets.
-                if Self::should_filter_message_to_widget(&raw) {
-                    return;
-                }
+        stream! {
+            for await message in messages {
+                let room_id = room.room_id();
 
                 // Encryption can be enabled after the widget has been instantiated,
                 // we want to keep track of the latest status
-                let Some(room) = client.get_room(&room_id) else {
-                    warn!("Room {room_id} not found in client.");
-                    return;
-                };
-
                 let room_encrypted = room
                     .latest_encryption_state()
                     .await
@@ -307,8 +300,8 @@ impl MatrixDriver {
 
                 // Whether the to-device message reached us encrypted. `encryption_info` is
                 // `Some(..)` only when the message arrived as `m.room.encrypted` and was
-                // successfully Olm-decrypted by the SDK; clear (and UTD) messages carry `None`.
-                let encrypted = encryption_info.is_some();
+                // successfully Olm-decrypted by the SDK; clear messages carry `None`.
+                let encrypted = message.encryption_info.is_some();
 
                 if room_encrypted && !encrypted {
                     // The room is encrypted so the to-device traffic should be too.
@@ -316,7 +309,7 @@ impl MatrixDriver {
                         ?room_id,
                         "Received to-device event in clear for a widget in an e2e room, dropping."
                     );
-                    return;
+                    continue;
                 }
 
                 // There are no per-room specific decryption settings (trust requirements), so
@@ -341,7 +334,7 @@ impl MatrixDriver {
                     encrypted: bool,
                 }
 
-                let _ = serde_json::from_str::<CleanEventHelper<'_>>(raw.json().get())
+                let clean_event = serde_json::from_str::<CleanEventHelper<'_>>(message.raw.json().get())
                     .map(|mut clean_event_helper| {
                         // Important, always set the `encrypted` flag based on encryption_info
                         clean_event_helper.encrypted = encrypted;
@@ -349,55 +342,16 @@ impl MatrixDriver {
                     })
                     .and_then(|clean_event_helper| {
                         serde_json::value::to_raw_value(&clean_event_helper)
-                    })
-                    .map_err(|err| {
+                    });
+
+                match clean_event {
+                    Ok(clean_event) => yield Raw::from_json(clean_event),
+                    Err(err) => {
                         warn!(?room_id, "Unable to process to-device message for widget: {err}")
-                    })
-                    .map(|box_value| tx.send(Raw::from_json(box_value)));
-            },
-        );
-
-        let drop_guard = self.room.client().event_handler_drop_guard(to_device_handle);
-        EventReceiver { rx, _drop_guard: drop_guard }
-    }
-
-    fn should_filter_message_to_widget(raw_message: &Raw<AnyToDeviceEvent>) -> bool {
-        let Ok(Some(event_type)) = raw_message.get_field::<String>("type") else {
-            trace!("Invalid to-device message (no type) filtered out by widget driver.");
-            return true;
-        };
-
-        // Filter out all the internal crypto related traffic.
-        // The SDK has already zeroized the critical data, but let's not leak any
-        // information
-        let filtered = Self::is_internal_type(event_type.as_str());
-
-        if filtered {
-            trace!("To-device message of type <{event_type}> filtered out by widget driver.",);
+                    }
+                }
+            }
         }
-        filtered
-    }
-
-    fn is_internal_type(event_type: &str) -> bool {
-        matches!(
-            event_type,
-            "m.dummy"
-                | "m.room_key"
-                | "m.room_key_request"
-                | "m.forwarded_room_key"
-                | "m.key.verification.request"
-                | "m.key.verification.ready"
-                | "m.key.verification.start"
-                | "m.key.verification.cancel"
-                | "m.key.verification.accept"
-                | "m.key.verification.key"
-                | "m.key.verification.mac"
-                | "m.key.verification.done"
-                | "m.secret.request"
-                | "m.secret.send"
-                // drop utd traffic
-                | "m.room.encrypted"
-        )
     }
 
     /// If the room the widget is in is encrypted, then the to-device message
@@ -413,7 +367,7 @@ impl MatrixDriver {
     ) -> Result<SendToDeviceEventResponse> {
         // TODO: block this at the negotiation stage, no reason to let widget believe
         // they can do that
-        if Self::is_internal_type(&event_type.to_string()) {
+        if is_internal_to_device_type(&event_type) {
             warn!("Widget tried to send internal to-device message <{}>, ignoring", event_type);
             // Silently return a success response, the widget will not receive the message
             return Ok(Default::default());

@@ -24,6 +24,7 @@ mod room;
 mod room_preview;
 mod send_queue;
 mod sync;
+mod to_device;
 #[cfg(feature = "experimental-widgets")]
 mod widget;
 

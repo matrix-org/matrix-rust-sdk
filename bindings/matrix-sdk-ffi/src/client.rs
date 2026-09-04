@@ -28,6 +28,7 @@ use matrix_sdk::STATE_STORE_DATABASE_NAME;
 use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
 use matrix_sdk::{
     Account, AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
+    ToDeviceMessage as SdkToDeviceMessage,
     authentication::oauth::{
         ClientId, OAuthAuthorizationData, OAuthError as SdkOAuthError, OAuthSession,
     },
@@ -97,6 +98,7 @@ use ruma::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
         GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
         RoomAccountDataEvent as RumaRoomAccountDataEvent, RoomAccountDataEventType,
+        ToDeviceEventType,
         direct::DirectEventContent,
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
@@ -120,7 +122,7 @@ use ruma::{
     room::RoomType,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Value, json, value::RawValue as RawJsonValue};
 use tokio::sync::{RwLock, broadcast::error::RecvError};
 use tracing::{debug, error, warn};
 use url::Url;
@@ -136,7 +138,7 @@ use crate::{
     },
     client,
     content_scanner::ContentScanner,
-    encryption::Encryption,
+    encryption::{Encryption, EventEncryptionInfo},
     live_locations_observer::BeaconInfoUpdate,
     notification::{
         NotificationClient, NotificationEvent, NotificationItem, NotificationRoomInfo,
@@ -2381,6 +2383,87 @@ impl Client {
     /// Returns the currently used [`ContentScanner`] instance, if any.
     pub async fn content_scanner(&self) -> Option<Arc<ContentScanner>> {
         self.content_scanner.read().await.clone()
+    }
+
+    /// Subscribe to the custom to-device messages received by this client.
+    ///
+    /// The listener is called with every to-device message whose type is one
+    /// of `event_types`, or with every custom to-device message if
+    /// `event_types` is empty. A message that was sent encrypted is delivered
+    /// decrypted, along with its encryption info.
+    ///
+    /// The to-device traffic the SDK uses for its own crypto machinery and the
+    /// messages it could not decrypt are never delivered.
+    ///
+    /// Use the returned [`TaskHandle`] to cancel the subscription.
+    pub fn subscribe_to_to_device_messages(
+        &self,
+        event_types: Vec<String>,
+        listener: Box<dyn ToDeviceMessageListener>,
+    ) -> Arc<TaskHandle> {
+        let event_types = event_types.into_iter().map(ToDeviceEventType::from).collect();
+        let messages = self.inner.subscribe_to_to_device_messages(event_types);
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            pin_mut!(messages);
+
+            while let Some(message) = messages.next().await {
+                match ToDeviceMessage::try_from(message) {
+                    Ok(message) => listener.on_message(message),
+                    Err(error) => warn!("Skipping malformed to-device message: {error}"),
+                }
+            }
+        })))
+    }
+}
+
+/// A listener for incoming to-device messages, registered with
+/// [`Client::subscribe_to_to_device_messages`].
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait ToDeviceMessageListener: SyncOutsideWasm + SendOutsideWasm {
+    fn on_message(&self, message: ToDeviceMessage);
+}
+
+/// A custom to-device message received by the client.
+#[derive(Clone, uniffi::Record)]
+pub struct ToDeviceMessage {
+    /// The type of the message.
+    pub event_type: String,
+    /// The user id that *claims* to have sent this message.
+    ///
+    /// This is unauthenticated. For an encrypted message, trust
+    /// `encryption_info.sender_id` instead, which is cryptographically
+    /// attested.
+    pub sender_id: String,
+    /// The message content, as a JSON string.
+    pub content: String,
+    /// The encryption data of this message, or `None` if it arrived in the
+    /// clear.
+    pub encryption_info: Option<EventEncryptionInfo>,
+}
+
+impl TryFrom<SdkToDeviceMessage> for ToDeviceMessage {
+    type Error = serde_json::Error;
+
+    fn try_from(message: SdkToDeviceMessage) -> Result<Self, Self::Error> {
+        /// The subset of a to-device event that is exposed over FFI.
+        #[derive(Deserialize)]
+        struct ToDeviceMessageHelper<'a> {
+            #[serde(rename = "type")]
+            event_type: String,
+            sender: String,
+            #[serde(borrow)]
+            content: &'a RawJsonValue,
+        }
+
+        let helper: ToDeviceMessageHelper<'_> = serde_json::from_str(message.raw.json().get())?;
+
+        Ok(Self {
+            event_type: helper.event_type,
+            sender_id: helper.sender,
+            content: helper.content.get().to_owned(),
+            encryption_info: message.encryption_info.as_ref().map(Into::into),
+        })
     }
 }
 
