@@ -15,11 +15,9 @@
 //! Matrix driver implementation that exposes Matrix functionality
 //! that is relevant for the widget API.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
-use as_variant::as_variant;
 use matrix_sdk_base::{
-    crypto::CollectStrategy,
     deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState},
     media::{MediaFormat, MediaRequestParameters},
     sync::State,
@@ -421,8 +419,6 @@ impl MatrixDriver {
 
         let client = self.room.client();
 
-        let mut failures: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> = BTreeMap::new();
-
         let room_encrypted = self
             .room
             .latest_encryption_state()
@@ -431,138 +427,59 @@ impl MatrixDriver {
             // Default consider encrypted
             .unwrap_or(true);
 
-        if room_encrypted {
-            trace!("Sending to-device message in encrypted room <{}>", self.room.room_id());
-
-            // The widget-api uses a [user -> device -> content] map, but the
-            // crypto-sdk API allow to encrypt a given content for multiple recipients.
-            // Lets convert the [user -> device -> content] to a [content -> user -> device
-            // map].
-            let mut content_to_recipients_map: BTreeMap<
-                &str,
-                BTreeMap<OwnedUserId, Vec<DeviceIdOrAllDevices>>,
-            > = BTreeMap::new();
-
-            for (user_id, device_map) in messages.iter() {
-                for (device_id, content) in device_map.iter() {
-                    content_to_recipients_map
-                        .entry(content.json().get())
-                        .or_default()
-                        .entry(user_id.clone())
-                        .or_default()
-                        .push(device_id.to_owned());
-                }
-            }
-
-            // Encrypt and send this content
-            for (content, user_to_list_of_device_id_or_all) in content_to_recipients_map {
-                self.encrypt_and_send_content_to_devices_helper(
-                    &event_type,
-                    content,
-                    user_to_list_of_device_id_or_all,
-                    &mut failures,
-                )
-                .await?
-            }
-
-            let failures = failures
-                .into_iter()
-                .map(|(u, list_of_devices)| {
-                    (u.into(), list_of_devices.into_iter().map(|d| d.into()).collect())
-                })
-                .collect();
-
-            let response = SendToDeviceEventResponse { failures };
-            Ok(response)
-        } else {
-            // send in clear
+        if !room_encrypted {
+            // Send in clear, as a single request.
             let request = RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), messages);
             client.send(request).await?;
-            Ok(Default::default())
-        }
-    }
-
-    // Helper to encrypt a single content to several devices
-    async fn encrypt_and_send_content_to_devices_helper(
-        &self,
-        event_type: &ToDeviceEventType,
-        content: &str,
-        user_to_list_of_device_id_or_all: BTreeMap<OwnedUserId, Vec<DeviceIdOrAllDevices>>,
-        failures: &mut BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
-    ) -> Result<()> {
-        let client = self.room.client();
-        let mut recipient_devices = Vec::<_>::new();
-
-        for (user_id, recipient_device_ids) in user_to_list_of_device_id_or_all {
-            let user_devices = client.encryption().get_user_devices(&user_id).await?;
-
-            let user_devices = if recipient_device_ids.contains(&DeviceIdOrAllDevices::AllDevices) {
-                // If the user wants to send to all devices, there's nothing to filter and no
-                // need to inspect other entries in the user's device list.
-                let devices: Vec<_> = user_devices.devices().collect();
-                // TODO: What to do if the user has no devices?
-                if devices.is_empty() {
-                    warn!(
-                        "Recipient list contains `AllDevices` but no devices found for user {user_id}."
-                    )
-                }
-                // TODO: What if the `recipient_device_ids` has both
-                // `AllDevices` and other devices but one of the  other devices is not found.
-                if recipient_device_ids.len() > 1 {
-                    warn!(
-                        "The recipient_device_ids list for {user_id} contains both `AllDevices` and explicit `DeviceId` entries. Only consider `AllDevices`",
-                    );
-                }
-                devices
-            } else {
-                // If the user wants to send to only some devices, filter out any devices that
-                // aren't part of the recipient_device_ids list.
-                let filtered_devices = user_devices
-                    .devices()
-                    .map(|device| (device.device_id().to_owned(), device))
-                    .filter(|(device_id, _)| {
-                        recipient_device_ids
-                            .contains(&DeviceIdOrAllDevices::DeviceId(device_id.clone()))
-                    });
-
-                let (found_device_ids, devices): (BTreeSet<_>, Vec<_>) = filtered_devices.unzip();
-
-                let list_of_devices: BTreeSet<_> = recipient_device_ids
-                    .into_iter()
-                    .filter_map(|d| as_variant!(d, DeviceIdOrAllDevices::DeviceId))
-                    .collect();
-
-                // Let's now find any devices that are part of the recipient_device_ids list but
-                // were not found in our store.
-                let missing_devices: Vec<_> =
-                    list_of_devices.difference(&found_device_ids).map(|d| d.to_owned()).collect();
-                if !missing_devices.is_empty() {
-                    failures.insert(user_id, missing_devices);
-                }
-                devices
-            };
-
-            recipient_devices.extend(user_devices);
+            return Ok(Default::default());
         }
 
-        if !recipient_devices.is_empty() {
-            // need to group by content
-            let encrypt_and_send_failures = client
-                .encryption()
-                .encrypt_and_send_raw_to_device(
-                    recipient_devices.iter().collect(),
-                    &event_type.to_string(),
+        trace!("Sending to-device message in encrypted room <{}>", self.room.room_id());
+
+        // The widget-api uses a [user -> device -> content] map, but the SDK API
+        // sends a given content to multiple recipients. Let's convert the [user ->
+        // device -> content] to a [content -> user -> devices] map so that each
+        // distinct content is encrypted and sent once.
+        let mut content_to_recipients_map: BTreeMap<
+            &str,
+            BTreeMap<OwnedUserId, Vec<DeviceIdOrAllDevices>>,
+        > = BTreeMap::new();
+
+        for (user_id, device_map) in messages.iter() {
+            for (device_id, content) in device_map.iter() {
+                content_to_recipients_map
+                    .entry(content.json().get())
+                    .or_default()
+                    .entry(user_id.clone())
+                    .or_default()
+                    .push(device_id.to_owned());
+            }
+        }
+
+        let mut failures: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> = BTreeMap::new();
+
+        for (content, recipients) in content_to_recipients_map {
+            let content_failures = client
+                .send_encrypted_to_device(
+                    &event_type,
+                    recipients,
                     Raw::from_json_string(content.to_owned())?,
-                    CollectStrategy::AllDevices,
                 )
                 .await?;
 
-            for (user_id, device_id) in encrypt_and_send_failures {
-                failures.entry(user_id).or_default().push(device_id)
+            for (user_id, device_ids) in content_failures {
+                failures.entry(user_id).or_default().extend(device_ids);
             }
         }
 
-        Ok(())
+        let failures = failures
+            .into_iter()
+            .map(|(u, list_of_devices)| {
+                (u.into(), list_of_devices.into_iter().map(|d| d.into()).collect())
+            })
+            .collect();
+
+        Ok(SendToDeviceEventResponse { failures })
     }
 }
 

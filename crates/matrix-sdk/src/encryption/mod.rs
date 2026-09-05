@@ -17,7 +17,7 @@
 #![cfg_attr(target_family = "wasm", allow(unused_imports))]
 
 #[cfg(feature = "experimental-send-custom-to-device")]
-use std::ops::Deref;
+use std::{collections::BTreeSet, ops::Deref};
 use std::{
     collections::{BTreeMap, HashSet},
     io::{Cursor, Read, Write},
@@ -28,6 +28,8 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "experimental-send-custom-to-device")]
+use as_variant::as_variant;
 use eyeball::{SharedObservable, Subscriber};
 use futures_core::Stream;
 use futures_util::{
@@ -79,7 +81,11 @@ use ruma::{
     },
 };
 #[cfg(feature = "experimental-send-custom-to-device")]
-use ruma::{events::AnyToDeviceEventContent, serde::Raw, to_device::DeviceIdOrAllDevices};
+use ruma::{
+    events::{AnyToDeviceEventContent, ToDeviceEventType},
+    serde::Raw,
+    to_device::DeviceIdOrAllDevices,
+};
 use serde::{Deserialize, de::Error as _};
 use tasks::BundleReceiverTask;
 use tokio::sync::{Mutex, RwLockReadGuard};
@@ -879,6 +885,116 @@ impl Client {
             .await;
 
         Ok(())
+    }
+}
+
+#[cfg(feature = "experimental-send-custom-to-device")]
+impl Client {
+    /// Olm-encrypt a raw to-device message and send it to a set of recipient
+    /// devices.
+    ///
+    /// If there are a lot of recipient devices multiple `/sendToDevice`
+    /// requests might be sent out.
+    ///
+    /// The content is always encrypted.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_type` - The type of the to-device event to send.
+    ///
+    /// * `recipients` - The devices to send the message to, as a `user id ->
+    ///   device ids` map. [`DeviceIdOrAllDevices::AllDevices`] targets every
+    ///   device of that user we know about.
+    ///
+    /// * `content` - The content of the to-device event, encrypted for and sent
+    ///   to every recipient.
+    ///
+    /// # Returns
+    ///
+    /// The devices that did *not* receive the message, as a `user id -> device
+    /// ids` map. A device can end up in there because it is unknown to us,
+    /// because the sharing strategy excluded it, or because encrypting for it
+    /// or sending to it failed. An empty map means every recipient was served.
+    ///
+    /// [`send_event_to_device`]: ruma::api::client::to_device::send_event_to_device
+    pub async fn send_encrypted_to_device(
+        &self,
+        event_type: &ToDeviceEventType,
+        recipients: BTreeMap<OwnedUserId, Vec<DeviceIdOrAllDevices>>,
+        content: Raw<AnyToDeviceEventContent>,
+    ) -> Result<BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>> {
+        let mut failures: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> = BTreeMap::new();
+        let mut recipient_devices = Vec::<_>::new();
+
+        for (user_id, recipient_device_ids) in recipients {
+            let user_devices = self.encryption().get_user_devices(&user_id).await?;
+
+            let user_devices = if recipient_device_ids.contains(&DeviceIdOrAllDevices::AllDevices) {
+                // If the user wants to send to all devices, there's nothing to filter and no
+                // need to inspect other entries in the user's device list.
+                let devices: Vec<_> = user_devices.devices().collect();
+                // TODO: What to do if the user has no devices?
+                if devices.is_empty() {
+                    warn!(
+                        "Recipient list contains `AllDevices` but no devices found for user {user_id}."
+                    )
+                }
+                // TODO: What if the `recipient_device_ids` has both
+                // `AllDevices` and other devices but one of the  other devices is not found.
+                if recipient_device_ids.len() > 1 {
+                    warn!(
+                        "The recipient_device_ids list for {user_id} contains both `AllDevices` and explicit `DeviceId` entries. Only consider `AllDevices`",
+                    );
+                }
+                devices
+            } else {
+                // If the user wants to send to only some devices, filter out any devices that
+                // aren't part of the recipient_device_ids list.
+                let filtered_devices = user_devices
+                    .devices()
+                    .map(|device| (device.device_id().to_owned(), device))
+                    .filter(|(device_id, _)| {
+                        recipient_device_ids
+                            .contains(&DeviceIdOrAllDevices::DeviceId(device_id.clone()))
+                    });
+
+                let (found_device_ids, devices): (BTreeSet<_>, Vec<_>) = filtered_devices.unzip();
+
+                let list_of_devices: BTreeSet<_> = recipient_device_ids
+                    .into_iter()
+                    .filter_map(|d| as_variant!(d, DeviceIdOrAllDevices::DeviceId))
+                    .collect();
+
+                // Let's now find any devices that are part of the recipient_device_ids list but
+                // were not found in our store.
+                let missing_devices: Vec<_> =
+                    list_of_devices.difference(&found_device_ids).map(|d| d.to_owned()).collect();
+                if !missing_devices.is_empty() {
+                    failures.insert(user_id, missing_devices);
+                }
+                devices
+            };
+
+            recipient_devices.extend(user_devices);
+        }
+
+        if !recipient_devices.is_empty() {
+            let encrypt_and_send_failures = self
+                .encryption()
+                .encrypt_and_send_raw_to_device(
+                    recipient_devices.iter().collect(),
+                    &event_type.to_string(),
+                    content,
+                    CollectStrategy::AllDevices,
+                )
+                .await?;
+
+            for (user_id, device_id) in encrypt_and_send_failures {
+                failures.entry(user_id).or_default().push(device_id)
+            }
+        }
+
+        Ok(failures)
     }
 }
 
