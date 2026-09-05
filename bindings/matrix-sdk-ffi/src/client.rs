@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fmt::Debug,
     path::PathBuf,
     sync::{Arc, OnceLock},
@@ -94,9 +94,10 @@ use ruma::{
         error::ErrorKind,
     },
     events::{
-        AnyMessageLikeEventContent, AnySyncTimelineEvent,
+        AnyMessageLikeEventContent, AnySyncTimelineEvent, AnyToDeviceEventContent,
         GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
         RoomAccountDataEvent as RumaRoomAccountDataEvent, RoomAccountDataEventType,
+        ToDeviceEventType,
         direct::DirectEventContent,
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
@@ -118,6 +119,7 @@ use ruma::{
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
     room::RoomType,
+    to_device::DeviceIdOrAllDevices,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -2382,6 +2384,80 @@ impl Client {
     pub async fn content_scanner(&self) -> Option<Arc<ContentScanner>> {
         self.content_scanner.read().await.clone()
     }
+
+    /// Olm-encrypt a to-device message and send it to a set of recipient
+    /// devices.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_type` - The type of the to-device event to send.
+    ///
+    /// * `recipients` - The devices to send the message to, as a `user id ->
+    ///   device ids` map. The special device id `"*"` targets every device of
+    ///   that user we know about.
+    ///
+    /// * `content` - The content of the to-device event, as a JSON string,
+    ///   encrypted for and sent to every recipient.
+    ///
+    /// Returns the recipients that did *not* receive the message (partial failures); an empty
+    /// result means every recipient was served.
+    pub async fn send_encrypted_to_device_message(
+        &self,
+        event_type: String,
+        recipients: HashMap<String, Vec<String>>,
+        content: String,
+    ) -> Result<SendToDeviceResult, ClientError> {
+        let mut ruma_recipients = BTreeMap::new();
+
+        for (user_id, device_ids) in recipients {
+            let user_id = UserId::parse(&user_id)?;
+            let device_ids = device_ids
+                .iter()
+                .map(|device_id| {
+                    DeviceIdOrAllDevices::try_from(device_id.as_str()).map_err(|e| {
+                        ClientError::Generic {
+                            msg: format!("Invalid device id `{device_id}`: {e}"),
+                            details: None,
+                        }
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            ruma_recipients.insert(user_id, device_ids);
+        }
+
+        let content = Raw::<AnyToDeviceEventContent>::from_json_string(content)?;
+
+        let failures = self
+            .inner
+            .send_encrypted_to_device(
+                &ToDeviceEventType::from(event_type),
+                ruma_recipients,
+                content,
+            )
+            .await?;
+
+        Ok(SendToDeviceResult {
+            failures: failures
+                .into_iter()
+                .map(|(user_id, device_ids)| {
+                    (user_id.to_string(), device_ids.iter().map(ToString::to_string).collect())
+                })
+                .collect(),
+        })
+    }
+}
+
+/// The outcome of a [`Client::send_encrypted_to_device_message`] call.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct SendToDeviceResult {
+    /// The devices that did not receive the message, as a `user id -> device
+    /// ids` map.
+    ///
+    /// A device can end up in here because it is unknown to us, or because
+    /// encrypting the message for it failed. An empty map means every
+    /// recipient was served.
+    pub failures: HashMap<String, Vec<String>>,
 }
 
 async fn notification_handler(

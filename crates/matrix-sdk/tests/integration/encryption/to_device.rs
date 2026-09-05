@@ -1,6 +1,6 @@
 #![cfg(feature = "experimental-send-custom-to-device")]
 
-use std::{future, sync::Arc};
+use std::{collections::BTreeMap, future, sync::Arc};
 
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
@@ -11,7 +11,12 @@ use matrix_sdk_common::{
     locks::Mutex,
 };
 use matrix_sdk_test::{async_test, test_json};
-use ruma::{events::AnyToDeviceEvent, serde::Raw};
+use ruma::{
+    device_id,
+    events::{AnyToDeviceEvent, ToDeviceEventType},
+    serde::Raw,
+    to_device::DeviceIdOrAllDevices,
+};
 use serde_json::json;
 use wiremock::{
     Mock, ResponseTemplate,
@@ -276,4 +281,108 @@ async fn test_encrypt_and_send_to_device_report_failures_encryption_error() {
     let failure = result.first().unwrap();
     assert_eq!(bob_user_id.to_owned(), failure.0);
     assert_eq!(bob_device_id.to_owned(), failure.1);
+}
+
+#[async_test]
+async fn test_send_encrypted_to_device() {
+    let matrix_mock_server = MatrixMockServer::new().await;
+    matrix_mock_server.mock_crypto_endpoints_preset().await;
+
+    let (alice, bob) = matrix_mock_server.set_up_alice_and_bob_for_encryption().await;
+    let bob_user_id = bob.user_id().unwrap();
+    let bob_device_id = bob.device_id().unwrap();
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
+        .expect(1)
+        .named("send_to_device")
+        .mount(matrix_mock_server.server())
+        .await;
+
+    let recipients = BTreeMap::from([(
+        bob_user_id.to_owned(),
+        vec![DeviceIdOrAllDevices::DeviceId(bob_device_id.to_owned())],
+    )]);
+
+    let failures = alice
+        .send_encrypted_to_device(
+            &ToDeviceEventType::from("call.keys"),
+            recipients,
+            Raw::new(&json!({ "call_id": "" })).unwrap().cast_unchecked(),
+        )
+        .await
+        .unwrap();
+
+    assert!(failures.is_empty(), "no failures expected, got {failures:?}");
+}
+
+#[async_test]
+async fn test_send_encrypted_to_device_all_devices() {
+    let matrix_mock_server = MatrixMockServer::new().await;
+    matrix_mock_server.mock_crypto_endpoints_preset().await;
+
+    let (alice, bob) = matrix_mock_server.set_up_alice_and_bob_for_encryption().await;
+    let bob_user_id = bob.user_id().unwrap();
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
+        .expect(1)
+        .named("send_to_device")
+        .mount(matrix_mock_server.server())
+        .await;
+
+    // `*` must be expanded to all of Bob's known devices.
+    let recipients =
+        BTreeMap::from([(bob_user_id.to_owned(), vec![DeviceIdOrAllDevices::AllDevices])]);
+
+    let failures = alice
+        .send_encrypted_to_device(
+            &ToDeviceEventType::from("call.keys"),
+            recipients,
+            Raw::new(&json!({ "call_id": "" })).unwrap().cast_unchecked(),
+        )
+        .await
+        .unwrap();
+
+    assert!(failures.is_empty(), "no failures expected, got {failures:?}");
+}
+
+#[async_test]
+async fn test_send_encrypted_to_device_unknown_device() {
+    let matrix_mock_server = MatrixMockServer::new().await;
+    matrix_mock_server.mock_crypto_endpoints_preset().await;
+
+    let (alice, bob) = matrix_mock_server.set_up_alice_and_bob_for_encryption().await;
+    let bob_user_id = bob.user_id().unwrap();
+
+    // Nothing can be encrypted, so nothing should be sent out.
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/.*"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
+        .expect(0)
+        .named("send_to_device")
+        .mount(matrix_mock_server.server())
+        .await;
+
+    let unknown_device_id = device_id!("UNKNOWNDEVICE");
+    let recipients = BTreeMap::from([(
+        bob_user_id.to_owned(),
+        vec![DeviceIdOrAllDevices::DeviceId(unknown_device_id.to_owned())],
+    )]);
+
+    let failures = alice
+        .send_encrypted_to_device(
+            &ToDeviceEventType::from("call.keys"),
+            recipients,
+            Raw::new(&json!({ "call_id": "" })).unwrap().cast_unchecked(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        failures,
+        BTreeMap::from([(bob_user_id.to_owned(), vec![unknown_device_id.to_owned()])])
+    );
 }
