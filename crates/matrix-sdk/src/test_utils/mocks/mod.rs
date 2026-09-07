@@ -3681,6 +3681,11 @@ impl<'a> MockEndpoint<'a, VersionsEndpoint> {
         self.with_feature("org.matrix.simplified_msc3575", true)
     }
 
+    /// Indicate that global profile sync is supported by this homeserver.
+    pub fn with_profiles_sliding_sync_extension(self) -> Self {
+        self.with_feature("org.matrix.msc4262", true)
+    }
+
     /// Set the supported versions in the response of this endpoint.
     pub fn with_versions(mut self, versions: Vec<&'static str>) -> Self {
         self.endpoint.versions = versions;
