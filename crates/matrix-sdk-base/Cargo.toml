@@ -15,6 +15,10 @@ version = "0.18.0"
 all-features = true
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
+[package.metadata.cargo-machete]
+# serde_bytes is only used in `#[serde(with = "...")]` attributes.
+ignored = ["serde_bytes"]
+
 [features]
 default = []
 e2e-encryption = ["dep:matrix-sdk-crypto"]
@@ -99,6 +103,7 @@ ruma = { workspace = true, features = [
     "rand",
 ] }
 serde = { workspace = true, features = ["rc"] }
+serde_bytes.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
