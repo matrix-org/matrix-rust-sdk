@@ -269,14 +269,14 @@ pub enum LoginProgress<Q> {
 /// Named future for logging in by scanning a QR code with the
 /// [`OAuth::login_with_qr_code()`] method.
 #[derive(Debug)]
-pub struct LoginWithQrCode<'a> {
-    client: &'a Client,
-    registration_data: Option<&'a ClientRegistrationData>,
-    qr_code_data: &'a QrCodeData,
+pub struct LoginWithQrCode {
+    client: Client,
+    registration_data: Option<ClientRegistrationData>,
+    qr_code_data: QrCodeData,
     state: SharedObservable<LoginProgress<QrProgress>>,
 }
 
-impl LoginWithQrCode<'_> {
+impl LoginWithQrCode {
     /// Subscribe to the progress of QR code login.
     ///
     /// It's usually necessary to subscribe to this to let the existing device
@@ -287,9 +287,9 @@ impl LoginWithQrCode<'_> {
     }
 }
 
-impl<'a> IntoFuture for LoginWithQrCode<'a> {
+impl IntoFuture for LoginWithQrCode {
     type Output = Result<(), QRCodeLoginError>;
-    boxed_into_future!(extra_bounds: 'a);
+    boxed_into_future!();
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
@@ -317,18 +317,23 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
 
             // Now attempt to finish the login.
             // -- MSC4108 OAuth 2.0 login all steps
-            finish_login(self.client, channel, self.registration_data, self.state).await
+            finish_login(&self.client, channel, self.registration_data.as_ref(), self.state).await
         })
     }
 }
 
-impl<'a> LoginWithQrCode<'a> {
+impl LoginWithQrCode {
     pub(crate) fn new(
-        client: &'a Client,
-        qr_code_data: &'a QrCodeData,
-        registration_data: Option<&'a ClientRegistrationData>,
-    ) -> LoginWithQrCode<'a> {
-        LoginWithQrCode { client, registration_data, qr_code_data, state: Default::default() }
+        client: &Client,
+        qr_code_data: &QrCodeData,
+        registration_data: Option<&ClientRegistrationData>,
+    ) -> LoginWithQrCode {
+        LoginWithQrCode {
+            client: client.clone(),
+            registration_data: registration_data.cloned(),
+            qr_code_data: qr_code_data.clone(),
+            state: Default::default(),
+        }
     }
 
     async fn establish_secure_channel(
@@ -338,7 +343,7 @@ impl<'a> LoginWithQrCode<'a> {
 
         let channel = EstablishedSecureChannel::from_qr_code(
             http_client,
-            self.qr_code_data,
+            &self.qr_code_data,
             QrCodeIntent::Login,
         )
         .await?;
@@ -350,13 +355,13 @@ impl<'a> LoginWithQrCode<'a> {
 /// Named future for logging in by generating a QR code with the
 /// [`OAuth::login_with_qr_code()`] method.
 #[derive(Debug)]
-pub struct LoginWithGeneratedQrCode<'a> {
-    client: &'a Client,
-    registration_data: Option<&'a ClientRegistrationData>,
+pub struct LoginWithGeneratedQrCode {
+    client: Client,
+    registration_data: Option<ClientRegistrationData>,
     state: SharedObservable<LoginProgress<GeneratedQrProgress>>,
 }
 
-impl LoginWithGeneratedQrCode<'_> {
+impl LoginWithGeneratedQrCode {
     /// Subscribe to the progress of QR code login.
     ///
     /// It's necessary to subscribe to this to show the QR code to the existing
@@ -368,9 +373,9 @@ impl LoginWithGeneratedQrCode<'_> {
     }
 }
 
-impl<'a> IntoFuture for LoginWithGeneratedQrCode<'a> {
+impl IntoFuture for LoginWithGeneratedQrCode {
     type Output = Result<(), QRCodeLoginError>;
-    boxed_into_future!(extra_bounds: 'a);
+    boxed_into_future!();
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
@@ -426,17 +431,18 @@ impl<'a> IntoFuture for LoginWithGeneratedQrCode<'a> {
 
             // Proceed with logging in.
             // -- MSC4108 OAuth 2.0 login remaining steps
-            finish_login(self.client, channel, self.registration_data, self.state).await
+            finish_login(&self.client, channel, self.registration_data.as_ref(), self.state).await
         })
     }
 }
 
-impl<'a> LoginWithGeneratedQrCode<'a> {
-    pub(crate) fn new(
-        client: &'a Client,
-        registration_data: Option<&'a ClientRegistrationData>,
-    ) -> Self {
-        Self { client, registration_data, state: Default::default() }
+impl LoginWithGeneratedQrCode {
+    pub(crate) fn new(client: &Client, registration_data: Option<&ClientRegistrationData>) -> Self {
+        Self {
+            client: client.clone(),
+            registration_data: registration_data.cloned(),
+            state: Default::default(),
+        }
     }
 
     async fn establish_secure_channel(
@@ -498,7 +504,6 @@ mod test {
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
     use serde_json::json;
-    use tokio_util::sync::CancellationToken;
 
     use super::*;
     use crate::{
@@ -1060,8 +1065,8 @@ mod test {
         let login_bob = oauth.login_with_qr_code(Some(&registration_data)).scan(&qr_code);
         let mut updates = login_bob.subscribe_to_progress();
 
-        let cancel = CancellationToken::new();
-        let cancel_task = cancel.clone();
+        let login_bob = login_bob.cancellable();
+        let cancel = login_bob.cancellation_token();
 
         let _updates_task = spawn(async move {
             let mut sender = Some(sender);
@@ -1077,7 +1082,7 @@ mod test {
                     }
                     LoginProgress::WaitingForToken { .. } => {
                         if let BobBehaviour::CancelWhileWaitingForToken = bob_behavior {
-                            cancel_task.cancel();
+                            cancel.cancel();
                         }
                     }
                     LoginProgress::Done => break,
@@ -1091,7 +1096,7 @@ mod test {
                 spawn(async move { grant_login(alice, receiver, alice_behavior).await });
         }
 
-        login_bob.cancellable(cancel).await
+        login_bob.await
     }
 
     async fn test_generated_failure(
@@ -1177,8 +1182,8 @@ mod test {
         let bob_login = bob_oauth.login_with_qr_code(Some(&registration_data)).generate();
         let mut bob_updates = bob_login.subscribe_to_progress();
 
-        let cancel = CancellationToken::new();
-        let cancel_task = cancel.clone();
+        let bob_login = bob_login.cancellable();
+        let cancel = bob_login.cancellation_token();
 
         let _updates_task = spawn(async move {
             let mut qr_sender = Some(qr_sender);
@@ -1204,7 +1209,7 @@ mod test {
                     }
                     LoginProgress::WaitingForToken { .. } => {
                         if let BobBehaviour::CancelWhileWaitingForToken = bob_behavior {
-                            cancel_task.cancel();
+                            cancel.cancel();
                         }
                     }
                     LoginProgress::Done => break,
@@ -1220,7 +1225,7 @@ mod test {
             });
         }
 
-        bob_login.cancellable(cancel).await
+        bob_login.await
     }
 
     #[async_test]

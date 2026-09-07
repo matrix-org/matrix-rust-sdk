@@ -1483,7 +1483,7 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     /// println!("Successfully logged in: {:?} {:?}", client.user_id(), client.device_id());
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn scan(self, data: &'a QrCodeData) -> LoginWithQrCode<'a> {
+    pub fn scan(self, data: &QrCodeData) -> LoginWithQrCode {
         LoginWithQrCode::new(self.client, data, self.registration_data)
     }
 
@@ -1564,7 +1564,7 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     /// println!("Successfully logged in: {:?} {:?}", client.user_id(), client.device_id());
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn generate(self) -> LoginWithGeneratedQrCode<'a> {
+    pub fn generate(self) -> LoginWithGeneratedQrCode {
         LoginWithGeneratedQrCode::new(self.client, self.registration_data)
     }
 }
@@ -1678,7 +1678,7 @@ impl<'a> GrantLoginWithQrCodeBuilder<'a> {
     /// println!("Successfully granted login");
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn scan(self, data: &'a QrCodeData) -> GrantLoginWithScannedQrCode<'a> {
+    pub fn scan(self, data: &QrCodeData) -> GrantLoginWithScannedQrCode {
         GrantLoginWithScannedQrCode::new(self.client, data, self.device_creation_timeout)
     }
 
@@ -1759,7 +1759,7 @@ impl<'a> GrantLoginWithQrCodeBuilder<'a> {
     /// println!("Successfully granted login");
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn generate(self) -> GrantLoginWithGeneratedQrCode<'a> {
+    pub fn generate(self) -> GrantLoginWithGeneratedQrCode {
         GrantLoginWithGeneratedQrCode::new(self.client, self.device_creation_timeout)
     }
 }

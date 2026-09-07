@@ -89,16 +89,14 @@ impl LoginWithQrCodeHandler {
             .registration_data()
             .map_err(|_| HumanQrLoginError::OAuthMetadataInvalid)?;
 
-        let oauth = self.oauth.clone();
-        let qr_code_data = qr_code_data.inner.clone();
-        let cancel = CancellationToken::new();
-        let cancel_for_task = cancel.clone();
+        let login =
+            self.oauth.login_with_qr_code(Some(&registration_data)).scan(&qr_code_data.inner);
+        let mut progress = login.subscribe_to_progress();
+
+        let login = login.cancellable();
+        let cancel = login.cancellation_token();
 
         let handle = get_runtime_handle().spawn(async move {
-            let login = oauth.login_with_qr_code(Some(&registration_data)).scan(&qr_code_data);
-
-            let mut progress = login.subscribe_to_progress();
-
             // We create this task, which will get cancelled once it's dropped, just in case
             // the progress stream doesn't end.
             let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
@@ -107,7 +105,7 @@ impl LoginWithQrCodeHandler {
                 }
             }));
 
-            login.cancellable(cancel_for_task).await.ok_or(HumanQrLoginError::Cancelled)??;
+            login.await.ok_or(HumanQrLoginError::Cancelled)??;
 
             Ok(())
         });
@@ -146,15 +144,13 @@ impl LoginWithQrCodeHandler {
             .registration_data()
             .map_err(|_| HumanQrLoginError::OAuthMetadataInvalid)?;
 
-        let oauth = self.oauth.clone();
-        let cancel = CancellationToken::new();
-        let cancel_for_task = cancel.clone();
+        let login = self.oauth.login_with_qr_code(Some(&registration_data)).generate();
+        let mut progress = login.subscribe_to_progress();
+
+        let login = login.cancellable();
+        let cancel = login.cancellation_token();
 
         let handle = get_runtime_handle().spawn(async move {
-            let login = oauth.login_with_qr_code(Some(&registration_data)).generate();
-
-            let mut progress = login.subscribe_to_progress();
-
             // We create this task, which will get cancelled once it's dropped, just in case
             // the progress stream doesn't end.
             let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
@@ -163,7 +159,7 @@ impl LoginWithQrCodeHandler {
                 }
             }));
 
-            login.cancellable(cancel_for_task).await.ok_or(HumanQrLoginError::Cancelled)??;
+            login.await.ok_or(HumanQrLoginError::Cancelled)??;
 
             Ok(())
         });
@@ -221,6 +217,11 @@ impl LoginWithQrCodeTask {
     /// Request this login attempt to abort cooperatively. This will make the
     /// task tear down its running work and then return the `Cancelled` error
     /// from [`Self::wait`].
+    ///
+    /// Cancelling is idempotent: if the attempt hasn't started running yet, it
+    /// won't be started and [`Self::wait`] returns `Cancelled` right away.
+    /// Calling this more than once, or after the attempt has already finished,
+    /// has no effect.
     pub fn cancel(&self) {
         self.cancel.cancel();
     }
@@ -268,16 +269,13 @@ impl GrantLoginWithQrCodeHandler {
         qr_code_data: &QrCodeData,
         progress_listener: Box<dyn GrantQrLoginProgressListener>,
     ) -> Result<Arc<GrantLoginWithQrCodeTask>, HumanQrGrantLoginError> {
-        let oauth = self.oauth.clone();
-        let qr_code_data = qr_code_data.inner.clone();
-        let cancel = CancellationToken::new();
-        let cancel_for_task = cancel.clone();
+        let grant = self.oauth.grant_login_with_qr_code().scan(&qr_code_data.inner);
+        let mut progress = grant.subscribe_to_progress();
+
+        let grant = grant.cancellable();
+        let cancel = grant.cancellation_token();
 
         let handle = get_runtime_handle().spawn(async move {
-            let grant = oauth.grant_login_with_qr_code().scan(&qr_code_data);
-
-            let mut progress = grant.subscribe_to_progress();
-
             // We create this task, which will get cancelled once it's dropped, just in case
             // the progress stream doesn't end.
             let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
@@ -286,7 +284,7 @@ impl GrantLoginWithQrCodeHandler {
                 }
             }));
 
-            grant.cancellable(cancel_for_task).await.ok_or(HumanQrGrantLoginError::Cancelled)??;
+            grant.await.ok_or(HumanQrGrantLoginError::Cancelled)??;
 
             Ok(())
         });
@@ -320,15 +318,13 @@ impl GrantLoginWithQrCodeHandler {
         self: Arc<Self>,
         progress_listener: Box<dyn GrantGeneratedQrLoginProgressListener>,
     ) -> Result<Arc<GrantLoginWithQrCodeTask>, HumanQrGrantLoginError> {
-        let oauth = self.oauth.clone();
-        let cancel = CancellationToken::new();
-        let cancel_for_task = cancel.clone();
+        let grant = self.oauth.grant_login_with_qr_code().generate();
+        let mut progress = grant.subscribe_to_progress();
+
+        let grant = grant.cancellable();
+        let cancel = grant.cancellation_token();
 
         let handle = get_runtime_handle().spawn(async move {
-            let grant = oauth.grant_login_with_qr_code().generate();
-
-            let mut progress = grant.subscribe_to_progress();
-
             // We create this task, which will get cancelled once it's dropped, just in case
             // the progress stream doesn't end.
             let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
@@ -337,7 +333,7 @@ impl GrantLoginWithQrCodeHandler {
                 }
             }));
 
-            grant.cancellable(cancel_for_task).await.ok_or(HumanQrGrantLoginError::Cancelled)??;
+            grant.await.ok_or(HumanQrGrantLoginError::Cancelled)??;
 
             Ok(())
         });
@@ -396,6 +392,11 @@ impl GrantLoginWithQrCodeTask {
     /// Request this login grant attempt to abort cooperatively. This will
     /// make the task tear down its running work and then return the
     /// `Cancelled` error from [`Self::wait`].
+    ///
+    /// Cancelling is idempotent: if the attempt hasn't started running yet, it
+    /// won't be started and [`Self::wait`] returns `Cancelled` right away.
+    /// Calling this more than once, or after the attempt has already finished,
+    /// has no effect.
     pub fn cancel(&self) {
         self.cancel.cancel();
     }
