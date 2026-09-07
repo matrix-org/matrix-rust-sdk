@@ -19,6 +19,7 @@ use ruma::events::{
 
 /// A timeline filter that in- or excludes events based on their type or
 /// content.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum TimelineEventFilter {
     /// Only return items whose event matches any of the conditions in the list.
     Include(Vec<TimelineEventCondition>),
@@ -46,6 +47,7 @@ impl TimelineEventFilter {
 
 /// A condition that matches on an event's type or content.
 #[derive(Clone)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum TimelineEventCondition {
     /// The event has the specified event type.
     EventType(TimelineEventType),
