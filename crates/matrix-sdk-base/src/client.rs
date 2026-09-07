@@ -46,6 +46,7 @@ use ruma::{
         push_rules::{PushRulesEvent, PushRulesEventContent},
         room::member::SyncRoomMemberEvent,
     },
+    profile::UserProfileUpdate,
     push::Ruleset,
     time::Instant,
 };
@@ -1158,6 +1159,21 @@ impl BaseClient {
         &self,
     ) -> broadcast::Receiver<BTreeSet<OwnedUserId>> {
         self.global_profile_updates_sender.subscribe()
+    }
+
+    /// Our own global profile has been updated.
+    ///
+    /// Updates the internal and cached state accordingly, so the change is
+    /// observable before the next sync reflects it.
+    pub async fn own_profile_updated(&self, update: UserProfileUpdate) -> Result<()> {
+        let own_user_id = self.session_meta().ok_or(Error::InsufficientData)?.user_id.clone();
+        let state_store_guard = self.state_store_lock().lock().await;
+
+        let mut changes = StateChanges::default();
+        changes.global_profiles.insert(own_user_id.clone(), update);
+        self.state_store.save_changes_with_guard(&state_store_guard, &changes).await?;
+
+        self.notify_global_profile_updates(BTreeSet::from([own_user_id]), &state_store_guard)
     }
 
     /// Notify the rest of the SDK that the global profiles of the given users

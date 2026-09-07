@@ -65,13 +65,13 @@ use ruma::{
         push_rules::PushRulesEventContent,
         room::MediaSource,
     },
-    profile::{ProfileFieldName, ProfileFieldValue},
+    profile::{ProfileFieldName, ProfileFieldValue, UserProfileChanges, UserProfileUpdate},
     push::Ruleset,
     serde::Raw,
     thirdparty::Medium,
 };
 use serde::Deserialize;
-use tracing::error;
+use tracing::{debug, error, warn};
 
 use crate::{Client, Error, Result, config::RequestConfig};
 
@@ -506,8 +506,12 @@ impl Account {
     /// Returns an error if the request fails.
     pub async fn set_profile_field(&self, value: ProfileFieldValue) -> Result<()> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
-        let request = set_profile_field::v3::Request::new(user_id.to_owned(), value);
+        let request = set_profile_field::v3::Request::new(user_id.to_owned(), value.clone());
         self.client.send(request).await?;
+
+        let mut changes = UserProfileChanges::new();
+        changes.insert_updated_value(value);
+        self.own_profile_updated(changes).await;
 
         Ok(())
     }
@@ -527,10 +531,40 @@ impl Account {
     /// of if the request fails in some other way.
     pub async fn delete_profile_field(&self, field: ProfileFieldName) -> Result<()> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
-        let request = delete_profile_field::v3::Request::new(user_id.to_owned(), field);
+        let request = delete_profile_field::v3::Request::new(user_id.to_owned(), field.clone());
         self.client.send(request).await?;
 
+        let mut changes = UserProfileChanges::new();
+        changes.removed.push(field);
+        self.own_profile_updated(changes).await;
+
         Ok(())
+    }
+
+    /// Apply the given changes to the locally stored copy of our own profile,
+    /// so they are observable before the next sync reflects them.
+    async fn own_profile_updated(&self, changes: UserProfileChanges) {
+        match self.client.is_global_profile_sync_enabled().await {
+            Ok(true) => {}
+
+            Ok(false) => {
+                debug!("Server doesn't support global profile sync: skip the local echo.");
+                return;
+            }
+
+            Err(error) => {
+                warn!(?error, "Unknown support for global profile sync: skipping the local echo.");
+                return;
+            }
+        }
+
+        if let Err(error) =
+            self.client.base_client().own_profile_updated(UserProfileUpdate::Updated(changes)).await
+        {
+            // The homeserver has already accepted the changes at this point, so we
+            // only need to log the failure.
+            warn!(?error, "Failed to update the locally stored copy of our own profile");
+        }
     }
 
     /// Change the password of the account.
