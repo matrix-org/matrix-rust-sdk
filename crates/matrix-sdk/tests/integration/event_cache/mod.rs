@@ -1028,7 +1028,7 @@ async fn test_backpaginate_replace_empty_gap() {
             JoinedRoomBuilder::new(room_id)
                 .add_timeline_event(f.text_msg("world").event_id(event_id!("$2")))
                 .set_timeline_limited()
-                .set_timeline_prev_batch("prev-batch".to_owned()),
+                .set_timeline_prev_batch("prev_batch".to_owned()),
         )
         .await;
 
@@ -1040,6 +1040,7 @@ async fn test_backpaginate_replace_empty_gap() {
     // The first back-pagination will return a previous-batch token, but no events.
     server
         .mock_room_messages()
+        .match_from("prev_batch")
         .ok(RoomMessagesResponseTemplate::default().end_token("prev_batch"))
         .mock_once()
         .mount()
