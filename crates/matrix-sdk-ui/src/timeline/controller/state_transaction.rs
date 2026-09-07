@@ -1032,11 +1032,11 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         }
                     })
                 {
-                    ObservableItemsTransactionEntry::remove(entry);
+                    ObservableItemsTransactionEntry::remove_timeline_index_and_remote_event(entry);
                 }
             });
 
-            // Remove stray date dividers
+            // Remove adjacent date dividers.
             let mut idx = 0;
             while idx < self.items.len() {
                 if self.items[idx].is_date_divider()
