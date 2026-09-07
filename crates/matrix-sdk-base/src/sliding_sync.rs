@@ -221,26 +221,10 @@ impl BaseClient {
 
         // Profile-only updates don't modify any rooms, so nothing else broadcasts
         // them. Surface the change so subscribers can react accordingly.
-        if !extensions.profiles.is_empty() {
-            let _ = self
-                .global_profile_updates_sender
-                .send(extensions.profiles.users.keys().cloned().collect());
-
-            // Nudge `RoomInfo` so hero status/call fields are re-read.
-            #[cfg(feature = "unstable-msc4426")]
-            for room in self.state_store.rooms() {
-                if room
-                    .hero_user_ids()
-                    .iter()
-                    .any(|user_id| extensions.profiles.users.contains_key(user_id))
-                {
-                    room.update_room_info_with_store_guard(state_store_guard, |room_info| {
-                        (room_info, crate::RoomInfoNotableUpdateReasons::HEROES)
-                    })
-                    .map_err(crate::StoreError::from)?;
-                }
-            }
-        }
+        self.notify_global_profile_updates(
+            extensions.profiles.users.keys().cloned().collect(),
+            state_store_guard,
+        )?;
 
         let mut context = processors::Context::default();
 
