@@ -3744,6 +3744,22 @@ impl Client {
         Ok(server_enabled)
     }
 
+    /// Whether global user profiles are included in the sync response.
+    ///
+    /// Requires [MSC4262](https://github.com/matrix-org/matrix-spec-proposals/pull/4262)
+    /// for sliding sync. Not implemented for sync v2.
+    pub async fn is_global_profile_sync_enabled(&self) -> Result<bool> {
+        if matches!(self.sliding_sync_version(), SlidingSyncVersion::None) {
+            return Ok(false);
+        }
+
+        Ok(self
+            .supported_versions()
+            .await?
+            .features
+            .contains(&FeatureFlag::from("org.matrix.msc4262")))
+    }
+
     /// Fetch thread subscriptions changes between `from` and up to `to`.
     ///
     /// The `limit` optional parameter can be used to limit the number of

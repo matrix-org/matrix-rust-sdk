@@ -80,7 +80,6 @@ use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedMxcUri, OwnedServerName, RoomAliasId,
     RoomOrAliasId, ServerName,
     api::{
-        FeatureFlag,
         client::{
             alias::get_alias,
             discovery::get_authorization_server_metadata::v1::{
@@ -2201,7 +2200,7 @@ impl Client {
 
     /// Checks if the server supports the Profiles sliding sync extension.
     pub async fn is_profiles_sliding_sync_extension_supported(&self) -> Result<bool, ClientError> {
-        Ok(self.inner.unstable_features().await?.contains(&FeatureFlag::from("org.matrix.msc4262")))
+        Ok(self.inner.is_global_profile_sync_enabled().await?)
     }
 
     /// Checks if the server supports user status.
