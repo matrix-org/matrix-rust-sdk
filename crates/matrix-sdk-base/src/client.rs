@@ -1165,6 +1165,9 @@ impl BaseClient {
     ///
     /// Updates the internal and cached state accordingly, so the change is
     /// observable before the next sync reflects it.
+    ///
+    /// **Note:** This method should only be called when global profile syncing
+    /// is enabled
     pub async fn own_profile_updated(&self, update: UserProfileUpdate) -> Result<()> {
         let own_user_id = self.session_meta().ok_or(Error::InsufficientData)?.user_id.clone();
         let state_store_guard = self.state_store_lock().lock().await;
