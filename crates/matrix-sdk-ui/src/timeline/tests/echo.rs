@@ -373,3 +373,53 @@ async fn test_no_reuse_of_counters() {
     // The remote id still isn't the same as the local id.
     assert_ne!(local_id, remote_id);
 }
+
+#[async_test]
+async fn test_clear_does_not_break_mapping_between_timeline_items_and_remote_events() {
+    let timeline = TestTimeline::new().await;
+
+    // Add a local event so that `VectorDiff::Clear` cherry-pick events to
+    // remove instead of clearing everything.
+    //
+    // This is essential to test a bug where this cherry-picking was previously
+    // breaking the mapping between the timeline items and the remote events.
+    timeline
+        .handle_local_event(AnyMessageLikeEventContent::RoomMessage(
+            RoomMessageEventContent::text_plain("echo"),
+        ))
+        .await;
+
+    let f = &timeline.factory;
+    timeline
+        .handle_event_update(
+            vec![
+                VectorDiff::Append {
+                    values: [
+                        f.text_msg("foo").sender(&ALICE).event_id(event_id!("$0")).into_event(),
+                        f.text_msg("bar").sender(&ALICE).event_id(event_id!("$1")).into_event(),
+                    ]
+                    .into(),
+                },
+                VectorDiff::Clear,
+                VectorDiff::Append {
+                    values: [f
+                        .text_msg("baz")
+                        .sender(&ALICE)
+                        .event_id(event_id!("$2"))
+                        .into_event()]
+                    .into(),
+                },
+                VectorDiff::Remove { index: 0 },
+            ],
+            RemoteEventOrigin::Sync,
+        )
+        .await;
+
+    let items = timeline.controller.items().await;
+
+    assert!(!items.iter().any(|item| {
+        item.as_event()
+            .and_then(|event| event.event_id())
+            .is_some_and(|event_id| event_id.as_str() == "$2")
+    }));
+}
