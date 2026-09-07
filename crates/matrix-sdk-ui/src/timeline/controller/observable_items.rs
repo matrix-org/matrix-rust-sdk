@@ -2031,14 +2031,15 @@ impl AllRemoteEvents {
     /// `new_timeline_item_index`.
     fn timeline_item_has_been_removed_at(&mut self, timeline_item_index_to_remove: usize) {
         for event_meta in self.0.iter_mut() {
-            let mut remove_timeline_item_index = false;
-
             // A `timeline_item_index` is removed. Let's shift all indexes that come
             // after the removed one.
             if let Some(timeline_item_index) = event_meta.timeline_item_index.as_mut() {
                 match (*timeline_item_index).cmp(&timeline_item_index_to_remove) {
                     Ordering::Equal => {
-                        remove_timeline_item_index = true;
+                        // This is the `event_meta` that holds the
+                        // `timeline_item_index` that is being
+                        // removed. So let's clean it.
+                        event_meta.timeline_item_index = None;
                     }
 
                     Ordering::Greater => {
@@ -2047,12 +2048,6 @@ impl AllRemoteEvents {
 
                     Ordering::Less => {}
                 }
-            }
-
-            // This is the `event_meta` that holds the `timeline_item_index` that is being
-            // removed. So let's clean it.
-            if remove_timeline_item_index {
-                event_meta.timeline_item_index = None;
             }
         }
     }
