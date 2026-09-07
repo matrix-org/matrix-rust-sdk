@@ -3630,6 +3630,7 @@ dependencies = [
  "regex",
  "ruma",
  "serde",
+ "serde_bytes",
  "serde_json",
  "similar-asserts",
  "stream_assert",
