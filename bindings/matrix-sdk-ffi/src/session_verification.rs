@@ -26,7 +26,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::UserId;
-use tracing::{error, warn};
+use tracing::error;
 
 use crate::{
     client::UserProfile, error::ClientError, runtime::get_runtime_handle, utils::Timestamp,
@@ -246,15 +246,36 @@ impl SessionVerificationController {
         sender: &UserId,
         flow_id: impl AsRef<str>,
     ) {
-        if sender != self.user_identity.user_id()
-            && let Some(status) = self.encryption.cross_signing_status().await
-            && !status.is_complete()
-        {
-            warn!(
-                "Cannot verify other users until our own device's cross-signing status \
-                 is complete: {status:?}"
-            );
-            return;
+        let cross_signing_status = self.encryption.cross_signing_status().await;
+
+        if sender != self.user_identity.user_id() {
+            if !cross_signing_status.as_ref().is_some_and(|status| status.is_complete()) {
+                error!(
+                    "Cannot verify other users until our own device's cross-signing status \
+                     is complete: {cross_signing_status:?}"
+                );
+                return;
+            }
+        } else if !cross_signing_status.as_ref().is_some_and(|status| status.has_self_signing) {
+            // Signing one of our own devices needs the private self-signing key. Not
+            // having it is only fine while we are the session that is about to be
+            // verified. If we are already verified the flow could only fail, so
+            // don't surface the request at all.
+            let we_are_verified = self
+                .encryption
+                .get_own_device()
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|device| device.is_cross_signed_by_owner());
+
+            if we_are_verified {
+                error!(
+                    "Cannot verify another one of our devices, this session is missing \
+                     the private self-signing key: {cross_signing_status:?}"
+                );
+                return;
+            }
         }
 
         let Some(request) = self.encryption.get_verification_request(sender, flow_id).await else {

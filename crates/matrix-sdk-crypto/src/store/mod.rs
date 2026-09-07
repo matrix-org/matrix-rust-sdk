@@ -376,6 +376,7 @@ fn collect_device_updates(
     own_identity: Option<OwnUserIdentityData>,
     identities: IdentityChanges,
     devices: DeviceChanges,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<X509Verifier>,
 ) -> DeviceUpdates {
     let mut new: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
     let mut changed: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::new();
@@ -394,6 +395,8 @@ fn collect_device_updates(
             verification_machine: verification_machine.to_owned(),
             own_identity: own_identity.to_owned(),
             device_owner_identity,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier: x509_verifier.to_owned(),
         }
     };
 
@@ -890,6 +893,8 @@ impl Store {
             verification_machine: self.inner.verification_machine.clone(),
             own_identity,
             device_owner_identity,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier: self.x509_verifier().cloned(),
         })
     }
 
@@ -934,6 +939,8 @@ impl Store {
             verification_machine: self.inner.verification_machine.clone(),
             own_identity,
             device_owner_identity,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier: self.x509_verifier().cloned(),
         })
     }
 
@@ -1362,6 +1369,8 @@ impl Store {
     /// ```
     pub fn devices_stream(&self) -> impl Stream<Item = DeviceUpdates> + use<> {
         let verification_machine = self.inner.verification_machine.to_owned();
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        let x509_verifier = self.x509_verifier().cloned();
 
         self.inner.store.identities_stream().map(move |(own_identity, identities, devices)| {
             collect_device_updates(
@@ -1369,6 +1378,8 @@ impl Store {
                 own_identity,
                 identities,
                 devices,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                x509_verifier.to_owned(),
             )
         })
     }

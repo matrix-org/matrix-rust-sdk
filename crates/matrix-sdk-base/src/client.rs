@@ -46,10 +46,11 @@ use ruma::{
         push_rules::{PushRulesEvent, PushRulesEventContent},
         room::member::SyncRoomMemberEvent,
     },
+    profile::UserProfileUpdate,
     push::Ruleset,
     time::Instant,
 };
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::{Mutex, MutexGuard, broadcast};
 #[cfg(feature = "e2e-encryption")]
 use tokio::sync::{RwLock, RwLockReadGuard};
 use tracing::{Level, debug, enabled, info, instrument, warn};
@@ -1158,6 +1159,55 @@ impl BaseClient {
         &self,
     ) -> broadcast::Receiver<BTreeSet<OwnedUserId>> {
         self.global_profile_updates_sender.subscribe()
+    }
+
+    /// Our own global profile has been updated.
+    ///
+    /// Updates the internal and cached state accordingly, so the change is
+    /// observable before the next sync reflects it.
+    ///
+    /// **Note:** This method should only be called when global profile syncing
+    /// is enabled
+    pub async fn own_profile_updated(&self, update: UserProfileUpdate) -> Result<()> {
+        let own_user_id = self.session_meta().ok_or(Error::InsufficientData)?.user_id.clone();
+        let state_store_guard = self.state_store_lock().lock().await;
+
+        let mut changes = StateChanges::default();
+        changes.global_profiles.insert(own_user_id.clone(), update);
+        self.state_store.save_changes_with_guard(&state_store_guard, &changes).await?;
+
+        self.notify_global_profile_updates(BTreeSet::from([own_user_id]), &state_store_guard)
+    }
+
+    /// Notify the rest of the SDK that the global profiles of the given users
+    /// changed in the store.
+    ///
+    /// Broadcasts the changed user IDs, and nudges the `RoomInfo` of any room
+    /// where one of them is a hero so the hero fields are re-read.
+    pub(crate) fn notify_global_profile_updates(
+        &self,
+        user_ids: BTreeSet<OwnedUserId>,
+        #[cfg_attr(not(feature = "unstable-msc4426"), allow(unused_variables))]
+        state_store_guard: &MutexGuard<'_, ()>,
+    ) -> Result<()> {
+        if user_ids.is_empty() {
+            return Ok(());
+        }
+
+        // Nudge `RoomInfo` so hero status/call fields are re-read.
+        #[cfg(feature = "unstable-msc4426")]
+        for room in self.state_store.rooms() {
+            if room.hero_user_ids().iter().any(|hero| user_ids.contains(hero)) {
+                room.update_room_info_with_store_guard(state_store_guard, |room_info| {
+                    (room_info, RoomInfoNotableUpdateReasons::HEROES)
+                })
+                .map_err(crate::StoreError::from)?;
+            }
+        }
+
+        let _ = self.global_profile_updates_sender.send(user_ids);
+
+        Ok(())
     }
 
     /// Checks whether the provided `user_id` belongs to an ignored user.

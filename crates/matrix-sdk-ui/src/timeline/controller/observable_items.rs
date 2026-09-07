@@ -686,12 +686,17 @@ pub struct ObservableItemsTransactionEntry<'observable_transaction_items, 'obser
 }
 
 impl ObservableItemsTransactionEntry<'_, '_> {
-    /// Remove this timeline item.
-    pub fn remove(this: Self) {
-        let entry_index = ObservableVectorTransactionEntry::index(&this.entry);
+    /// Remove this timeline item, and its associated remote event if any.
+    pub fn remove_timeline_index_and_remote_event(this: Self) {
+        let timeline_item_index = ObservableVectorTransactionEntry::index(&this.entry);
 
         ObservableVectorTransactionEntry::remove(this.entry);
-        this.all_remote_events.timeline_item_has_been_removed_at(entry_index);
+
+        if let Some(event_index) =
+            this.all_remote_events.timeline_item_has_been_removed_at(timeline_item_index)
+        {
+            this.all_remote_events.remove(event_index);
+        }
     }
 }
 
@@ -1492,7 +1497,7 @@ mod observable_items_tests {
     }
 
     #[test]
-    fn test_transaction_for_each_remove() {
+    fn test_transaction_for_each_remove_timeline_item_and_remote_event() {
         let mut items = ObservableItems::new();
 
         // Push events to iterate on.
@@ -1520,7 +1525,7 @@ mod observable_items_tests {
         // Iterate over events, and remove one.
         transaction.for_each(|entry| {
             if entry.as_event().unwrap().event_id().unwrap().as_str() == "$ev1" {
-                ObservableItemsTransactionEntry::remove(entry);
+                ObservableItemsTransactionEntry::remove_timeline_index_and_remote_event(entry);
             }
         });
 
@@ -1530,10 +1535,10 @@ mod observable_items_tests {
             | event_id | event_index | timeline_item_index |
             |----------|-------------|---------------------|
             | "$ev0"   | 0           | 0                   |
-            | "$ev2"   | 2           | 1                   | // has shifted
+            | "$ev2"   | 1           | 1                   | // has shifted
         }
 
-        assert_eq!(transaction.all_remote_events().0.len(), 3);
+        assert_eq!(transaction.all_remote_events().0.len(), 2);
         assert_eq!(transaction.len(), 2);
     }
 
@@ -2029,32 +2034,44 @@ impl AllRemoteEvents {
 
     /// Notify that a timeline item has been removed at
     /// `new_timeline_item_index`.
-    fn timeline_item_has_been_removed_at(&mut self, timeline_item_index_to_remove: usize) {
-        for event_meta in self.0.iter_mut() {
-            let mut remove_timeline_item_index = false;
+    ///
+    /// It returns the position of the remote event, so the `event_index`, if
+    /// any.
+    fn timeline_item_has_been_removed_at(
+        &mut self,
+        timeline_item_index_to_remove: usize,
+    ) -> Option<usize> {
+        let mut found_event_index = None;
 
-            // A `timeline_item_index` is removed. Let's shift all indexes that come
-            // after the removed one.
+        for (event_index, event_meta) in self.0.iter_mut().enumerate().rev() {
+            // A `timeline_item_index` is removed. Let's shift all indexes that
+            // come after the removed one.
             if let Some(timeline_item_index) = event_meta.timeline_item_index.as_mut() {
                 match (*timeline_item_index).cmp(&timeline_item_index_to_remove) {
                     Ordering::Equal => {
-                        remove_timeline_item_index = true;
+                        // This is the `event_meta` that holds the
+                        // `timeline_item_index` that is being
+                        // removed. So let's clean it.
+                        event_meta.timeline_item_index = None;
+                        found_event_index = Some(event_index);
                     }
 
                     Ordering::Greater => {
                         *timeline_item_index -= 1;
                     }
 
-                    Ordering::Less => {}
+                    Ordering::Less => {
+                        // Let's break here. It's safer than in
+                        // `Ordering::Equal` in case it's never matched, i.e. if
+                        // no remote event matches the
+                        // `timeline_item_index_to_remove`.
+                        break;
+                    }
                 }
             }
-
-            // This is the `event_meta` that holds the `timeline_item_index` that is being
-            // removed. So let's clean it.
-            if remove_timeline_item_index {
-                event_meta.timeline_item_index = None;
-            }
         }
+
+        found_event_index
     }
 }
 

@@ -424,6 +424,8 @@ pub fn create_unsigned_device(device_keys: DeviceKeys) -> Device {
         verification_machine: dummy_verification_machine(),
         own_identity: None,
         device_owner_identity: None,
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        x509_verifier: None,
     }
 }
 
@@ -446,6 +448,8 @@ pub async fn create_signed_device_of_unverified_user(
         verification_machine: dummy_verification_machine(),
         own_identity: None,
         device_owner_identity: Some(public_identity.into()),
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        x509_verifier: None,
     };
     assert!(device.is_cross_signed_by_owner());
     device
@@ -475,6 +479,8 @@ pub async fn create_signed_device_of_verified_user(
         verification_machine: dummy_verification_machine(),
         own_identity: Some(own_identity.to_public_identity().await.unwrap()),
         device_owner_identity: Some(public_identity.into()),
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        x509_verifier: None,
     };
     assert!(device.is_cross_signed_by_owner());
     assert!(device.is_cross_signing_trusted());

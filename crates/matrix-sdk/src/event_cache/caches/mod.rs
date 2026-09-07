@@ -291,20 +291,43 @@ impl Caches {
     pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
         let Self { room, threads: _, pinned_events, event_focused, internals } = &self;
 
+        // This method will compute a `JoinedRoomUpdate` for each cache. The game is to
+        // avoid cloning useless data or to clone as few data as possible. That's a fun
+        // game.
+        let JoinedRoomUpdate {
+            // Read receipts are computed by the Event Cache, see [`read_receipts`], we
+            // don't need the server value.
+            unread_notifications: _,
+            // State-events are not stored in the Event Cache.
+            state: _,
+
+            // Extract the original timeline and ephemeral events as timeline will be used by all
+            // caches, and ephemeral events by the room and thread caches.
+            timeline: original_timeline,
+            ephemeral: original_ephemeral,
+
+            // Extract other data, only useful for the room cache.
+            account_data,
+            ambiguity_changes,
+            avatar_changes,
+        } = updates;
+
         // Room.
         {
-            let mut updates = updates.clone();
-            updates.timeline = aggregator::aggregate_timeline_for_room(updates.timeline);
+            let updates = JoinedRoomUpdate {
+                timeline: aggregator::aggregate_timeline_for_room(&original_timeline),
+                ephemeral: original_ephemeral.clone(),
+                account_data,
+                ambiguity_changes,
+                avatar_changes,
+                ..Default::default()
+            };
 
             room.handle_joined_room_update(updates).await?;
         }
 
         // Threads.
         {
-            let mut updates = updates.clone();
-            updates.account_data.clear();
-            updates.ambiguity_changes.clear();
-
             let timeline_for_threads = {
                 // To aggregate the timelines for threads, we need to lookup in the room cache
                 // and the thread caches. We acquire a read lock over all the caches, and select
@@ -316,8 +339,8 @@ impl Caches {
                 let all_states = all_states_lock.read().await?;
 
                 aggregator::aggregate_timeline_for_threads(
-                    &updates.timeline,
-                    &updates.ephemeral,
+                    &original_timeline,
+                    &original_ephemeral,
                     all_states.threads(),
                     all_states.room(),
                     &internals.room_version_rules.redaction,
@@ -326,8 +349,11 @@ impl Caches {
             };
 
             for (thread_id, timeline) in timeline_for_threads {
-                let mut updates = updates.clone();
-                updates.timeline = timeline;
+                let updates = JoinedRoomUpdate {
+                    timeline,
+                    ephemeral: original_ephemeral.clone(),
+                    ..Default::default()
+                };
 
                 // Update the thread summary if and only if there are new events.
                 let update_thread_summary = updates.timeline.events.is_empty().not();
@@ -346,12 +372,14 @@ impl Caches {
 
         // Pinned-events.
         if let Some(pinned_events) = pinned_events.get() {
-            let mut updates = updates.clone();
-            updates.timeline = aggregator::aggregate_timeline_for_pinned_events(
-                &updates.timeline,
-                &pinned_events.state().read().await?.current_event_ids(),
-                &internals.room_version_rules.redaction,
-            );
+            let updates = JoinedRoomUpdate {
+                timeline: aggregator::aggregate_timeline_for_pinned_events(
+                    &original_timeline,
+                    &pinned_events.state().read().await?.current_event_ids(),
+                    &internals.room_version_rules.redaction,
+                ),
+                ..Default::default()
+            };
 
             pinned_events.handle_joined_room_update(updates).await?;
         }
@@ -370,20 +398,35 @@ impl Caches {
     pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
         let Self { room, threads: _, pinned_events, event_focused, internals } = &self;
 
+        // This method will compute a `JoinedRoomUpdate` for each cache. The game is to
+        // avoid cloning useless data or to clone as few data as possible. That's a fun
+        // game.
+        let LeftRoomUpdate {
+            // State-events are not stored in the Event Cache.
+            state: _,
+            // Account data are not used by any cache.
+            account_data: _,
+
+            // Extract the original timeline as it's going to be used by all caches.
+            timeline: original_timeline,
+
+            // Extract other data, only useful for the room cache.
+            ambiguity_changes,
+        } = updates;
+
         // Room.
         {
-            let mut updates = updates.clone();
-            updates.timeline = aggregator::aggregate_timeline_for_room(updates.timeline);
+            let updates = LeftRoomUpdate {
+                timeline: aggregator::aggregate_timeline_for_room(&original_timeline),
+                ambiguity_changes,
+                ..Default::default()
+            };
 
             room.handle_left_room_update(updates).await?;
         }
 
         // Threads.
         {
-            let mut updates = updates.clone();
-            updates.account_data.clear();
-            updates.ambiguity_changes.clear();
-
             let timeline_for_threads = {
                 // To aggregate the timelines for threads, we need to lookup in the room cache
                 // and the thread caches. We acquire a read lock over all the caches, and select
@@ -395,7 +438,7 @@ impl Caches {
                 let all_caches_states = all_caches_states_lock.read().await?;
 
                 aggregator::aggregate_timeline_for_threads(
-                    &updates.timeline,
+                    &original_timeline,
                     &[],
                     all_caches_states.threads(),
                     all_caches_states.room(),
@@ -405,8 +448,7 @@ impl Caches {
             };
 
             for (thread_id, timeline) in timeline_for_threads {
-                let mut updates = updates.clone();
-                updates.timeline = timeline;
+                let updates = LeftRoomUpdate { timeline, ..Default::default() };
 
                 let thread = self.thread(thread_id).await?;
                 thread.handle_left_room_update(updates).await?;
@@ -415,12 +457,14 @@ impl Caches {
 
         // Pinned-events.
         if let Some(pinned_events) = pinned_events.get() {
-            let mut updates = updates.clone();
-            updates.timeline = aggregator::aggregate_timeline_for_pinned_events(
-                &updates.timeline,
-                &pinned_events.state().read().await?.current_event_ids(),
-                &internals.room_version_rules.redaction,
-            );
+            let updates = LeftRoomUpdate {
+                timeline: aggregator::aggregate_timeline_for_pinned_events(
+                    &original_timeline,
+                    &pinned_events.state().read().await?.current_event_ids(),
+                    &internals.room_version_rules.redaction,
+                ),
+                ..Default::default()
+            };
 
             pinned_events.handle_left_room_update(updates).await?;
         }

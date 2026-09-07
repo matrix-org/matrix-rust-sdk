@@ -36,8 +36,8 @@ use super::{
     thread::ThreadEventCacheState,
 };
 
-pub fn aggregate_timeline_for_room(timeline: Timeline) -> Timeline {
-    timeline
+pub fn aggregate_timeline_for_room(timeline: &Timeline) -> Timeline {
+    timeline.clone()
 }
 
 pub async fn aggregate_timeline_for_threads<'sync, 'state>(

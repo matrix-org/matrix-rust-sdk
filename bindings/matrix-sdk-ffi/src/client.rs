@@ -77,9 +77,9 @@ use matrix_sdk_ui::{
 use mime::Mime;
 use oauth2::Scope;
 use ruma::{
-    OwnedDeviceId, OwnedMxcUri, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
+    MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedMxcUri, OwnedServerName, RoomAliasId,
+    RoomOrAliasId, ServerName,
     api::{
-        FeatureFlag,
         client::{
             alias::get_alias,
             discovery::get_authorization_server_metadata::v1::{
@@ -1537,6 +1537,32 @@ impl Client {
             .await?)
     }
 
+    /// Get the homeserver-generated preview for a URL, as OpenGraph JSON.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL to generate a preview for.
+    ///
+    /// * `ts` - The preferred point in time to return a preview for, as a Unix
+    ///   timestamp in milliseconds. Deprecated since Matrix 1.11; pass `None`.
+    pub async fn get_url_preview(
+        &self,
+        url: String,
+        ts: Option<u64>,
+    ) -> Result<Option<String>, ClientError> {
+        // Saturating rather than unwrapping: this comes from a foreign-language
+        // caller and must not panic across the FFI boundary.
+        let ts = ts.map(|ts| MilliSecondsSinceUnixEpoch(UInt::new_saturating(ts)));
+
+        debug!("requesting URL preview");
+        Ok(self
+            .inner
+            .media()
+            .get_media_preview(&url, ts)
+            .await?
+            .map(|preview| preview.get().to_owned()))
+    }
+
     pub async fn get_session_verification_controller(
         &self,
     ) -> Result<Arc<SessionVerificationController>, ClientError> {
@@ -2174,7 +2200,7 @@ impl Client {
 
     /// Checks if the server supports the Profiles sliding sync extension.
     pub async fn is_profiles_sliding_sync_extension_supported(&self) -> Result<bool, ClientError> {
-        Ok(self.inner.unstable_features().await?.contains(&FeatureFlag::from("org.matrix.msc4262")))
+        Ok(self.inner.is_global_profile_sync_enabled().await?)
     }
 
     /// Checks if the server supports user status.

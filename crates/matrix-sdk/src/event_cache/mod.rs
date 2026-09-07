@@ -56,7 +56,7 @@ use crate::{
     paginators::PaginatorError,
 };
 
-mod back_pagination_queue;
+pub(crate) mod back_pagination_queue;
 mod caches;
 mod deduplicator;
 mod persistence;

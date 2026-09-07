@@ -110,7 +110,7 @@ use ruma::{
     serde::Raw,
     server_name,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::base64_sha256_hash;
@@ -1560,6 +1560,11 @@ impl EventFactory {
         self.event(CustomMessageLikeEventContent)
     }
 
+    /// Create a new `rs.matrix-sdk.custom.test` custom event
+    pub fn custom_state_event(&self) -> EventBuilder<CustomStateEventContent> {
+        self.event(CustomStateEventContent).state_key("test")
+    }
+
     /// Set the next server timestamp.
     ///
     /// Timestamps will continue to increase by 1 (millisecond) from that value.
@@ -1929,3 +1934,7 @@ impl From<MembershipState> for PreviousMembership {
 #[derive(Clone, Default, Debug, Serialize, EventContent)]
 #[ruma_event(type = "rs.matrix-sdk.custom.test", kind = MessageLike)]
 pub struct CustomMessageLikeEventContent;
+
+#[derive(Clone, Default, Debug, Serialize, Deserialize, EventContent)]
+#[ruma_event(type = "rs.matrix-sdk.custom-state.test", kind = State, state_key_type = String)]
+pub struct CustomStateEventContent;

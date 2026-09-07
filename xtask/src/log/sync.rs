@@ -41,6 +41,7 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
 
             # Let's capture some data about `send()`!
             \s>\ssend\{
+                .*
                 request_id="REQ-(?<request_id>\d+)"
                 \smethod=(?<method>\S+)
                 \suri="(?<uri>[^"]+)"

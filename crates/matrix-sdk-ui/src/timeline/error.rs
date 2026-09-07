@@ -44,6 +44,10 @@ pub enum Error {
     #[error("Failed sending attachment")]
     FailedSendingAttachment,
 
+    /// The redaction could not be sent.
+    #[error("Failed sending redaction")]
+    FailedSendingRedaction,
+
     /// The reaction could not be toggled.
     #[error("Failed toggling reaction")]
     FailedToToggleReaction,

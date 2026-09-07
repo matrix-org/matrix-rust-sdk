@@ -1509,6 +1509,69 @@ async fn test_abort_while_being_sent_and_fails() {
 }
 
 #[async_test]
+async fn test_abort_with_reason_while_being_sent_then_sent() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // Sending will take a moment, so the abort happens while the event is being
+    // sent.
+    mock.mock_room_send()
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(Duration::from_secs(1))
+                .set_body_json(json!({ "event_id": "$1" })),
+        )
+        .mock_once()
+        .mount()
+        .await;
+
+    // The send wins the race, so the abort materializes as a server-side
+    // redaction.
+    mock.mock_room_redact().ok(event_id!("$redaction")).mock_once().mount().await;
+
+    let handle = q.send(RoomMessageEventContent::text_plain("hey there").into()).await.unwrap();
+    let (txn, _) = assert_update!((global_watch, watch) => local echo { body = "hey there" });
+
+    // Let the background task pick the request up.
+    sleep(Duration::from_millis(250)).await;
+
+    // While the item is being sent, the system remembers the intent to redact it
+    // later, along with the reason.
+    assert!(handle.abort_with_reason(Some("changed my mind".to_owned())).await.unwrap());
+    assert_update!((global_watch, watch) => cancelled { txn = txn });
+
+    // The event is still sent, then redacted.
+    assert_update!((global_watch, watch) => sent { txn = txn, });
+
+    // Let the redaction endpoint be called.
+    sleep(Duration::from_secs(1)).await;
+
+    // The redaction carried the reason.
+    let requests = mock.server().received_requests().await.unwrap();
+    let redaction = requests
+        .iter()
+        .find(|req| req.url.path().contains("/redact/"))
+        .expect("a redaction request must have been received");
+    let body: serde_json::Value = redaction.body_json().unwrap();
+    assert_eq!(body["reason"], "changed my mind");
+
+    assert!(watch.is_empty());
+}
+
+#[async_test]
 async fn test_unrecoverable_errors() {
     let mock = MatrixMockServer::new().await;
 

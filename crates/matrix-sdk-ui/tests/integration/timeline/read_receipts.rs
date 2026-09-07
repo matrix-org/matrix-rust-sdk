@@ -28,7 +28,7 @@ use matrix_sdk_test::{
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineFocus, TimelineReadReceiptTracking};
 use ruma::{
-    MilliSecondsSinceUnixEpoch,
+    MilliSecondsSinceUnixEpoch, OwnedEventId,
     api::client::receipt::create_receipt::v3::ReceiptType as CreateReceiptType,
     event_id,
     events::{
@@ -2049,4 +2049,122 @@ async fn test_no_duplicate_receipt_after_backpagination() {
         receipts.get(*BOB).unwrap();
         receipts.get(*CAROL).unwrap();
     }
+}
+
+#[async_test]
+async fn test_no_duplicate_receipt_after_backpagination_with_message_like_events_tracking() {
+    // Regression test for a duplicate read receipt that only manifests when read
+    // receipts are tracked in `TimelineReadReceiptTracking::MessageLikeEvents`
+    // mode.
+    //
+    // In that mode a state event is *rendered* (`visible == true`) but *cannot
+    // hold a read receipt* (`can_show_read_receipts == false`).
+    // When a new visible event is inserted right after such a state event,
+    // `compute_event_receipts` used to pick the state event as the "previous
+    // rendered item" to steal folded receipts from — but the receipts actually
+    // live on the message-like event *before* the state event. The steal
+    // missed, so the receipt was added to the new event while remaining on the
+    // old one, tripping the `check_no_duplicate_read_receipts` invariant.
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+
+    // We want the following final state in the room:
+    // - received from back-pagination:
+    //  - $1: a message from Alice
+    //  - $2: a *state event* from Bob (visible, but can't show read receipts)
+    //  - $3: a message from our own user
+    // - received from sync:
+    //  - $4: a hidden edit of $3 (from our own user), with a read receipt from
+    //    Carol
+    //
+    // $4 is hidden and at the end, so Carol's receipt must land on the
+    // most recent event that can show read receipts, that is $3. Crucially, $3 is
+    // immediately preceded by the state event $2, which is rendered but cannot
+    // carry receipts — so the receipt-holder to reconcile against is $1, not $2.
+
+    let eid1 = event_id!("$1_alice_message");
+    let eid2 = event_id!("$2_bob_state_event");
+    let eid3 = event_id!("$3_own_message");
+    let eid4 = event_id!("$4_sync_hidden_edit");
+
+    let f = EventFactory::new().room(room_id);
+
+    let own_user_id = client.user_id().unwrap().to_owned();
+
+    // Our own user sends an edit of $3 via sync…
+    let ev4 = f
+        .text_msg("* I am me, edited.")
+        .edit(eid3, RoomMessageEventContent::text_plain("I am me, edited.").into())
+        .sender(&own_user_id)
+        .event_id(eid4)
+        .into_raw_sync();
+
+    // …and Carol has a read receipt on that (hidden) edit.
+    let read_receipt_event = f
+        .read_receipts()
+        .add(eid4, *CAROL, ruma::events::receipt::ReceiptType::Read, ReceiptThread::Unthreaded)
+        .into_event();
+
+    let prev_batch_token = "prev-batch-token";
+
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(ev4)
+                .add_receipt(read_receipt_event.room(room_id))
+                .set_timeline_limited()
+                .set_timeline_prev_batch(prev_batch_token),
+        )
+        .await;
+
+    let timeline = room
+        .timeline_builder()
+        .track_read_marker_and_receipts(TimelineReadReceiptTracking::MessageLikeEvents)
+        .build()
+        .await
+        .unwrap();
+
+    server
+        .mock_room_messages()
+        .match_from(prev_batch_token)
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            // In reverse order!
+            f.text_msg("I am me.").sender(&own_user_id).event_id(eid3).into_raw_timeline(),
+            f.room_name("Party Room").sender(*BOB).event_id(eid2).into_raw_timeline(),
+            f.text_msg("I am Alice.").sender(*ALICE).event_id(eid1).into_raw_timeline(),
+        ]))
+        .mock_once()
+        .mount()
+        .await;
+
+    let reached_start = timeline.paginate_backwards(42).await.unwrap();
+    assert!(reached_start);
+
+    let timeline_items = timeline.items().await;
+
+    // No user must hold a read receipt on more than one timeline item; this is
+    // what the invariant `check_no_duplicate_read_receipts` checks.
+    let mut seen_users: std::collections::HashMap<_, OwnedEventId> =
+        std::collections::HashMap::new();
+    for item in &timeline_items {
+        let Some(event) = item.as_event() else { continue };
+        let Some(event_id) = event.event_id() else { continue };
+        for (user_id, _) in event.read_receipts() {
+            if let Some(prev_event_id) = seen_users.insert(user_id.clone(), event_id.to_owned()) {
+                panic!(
+                    "duplicate read receipt for {user_id}: present on both {prev_event_id} and \
+                     {event_id}",
+                );
+            }
+        }
+    }
+
+    // Carol's receipt must be on $3 (the message after the state event), and
+    // nowhere else.
+    assert_eq!(seen_users.get(*CAROL).map(|id| id.as_ref()), Some(eid3));
 }
