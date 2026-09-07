@@ -584,7 +584,15 @@ impl PrivateCrossSigningIdentity {
 
         #[cfg(feature = "experimental-x509-identity-verification")]
         if let Some(x509_signer) = x509_signer {
-            x509_signer.sign_cross_signing_key(&account.user_id, cross_signing_key).await?;
+            // X.509 signing can and will fail - the user may enter the wrong PIN, the
+            // hardware key could vanish mid-sign, etc. We should not, however, let this
+            // prevent us from setting up normal cross-signing, so we log and disregard
+            // any errors.
+            x509_signer
+                .sign_cross_signing_key(&account.user_id, cross_signing_key)
+                .await
+                .inspect_err(|e| tracing::warn!("Failed to sign cross signing key with X.509: {e}"))
+                .ok();
         }
 
         Ok(Self::new_helper(account.user_id(), master))
