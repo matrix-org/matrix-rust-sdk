@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::future::Future;
+use std::{collections::HashMap, future::Future};
 
 use eyeball::Subscriber;
 use indexmap::IndexMap;
@@ -126,6 +126,15 @@ pub(super) trait RoomDataProvider:
         receipt_thread: &'a ReceiptThread,
     ) -> impl Future<Output = IndexMap<OwnedUserId, Receipt>> + SendOutsideWasm + 'a;
 
+    /// Loads the read receipts of several events from the storage backend.
+    ///
+    /// Events without receipts are absent from the returned map.
+    fn load_event_receipts_batch<'a>(
+        &'a self,
+        event_ids: &'a [OwnedEventId],
+        receipt_thread: &'a ReceiptThread,
+    ) -> impl Future<Output = HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>>> + SendOutsideWasm + 'a;
+
     /// Load the current fully-read event id, from storage.
     fn load_fully_read_marker(&self) -> impl Future<Output = Option<OwnedEventId>> + '_;
 
@@ -212,6 +221,23 @@ impl RoomDataProvider for Room {
             Err(e) => {
                 error!(?event_id, ?receipt_thread, "Failed to get read receipts for event: {e}");
                 IndexMap::new()
+            }
+        }
+    }
+
+    async fn load_event_receipts_batch<'a>(
+        &'a self,
+        event_ids: &'a [OwnedEventId],
+        receipt_thread: &'a ReceiptThread,
+    ) -> HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>> {
+        match self.load_event_receipts_batch(ReceiptType::Read, receipt_thread, event_ids).await {
+            Ok(receipts) => receipts
+                .into_iter()
+                .map(|(event_id, receipts)| (event_id.to_owned(), receipts.into_iter().collect()))
+                .collect(),
+            Err(e) => {
+                error!(?receipt_thread, "Failed to get read receipts for events: {e}");
+                HashMap::new()
             }
         }
     }

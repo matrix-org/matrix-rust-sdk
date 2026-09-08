@@ -399,6 +399,23 @@ impl RoomDataProvider for TestRoomDataProvider {
         map
     }
 
+    async fn load_event_receipts_batch<'a>(
+        &'a self,
+        event_ids: &'a [OwnedEventId],
+        receipt_thread: &'a ReceiptThread,
+    ) -> HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>> {
+        let mut receipts = HashMap::new();
+
+        for event_id in event_ids {
+            let event_receipts = self.load_event_receipts(event_id, receipt_thread).await;
+            if !event_receipts.is_empty() {
+                receipts.insert(event_id.clone(), event_receipts);
+            }
+        }
+
+        receipts
+    }
+
     async fn load_fully_read_marker(&self) -> Option<OwnedEventId> {
         self.fully_read_marker.clone()
     }
