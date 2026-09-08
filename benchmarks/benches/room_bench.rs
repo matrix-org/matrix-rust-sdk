@@ -8,8 +8,8 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::{
-    BaseClient, DmRoomDefinition, RoomInfo, RoomState, SessionMeta, StateChanges, StateStore,
-    ThreadingSupport, store::StoreConfig,
+    BaseClient, DmRoomDefinition, RoomInfo, RoomMemberships, RoomState, SessionMeta, StateChanges,
+    StateStore, ThreadingSupport, store::StoreConfig,
 };
 use matrix_sdk_sqlite::SqliteStateStore;
 use matrix_sdk_test::{JoinedRoomBuilder, base64_sha256_hash, event_factory::EventFactory};
@@ -98,6 +98,85 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
 
     {
         let _guard = runtime.enter();
+        drop(base_client);
+    }
+
+    group.finish();
+}
+
+pub fn members_benchmark(c: &mut Criterion) {
+    const MEMBERS_IN_ROOM: usize = 10000;
+
+    let runtime = Builder::new_multi_thread().build().expect("Can't create runtime");
+    let room_id = owned_room_id!("!members:example.com");
+
+    // Every member joined with their own event; half of them share a display
+    // name and the other half are unique.
+    let f = EventFactory::new().room(&room_id);
+    let mut member_events: Vec<Raw<RoomMemberEvent>> = Vec::with_capacity(MEMBERS_IN_ROOM);
+    for i in 0..MEMBERS_IN_ROOM {
+        let user_id = OwnedUserId::try_from(format!("@user_{i}:matrix.org")).unwrap();
+        let display_name =
+            if i % 2 == 0 { "Alice Margatroid".to_owned() } else { format!("Member {i}") };
+        let event = f
+            .member(&user_id)
+            .sender(&user_id)
+            .membership(MembershipState::Join)
+            .display_name(display_name)
+            .into_raw();
+        member_events.push(event);
+    }
+
+    let sqlite_dir = tempfile::tempdir().unwrap();
+    let sqlite_store = runtime.block_on(SqliteStateStore::open(sqlite_dir.path(), None)).unwrap();
+
+    let base_client = BaseClient::new(
+        StoreConfig::new(CrossProcessLockConfig::multi_process(
+            "cross-process-store-locks-holder-name",
+        ))
+        .state_store(sqlite_store),
+        ThreadingSupport::Disabled,
+        DmRoomDefinition::default(),
+    );
+
+    runtime
+        .block_on(base_client.activate(
+            SessionMeta {
+                user_id: owned_user_id!("@somebody:example.com"),
+                device_id: owned_device_id!("DEVICE_ID"),
+            },
+            RoomLoadSettings::default(),
+            None,
+        ))
+        .expect("Could not set session meta");
+
+    base_client.get_or_create_room(&room_id, RoomState::Joined);
+
+    let request = get_member_events::v3::Request::new(room_id.clone());
+    let response = get_member_events::v3::Response::new(member_events);
+    runtime
+        .block_on(base_client.receive_all_members(&room_id, &request, &response))
+        .expect("Could not receive the members");
+
+    let room = base_client.get_room(&room_id).unwrap();
+
+    let count = MEMBERS_IN_ROOM;
+    let name = format!("{count} members");
+    let mut group = c.benchmark_group("Room members");
+    group.throughput(Throughput::Elements(count as u64));
+    group.sample_size(10);
+
+    group.bench_function(BenchmarkId::new("Room::members [SQLite]", name), |b| {
+        b.to_async(&runtime).iter(|| async {
+            let members = room.members(RoomMemberships::JOIN).await.unwrap();
+            assert_eq!(members.len(), MEMBERS_IN_ROOM);
+            members
+        });
+    });
+
+    {
+        let _guard = runtime.enter();
+        drop(room);
         drop(base_client);
     }
 
@@ -205,6 +284,6 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
 criterion_group! {
     name = room;
     config = Criterion::default();
-    targets = receive_all_members_benchmark, load_pinned_events_benchmark,
+    targets = receive_all_members_benchmark, members_benchmark, load_pinned_events_benchmark,
 }
 criterion_main!(room);
