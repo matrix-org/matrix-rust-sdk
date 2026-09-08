@@ -256,6 +256,12 @@ fn strip_relations_from_event(ev: &mut Event) {
 ///
 /// Only replaces the present if it contained bundled relations.
 fn strip_relations_if_present<T>(event: &mut Raw<T>) {
+    // Fast path: if the raw JSON does not even contain the key's text, there is
+    // nothing to strip and no need to parse anything.
+    if !event.json().get().contains("\"m.relations\"") {
+        return;
+    }
+
     // We're going to get rid of the `unsigned`/`m.relations` field, if it's
     // present.
     // Use a closure that returns an option so we can quickly short-circuit.
