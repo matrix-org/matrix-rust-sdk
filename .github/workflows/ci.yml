@@ -341,7 +341,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
         with:
-          toolchain: nightly-2026-07-18
+          toolchain: nightly-2026-09-07
           components: clippy, rustfmt
 
       - name: Load cache
