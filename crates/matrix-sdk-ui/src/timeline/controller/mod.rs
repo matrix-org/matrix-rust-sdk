@@ -23,6 +23,7 @@ use as_variant::as_variant;
 use eyeball_im::{VectorDiff, VectorSubscriberStream};
 use eyeball_im_util::vector::{FilterMap, VectorObserverExt};
 use futures_core::Stream;
+use futures_util::future::try_join_all;
 use imbl::{HashSet, Vector};
 use matrix_sdk::{
     deserialized_responses::TimelineEvent,
@@ -1583,13 +1584,19 @@ impl TimelineController {
         // For each event, we also need to find the related events, as they don't
         // include the thread relationship, they won't be included in
         // the initial list of events.
+        //
+        // The lookups are independent store queries, so run them together
+        // rather than awaiting them one after the other. `try_join_all`
+        // keeps the input order, so the related events are collected in the
+        // same order as before.
+        let lookups = events
+            .iter()
+            .filter_map(|event| event.event_id())
+            .map(|event_id| event_cache.find_event_with_relations(event_id, None));
+
         let mut related_events = Vector::new();
-        for event_id in events.iter().filter_map(|event| event.event_id()) {
-            if let Some((_original, related)) =
-                event_cache.find_event_with_relations(event_id, None).await?
-            {
-                related_events.extend(related);
-            }
+        for (_original, related) in try_join_all(lookups).await?.into_iter().flatten() {
+            related_events.extend(related);
         }
 
         self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
