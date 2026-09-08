@@ -206,6 +206,7 @@ To use this module, two structs are needed:
 ```rust
 # async {
 use matrix_sdk::widget::{Capabilities, CapabilitiesProvider, WidgetSettings, WidgetDriver};
+use std::sync::Arc;
 use tokio::spawn;
 use url::Url;
 
@@ -233,6 +234,7 @@ let widget_settings = WidgetSettings::new(
 
 // Create the required structs:
 let (driver, handle) = WidgetDriver::new(widget_settings);
+let handle = Arc::new(handle);
 let cap_provider = CapProv {};
 
 mod my_platform {
@@ -247,7 +249,7 @@ spawn({
     async move {
         loop {
             let message = my_platform::receive_post_message().await;
-            h.send(message).await;
+            h.send(message);
         }
     }
 });
