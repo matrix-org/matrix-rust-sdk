@@ -256,9 +256,11 @@ fn strip_relations_from_event(ev: &mut Event) {
 ///
 /// Only replaces the present if it contained bundled relations.
 fn strip_relations_if_present<T>(event: &mut Raw<T>) {
-    // Fast path: if the raw JSON does not even contain the key's text, there is
-    // nothing to strip and no need to parse anything.
-    if !event.json().get().contains("\"m.relations\"") {
+    // Most events carry no bundled relations. Look at the `unsigned` field alone
+    // before deserialising the whole event: `Raw::get_field` walks the JSON and
+    // only materialises that one field.
+    let unsigned = event.get_field::<serde_json::Map<String, serde_json::Value>>("unsigned");
+    if !matches!(&unsigned, Ok(Some(unsigned)) if unsigned.contains_key("m.relations")) {
         return;
     }
 
