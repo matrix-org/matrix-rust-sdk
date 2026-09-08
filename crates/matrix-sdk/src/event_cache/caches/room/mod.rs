@@ -24,6 +24,7 @@ use matrix_sdk_base::{
     event_cache::Event,
     sync::Timeline,
 };
+use matrix_sdk_common::executor::spawn;
 use ruma::{
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId,
     events::{AnyRoomAccountDataEvent, relation::RelationType},
@@ -225,6 +226,28 @@ impl RoomEventCache {
     ) -> Result<Vec<Event>> {
         // Search in all loaded or stored events.
         self.inner.state.read().await?.find_event_relations(event_id, filter.clone()).await
+    }
+
+    /// Save events into the store, out-of-band: they don't become part of any
+    /// linked chunk, but later lookups with [`Self::find_event`],
+    /// [`Self::find_event_with_relations`] and [`Self::find_event_relations`]
+    /// will find them.
+    pub async fn save_events(&self, events: impl IntoIterator<Item = Event>) -> Result<()> {
+        // Only the store handle is needed here, not the in-memory state: take it and
+        // release the state lock before writing.
+        let store = self.inner.state.read().await?.store;
+        let room_id = self.room_id().to_owned();
+        let events = events.into_iter().collect::<Vec<_>>();
+
+        // Spawn a task so the save is uninterrupted by task cancellation.
+        spawn(async move {
+            for event in events {
+                store.save_event(&room_id, event).await?;
+            }
+            Result::Ok(())
+        })
+        .await
+        .expect("joining failed")
     }
 
     /// Return a reference to the state.
