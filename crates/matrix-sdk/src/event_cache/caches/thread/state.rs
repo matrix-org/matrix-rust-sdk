@@ -14,6 +14,7 @@
 
 use std::iter::empty;
 
+use eyeball::{AsyncLock, ObservableWriteGuard, SharedObservable};
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     apply_redaction, check_validity_of_replacement_events,
@@ -83,7 +84,7 @@ pub struct ThreadEventCacheState {
     thread_linked_chunk: EventLinkedChunk,
 
     /// The information related to this thread, [`ThreadInfo`].
-    pub thread_info: ThreadInfo,
+    pub thread_info: SharedObservable<ThreadInfo, AsyncLock>,
 
     /// A clone of [`super::ThreadEventCacheInner::update_sender`].
     ///
@@ -188,7 +189,7 @@ impl ThreadEventCacheState {
                 linked_chunk,
                 full_linked_chunk_metadata,
             ),
-            thread_info,
+            thread_info: SharedObservable::new_async(thread_info),
             update_sender,
             linked_chunk_update_sender,
             waited_for_initial_prev_token: false,
@@ -563,7 +564,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             return Ok(());
         };
 
-        let prev_read_receipts = &self.state.thread_info.read_receipts;
+        let prev_read_receipts = self.state.thread_info.read().await.read_receipts.clone();
         let mut read_receipts = prev_read_receipts.clone();
 
         let client = room.client();
@@ -579,16 +580,20 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         )
         .await;
 
-        if prev_read_receipts != &read_receipts {
-            // The read receipt has changed! Do a little dance to update the `ThreadInfo` in
-            // the store.
-            self.state.thread_info.read_receipts = read_receipts;
+        if prev_read_receipts != read_receipts {
+            // The read receipt has changed! Do a little dance to update the
+            // `ThreadInfo` in the store.
+            let mut thread_info = self.state.thread_info.write().await;
+
+            ObservableWriteGuard::update(&mut thread_info, |thread_info| {
+                thread_info.read_receipts = read_receipts;
+            });
 
             let room_id = &self.state.room_id;
             let thread_id = &self.state.thread_id;
 
             if let Err(error) =
-                self.store.update_thread_info(room_id, thread_id, &self.state.thread_info).await
+                self.store.update_thread_info(room_id, thread_id, &thread_info).await
             {
                 error!(?room_id, ?thread_id, ?error, "Failed to update the `ThreadInfo`");
             }
