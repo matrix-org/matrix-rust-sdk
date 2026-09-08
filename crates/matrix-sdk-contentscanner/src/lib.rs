@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![recursion_limit = "256"]
+
 #[cfg(feature = "e2e-encryption")]
 use std::io::Read;
 use std::{

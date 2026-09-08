@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 // The http mocking library is not supported for wasm32
 #![cfg(not(target_family = "wasm"))]
 use matrix_sdk::test_utils::logged_in_client_with_server;
