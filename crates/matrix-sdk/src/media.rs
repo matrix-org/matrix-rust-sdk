@@ -436,6 +436,14 @@ impl Media {
         // This is a local media. Force to read the media's content from the store: it
         // cannot exist somewhere else!
         if Self::is_local_uri(&request.source) {
+            // Local medias are always cached with `MediaFormat::File`, be it the file
+            // itself or its thumbnail (see `RoomSendQueue::cache_media`), so ignore the
+            // requested format.
+            let request = &MediaRequestParameters {
+                source: request.source.clone(),
+                format: MediaFormat::File,
+            };
+
             if let Some(content) =
                 self.client.media_store().lock().await?.get_media_content(request).await?
             {
