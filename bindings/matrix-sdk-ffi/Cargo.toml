@@ -2,10 +2,8 @@
 name = "matrix-sdk-ffi"
 version = "0.18.0"
 edition = "2024"
-homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ffi"]
 license = "Apache-2.0"
-readme = "README.md"
 rust-version.workspace = true
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 publish = false

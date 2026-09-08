@@ -58,3 +58,6 @@ harness = false
 [[bench]]
 name = "room_list"
 harness = false
+
+[lints]
+workspace = true
