@@ -1435,9 +1435,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             };
 
             let new_reply_content = TimelineItemContent::MsgLike(
-                msglike
-                    .with_in_reply_to(in_reply_to)
-                    .with_kind(MsgLikeKind::Message(message.clone())),
+                msglike.with_in_reply_to(in_reply_to).with_kind(MsgLikeKind::Message(message)),
             );
             let new_reply_item = item.with_kind(event_item.with_content(new_reply_content));
             items.replace(timeline_item_index, new_reply_item);

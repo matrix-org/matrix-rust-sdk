@@ -813,9 +813,9 @@ fn mock_keys_claimed_request(keys: Arc<Mutex<Keys>>) -> impl Fn(&Request) -> Res
                     found_one_time_keys
                         .entry(user.clone())
                         .or_default()
-                        .entry(device_id.clone())
+                        .entry(device_id)
                         .or_default()
-                        .insert(id, raw_otk.clone());
+                        .insert(id, raw_otk);
                 }
             }
         }
