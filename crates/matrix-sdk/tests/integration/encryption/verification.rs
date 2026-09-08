@@ -83,6 +83,37 @@ async fn test_own_verification() {
     assert_eq!(alice.encryption().verification_state().get(), VerificationState::Verified);
 }
 
+/// If the own-user `/keys/query` happens before cross-signing is bootstrapped,
+/// verification never reaches `Verified`: bootstrap uploads the self-signature
+/// but nothing re-queries the own user, so the signed device is never fetched.
+///
+/// Simulates the request order that new-account bootstrap races into during
+/// OAuth registration. `test_own_verification` bootstraps first (the order that
+/// works).
+#[async_test]
+async fn test_own_verification_completes_without_device_list_change() {
+    let server = MatrixMockServer::new().await;
+    server.mock_crypto_endpoints_preset().await;
+
+    let user_id = owned_user_id!("@alice:example.org");
+    let device_id = owned_device_id!("4L1C3");
+    let alice = server.client_builder_for_crypto_end_to_end(&user_id, &device_id).build().await;
+
+    // Own-user /keys/query before bootstrap.
+    server.mock_sync().ok_and_run(&alice, |_| {}).await;
+    assert_eq!(alice.encryption().verification_state().get(), VerificationState::Unverified);
+
+    bootstrap_cross_signing(&alice).await;
+    assert!(alice.encryption().get_user_identity(&user_id).await.unwrap().unwrap().is_verified());
+
+    // No device-list change, so the own user is never re-queried.
+    server.mock_sync().ok_and_run(&alice, |_| {}).await;
+    server.mock_sync().ok_and_run(&alice, |_| {}).await;
+
+    // FIXME: stuck on Unverified.
+    assert_eq!(alice.encryption().verification_state().get(), VerificationState::Verified);
+}
+
 #[async_test]
 async fn test_reset_cross_signing_resets_verification() {
     let server = MatrixMockServer::new().await;
