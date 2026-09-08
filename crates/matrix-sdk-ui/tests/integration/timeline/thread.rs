@@ -304,6 +304,68 @@ async fn test_extract_bundled_thread_summary() {
 }
 
 #[async_test]
+async fn test_focused_timeline_uses_the_bundled_latest_reply() {
+    // The events of an event-focused timeline are not in the event cache, so
+    // loading a thread root's latest reply would be a request. It isn't needed:
+    // the reply comes bundled with the thread root.
+
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    let room_id = room_id!("!a:b.c");
+    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let thread_root_id = event_id!("$thread_root");
+    let latest_event_id = event_id!("$latest_event");
+
+    let thread_root = f
+        .text_msg("thready thread mcthreadface")
+        .with_bundled_thread_summary(
+            f.text_msg("the last one!").event_id(latest_event_id).into(),
+            42,
+            false,
+        )
+        .event_id(thread_root_id)
+        .into_event();
+
+    // No `/event` endpoint is mocked: a request for the latest reply would fail,
+    // and the summary would have no latest event.
+    server
+        .mock_room_event_context()
+        .room(room_id)
+        .ok(RoomContextResponseTemplate::new(thread_root))
+        .mock_once()
+        .mount()
+        .await;
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let room = server.sync_joined_room(&client, room_id).await;
+    let timeline = TimelineBuilder::new(&room)
+        .with_focus(TimelineFocus::Event {
+            target: thread_root_id.to_owned(),
+            num_context_events: 20,
+            thread_mode: TimelineEventFocusThreadMode::Automatic { hide_threaded_events: false },
+        })
+        .build()
+        .await
+        .unwrap();
+
+    let (items, _stream) = timeline.subscribe().await;
+
+    // A date divider and the thread root.
+    assert_eq!(items.len(), 2);
+    let event_item = items[1].as_event().unwrap();
+    assert_eq!(event_item.event_id().unwrap(), thread_root_id);
+
+    assert_let!(Some(summary) = event_item.content().thread_summary());
+    assert_eq!(summary.num_replies, 42);
+
+    assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
+    assert_eq!(latest_event.identifier, TimelineEventItemId::EventId(latest_event_id.to_owned()));
+    assert_eq!(latest_event.content.as_message().unwrap().body(), "the last one!");
+    assert_eq!(latest_event.sender, *ALICE);
+}
+
+#[async_test]
 async fn test_redact_thread_root_keeps_thread_summary() {
     // Redacting the thread root must not hide the thread: the thread summary
     // is preserved on the redacted item.

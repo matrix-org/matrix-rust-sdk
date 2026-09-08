@@ -677,7 +677,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
     // using the event cache or the storage.
     #[instrument(skip(self, room_data_provider))]
     async fn fetch_latest_thread_reply(
-        &mut self,
+        &self,
         event_id: &EventId,
         room_data_provider: &P,
     ) -> Option<Box<EmbeddedEvent>> {
@@ -688,6 +688,15 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             })
             .ok()?;
 
+        self.embed_latest_thread_reply(event, room_data_provider).await
+    }
+
+    // Attempt to turn a thread's latest reply into an embedded timeline item.
+    async fn embed_latest_thread_reply(
+        &self,
+        event: TimelineEvent,
+        room_data_provider: &P,
+    ) -> Option<Box<EmbeddedEvent>> {
         EmbeddedEvent::try_from_timeline_event(event, room_data_provider, &self.meta)
             .await
             .inspect_err(|err| {
@@ -704,7 +713,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn handle_remote_event(
         &mut self,
-        event: TimelineEvent,
+        mut event: TimelineEvent,
         position: TimelineItemPosition,
         room_data_provider: &P,
         settings: &TimelineSettings,
@@ -716,11 +725,17 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             event.push_actions().is_some_and(|actions| actions.iter().any(Action::is_highlight));
 
         let thread_summary = if let ThreadSummaryStatus::Some(ref summary) = event.thread_summary {
-            let latest_reply_item = if let Some(ref latest_reply) = summary.latest_reply {
-                self.fetch_latest_thread_reply(latest_reply, room_data_provider).await
-            } else {
-                None
-            };
+            // The latest reply usually comes bundled with the event. Loading it instead
+            // means a store lookup at best, and a request when the event cache doesn't
+            // have it, as in an event-focused timeline.
+            let latest_reply_item =
+                if let Some(latest_reply) = event.bundled_latest_thread_event.take() {
+                    self.embed_latest_thread_reply(*latest_reply, room_data_provider).await
+                } else if let Some(ref latest_reply) = summary.latest_reply {
+                    self.fetch_latest_thread_reply(latest_reply, room_data_provider).await
+                } else {
+                    None
+                };
 
             Some(ThreadSummary {
                 latest_event: TimelineDetails::from_initial_value(latest_reply_item),
