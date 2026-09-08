@@ -122,7 +122,7 @@ imbl = { workspace = true, features = ["serde"] }
 indexmap.workspace = true
 itertools.workspace = true
 js_int = "0.2.2"
-language-tags = { version = "0.3.2" }
+language-tags = "0.3.2"
 matrix-sdk-base.workspace = true
 matrix-sdk-common.workspace = true
 matrix-sdk-ffi-macros = { workspace = true, optional = true }
