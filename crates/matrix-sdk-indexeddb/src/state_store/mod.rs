@@ -37,6 +37,7 @@ use matrix_sdk_base::{
         SupportedVersionsResponse, ThreadSubscriptionStatus, WellKnownResponse,
         compare_thread_subscription_bump_stamps,
     },
+    timer,
     ttl::TtlValue,
 };
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
@@ -58,7 +59,7 @@ use ruma::{
     serde::Raw,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned, ser::Error};
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 use wasm_bindgen::JsValue;
 
 mod migrations;
@@ -621,7 +622,10 @@ macro_rules! impl_state_store {
 }
 
 impl_state_store!({
+    #[instrument(skip(self))]
     async fn get_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<Option<StateStoreDataValue>> {
+        let _timer = timer!("method");
+
         let encoded_key = self.encode_kv_data_key(key);
 
         let value = self
@@ -687,11 +691,14 @@ impl_state_store!({
         Ok(value)
     }
 
+    #[instrument(skip(self, value))]
     async fn set_kv_data(
         &self,
         key: StateStoreDataKey<'_>,
         value: StateStoreDataValue,
     ) -> Result<()> {
+        let _timer = timer!("method");
+
         let encoded_key = self.encode_kv_data_key(key);
 
         let serialized_value = match key {
@@ -751,7 +758,10 @@ impl_state_store!({
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn remove_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<()> {
+        let _timer = timer!("method");
+
         let encoded_key = self.encode_kv_data_key(key);
 
         let tx = self.inner.transaction(keys::KV).with_mode(TransactionMode::Readwrite).build()?;
@@ -764,7 +774,10 @@ impl_state_store!({
         Ok(())
     }
 
+    #[instrument(skip(self, changes))]
     async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
+        let _timer = timer!("method");
+
         let mut stores: HashSet<&'static str> = [
             (changes.sync_token.is_some(), keys::KV),
             (!changes.ambiguity_maps.is_empty(), keys::DISPLAY_NAMES),
@@ -1132,7 +1145,10 @@ impl_state_store!({
         tx.commit().await.map_err(|e| e.into())
     }
 
+    #[instrument(skip(self))]
     async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
+        let _timer = timer!("method");
+
         self.inner
             .transaction(keys::PRESENCE)
             .with_mode(TransactionMode::Readonly)
@@ -1144,10 +1160,13 @@ impl_state_store!({
             .transpose()
     }
 
+    #[instrument(skip(self, user_ids))]
     async fn get_presence_events(
         &self,
         user_ids: &[OwnedUserId],
     ) -> Result<Vec<Raw<PresenceEvent>>> {
+        let _timer = timer!("method");
+
         if user_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -1172,12 +1191,15 @@ impl_state_store!({
         Ok(events)
     }
 
+    #[instrument(skip(self))]
     async fn get_state_event(
         &self,
         room_id: &RoomId,
         event_type: StateEventType,
         state_key: &str,
     ) -> Result<Option<RawAnySyncOrStrippedState>> {
+        let _timer = timer!("method");
+
         Ok(self
             .get_state_events_for_keys(room_id, event_type, &[state_key])
             .await?
@@ -1185,11 +1207,14 @@ impl_state_store!({
             .next())
     }
 
+    #[instrument(skip(self))]
     async fn get_state_events(
         &self,
         room_id: &RoomId,
         event_type: StateEventType,
     ) -> Result<Vec<RawAnySyncOrStrippedState>> {
+        let _timer = timer!("method");
+
         let stripped_range =
             self.encode_to_range(keys::STRIPPED_ROOM_STATE, (room_id, &event_type));
         let stripped_events = self
@@ -1226,12 +1251,15 @@ impl_state_store!({
             .collect::<Vec<_>>())
     }
 
+    #[instrument(skip(self, state_keys))]
     async fn get_state_events_for_keys(
         &self,
         room_id: &RoomId,
         event_type: StateEventType,
         state_keys: &[&str],
     ) -> Result<Vec<RawAnySyncOrStrippedState>> {
+        let _timer = timer!("method");
+
         if state_keys.is_empty() {
             return Ok(Vec::new());
         }
@@ -1287,11 +1315,14 @@ impl_state_store!({
         Ok(events)
     }
 
+    #[instrument(skip(self))]
     async fn get_profile(
         &self,
         room_id: &RoomId,
         user_id: &UserId,
     ) -> Result<Option<MinimalRoomMemberEvent>> {
+        let _timer = timer!("method");
+
         self.inner
             .transaction(keys::PROFILES)
             .with_mode(TransactionMode::Readonly)
@@ -1303,11 +1334,14 @@ impl_state_store!({
             .transpose()
     }
 
+    #[instrument(skip(self, user_ids))]
     async fn get_profiles<'a>(
         &self,
         room_id: &RoomId,
         user_ids: &'a [OwnedUserId],
     ) -> Result<BTreeMap<&'a UserId, MinimalRoomMemberEvent>> {
+        let _timer = timer!("method");
+
         if user_ids.is_empty() {
             return Ok(BTreeMap::new());
         }
@@ -1331,7 +1365,10 @@ impl_state_store!({
         Ok(profiles)
     }
 
+    #[instrument(skip(self))]
     async fn get_room_infos(&self, room_load_settings: &RoomLoadSettings) -> Result<Vec<RoomInfo>> {
+        let _timer = timer!("method");
+
         let transaction = self
             .inner
             .transaction(keys::ROOM_INFOS)
@@ -1356,11 +1393,14 @@ impl_state_store!({
         })
     }
 
+    #[instrument(skip(self, display_name))]
     async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
         display_name: &DisplayName,
     ) -> Result<BTreeSet<OwnedUserId>> {
+        let _timer = timer!("method");
+
         self.inner
             .transaction(keys::DISPLAY_NAMES)
             .with_mode(TransactionMode::Readonly)
@@ -1378,11 +1418,14 @@ impl_state_store!({
             .unwrap_or_else(|| Ok(Default::default()))
     }
 
+    #[instrument(skip(self, display_names))]
     async fn get_users_with_display_names<'a>(
         &self,
         room_id: &RoomId,
         display_names: &'a [DisplayName],
     ) -> Result<HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>> {
+        let _timer = timer!("method");
+
         let mut map = HashMap::new();
 
         if display_names.is_empty() {
@@ -1420,10 +1463,13 @@ impl_state_store!({
         Ok(map)
     }
 
+    #[instrument(skip(self))]
     async fn get_account_data_event(
         &self,
         event_type: GlobalAccountDataEventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
+        let _timer = timer!("method");
+
         self.inner
             .transaction(keys::ACCOUNT_DATA)
             .with_mode(TransactionMode::Readonly)
@@ -1435,11 +1481,14 @@ impl_state_store!({
             .transpose()
     }
 
+    #[instrument(skip(self))]
     async fn get_room_account_data_event(
         &self,
         room_id: &RoomId,
         event_type: RoomAccountDataEventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
+        let _timer = timer!("method");
+
         self.inner
             .transaction(keys::ROOM_ACCOUNT_DATA)
             .with_mode(TransactionMode::Readonly)
@@ -1451,6 +1500,7 @@ impl_state_store!({
             .transpose()
     }
 
+    #[instrument(skip(self))]
     async fn get_user_room_receipt_event(
         &self,
         room_id: &RoomId,
@@ -1458,6 +1508,8 @@ impl_state_store!({
         receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
+        let _timer = timer!("method");
+
         let key = match receipt_thread.as_str() {
             Some(thread_id) => self
                 .encode_key(keys::ROOM_USER_RECEIPTS, (room_id, receipt_type, thread_id, user_id)),
@@ -1474,6 +1526,7 @@ impl_state_store!({
             .transpose()
     }
 
+    #[instrument(skip(self))]
     async fn get_event_room_receipt_events(
         &self,
         room_id: &RoomId,
@@ -1481,6 +1534,8 @@ impl_state_store!({
         receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
+        let _timer = timer!("method");
+
         let range = match receipt_thread.as_str() {
             Some(thread_id) => self.encode_to_range(
                 keys::ROOM_EVENT_RECEIPTS,
@@ -1506,12 +1561,18 @@ impl_state_store!({
             .collect::<Vec<_>>())
     }
 
+    #[instrument(skip(self, key))]
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        let _timer = timer!("method");
+
         let jskey = &JsValue::from_str(core::str::from_utf8(key).map_err(StoreError::Codec)?);
         self.get_custom_value_for_js(jskey).await
     }
 
+    #[instrument(skip(self, key, value))]
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
+        let _timer = timer!("method");
+
         let jskey = JsValue::from_str(core::str::from_utf8(key).map_err(StoreError::Codec)?);
 
         let prev = self.get_custom_value_for_js(&jskey).await?;
@@ -1528,7 +1589,10 @@ impl_state_store!({
         Ok(prev)
     }
 
+    #[instrument(skip(self, key))]
     async fn remove_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        let _timer = timer!("method");
+
         let jskey = JsValue::from_str(core::str::from_utf8(key).map_err(StoreError::Codec)?);
 
         let prev = self.get_custom_value_for_js(&jskey).await?;
@@ -1542,7 +1606,10 @@ impl_state_store!({
         Ok(prev)
     }
 
+    #[instrument(skip(self))]
     async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
+        let _timer = timer!("method");
+
         // All the stores which use a RoomId as their key (and nothing additional).
         let direct_stores = [keys::ROOM_INFOS, keys::ROOM_SEND_QUEUE, keys::DEPENDENT_SEND_QUEUE];
 
@@ -1586,11 +1653,14 @@ impl_state_store!({
         tx.commit().await.map_err(|e| e.into())
     }
 
+    #[instrument(skip(self))]
     async fn get_user_ids(
         &self,
         room_id: &RoomId,
         memberships: RoomMemberships,
     ) -> Result<Vec<OwnedUserId>> {
+        let _timer = timer!("method");
+
         let ids = self.get_user_ids_inner(room_id, memberships, true).await?;
         if !ids.is_empty() {
             return Ok(ids);
@@ -1598,6 +1668,7 @@ impl_state_store!({
         self.get_user_ids_inner(room_id, memberships, false).await
     }
 
+    #[instrument(skip(self, kind))]
     async fn save_send_queue_request(
         &self,
         room_id: &RoomId,
@@ -1606,6 +1677,8 @@ impl_state_store!({
         kind: QueuedRequestKind,
         priority: usize,
     ) -> Result<()> {
+        let _timer = timer!("method");
+
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
         let tx = self
@@ -1647,12 +1720,15 @@ impl_state_store!({
         Ok(())
     }
 
+    #[instrument(skip(self, kind))]
     async fn update_send_queue_request(
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
         kind: QueuedRequestKind,
     ) -> Result<bool> {
+        let _timer = timer!("method");
+
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
         let tx = self
@@ -1693,11 +1769,14 @@ impl_state_store!({
         }
     }
 
+    #[instrument(skip(self))]
     async fn remove_send_queue_request(
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
     ) -> Result<bool> {
+        let _timer = timer!("method");
+
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
         let tx = self
@@ -1731,7 +1810,10 @@ impl_state_store!({
         Ok(false)
     }
 
+    #[instrument(skip(self))]
     async fn load_send_queue_requests(&self, room_id: &RoomId) -> Result<Vec<QueuedRequest>> {
+        let _timer = timer!("method");
+
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
         // We store an encoded vector of the queued requests, with their transaction
@@ -1756,12 +1838,15 @@ impl_state_store!({
         Ok(prev.into_iter().filter_map(PersistedQueuedRequest::into_queued_request).collect())
     }
 
+    #[instrument(skip(self))]
     async fn update_send_queue_request_status(
         &self,
         room_id: &RoomId,
         transaction_id: &TransactionId,
         error: Option<QueueWedgeError>,
     ) -> Result<()> {
+        let _timer = timer!("method");
+
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
         let tx = self
@@ -1788,7 +1873,10 @@ impl_state_store!({
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn load_rooms_with_unsent_requests(&self) -> Result<Vec<OwnedRoomId>> {
+        let _timer = timer!("method");
+
         let tx = self
             .inner
             .transaction(keys::ROOM_SEND_QUEUE)
@@ -1809,6 +1897,7 @@ impl_state_store!({
         Ok(all_entries.into_iter().collect())
     }
 
+    #[instrument(skip(self, content))]
     async fn save_dependent_queued_request(
         &self,
         room_id: &RoomId,
@@ -1817,6 +1906,8 @@ impl_state_store!({
         created_at: MilliSecondsSinceUnixEpoch,
         content: DependentQueuedRequestKind,
     ) -> Result<()> {
+        let _timer = timer!("method");
+
         let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
 
         let tx = self
@@ -1853,12 +1944,15 @@ impl_state_store!({
         Ok(())
     }
 
+    #[instrument(skip(self, new_content))]
     async fn update_dependent_queued_request(
         &self,
         room_id: &RoomId,
         own_transaction_id: &ChildTransactionId,
         new_content: DependentQueuedRequestKind,
     ) -> Result<bool> {
+        let _timer = timer!("method");
+
         let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
 
         let tx = self
@@ -1896,12 +1990,15 @@ impl_state_store!({
         Ok(found)
     }
 
+    #[instrument(skip(self))]
     async fn mark_dependent_queued_requests_as_ready(
         &self,
         room_id: &RoomId,
         parent_txn_id: &TransactionId,
         parent_key: SentRequestKey,
     ) -> Result<usize> {
+        let _timer = timer!("method");
+
         let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
 
         let tx = self
@@ -1936,11 +2033,14 @@ impl_state_store!({
         Ok(num_updated)
     }
 
+    #[instrument(skip(self))]
     async fn remove_dependent_queued_request(
         &self,
         room_id: &RoomId,
         txn_id: &ChildTransactionId,
     ) -> Result<bool> {
+        let _timer = timer!("method");
+
         let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
 
         let tx = self
@@ -1972,10 +2072,13 @@ impl_state_store!({
         Ok(false)
     }
 
+    #[instrument(skip(self))]
     async fn load_dependent_queued_requests(
         &self,
         room_id: &RoomId,
     ) -> Result<Vec<DependentQueuedRequest>> {
+        let _timer = timer!("method");
+
         let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
 
         // We store an encoded vector of the dependent requests.
@@ -1994,10 +2097,13 @@ impl_state_store!({
         )
     }
 
+    #[instrument(skip(self, updates))]
     async fn upsert_thread_subscriptions(
         &self,
         updates: Vec<(&RoomId, &EventId, StoredThreadSubscription)>,
     ) -> Result<()> {
+        let _timer = timer!("method");
+
         let tx = self
             .inner
             .transaction(keys::THREAD_SUBSCRIPTIONS)
@@ -2035,11 +2141,14 @@ impl_state_store!({
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn load_thread_subscription(
         &self,
         room: &RoomId,
         thread_id: &EventId,
     ) -> Result<Option<StoredThreadSubscription>> {
+        let _timer = timer!("method");
+
         let encoded_key = self.encode_key(keys::THREAD_SUBSCRIPTIONS, (room, thread_id));
 
         let js_value = self
@@ -2070,7 +2179,10 @@ impl_state_store!({
         Ok(Some(StoredThreadSubscription { status, bump_stamp: sub.bump_stamp }))
     }
 
+    #[instrument(skip(self))]
     async fn remove_thread_subscription(&self, room: &RoomId, thread_id: &EventId) -> Result<()> {
+        let _timer = timer!("method");
+
         let encoded_key = self.encode_key(keys::THREAD_SUBSCRIPTIONS, (room, thread_id));
 
         let transaction = self
@@ -2084,7 +2196,10 @@ impl_state_store!({
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn get_global_profile(&self, user_id: &UserId) -> Result<Option<UserProfile>> {
+        let _timer = timer!("method");
+
         let transaction = self
             .inner
             .transaction(keys::GLOBAL_PROFILES)
@@ -2096,10 +2211,13 @@ impl_state_store!({
         store.get(&key).await?.map(|f| self.deserialize_value(&f)).transpose()
     }
 
+    #[instrument(skip(self, user_ids))]
     async fn get_global_profiles<'a>(
         &self,
         user_ids: &'a [OwnedUserId],
     ) -> Result<BTreeMap<&'a UserId, UserProfile>> {
+        let _timer = timer!("method");
+
         let transaction = self
             .inner
             .transaction(keys::GLOBAL_PROFILES)
@@ -2119,22 +2237,34 @@ impl_state_store!({
     }
 
     #[allow(clippy::unused_async)]
+    #[instrument(skip(self))]
     async fn optimize(&self) -> Result<()> {
+        let _timer = timer!("method");
+
         Ok(())
     }
 
     #[allow(clippy::unused_async)]
+    #[instrument(skip(self))]
     async fn get_size(&self) -> Result<Option<usize>> {
+        let _timer = timer!("method");
+
         Ok(None)
     }
 
     #[allow(clippy::unused_async)]
+    #[instrument(skip(self))]
     async fn close(&self) -> Result<()> {
+        let _timer = timer!("method");
+
         Ok(())
     }
 
     #[allow(clippy::unused_async)]
+    #[instrument(skip(self))]
     async fn reopen(&self) -> Result<()> {
+        let _timer = timer!("method");
+
         Ok(())
     }
 });
