@@ -82,31 +82,47 @@ impl Room {
             return Ok(Vec::new());
         }
 
-        let member_events = self
-            .store
-            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(
-                self.room_id(),
-                &user_ids,
-            )
-            .await?
-            .into_iter()
-            .map(|raw_event| raw_event.deserialize())
-            .collect::<Result<Vec<_>, _>>()?;
+        // These store reads are independent of each other, so run them
+        // together rather than one after the other.
+        let member_events = async {
+            self.store
+                .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(
+                    self.room_id(),
+                    &user_ids,
+                )
+                .await?
+                .into_iter()
+                .map(|raw_event| raw_event.deserialize())
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(StoreError::from)
+        };
 
-        let mut profiles = self.store.get_profiles(self.room_id(), &user_ids).await?;
+        let profiles = self.store.get_profiles(self.room_id(), &user_ids);
+
+        let presences = async {
+            Ok(self
+                .store
+                .get_presence_events(&user_ids)
+                .await?
+                .into_iter()
+                .filter_map(|e| {
+                    e.deserialize().ok().map(|presence| (presence.sender.clone(), presence))
+                })
+                .collect::<BTreeMap<_, _>>())
+        };
 
         #[cfg(feature = "unstable-msc4426")]
-        let mut global_profiles = self.store.get_global_profiles(&user_ids).await?;
+        let (member_events, mut profiles, mut presences, mut global_profiles) = future::try_join4(
+            member_events,
+            profiles,
+            presences,
+            self.store.get_global_profiles(&user_ids),
+        )
+        .await?;
 
-        let mut presences = self
-            .store
-            .get_presence_events(&user_ids)
-            .await?
-            .into_iter()
-            .filter_map(|e| {
-                e.deserialize().ok().map(|presence| (presence.sender.clone(), presence))
-            })
-            .collect::<BTreeMap<_, _>>();
+        #[cfg(not(feature = "unstable-msc4426"))]
+        let (member_events, mut profiles, mut presences) =
+            future::try_join3(member_events, profiles, presences).await?;
 
         let display_names = member_events.iter().map(|e| e.display_name()).collect::<Vec<_>>();
         let room_info = self.member_room_info(&display_names).await?;
