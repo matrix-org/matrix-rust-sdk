@@ -577,6 +577,27 @@ impl Room {
             .await
     }
 
+    /// Load from storage the receipts of several events in this room, for the
+    /// given `receipt_type` and `receipt_thread`.
+    ///
+    /// The receipts are keyed by event id, as a list of `OwnedUserId` and
+    /// `Receipt` tuples. Events without receipts are absent from the map.
+    pub async fn load_event_receipts_batch<'a>(
+        &self,
+        receipt_type: ReceiptType,
+        receipt_thread: &ReceiptThread,
+        event_ids: &'a [OwnedEventId],
+    ) -> StoreResult<BTreeMap<&'a EventId, Vec<(OwnedUserId, Receipt)>>> {
+        self.store
+            .get_event_room_receipt_events_batch(
+                self.room_id(),
+                receipt_type,
+                receipt_thread,
+                event_ids,
+            )
+            .await
+    }
+
     /// Returns a boolean indicating if this room has been manually marked as
     /// unread
     pub fn is_marked_unread(&self) -> bool {
