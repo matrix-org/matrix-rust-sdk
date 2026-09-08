@@ -2,10 +2,8 @@
 authors = ["Shrey Patel <shreyrg14@gmail.com>"]
 description = "The search component to build a Matrix client library."
 edition = "2024"
-homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 license = "Apache-2.0"
 name = "matrix-sdk-search"
-readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version.workspace = true
 version = "0.18.0"

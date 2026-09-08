@@ -2,11 +2,9 @@
 authors = ["Damir Jelić <poljar@termina.org.uk>"]
 description = "Helpers to write tests for the Matrix SDK"
 edition = "2024"
-homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ruma"]
 license = "Apache-2.0"
 name = "matrix-sdk-test"
-readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version.workspace = true
 version = "0.18.0"

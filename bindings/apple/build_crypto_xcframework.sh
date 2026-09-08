@@ -79,7 +79,7 @@ if ! ${only_ios}; then
 fi
 
 # Generate uniffi files
-cd ../matrix-sdk-crypto-ffi && cargo run --bin matrix_sdk_crypto_ffi generate \
+cd ../matrix-sdk-crypto-ffi && cargo run --bin matrix-sdk-crypto-ffi generate \
   --language swift \
   --library "${TARGET_DIR}/aarch64-apple-ios/${REL_TYPE_DIR}/libmatrix_sdk_crypto_ffi.a" \
   --out-dir ${GENERATED_DIR}

@@ -11,3 +11,6 @@ release = false
 
 [dependencies]
 uniffi = { workspace = true, features = ["cli"] }
+
+[lints]
+workspace = true

@@ -4,10 +4,8 @@ description = "Library to encode and decode QR codes for interactive verificatio
 version = "0.18.0"
 authors = ["Damir Jelić <poljar@termina.org.uk>"]
 edition = "2024"
-homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
 license = "Apache-2.0"
-readme = "README.md"
 rust-version.workspace = true
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 
