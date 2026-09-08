@@ -242,6 +242,73 @@ async fn test_read_receipts_updates_on_filtered_events() {
 }
 
 #[async_test]
+async fn test_stored_receipts_survive_a_failed_batch_read() {
+    // Same expectations as
+    // `test_read_receipts_updates_on_filtered_events_with_stored`,
+    // with the batched receipt read failing: the events must fall back to their own
+    // reads, not be treated as having no receipts.
+    let event_with_bob_receipt_id = event_id!("$event_with_bob_receipt");
+
+    // Add initial unthreaded private receipt.
+    let mut initial_user_receipts = ReadReceiptMap::new();
+    initial_user_receipts
+        .entry(ReceiptType::Read)
+        .or_default()
+        .entry(ReceiptThread::Unthreaded)
+        .or_default()
+        .insert(
+            BOB.to_owned(),
+            (
+                event_with_bob_receipt_id.to_owned(),
+                Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(5))),
+            ),
+        );
+
+    let timeline = TestTimelineBuilder::new()
+        .provider(
+            TestRoomDataProvider::default()
+                .with_initial_user_receipts(initial_user_receipts)
+                .with_failing_receipt_batch_reads(),
+        )
+        .settings(TimelineSettings {
+            track_read_receipts: TimelineReadReceiptTracking::AllEvents,
+            event_filter: Arc::new(filter_notice),
+            ..Default::default()
+        })
+        .build()
+        .await;
+    let f = &timeline.factory;
+    let mut stream = timeline.subscribe().await;
+
+    timeline.handle_live_event(f.text_msg("A").sender(*ALICE)).await;
+    timeline
+        .handle_live_event(f.notice("B").sender(*CAROL).event_id(event_with_bob_receipt_id))
+        .await;
+
+    // No read receipt for our own user.
+    let item_a = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let event_a = item_a.as_event().unwrap();
+    assert!(event_a.read_receipts().is_empty());
+
+    let _date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+
+    // Stored read receipt of Bob.
+    let item_a = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
+    let event_a = item_a.as_event().unwrap();
+    assert_eq!(event_a.read_receipts().len(), 1);
+    assert!(event_a.read_receipts().get(*BOB).is_some());
+
+    // Implicit read receipt of Carol.
+    let item_a = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
+    let event_a = item_a.as_event().unwrap();
+    assert_eq!(event_a.read_receipts().len(), 2);
+    assert!(event_a.read_receipts().get(*BOB).is_some());
+    assert!(event_a.read_receipts().get(*CAROL).is_some());
+
+    assert_pending!(stream);
+}
+
+#[async_test]
 async fn test_read_receipts_updates_on_filtered_events_with_stored() {
     let event_with_bob_receipt_id = event_id!("$event_with_bob_receipt");
 

@@ -285,6 +285,11 @@ struct TestRoomDataProvider {
     /// Configurable at construction, static for the lifetime of the provider.
     fully_read_marker: Option<OwnedEventId>,
 
+    /// Whether batched receipt reads fail, to exercise the per-event fallback.
+    ///
+    /// Configurable at construction, static for the lifetime of the provider.
+    fail_receipt_batch_reads: bool,
+
     /// Events sent with that room data provider.
     pub sent_events: Arc<RwLock<Vec<AnyMessageLikeEventContent>>>,
 
@@ -303,6 +308,11 @@ impl TestRoomDataProvider {
 
     fn with_fully_read_marker(mut self, event_id: OwnedEventId) -> Self {
         self.fully_read_marker = Some(event_id);
+        self
+    }
+
+    fn with_failing_receipt_batch_reads(mut self) -> Self {
+        self.fail_receipt_batch_reads = true;
         self
     }
 }
@@ -403,7 +413,11 @@ impl RoomDataProvider for TestRoomDataProvider {
         &'a self,
         event_ids: &'a [OwnedEventId],
         receipt_thread: &'a ReceiptThread,
-    ) -> HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>> {
+    ) -> Option<HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>>> {
+        if self.fail_receipt_batch_reads {
+            return None;
+        }
+
         let mut receipts = HashMap::new();
 
         for event_id in event_ids {
@@ -413,7 +427,7 @@ impl RoomDataProvider for TestRoomDataProvider {
             }
         }
 
-        receipts
+        Some(receipts)
     }
 
     async fn load_fully_read_marker(&self) -> Option<OwnedEventId> {

@@ -585,7 +585,8 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
     /// Every requested event has an entry in the returned map, even when it
     /// has no receipts, so that
     /// [`Self::load_read_receipts_for_event`] can tell an event without
-    /// receipts from one that wasn't prefetched.
+    /// receipts from one that wasn't prefetched. If the batch read fails, the
+    /// map is empty and every event is read on its own instead.
     pub(super) async fn prefetch_read_receipts(
         &self,
         event_ids: &[OwnedEventId],
@@ -603,12 +604,19 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
             if matches!(receipt_thread, ReceiptThread::Unthreaded | ReceiptThread::Main) {
                 // Same as in `load_read_receipts_for_event`: accept both the main and the
                 // unthreaded receipts, for compatibility with clients using either.
-                let (mut main_receipts, unthreaded_receipts) = join(
+                let (main_receipts, unthreaded_receipts) = join(
                     room_data_provider.load_event_receipts_batch(event_ids, &ReceiptThread::Main),
                     room_data_provider
                         .load_event_receipts_batch(event_ids, &ReceiptThread::Unthreaded),
                 )
                 .await;
+
+                // An entry is only complete with both halves.
+                let (Some(mut main_receipts), Some(unthreaded_receipts)) =
+                    (main_receipts, unthreaded_receipts)
+                else {
+                    return HashMap::new();
+                };
 
                 for (event_id, event_receipts) in unthreaded_receipts {
                     main_receipts.entry(event_id).or_default().extend(event_receipts);
@@ -616,7 +624,13 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
 
                 main_receipts
             } else {
-                room_data_provider.load_event_receipts_batch(event_ids, &receipt_thread).await
+                let Some(receipts) =
+                    room_data_provider.load_event_receipts_batch(event_ids, &receipt_thread).await
+                else {
+                    return HashMap::new();
+                };
+
+                receipts
             };
 
         for event_id in event_ids {
