@@ -612,8 +612,8 @@ mod tests {
         // 10 events before, the target event, 10 events after.
         assert_eq!(context.events.len(), 21);
 
-        for i in 0..10 {
-            assert_event_matches_msg(&context.events[i], &format!("before-{i}"));
+        for (i, event) in context.events.iter().enumerate().take(10) {
+            assert_event_matches_msg(event, &format!("before-{i}"));
         }
 
         assert_event_matches_msg(&context.events[10], "fetch_from");
@@ -645,9 +645,10 @@ mod tests {
         // events in the room.
         assert_eq!(context.events.len(), 11);
 
-        for i in 0..10 {
-            assert_event_matches_msg(&context.events[i], &format!("ev{i}"));
+        for (i, event) in context.events.iter().enumerate().take(10) {
+            assert_event_matches_msg(event, &format!("ev{i}"));
         }
+
         assert_event_matches_msg(&context.events[10], "fetch_from");
     }
 
@@ -760,8 +761,9 @@ mod tests {
             paginator.paginate_backward(uint!(10)).await.expect("paginate backward should work");
         assert!(prev.hit_end_of_timeline);
         assert_eq!(prev.events.len(), 10);
-        for i in 0..10 {
-            assert_event_matches_msg(&prev.events[i], &format!("prev{}", 9 - i));
+
+        for (i, event) in prev.events.iter().enumerate().take(10) {
+            assert_event_matches_msg(event, &format!("prev{}", 9 - i));
         }
     }
 
