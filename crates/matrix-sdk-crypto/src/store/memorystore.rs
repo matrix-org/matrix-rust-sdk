@@ -282,7 +282,7 @@ impl CryptoStore for MemoryStore {
         {
             let mut olm_hashes = self.olm_hashes.write();
             for hash in changes.message_hashes {
-                olm_hashes.entry(hash.sender_key.to_owned()).or_default().insert(hash.hash.clone());
+                olm_hashes.entry(hash.sender_key.to_owned()).or_default().insert(hash.hash);
             }
         }
 

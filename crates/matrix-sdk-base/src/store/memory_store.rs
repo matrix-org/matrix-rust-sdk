@@ -459,7 +459,7 @@ impl StateStore for MemoryStore {
                             .stripped_members
                             .entry(room.clone())
                             .or_default()
-                            .insert(event.state_key, event.content.membership.clone());
+                            .insert(event.state_key, event.content.membership);
                     }
                 }
             }

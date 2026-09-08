@@ -188,7 +188,7 @@ impl GroupSessionManager {
 
                 if let Ok(Some(device)) = device {
                     device.mark_withheld_code_as_sent();
-                    changes.devices.changed.push(device.inner.clone());
+                    changes.devices.changed.push(device.inner);
                 } else {
                     error!(
                         ?request_id,

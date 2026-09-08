@@ -476,7 +476,7 @@ impl Room {
             let maybe_predecessor_room = current_room.client.get_room(&predecessor.room_id);
 
             if let Some(predecessor_room) = maybe_predecessor_room {
-                rooms.push(predecessor_room.clone());
+                rooms.push(predecessor_room);
                 current_room = rooms.last().expect("Room just pushed so can't be empty");
             } else {
                 warn!("Cannot find predecessor room");

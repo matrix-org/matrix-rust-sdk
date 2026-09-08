@@ -603,10 +603,8 @@ impl NotificationClient {
             if let Some(room) = self.client.get_room(&room_id) {
                 if room.state() == RoomState::Invited {
                     if let Some((_, stripped_event)) = raw_invites.lock().unwrap().pop_first() {
-                        notifications.insert(
-                            missing_event_id.to_owned(),
-                            (room_id.to_owned(), stripped_event),
-                        );
+                        notifications
+                            .insert(missing_event_id, (room_id.to_owned(), stripped_event));
                     }
                 } else {
                     debug!("the room isn't in the invited state");
