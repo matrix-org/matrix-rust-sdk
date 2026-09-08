@@ -1468,6 +1468,17 @@ impl Client {
             .collect()
     }
 
+    /// The total number of client-side computed unread notifications across all
+    /// joined rooms. Rooms the user marked as unread by hand count as one
+    /// each.
+    pub fn total_unread_notifications(&self) -> u64 {
+        self.base_client()
+            .rooms_filtered(RoomStateFilter::JOINED)
+            .iter()
+            .map(|room| room.num_unread_notifications().max(room.is_marked_unread().into()))
+            .sum()
+    }
+
     /// Get a room with the given room id.
     ///
     /// # Arguments

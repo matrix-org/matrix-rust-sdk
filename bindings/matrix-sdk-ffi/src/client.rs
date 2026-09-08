@@ -1656,6 +1656,12 @@ impl Client {
             .collect()
     }
 
+    /// The total number of client-side computed unread notifications across all
+    /// joined rooms.
+    pub fn total_unread_notifications(&self) -> u64 {
+        self.inner.total_unread_notifications()
+    }
+
     /// Mark all joined rooms as read by sending public, private and fully-read
     /// receipts on each room's latest event.
     ///

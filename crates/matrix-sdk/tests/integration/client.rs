@@ -17,7 +17,7 @@ use matrix_sdk::{
         client::mock_matrix_session, mocks::MatrixMockServer, no_retry_test_client_with_server,
     },
 };
-use matrix_sdk_base::{RoomState, sync::RoomUpdates};
+use matrix_sdk_base::{RoomState, read_receipts::ReadReceipts, sync::RoomUpdates};
 use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, executor::spawn};
 use matrix_sdk_test::{
     DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, async_test,
@@ -1575,6 +1575,54 @@ async fn test_observe_own_beacon_info_updates_stays_idle_without_matching_update
     server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
 
     assert!(stream.next().now_or_never().is_none());
+}
+
+#[async_test]
+async fn test_total_unread_notifications() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let f = EventFactory::new();
+
+    let set_num_notifications = async |room: &matrix_sdk::Room, num: u64| {
+        room.update_room_info(|mut room_info| {
+            room_info
+                .set_read_receipts(ReadReceipts { num_notifications: num, ..Default::default() });
+
+            (room_info, Default::default())
+        })
+        .await;
+    };
+
+    // A room with unread notifications contributes all of them.
+    let notifications_room = server.sync_joined_room(&client, room_id!("!a:b.c")).await;
+    set_num_notifications(&notifications_room, 3).await;
+
+    // A room the user marked as unread by hand has no count of its own, so it
+    // contributes one.
+    let marked_unread_room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!d:b.c")).add_account_data(f.marked_unread(true)),
+        )
+        .await;
+    assert!(marked_unread_room.is_marked_unread());
+
+    // A room that is both only needs the user's attention once, so it contributes
+    // its notifications and not one more.
+    let both_notifications_and_unread = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!e:b.c")).add_account_data(f.marked_unread(true)),
+        )
+        .await;
+    assert!(both_notifications_and_unread.is_marked_unread());
+    set_num_notifications(&both_notifications_and_unread, 2).await;
+
+    // A room we haven't joined doesn't contribute at all.
+    let invited_room = server.sync_room(&client, InvitedRoomBuilder::new(room_id!("!f:b.c"))).await;
+    set_num_notifications(&invited_room, 100).await;
+
+    assert_eq!(client.total_unread_notifications(), 3 + 1 + 2);
 }
 
 #[async_test]
