@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use assert_matches2::assert_let;
+use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::{
@@ -906,6 +906,100 @@ async fn test_ensure_max_concurrency_is_observed() {
     // The real check happens here, based on the `max_concurrent_requests` expected
     // value set above for the mock endpoint.
     server.server().verify().await;
+}
+
+#[async_test]
+async fn test_pinned_events_listener_task_reloads_events_when_ids_change() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = owned_room_id!("!a_room:example.org");
+    let event_id1 = event_id!("$1");
+    let event_id2 = event_id!("$2");
+
+    let f = EventFactory::new().room(&room_id).sender(user_id!("@example:localhost"));
+    let joined_room_builder = JoinedRoomBuilder::new(&room_id)
+        .add_state_bulk(vec![f.room_pinned_events(vec![event_id1.to_owned()]).into()]);
+
+    let _room = server.sync_room(&client, joined_room_builder).await;
+
+    let pinned_event_1 = f.text_msg("Event 1").event_id(event_id1).into_event();
+    let pinned_event_2 = f.text_msg("Event 2").event_id(event_id2).into_event();
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(pinned_event_1.clone())
+        .named("fetch pinned_event_1")
+        // Just called once, until cached
+        .expect(1)
+        .mount()
+        .await;
+
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(pinned_event_2.clone())
+        .named("fetch pinned_event_2")
+        // Just called once, until cached
+        .expect(1)
+        .mount()
+        .await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().expect("Subscribed to event cache");
+
+    let (pinned_events_cache, _handle) =
+        event_cache.pinned_events(&room_id).await.expect("Got pinned events cache");
+
+    let (_items, mut receiver) =
+        pinned_events_cache.subscribe().await.expect("Subscribed to pinned events cache");
+
+    // Give some time for the pinned events cache to be populated.
+    sleep(Duration::from_millis(100)).await;
+
+    // We get an initial diff with the pinned events.
+    let diffs = timeout(receiver.recv(), Duration::from_secs(3))
+        .await
+        .expect("Stream timed out")
+        .expect("Got stream diff");
+    assert_eq!(diffs.diffs.len(), 1);
+    assert_matches!(&diffs.diffs[0], VectorDiff::Append { values });
+    assert_eq!(values.len(), 1);
+    assert_eq!(values[0].event_id(), Some(event_id1));
+
+    // Update the pinned event ids with a new event id.
+    let joined_room_builder = JoinedRoomBuilder::new(&room_id).add_state_bulk(vec![
+        f.room_pinned_events(vec![event_id1.to_owned(), event_id2.to_owned()]).into(),
+    ]);
+    server.sync_room(&client, joined_room_builder).await;
+
+    // This should trigger a reload of the pinned events and the cache should
+    // receive new diffs.
+    let diffs = timeout(receiver.recv(), Duration::from_secs(3))
+        .await
+        .expect("Stream timed out")
+        .expect("Got stream diff");
+    assert_eq!(diffs.diffs.len(), 2);
+    assert_matches!(&diffs.diffs[0], VectorDiff::Clear);
+    assert_matches!(&diffs.diffs[1], VectorDiff::Append { values });
+    assert_eq!(values.len(), 2);
+    assert_eq!(values[0].event_id(), Some(event_id1));
+    assert_eq!(values[1].event_id(), Some(event_id2));
+
+    // Update the pinned event ids by removing the just added event id.
+    let joined_room_builder = JoinedRoomBuilder::new(&room_id)
+        .add_state_bulk(vec![f.room_pinned_events(vec![event_id1.to_owned()]).into()]);
+    server.sync_room(&client, joined_room_builder).await;
+
+    // There are new diffs in the pinned events cache.
+    let diffs = timeout(receiver.recv(), Duration::from_secs(3))
+        .await
+        .expect("Stream timed out")
+        .expect("Got stream diff");
+    assert_eq!(diffs.diffs.len(), 2);
+    assert_matches!(&diffs.diffs[0], VectorDiff::Clear);
+    assert_matches!(&diffs.diffs[1], VectorDiff::Append { values });
+    assert_eq!(values.len(), 1);
+    assert_eq!(values[0].event_id(), Some(event_id1));
 }
 
 async fn mock_events_endpoint(

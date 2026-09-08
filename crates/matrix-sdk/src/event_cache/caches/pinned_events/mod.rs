@@ -637,6 +637,7 @@ impl PinnedEventsCache {
             let current_set = guard.state.current_event_ids().into_iter().collect::<BTreeSet<_>>();
 
             if !new_list.is_empty()
+                && new_list.len() == current_set.len()
                 && new_list.iter().all(|event_id| current_set.contains(event_id))
             {
                 // All the events in the pinned list are the same, don't reload.
