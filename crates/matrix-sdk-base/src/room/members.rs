@@ -14,7 +14,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
-    mem,
+    mem, slice,
     sync::Arc,
 };
 
@@ -112,9 +112,9 @@ impl Room {
         let display_names = member_events.iter().map(|e| e.display_name()).collect::<Vec<_>>();
         let room_info = self.member_room_info(&display_names).await?;
 
-        let mut members = Vec::new();
+        let mut members = Vec::with_capacity(member_events.len());
 
-        for event in member_events {
+        for (event, display_name) in member_events.into_iter().zip(&display_names) {
             let profile = profiles.remove(event.user_id());
             #[cfg(feature = "unstable-msc4426")]
             let global_profile = global_profiles.remove(event.user_id());
@@ -125,6 +125,7 @@ impl Room {
                 #[cfg(feature = "unstable-msc4426")]
                 global_profile,
                 presence,
+                display_name,
                 &room_info,
             ))
         }
@@ -202,8 +203,8 @@ impl Room {
             return Ok(None);
         };
 
-        let display_names = [event.display_name()];
-        let room_info = self.member_room_info(&display_names).await?;
+        let display_name = event.display_name();
+        let room_info = self.member_room_info(slice::from_ref(&display_name)).await?;
 
         Ok(Some(RoomMember::from_parts(
             event,
@@ -211,6 +212,7 @@ impl Room {
             #[cfg(feature = "unstable-msc4426")]
             global_profile,
             presence,
+            &display_name,
             &room_info,
         )))
     }
@@ -275,11 +277,16 @@ pub struct RoomMember {
 }
 
 impl RoomMember {
+    /// Build a member from its parts.
+    ///
+    /// `display_name` must be the value returned by
+    /// [`MemberEvent::display_name`] for this `event`.
     pub(crate) fn from_parts(
         event: MemberEvent,
         profile: Option<MinimalRoomMemberEvent>,
         #[cfg(feature = "unstable-msc4426")] global_profile: Option<UserProfile>,
         presence: Option<PresenceEvent>,
+        display_name: &DisplayName,
         room_info: &MemberRoomInfo<'_>,
     ) -> Self {
         let MemberRoomInfo {
@@ -291,10 +298,9 @@ impl RoomMember {
         } = room_info;
 
         let user_id = event.user_id().to_owned();
-        let display_name = event.display_name();
         let display_name_ambiguous = users_display_names
-            .get(&display_name)
-            .is_some_and(|s| is_display_name_ambiguous(&display_name, s));
+            .get(display_name)
+            .is_some_and(|s| is_display_name_ambiguous(display_name, s));
         let is_ignored = ignored_users.as_ref().is_some_and(|s| s.contains(event.user_id()));
         let is_service_member = service_members.as_ref().is_some_and(|s| s.contains(&user_id));
 
@@ -672,7 +678,14 @@ mod tests {
         };
 
         // Without a global profile, neither field is set.
-        let member = RoomMember::from_parts(event.clone(), None, None, None, &room_info);
+        let member = RoomMember::from_parts(
+            event.clone(),
+            None,
+            None,
+            None,
+            &event.display_name(),
+            &room_info,
+        );
         assert!(member.status().is_none());
         assert!(member.call().is_none());
 
@@ -688,7 +701,15 @@ mod tests {
             ProfileFieldValue::Call(call),
         ]);
 
-        let member = RoomMember::from_parts(event, None, Some(global_profile), None, &room_info);
+        let display_name = event.display_name();
+        let member = RoomMember::from_parts(
+            event,
+            None,
+            Some(global_profile),
+            None,
+            &display_name,
+            &room_info,
+        );
 
         let status = member.status().expect("status is set");
         assert_eq!(status.text, "Working");
