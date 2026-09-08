@@ -6,7 +6,7 @@ use matrix_sdk::{
     RoomDisplayName, RoomMemberships,
     config::{SyncSettings, SyncToken},
     room::RoomMember,
-    test_utils::mocks::{AnyRoomBuilder, MatrixMockServer},
+    test_utils::mocks::{AnyRoomBuilder, MatrixMockServer, RoomRelationsResponseTemplate},
 };
 use matrix_sdk_base::DmRoomDefinition;
 use matrix_sdk_test::{
@@ -655,6 +655,66 @@ async fn test_event() {
     let push_actions = timeline_event.push_actions().unwrap();
     assert!(push_actions.iter().any(|a| a.is_highlight()));
     assert!(push_actions.iter().any(|a| a.should_notify()));
+
+    // The fetched event has been saved into the event cache, so loading it again is
+    // served from there: the `/event` mock above only accepts one request.
+    let cached_event = room.load_or_fetch_event(event_id, None).await.unwrap();
+    assert_eq!(cached_event.event_id(), Some(event_id));
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    assert!(room_event_cache.find_event(event_id).await.unwrap().is_some());
+}
+
+#[async_test]
+async fn test_load_or_fetch_event_with_relations_saves_the_fetched_event() {
+    let event_id = event_id!("$target");
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+
+    let f = EventFactory::new().sender(user_id!("@example:localhost"));
+    let room = server
+        .sync_room(
+            &client,
+            // We need the member event and power levels locally so the push rules processor
+            // works.
+            JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+                .add_state_event(f.member(user_id!("@example:localhost")).display_name("example"))
+                .add_state_event(f.default_power_levels()),
+        )
+        .await;
+
+    // The event itself is fetched once.
+    server
+        .mock_room_event()
+        .ok(f.text_msg("hello").event_id(event_id).room(*DEFAULT_TEST_ROOM_ID).into())
+        .named("/event")
+        .mock_once()
+        .mount()
+        .await;
+
+    // The event cache never learns of any relation for this event, so they are
+    // requested from the server on both calls.
+    server
+        .mock_room_relations()
+        .match_target_event(event_id.to_owned())
+        .ok(RoomRelationsResponseTemplate::default())
+        .expect(2)
+        .mount()
+        .await;
+
+    let (event, relations) =
+        room.load_or_fetch_event_with_relations(event_id, None, None).await.unwrap();
+    assert_eq!(event.event_id(), Some(event_id));
+    assert!(relations.is_empty());
+
+    // The second lookup finds the event in the event cache and only fetches the
+    // relations.
+    let (event, relations) =
+        room.load_or_fetch_event_with_relations(event_id, None, None).await.unwrap();
+    assert_eq!(event.event_id(), Some(event_id));
+    assert!(relations.is_empty());
 }
 
 #[async_test]

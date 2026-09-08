@@ -820,6 +820,9 @@ impl Room {
     /// Try to load the event from the [`EventCache`][crate::event_cache], if
     /// it's enabled, or fetch it from the homeserver.
     ///
+    /// An event fetched from the homeserver is saved into the event cache, so
+    /// that the next lookup finds it there.
+    ///
     /// When running the request against the homeserver, it uses the given
     /// [`RequestConfig`] if provided, or the client's default one
     /// otherwise.
@@ -833,13 +836,35 @@ impl Room {
                 if let Some(event) = event_cache.find_event(event_id).await? {
                     return Ok(event);
                 }
-                // Fallthrough: try with a request.
+
+                // Not in the event cache: fetch it, and remember it for next time.
+                self.fetch_event_and_save(&event_cache, event_id, request_config).await
             }
             Err(err) => {
                 debug!("error when getting the event cache: {err}");
+                self.event(event_id, request_config).await
             }
         }
-        self.event(event_id, request_config).await
+    }
+
+    /// Fetch an event from the homeserver and save it into the event cache, so
+    /// that later lookups are served from the cache instead of a new request.
+    ///
+    /// A failure to save the event is logged and otherwise ignored, since the
+    /// caller has the event it asked for.
+    async fn fetch_event_and_save(
+        &self,
+        event_cache: &RoomEventCache,
+        event_id: &EventId,
+        request_config: Option<RequestConfig>,
+    ) -> Result<TimelineEvent> {
+        let event = self.event(event_id, request_config).await?;
+
+        if let Err(err) = event_cache.save_events([event.clone()]).await {
+            debug!("couldn't save the fetched event into the event cache: {err}");
+        }
+
+        Ok(event)
     }
 
     /// Try to load the event and its relations from the
@@ -852,6 +877,9 @@ impl Room {
     /// If the event is found in the event cache, but we can't find any
     /// relations for it there, then we will still attempt to fetch the
     /// relations from the homeserver.
+    ///
+    /// An event fetched from the homeserver is saved into the event cache, so
+    /// that the next lookup finds it there. Its relations are not.
     ///
     /// When running any request against the homeserver, it uses the given
     /// [`RequestConfig`] if provided, or the client's default one
@@ -949,7 +977,12 @@ impl Room {
 
         // Fetch the event from the server. A failure here is fatal, as we must return
         // the target event.
-        let event = self.event(event_id, request_config).await?;
+        let event = match &event_cache {
+            Some((event_cache, _drop_handles)) => {
+                self.fetch_event_and_save(event_cache, event_id, request_config).await?
+            }
+            None => self.event(event_id, request_config).await?,
+        };
 
         // Try to get the relations from the event cache (if we have one).
         if let Some((event_cache, _drop_handles)) = event_cache
