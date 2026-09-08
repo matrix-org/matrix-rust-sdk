@@ -20,7 +20,12 @@ mod updates;
 
 use std::{fmt, sync::Arc};
 
-use matrix_sdk_base::{event_cache::Event, read_receipts::ReadReceipts, sync::Timeline};
+use eyeball::AsyncLock;
+use matrix_sdk_base::{
+    event_cache::{Event, thread::ThreadInfo},
+    read_receipts::ReadReceipts,
+    sync::Timeline,
+};
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, events::relation::RelationType,
     room_version_rules::RoomVersionRules,
@@ -160,7 +165,7 @@ impl ThreadEventCache {
     /// To get multiple information about the read receipts, use
     /// [`Self::read_receipts`] as it involves a single lock.
     pub async fn num_unread_messages(&self) -> Result<u64> {
-        Ok(self.inner.state.read().await?.thread_info.read_receipts.num_unread)
+        Ok(self.inner.state.read().await?.thread_info.read().await.read_receipts.num_unread)
     }
 
     /// Get the number of unread notifications.
@@ -168,7 +173,7 @@ impl ThreadEventCache {
     /// To get multiple information about the read receipts, use
     /// [`Self::read_receipts`] as it involves a single lock.
     pub async fn num_unread_notifications(&self) -> Result<u64> {
-        Ok(self.inner.state.read().await?.thread_info.read_receipts.num_notifications)
+        Ok(self.inner.state.read().await?.thread_info.read().await.read_receipts.num_notifications)
     }
 
     /// Get the number of unread mentions, that is, messages causing a highlight
@@ -177,12 +182,19 @@ impl ThreadEventCache {
     /// To get multiple information about the read receipts, use
     /// [`Self::read_receipts`] as it involves a single lock.
     pub async fn num_unread_mentions(&self) -> Result<u64> {
-        Ok(self.inner.state.read().await?.thread_info.read_receipts.num_mentions)
+        Ok(self.inner.state.read().await?.thread_info.read().await.read_receipts.num_mentions)
     }
 
     /// Get the detailed information about read receipts for this thread.
     pub async fn read_receipts(&self) -> Result<ReadReceipts> {
-        Ok(self.inner.state.read().await?.thread_info.read_receipts.clone())
+        Ok(self.inner.state.read().await?.thread_info.read().await.read_receipts.clone())
+    }
+
+    /// Subscribe to update of the [`ThreadInfo`].
+    pub async fn subscribe_to_thread_info(
+        &self,
+    ) -> Result<eyeball::Subscriber<ThreadInfo, AsyncLock>> {
+        Ok(self.inner.state.read().await?.thread_info.subscribe().await)
     }
 
     /// Subscribe to this thread updates, after getting the initial list of
