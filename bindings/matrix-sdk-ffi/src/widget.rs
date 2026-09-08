@@ -308,11 +308,11 @@ impl WidgetDriverHandle {
         self.0.recv().await
     }
 
-    //// Send a message from the widget to the widget driver.
+    /// Send a message from the widget to the widget driver.
     ///
     /// Returns `false` if the widget driver is no longer running.
-    pub async fn send(&self, msg: String) -> bool {
-        self.0.send(msg).await
+    pub fn send(&self, msg: String) -> bool {
+        self.0.send(msg)
     }
 }
 

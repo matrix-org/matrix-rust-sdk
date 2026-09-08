@@ -17,12 +17,14 @@
 
 use std::{fmt, time::Duration};
 
-use async_channel::{Receiver, Sender};
 use futures_util::StreamExt;
 use matrix_sdk_common::executor::spawn;
 use ruma::api::client::delayed_events::DelayParameters;
 use serde::de::{self, Deserialize, Deserializer, Visitor};
-use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
+use tokio::sync::{
+    Mutex,
+    mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
+};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
@@ -59,13 +61,13 @@ pub struct WidgetDriver {
     /// Raw incoming messages from the widget (normally formatted as JSON).
     ///
     /// These can be both requests and responses.
-    from_widget_rx: Receiver<String>,
+    from_widget_rx: UnboundedReceiver<String>,
 
     /// Raw outgoing messages from the client (SDK) to the widget (normally
     /// formatted as JSON).
     ///
     /// These can be both requests and responses.
-    to_widget_tx: Sender<String>,
+    to_widget_tx: UnboundedSender<String>,
 
     /// Drop guard for an event handler forwarding all events from the Matrix
     /// room to the widget.
@@ -76,7 +78,7 @@ pub struct WidgetDriver {
 
 /// A handle that encapsulates the communication between a widget driver and the
 /// corresponding widget (inside a webview or iframe).
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct WidgetDriverHandle {
     /// Raw incoming messages from the widget driver to the widget (normally
     /// formatted as JSON).
@@ -84,7 +86,7 @@ pub struct WidgetDriverHandle {
     /// These can be both requests and responses. Users of this API should not
     /// care what's what though because they are only supposed to forward
     /// messages between the webview / iframe, and the SDK's widget driver.
-    to_widget_rx: Receiver<String>,
+    to_widget_rx: Mutex<UnboundedReceiver<String>>,
 
     /// Raw outgoing messages from the widget to the widget driver (normally
     /// formatted as JSON).
@@ -92,7 +94,7 @@ pub struct WidgetDriverHandle {
     /// These can be both requests and responses. Users of this API should not
     /// care what's what though because they are only supposed to forward
     /// messages between the webview / iframe, and the SDK's widget driver.
-    from_widget_tx: Sender<String>,
+    from_widget_tx: UnboundedSender<String>,
 }
 
 impl WidgetDriverHandle {
@@ -101,15 +103,22 @@ impl WidgetDriverHandle {
     /// The message must be passed on to the widget.
     ///
     /// Returns `None` if the widget driver is no longer running.
+    ///
+    /// Despite this method takes a shared reference to `self` with `&self`,
+    /// there is an inner lock around the receiver. They can be only one
+    /// receiver at a time. Be aware if `recv` is waiting in a loop for example.
+    /// This design addresses one particular need where `WidgetDriverHandle`
+    /// lives inside an `Arc` to be cloned and passed in 2 tasks: one calling
+    /// `send`, one calling `recv`. In that case, there is no conflict.
     pub async fn recv(&self) -> Option<String> {
-        self.to_widget_rx.recv().await.ok()
+        self.to_widget_rx.lock().await.recv().await
     }
 
     /// Send a message from the widget to the widget driver.
     ///
     /// Returns `false` if the widget driver is no longer running.
-    pub async fn send(&self, message: String) -> bool {
-        self.from_widget_tx.send(message).await.is_ok()
+    pub fn send(&self, message: String) -> bool {
+        self.from_widget_tx.send(message).is_ok()
     }
 }
 
@@ -117,11 +126,12 @@ impl WidgetDriver {
     /// Creates a new `WidgetDriver` and a corresponding set of channels to let
     /// the widget (inside a webview or iframe) communicate with it.
     pub fn new(settings: WidgetSettings) -> (Self, WidgetDriverHandle) {
-        let (from_widget_tx, from_widget_rx) = async_channel::unbounded();
-        let (to_widget_tx, to_widget_rx) = async_channel::unbounded();
+        let (from_widget_tx, from_widget_rx) = unbounded_channel();
+        let (to_widget_tx, to_widget_rx) = unbounded_channel();
 
         let driver = Self { settings, from_widget_rx, to_widget_tx, event_forwarding_guard: None };
-        let channels = WidgetDriverHandle { from_widget_tx, to_widget_rx };
+        let channels =
+            WidgetDriverHandle { from_widget_tx, to_widget_rx: Mutex::new(to_widget_rx) };
 
         (driver, channels)
     }
@@ -132,7 +142,7 @@ impl WidgetDriver {
     /// error occurs.
     #[expect(clippy::result_unit_err)]
     pub async fn run(
-        mut self,
+        self,
         room: Room,
         capabilities_provider: impl CapabilitiesProvider,
     ) -> Result<(), ()> {
@@ -152,10 +162,10 @@ impl WidgetDriver {
         // the task.
         spawn({
             let incoming_msg_tx = incoming_msg_tx.clone();
-            let from_widget_rx = self.from_widget_rx.clone();
+            let mut from_widget_rx = self.from_widget_rx;
 
             async move {
-                while let Ok(msg) = from_widget_rx.recv().await {
+                while let Some(msg) = from_widget_rx.recv().await {
                     let _ = incoming_msg_tx.send(IncomingMessage::WidgetMessage(msg));
                 }
             }
@@ -179,10 +189,20 @@ impl WidgetDriver {
         // Let's combine our set of initial actions with the stream of received actions.
         let mut combined = tokio_stream::iter(initial_actions).chain(stream);
 
+        let to_widget_tx = self.to_widget_tx;
+        let mut event_forwarding_guard = self.event_forwarding_guard;
+
         // Let's now process all actions we receive forever.
         while let Some(action) = combined.next().await {
-            self.process_action(&matrix_driver, &incoming_msg_tx, &capabilities_provider, action)
-                .await?;
+            Self::process_action(
+                &to_widget_tx,
+                &mut event_forwarding_guard,
+                &matrix_driver,
+                &incoming_msg_tx,
+                &capabilities_provider,
+                action,
+            )
+            .await?;
         }
 
         Ok(())
@@ -190,7 +210,8 @@ impl WidgetDriver {
 
     /// Process a single [`Action`].
     async fn process_action(
-        &mut self,
+        to_widget_tx: &UnboundedSender<String>,
+        event_forwarding_guard: &mut Option<DropGuard>,
         matrix_driver: &MatrixDriver,
         incoming_msg_tx: &UnboundedSender<IncomingMessage>,
         capabilities_provider: &impl CapabilitiesProvider,
@@ -198,7 +219,7 @@ impl WidgetDriver {
     ) -> Result<(), ()> {
         match action {
             Action::SendToWidget(msg) => {
-                self.to_widget_tx.send(msg).await.map_err(|_| ())?;
+                to_widget_tx.send(msg).map_err(|_| ())?;
             }
 
             Action::MatrixDriverRequest { request_id, data } => {
@@ -276,7 +297,7 @@ impl WidgetDriver {
 
             Action::Subscribe => {
                 // Only subscribe if we are not already subscribed.
-                if self.event_forwarding_guard.is_some() {
+                if event_forwarding_guard.is_some() {
                     return Ok(());
                 }
 
@@ -285,7 +306,7 @@ impl WidgetDriver {
                     (token.child_token(), token.drop_guard())
                 };
 
-                self.event_forwarding_guard = Some(guard);
+                event_forwarding_guard.replace(guard);
 
                 let mut events = matrix_driver.events();
                 let mut state_updates = matrix_driver.state_updates();
@@ -320,7 +341,7 @@ impl WidgetDriver {
             }
 
             Action::Unsubscribe => {
-                self.event_forwarding_guard = None;
+                event_forwarding_guard.take();
             }
         }
 

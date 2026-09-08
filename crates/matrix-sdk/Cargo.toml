@@ -82,12 +82,7 @@ federation-api = ["ruma/federation-api-c"]
 
 uniffi = ["dep:uniffi", "matrix-sdk-base/uniffi", "dep:matrix-sdk-ffi-macros"]
 
-experimental-widgets = [
-    "dep:async-channel",
-    "dep:urlencoding",
-    "dep:uuid",
-    "experimental-send-custom-to-device",
-]
+experimental-widgets = ["dep:urlencoding", "dep:uuid", "experimental-send-custom-to-device"]
 
 docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode", "federation-api"]
 
@@ -108,7 +103,6 @@ anyhow = { workspace = true, optional = true }
 anymap2 = { version = "0.13.0", default-features = false }
 as_variant.workspace = true
 assert_matches2 = { workspace = true, optional = true }
-async-channel = { version = "2.5.0", optional = true }
 async-stream.workspace = true
 async-trait.workspace = true
 axum = { version = "0.8.9", optional = true }
