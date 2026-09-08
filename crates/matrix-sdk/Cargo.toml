@@ -82,7 +82,7 @@ federation-api = ["ruma/federation-api-c"]
 
 uniffi = ["dep:uniffi", "matrix-sdk-base/uniffi", "dep:matrix-sdk-ffi-macros"]
 
-experimental-widgets = ["dep:uuid", "experimental-send-custom-to-device"]
+experimental-widgets = ["dep:urlencoding", "dep:uuid", "experimental-send-custom-to-device"]
 
 docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode", "federation-api"]
 
@@ -158,7 +158,7 @@ tower = { version = "0.5.3", features = ["util"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 uniffi = { workspace = true, optional = true }
 url = { workspace = true, features = ["serde"] }
-urlencoding = "2.1.3"
+urlencoding = { version = "2.1.3", optional = true }
 uuid = { workspace = true, features = ["serde", "v4"], optional = true }
 vodozemac.workspace = true
 zeroize.workspace = true
