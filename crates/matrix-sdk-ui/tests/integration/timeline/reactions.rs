@@ -26,8 +26,8 @@ use tokio::time::sleep;
 
 #[async_test]
 async fn test_abort_before_being_sent() {
-    // This test checks that a reaction could be aborted *before* or *while* it's
-    // being sent by the send queue.
+    // This test checks that a reaction could be aborted *before* or *while*
+    // it's being sent by the send queue.
 
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
@@ -71,7 +71,8 @@ async fn test_abort_before_being_sent() {
 
     // Now we try to add two reactions to this message…
 
-    // Mock the send endpoint with a delay, to give us time to abort the sending.
+    // Mock the send endpoint with a delay, to give us time to abort the
+    // sending.
     server
         .mock_room_send()
         .ok_with_delay(event_id!("$2"), Duration::from_millis(150))
@@ -134,8 +135,8 @@ async fn test_abort_before_being_sent() {
         assert_pending!(stream);
     }
 
-    // Then we remove the first one; because it was being sent, it should lead to a
-    // redaction event.
+    // Then we remove the first one; because it was being sent, it should lead
+    // to a redaction event.
     timeline.toggle_reaction(&item_id, "👍").await.unwrap();
 
     {
@@ -154,8 +155,8 @@ async fn test_abort_before_being_sent() {
         assert_pending!(stream);
     }
 
-    // But because the first one was being sent, this one won't and the local echo
-    // could be discarded.
+    // But because the first one was being sent, this one won't and the local
+    // echo could be discarded.
     timeline.toggle_reaction(&item_id, "🥰").await.unwrap();
 
     {
@@ -187,8 +188,8 @@ async fn test_abort_before_being_sent() {
 
 #[async_test]
 async fn test_redact_failed() {
-    // This test checks that if a reaction redaction failed, then we re-insert the
-    // reaction after displaying it was removed.
+    // This test checks that if a reaction redaction failed, then we re-insert
+    // the reaction after displaying it was removed.
 
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
@@ -264,8 +265,8 @@ async fn test_redact_failed() {
 
 #[async_test]
 async fn test_local_reaction_to_local_echo() {
-    // This test checks that if a reaction redaction failed, then we re-insert the
-    // reaction after displaying it was removed.
+    // This test checks that if a reaction redaction failed, then we re-insert
+    // the reaction after displaying it was removed.
 
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
@@ -364,8 +365,8 @@ async fn test_local_reaction_to_local_echo() {
         assert_pending!(stream);
     }
 
-    // Remove second reaction. It's immediately removed, since it was a local echo,
-    // and it wasn't being sent.
+    // Remove second reaction. It's immediately removed, since it was a local
+    // echo, and it wasn't being sent.
     timeline.toggle_reaction(&item_id, key2).await.unwrap();
 
     {

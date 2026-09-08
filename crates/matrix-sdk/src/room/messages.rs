@@ -294,10 +294,10 @@ impl RelationsOptions {
             };
         }
 
-        // This match to common out the different `Response` types into a single one. It
-        // would've been nice that Ruma used the same response type for all the
-        // responses, but it is likely doing so to guard against possible future
-        // changes.
+        // This match to common out the different `Response` types into a single
+        // one. It would've been nice that Ruma used the same response
+        // type for all the responses, but it is likely doing so to
+        // guard against possible future changes.
         let (chunk, prev_batch, next_batch, recursion_depth) = match self.include_relations {
             IncludeRelations::AllRelations => {
                 let request = fill_params!(relations::get_relating_events::v1::Request::new(
@@ -335,7 +335,8 @@ impl RelationsOptions {
 
         let push_ctx = room.push_context().await?;
         let chunk = join_all(chunk.into_iter().map(|ev| {
-            // Cast safety: an `AnyMessageLikeEvent` is a subset of an `AnyTimelineEvent`.
+            // Cast safety: an `AnyMessageLikeEvent` is a subset of an
+            // `AnyTimelineEvent`.
             room.try_decrypt_event(ev.cast(), push_ctx.as_ref())
         }))
         .await;

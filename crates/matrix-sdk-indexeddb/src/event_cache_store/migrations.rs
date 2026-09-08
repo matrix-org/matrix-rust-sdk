@@ -283,8 +283,8 @@ mod v3 {
     /// Remove events object store
     pub fn remove_events_object_store(transaction: &Transaction<'_>) -> Result<(), Error> {
         let object_store = transaction.object_store(keys::EVENTS)?;
-        // It is faster to clear all events first, then delete the object store rather
-        // than immediately deleting.
+        // It is faster to clear all events first, then delete the object store
+        // rather than immediately deleting.
         //
         // For details, see https://www.artificialworlds.net/blog/2024/02/02/deleting-an-indexed-db-store-can-be-incredibly-slow-on-firefox/
         object_store.clear()?;

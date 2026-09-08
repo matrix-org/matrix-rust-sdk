@@ -513,8 +513,8 @@ impl DependentQueuedRequest {
             | DependentQueuedRequestKind::RedactEventWithReason { .. }
             | DependentQueuedRequestKind::ReactEvent { .. }
             | DependentQueuedRequestKind::UploadFileOrThumbnail { .. } => {
-                // These are all aggregated events, or non-visible items (file upload producing
-                // a new MXC ID).
+                // These are all aggregated events, or non-visible items (file
+                // upload producing a new MXC ID).
                 false
             }
             DependentQueuedRequestKind::FinishUpload { .. } => {
@@ -549,9 +549,10 @@ mod tests {
 
     #[test]
     fn test_deserialize_legacy_redact_event() {
-        // `RedactEvent` is a unit variant, and must stay one for as long as it exists:
-        // requests persisted before `RedactEventWithReason` are serialized as a plain
-        // string, and this is the only thing that still reads them.
+        // `RedactEvent` is a unit variant, and must stay one for as long as it
+        // exists: requests persisted before `RedactEventWithReason` are
+        // serialized as a plain string, and this is the only thing that
+        // still reads them.
         let deserialized: DependentQueuedRequestKind =
             serde_json::from_str("\"RedactEvent\"").unwrap();
         assert_matches!(deserialized, DependentQueuedRequestKind::RedactEvent);

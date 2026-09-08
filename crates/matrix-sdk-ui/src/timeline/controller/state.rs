@@ -177,7 +177,8 @@ impl<P: RoomDataProvider> TimelineState<P> {
                 thread_root.as_ref().is_some_and(|r| r == root_event_id)
             }
             TimelineFocusKind::Event { .. } | TimelineFocusKind::PinnedEvents { .. } => {
-                // Don't add new items to these timelines; aggregations are added independently
+                // Don't add new items to these timelines; aggregations are
+                // added independently
                 // of the `should_add_new_items` value.
                 false
             }
@@ -250,8 +251,8 @@ impl<P: RoomDataProvider> TimelineState<P> {
     }
 
     pub(super) fn mark_all_events_as_encrypted(&mut self) {
-        // When this transaction finishes, all items in the timeline will be emitted
-        // again with the updated encryption value.
+        // When this transaction finishes, all items in the timeline will be
+        // emitted again with the updated encryption value.
         let mut txn = self.transaction();
         txn.mark_all_events_as_encrypted();
         txn.commit();

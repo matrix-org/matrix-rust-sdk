@@ -58,9 +58,10 @@ pub(in crate::timeline) async fn pinned_events_task(
             Err(RecvError::Lagged(num_skipped)) => {
                 warn!(num_skipped, "Lagged behind pinned-event cache updates, resetting timeline");
 
-                // The updates might have lagged, but the room event cache might have
-                // events, so retrieve them and add them back again to the timeline,
-                // after clearing it.
+                // The updates might have lagged, but the room event cache might
+                // have events, so retrieve them and add them
+                // back again to the timeline, after clearing
+                // it.
                 let (initial_events, _) = match pinned_events_cache.subscribe().await {
                     Ok(initial_events) => initial_events,
                     Err(err) => {
@@ -116,9 +117,10 @@ pub(in crate::timeline) async fn event_focused_task(
             Err(RecvError::Lagged(num_skipped)) => {
                 warn!(num_skipped, "Lagged behind focused-event cache updates, resetting timeline");
 
-                // The updates might have lagged, but the room event cache might have
-                // events, so retrieve them and add them back again to the timeline,
-                // after clearing it.
+                // The updates might have lagged, but the room event cache might
+                // have events, so retrieve them and add them
+                // back again to the timeline, after clearing
+                // it.
                 let Ok((initial_events, _)) = event_cache.subscribe().await else {
                     error!("Failed to subscribe to the event-focused cache");
                     break;
@@ -208,9 +210,10 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
             Err(RecvError::Lagged(num_skipped)) => {
                 warn!(num_skipped, "Lagged behind event cache updates, resetting timeline");
 
-                // The updates might have lagged, but the room event cache might have
-                // events, so retrieve them and add them back again to the timeline,
-                // after clearing it.
+                // The updates might have lagged, but the room event cache might
+                // have events, so retrieve them and add them
+                // back again to the timeline, after clearing
+                // it.
                 let initial_events = match room_event_cache.events().await {
                     Ok(initial_events) => initial_events,
                     Err(err) => {
@@ -249,7 +252,8 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
                 if matches!(timeline_focus, TimelineFocus::Live { .. }) {
                     timeline_controller.handle_remote_events_with_diffs(diffs, origin).await;
                 } else if matches!(timeline_focus, TimelineFocus::Event { .. }) {
-                    // Only handle the remote aggregation for an event-focused timeline.
+                    // Only handle the remote aggregation for an event-focused
+                    // timeline.
                     timeline_controller.handle_remote_aggregations(diffs, origin).await;
                 }
 
@@ -261,7 +265,8 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
             RoomEventCacheUpdate::AddEphemeralEvents { events } => {
                 trace!("Received new ephemeral events from sync.");
 
-                // TODO: ephemeral (read receipts) should be handled by the event cache (#4113).
+                // TODO: ephemeral (read receipts) should be handled by the
+                // event cache (#4113).
                 timeline_controller.handle_ephemeral_events(events).await;
             }
 

@@ -233,12 +233,12 @@ impl UtdHookManager {
         sender_user_id: &UserId,
     ) {
         trace!(%event_id, "UtdHookManager: Observed UTD");
-        // Hold the lock on `reported_utds` throughout, to avoid races with other
-        // threads.
+        // Hold the lock on `reported_utds` throughout, to avoid races with
+        // other threads.
         let mut reported_utds_lock = self.reported_utds.lock().await;
 
-        // Check if this, or a previous instance of UtdHookManager, has already reported
-        // this UTD, and bail out if not.
+        // Check if this, or a previous instance of UtdHookManager, has already
+        // reported this UTD, and bail out if not.
         if reported_utds_lock.contains(event_id) {
             return;
         }
@@ -290,21 +290,23 @@ impl UtdHookManager {
         let client = self.client.clone();
         let owned_event_id = event_id.to_owned();
 
-        // Spawn a task that will wait for the given delay, and maybe call the parent
-        // hook then.
+        // Spawn a task that will wait for the given delay, and maybe call the
+        // parent hook then.
         let handle = self.client.task_monitor().spawn_finite_task("utd_hook", async move {
             // Wait for the given delay.
             sleep(max_delay).await;
 
-            // Make sure we take out the lock on `reported_utds` before removing the entry
-            // from `pending_delayed`, to ensure we don't race against another call to
-            // `on_utd` (which could otherwise see that the entry has been
-            // removed from `pending_delayed` but not yet added to
+            // Make sure we take out the lock on `reported_utds` before removing
+            // the entry from `pending_delayed`, to ensure we don't
+            // race against another call to `on_utd` (which could
+            // otherwise see that the entry has been removed from
+            // `pending_delayed` but not yet added to
             // `reported_utds`).
             let mut reported_utds_lock = reported_utds.lock().await;
 
-            // Remove the task from the outstanding set. But if it's already been removed,
-            // it's been decrypted since the task was added!
+            // Remove the task from the outstanding set. But if it's already
+            // been removed, it's been decrypted since the task was
+            // added!
             let pending_report = pending_delayed.lock().unwrap().remove(&owned_event_id);
             if let Some(pending_report) = pending_report {
                 Self::report_utd(
@@ -331,13 +333,14 @@ impl UtdHookManager {
     /// before, it has no effect.
     pub(crate) async fn on_late_decrypt(&self, event_id: &EventId) {
         trace!(%event_id, "UtdHookManager: On late decrypt");
-        // Hold the lock on `reported_utds` throughout, to avoid races with other
-        // threads.
+        // Hold the lock on `reported_utds` throughout, to avoid races with
+        // other threads.
         let mut reported_utds_lock = self.reported_utds.lock().await;
 
-        // Only let the parent hook know about the late decryption if the event is
-        // a pending UTD. If so, remove the event from the pending list —
-        // doing so will cause the reporting task to no-op if it runs.
+        // Only let the parent hook know about the late decryption if the event
+        // is a pending UTD. If so, remove the event from the pending
+        // list — doing so will cause the reporting task to no-op if it
+        // runs.
         let Some(pending_utd_report) = self.pending_delayed.lock().unwrap().remove(event_id) else {
             trace!(%event_id, "UtdHookManager: received a late decrypt report for an unknown utd");
             return;
@@ -384,14 +387,16 @@ impl Drop for UtdHookManager {
     fn drop(&mut self) {
         // Cancel all the outstanding delayed tasks to report UTDs.
         //
-        // Here, we don't take the lock on `reported_utd`s (indeed, we can't, since
-        // `reported_utds` has an async mutex, and `drop` has to be sync), but
-        // that's ok. We can't race against `on_utd` or `on_late_decrypt`, since
-        // they both have `&self` references which mean `drop` can't be called.
-        // We *could* race against one of the actual tasks to report
-        // UTDs, but that's ok too: either the report task will bail out when it sees
-        // the entry has been removed from `pending_delayed` (which is fine), or the
-        // report task will successfully report the UTD (which is fine).
+        // Here, we don't take the lock on `reported_utd`s (indeed, we can't,
+        // since `reported_utds` has an async mutex, and `drop` has to
+        // be sync), but that's ok. We can't race against `on_utd` or
+        // `on_late_decrypt`, since they both have `&self` references
+        // which mean `drop` can't be called. We *could* race against
+        // one of the actual tasks to report UTDs, but that's ok too:
+        // either the report task will bail out when it sees
+        // the entry has been removed from `pending_delayed` (which is fine), or
+        // the report task will successfully report the UTD (which is
+        // fine).
         let mut pending_delayed = self.pending_delayed.lock().unwrap();
         for (_, pending_utd_report) in pending_delayed.drain() {
             pending_utd_report.report_task.abort();
@@ -426,7 +431,8 @@ mod tests {
         // And I wrap with the UtdHookManager,
         let wrapper = UtdHookManager::new(hook.clone(), logged_in_client(None).await);
 
-        // And I call the `on_utd` method multiple times, sometimes on the same event,
+        // And I call the `on_utd` method multiple times, sometimes on the same
+        // event,
         let event_timestamp = MilliSecondsSinceUnixEpoch::now();
         let sender_user = user_id!("@example2:localhost");
         let federated_user = user_id!("@example2:example.com");
@@ -450,8 +456,8 @@ mod tests {
             assert!(utds[1].time_to_decrypt.is_none());
             assert!(utds[2].time_to_decrypt.is_none());
 
-            // event_local_age_millis should be a small positive number, because the
-            // timestamp we used was after we created the device
+            // event_local_age_millis should be a small positive number, because
+            // the timestamp we used was after we created the device
             let utd_local_age = utds[0].event_local_age_millis;
             assert!(utd_local_age >= 0);
             assert!(utd_local_age <= 1000);
@@ -466,8 +472,8 @@ mod tests {
 
     #[async_test]
     async fn test_deduplicates_utds_from_previous_session() {
-        // Use a single client for both hooks, so that both hooks are backed by the same
-        // memorystore.
+        // Use a single client for both hooks, so that both hooks are backed by
+        // the same memorystore.
         let client = no_retry_test_client(None).await;
 
         // Dummy hook 1, with the first UtdHookManager
@@ -510,7 +516,8 @@ mod tests {
             let mut wrapper = UtdHookManager::new(hook.clone(), client.clone());
             wrapper.reload_from_store().await.unwrap();
 
-            // Call it with more events, some of which match the previous instance
+            // Call it with more events, some of which match the previous
+            // instance
             wrapper
                 .on_utd(
                     event_id!("$1"),
@@ -539,8 +546,8 @@ mod tests {
     /// session, are reported in the next session.
     #[async_test]
     async fn test_does_not_deduplicate_late_utds_from_previous_session() {
-        // Use a single client for both hooks, so that both hooks are backed by the same
-        // memorystore.
+        // Use a single client for both hooks, so that both hooks are backed by
+        // the same memorystore.
         let client = no_retry_test_client(None).await;
 
         // Dummy hook 1, with the first UtdHookManager
@@ -599,8 +606,8 @@ mod tests {
         // And I wrap with the UtdHookManager,
         let wrapper = UtdHookManager::new(hook.clone(), no_retry_test_client(None).await);
 
-        // And I call the `on_late_decrypt` method before the event had been marked as
-        // utd,
+        // And I call the `on_late_decrypt` method before the event had been
+        // marked as utd,
         wrapper.on_late_decrypt(event_id!("$1")).await;
 
         // Then nothing is registered in the parent hook.
@@ -653,8 +660,8 @@ mod tests {
         // If I create a dummy hook,
         let hook = Arc::new(Dummy::default());
 
-        // And I wrap with the UtdHookManager, configured to delay reporting after 2
-        // seconds.
+        // And I wrap with the UtdHookManager, configured to delay reporting
+        // after 2 seconds.
         let wrapper = UtdHookManager::new(hook.clone(), no_retry_test_client(None).await)
             .with_max_delay(Duration::from_secs(2));
 
@@ -678,7 +685,8 @@ mod tests {
         assert!(hook.utds.lock().unwrap().is_empty());
         assert_eq!(wrapper.pending_delayed.lock().unwrap().len(), 1);
 
-        // But if I wait just a bit more, then it's getting notified as a definite UTD.
+        // But if I wait just a bit more, then it's getting notified as a
+        // definite UTD.
         sleep(Duration::from_millis(1500)).await;
 
         {
@@ -697,8 +705,8 @@ mod tests {
         // If I create a dummy hook,
         let hook = Arc::new(Dummy::default());
 
-        // And I wrap with the UtdHookManager, configured to delay reporting after 2
-        // seconds.
+        // And I wrap with the UtdHookManager, configured to delay reporting
+        // after 2 seconds.
         let wrapper = UtdHookManager::new(hook.clone(), no_retry_test_client(None).await)
             .with_max_delay(Duration::from_secs(2));
 

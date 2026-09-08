@@ -76,7 +76,8 @@ pub async fn aggregate_timeline_for_threads<'sync, 'state>(
                 | RelationType::Replacement
                 | RelationType::Reference
                 | _ => {
-                    // First, look for the related event in `timeline` backwards.
+                    // First, look for the related event in `timeline`
+                    // backwards.
                     if let Some(thread_root) = match timeline.events[..nth]
                         .iter()
                         .rev()
@@ -108,8 +109,9 @@ pub async fn aggregate_timeline_for_threads<'sync, 'state>(
 
             // No explicit relation, okay, but it can still be related to a thread!
             None => {
-                // We previously found events that are part of a thread, but we didn't see the
-                // thread root yet. And guess what? This might be this event!
+                // We previously found events that are part of a thread, but we
+                // didn't see the thread root yet. And guess
+                // what? This might be this event!
                 if let Some(event_id) = event.event_id()
                     && existing_threads.contains_key(event_id)
                 {
@@ -159,8 +161,8 @@ pub async fn aggregate_timeline_for_threads<'sync, 'state>(
         }
     }
 
-    // We must also look in the `ephemeral` events. Maybe the `timeline` is empty,
-    // but some ephemeral events target specific threads.
+    // We must also look in the `ephemeral` events. Maybe the `timeline` is
+    // empty, but some ephemeral events target specific threads.
     for ephemeral in ephemerals {
         match ephemeral.deserialize() {
             Ok(AnySyncEphemeralRoomEvent::Receipt(SyncReceiptEvent { content, .. })) => {

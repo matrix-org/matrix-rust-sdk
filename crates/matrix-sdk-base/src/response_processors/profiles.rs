@@ -32,9 +32,9 @@ pub fn upsert_or_delete(
     // Senders can fake the profile easily so we keep track of profiles that the
     // member set themselves to avoid having confusing profile changes when a
     // member gets kicked/banned.
-    // We don't want to update the profile if the member is leaving the room, as the
-    // server may return a dummy empty profile along the leave event. We want to
-    // keep the last known profile in that case.
+    // We don't want to update the profile if the member is leaving the room, as
+    // the server may return a dummy empty profile along the leave event. We
+    // want to keep the last known profile in that case.
     if event.state_key() == event.sender() && *event.membership() != MembershipState::Leave {
         context
             .state_changes
@@ -47,10 +47,11 @@ pub fn upsert_or_delete(
     if matches!(*event.membership(), MembershipState::Invite | MembershipState::Ban) {
         // Remove any profile previously stored for the invited/banned user.
         //
-        // A room member could have joined the room and left it later; in that case, the
-        // server may return a dummy, empty profile along the `leave` event. We
-        // don't want to reuse that empty profile when the member has been
-        // re-invited, so we remove it from the database.
+        // A room member could have joined the room and left it later; in that
+        // case, the server may return a dummy, empty profile along the
+        // `leave` event. We don't want to reuse that empty profile when
+        // the member has been re-invited, so we remove it from the
+        // database.
         context
             .state_changes
             .profiles_to_delete
@@ -59,8 +60,8 @@ pub fn upsert_or_delete(
             .push(event.state_key().clone());
 
         // Address the edge case of "in-flight" profiles. If an earlier event in
-        // this same sync batch inserted a profile (for example user joined then got
-        // banned by an admin of a room), we MUST NOT reinsert it.
+        // this same sync batch inserted a profile (for example user joined then
+        // got banned by an admin of a room), we MUST NOT reinsert it.
         if let Some(room_profiles) = context.state_changes.profiles.get_mut(room_id) {
             room_profiles.remove(event.state_key());
         }

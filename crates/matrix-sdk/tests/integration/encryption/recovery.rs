@@ -1023,7 +1023,8 @@ async fn test_reset_identity() {
         "After the reset we have the cross-signing available.",
     );
 
-    // After reset backups should get renabled but recovery needs setting up again
+    // After reset backups should get renabled but recovery needs setting up
+    // again
     assert_eq!(client.encryption().backups().state(), BackupState::Enabled);
     assert_eq!(client.encryption().recovery().state(), RecoveryState::Disabled);
 

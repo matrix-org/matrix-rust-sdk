@@ -222,8 +222,8 @@ impl BackPaginationQueue {
         let (sender, receiver) = mpsc::unbounded_channel();
 
         // The scheduler holds a sender of its own, to be handed to the runs it
-        // spawns, so the channel never closes on its own: the task runs until the
-        // queue is dropped, which aborts it.
+        // spawns, so the channel never closes on its own: the task runs until
+        // the queue is dropped, which aborts it.
         let task = task_monitor
             .spawn_infinite_task(
                 "event_cache::back_pagination_queue",
@@ -359,17 +359,17 @@ async fn scheduler(
     trace!("Spawning the back-pagination queue executor");
 
     let mut pending_requests: BinaryHeap<PendingRequest> = BinaryHeap::new();
-    // The tasks of the currently running requests, keyed by room: also the set of
-    // rooms that can't take another run right now. Dropping the scheduler aborts
-    // all of them.
+    // The tasks of the currently running requests, keyed by room: also the set
+    // of rooms that can't take another run right now. Dropping the
+    // scheduler aborts all of them.
     let mut active_requests: HashMap<OwnedRoomId, AbortOnDrop<()>> = HashMap::new();
     let mut next_seq: u64 = 0;
 
     // Completion senders for every request the scheduler knows about (queued or
-    // running), keyed by room and priority. A duplicate request coalesces onto the
-    // existing run by adding its completion sender here rather than starting a
-    // second run. When the run finishes every waiter for the key receives the same
-    // result.
+    // running), keyed by room and priority. A duplicate request coalesces onto
+    // the existing run by adding its completion sender here rather than
+    // starting a second run. When the run finishes every waiter for the key
+    // receives the same result.
     let mut waiters: HashMap<RequestCoalescingKey, Vec<oneshot::Sender<BackPaginationRunResult>>> =
         HashMap::new();
 
@@ -378,8 +378,9 @@ async fn scheduler(
     let mut events = Vec::with_capacity(max_concurrent);
 
     loop {
-        // Schedule as many pending requests as the concurrency budget allows, never
-        // starting a second run for a room that's already running one.
+        // Schedule as many pending requests as the concurrency budget allows,
+        // never starting a second run for a room that's already running
+        // one.
         schedule(
             &event_cache,
             &mut pending_requests,
@@ -388,8 +389,8 @@ async fn scheduler(
             &sender,
         );
 
-        // Unreachable while this task holds `sender`, but guards against a hot loop
-        // if that ever stops being true.
+        // Unreachable while this task holds `sender`, but guards against a hot
+        // loop if that ever stops being true.
         if receiver.recv_many(&mut events, max_concurrent).await == 0 {
             info!("Back-pagination queue channel closed, exiting");
             break;
@@ -419,7 +420,8 @@ async fn scheduler(
 
                 SchedulerEvent::Finished(key, result) => {
                     active_requests.remove(&key.0);
-                    // Fan the single run's result out to every coalesced waiter.
+                    // Fan the single run's result out to every coalesced
+                    // waiter.
                     if let Some(senders) = waiters.remove(&key) {
                         for waiter in senders {
                             let _ = waiter.send(result);
@@ -480,8 +482,9 @@ fn schedule(
         let sender = sender.clone();
         let task = spawn(async move {
             let result = run_request(&event_cache, request.request, &request.token).await;
-            // The scheduler owns the completion senders (for coalescing), so hand it the
-            // result to fan out to every waiter for this key.
+            // The scheduler owns the completion senders (for coalescing), so
+            // hand it the result to fan out to every waiter for
+            // this key.
             let _ = sender.send(SchedulerEvent::Finished(key, result));
         });
 
@@ -569,8 +572,9 @@ async fn run_request(
             }
         };
 
-        // Reaching the start of the timeline can still come with a last batch of
-        // events, so let the stop condition see it before ending the run.
+        // Reaching the start of the timeline can still come with a last batch
+        // of events, so let the stop condition see it before ending the
+        // run.
         if (request.stop)(&outcome).is_break() {
             break BackPaginationStopReason::StopConditionMet;
         }
@@ -714,8 +718,8 @@ mod tests {
         assert!(first_token.is_cancelled());
         assert!(second_token.is_cancelled());
 
-        // Once they're all gone the key is stale, so the next caller gets a fresh
-        // token rather than an already-cancelled one.
+        // Once they're all gone the key is stale, so the next caller gets a
+        // fresh token rather than an already-cancelled one.
         let (third_token, _third_guard) = cancellation_for(&cancellations, key);
         assert!(!third_token.is_cancelled());
 

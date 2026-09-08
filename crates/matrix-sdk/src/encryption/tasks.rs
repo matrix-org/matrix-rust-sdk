@@ -226,8 +226,8 @@ impl BackupDownloadTask {
                 break;
             }
 
-            // Check that we don't already have a task to process this event, and fire one
-            // off else if not.
+            // Check that we don't already have a task to process this event,
+            // and fire one off else if not.
             let event_id = &room_key_download_request.event_id;
             if !state_guard.active_tasks.contains_key(event_id) {
                 let event_id = event_id.to_owned();
@@ -250,27 +250,29 @@ impl BackupDownloadTask {
         #[cfg(not(test))]
         crate::sleep::sleep(Duration::from_millis(Self::DOWNLOAD_DELAY_MILLIS)).await;
 
-        // Now take the lock, and check that we still want to do a download. If we do,
-        // keep hold of a strong reference to the `Client`.
+        // Now take the lock, and check that we still want to do a download. If
+        // we do, keep hold of a strong reference to the `Client`.
         let client = {
             let mut state = state.lock().await;
 
             let Some(client) = state.client.get() else {
-                // The client was dropped while we were sleeping. We should just bail out;
-                // the main BackupDownloadTask loop will bail out too.
+                // The client was dropped while we were sleeping. We should just
+                // bail out; the main BackupDownloadTask loop
+                // will bail out too.
                 return;
             };
 
             // Check that we still want to do a download.
             if !state.should_download(&client, &download_request).await {
-                // We decided against doing a download. Mark the job done for this event before
-                // dropping the lock.
+                // We decided against doing a download. Mark the job done for
+                // this event before dropping the lock.
                 state.active_tasks.remove(&download_request.event_id);
                 return;
             }
 
-            // Before we drop the lock, indicate to other tasks that may be considering this
-            // room key, that we're going to go ahead and do a download.
+            // Before we drop the lock, indicate to other tasks that may be
+            // considering this room key, that we're going to go
+            // ahead and do a download.
             state.downloaded_room_keys.insert(download_request.to_room_key_info());
 
             client
@@ -290,19 +292,23 @@ impl BackupDownloadTask {
 
             match result {
                 Ok(true) => {
-                    // We successfully downloaded the room key. We can clear any record of previous
-                    // backoffs from the failures cache, because we won't be needing them again.
+                    // We successfully downloaded the room key. We can clear any
+                    // record of previous backoffs from the
+                    // failures cache, because we won't be needing them again.
                     state.failures_cache.remove(std::iter::once(&room_key_info))
                 }
                 Ok(false) => {
-                    // We did not find a valid backup decryption key or backup version, we did not
-                    // even attempt to download the room key.
+                    // We did not find a valid backup decryption key or backup
+                    // version, we did not even attempt to
+                    // download the room key.
                     state.downloaded_room_keys.remove(std::iter::once(&room_key_info));
                 }
                 Err(_) => {
-                    // We were unable to download the room key. Update the failure cache so that we
-                    // back off from more requests, and also remove the entry from the list of
-                    // room keys that we are downloading.
+                    // We were unable to download the room key. Update the
+                    // failure cache so that we
+                    // back off from more requests, and also remove the entry
+                    // from the list of room keys that we
+                    // are downloading.
                     state.downloaded_room_keys.remove(std::iter::once(&room_key_info));
                     state.failures_cache.insert(room_key_info);
                 }
@@ -373,7 +379,8 @@ impl BackupDownloadTaskListenerState {
             return false;
         };
 
-        // If backups aren't enabled, there's no point in trying to download a room key.
+        // If backups aren't enabled, there's no point in trying to download a
+        // room key.
         if !client.encryption().backups().are_enabled().await {
             debug!(
                 ?download_request,
@@ -384,9 +391,9 @@ impl BackupDownloadTaskListenerState {
         }
 
         // Check if the keys for this message have arrived in the meantime.
-        // If we get a StoreError doing the lookup, we assume the keys haven't arrived
-        // (though if the store is returning errors, probably something else is
-        // going to go wrong very soon).
+        // If we get a StoreError doing the lookup, we assume the keys haven't
+        // arrived (though if the store is returning errors, probably
+        // something else is going to go wrong very soon).
         if machine
             .is_room_key_available(
                 #[cfg(not(feature = "experimental-encrypted-state-events"))]
@@ -405,8 +412,8 @@ impl BackupDownloadTaskListenerState {
             return false;
         }
 
-        // Check if we already downloaded this room key, or another task is in the
-        // process of doing so.
+        // Check if we already downloaded this room key, or another task is in
+        // the process of doing so.
         let room_key_info = download_request.to_room_key_info();
         if self.downloaded_room_keys.contains(&room_key_info) {
             debug!(
@@ -448,14 +455,16 @@ impl BundleReceiverTask {
     async fn listen_task(client: WeakClient, stream: impl Stream<Item = RoomKeyBundleInfo>) {
         pin_mut!(stream);
 
-        // TODO: Listening to this stream is not enough for iOS due to the NSE killing
-        // our OlmMachine and thus also this stream. We need to add an event handler
-        // that will listen for the bundle event. To be able to add an event handler,
-        // we'll have to implement the bundle event in Ruma.
+        // TODO: Listening to this stream is not enough for iOS due to the NSE
+        // killing our OlmMachine and thus also this stream. We need to
+        // add an event handler that will listen for the bundle event.
+        // To be able to add an event handler, we'll have to implement
+        // the bundle event in Ruma.
         while let Some(bundle_info) = stream.next().await {
             let Some(client) = client.get() else {
-                // The client was dropped while we were waiting on the stream. Let's end the
-                // loop, since this means that the application has shut down.
+                // The client was dropped while we were waiting on the stream.
+                // Let's end the loop, since this means that the
+                // application has shut down.
                 break;
             };
 
@@ -483,10 +492,11 @@ impl BundleReceiverTask {
 
         let olm_machine = client.olm_machine().await;
         let Some(olm_machine) = olm_machine.as_ref() else {
-            // The Olm machine was not initialized by the time this task is ready
-            // to perform its work. This is likely a bug, as this worker is only
-            // expected to be spawned once the client is fully ready and the
-            // Olm machine is available.
+            // The Olm machine was not initialized by the time this task is
+            // ready to perform its work. This is likely a bug, as
+            // this worker is only expected to be spawned once the
+            // client is fully ready and the Olm machine is
+            // available.
             tracing::warn!("Skipping startup bundle checks because the Olm machine is unavailable");
             return;
         };
@@ -511,9 +521,10 @@ impl BundleReceiverTask {
             invalid.len(),
         );
 
-        // Iterate over the details that are valid for processing. For each valid
-        // details, check if we have the corresponding key bundle data in the
-        // store. If the data exists, attempt to re-import the bundle.
+        // Iterate over the details that are valid for processing. For each
+        // valid details, check if we have the corresponding key bundle
+        // data in the store. If the data exists, attempt to re-import
+        // the bundle.
         for RoomPendingKeyBundleDetails { room_id, inviter, .. } in valid {
             let Some(room) = client.get_room(room_id) else {
                 // Skip processing if the room is not cached in the state store.
@@ -525,8 +536,9 @@ impl BundleReceiverTask {
                 {
                     Ok(Some(bundle)) => bundle,
                     Ok(None) => {
-                        // If the bundle data is not available, skip processing. The listener task
-                        // will handle this case when the bundle arrives.
+                        // If the bundle data is not available, skip processing.
+                        // The listener task will handle
+                        // this case when the bundle arrives.
                         tracing::trace!(?room_id, "No bundle available, skipping...");
                         continue;
                     }
@@ -541,8 +553,9 @@ impl BundleReceiverTask {
             Self::handle_bundle(&room, &(&bundle).into()).await;
         }
 
-        // For each invalid details, clear the pending key bundle information from the
-        // respective room to avoid re-checking it in the future.
+        // For each invalid details, clear the pending key bundle information
+        // from the respective room to avoid re-checking it in the
+        // future.
         for RoomPendingKeyBundleDetails { room_id, .. } in &invalid {
             tracing::trace!(?room_id, "Clearing pending flag for room");
             if let Err(e) = olm_machine.store().clear_room_pending_key_bundle(room_id).await {
@@ -602,8 +615,8 @@ mod test {
     use super::*;
     use crate::test_utils::logged_in_client;
 
-    // Test that, if backups are not enabled, we don't incorrectly mark a room key
-    // as downloaded.
+    // Test that, if backups are not enabled, we don't incorrectly mark a room
+    // key as downloaded.
     #[async_test]
     async fn test_disabled_backup_does_not_mark_room_key_as_downloaded() {
         let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");

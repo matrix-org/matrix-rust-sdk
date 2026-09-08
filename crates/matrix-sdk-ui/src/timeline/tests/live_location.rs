@@ -412,7 +412,8 @@ async fn test_beacon_stop_updates_existing_item() {
 
     // The existing item is updated — a Set diff, not a PushBack.
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    // The original start item is updated — its event_id remains the start event.
+    // The original start item is updated — its event_id remains the start
+    // event.
     assert_eq!(item.event_id().unwrap(), start_id);
     assert!(
         !item.content().as_live_location_state().unwrap().is_live(),
@@ -525,7 +526,8 @@ async fn test_beacon_stop_before_start_is_applied_later() {
         )
         .await;
 
-    // The item should appear already stopped — a single PushBack, no follow-up Set.
+    // The item should appear already stopped — a single PushBack, no follow-up
+    // Set.
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_eq!(item.event_id().unwrap(), start_id, "the item should carry the start event's ID");
     assert!(
@@ -550,7 +552,8 @@ async fn test_pending_beacon_stop_not_applied_to_different_session() {
 
     // Use the current time as base for session B.
     // Session A's timestamp doesn't matter since its stop will be discarded.
-    // Session B needs a recent timestamp so is_live() doesn't fail due to timeout.
+    // Session B needs a recent timestamp so is_live() doesn't fail due to
+    // timeout.
     let old_session_ts = MilliSecondsSinceUnixEpoch(uint!(1)); // Old session (past)
     let new_session_ts = MilliSecondsSinceUnixEpoch::now(); // New session (now)
 
@@ -902,7 +905,8 @@ async fn test_local_reaction_on_live_location_item() {
     // Receive the remote echo from sync.
     timeline.handle_live_event(timeline.factory.reaction(beacon_id, "👍").sender(&ALICE)).await;
 
-    // The item is updated once more — now the reaction is a confirmed remote echo.
+    // The item is updated once more — now the reaction is a confirmed remote
+    // echo.
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().as_live_location_state().is_some());
     let reactions = item.content().reactions().unwrap();

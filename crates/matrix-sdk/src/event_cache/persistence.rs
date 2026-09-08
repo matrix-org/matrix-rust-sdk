@@ -50,7 +50,8 @@ pub(super) async fn load_linked_chunk_metadata(
         return Ok(None);
     }
 
-    // Transform the vector into a hashmap, for quick lookup of the predecessors.
+    // Transform the vector into a hashmap, for quick lookup of the
+    // predecessors.
     let chunk_map: HashMap<_, _> = all_chunks.iter().map(|meta| (meta.identifier, meta)).collect();
 
     // Find a last chunk.
@@ -113,7 +114,8 @@ pub(super) async fn load_linked_chunk_metadata(
             });
         };
 
-        // If the previous chunk isn't connected to the next, then the link is invalid.
+        // If the previous chunk isn't connected to the next, then the link is
+        // invalid.
         if pred_meta.next != Some(current.identifier) {
             return Err(EventCacheError::InvalidLinkedChunkMetadata {
                 details: format!(
@@ -130,8 +132,8 @@ pub(super) async fn load_linked_chunk_metadata(
 
     // At this point, `current` is the identifier of the first chunk.
     //
-    // Reorder the resulting vector, by going through the chain of `next` links, and
-    // swapping items into their final position.
+    // Reorder the resulting vector, by going through the chain of `next` links,
+    // and swapping items into their final position.
     //
     // Invariant in this loop: all items in [0..i[ are in their final, correct
     // position.
@@ -172,16 +174,17 @@ pub(super) async fn send_updates_to_store(
 
     // Strip relations from updates which insert or replace items.
     //
-    // The reason we're doing this, is that consumers of the event cache might look
-    // into bundled relations, and assume they're up to date. If we were to keep
-    // the relations in the events, when storing them, then it could be that
-    // they become outdated (as soon as a new relation comes over sync), so we'd
-    // need to update the bundled relations in this case, which would
-    // have a non-negligible cost, as we'd need to look up related events for each
-    // forwarded to a listener.
+    // The reason we're doing this, is that consumers of the event cache might
+    // look into bundled relations, and assume they're up to date. If we
+    // were to keep the relations in the events, when storing them, then it
+    // could be that they become outdated (as soon as a new relation comes
+    // over sync), so we'd need to update the bundled relations in this
+    // case, which would have a non-negligible cost, as we'd need to look up
+    // related events for each forwarded to a listener.
     //
-    // As a result, we choose to strip bundled relations from events when we forward
-    // them to the store, and consumers have to explicitly ask for relations.
+    // As a result, we choose to strip bundled relations from events when we
+    // forward them to the store, and consumers have to explicitly ask for
+    // relations.
     for update in updates.iter_mut() {
         match update {
             Update::PushItems { items, .. } => strip_relations_from_events(items),
@@ -198,11 +201,11 @@ pub(super) async fn send_updates_to_store(
         }
     }
 
-    // Spawn a task to make sure that all the changes are effectively forwarded to
-    // the store, even if the call to this method gets aborted.
+    // Spawn a task to make sure that all the changes are effectively forwarded
+    // to the store, even if the call to this method gets aborted.
     //
-    // The store cross-process locking involves an actual mutex, which ensures that
-    // storing updates happens in the expected order.
+    // The store cross-process locking involves an actual mutex, which ensures
+    // that storing updates happens in the expected order.
 
     let store = store.clone();
     let cloned_updates = updates.clone();
@@ -278,8 +281,8 @@ pub async fn find_event(
     event_linked_chunk: &EventLinkedChunk,
     store: &EventCacheStoreLockGuard,
 ) -> Result<Option<(EventLocation, Event)>> {
-    // There are supposedly fewer events loaded in memory than in the store. Let's
-    // start by looking up in the `EventLinkedChunk`.
+    // There are supposedly fewer events loaded in memory than in the store.
+    // Let's start by looking up in the `EventLinkedChunk`.
     for (position, event) in event_linked_chunk.revents() {
         if event.event_id() == Some(event_id) {
             return Ok(Some((EventLocation::Memory(position), event.clone())));
@@ -381,7 +384,8 @@ pub async fn find_event_relations(
 
     // Sort the results by their positions in the linked chunk, if available.
     //
-    // If an event doesn't have a known position, it goes to the start of the array.
+    // If an event doesn't have a known position, it goes to the start of the
+    // array.
     related.sort_by(|(_, lhs), (_, rhs)| {
         use std::cmp::Ordering;
 
@@ -393,9 +397,10 @@ pub async fn find_event_relations(
                 let lhs = event_linked_chunk.event_order(*lhs);
                 let rhs = event_linked_chunk.event_order(*rhs);
 
-                // The events should have a definite position, but in the case they don't,
-                // still consider that not having a position means you'll end at the start
-                // of the array.
+                // The events should have a definite position, but in the case
+                // they don't, still consider that not having a
+                // position means you'll end at the start of the
+                // array.
                 match (lhs, rhs) {
                     (None, None) => Ordering::Equal,
                     (None, Some(_)) => Ordering::Less,

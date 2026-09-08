@@ -127,7 +127,8 @@ impl<P: PaginableThread> ThreadedEventsLoader<P> {
             };
         }
 
-        // Finally insert the thread root if at the end of the timeline going backwards
+        // Finally insert the thread root if at the end of the timeline going
+        // backwards
         if hit_end_of_timeline {
             let root_event = self
                 .room

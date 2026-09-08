@@ -139,8 +139,9 @@ impl SlidingSyncListRequestGenerator {
             SlidingSyncListRequestGeneratorKind::Paging { fully_loaded: true, .. }
             | SlidingSyncListRequestGeneratorKind::Growing { fully_loaded: true, .. }
             | SlidingSyncListRequestGeneratorKind::Selective => {
-                // Nothing to do: we already have the full ranges, return the existing ranges.
-                // For the growing and paging modes, keep the current value of `requested_end`,
+                // Nothing to do: we already have the full ranges, return the
+                // existing ranges. For the growing and paging
+                // modes, keep the current value of `requested_end`,
                 // which is still valid.
                 Ok(self.ranges.clone())
             }
@@ -152,8 +153,9 @@ impl SlidingSyncListRequestGenerator {
                 requested_end,
                 ..
             } => {
-                // In paging-mode, range starts at the number of fetched rooms. Since ranges are
-                // inclusive, and since the number of fetched rooms starts at 1,
+                // In paging-mode, range starts at the number of fetched rooms.
+                // Since ranges are inclusive, and since the
+                // number of fetched rooms starts at 1,
                 // not at 0, there is no need to add 1 here.
                 let range_start = number_of_fetched_rooms;
                 let range_desired_size = batch_size;
@@ -178,8 +180,9 @@ impl SlidingSyncListRequestGenerator {
                 requested_end,
                 ..
             } => {
-                // In growing-mode, range always starts from 0. However, the end is growing by
-                // adding `batch_size` to the previous number of fetched rooms.
+                // In growing-mode, range always starts from 0. However, the end
+                // is growing by adding `batch_size` to the
+                // previous number of fetched rooms.
                 let range_start = 0;
                 let range_desired_size = number_of_fetched_rooms.saturating_add(*batch_size);
 
@@ -224,12 +227,14 @@ impl SlidingSyncListRequestGenerator {
                 })?;
 
                 // Calculate the maximum bound for the range.
-                // At this step, the server has given us a maximum number of rooms for this
-                // list. That's our `range_maximum`.
+                // At this step, the server has given us a maximum number of
+                // rooms for this list. That's our
+                // `range_maximum`.
                 let mut range_maximum = maximum_number_of_rooms;
 
-                // But maybe the user has defined a maximum number of rooms to fetch? In this
-                // case, let's take the minimum of the two.
+                // But maybe the user has defined a maximum number of rooms to
+                // fetch? In this case, let's take the minimum
+                // of the two.
                 if let Some(maximum_number_of_rooms_to_fetch) = maximum_number_of_rooms_to_fetch {
                     range_maximum = min(range_maximum, *maximum_number_of_rooms_to_fetch);
                 }
@@ -241,8 +246,9 @@ impl SlidingSyncListRequestGenerator {
 
                 // The current range hasn't reached its maximum, let's continue.
                 if range_end < range_maximum {
-                    // Update the number of fetched rooms forward. Do not forget that ranges are
-                    // inclusive, so let's add 1.
+                    // Update the number of fetched rooms forward. Do not forget
+                    // that ranges are inclusive, so let's
+                    // add 1.
                     *number_of_fetched_rooms = range_end.saturating_add(1);
 
                     // The list is still not fully loaded.
@@ -263,7 +269,8 @@ impl SlidingSyncListRequestGenerator {
                     // We update the `fully_loaded` marker.
                     *fully_loaded = true;
 
-                    // The range is covering the entire list, from 0 to its maximum.
+                    // The range is covering the entire list, from 0 to its
+                    // maximum.
                     self.ranges = vec![0..=range_maximum];
 
                     // Finally, let's update the list' state.
@@ -307,17 +314,17 @@ fn create_range(
     // The `end`, by default, is `start` + `desired_size`.
     let mut end = start + desired_size;
 
-    // But maybe the user has defined a maximum number of rooms to fetch? In this
-    // case, take the minimum of the two.
+    // But maybe the user has defined a maximum number of rooms to fetch? In
+    // this case, take the minimum of the two.
     if let Some(maximum_number_of_rooms_to_fetch) = maximum_number_of_rooms_to_fetch {
         end = min(end, maximum_number_of_rooms_to_fetch);
     }
 
-    // But there is more! The server can tell us what is the maximum number of rooms
-    // fulfilling a particular list. For example, if the server says there is 42
-    // rooms for a particular list, with a `start` of 40 and a `batch_size` of 20,
-    // the range must be capped to `[40; 42]`; the range `[40; 60]` would be invalid
-    // and could be rejected by the server.
+    // But there is more! The server can tell us what is the maximum number of
+    // rooms fulfilling a particular list. For example, if the server says
+    // there is 42 rooms for a particular list, with a `start` of 40 and a
+    // `batch_size` of 20, the range must be capped to `[40; 42]`; the range
+    // `[40; 60]` would be invalid and could be rejected by the server.
     if let Some(maximum_number_of_rooms) = maximum_number_of_rooms {
         end = min(end, maximum_number_of_rooms);
     }
@@ -325,8 +332,9 @@ fn create_range(
     // Finally, because the bounds of the range are inclusive, 1 is subtracted.
     end = end.saturating_sub(1);
 
-    // Make sure `start` is smaller than `end`. It can happen if `start` is greater
-    // than `maximum_number_of_rooms_to_fetch` or `maximum_number_of_rooms`.
+    // Make sure `start` is smaller than `end`. It can happen if `start` is
+    // greater than `maximum_number_of_rooms_to_fetch` or
+    // `maximum_number_of_rooms`.
     if start > end {
         return Err(Error::InvalidRange { start, end });
     }
@@ -353,42 +361,45 @@ mod tests {
         // From 100, we want 100 items.
         assert_matches!(create_range(100, 100, None, None), Ok(range) if range == RangeInclusive::new(100, 199));
 
-        // From 0, we want 100 items, but there is a maximum number of rooms to fetch
-        // defined at 50.
+        // From 0, we want 100 items, but there is a maximum number of rooms to
+        // fetch defined at 50.
         assert_matches!(create_range(0, 100, Some(50), None), Ok(range) if range == RangeInclusive::new(0, 49));
 
-        // From 49, we want 100 items, but there is a maximum number of rooms to fetch
-        // defined at 50. There is 1 item to load.
+        // From 49, we want 100 items, but there is a maximum number of rooms to
+        // fetch defined at 50. There is 1 item to load.
         assert_matches!(create_range(49, 100, Some(50), None), Ok(range) if range == RangeInclusive::new(49, 49));
 
-        // From 50, we want 100 items, but there is a maximum number of rooms to fetch
-        // defined at 50.
+        // From 50, we want 100 items, but there is a maximum number of rooms to
+        // fetch defined at 50.
         assert_matches!(
             create_range(50, 100, Some(50), None),
             Err(Error::InvalidRange { start: 50, end: 49 })
         );
 
-        // From 0, we want 100 items, but there is a maximum number of rooms defined at
-        // 50.
+        // From 0, we want 100 items, but there is a maximum number of rooms
+        // defined at 50.
         assert_matches!(create_range(0, 100, None, Some(50)), Ok(range) if range == RangeInclusive::new(0, 49));
 
-        // From 49, we want 100 items, but there is a maximum number of rooms defined at
+        // From 49, we want 100 items, but there is a maximum number of rooms
+        // defined at
         // 50. There is 1 item to load.
         assert_matches!(create_range(49, 100, None, Some(50)), Ok(range) if range == RangeInclusive::new(49, 49));
 
-        // From 50, we want 100 items, but there is a maximum number of rooms defined at
-        // 50.
+        // From 50, we want 100 items, but there is a maximum number of rooms
+        // defined at 50.
         assert_matches!(
             create_range(50, 100, None, Some(50)),
             Err(Error::InvalidRange { start: 50, end: 49 })
         );
 
-        // From 0, we want 100 items, but there is a maximum number of rooms to fetch
-        // defined at 75, and a maximum number of rooms defined at 50.
+        // From 0, we want 100 items, but there is a maximum number of rooms to
+        // fetch defined at 75, and a maximum number of rooms defined at
+        // 50.
         assert_matches!(create_range(0, 100, Some(75), Some(50)), Ok(range) if range == RangeInclusive::new(0, 49));
 
-        // From 0, we want 100 items, but there is a maximum number of rooms to fetch
-        // defined at 50, and a maximum number of rooms defined at 75.
+        // From 0, we want 100 items, but there is a maximum number of rooms to
+        // fetch defined at 50, and a maximum number of rooms defined at
+        // 75.
         assert_matches!(create_range(0, 100, Some(50), Some(75)), Ok(range) if range == RangeInclusive::new(0, 49));
     }
 

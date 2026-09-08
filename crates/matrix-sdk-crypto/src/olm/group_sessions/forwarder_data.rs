@@ -44,9 +44,9 @@ impl TryFrom<&SenderData> for ForwarderData {
     type Error = ();
 
     fn try_from(value: &SenderData) -> Result<Self, Self::Error> {
-        // The sender's device must be either `SenderData::SenderUnverified` (i.e.,
-        // TOFU-trusted) or `SenderData::SenderVerified` (i.e., fully verified
-        // via user verification and cross-signing).
+        // The sender's device must be either `SenderData::SenderUnverified`
+        // (i.e., TOFU-trusted) or `SenderData::SenderVerified` (i.e.,
+        // fully verified via user verification and cross-signing).
         match value {
             SenderData::SenderUnverified(known_sender_data) => {
                 Ok(Self::SenderUnverified(known_sender_data.clone()))
@@ -107,8 +107,8 @@ mod tests {
     }
 
     // A previous version of this implementation used [`SenderData`] instead of
-    // [`ForwarderData`]. To ensure we can still treat existing serialised data as
-    // `ForwarderData`, we check we can deserialise the old variants.
+    // [`ForwarderData`]. To ensure we can still treat existing serialised data
+    // as `ForwarderData`, we check we can deserialise the old variants.
     #[test]
     fn test_deserialize_old_format() {
         let master_key = Ed25519PublicKey::from_slice(&[1u8; 32]).unwrap();

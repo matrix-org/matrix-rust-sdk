@@ -356,7 +356,8 @@ impl RoomEventCacheInner {
 
                     handled_read_marker = true;
 
-                    // Propagate to observers. (We ignore the error if there aren't any.)
+                    // Propagate to observers. (We ignore the error if there
+                    // aren't any.)
                     self.update_sender.send(
                         RoomEventCacheUpdate::MoveReadMarkerTo { event_id: ev.content.event_id },
                         None,
@@ -402,8 +403,9 @@ impl RoomEventCacheInner {
         let state = self.state.write().await?;
 
         // Insert the event if the room is not empty, otherwise it can break the
-        // pagination logic when detecting the start of the timeline because no gap can
-        // be inserted properly: it is impossible to compute a `prev_batch` token here.
+        // pagination logic when detecting the start of the timeline because no
+        // gap can be inserted properly: it is impossible to compute a
+        // `prev_batch` token here.
         if state.room_linked_chunk().events().next().is_some() {
             return self
                 .handle_timeline_inner(
@@ -449,8 +451,8 @@ impl RoomEventCacheInner {
             self.pagination_batch_token_notifier.notify_one();
         }
 
-        // The order matters here: first send the timeline event diffs, then only the
-        // related events (read receipts, etc.).
+        // The order matters here: first send the timeline event diffs, then
+        // only the related events (read receipts, etc.).
         if !timeline_event_diffs.is_empty() {
             self.update_sender.send(
                 RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
@@ -615,7 +617,8 @@ mod tests {
             // Save the related event.
             state.save_events([related_event]).await.unwrap();
 
-            // Save the associated related event, which redacts the related event.
+            // Save the associated related event, which redacts the related
+            // event.
             state.save_events([associated_related_event]).await.unwrap();
         }
 
@@ -629,7 +632,8 @@ mod tests {
         let cached_event_id = event.event_id().unwrap();
         assert_eq!(cached_event_id, original_id);
 
-        // There's only the edit event (an edit event can't have its own edit event).
+        // There's only the edit event (an edit event can't have its own edit
+        // event).
         assert_eq!(related_events.len(), 1);
 
         let related_event_id = related_events[0].event_id().unwrap();
@@ -686,7 +690,8 @@ mod tests {
             // Save the related event.
             state.save_events([related_event]).await.unwrap();
 
-            // Save the associated related event, which redacts the related event.
+            // Save the associated related event, which redacts the related
+            // event.
             state.save_events([associated_related_event]).await.unwrap();
         }
 
@@ -733,7 +738,8 @@ mod tests {
             // Save the original event.
             state.save_events([original_event]).await.unwrap();
 
-            // Save an unrelated event to check it's not in the related events list.
+            // Save an unrelated event to check it's not in the related events
+            // list.
             let unrelated_id = event_id!("$2");
             state
                 .save_events([event_factory
@@ -1057,7 +1063,8 @@ mod timed_tests {
 
         // But only part of events are loaded from the store
         {
-            // The room must contain only one event because only one chunk has been loaded.
+            // The room must contain only one event because only one chunk has
+            // been loaded.
             assert_eq!(items.len(), 1);
             assert_eq!(items[0].event_id().unwrap(), event_id2);
 
@@ -1195,7 +1202,8 @@ mod timed_tests {
         // Don't forget to subscribe and like.
         event_cache.subscribe().unwrap();
 
-        // Let's check whether the generic updates are received for the initialisation.
+        // Let's check whether the generic updates are received for the
+        // initialisation.
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
@@ -1215,13 +1223,14 @@ mod timed_tests {
 
         let (items, mut stream) = room_event_cache.subscribe().await.unwrap();
 
-        // The initial items contain one event because only the last chunk is loaded by
-        // default.
+        // The initial items contain one event because only the last chunk is
+        // loaded by default.
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].event_id().unwrap(), event_id2);
         assert!(stream.is_empty());
 
-        // The event cache knows only all events though, even if they aren't loaded.
+        // The event cache knows only all events though, even if they aren't
+        // loaded.
         assert!(room_event_cache.find_event(event_id1).await.unwrap().is_some());
         assert!(room_event_cache.find_event(event_id2).await.unwrap().is_some());
 
@@ -1256,14 +1265,15 @@ mod timed_tests {
             .await
             .unwrap();
 
-        // Just checking the generic update is correct. There is a duplicate event, so
-        // no generic changes whatsoever!
+        // Just checking the generic update is correct. There is a duplicate
+        // event, so no generic changes whatsoever!
         assert!(generic_stream.recv().now_or_never().is_none());
 
-        // The stream doesn't report these changes *yet*. Use the items vector given
-        // when subscribing, to check that the items correspond to their new
-        // positions. The duplicated item is removed (so it's not the first
-        // element anymore), and it's added to the back of the list.
+        // The stream doesn't report these changes *yet*. Use the items vector
+        // given when subscribing, to check that the items correspond to
+        // their new positions. The duplicated item is removed (so it's
+        // not the first element anymore), and it's added to the back of
+        // the list.
         let items = room_event_cache.events().await.unwrap();
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].event_id().unwrap(), event_id1);
@@ -1328,12 +1338,12 @@ mod timed_tests {
 
         let items = room_event_cache.events().await.unwrap();
 
-        // Because the persisted content was invalid, the room store is reset: there are
-        // no events in the cache.
+        // Because the persisted content was invalid, the room store is reset:
+        // there are no events in the cache.
         assert!(items.is_empty());
 
-        // Storage doesn't contain anything. It would also be valid that it contains a
-        // single initial empty items chunk.
+        // Storage doesn't contain anything. It would also be valid that it
+        // contains a single initial empty items chunk.
         let raw_chunks =
             event_cache_store.load_all_chunks(LinkedChunkId::Room(room_id)).await.unwrap();
         assert!(raw_chunks.is_empty());
@@ -1355,8 +1365,8 @@ mod timed_tests {
 
         let f = EventFactory::new().room(room_id).sender(*ALICE);
 
-        // Propagate an update including a limited timeline with one message and a
-        // prev-batch token.
+        // Propagate an update including a limited timeline with one message and
+        // a prev-batch token.
         room_event_cache
             .handle_joined_room_update(JoinedRoomUpdate {
                 timeline: Timeline {
@@ -1391,8 +1401,8 @@ mod timed_tests {
                 }
             }
 
-            // The limited sync unloads the chunk, so it will appear as if there are only
-            // the events.
+            // The limited sync unloads the chunk, so it will appear as if there
+            // are only the events.
             assert_eq!(num_gaps, 0);
             assert_eq!(num_events, 1);
         }
@@ -1421,8 +1431,8 @@ mod timed_tests {
             assert_eq!(num_events, 1);
         }
 
-        // Now, propagate an update for another message, but the timeline isn't limited
-        // this time.
+        // Now, propagate an update for another message, but the timeline isn't
+        // limited this time.
         room_event_cache
             .handle_joined_room_update(JoinedRoomUpdate {
                 timeline: Timeline {
@@ -1480,7 +1490,8 @@ mod timed_tests {
         let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(evid1).into_event();
         let ev2 = f.text_msg("howdy").sender(*BOB).event_id(evid2).into_event();
 
-        // Fill the event cache store with an initial linked chunk with 2 events chunks.
+        // Fill the event cache store with an initial linked chunk with 2 events
+        // chunks.
         {
             client
                 .event_cache_store()
@@ -1587,8 +1598,8 @@ mod timed_tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_id(), Some(evid2));
 
-        // But if we back-paginate, we don't need access to network to find out about
-        // the previous event.
+        // But if we back-paginate, we don't need access to network to find out
+        // about the previous event.
         let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
         assert_eq!(outcome.events.len(), 1);
         assert_eq!(outcome.events[0].event_id(), Some(evid1));
@@ -1611,7 +1622,8 @@ mod timed_tests {
         let ev2 = f.text_msg("howdy").sender(*BOB).event_id(evid2).into_event();
         let ev3 = f.text_msg("yo").event_id(evid3).into_event();
 
-        // Fill the event cache store with an initial linked chunk with 2 events chunks.
+        // Fill the event cache store with an initial linked chunk with 2 events
+        // chunks.
         {
             client
                 .event_cache_store()
@@ -1654,8 +1666,8 @@ mod timed_tests {
         let room = client.get_room(room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-        // Initially, the linked chunk only contains the last chunk, so only ev3 is
-        // loaded.
+        // Initially, the linked chunk only contains the last chunk, so only ev3
+        // is loaded.
         {
             let state = room_event_cache.inner.state.read().await.unwrap();
             let room_linked_chunk = state.room_linked_chunk();
@@ -1687,8 +1699,8 @@ mod timed_tests {
         let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
         assert!(outcome.reached_start);
 
-        // All events are now loaded, so their order is precisely their enumerated index
-        // in a linear iteration.
+        // All events are now loaded, so their order is precisely their
+        // enumerated index in a linear iteration.
         {
             let state = room_event_cache.inner.state.read().await.unwrap();
             let room_linked_chunk = state.room_linked_chunk();
@@ -1743,8 +1755,8 @@ mod timed_tests {
                 Some(1)
             );
 
-            // ev3 doesn't have an order with its previous position, since it's been
-            // deduplicated.
+            // ev3 doesn't have an order with its previous position, since it's
+            // been deduplicated.
             assert_eq!(
                 room_linked_chunk.event_order(Position::new(ChunkIdentifier::new(1), 0)),
                 None
@@ -1766,7 +1778,8 @@ mod timed_tests {
         let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(evid1).into_event();
         let ev2 = f.text_msg("howdy").sender(*BOB).event_id(evid2).into_event();
 
-        // Fill the event cache store with an initial linked chunk with 2 events chunks.
+        // Fill the event cache store with an initial linked chunk with 2 events
+        // chunks.
         {
             client
                 .event_cache_store()
@@ -1823,8 +1836,8 @@ mod timed_tests {
         assert_eq!(outcome.events[0].event_id(), Some(evid1));
         assert!(outcome.reached_start);
 
-        // We also get an update about the loading from the store. Ignore it, for this
-        // test's sake.
+        // We also get an update about the loading from the store. Ignore it,
+        // for this test's sake.
         assert_let_timeout!(
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
                 stream1.recv()
@@ -1843,8 +1856,8 @@ mod timed_tests {
         assert!(generic_stream.is_empty());
 
         // Have another subscriber.
-        // Since it's not the first one, and the previous one loaded some more events,
-        // the second subscribers sees them all.
+        // Since it's not the first one, and the previous one loaded some more
+        // events, the second subscribers sees them all.
         let (events2, stream2) = room_event_cache.subscribe().await.unwrap();
         assert_eq!(events2.len(), 2);
         assert_eq!(events2[0].event_id(), Some(evid1));
@@ -1907,8 +1920,8 @@ mod timed_tests {
         let event_3 =
             event_factory.text_msg("eh!").sender(user_id).event_id(event_id_3).into_event();
 
-        // Fill the event cache store with an initial linked chunk of 2 chunks, and 4
-        // events.
+        // Fill the event cache store with an initial linked chunk of 2 chunks,
+        // and 4 events.
         {
             client
                 .event_cache_store()
@@ -1963,8 +1976,8 @@ mod timed_tests {
             }
         );
 
-        // Look for an event from `ALICE`: it must be `event_2`, right before `event_1`
-        // because events are looked for in reverse order.
+        // Look for an event from `ALICE`: it must be `event_2`, right before
+        // `event_1` because events are looked for in reverse order.
         assert_matches!(
             room_event_cache
                 .rfind_map_event_in_memory_by(|event| {
@@ -2087,8 +2100,9 @@ mod timed_tests {
 
         // Okay. We are ready for the test!
         //
-        // First off, let's check `room_event_cache_p0` has access to the first event
-        // loaded in-memory, then do a pagination, and see more events.
+        // First off, let's check `room_event_cache_p0` has access to the first
+        // event loaded in-memory, then do a pagination, and see more
+        // events.
         let mut updates_stream_p0 = {
             let room_event_cache = &room_event_cache_p0;
 
@@ -2171,9 +2185,9 @@ mod timed_tests {
 
         // Do this a couple times, for the fun.
         for _ in 0..3 {
-            // Third, because `room_event_cache_p1` has locked the store, the lock
-            // is dirty for `room_event_cache_p0`, so it will shrink to its last
-            // chunk!
+            // Third, because `room_event_cache_p1` has locked the store, the
+            // lock is dirty for `room_event_cache_p0`, so it will
+            // shrink to its last chunk!
             {
                 let room_event_cache = &room_event_cache_p0;
                 let updates_stream = &mut updates_stream_p0;
@@ -2181,8 +2195,9 @@ mod timed_tests {
                 // `ev_id_1` must be loaded in memory, just like before.
                 assert!(event_loaded(room_event_cache, ev_id_1).await);
 
-                // However, `ev_id_0` must NOT be loaded in memory. It WAS loaded, but the
-                // state has been reloaded to its last chunk.
+                // However, `ev_id_0` must NOT be loaded in memory. It WAS
+                // loaded, but the state has been reloaded to
+                // its last chunk.
                 assert!(event_loaded(room_event_cache, ev_id_0).await.not());
 
                 // The reload can be observed via the updates too.
@@ -2222,9 +2237,9 @@ mod timed_tests {
                 );
             }
 
-            // Fourth, because `room_event_cache_p0` has locked the store again, the lock
-            // is dirty for `room_event_cache_p1` too!, so it will shrink to its last
-            // chunk!
+            // Fourth, because `room_event_cache_p0` has locked the store again,
+            // the lock is dirty for `room_event_cache_p1` too!, so
+            // it will shrink to its last chunk!
             {
                 let room_event_cache = &room_event_cache_p1;
                 let updates_stream = &mut updates_stream_p1;
@@ -2232,8 +2247,9 @@ mod timed_tests {
                 // `ev_id_1` must be loaded in memory, just like before.
                 assert!(event_loaded(room_event_cache, ev_id_1).await);
 
-                // However, `ev_id_0` must NOT be loaded in memory. It WAS loaded, but the
-                // state has shrunk to its last chunk.
+                // However, `ev_id_0` must NOT be loaded in memory. It WAS
+                // loaded, but the state has shrunk to its last
+                // chunk.
                 assert!(event_loaded(room_event_cache, ev_id_0).await.not());
 
                 // The reload can be observed via the updates too.
@@ -2283,8 +2299,8 @@ mod timed_tests {
 
                 let guard = room_event_cache.inner.state.read().await.unwrap();
 
-                // Guard is kept alive, to ensure we can have multiple read guards alive with a
-                // shared access.
+                // Guard is kept alive, to ensure we can have multiple read
+                // guards alive with a shared access.
                 // See `RoomEventCacheStateLock::read` to learn more.
 
                 // The lock is no longer marked as dirty, it's been cleaned.
@@ -2309,11 +2325,12 @@ mod timed_tests {
                 assert!(event_loaded(room_event_cache, ev_id_1).await);
                 assert!(event_loaded(room_event_cache, ev_id_0).await.not());
 
-                // Ensure `guard` is alive up to this point (in case this test is refactored, I
-                // want to make this super explicit).
+                // Ensure `guard` is alive up to this point (in case this test
+                // is refactored, I want to make this super
+                // explicit).
                 //
-                // We drop need to drop it before the pagination because the pagination needs to
-                // obtain a write lock.
+                // We drop need to drop it before the pagination because the
+                // pagination needs to obtain a write lock.
                 drop(guard);
 
                 room_event_cache.pagination().run_backwards_once(1).await.unwrap();
@@ -2340,8 +2357,8 @@ mod timed_tests {
 
                 let guard = room_event_cache.inner.state.read().await.unwrap();
 
-                // Guard is kept alive, to ensure we can have multiple read guards alive with a
-                // shared access.
+                // Guard is kept alive, to ensure we can have multiple read
+                // guards alive with a shared access.
 
                 // The lock is no longer marked as dirty, it's been cleaned.
                 assert!(guard.is_dirty().not());
@@ -2365,11 +2382,12 @@ mod timed_tests {
                 assert!(event_loaded(room_event_cache, ev_id_1).await);
                 assert!(event_loaded(room_event_cache, ev_id_0).await.not());
 
-                // Ensure `guard` is alive up to this point (in case this test is refactored, I
-                // want to make this super explicit).
+                // Ensure `guard` is alive up to this point (in case this test
+                // is refactored, I want to make this super
+                // explicit).
                 //
-                // We drop need to drop it before the pagination because the pagination needs to
-                // obtain a write lock.
+                // We drop need to drop it before the pagination because the
+                // pagination needs to obtain a write lock.
                 drop(guard);
 
                 room_event_cache.pagination().run_backwards_once(1).await.unwrap();
@@ -2418,8 +2436,8 @@ mod timed_tests {
                     }
                 );
 
-                // Guard isn't kept alive, otherwise `event_loaded` couldn't run because it
-                // needs to obtain a read lock.
+                // Guard isn't kept alive, otherwise `event_loaded` couldn't run
+                // because it needs to obtain a read lock.
                 drop(guard);
 
                 assert!(event_loaded(room_event_cache, ev_id_1).await);
@@ -2468,8 +2486,8 @@ mod timed_tests {
                     }
                 );
 
-                // Guard isn't kept alive, otherwise `event_loaded` couldn't run because it
-                // needs to obtain a read lock.
+                // Guard isn't kept alive, otherwise `event_loaded` couldn't run
+                // because it needs to obtain a read lock.
                 drop(guard);
 
                 assert!(event_loaded(room_event_cache, ev_id_1).await);
@@ -2554,8 +2572,9 @@ mod timed_tests {
         }
 
         // Create the `RoomEventCache` for `room_id_1`. During its creation, the
-        // cross-process lock over the store MUST be dirty, which makes no difference as
-        // a clean one: the state is just loaded, not reloaded.
+        // cross-process lock over the store MUST be dirty, which makes no
+        // difference as a clean one: the state is just loaded, not
+        // reloaded.
         let (room_event_cache_1_p0, _) =
             client_p0.get_room(room_id_1).unwrap().event_cache().await.unwrap();
 

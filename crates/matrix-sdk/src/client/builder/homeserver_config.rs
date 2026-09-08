@@ -78,9 +78,11 @@ impl HomeserverConfig {
             }
 
             Self::ServerName { server, protocol } => {
-                // The well-known is the only source of the homeserver URL here, so there is
-                // nothing we could fall back to. Assuming the server name *is* the homeserver
-                // would silently talk to the wrong host for any delegating deployment.
+                // The well-known is the only source of the homeserver URL here,
+                // so there is nothing we could fall back to.
+                // Assuming the server name *is* the homeserver
+                // would silently talk to the wrong host for any delegating
+                // deployment.
                 if well_known_lookup_disabled {
                     return Err(ClientBuildError::WellKnownLookupDisabled);
                 }
@@ -393,8 +395,8 @@ mod tests {
 
         mock_well_known_never_called(&server, &homeserver).await;
 
-        // A server name can only be resolved through the well-known, so this must fail
-        // rather than guess a homeserver.
+        // A server name can only be resolved through the well-known, so this
+        // must fail rather than guess a homeserver.
         let error = HomeserverConfig::ServerName {
             server: OwnedServerName::try_from(server.address().to_string()).unwrap(),
             protocol: UrlScheme::Http,
@@ -417,9 +419,10 @@ mod tests {
 
         mock_well_known_never_called(&server, &homeserver).await;
 
-        // The value points at a delegating server, not at a homeserver: with the
-        // well-known step skipped, the homeserver check is all that's left, and it
-        // fails since `server` doesn't answer `/_matrix/client/versions`.
+        // The value points at a delegating server, not at a homeserver: with
+        // the well-known step skipped, the homeserver check is all
+        // that's left, and it fails since `server` doesn't answer
+        // `/_matrix/client/versions`.
         let error = HomeserverConfig::ServerNameOrHomeserverUrl(server.uri().to_string())
             .discover(&http_client, true)
             .await
@@ -446,8 +449,9 @@ mod tests {
             .mount(&homeserver)
             .await;
 
-        // The value points at a homeserver, which the `/_matrix/client/versions` check
-        // proves, so this resolves without ever touching the well-known.
+        // The value points at a homeserver, which the
+        // `/_matrix/client/versions` check proves, so this resolves
+        // without ever touching the well-known.
         let result = HomeserverConfig::ServerNameOrHomeserverUrl(homeserver.uri().to_string())
             .discover(&http_client, true)
             .await

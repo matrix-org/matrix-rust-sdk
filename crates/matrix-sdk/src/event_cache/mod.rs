@@ -628,8 +628,8 @@ impl EventCacheInner {
 
     /// Clear a single room's data.
     async fn forget_room(&self, room_id: &RoomId) -> Result<()> {
-        // The constraints are very similar to what we do in `clear_all_rooms`. See this
-        // information to understand them.
+        // The constraints are very similar to what we do in `clear_all_rooms`.
+        // See this information to understand them.
 
         let mut caches_for_all_rooms = self.by_room.write().await;
         self.state.clear_and_reload(&caches_for_all_rooms, Some(room_id)).await?;
@@ -680,10 +680,10 @@ impl EventCacheInner {
     /// Handles a single set of room updates at once.
     #[instrument(skip(self, updates))]
     async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
-        // NOTE: We tried to make this concurrent at some point, but it turned out to be
-        // a performance regression, even for large sync updates. Lacking time
-        // to investigate, this code remains sequential for now. See also
-        // https://github.com/matrix-org/matrix-rust-sdk/pull/5426.
+        // NOTE: We tried to make this concurrent at some point, but it turned
+        // out to be a performance regression, even for large sync
+        // updates. Lacking time to investigate, this code remains
+        // sequential for now. See also https://github.com/matrix-org/matrix-rust-sdk/pull/5426.
 
         // Left rooms.
         for (room_id, left_room_update) in updates.left {
@@ -715,8 +715,9 @@ impl EventCacheInner {
 
         // Invited rooms.
         //
-        // We don't handle `updates.invite` because they contain stripped-state events,
-        // which is not handled by the Event Cache for the moment.
+        // We don't handle `updates.invite` because they contain stripped-state
+        // events, which is not handled by the Event Cache for the
+        // moment.
 
         Ok(())
     }
@@ -726,20 +727,22 @@ impl EventCacheInner {
         &self,
         room_id: &RoomId,
     ) -> Result<OwnedRwLockReadGuard<CachesByRoom, Caches>> {
-        // Fast path: the entry exists; let's acquire a read lock, it's cheaper than a
-        // write lock.
+        // Fast path: the entry exists; let's acquire a read lock, it's cheaper
+        // than a write lock.
         match OwnedRwLockReadGuard::try_map(self.by_room.clone().read_owned().await, |by_room| {
             by_room.get(room_id)
         }) {
             Ok(caches) => Ok(caches),
 
             Err(by_room_guard) => {
-                // Slow-path: the entry doesn't exist; let's acquire a write lock.
+                // Slow-path: the entry doesn't exist; let's acquire a write
+                // lock.
                 drop(by_room_guard);
                 let by_room_guard = self.by_room.clone().write_owned().await;
 
-                // In the meanwhile, some other caller might have obtained write access and done
-                // the same, so check for existence again.
+                // In the meanwhile, some other caller might have obtained write
+                // access and done the same, so check for
+                // existence again.
                 let mut by_room_guard =
                     match OwnedRwLockWriteGuard::try_downgrade_map(by_room_guard, |by_room| {
                         by_room.get(room_id)
@@ -815,13 +818,13 @@ mod tests {
 
         let event_cache = client.event_cache();
 
-        // If I create a room event subscriber for a room before subscribing the event
-        // cache,
+        // If I create a room event subscriber for a room before subscribing the
+        // event cache,
         let room_id = room_id!("!omelette:fromage.fr");
         let result = event_cache.room(room_id).await;
 
-        // Then it fails, because one must explicitly call `.subscribe()` on the event
-        // cache.
+        // Then it fails, because one must explicitly call `.subscribe()` on the
+        // event cache.
         assert_matches!(result, Err(EventCacheError::NotSubscribedYet));
     }
 
@@ -881,8 +884,8 @@ mod tests {
         let found2 = room_event_cache.find_event(eid2).await.unwrap().unwrap();
         assert_event_matches_msg(&found2, "you");
 
-        // Retrieving the event with id3 from the room which doesn't contain it will
-        // fail…
+        // Retrieving the event with id3 from the room which doesn't contain it
+        // will fail…
         assert!(room_event_cache.find_event(eid3).await.unwrap().is_none());
     }
 

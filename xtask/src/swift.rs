@@ -96,8 +96,8 @@ impl SwiftArgs {
                 watchos_deployment_target,
                 sequentially,
             } => {
-                // The dev profile seems to cause crashes on some platforms so we default to
-                // reldbg (https://github.com/matrix-org/matrix-rust-sdk/issues/4009)
+                // The dev profile seems to cause crashes on some platforms so
+                // we default to reldbg (https://github.com/matrix-org/matrix-rust-sdk/issues/4009)
                 let profile =
                     profile.as_deref().unwrap_or(if release { "small-release" } else { "reldbg" });
                 build_xcframework(
@@ -389,8 +389,9 @@ fn build_targets(
 ) -> Result<HashMap<Platform, Vec<Utf8PathBuf>>> {
     let sh = sh();
 
-    // Note: `push_env` stores environment variables and returns a RAII guard that
-    // will restore the environment variable to its previous value when dropped.
+    // Note: `push_env` stores environment variables and returns a RAII guard
+    // that will restore the environment variable to its previous value when
+    // dropped.
     let _env_guard1 =
         sh.push_env("CARGO_TARGET_AARCH64_APPLE_IOS_RUSTFLAGS", "-Clinker=/usr/bin/clang");
     let _env_guard2 = sh.push_env("AARCH64_APPLE_IOS_CC", "/usr/bin/clang");
@@ -443,8 +444,8 @@ fn build_targets(
         }
     }
 
-    // a hashmap of platform to array, where each array contains all the paths for
-    // that platform.
+    // a hashmap of platform to array, where each array contains all the paths
+    // for that platform.
     let mut platform_build_paths = HashMap::new();
     for target in targets {
         let path = build_path_for_target(target, profile)?;

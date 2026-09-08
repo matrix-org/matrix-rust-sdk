@@ -428,8 +428,8 @@ mod tests {
         assert!(strong.feedback.is_none(), "expected no feedback for a strong password");
     }
 
-    // The same thresholds values passed into the constructor are retrievable via
-    // `thresholds()`
+    // The same thresholds values passed into the constructor are retrievable
+    // via `thresholds()`
     #[test]
     fn test_thresholds_roundtrip() {
         let thresholds =

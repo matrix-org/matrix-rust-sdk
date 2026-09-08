@@ -291,9 +291,10 @@ async fn test_set_in_secret_store() {
     let uploaded_content: Arc<Mutex<Option<SecretEventContent>>> = Mutex::new(None).into();
 
     {
-        // This mock is scoped because, at first we don't have a `foo` event in our
-        // account data. Only when we call `secret_store.set_secret()` will we
-        // have one, and a different mock will be required for the next GET request.
+        // This mock is scoped because, at first we don't have a `foo` event in
+        // our account data. Only when we call
+        // `secret_store.set_secret()` will we have one, and a different
+        // mock will be required for the next GET request.
         let _guard = Mock::given(method("GET"))
             .and(path("_matrix/client/r0/user/@example:localhost/account_data/foo"))
             .and(header("authorization", "Bearer 1234"))

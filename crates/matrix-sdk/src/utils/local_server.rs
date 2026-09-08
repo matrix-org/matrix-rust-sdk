@@ -183,8 +183,8 @@ impl LocalServerBuilder {
                     return Ok::<_, Infallible>(StatusCode::METHOD_NOT_ALLOWED.into_response());
                 }
 
-                // We only need to get the first response so we consume the transmitter the
-                // first time.
+                // We only need to get the first response so we consume the
+                // transmitter the first time.
                 if let Some(data_sender) = data_sender_mutex.lock().take() {
                     let _ =
                         data_sender.send(request.uri().query().map(|s| QueryString(s.to_owned())));

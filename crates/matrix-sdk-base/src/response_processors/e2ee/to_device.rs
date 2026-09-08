@@ -112,10 +112,10 @@ async fn process(
 
         Output { processed_to_device_events: events }
     } else {
-        // If we have no `OlmMachine`, just return the clear events that were passed in.
-        // The encrypted ones are dropped as they are un-usable.
-        // This should not happen unless we forget to set things up by calling
-        // `Self::activate()`.
+        // If we have no `OlmMachine`, just return the clear events that were
+        // passed in. The encrypted ones are dropped as they are
+        // un-usable. This should not happen unless we forget to set
+        // things up by calling `Self::activate()`.
         Output {
             processed_to_device_events: encryption_sync_changes
                 .to_device_events

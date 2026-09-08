@@ -75,9 +75,10 @@ impl EncryptionSyncService {
         client: Client,
         poll_and_network_timeouts: Option<(Duration, Duration)>,
     ) -> Result<Self, Error> {
-        // Make sure to use the same `conn_id` and caching store identifier, whichever
-        // process is running this sliding sync. There must be at most one
-        // sliding sync instance that enables the e2ee and to-device extensions.
+        // Make sure to use the same `conn_id` and caching store identifier,
+        // whichever process is running this sliding sync. There must be
+        // at most one sliding sync instance that enables the e2ee and
+        // to-device extensions.
         let mut builder = client
             .sliding_sync("encryption")
             .map_err(Error::SlidingSync)?
@@ -96,7 +97,8 @@ impl EncryptionSyncService {
         if let CrossProcessLockConfig::MultiProcess { holder_name } =
             client.cross_process_lock_config()
         {
-            // Gently try to enable the cross-process lock on behalf of the user.
+            // Gently try to enable the cross-process lock on behalf of the
+            // user.
             match client.encryption().enable_cross_process_store_lock(holder_name.clone()).await {
                 Ok(()) | Err(matrix_sdk::Error::BadCryptoStoreState) => {
                     // Ignore; we've already set the crypto store lock to
@@ -138,14 +140,15 @@ impl EncryptionSyncService {
             let mut lock_guard =
                 self.client.encryption().try_lock_store_once().await.map_err(Error::LockError)?;
 
-            // Try to take the lock at the beginning; if it's busy, that means that another
-            // process already holds onto it, and as such we won't try to run the
-            // encryption sync loop at all (because we expect the other process to
-            // do so).
+            // Try to take the lock at the beginning; if it's busy, that means
+            // that another process already holds onto it, and as
+            // such we won't try to run the encryption sync loop at
+            // all (because we expect the other process to do so).
 
             if lock_guard.is_none() {
-                // If we can't acquire the cross-process lock on the first attempt,
-                // that means the main process is running, or its lease hasn't expired
+                // If we can't acquire the cross-process lock on the first
+                // attempt, that means the main process is
+                // running, or its lease hasn't expired
                 // yet. In case it's the latter, wait a bit and retry.
                 tracing::debug!(
                     "Lock was already taken, and we're not the main loop; retrying in {}ms...",
@@ -177,8 +180,9 @@ impl EncryptionSyncService {
         for _ in 0..num_iterations {
             match sync.next().await {
                 Some(Ok(update_summary)) => {
-                    // This API is only concerned with the e2ee and to-device extensions.
-                    // Warn if anything weird has been received from the homeserver.
+                    // This API is only concerned with the e2ee and to-device
+                    // extensions. Warn if anything weird
+                    // has been received from the homeserver.
                     if !update_summary.lists.is_empty() {
                         debug!(?update_summary.lists, "unexpected non-empty list of lists in encryption sync API");
                     }
@@ -225,8 +229,9 @@ impl EncryptionSyncService {
             loop {
                 match self.next_sync_with_lock(&mut sync).await? {
                     Some(Ok(update_summary)) => {
-                        // This API is only concerned with the e2ee and to-device extensions.
-                        // Warn if anything weird has been received from the homeserver.
+                        // This API is only concerned with the e2ee and
+                        // to-device extensions. Warn if
+                        // anything weird has been received from the homeserver.
                         if !update_summary.lists.is_empty() {
                             debug!(?update_summary.lists, "unexpected non-empty list of lists in encryption sync API");
                         }
@@ -277,8 +282,9 @@ impl EncryptionSyncService {
     ///
     /// This will unlock the cross-process lock, if taken.
     pub(crate) fn stop_sync(&self) -> Result<(), Error> {
-        // Stopping the sync loop will cause the next `next()` call to return `None`, so
-        // this will also release the cross-process lock automatically.
+        // Stopping the sync loop will cause the next `next()` call to return
+        // `None`, so this will also release the cross-process lock
+        // automatically.
         self.sliding_sync.stop_sync().map_err(Error::SlidingSync)?;
 
         Ok(())

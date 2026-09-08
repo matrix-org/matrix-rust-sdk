@@ -169,14 +169,16 @@ impl<'a> SenderDataFinder<'a> {
         sender_curve_key: Curve25519PublicKey,
         room_key_event: &'a DecryptedRoomKeyEvent,
     ) -> Result<SenderData, SessionDeviceKeysCheckError> {
-        // Does the to-device message contain the device_keys property from MSC4147?
+        // Does the to-device message contain the device_keys property from
+        // MSC4147?
         if let Some(sender_device_keys) = &room_key_event.sender_device_keys {
             // Yes: use the device keys to continue.
 
-            // Validate the signature of the DeviceKeys supplied. (We've actually already
-            // done this when decrypting the event, but doing it again here is
-            // relatively harmless and is the easiest way of getting hold of a
-            // DeviceData so that we can follow the rest of this logic).
+            // Validate the signature of the DeviceKeys supplied. (We've
+            // actually already done this when decrypting the event,
+            // but doing it again here is relatively harmless and is
+            // the easiest way of getting hold of a DeviceData so
+            // that we can follow the rest of this logic).
             let sender_device_data = DeviceData::try_from(sender_device_keys)?;
             Ok(self.have_device_data(sender_device_data).await?)
         } else {
@@ -191,8 +193,8 @@ impl<'a> SenderDataFinder<'a> {
         sender_curve_key: Curve25519PublicKey,
         sender_user_id: &UserId,
     ) -> Result<SenderData, SessionDeviceCheckError> {
-        // Does the locally-cached (in the store) devices list contain a device with the
-        // curve key of the sender of the to-device message?
+        // Does the locally-cached (in the store) devices list contain a device
+        // with the curve key of the sender of the to-device message?
         if let Some(sender_device) =
             self.store.get_device_from_curve_key(sender_user_id, sender_curve_key).await?
         {
@@ -201,8 +203,8 @@ impl<'a> SenderDataFinder<'a> {
         } else {
             // Step C (we don't know the sending device)
             //
-            // We have no device data for this session so we can't continue in the "fast
-            // lane" (blocking sync).
+            // We have no device data for this session so we can't continue in
+            // the "fast lane" (blocking sync).
             let sender_data = SenderData::UnknownDevice {
                 // This is not a legacy session since we did attempt to look
                 // up its sender data at the time of reception.
@@ -233,8 +235,8 @@ impl<'a> SenderDataFinder<'a> {
             // Give up: something is wrong with the session.
             Ok(SenderData::UnknownDevice { legacy_session: false, owner_check_failed: true })
         } else {
-            // Steps F, G, and H: we have a device, which may or may not be signed by the
-            // sender.
+            // Steps F, G, and H: we have a device, which may or may not be
+            // signed by the sender.
             Ok(SenderData::from_device(&sender_device))
         }
     }
@@ -365,8 +367,8 @@ mod tests {
 
     #[async_test]
     async fn test_providing_no_device_data_returns_sender_data_with_no_device_info() {
-        // Given that the device is not in the store and the initial event has no device
-        // info
+        // Given that the device is not in the store and the initial event has
+        // no device info
         let setup = TestSetup::new(TestOptions::new()).await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
@@ -405,8 +407,8 @@ mod tests {
 
     #[async_test]
     async fn test_picks_up_device_info_from_the_store_if_missing_from_the_todevice_event() {
-        // Given that the device keys are not in the event but the device is in the
-        // store
+        // Given that the device keys are not in the event but the device is in
+        // the store
         let setup =
             TestSetup::new(TestOptions::new().store_contains_device().device_is_signed()).await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
@@ -436,8 +438,8 @@ mod tests {
             .await
             .unwrap();
 
-        // Then we store the device info even though it is useless, in case we want to
-        // check it matches up later.
+        // Then we store the device info even though it is useless, in case we
+        // want to check it matches up later.
         assert_let!(SenderData::DeviceInfo { device_keys, legacy_session } = sender_data);
         assert_eq!(&device_keys, setup.sender_device.as_device_keys());
         assert!(!legacy_session);
@@ -531,7 +533,8 @@ mod tests {
 
     #[async_test]
     async fn test_adds_sender_data_for_other_verified_device_and_user_using_device_from_event() {
-        // Given the device keys are in the event, and someone else sent the event
+        // Given the device keys are in the event, and someone else sent the
+        // event
         let setup = TestSetup::new(
             TestOptions::new()
                 .store_contains_sender_identity()
@@ -627,7 +630,8 @@ mod tests {
 
     #[async_test]
     async fn test_notes_master_key_is_verified_for_own_identity() {
-        // Given we can find the device, and we sent the event, and we are verified
+        // Given we can find the device, and we sent the event, and we are
+        // verified
         let setup = TestSetup::new(
             TestOptions::new()
                 .store_contains_device()
@@ -695,7 +699,8 @@ mod tests {
                 .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
-        // When we supply the device keys directly while asking for the sender data
+        // When we supply the device keys directly while asking for the sender
+        // data
         let sender_data = finder.have_device_data(setup.sender_device.inner.clone()).await.unwrap();
 
         // Then it is found using the device we supplied

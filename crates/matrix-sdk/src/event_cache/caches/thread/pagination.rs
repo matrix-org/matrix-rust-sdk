@@ -101,8 +101,8 @@ impl PaginatedCache for ThreadEventCacheWrapper {
     async fn load_more_events_backwards(&self) -> Result<LoadMoreEventsBackwardsOutcome> {
         let mut state = self.cache.state.write().await?;
 
-        // If any in-memory chunk is a gap, don't load more events, and let the caller
-        // resolve the gap.
+        // If any in-memory chunk is a gap, don't load more events, and let the
+        // caller resolve the gap.
         if let Some(prev_token) = state.thread_linked_chunk().rgap().map(|gap| gap.token) {
             trace!(%prev_token, "thread chunk has at least a gap");
 
@@ -114,8 +114,9 @@ impl PaginatedCache for ThreadEventCacheWrapper {
 
         let prev_first_chunk = state.thread_linked_chunk().first_chunk();
 
-        // If we are here, it means all gaps have been resolved (see the `if` block
-        // above). So the first chunk is not a gap, we can load its previous chunk.
+        // If we are here, it means all gaps have been resolved (see the `if`
+        // block above). So the first chunk is not a gap, we can load
+        // its previous chunk.
         let linked_chunk_id = LinkedChunkId::Thread(&state.room_id, &state.thread_id);
         let new_first_chunk = match state
             .store
@@ -130,8 +131,9 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             Ok(None) => {
                 // No previous chunk in the store.
                 //
-                // If the first in-memory event is the thread root, it's all good, we have
-                // effectively reached the start of the thread.
+                // If the first in-memory event is the thread root, it's all
+                // good, we have effectively reached the start
+                // of the thread.
                 if let Some((_pos, first_event)) = state.thread_linked_chunk().events().next()
                     && self.cache.thread_id
                         == first_event.event_id().expect("Stored events all have an ID")
@@ -164,11 +166,11 @@ impl PaginatedCache for ThreadEventCacheWrapper {
 
         let chunk_content = new_first_chunk.content.clone();
 
-        // We've reached the start on disk, if and only if, there was no chunk prior to
-        // the one we just loaded.
+        // We've reached the start on disk, if and only if, there was no chunk
+        // prior to the one we just loaded.
         //
-        // This value is correct, if and only if, it is used for a chunk content of kind
-        // `Items`.
+        // This value is correct, if and only if, it is used for a chunk content
+        // of kind `Items`.
         let reached_start = new_first_chunk.previous.is_none();
 
         if let Err(err) = state.thread_linked_chunk_mut().insert_new_chunk_as_first(new_first_chunk)
@@ -188,8 +190,8 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             return Err(err.into());
         }
 
-        // ⚠️ Let's not propagate the updates to the store! We already have these data
-        // in the store! Let's drain them.
+        // ⚠️ Let's not propagate the updates to the store! We already have
+        // these data in the store! Let's drain them.
         let _ = state.thread_linked_chunk_mut().store_updates().take();
 
         // However, we want to get updates as `VectorDiff`s.
@@ -286,11 +288,13 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         };
 
         // The thread root event is **NOT** part of the `/relations` response.
-        // However, we want the thread root event to be part of the thread itself. It's
-        // easier in a lot of situations. Let's load it if necessary.
+        // However, we want the thread root event to be part of the thread
+        // itself. It's easier in a lot of situations. Let's load it if
+        // necessary.
         //
-        // It is necessary to load the thread root event when `new_token` is `None`,
-        // i.e. when we've reached the start of the thread usually.
+        // It is necessary to load the thread root event when `new_token` is
+        // `None`, i.e. when we've reached the start of the thread
+        // usually.
         //
         // We must do this dance before acquiring the state lock because
         // `Room::load_or_fetch_event` is hitting the state lock too.
@@ -304,8 +308,8 @@ impl PaginatedCache for ThreadEventCacheWrapper {
 
         let mut state = self.cache.state.write().await?;
 
-        // Check that the previous token still exists; otherwise it's a sign that the
-        // thread's timeline has been cleared.
+        // Check that the previous token still exists; otherwise it's a sign
+        // that the thread's timeline has been cleared.
         let prev_gap_id = if let Some(token) = prev_token {
             // Find the corresponding gap in the in-memory linked chunk.
             let gap_chunk_id = state.thread_linked_chunk().chunk_identifier(|chunk| {
@@ -313,10 +317,12 @@ impl PaginatedCache for ThreadEventCacheWrapper {
                 });
 
             if gap_chunk_id.is_none() {
-                // We got a previous-batch token from the linked chunk *before* running the
-                // request, but it is missing *after* completing the request.
+                // We got a previous-batch token from the linked chunk *before*
+                // running the request, but it is missing
+                // *after* completing the request.
                 //
-                // It may be a sign the linked chunk has been reset, but it's fine!
+                // It may be a sign the linked chunk has been reset, but it's
+                // fine!
                 return Ok(None);
             }
 
@@ -344,13 +350,14 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         //
         // Consider the following scenario:
         // - sync returns [D, E, F]
-        // - then sync returns [] with a previous batch token PB1, so the internal
-        //   linked chunk state is [D, E, F, PB1].
+        // - then sync returns [] with a previous batch token PB1, so the
+        //   internal linked chunk state is [D, E, F, PB1].
         // - back-paginating with PB1 may return [A, B, C, D, E, F].
         //
-        // Only inserting the new events when replacing PB1 would result in a timeline
-        // ordering of [D, E, F, A, B, C], which is incorrect. So we do have to remove
-        // all the events, in case this happens (see also #4746).
+        // Only inserting the new events when replacing PB1 would result in a
+        // timeline ordering of [D, E, F, A, B, C], which is incorrect.
+        // So we do have to remove all the events, in case this happens
+        // (see also #4746).
 
         if !all_duplicates {
             // Let's forget all the previous events.
@@ -360,13 +367,13 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         } else {
             // All new events are duplicated, they can all be ignored.
             events.clear();
-            // The gap can be ditched too, as it won't be useful to backpaginate any
-            // further.
+            // The gap can be ditched too, as it won't be useful to backpaginate
+            // any further.
             new_token = None;
         }
 
-        // `/relations` has been called with `dir=b` (backwards), so the events are in
-        // the inverted order; reorder them.
+        // `/relations` has been called with `dir=b` (backwards), so the events
+        // are in the inverted order; reorder them.
         let topo_ordered_events = events.iter().rev().cloned().collect::<Vec<_>>();
 
         let new_gap = new_token.map(|prev_token| Gap { token: prev_token });
@@ -383,9 +390,9 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         // ephemeral events not included in /relations responses, so we can
         // safely set the receipt event to None here.
         //
-        // Note: read receipts may be updated anyhow in the post-processing step, as the
-        // back-pagination may have revealed the event pointed to by the latest read
-        // receipt.
+        // Note: read receipts may be updated anyhow in the post-processing
+        // step, as the back-pagination may have revealed the event
+        // pointed to by the latest read receipt.
         let receipt_event = None;
 
         // Post-process newly inserted events.

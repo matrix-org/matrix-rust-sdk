@@ -65,8 +65,8 @@ async fn test_remote_echo_full_trip() {
         assert!(date_divider.is_date_divider());
     }
 
-    // Scenario 2: The local event has not been sent to the server successfully, it
-    // has failed. In this case, there is no event ID.
+    // Scenario 2: The local event has not been sent to the server successfully,
+    // it has failed. In this case, there is no event ID.
     {
         let error = Arc::new(matrix_sdk::Error::SendQueueWedgeError(Box::new(
             QueueWedgeError::GenericApiError { msg: "this is a test".to_owned() },
@@ -89,8 +89,8 @@ async fn test_remote_echo_full_trip() {
         assert_eq!(*item.unique_id(), id);
     }
 
-    // Scenario 3: The local event has been sent successfully to the server and an
-    // event ID has been received as part of the server's response.
+    // Scenario 3: The local event has been sent successfully to the server and
+    // an event ID has been received as part of the server's response.
     let event_id = event_id!("$W6mZSLWMmfuQQ9jhZWeTxFIM");
     let timestamp = {
         timeline
@@ -110,8 +110,8 @@ async fn test_remote_echo_full_trip() {
         event_item.timestamp()
     };
 
-    // Now, a sync has been run against the server, and an event with the same ID
-    // comes in.
+    // Now, a sync has been run against the server, and an event with the same
+    // ID comes in.
     timeline
         .handle_live_event(
             timeline
@@ -207,8 +207,9 @@ async fn test_date_divider_removed_after_local_echo_disappeared() {
     assert!(items[1].is_remote_event());
 
     // Add a local echo.
-    // It's not possible to synthesize `LocalEcho`s because they require forging a
-    // `SendHandle`, which is a bit involved. Instead, use handle_local_event.
+    // It's not possible to synthesize `LocalEcho`s because they require forging
+    // a `SendHandle`, which is a bit involved. Instead, use
+    // handle_local_event.
     let txn_id =
         timeline.handle_local_event(RoomMessageEventContent::text_plain("local echo").into()).await;
 
@@ -249,8 +250,8 @@ async fn test_no_read_marker_with_local_echo() {
 
     let f = &timeline.factory;
 
-    // Use `replace_with_initial_remote_events` which initializes the read marker;
-    // other methods don't, by default.
+    // Use `replace_with_initial_remote_events` which initializes the read
+    // marker; other methods don't, by default.
     timeline
         .controller
         .replace_with_initial_remote_events(
@@ -270,8 +271,9 @@ async fn test_no_read_marker_with_local_echo() {
     assert!(items[1].is_remote_event());
 
     // Add a local echo.
-    // It's not possible to synthesize `LocalEcho`s because they require forging a
-    // `SendHandle`, which is a bit involved. Instead, use handle_local_event.
+    // It's not possible to synthesize `LocalEcho`s because they require forging
+    // a `SendHandle`, which is a bit involved. Instead, use
+    // handle_local_event.
     let txn_id =
         timeline.handle_local_event(RoomMessageEventContent::text_plain("local echo").into()).await;
 

@@ -159,7 +159,8 @@ impl Client {
 
         let response = Box::pin(self.base_client().receive_sync_response(response)).await?;
 
-        // Some new keys might have been received, so trigger a backup if needed.
+        // Some new keys might have been received, so trigger a backup if
+        // needed.
         #[cfg(feature = "e2e-encryption")]
         self.encryption().backups().maybe_trigger_backup();
 

@@ -110,9 +110,10 @@ impl RoomSendQueue {
         };
 
         let offsets = {
-            // If we're uploading a file, we may have already uploaded a thumbnail; get its
-            // size from the in-memory thumbnail sizes cache. This will account in the
-            // current and total size, for the overall progress of
+            // If we're uploading a file, we may have already uploaded a
+            // thumbnail; get its size from the in-memory thumbnail
+            // sizes cache. This will account in the current and
+            // total size, for the overall progress of
             // thumbnail+file.
             let already_uploaded_thumbnail_bytes = if thumbnail_source.is_some() {
                 queue
@@ -128,9 +129,10 @@ impl RoomSendQueue {
 
             let already_uploaded_thumbnail_bytes = already_uploaded_thumbnail_bytes.unwrap_or(0);
 
-            // If we're uploading a thumbnail, get the size of the file to be uploaded after
-            // it, from the database. This will account in the total progress of the
-            // file+thumbnail upload (we're currently uploading the thumbnail,
+            // If we're uploading a thumbnail, get the size of the file to be
+            // uploaded after it, from the database. This will
+            // account in the total progress of the file+thumbnail
+            // upload (we're currently uploading the thumbnail,
             // in the first step).
             let pending_file_bytes = match RoomSendQueue::get_dependent_pending_file_upload_size(
                 own_txn_id, room,
@@ -146,8 +148,8 @@ impl RoomSendQueue {
                 }
             };
 
-            // In nominal cases where the send queue is used correctly, only one of these
-            // two values will be non-zero.
+            // In nominal cases where the send queue is used correctly, only one
+            // of these two values will be non-zero.
             AbstractProgress {
                 current: already_uploaded_thumbnail_bytes,
                 total: already_uploaded_thumbnail_bytes + pending_file_bytes,
@@ -167,8 +169,8 @@ impl RoomSendQueue {
         let dependent_requests =
             client.state_store().load_dependent_queued_requests(room.room_id()).await?;
 
-        // Try to find a depending request which depends on the target one, and that's a
-        // media upload.
+        // Try to find a depending request which depends on the target one, and
+        // that's a media upload.
         let Some((cache_key, parent_is_thumbnail_upload)) =
             dependent_requests.into_iter().find_map(|r| {
                 if r.parent_transaction_id != txn_id {
@@ -217,13 +219,14 @@ impl RoomSendQueue {
         let update_sender = update_sender.clone();
         let media_upload_info = *media_upload_info;
 
-        // Watch and communicate the progress on a detached background task. Once
-        // the progress observable is dropped, next() will return None and the
-        // task will end.
+        // Watch and communicate the progress on a detached background task.
+        // Once the progress observable is dropped, next() will return
+        // None and the task will end.
         spawn(async move {
             while let Some(progress) = subscriber.next().await {
-                // Purposefully don't use `send_update` here, because we don't want to notify
-                // the global listeners about an upload progress update.
+                // Purposefully don't use `send_update` here, because we don't
+                // want to notify the global listeners about an
+                // upload progress update.
                 let _ = update_sender.send(RoomSendQueueUpdate::MediaUpload {
                     related_to: related_txn_id.clone(),
                     file: None,

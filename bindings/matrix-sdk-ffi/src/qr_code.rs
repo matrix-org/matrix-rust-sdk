@@ -81,8 +81,8 @@ impl LoginWithQrCodeHandler {
 
         let mut progress = login.subscribe_to_progress();
 
-        // We create this task, which will get cancelled once it's dropped, just in case
-        // the progress stream doesn't end.
+        // We create this task, which will get cancelled once it's dropped, just
+        // in case the progress stream doesn't end.
         let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(state) = progress.next().await {
                 progress_listener.on_update(state.into());
@@ -125,8 +125,8 @@ impl LoginWithQrCodeHandler {
 
         let mut progress = login.subscribe_to_progress();
 
-        // We create this task, which will get cancelled once it's dropped, just in case
-        // the progress stream doesn't end.
+        // We create this task, which will get cancelled once it's dropped, just
+        // in case the progress stream doesn't end.
         let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(state) = progress.next().await {
                 progress_listener.on_update(state.into());
@@ -181,8 +181,8 @@ impl GrantLoginWithQrCodeHandler {
 
         let mut progress = grant.subscribe_to_progress();
 
-        // We create this task, which will get cancelled once it's dropped, just in case
-        // the progress stream doesn't end.
+        // We create this task, which will get cancelled once it's dropped, just
+        // in case the progress stream doesn't end.
         let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(state) = progress.next().await {
                 progress_listener.on_update(state.into());
@@ -219,8 +219,8 @@ impl GrantLoginWithQrCodeHandler {
 
         let mut progress = grant.subscribe_to_progress();
 
-        // We create this task, which will get cancelled once it's dropped, just in case
-        // the progress stream doesn't end.
+        // We create this task, which will get cancelled once it's dropped, just
+        // in case the progress stream doesn't end.
         let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(state) = progress.next().await {
                 progress_listener.on_update(state.into());

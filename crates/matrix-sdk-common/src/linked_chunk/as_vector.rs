@@ -214,20 +214,21 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
 
         // Flags specifying when updates are reattaching detached items.
         //
-        // TL;DR: This is an optimization to avoid that insertions in the middle of a
-        // chunk cause a large series of `VectorDiff::Remove` and
+        // TL;DR: This is an optimization to avoid that insertions in the middle
+        // of a chunk cause a large series of `VectorDiff::Remove` and
         // `VectorDiff::Insert` updates for the elements placed after the
         // inserted item.
         //
         // Why is it useful?
         //
-        // Imagine a `LinkedChunk::<3, char, ()>` containing `['a', 'b', 'c'] ['d']`. If
-        // one wants to insert [`w`, x`, 'y', 'z'] at position
-        // `Position(ChunkIdentifier(0), 1)`, i.e. at the position of `b`, here is what
-        // happens:
+        // Imagine a `LinkedChunk::<3, char, ()>` containing `['a', 'b', 'c']
+        // ['d']`. If one wants to insert [`w`, x`, 'y', 'z'] at
+        // position `Position(ChunkIdentifier(0), 1)`, i.e. at the
+        // position of `b`, here is what happens:
         //
-        // 1. `LinkedChunk` will split off `['a', 'b', 'c']` at index 1, the chunk
-        //    becomes `['a']` and `b` and `c` are _detached_, thus we have:
+        // 1. `LinkedChunk` will split off `['a', 'b', 'c']` at index 1, the
+        //    chunk becomes `['a']` and `b` and `c` are _detached_, thus we
+        //    have:
         //
         //     ['a'] ['d']
         //
@@ -239,8 +240,8 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
         //
         //     ['a', 'w', 'x'] ['y', 'z', 'b'] ['c'] ['d']
         //
-        // This detaching/reattaching approach makes it reliable and safe. Good. Now,
-        // what updates are we going to receive for each step?
+        // This detaching/reattaching approach makes it reliable and safe. Good.
+        // Now, what updates are we going to receive for each step?
         //
         // Step 1, detaching last items:
         //
@@ -291,11 +292,12 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
         // * `Update::DetachLastItems` must not emit `VectorDiff::Remove`,
         //
         // * `Update::PushItems` must not emit `VectorDiff::Insert`s or
-        //   `VectorDiff::Append`s if it happens after `StartReattachItems` and before
-        //   `EndReattachItems`. However, `Self::chunks` must always be updated.
+        //   `VectorDiff::Append`s if it happens after `StartReattachItems` and
+        //   before `EndReattachItems`. However, `Self::chunks` must always be
+        //   updated.
         //
-        // From the `VectorDiff` “point of view”, this optimisation aims at avoiding
-        // removing items to push them again later.
+        // From the `VectorDiff` “point of view”, this optimisation aims at
+        // avoiding removing items to push them again later.
         let mut reattaching = false;
         let mut detaching = false;
 
@@ -306,8 +308,10 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
                     match (previous, next) {
                         // New chunk at the end.
                         (Some(_previous), None) => {
-                            // No need to check `previous`. It's possible that the linked chunk is
-                            // lazily loaded, chunk by chunk. The `next` is always reliable, but the
+                            // No need to check `previous`. It's possible that
+                            // the linked chunk is
+                            // lazily loaded, chunk by chunk. The `next` is
+                            // always reliable, but the
                             // `previous` might not exist in-memory yet.
 
                             self.chunks.push_back((*new, 0));
@@ -336,8 +340,10 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
                                 // or `ObservableUpdates` contain a bug.
                                 .expect("Inserting new chunk: The chunk is not found");
 
-                            // No need to check `previous`. It's possible that the linked chunk is
-                            // lazily loaded, chunk by chunk. The `next` is always reliable, but the
+                            // No need to check `previous`. It's possible that
+                            // the linked chunk is
+                            // lazily loaded, chunk by chunk. The `next` is
+                            // always reliable, but the
                             // `previous` might not exist in-memory yet.
 
                             self.chunks.insert(next_chunk_index, (*new, 0));
@@ -367,7 +373,8 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
                         .remove(chunk_index)
                         .expect("Removing an index out of the bounds");
 
-                    // Removing at the same index because each `Remove` shifts items to the left.
+                    // Removing at the same index because each `Remove` shifts
+                    // items to the left.
                     acc.extend(repeat_n(VectorDiff::Remove { index: offset }, number_of_items));
                 }
 
@@ -386,7 +393,8 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
                         continue;
                     }
 
-                    // Optimisation: we can emit a `VectorDiff::Append` in this particular case.
+                    // Optimisation: we can emit a `VectorDiff::Append` in this
+                    // particular case.
                     if is_pushing_back && !detaching {
                         acc.extend([VectorDiff::Append { values: items.into() }]);
                     }
@@ -491,9 +499,11 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
 
                 // Chunk has not been found.
                 ControlFlow::Continue(..) => {
-                    // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates` are not buggy, and
-                    // assuming `Self::chunks` is correctly initialized, it is not possible to work
-                    // on a chunk that does not exist. If this predicate fails, it means
+                    // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates`
+                    // are not buggy, and
+                    // assuming `Self::chunks` is correctly initialized, it is
+                    // not possible to work on a chunk that
+                    // does not exist. If this predicate fails, it means
                     // `LinkedChunk` or `ObservableUpdates` contain a bug.
                     panic!("The chunk is not found");
                 }
@@ -655,7 +665,8 @@ mod tests {
 
         // From an `ObservableVector` point of view, it would look like:
         //
-        // 0   1   2   3   4   5   6   7   8   9   10  11  12  13  14  15  16  17
+        // 0   1   2   3   4   5   6   7   8   9   10  11  12  13  14  15  16
+        // 17
         // +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
         // | m | a | w | x | y | z | b | c | d | i | j | k | l | e | f | g | h |
         // +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
@@ -807,8 +818,8 @@ mod tests {
             assert_eq!(diffs.len(), 1);
             assert_matches!(&diffs[0], VectorDiff::Clear);
 
-            // 0 chunk in the `UpdateToVectorDiff` mapper, because the new chunk is lazily
-            // created.
+            // 0 chunk in the `UpdateToVectorDiff` mapper, because the new chunk
+            // is lazily created.
             let chunks = &as_vector.mapper.chunks;
             assert!(chunks.is_empty());
         }
@@ -870,8 +881,8 @@ mod tests {
 
         assert!(as_vector.take().is_empty());
 
-        // It's important to cause a change that will create new chunks, like pushing
-        // enough items.
+        // It's important to cause a change that will create new chunks, like
+        // pushing enough items.
         linked_chunk.push_items_back(['e', 'f', 'g']);
         #[rustfmt::skip]
         assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e', 'f'] ['g']);

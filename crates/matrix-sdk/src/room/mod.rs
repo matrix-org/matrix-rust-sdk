@@ -417,15 +417,15 @@ impl Room {
             );
         }
 
-        // If the room was in Invited state we should also forget it when declining the
-        // invite.
+        // If the room was in Invited state we should also forget it when
+        // declining the invite.
         let should_forget = matches!(self.state(), RoomState::Invited);
 
         let request = leave_room::v3::Request::new(self.inner.room_id().to_owned());
         let response = self.client.send(request).await;
 
-        // The server can return with an error that is acceptable to ignore. Let's find
-        // which one.
+        // The server can return with an error that is acceptable to ignore.
+        // Let's find which one.
         if let Err(error) = response {
             #[allow(clippy::collapsible_match)]
             let ignore_error = if let Some(error) = error.client_api_error_kind() {
@@ -672,7 +672,8 @@ impl Room {
                     .into_iter()
                     .filter(|user_id| *user_id != own_user_id)
                     .collect();
-                // Ignore the result. It can only fail if there are no listeners.
+                // Ignore the result. It can only fail if there are no
+                // listeners.
                 let _ = sender.send(typing_user_ids);
             }
         });
@@ -759,7 +760,8 @@ impl Room {
         event: Raw<AnyTimelineEvent>,
         push_ctx: Option<&PushContext>,
     ) -> TimelineEvent {
-        // If we have either an encrypted message-like or state event, try to decrypt.
+        // If we have either an encrypted message-like or state event, try to
+        // decrypt.
         match event.deserialize_as::<AnySyncTimelineEvent>() {
             Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
                 SyncMessageLikeEvent::Original(_),
@@ -866,12 +868,13 @@ impl Room {
         request_config: Option<RequestConfig>,
     ) -> Result<(TimelineEvent, Vec<TimelineEvent>)> {
         let fetch_relations = async || {
-            // If there's only a single filter, we can use a more efficient request,
-            // specialized on the filter type.
+            // If there's only a single filter, we can use a more efficient
+            // request, specialized on the filter type.
             //
             // Otherwise, we need to get all the relations:
             // - either because no filters implies we fetch all relations,
-            // - or because there are multiple filters and we must filter out manually.
+            // - or because there are multiple filters and we must filter out
+            //   manually.
             let include_relations = if let Some(filter) = &filter
                 && filter.len() == 1
             {
@@ -892,7 +895,8 @@ impl Room {
                 match self.relations(event_id.to_owned(), opts.clone()).await {
                     Ok(relations) => {
                         if let Some(filter) = filter.as_ref() {
-                            // Manually filter out the relation types we're interested in.
+                            // Manually filter out the relation types we're
+                            // interested in.
                             events.extend(relations.chunk.into_iter().filter_map(|ev| {
                                 let (rel_type, _) = extract_relation(ev.raw())?;
                                 filter
@@ -920,16 +924,17 @@ impl Room {
             }
         };
 
-        // First, try to load the event *and* its relations from the event cache, all at
-        // once.
+        // First, try to load the event *and* its relations from the event
+        // cache, all at once.
         let event_cache = match self.event_cache().await {
             Ok((event_cache, drop_handles)) => {
                 if let Some((event, mut relations)) =
                     event_cache.find_event_with_relations(event_id, filter.clone()).await?
                 {
                     if relations.is_empty() {
-                        // The event cache doesn't have any relations for this event, try to fetch
-                        // them from the server instead.
+                        // The event cache doesn't have any relations for this
+                        // event, try to fetch them from
+                        // the server instead.
                         relations = fetch_relations().await;
                     }
 
@@ -947,8 +952,8 @@ impl Room {
             }
         };
 
-        // Fetch the event from the server. A failure here is fatal, as we must return
-        // the target event.
+        // Fetch the event from the server. A failure here is fatal, as we must
+        // return the target event.
         let event = self.event(event_id, request_config).await?;
 
         // Try to get the relations from the event cache (if we have one).
@@ -960,8 +965,8 @@ impl Room {
             return Ok((event, relations));
         }
 
-        // We couldn't find the relations in the event cache; fetch them from the
-        // server.
+        // We couldn't find the relations in the event cache; fetch them from
+        // the server.
         Ok((event, fetch_relations().await))
     }
 
@@ -1032,7 +1037,8 @@ impl Room {
                     )
                     .await?;
 
-                // That's a large `Future`. Let's `Box::pin` to reduce its size on the stack.
+                // That's a large `Future`. Let's `Box::pin` to reduce its size
+                // on the stack.
                 Box::pin(self.client.base_client().receive_all_members(
                     self.room_id(),
                     &request,
@@ -1075,8 +1081,8 @@ impl Room {
                     Err(err) => return Err(err.into()),
                 };
 
-                // Persist the event and the fact that we requested it from the server in
-                // `RoomInfo`.
+                // Persist the event and the fact that we requested it from the
+                // server in `RoomInfo`.
                 self.update_and_save_room_info(|mut room_info| {
                     room_info.mark_encryption_state_synced();
                     room_info.set_encryption_event(response);
@@ -1478,8 +1484,9 @@ impl Room {
             // Check whether the parent recognizes this room as its child
             .map(|(state_key, sender): (OwnedRoomId, OwnedUserId)| async move {
                 let Some(parent_room) = self.client.get_room(&state_key) else {
-                    // We are not in the room, cannot check if the relationship is reciprocal
-                    // TODO: try peeking into the room
+                    // We are not in the room, cannot check if the relationship
+                    // is reciprocal TODO: try peeking into
+                    // the room
                     return Ok(ParentSpace::Unverifiable(state_key));
                 };
                 // Get the m.space.child state of the parent with this room's id
@@ -1490,8 +1497,8 @@ impl Room {
                 {
                     match child_event.deserialize() {
                         Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(_))) => {
-                            // There is a valid m.space.child in the parent pointing to
-                            // this room
+                            // There is a valid m.space.child in the parent
+                            // pointing to this room
                             return Ok(ParentSpace::Reciprocal(parent_room));
                         }
                         Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => {}
@@ -1509,8 +1516,8 @@ impl Room {
                     // relationship: https://spec.matrix.org/v1.8/client-server-api/#mspacechild
                 }
 
-                // No reciprocal m.space.child found, let's check if the sender has the
-                // power to set it
+                // No reciprocal m.space.child found, let's check if the sender
+                // has the power to set it
                 let Some(member) = parent_room.get_member(&sender).await? else {
                     // Sender is not even in the parent room
                     return Ok(ParentSpace::Illegitimate(parent_room));
@@ -1900,8 +1907,8 @@ impl Room {
                     .encryption()
                     .backups()
                     .maybe_download_room_key(self.room_id().to_owned(), event.clone());
-                // Cast safety: Anything that can be cast to EncryptedEvent must be a timeline
-                // event.
+                // Cast safety: Anything that can be cast to EncryptedEvent must
+                // be a timeline event.
                 Ok(TimelineEvent::from_utd(event.clone().cast_unchecked(), utd_info))
             }
         }
@@ -2021,9 +2028,10 @@ impl Room {
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
         self.client.send(request).await?;
 
-        // Force a future room members reload before sending any event to prevent UTDs
-        // that can happen when some event is sent after a room member has been invited
-        // but before the /sync request could fetch the membership change event.
+        // Force a future room members reload before sending any event to
+        // prevent UTDs that can happen when some event is sent after a
+        // room member has been invited but before the /sync request
+        // could fetch the membership change event.
         self.mark_members_missing();
 
         Ok(())
@@ -2040,9 +2048,10 @@ impl Room {
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
         self.client.send(request).await?;
 
-        // Force a future room members reload before sending any event to prevent UTDs
-        // that can happen when some event is sent after a room member has been invited
-        // but before the /sync request could fetch the membership change event.
+        // Force a future room members reload before sending any event to
+        // prevent UTDs that can happen when some event is sent after a
+        // room member has been invited but before the /sync request
+        // could fetch the membership change event.
         self.mark_members_missing();
 
         Ok(())
@@ -2161,8 +2170,8 @@ impl Room {
         thread: ReceiptThread,
         event_id: OwnedEventId,
     ) -> Result<()> {
-        // Since the receipt type and the thread aren't Hash/Ord, flatten then as a
-        // string key.
+        // Since the receipt type and the thread aren't Hash/Ord, flatten then
+        // as a string key.
         let request_key = format!("{}|{}", receipt_type, thread.as_str().unwrap_or("<unthreaded>"));
 
         self.client
@@ -2170,7 +2179,8 @@ impl Room {
             .locks
             .read_receipt_deduplicated_handler
             .run((request_key, event_id.clone()), async {
-                // We will unset the unread flag if we send an unthreaded receipt.
+                // We will unset the unread flag if we send an unthreaded
+                // receipt.
                 let is_unthreaded = thread == ReceiptThread::Unthreaded;
 
                 let mut request = create_receipt::v3::Request::new(
@@ -2239,8 +2249,8 @@ impl Room {
             }
             self.send_state_event(content).await?;
 
-            // Spin on the sync beat event, since the first sync we receive might not
-            // include the encryption event.
+            // Spin on the sync beat event, since the first sync we receive
+            // might not include the encryption event.
             //
             // TODO do we want to return an error here if we time out? This
             // could be quite useful if someone wants to enable encryption and
@@ -2248,7 +2258,8 @@ impl Room {
             let res = timeout(
                 async {
                     loop {
-                        // Listen for sync events, then check if the encryption state is known.
+                        // Listen for sync events, then check if the encryption
+                        // state is known.
                         self.client.inner.sync_beat.listen().await;
                         let _state_store_lock =
                             self.client.base_client().state_store_lock().lock().await;
@@ -2284,10 +2295,11 @@ impl Room {
                 return Ok(());
             }
 
-            // If after waiting for multiple syncs, we don't have the encryption state we
-            // expect, assume the local encryption state is incorrect; this will
-            // cause the SDK to re-request it later for confirmation, instead of
-            // assuming it's sync'd and correct (and not encrypted).
+            // If after waiting for multiple syncs, we don't have the encryption
+            // state we expect, assume the local encryption state is
+            // incorrect; this will cause the SDK to re-request it
+            // later for confirmation, instead of assuming it's
+            // sync'd and correct (and not encrypted).
             debug!("still not marked as encrypted, marking encryption state as missing");
 
             self.update_and_save_room_info_with_store_guard(&store_guard, |mut info| {
@@ -2550,8 +2562,8 @@ impl Room {
             .map(|tracked| (tracked.user_id, tracked.dirty))
             .collect();
 
-        // A member has no unknown devices iff it was tracked *and* the tracking is
-        // not considered dirty.
+        // A member has no unknown devices iff it was tracked *and* the tracking
+        // is not considered dirty.
         let members_with_unknown_devices =
             members.iter().filter(|member| tracked.get(*member).is_none_or(|dirty| *dirty));
 
@@ -2760,8 +2772,9 @@ impl Room {
         if store_in_cache {
             let media_store_lock_guard = self.client.media_store().lock().await?;
 
-            // A failure to cache shouldn't prevent the whole upload from finishing
-            // properly, so only log errors during caching.
+            // A failure to cache shouldn't prevent the whole upload from
+            // finishing properly, so only log errors during
+            // caching.
 
             debug!("caching the media");
             let request =
@@ -2874,8 +2887,9 @@ impl Room {
             content = content.add_mentions(mentions);
         }
         if let Some(reply) = reply {
-            // Since we just created the event, there is no relation attached to it. Thus,
-            // it is safe to add the reply relation without overriding anything.
+            // Since we just created the event, there is no relation attached to
+            // it. Thus, it is safe to add the reply relation
+            // without overriding anything.
             content = self.make_reply_event(content.into(), reply).await?;
         }
         Ok(content)
@@ -3642,8 +3656,9 @@ impl Room {
             Ok(power_levels) => Some(power_levels.into()),
             Err(error) => {
                 if matches!(room_info.state(), RoomState::Joined) {
-                    // It's normal to not have the power levels in a non-joined room, so don't log
-                    // the error if the room is not joined
+                    // It's normal to not have the power levels in a non-joined
+                    // room, so don't log the error if the
+                    // room is not joined
                     error!("Could not compute power levels for push conditions: {error}");
                 }
                 None
@@ -3749,19 +3764,20 @@ impl Room {
             return Err(Error::InsufficientData);
         };
 
-        let sender_member =
-            if let Some(member) = self.get_member_no_sync(member.event().sender()).await? {
-                // If the sender room member info is already available, return it
-                Some(member)
-            } else if self.are_members_synced() {
-                // The room members are synced and we couldn't find the sender info
-                None
-            } else if self.sync_members().await.is_ok() {
-                // Try getting the sender room member info again after syncing
-                self.get_member_no_sync(member.event().sender()).await?
-            } else {
-                None
-            };
+        let sender_member = if let Some(member) =
+            self.get_member_no_sync(member.event().sender()).await?
+        {
+            // If the sender room member info is already available, return it
+            Some(member)
+        } else if self.are_members_synced() {
+            // The room members are synced and we couldn't find the sender info
+            None
+        } else if self.sync_members().await.is_ok() {
+            // Try getting the sender room member info again after syncing
+            self.get_member_no_sync(member.event().sender()).await?
+        } else {
+            None
+        };
 
         Ok(RoomMemberWithSenderInfo { room_member: member, sender_info: sender_member })
     }
@@ -3788,12 +3804,14 @@ impl Room {
         let request = forget_room::v3::Request::new(room_id.to_owned());
         let _response = self.client.send(request).await?;
 
-        // If it was a DM, remove the room from the `m.direct` global account data.
+        // If it was a DM, remove the room from the `m.direct` global account
+        // data.
         if self.inner.direct_targets_length() != 0
             && let Err(e) = self.set_is_direct(false).await
         {
-            // It is not important whether we managed to remove the room, it will not have
-            // any consequences, so just log the error.
+            // It is not important whether we managed to remove the room, it
+            // will not have any consequences, so just log the
+            // error.
             warn!(?room_id, "failed to remove room from m.direct account data: {e}");
         }
 
@@ -3829,10 +3847,10 @@ impl Room {
         } else if let Ok(is_encrypted) =
             self.latest_encryption_state().await.map(|state| state.is_encrypted())
         {
-            // Otherwise, if encrypted status is available, get the default mode for this
-            // type of room.
-            // From the point of view of notification settings, a `one-to-one` room is one
-            // that involves exactly two people.
+            // Otherwise, if encrypted status is available, get the default mode
+            // for this type of room.
+            // From the point of view of notification settings, a `one-to-one`
+            // room is one that involves exactly two people.
             let is_one_to_one = IsOneToOne::from(self.active_members_count() == 2);
             let default_mode = notification_settings
                 .get_default_room_notification_mode(IsEncrypted::from(is_encrypted), is_one_to_one)
@@ -3851,8 +3869,8 @@ impl Room {
     //
     // Note for maintainers:
     //
-    // The fact the result is cached is an important property. If you change that in
-    // the future, please review all calls to this method.
+    // The fact the result is cached is an important property. If you change
+    // that in the future, please review all calls to this method.
     pub async fn user_defined_notification_mode(&self) -> Option<RoomNotificationMode> {
         if !matches!(self.state(), RoomState::Joined) {
             return None;
@@ -4156,14 +4174,15 @@ impl Room {
 
         let mut room_info_stream = self.subscribe_info();
 
-        // Spawn a task that will clean up the seen knock request ids when updated room
-        // members are received
+        // Spawn a task that will clean up the seen knock request ids when
+        // updated room members are received
         let clear_seen_ids_handle = spawn({
             let this = self.clone();
             async move {
                 let mut member_updates_stream = this.room_member_updates_sender.subscribe();
                 while member_updates_stream.recv().await.is_ok() {
-                    // If room members were updated, try to remove outdated seen knock request ids
+                    // If room members were updated, try to remove outdated seen
+                    // knock request ids
                     if let Err(err) = this.remove_outdated_seen_knock_requests_ids().await {
                         warn!("Failed to remove seen knock requests: {err}")
                     }
@@ -4320,8 +4339,8 @@ impl Room {
         };
 
         fn clamp(value: Option<Duration>, limits: &Option<LifetimeLimits>) -> Option<Duration> {
-            // No limit for this property: per MSC1763, use the room's value as-is,
-            // whether it has a value or not
+            // No limit for this property: per MSC1763, use the room's value
+            // as-is, whether it has a value or not
             let Some(limits) = limits else { return value };
             let Some(value) = value else {
                 // A value is not set, fall back to the minimum limit (which may
@@ -4352,10 +4371,10 @@ impl Room {
 
         // The two bounds are clamped independently against separate limits, so
         // they can still conflict (min_lifetime > max_lifetime). MSC1763 treats
-        // `max_lifetime` as a MUST (mandatory purge deadline) and `min_lifetime`
-        // as a SHOULD (retention floor), so we should honor the `max_lifetime`
-        // as having a greater priority and cap `min_lifetime` as such, in the
-        // event of this overlap.
+        // `max_lifetime` as a MUST (mandatory purge deadline) and
+        // `min_lifetime` as a SHOULD (retention floor), so we should
+        // honor the `max_lifetime` as having a greater priority and cap
+        // `min_lifetime` as such, in the event of this overlap.
         let min_lifetime = min_lifetime.map(|min| {
             let Some(max) = max_lifetime else { return min };
             if min > max {
@@ -4487,8 +4506,9 @@ impl Room {
 
             Err(err) => {
                 if let Some(ErrorKind::ConflictingUnsubscription) = err.client_api_error_kind() {
-                    // In this case: the server indicates that the user unsubscribed *after* the
-                    // event ID we've used in an automatic subscription; don't
+                    // In this case: the server indicates that the user
+                    // unsubscribed *after* the event ID we'
+                    // ve used in an automatic subscription; don't
                     // save the subscription state in the database, as the
                     // previous one should be more correct.
                     trace!("Thread subscription skipped: {err}");
@@ -4512,11 +4532,13 @@ impl Room {
         automatic: Option<OwnedEventId>,
     ) -> Result<()> {
         if let Some(prev_sub) = self.load_or_fetch_thread_subscription(thread_root).await? {
-            // If we have a previous subscription, we should only send the new one if it's
-            // manual and the previous one was automatic.
+            // If we have a previous subscription, we should only send the new
+            // one if it's manual and the previous one was
+            // automatic.
             if !prev_sub.automatic || automatic.is_some() {
-                // Either we had already a manual subscription, or we had an automatic one and
-                // the new one is automatic too: nothing to do!
+                // Either we had already a manual subscription, or we had an
+                // automatic one and the new one is automatic
+                // too: nothing to do!
                 return Ok(());
             }
         }
@@ -4724,12 +4746,13 @@ impl Room {
                 is_direct
             }
             DmRoomDefinition::TwoMembers => {
-                // If there is a single target and at most 2 active members, it's a DM.
-                // Try getting the calculated active service members count from the room info.
+                // If there is a single target and at most 2 active members,
+                // it's a DM. Try getting the calculated active
+                // service members count from the room info.
                 let active_service_member_count =
                     self.active_service_members_count().unwrap_or_else(|| {
-                        // Otherwise just use an approximated value based on the service members
-                        // count.
+                        // Otherwise just use an approximated value based on the
+                        // service members count.
                         self.service_members().map(|members| members.len()).unwrap_or_default()
                             as u64
                     });
@@ -5013,8 +5036,8 @@ mod tests {
         // Step 1, preshare the room keys.
         room.preshare_room_key().await.unwrap();
 
-        // Step 2, force lock invalidation by pretending another client obtained the
-        // lock.
+        // Step 2, force lock invalidation by pretending another client obtained
+        // the lock.
         {
             let client = Client::builder()
                 .homeserver_url("http://localhost:1234")
@@ -5046,8 +5069,8 @@ mod tests {
         let olm = client.olm_machine().await;
         let olm = olm.as_ref().expect("Olm machine wasn't started");
 
-        // Now pretend we're encrypting an event; the olm machine shouldn't rely on
-        // caching the outgoing session before.
+        // Now pretend we're encrypting an event; the olm machine shouldn't rely
+        // on caching the outgoing session before.
         let _encrypted_content = olm
             .encrypt_room_event_raw(room.room_id(), "test-event", &message_like_event_content!({}))
             .await
@@ -5619,7 +5642,8 @@ mod tests {
 
     #[async_test]
     async fn test_effective_retention_server_room_override() {
-        // Server per-room override should win even if room has its own state event.
+        // Server per-room override should win even if room has its own state
+        // event.
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let room = room_with_retention(

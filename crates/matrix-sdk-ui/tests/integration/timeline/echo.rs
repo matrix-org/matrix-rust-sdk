@@ -110,7 +110,8 @@ async fn test_echo() {
         )
         .await;
 
-    // The Event Cache deduplicates the first event, but we receive a second one.
+    // The Event Cache deduplicates the first event, but we receive a second
+    // one.
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 5);
 
@@ -146,8 +147,8 @@ async fn test_retry_failed() {
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
-    // When trying to send an event, return with a 500 error, which is interpreted
-    // as a transient error.
+    // When trying to send an event, return with a 500 error, which is
+    // interpreted as a transient error.
     let scoped_faulty_send = server.mock_room_send().error500().expect(3).mount_as_scoped().await;
 
     timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into()).await.unwrap();

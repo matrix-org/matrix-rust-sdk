@@ -152,8 +152,8 @@ impl Room {
     ) -> impl Stream<Item = Result<Vec<(f32, OwnedEventId)>, IndexError>> + use<> {
         let room = self.clone();
 
-        // TODO: use the client/server API search endpoint for public rooms, as those
-        // may require lots of time for indexing all events.
+        // TODO: use the client/server API search endpoint for public rooms, as
+        // those may require lots of time for indexing all events.
         try_stream! {
             let mut offset = 0;
             loop {
@@ -459,8 +459,8 @@ mod tests {
             let results: Vec<(OwnedRoomId, f32, OwnedEventId)> =
                 client.search_messages("world".to_owned()).build().try_concat().await.unwrap();
             assert_eq!(results.len(), 2);
-            // Search results order is not guaranteed, so we check that both expected
-            // results are present.
+            // Search results order is not guaranteed, so we check that both
+            // expected results are present.
             assert!(results.iter().any(|(room_id, _, event_id)| {
                 room_id == room_id1 && event_id == result_event_id1
             }));
@@ -478,8 +478,8 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(results.len(), 2);
-            // Search results order is not guaranteed, so we check that both expected
-            // results are present.
+            // Search results order is not guaranteed, so we check that both
+            // expected results are present.
             assert!(results.iter().any(|(room_id, event)| {
                 room_id == room_id1 && event.event_id() == Some(result_event_id1)
             }));
@@ -502,13 +502,15 @@ mod tests {
 
         let f = EventFactory::new().sender(user_id!("@user_id:localhost"));
 
-        // Both rooms get two documents of identical length (padded with filler so
-        // document-length normalization and the per-corpus IDF of "world" match across
-        // rooms). The score then depends only on how many times "world" appears.
+        // Both rooms get two documents of identical length (padded with filler
+        // so document-length normalization and the per-corpus IDF of
+        // "world" match across rooms). The score then depends only on
+        // how many times "world" appears.
         //
-        // Term frequencies are 4, 3, 2, 1, split so the rooms alternate by rank:
-        // room1 holds the 4x and 2x events, room2 the 3x and 1x events. A correct
-        // cross-room sort therefore interleaves the rooms: r1, r2, r1, r2.
+        // Term frequencies are 4, 3, 2, 1, split so the rooms alternate by
+        // rank: room1 holds the 4x and 2x events, room2 the 3x and 1x
+        // events. A correct cross-room sort therefore interleaves the
+        // rooms: r1, r2, r1, r2.
         let r1_rank1 = event_id!("$r1_rank1:localhost"); // room1, "world" x4
         let r2_rank2 = event_id!("$r2_rank2:localhost"); // room2, "world" x3
         let r1_rank3 = event_id!("$r1_rank3:localhost"); // room1, "world" x2

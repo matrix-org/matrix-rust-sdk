@@ -148,9 +148,10 @@ impl Account {
             }
         }
 
-        // If name is `Some(_)`, this endpoint is the same as `set_profile_field`, but
-        // we still need to use it in case it is `None` and the server doesn't support
-        // the delete endpoint yet.
+        // If name is `Some(_)`, this endpoint is the same as
+        // `set_profile_field`, but we still need to use it in case it
+        // is `None` and the server doesn't support the delete endpoint
+        // yet.
         #[allow(deprecated)]
         let request =
             set_display_name::v3::Request::new(user_id.to_owned(), name.map(ToOwned::to_owned));
@@ -250,9 +251,10 @@ impl Account {
             }
         }
 
-        // If url is `Some(_)`, this endpoint is the same as `set_profile_field`, but
-        // we still need to use it in case it is `None` and the server doesn't support
-        // the delete endpoint yet.
+        // If url is `Some(_)`, this endpoint is the same as
+        // `set_profile_field`, but we still need to use it in case it
+        // is `None` and the server doesn't support the delete endpoint
+        // yet.
         #[allow(deprecated)]
         let request =
             set_avatar_url::v3::Request::new(user_id.to_owned(), url.map(ToOwned::to_owned));
@@ -561,8 +563,8 @@ impl Account {
         if let Err(error) =
             self.client.base_client().own_profile_updated(UserProfileUpdate::Updated(changes)).await
         {
-            // The homeserver has already accepted the changes at this point, so we
-            // only need to log the failure.
+            // The homeserver has already accepted the changes at this point, so
+            // we only need to log the failure.
             warn!(?error, "Failed to update the locally stored copy of our own profile");
         }
     }
@@ -1108,27 +1110,28 @@ impl Account {
     pub async fn mark_as_dm(&self, room_id: &RoomId, user_ids: &[OwnedUserId]) -> Result<()> {
         use ruma::events::direct::DirectEventContent;
 
-        // This function does a read/update/store of an account data event stored on the
-        // homeserver. We first fetch the existing account data event, the event
-        // contains a map which gets updated by this method, finally we upload the
-        // modified event.
+        // This function does a read/update/store of an account data event
+        // stored on the homeserver. We first fetch the existing account
+        // data event, the event contains a map which gets updated by
+        // this method, finally we upload the modified event.
         //
-        // To prevent multiple calls to this method trying to update the map of DMs same
-        // time, and thus trampling on each other we introduce a lock which acts
-        // as a semaphore.
+        // To prevent multiple calls to this method trying to update the map of
+        // DMs same time, and thus trampling on each other we introduce
+        // a lock which acts as a semaphore.
         let _guard = self.client.locks().mark_as_dm_lock.lock().await;
 
         // Now we need to mark the room as a DM for ourselves, we fetch the
         // existing `m.direct` event and append the room to the list of DMs we
         // have with this user.
 
-        // We are fetching the content from the server because we currently can't rely
-        // on `/sync` giving us the correct data in a timely manner.
+        // We are fetching the content from the server because we currently
+        // can't rely on `/sync` giving us the correct data in a timely
+        // manner.
         let raw_content = self.fetch_account_data_static::<DirectEventContent>().await?;
 
         let mut content = if let Some(raw_content) = raw_content {
-            // Log the error and pass it upwards if we fail to deserialize the m.direct
-            // event.
+            // Log the error and pass it upwards if we fail to deserialize the
+            // m.direct event.
             raw_content.deserialize().map_err(|err| {
                 error!("unable to deserialize m.direct event content; aborting request to mark {room_id} as dm: {err}");
                 err
@@ -1162,10 +1165,10 @@ impl Account {
 
         self.set_account_data(ignored_user_list).await?;
 
-        // In theory, we should also clear some caches here, because they may include
-        // events sent by the ignored user. In practice, we expect callers to
-        // take care of this, or subsystems to listen to user list changes and
-        // clear caches accordingly.
+        // In theory, we should also clear some caches here, because they may
+        // include events sent by the ignored user. In practice, we
+        // expect callers to take care of this, or subsystems to listen
+        // to user list changes and clear caches accordingly.
 
         Ok(())
     }
@@ -1302,8 +1305,8 @@ impl Account {
         ),
         Error,
     > {
-        // We need to create two observers, one for the stable event and one for the
-        // unstable and combine them into a single stream.
+        // We need to create two observers, one for the stable event and one for
+        // the unstable and combine them into a single stream.
         let first_observer = self
             .client
             .observe_events::<GlobalAccountDataEvent<MediaPreviewConfigEventContent>, ()>();
@@ -1356,8 +1359,8 @@ impl Account {
                 .map(Raw::cast)
         };
 
-        // We deserialize the content of the event, if is not found we return the
-        // default
+        // We deserialize the content of the event, if is not found we return
+        // the default
         let media_preview_config = media_preview_config.and_then(|value| value.deserialize().ok());
 
         Ok(media_preview_config)
@@ -1433,19 +1436,22 @@ impl Account {
         let index = recent_emojis.iter().position(|(unicode, _)| unicode == emoji);
 
         // Truncate to the max allowed size, which will remove any emojis that
-        // haven't been used in a very long time. This will also ease the pressure on
-        // `remove` and `insert` shifting lots of elements in the list
+        // haven't been used in a very long time. This will also ease the
+        // pressure on `remove` and `insert` shifting lots of elements
+        // in the list
         recent_emojis.truncate(MAX_RECENT_EMOJI_COUNT);
 
-        // Remove the emoji from the list if it was present and get it's `count` value
+        // Remove the emoji from the list if it was present and get it's `count`
+        // value
         let count = if let Some(index) = index { recent_emojis.remove(index).1 } else { uint!(0) };
 
-        // Insert the emoji with the updated count at the start of the list, so it's
-        // considered the most recently used emoji
+        // Insert the emoji with the updated count at the start of the list, so
+        // it's considered the most recently used emoji
         recent_emojis.insert(0, (emoji.to_owned(), count + uint!(1)));
 
-        // If the item was a new one, the list will now be `MAX_RECENT_EMOJI_COUNT` + 1,
-        // so truncate it again (this is a no-op if it already has the right size)
+        // If the item was a new one, the list will now be
+        // `MAX_RECENT_EMOJI_COUNT` + 1, so truncate it again (this is a
+        // no-op if it already has the right size)
         recent_emojis.truncate(MAX_RECENT_EMOJI_COUNT);
 
         let request = UpdateGlobalAccountDataRequest::new(
@@ -1488,9 +1494,9 @@ impl Account {
         };
 
         if let Some(content) = content {
-            // Sort by count, descending. For items with the same count, since they were
-            // previously ordered by recency in the list, more recent emojis will be
-            // returned first.
+            // Sort by count, descending. For items with the same count, since
+            // they were previously ordered by recency in the list,
+            // more recent emojis will be returned first.
             let sorted_emojis = content
                 .recent_emoji
                 .into_iter()
@@ -1629,7 +1635,8 @@ mod test_recent_emojis {
             .mount()
             .await;
 
-        // Now with a list of emojis longer than the max count, we fetch the emoji list
+        // Now with a list of emojis longer than the max count, we fetch the
+        // emoji list
         let recent_emojis = client.account().get_recent_emojis(true).await.expect("recent emojis");
 
         // It should only return until the max count
@@ -1648,8 +1655,8 @@ mod test_recent_emojis {
             list
         };
 
-        // Now if we add a new emoji that was not in the list, the last one in the list
-        // should be gone
+        // Now if we add a new emoji that was not in the list, the last one in
+        // the list should be gone
         server
             .mock_add_recent_emojis()
             .match_emojis_in_request_body(expected_updated_emoji_list)
@@ -1661,7 +1668,8 @@ mod test_recent_emojis {
 
         client.account().add_recent_emoji("50").await.expect("adding emoji");
 
-        // Do the same, but now with a new emoji that wasn't previously in the list
+        // Do the same, but now with a new emoji that wasn't previously in the
+        // list
         let expected_updated_emoji_list = {
             let mut list = long_emoji_list.clone();
             let item = (":D".to_owned(), uint!(1));

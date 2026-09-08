@@ -55,8 +55,9 @@ async fn test_receive_megolm_session_from_unknown_device() {
     let (alice, bob) = get_machine_pair().await;
     let mut bob_room_keys_received_stream = Box::pin(bob.store().room_keys_received_stream());
 
-    // `get_machine_pair_with_setup_sessions_test_helper` tells Bob about Alice's
-    // device keys, so to run this test, we need to make him forget them.
+    // `get_machine_pair_with_setup_sessions_test_helper` tells Bob about
+    // Alice's device keys, so to run this test, we need to make him forget
+    // them.
     forget_devices_for_user(&bob, alice.user_id()).await;
 
     // When Alice starts a megolm session and shares the key with Bob, *without*
@@ -238,12 +239,13 @@ async fn test_update_unknown_device_senderdata_on_keys_query() {
     let (alice, bob) = get_machine_pair().await;
     let mut bob_room_keys_received_stream = Box::pin(bob.store().room_keys_received_stream());
 
-    // `get_machine_pair_with_setup_sessions_test_helper` tells Bob about Alice's
-    // device keys, so to run this test, we need to make him forget them.
+    // `get_machine_pair_with_setup_sessions_test_helper` tells Bob about
+    // Alice's device keys, so to run this test, we need to make him forget
+    // them.
     forget_devices_for_user(&bob, alice.user_id()).await;
 
-    // Alice starts a megolm session and shares the key with Bob, *without* sending
-    // the sender data.
+    // Alice starts a megolm session and shares the key with Bob, *without*
+    // sending the sender data.
     let room_id = room_id!("!test:example.org");
     let event = create_and_share_session_with_custom_sender_data(&alice, &bob, room_id, None).await;
 
@@ -274,8 +276,8 @@ async fn test_update_unknown_device_senderdata_on_keys_query() {
     .await
     .unwrap();
 
-    // Then Bob should have received an update about the session, and it should now
-    // be `SenderData::DeviceInfo`
+    // Then Bob should have received an update about the session, and it should
+    // now be `SenderData::DeviceInfo`
     let room_key_info = get_room_key_received_update(&mut bob_room_keys_received_stream);
     let session = get_inbound_group_session_or_panic(&bob, &room_key_info).await;
 
@@ -321,14 +323,14 @@ async fn test_update_device_info_senderdata_on_keys_query() {
     // Double-check that it is, in fact, an unverified device session.
     assert_matches!(session.sender_data, SenderData::DeviceInfo { .. });
 
-    // When Bob receives a /keys/query response for Alice that includes a verifiable
-    // signature for her device
+    // When Bob receives a /keys/query response for Alice that includes a
+    // verifiable signature for her device
     let bootstrap_requests = alice.bootstrap_cross_signing(false).await.unwrap();
     let kq_response = bootstrap_requests_to_keys_query_response(bootstrap_requests);
     bob.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
 
-    // Then Bob should have received an update about the session, and it should now
-    // be `SenderData::SenderUnverified`
+    // Then Bob should have received an update about the session, and it should
+    // now be `SenderData::SenderUnverified`
     let room_key_info = get_room_key_received_update(&mut bob_room_keys_received_stream);
     let session = get_inbound_group_session_or_panic(&bob, &room_key_info).await;
 
@@ -381,8 +383,8 @@ async fn create_and_share_session_with_custom_sender_data(
         .await
         .unwrap();
 
-    // In future, we might want to save the session to the store, to better match
-    // the behaviour of the real implementation. See
+    // In future, we might want to save the session to the store, to better
+    // match the behaviour of the real implementation. See
     // `GroupSessionManager::share_room_key` for inspiration on how to do that.
 
     let olm_sessions = alice

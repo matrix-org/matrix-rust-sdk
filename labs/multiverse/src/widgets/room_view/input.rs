@@ -52,10 +52,11 @@ impl Input {
         if let Some(input) = input.strip_prefix("/") {
             let arguments = input.split_whitespace();
 
-            // Clap expects the first argument to be the binary name, like when a command is
-            // invoked on the command line. Since we aren't a command line, but
-            // still find clap a neat command parser, let's give it what it
-            // expects so we can parse our commands.
+            // Clap expects the first argument to be the binary name, like when
+            // a command is invoked on the command line. Since we
+            // aren't a command line, but still find clap a neat
+            // command parser, let's give it what it expects so we
+            // can parse our commands.
             Cli::try_parse_from(std::iter::once("multiverse").chain(arguments))
                 .map(|cli| MessageOrCommand::Command(cli.command))
         } else {
@@ -89,10 +90,11 @@ impl<'a> StatefulWidget for &'a mut Input {
     where
         Self: Sized,
     {
-        // Set the placeholder text depending on the encryption state of the room.
+        // Set the placeholder text depending on the encryption state of the
+        // room.
         //
-        // We assume that the encryption state is synced because the RoomListService
-        // sets it as required state.
+        // We assume that the encryption state is synced because the
+        // RoomListService sets it as required state.
         if let Some(room) = room.as_deref() {
             let is_encrypted = room.encryption_state().is_encrypted();
 

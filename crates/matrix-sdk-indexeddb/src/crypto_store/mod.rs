@@ -450,8 +450,9 @@ impl IndexeddbCryptoStore {
     /// * `key` - Key with which to encrypt the key which is used to encrypt the
     ///   store. Must be the same each time the store is opened.
     pub async fn open_with_key(prefix: &str, key: &[u8; 32]) -> Result<Self> {
-        // The application might also use the provided key for something else, so to
-        // avoid key reuse, we pass the provided key through an HKDF
+        // The application might also use the provided key for something else,
+        // so to avoid key reuse, we pass the provided key through an
+        // HKDF
         let mut chacha_key = zeroize::Zeroizing::new([0u8; 32]);
         const HKDF_INFO: &[u8] = b"CRYPTOSTORE_CIPHER";
         let hkdf = Hkdf::<Sha256>::new(None, key);
@@ -525,9 +526,10 @@ impl IndexeddbCryptoStore {
         let session = InboundGroupSession::from_pickle(pickled_session)
             .map_err(|e| IndexeddbCryptoStoreError::CryptoStoreError(e.into()))?;
 
-        // Although a "backed up" flag is stored inside `idb_object.pickled_session`, it
-        // is not maintained when backups are reset. Overwrite the flag with the
-        // needs_backup value from the IDB object.
+        // Although a "backed up" flag is stored inside
+        // `idb_object.pickled_session`, it is not maintained when
+        // backups are reset. Overwrite the flag with the needs_backup
+        // value from the IDB object.
         if idb_object.needs_backup {
             session.reset_backup_state();
         } else {
@@ -744,8 +746,9 @@ impl IndexeddbCryptoStore {
 
             for secret in &changes.secrets {
                 use std::ops::Deref;
-                // The (hashed) secret value is included in the key to allow us to receive
-                // multiple secrets of the same name (indexeddb store entries must have a unique
+                // The (hashed) secret value is included in the key to allow us
+                // to receive multiple secrets of the same name
+                // (indexeddb store entries must have a unique
                 // key), and allow the client to determine which one is the
                 // current secret.
                 let key = self.serializer.encode_key(
@@ -1869,16 +1872,18 @@ async fn import_store_cipher_with_key(
     let cipher = match StoreCipher::import_with_key(chacha_key, serialised_cipher) {
         Ok(cipher) => cipher,
         Err(matrix_sdk_store_encryption::Error::KdfMismatch) => {
-            // Old versions of the matrix-js-sdk used to base64-encode their encryption
-            // key, and pass it into [`IndexeddbCryptoStore::open_with_passphrase`]. For
-            // backwards compatibility, we fall back to that if we discover we have a cipher
-            // encrypted with a KDF when we expected it to be encrypted directly with a key.
+            // Old versions of the matrix-js-sdk used to base64-encode their
+            // encryption key, and pass it into
+            // [`IndexeddbCryptoStore::open_with_passphrase`]. For
+            // backwards compatibility, we fall back to that if we discover we
+            // have a cipher encrypted with a KDF when we expected
+            // it to be encrypted directly with a key.
             let cipher = StoreCipher::import(&base64_encode(original_key), serialised_cipher)
                 .map_err(|_| CryptoStoreError::UnpicklingError)?;
 
-            // Loading the cipher with the passphrase was successful. Let's update the
-            // stored version of the cipher so that it is encrypted with a key,
-            // to save doing this again.
+            // Loading the cipher with the passphrase was successful. Let's
+            // update the stored version of the cipher so that it is
+            // encrypted with a key, to save doing this again.
             debug!(
                 "IndexedDbCryptoStore: Migrating passphrase-encrypted store cipher to key-encryption"
             );
@@ -1906,7 +1911,8 @@ where
     let mut result = Vec::new();
     let mut batch_n = 0;
 
-    // The empty string is before all keys in Indexed DB - first batch starts there.
+    // The empty string is before all keys in Indexed DB - first batch starts
+    // there.
     let mut latest_key: JsValue = "".into();
 
     loop {
@@ -1916,9 +1922,9 @@ where
         // would like to use `get_all_with_key_and_limit` if it ever exists
         // but for now we use a cursor and manually limit batch size.
 
-        // Get hold of a cursor for this batch. (This should not panic in expect()
-        // because we always use "", or the result of cursor.key(), both of
-        // which are valid keys.)
+        // Get hold of a cursor for this batch. (This should not panic in
+        // expect() because we always use "", or the result of
+        // cursor.key(), both of which are valid keys.)
         let after_latest_key = KeyRange::LowerBound(&latest_key, true);
         let cursor = object_store.open_cursor().with_query(&after_latest_key).await?;
 
@@ -2337,7 +2343,8 @@ mod encrypted_tests {
             .await
             .expect("Can't save account");
 
-        // Now reopen the store, passing the key directly rather than as a b64 string.
+        // Now reopen the store, passing the key directly rather than as a b64
+        // string.
         let store = IndexeddbCryptoStore::open_with_key(&store_name, &passdata)
             .await
             .expect("Can't create a key-protected store");

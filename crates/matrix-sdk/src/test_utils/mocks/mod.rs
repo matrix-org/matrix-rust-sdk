@@ -1231,7 +1231,8 @@ impl MatrixMockServer {
 
     /// Create a prebuilt mock for the endpoint used to get the related events.
     pub fn mock_room_relations(&self) -> MockEndpoint<'_, RoomRelationsEndpoint> {
-        // Routing happens in the final method ok(), since it can get complicated.
+        // Routing happens in the final method ok(), since it can get
+        // complicated.
         let mock = Mock::given(method("GET"));
         self.mock_endpoint(mock, RoomRelationsEndpoint::default()).expect_default_access_token()
     }
@@ -2693,8 +2694,9 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     /// ```
     pub fn for_type(mut self, event_type: StateEventType) -> Self {
         self.endpoint.event_type = Some(event_type);
-        // Note: we may have already defined a path, but this one ought to be more
-        // specialized (unless for_key/for_type were called multiple times).
+        // Note: we may have already defined a path, but this one ought to be
+        // more specialized (unless for_key/for_type were called
+        // multiple times).
         Self { mock: self.mock.and(path_regex(Self::generate_path_regexp(&self.endpoint))), ..self }
     }
 
@@ -2818,8 +2820,9 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     /// ```
     pub fn for_key(mut self, state_key: String) -> Self {
         self.endpoint.state_key = Some(state_key);
-        // Note: we may have already defined a path, but this one ought to be more
-        // specialized (unless for_key/for_type were called multiple times).
+        // Note: we may have already defined a path, but this one ought to be
+        // more specialized (unless for_key/for_type were called
+        // multiple times).
         Self { mock: self.mock.and(path_regex(Self::generate_path_regexp(&self.endpoint))), ..self }
     }
 
@@ -3078,8 +3081,8 @@ impl<'a> MockEndpoint<'a, RoomEventEndpoint> {
     pub fn ok(self, event: TimelineEvent) -> MatrixMock<'a> {
         let event_path = if self.endpoint.match_event_id {
             let event_id = event.event_id().expect("an event id is required");
-            // The event id should begin with `$`, which would be taken as the end of the
-            // regex so we need to escape it
+            // The event id should begin with `$`, which would be taken as the
+            // end of the regex so we need to escape it
             event_id.as_str().replace("$", "\\$")
         } else {
             // Event is at the end, so no need to add anything.
@@ -3187,8 +3190,8 @@ impl<'a> MockEndpoint<'a, RoomEventContextEndpoint> {
     pub fn ok(self, response: RoomContextResponseTemplate) -> MatrixMock<'a> {
         let event_path = if self.endpoint.match_event_id {
             let event_id = response.event.event_id().expect("an event id is required");
-            // The event id should begin with `$`, which would be taken as the end of the
-            // regex so we need to escape it
+            // The event id should begin with `$`, which would be taken as the
+            // end of the regex so we need to escape it
             event_id.as_str().replace("$", "\\$")
         } else {
             // Event is at the end, so no need to add anything.

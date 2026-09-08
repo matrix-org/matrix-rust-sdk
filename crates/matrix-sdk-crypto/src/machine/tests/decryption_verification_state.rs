@@ -361,8 +361,8 @@ async fn test_verification_states_spoofed_sender(
         VerificationState::Unverified(VerificationLevel::UnverifiedIdentity)
     );
 
-    // Alice now sends a second message to Bob, using the same room key, but the HS
-    // admin rewrites the 'sender' to Charlie.
+    // Alice now sends a second message to Bob, using the same room key, but the
+    // HS admin rewrites the 'sender' to Charlie.
     let result = alice
         .encrypt_room_event(
             room_id,

@@ -470,7 +470,8 @@ impl Client {
             )
             .await;
 
-            // Event handlers specifically for redacted OR unredacted timeline events
+            // Event handlers specifically for redacted OR unredacted timeline
+            // events
             self.call_event_handlers(
                 room,
                 raw_event,
@@ -537,8 +538,9 @@ impl Client {
         if !futures.is_empty() {
             debug!(amount = futures.len(), "Calling event handlers");
 
-            // Run the event handler futures with the `self.event_handlers.handlers`
-            // lock no longer being held.
+            // Run the event handler futures with the
+            // `self.event_handlers.handlers` lock no longer being
+            // held.
             while let Some(()) = futures.next().await {}
         }
     }
@@ -687,20 +689,23 @@ where
         let mut this = self.project();
 
         let Some(_) = this.event_handler_guard.upgrade() else {
-            // The `EventHandlerHandle` has been dropped via `EventHandlerDropGuard`. It
+            // The `EventHandlerHandle` has been dropped via
+            // `EventHandlerDropGuard`. It
             // means the `ObservableEventHandler` has been dropped. It's time to
             // close this stream.
             return Poll::Ready(None);
         };
 
-        // First off, the subscriber is of type `Subscriber<Option<T>>` because the
-        // `SharedObservable` starts with a `None` value to indicate it has no yet
-        // received any update. We want the `Stream` to return `T`, not `Option<T>`. We
-        // then filter out all `None` value.
+        // First off, the subscriber is of type `Subscriber<Option<T>>` because
+        // the `SharedObservable` starts with a `None` value to indicate
+        // it has no yet received any update. We want the `Stream` to
+        // return `T`, not `Option<T>`. We then filter out all `None`
+        // value.
         //
-        // Second, when a `None` value is met, we want to poll again (hence the `loop`).
-        // At best, there is a new value to return. At worst, the subscriber will return
-        // `Poll::Pending` and will register the wakers accordingly.
+        // Second, when a `None` value is met, we want to poll again (hence the
+        // `loop`). At best, there is a new value to return. At worst,
+        // the subscriber will return `Poll::Pending` and will register
+        // the wakers accordingly.
 
         loop {
             match this.subscriber.as_mut().poll_next(context) {
@@ -1286,9 +1291,9 @@ mod tests {
 
     #[async_test]
     async fn test_observe_room_events_with_type_prefix() -> crate::Result<()> {
-        // To create an event handler for a room account data event type with prefix, we
-        // need to create a custom event type, none exist in the Matrix specification
-        // yet.
+        // To create an event handler for a room account data event type with
+        // prefix, we need to create a custom event type, none exist in
+        // the Matrix specification yet.
         #[derive(Debug, Clone, EventContent, Serialize)]
         #[ruma_event(type = "fake.event.*", kind = RoomAccountData)]
         struct AccountDataWithPrefixEventContent {

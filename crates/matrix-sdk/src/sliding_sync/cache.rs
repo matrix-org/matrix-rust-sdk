@@ -58,17 +58,18 @@ pub(super) async fn store_sliding_sync_state(
         let position = _position;
         let instance_storage_key = format_storage_key_for_sliding_sync(storage_key);
 
-        // FIXME (TERRIBLE HACK): we want to save `pos` in a cross-process safe manner,
-        // with both processes sharing the same database backend; that needs to
-        // go in the crypto process store at the moment, but should be fixed
-        // later on.
+        // FIXME (TERRIBLE HACK): we want to save `pos` in a cross-process safe
+        // manner, with both processes sharing the same database
+        // backend; that needs to go in the crypto process store at the
+        // moment, but should be fixed later on.
         if let Some(olm_machine) = &*sliding_sync.inner.client.olm_machine().await {
             let pos_blob = serde_json::to_vec(&FrozenSlidingSyncPos { pos: position.pos.clone() })?;
             olm_machine.store().set_custom_value(&instance_storage_key, pos_blob).await?;
         }
     }
 
-    // Write every `SlidingSyncList` that's configured for caching into the store.
+    // Write every `SlidingSyncList` that's configured for caching into the
+    // store.
     let frozen_lists = {
         sliding_sync
             .inner
@@ -119,11 +120,12 @@ pub(super) async fn restore_sliding_sync_list(
         }
 
         Some(Err(_)) => {
-            // List has been found, but it wasn't possible to deserialize it. It's declared
-            // as obsolete. The main reason might be that the internal representation of a
-            // `SlidingSyncList` might have changed. Instead of considering this as a strong
-            // error, we remove the entry from the cache and keep the list in its initial
-            // state.
+            // List has been found, but it wasn't possible to deserialize it.
+            // It's declared as obsolete. The main reason might be
+            // that the internal representation of a
+            // `SlidingSyncList` might have changed. Instead of considering this
+            // as a strong error, we remove the entry from the cache
+            // and keep the list in its initial state.
             warn!(
                 list_name,
                 "failed to deserialize the list from the cache, it is obsolete; removing the cache entry!"
@@ -251,7 +253,8 @@ mod tests {
                 .build()
                 .await?;
 
-            // Modify both lists, so we can check expected caching behavior later.
+            // Modify both lists, so we can check expected caching behavior
+            // later.
             {
                 let lists = sliding_sync.inner.lists.write().await;
 
@@ -294,7 +297,8 @@ mod tests {
         let sliding_sync = client
             .sliding_sync(sync_id)?
             .add_cached_list(SlidingSyncList::builder("list_foo").once_built(move |list| {
-                // In the `once_built()` handler, nothing has been read from the cache yet.
+                // In the `once_built()` handler, nothing has been read from the
+                // cache yet.
                 assert_eq!(list.maximum_number_of_rooms(), None);
 
                 let mut stream = cloned_stream.write().unwrap();
@@ -371,10 +375,11 @@ mod tests {
         // After restoring, to-device token could be read.
         assert_eq!(restored_fields.pos.unwrap(), pos);
 
-        // Test the "migration" path: assume a missing to-device token in crypto store,
-        // but present in a former state store.
+        // Test the "migration" path: assume a missing to-device token in crypto
+        // store, but present in a former state store.
 
-        // For our sanity, check no to-device token has been saved in the database.
+        // For our sanity, check no to-device token has been saved in the
+        // database.
         {
             let olm_machine = client.base_client().olm_machine().await;
             let olm_machine = olm_machine.as_ref().unwrap();

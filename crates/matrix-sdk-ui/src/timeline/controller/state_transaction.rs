@@ -384,24 +384,33 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     {
                         // FIXME: This branch is a complete hackjob.
                         //
-                        // The reason being is that this branch is here to handle UTD -> Decrypted
-                        // event remplacements for focused timelines. But this transition should
-                        // naturally happen the same way it happens for unfocused timelines.
+                        // The reason being is that this branch is here to
+                        // handle UTD -> Decrypted event
+                        // remplacements for focused timelines. But this
+                        // transition should
+                        // naturally happen the same way it happens for
+                        // unfocused timelines.
                         //
-                        // Why it doesn't work here? Because the event cache fires out a
-                        // VectorDiff::Set with an index that matches to the cache's view of the
-                        // timeline, which is unfiltered, while the focused timeline will only show
+                        // Why it doesn't work here? Because the event cache
+                        // fires out a VectorDiff::Set
+                        // with an index that matches to the cache's view of the
+                        // timeline, which is unfiltered, while the focused
+                        // timeline will only show
                         // i.e. pinned events.
                         //
                         // The `test_pinned_events_are_decrypted_after_recovering` integration test
-                        // showcases this. The event cache fires out the `Set` with an index of 7,
-                        // but the timeline with the PinnedEvents focus has only 4 items.
+                        // showcases this. The event cache fires out the `Set`
+                        // with an index of 7,
+                        // but the timeline with the PinnedEvents focus has only
+                        // 4 items.
                         //
-                        // This hackjob continues in the `handle_remote_aggregation()` method as we
-                        // can't just handle any `TimelineAction::AddItem` due to:
-                        //  https://github.com/matrix-org/matrix-rust-sdk/pull/4645
+                        // This hackjob continues in the
+                        // `handle_remote_aggregation()` method as we
+                        // can't just handle any `TimelineAction::AddItem` due
+                        // to:  https://github.com/matrix-org/matrix-rust-sdk/pull/4645
                         //
-                        // Doing so breaks the `test_new_pinned_events_are_not_added_on_sync` test.
+                        // Doing so breaks the
+                        // `test_new_pinned_events_are_not_added_on_sync` test.
                         //
                         // Relevant issue: https://github.com/matrix-org/matrix-rust-sdk/issues/5954.
                         self.handle_remote_aggregation(
@@ -513,13 +522,15 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 
         match &self.focus {
             TimelineFocusKind::PinnedEvents { .. } => {
-                // The pinned events timeline only receives updates for, well, pinned events.
+                // The pinned events timeline only receives updates for, well,
+                // pinned events.
                 true
             }
 
             TimelineFocusKind::Event { .. } => {
-                // For event-focused timelines, thread filtering is now handled in the
-                // event cache layer. We accept all events from pagination.
+                // For event-focused timelines, thread filtering is now handled
+                // in the event cache layer. We accept all
+                // events from pagination.
 
                 // Retrieve the origin of the event.
                 let origin = match position {
@@ -542,13 +553,14 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             }
 
             TimelineFocusKind::Live { hide_threaded_events, .. } => {
-                // If the timeline's filtering out in-thread events, don't add items for
-                // threaded events.
+                // If the timeline's filtering out in-thread events, don't add
+                // items for threaded events.
                 thread_root.is_none() || !hide_threaded_events
             }
 
             TimelineFocusKind::Thread { root_event_id, .. } => {
-                // Add new items only for the thread root and the thread replies.
+                // Add new items only for the thread root and the thread
+                // replies.
                 event.event_id() == root_event_id
                     || thread_root.as_ref().is_some_and(|r| r == root_event_id)
             }
@@ -594,12 +606,12 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
     )> {
         let state_key: Option<String> = raw.get_field("state_key").ok().flatten();
 
-        // A state event is an event that has a state key. Note that the two branches
-        // differ because the inferred return type for `get_field` is different
-        // in each case.
+        // A state event is an event that has a state key. Note that the two
+        // branches differ because the inferred return type for
+        // `get_field` is different in each case.
         //
-        // If this was a state event but it didn't include a state_key, we'll assume it
-        // was a msg-like, because we can't do much more.
+        // If this was a state event but it didn't include a state_key, we'll
+        // assume it was a msg-like, because we can't do much more.
         let event_type = if let Some(state_key) = state_key {
             raw.get_field("type")
                 .ok()
@@ -611,7 +623,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 
         let event_id: Option<OwnedEventId> = raw.get_field("event_id").ok().flatten();
         let Some(event_id) = event_id else {
-            // If the event doesn't even have an event ID, we can't do anything with it.
+            // If the event doesn't even have an event ID, we can't do anything
+            // with it.
             warn!(
                 ?event_type,
                 "Failed to deserialize timeline event (with no ID): {deserialization_error}"
@@ -627,8 +640,9 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             (Some(sender), Some(origin_server_ts), Some(event_type))
                 if settings.add_failed_to_parse =>
             {
-                // We have sufficient information to show an item in the timeline, and we've
-                // been requested to show it, let's do it.
+                // We have sufficient information to show an item in the
+                // timeline, and we've been requested to show
+                // it, let's do it.
                 #[derive(serde::Deserialize)]
                 struct Unsigned {
                     transaction_id: Option<OwnedTransactionId>,
@@ -640,8 +654,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     .flatten()
                     .and_then(|unsigned| unsigned.transaction_id);
 
-                // The event can be partially deserialized, and it is allowed to be added to
-                // the timeline.
+                // The event can be partially deserialized, and it is allowed to
+                // be added to the timeline.
                 Some((
                     event_id,
                     sender,
@@ -655,8 +669,9 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             }
 
             (sender, origin_server_ts, event_type) => {
-                // We either lack information for rendering an item, or we've been requested not
-                // to show it. Save it into the metadata and return.
+                // We either lack information for rendering an item, or we've
+                // been requested not to show it. Save it into
+                // the metadata and return.
                 warn!(
                     ?event_type,
                     ?event_id,
@@ -679,8 +694,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         }
     }
 
-    // Attempt to load a thread's latest reply as an embedded timeline item, either
-    // using the event cache or the storage.
+    // Attempt to load a thread's latest reply as an embedded timeline item,
+    // either using the event cache or the storage.
     #[instrument(skip(self, room_data_provider))]
     async fn fetch_latest_thread_reply(
         &mut self,
@@ -717,13 +732,14 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             return (None, None);
         }
 
-        // Load the public and private read receipts for the user, in the thread. In the
-        // future, we might move this code in the event cache, so that read
-        // receipt handling happens there instead.
+        // Load the public and private read receipts for the user, in the
+        // thread. In the future, we might move this code in the event
+        // cache, so that read receipt handling happens there instead.
 
-        // As an exception to handle the latest "implicit" read receipt (which is the
-        // latest event sent by the user): if the latest event has been sent by
-        // the current user, then we consider that as a read receipt.
+        // As an exception to handle the latest "implicit" read receipt (which
+        // is the latest event sent by the user): if the latest event
+        // has been sent by the current user, then we consider that as a
+        // read receipt.
         #[allow(clippy::collapsible_if)] // clippy has poor taste
         if let Some(ref latest_reply) = summary.latest_reply {
             if let Ok(event) = RoomDataProvider::load_event(room_data_provider, latest_reply)
@@ -945,10 +961,11 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 },
                 should_add_new_items: should_add,
             };
-            // A recycled timeline ID carries the TimelineUniqueId from a previously
-            // removed item (see VectorDiff::Remove), so that when the same event is
-            // re-added in the same diff batch the UI sees a stable identifier.
-            // It is only applicable when the event produces a single AddItem action;
+            // A recycled timeline ID carries the TimelineUniqueId from a
+            // previously removed item (see VectorDiff::Remove), so
+            // that when the same event is re-added in the same diff
+            // batch the UI sees a stable identifier. It is only
+            // applicable when the event produces a single AddItem action;
             // with multiple actions (e.g. beacon replace) there
             // is no single item to associate it with, so it's safe to ignore.
             let recycled_timeline_id = recycled_timeline_id.filter(|_| timeline_actions.len() == 1);
@@ -991,10 +1008,11 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 
         // We need to be careful here.
         //
-        // We must first remove the timeline item, which will update the mapping between
-        // remote events and timeline items. Removing the timeline item will “unlink”
-        // this mapping as the remote event will be updated to map to nothing. Only
-        // after that, we can remove the remote event. Doing this in the other order
+        // We must first remove the timeline item, which will update the mapping
+        // between remote events and timeline items. Removing the
+        // timeline item will “unlink” this mapping as the remote event
+        // will be updated to map to nothing. Only after that, we can
+        // remove the remote event. Doing this in the other order
         // will update the mapping twice, and will result in a corrupted state.
 
         let mut recycled_timeline_id = None;
@@ -1022,7 +1040,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         // `VectorDiff::Clear` should be much more efficient to process for
         // subscribers.
         if self.items.has_local() {
-            // Remove all remote events and virtual items that aren't date dividers.
+            // Remove all remote events and virtual items that aren't date
+            // dividers.
             self.items.for_each(|entry| {
                 if entry.is_remote_event()
                     || entry.as_virtual().is_some_and(|vitem| match vitem {
@@ -1125,8 +1144,9 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     event.can_show_read_receipts = event_meta.can_show_read_receipts;
 
                     if settings.track_read_receipts.is_enabled() {
-                        // Since the event's visibility changed, we need to update the read
-                        // receipts of the previous visible event.
+                        // Since the event's visibility changed, we need to
+                        // update the read receipts of
+                        // the previous visible event.
                         self.maybe_update_read_receipts_of_prev_event(&event_meta.event_id);
                     }
                 }
@@ -1166,7 +1186,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 let mut cloned_event = event.clone();
                 cloned_event.is_room_encrypted = true;
 
-                // Replace the existing item with a new version with the right encryption flag
+                // Replace the existing item with a new version with the right
+                // encryption flag
                 let item = item.with_kind(cloned_event);
                 self.items.replace(idx, item);
             }

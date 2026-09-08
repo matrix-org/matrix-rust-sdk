@@ -119,7 +119,8 @@ impl NotificationClient {
         parent_client: Client,
         process_setup: NotificationProcessSetup,
     ) -> Result<Self, Error> {
-        // Only create the lock id if cross process lock is needed (multiple processes)
+        // Only create the lock id if cross process lock is needed (multiple
+        // processes)
         let cross_process_store_config = match process_setup {
             NotificationProcessSetup::MultipleProcesses => {
                 CrossProcessLockConfig::multi_process(Self::LOCK_ID)
@@ -236,18 +237,21 @@ impl NotificationClient {
         // The message is still encrypted, and the client is configured to retry
         // decryption.
         //
-        // Spawn an `EncryptionSync` that runs two iterations of the sliding sync loop:
-        // - the first iteration allows to get SS events as well as send e2ee requests.
-        // - the second one let the SS homeserver forward events triggered by the
-        //   sending of e2ee requests.
+        // Spawn an `EncryptionSync` that runs two iterations of the sliding
+        // sync loop:
+        // - the first iteration allows to get SS events as well as send e2ee
+        //   requests.
+        // - the second one let the SS homeserver forward events triggered by
+        //   the sending of e2ee requests.
         //
         // Keep timeouts small for both, since we might be short on time.
 
         let push_ctx = room.push_context().await?;
         let sync_permit_guard = match &self.process_setup {
             NotificationProcessSetup::MultipleProcesses => {
-                // We're running on our own process, dedicated for notifications. In that case,
-                // create a dummy sync permit; we're guaranteed there's at most one since we've
+                // We're running on our own process, dedicated for
+                // notifications. In that case, create a dummy
+                // sync permit; we're guaranteed there's at most one since we've
                 // acquired the `encryption_sync_mutex' lock here.
                 let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
                 sync_permit.lock_owned().await
@@ -257,14 +261,16 @@ impl NotificationClient {
                 if let Some(permit_guard) = sync_service.try_get_encryption_sync_permit() {
                     permit_guard
                 } else {
-                    // There's already a sync service active, thus the encryption sync is already
-                    // running elsewhere. As a matter of fact, if the event was encrypted, that
-                    // means we were racing against the encryption sync. Wait a bit, attempt to
+                    // There's already a sync service active, thus the
+                    // encryption sync is already
+                    // running elsewhere. As a matter of fact, if the event was
+                    // encrypted, that means we were racing
+                    // against the encryption sync. Wait a bit, attempt to
                     // decrypt, and carry on.
 
                     // We repeat the sleep 3 times at most, each iteration we
-                    // double the amount of time waited, so overall we may wait up to 7 times this
-                    // amount.
+                    // double the amount of time waited, so overall we may wait
+                    // up to 7 times this amount.
                     let mut wait = 200;
 
                     debug!("Encryption sync running in background");
@@ -274,7 +280,8 @@ impl NotificationClient {
                         sleep(Duration::from_millis(wait)).await;
 
                         // Note: We specify the cast type in case the
-                        // `experimental-encrypted-state-events` feature is enabled, which provides
+                        // `experimental-encrypted-state-events` feature is
+                        // enabled, which provides
                         // multiple cast implementations.
                         let new_event = room
                             .decrypt_event(
@@ -302,7 +309,8 @@ impl NotificationClient {
                         }
                     }
 
-                    // We couldn't decrypt the event after waiting a few times, abort.
+                    // We couldn't decrypt the event after waiting a few times,
+                    // abort.
                     debug!("Timeout waiting for the encryption sync to decrypt notification.");
                     return Ok(None);
                 }
@@ -315,9 +323,9 @@ impl NotificationClient {
         )
         .await;
 
-        // Just log out errors, but don't have them abort the notification processing:
-        // an undecrypted notification is still better than no
-        // notifications.
+        // Just log out errors, but don't have them abort the notification
+        // processing: an undecrypted notification is still better than
+        // no notifications.
 
         match encryption_sync {
             Ok(sync) => match sync.run_fixed_iterations(2, sync_permit_guard).await {
@@ -381,8 +389,8 @@ impl NotificationClient {
         requests: &[NotificationItemsRequest],
     ) -> Result<BTreeMap<OwnedEventId, (OwnedRoomId, Option<RawNotificationEvent>)>, Error> {
         const MAX_SLIDING_SYNC_ATTEMPTS: u64 = 3;
-        // Serialize all the calls to this method by taking a lock at the beginning,
-        // that will be dropped later.
+        // Serialize all the calls to this method by taking a lock at the
+        // beginning, that will be dropped later.
         let _guard = self.notification_sync_mutex.lock().await;
 
         // Set up a sliding sync that only subscribes to the room that had the
@@ -413,9 +421,9 @@ impl NotificationClient {
 
                         let room_id = request.room_id.clone();
 
-                        // found it! There shouldn't be a previous event before, but if
-                        // there is, that should be ok to
-                        // just replace it.
+                        // found it! There shouldn't be a previous event before,
+                        // but if there is, that should
+                        // be ok to just replace it.
                         handler_raw_notification.lock().unwrap().insert(
                             event_id.to_owned(),
                             (room_id, Some(RawNotificationEvent::Timeline(raw))),
@@ -450,8 +458,9 @@ impl NotificationClient {
 
                 trace!("received a stripped room member event");
 
-                // Try to match the event by event_id, as it's the most precise. In theory, we
-                // shouldn't receive it, so that's a first attempt.
+                // Try to match the event by event_id, as it's the most precise.
+                // In theory, we shouldn't receive it, so that's
+                // a first attempt.
                 match &raw.get_field::<OwnedEventId>("event_id") {
                     Ok(Some(event_id)) => {
                         let request =
@@ -461,9 +470,9 @@ impl NotificationClient {
                         }
                         let room_id = request.unwrap().room_id.clone();
 
-                        // found it! There shouldn't be a previous event before, but if
-                        // there is, that should be ok to
-                        // just replace it.
+                        // found it! There shouldn't be a previous event before,
+                        // but if there is, that should
+                        // be ok to just replace it.
                         handler_raw_notifications.lock().unwrap().insert(
                             event_id.to_owned(),
                             (room_id, Some(RawNotificationEvent::Invite(raw))),
@@ -478,14 +487,16 @@ impl NotificationClient {
                     }
                 }
 
-                // Try to match the event by membership and state_key for the current user.
+                // Try to match the event by membership and state_key for the
+                // current user.
                 if deserialized.content.membership == MembershipState::Invite
                     && deserialized.state_key == user_id
                 {
                     trace!("found an invite event for the current user");
-                    // This could be it! There might be several of these following each other, so
-                    // assume it's the latest one (in sync ordering), and override a previous one if
-                    // present.
+                    // This could be it! There might be several of these
+                    // following each other, so assume it's
+                    // the latest one (in sync ordering), and override a
+                    // previous one if present.
                     handler_raw_invites
                         .lock()
                         .unwrap()
@@ -565,10 +576,11 @@ impl NotificationClient {
                 expected {expected_event_count} total",
             );
 
-            // We can stop looking once we've received the expected number of events from
-            // the sync. Since we can receive only events or invites for rooms but not both,
-            // and we're not taking into account invites from not subscribed rooms, this
-            // check should be accurate.
+            // We can stop looking once we've received the expected number of
+            // events from the sync. Since we can receive only
+            // events or invites for rooms but not both,
+            // and we're not taking into account invites from not subscribed
+            // rooms, this check should be accurate.
             if event_count + invite_count == expected_event_count {
                 // We got the events.
                 break;
@@ -681,7 +693,8 @@ impl NotificationClient {
         let mut batch_result = BatchNotificationFetchingResult::new();
 
         for (event_id, (room_id, raw_event)) in raw_events.into_iter() {
-            // At this point it should have been added by the sync, if it's not, give up.
+            // At this point it should have been added by the sync, if it's not,
+            // give up.
             let Some(room) = self.client.get_room(&room_id) else { return Err(Error::UnknownRoom) };
 
             let Some(raw_event) = raw_event else {
@@ -707,7 +720,8 @@ impl NotificationClient {
                         continue;
                     }
 
-                    // Timeline events may be encrypted, so make sure they get decrypted first.
+                    // Timeline events may be encrypted, so make sure they get
+                    // decrypted first.
                     match self.retry_decryption(&room, timeline_event).await {
                         Ok(Some(timeline_event)) => {
                             let push_actions = timeline_event.push_actions().map(ToOwned::to_owned);
@@ -718,8 +732,10 @@ impl NotificationClient {
                         }
 
                         Ok(None) => {
-                            // The event was either not encrypted in the first place, or we
-                            // couldn't decrypt it after retrying. Use the raw event as is.
+                            // The event was either not encrypted in the first
+                            // place, or we couldn't
+                            // decrypt it after retrying. Use the raw event as
+                            // is.
                             match room.event_push_actions(timeline_event).await {
                                 Ok(push_actions) => (raw_event.clone(), push_actions),
                                 Err(err) => {
@@ -738,7 +754,8 @@ impl NotificationClient {
                 }
 
                 RawNotificationEvent::Invite(invite_event) => {
-                    // Invite events can't be encrypted, so they should be in clear text.
+                    // Invite events can't be encrypted, so they should be in
+                    // clear text.
                     match room.event_push_actions(invite_event).await {
                         Ok(push_actions) => {
                             (RawNotificationEvent::Invite(invite_event.clone()), push_actions)
@@ -824,8 +841,8 @@ fn is_event_encrypted(event_type: TimelineEventType) -> bool {
 }
 
 fn is_event_redacted(event: &AnySyncTimelineEvent) -> bool {
-    // Check if the event is a message-like event but has no original content (i.e.,
-    // redacted)
+    // Check if the event is a message-like event but has no original content
+    // (i.e., redacted)
     match event {
         AnySyncTimelineEvent::MessageLike(msg) => msg.is_redacted(),
         _ => false,
@@ -1182,8 +1199,8 @@ mod tests {
                 .await
                 .expect("Could not create a notification client");
 
-        // Check we don't receive the invite for a different room, even if it was
-        // included in the sync response
+        // Check we don't receive the invite for a different room, even if it
+        // was included in the sync response
         let event_id = owned_event_id!("$a:b.c");
         let result = notification_client
             .try_sliding_sync(&[NotificationItemsRequest {

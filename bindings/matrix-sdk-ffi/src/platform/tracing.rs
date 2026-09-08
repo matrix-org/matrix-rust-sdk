@@ -165,7 +165,8 @@ impl Span {
         let metadata = callsite.metadata();
 
         let span = if span_or_event_enabled(callsite) {
-            // This function is hidden from docs, but we have to use it (see above).
+            // This function is hidden from docs, but we have to use it (see
+            // above).
             let fields = metadata.fields();
 
             if let Some(parent_trace_id) = bridge_trace_id {

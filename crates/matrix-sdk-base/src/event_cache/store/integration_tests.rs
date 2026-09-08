@@ -296,8 +296,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         {
             let first = chunks.next().unwrap();
-            // Note: we can't assert the previous/next chunks, as these fields and their
-            // getters are private.
+            // Note: we can't assert the previous/next chunks, as these fields
+            // and their getters are private.
             assert_eq!(first.identifier(), CId::new(0));
 
             assert_matches!(first.content(), ChunkContent::Items(events) => {
@@ -385,15 +385,16 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
     }
 
     async fn test_linked_chunk_allows_same_event_in_room_and_thread(&self) {
-        // This test verifies that the same event can appear in both a room's linked
-        // chunk and a thread's linked chunk. This is the real-world use case:
-        // a thread reply appears in both the main room timeline and the thread.
+        // This test verifies that the same event can appear in both a room's
+        // linked chunk and a thread's linked chunk. This is the
+        // real-world use case: a thread reply appears in both the main
+        // room timeline and the thread.
 
         let room_id = *DEFAULT_TEST_ROOM_ID;
         let thread_root = event_id!("$thread_root");
 
-        // Create an event that will be inserted into both the room and thread linked
-        // chunks.
+        // Create an event that will be inserted into both the room and thread
+        // linked chunks.
         let event_id = event_id!("$thread_reply");
         let event = make_test_event_with_event_id(room_id, "thread reply", Some(event_id));
 
@@ -422,7 +423,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .await
         .unwrap();
 
-        // Verify both entries exist by loading chunks from both linked chunk IDs.
+        // Verify both entries exist by loading chunks from both linked chunk
+        // IDs.
         let room_chunks = self.load_all_chunks(room_linked_chunk_id).await.unwrap();
         let thread_chunks = self.load_all_chunks(thread_linked_chunk_id).await.unwrap();
 
@@ -855,8 +857,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             assert!(previous_chunk.is_none());
         }
 
-        // One last check: a round of assert by using the forwards chunk iterator
-        // instead of the backwards chunk iterator.
+        // One last check: a round of assert by using the forwards chunk
+        // iterator instead of the backwards chunk iterator.
         {
             let mut chunks = linked_chunk.chunks();
 
@@ -990,7 +992,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         }
 
         let event_b = make_test_event_with_event_id(room_id, "b", Some(event_id!("$b")));
-        // Pushing an event to an occupied position should fail in every linked chunk.
+        // Pushing an event to an occupied position should fail in every linked
+        // chunk.
         for linked_chunk_id in linked_chunk_ids {
             self.handle_linked_chunk_updates(
                 linked_chunk_id,
@@ -1011,8 +1014,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             });
         }
 
-        // Pushing an event to an unoccupied position should succeed in every linked
-        // chunk.
+        // Pushing an event to an unoccupied position should succeed in every
+        // linked chunk.
         for linked_chunk_id in linked_chunk_ids {
             self.handle_linked_chunk_updates(
                 linked_chunk_id,
@@ -1037,8 +1040,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         // Create an updated version of event a
         let updated_event_a = make_test_event_with_event_id(room_id, "updated_a", Some(event_id_a));
 
-        // Pushing an updated event to a position occupied by the same event should
-        // fail in every linked chunk.
+        // Pushing an updated event to a position occupied by the same event
+        // should fail in every linked chunk.
         for linked_chunk_id in linked_chunk_ids {
             self.handle_linked_chunk_updates(
                 linked_chunk_id,
@@ -1060,8 +1063,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             });
         }
 
-        // Pushing an updated event to a position occupied by a different event should
-        // fail in every linked chunk.
+        // Pushing an updated event to a position occupied by a different event
+        // should fail in every linked chunk.
         for linked_chunk_id in linked_chunk_ids {
             self.handle_linked_chunk_updates(
                 linked_chunk_id,
@@ -1083,8 +1086,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             });
         }
 
-        // Pushing an updated event to an unoccupied position in a linked chunk should
-        // fail if the event already exists in the linked chunk.
+        // Pushing an updated event to an unoccupied position in a linked chunk
+        // should fail if the event already exists in the linked chunk.
         for linked_chunk_id in linked_chunk_ids {
             self.handle_linked_chunk_updates(
                 linked_chunk_id,
@@ -1115,9 +1118,9 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .await
         .unwrap();
 
-        // Pushing an updated version of event a to an unoccupied position in the new
-        // linked chunk should succeed and also update the event content across all
-        // linked chunks in all rooms.
+        // Pushing an updated version of event a to an unoccupied position in
+        // the new linked chunk should succeed and also update the event
+        // content across all linked chunks in all rooms.
         self.handle_linked_chunk_updates(
             other_linked_chunk_id,
             vec![Update::PushItems {
@@ -1329,9 +1332,9 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let room_id = *DEFAULT_TEST_ROOM_ID;
         let linked_chunk_id = LinkedChunkId::Room(room_id);
 
-        // Same updates and checks as test_linked_chunk_push_items, but with extra
-        // `StartReattachItems` and `EndReattachItems` updates, which must have no
-        // effects.
+        // Same updates and checks as test_linked_chunk_push_items, but with
+        // extra `StartReattachItems` and `EndReattachItems` updates,
+        // which must have no effects.
         self.handle_linked_chunk_updates(
             linked_chunk_id,
             vec![
@@ -1568,8 +1571,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         for linked_chunk_id in linked_chunk_ids {
             let room_id = linked_chunk_id.room_id();
 
-            // Assume the thread has been “remembered” correctly (this is done in
-            // `ThreadEventCacheState::new`).
+            // Assume the thread has been “remembered” correctly (this is done
+            // in `ThreadEventCacheState::new`).
             if let LinkedChunkId::Thread(_, thread_id) = &linked_chunk_id {
                 self.load_thread_info(room_id, thread_id).await.unwrap();
             }
@@ -1652,8 +1655,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         {
             let room_id = linked_chunk_id.room_id();
 
-            // Assume the thread has been “remembered” correctly (this is done in
-            // `ThreadEventCacheState::new`).
+            // Assume the thread has been “remembered” correctly (this is done
+            // in `ThreadEventCacheState::new`).
             if let LinkedChunkId::Thread(_, thread_id) = &linked_chunk_id {
                 self.load_thread_info(room_id, thread_id).await.unwrap();
             }
@@ -1769,8 +1772,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .await
         .unwrap();
 
-        // Add other events in another room, to ensure filtering take the `room_id` into
-        // account.
+        // Add other events in another room, to ensure filtering take the
+        // `room_id` into account.
         self.handle_linked_chunk_updates(
             another_linked_chunk_id,
             vec![
@@ -1869,7 +1872,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         assert_eq!(event.event_id(), event_comte.event_id());
 
-        // Now let's try to find an event that exists, but not in the expected room.
+        // Now let's try to find an event that exists, but not in the expected
+        // room.
         assert!(
             self.find_event(room_id, event_gruyere.event_id().unwrap())
                 .await
@@ -1900,8 +1904,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let thread_event =
             make_test_event_with_event_id(room_id, "thread event", Some(thread_event_id));
 
-        // Create an event that will be inserted into both the room and thread linked
-        // chunks.
+        // Create an event that will be inserted into both the room and thread
+        // linked chunks.
         let room_and_thread_event_id = event_id!("$room_and_thread");
         let room_and_thread_event = make_test_event_with_event_id(
             room_id,
@@ -2034,8 +2038,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             .unwrap();
         assert!(relations.is_empty());
 
-        // But if an event exists in the linked chunk, we may have its position when
-        // it's found as a relationship.
+        // But if an event exists in the linked chunk, we may have its position
+        // when it's found as a relationship.
 
         // Add reaction_e1 to the room's linked chunk.
         self.handle_linked_chunk_updates(
@@ -2067,13 +2071,14 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let room_id = *DEFAULT_TEST_ROOM_ID;
         let thread_root = event_id!("$thread_root");
 
-        // Create an event that will inserted into both the room and thread linked
-        // chunks.
+        // Create an event that will inserted into both the room and thread
+        // linked chunks.
         let event_id = event_id!("$event");
         let event = make_test_event_with_event_id(room_id, "event", Some(event_id));
 
-        // Create an event that will only be inserted into the thread in order to help
-        // distinguish between the room and thread linked chunks.
+        // Create an event that will only be inserted into the thread in order
+        // to help distinguish between the room and thread linked
+        // chunks.
         let extra_thread_event_id = event_id!("$extra_thread_event");
         let extra_thread_event = make_test_event_with_event_id(
             room_id,
@@ -2099,8 +2104,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             .event_id(thread_reaction_id)
             .into_event();
 
-        // Create a reaction that will be inserted into both the room and thread linked
-        // chunks.
+        // Create a reaction that will be inserted into both the room and thread
+        // linked chunks.
         let room_and_thread_reaction_id = event_id!("$room_and_thread_reaction");
         let room_and_thread_reaction = EventFactory::new()
             .room(room_id)
@@ -2299,8 +2304,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         assert_eq!(events.len(), 2);
         assert_expected_events!(events, [first_event, second_event]);
 
-        // Now let's find all the encrypted events which were encrypted using the first
-        // session ID.
+        // Now let's find all the encrypted events which were encrypted using
+        // the first session ID.
         let events = self
             .get_room_events(room_id, Some("m.room.encrypted"), Some("session_1"))
             .await
@@ -2318,15 +2323,15 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let room_event_id = event_id!("$room_event");
         let room_event = make_test_event_with_event_id(room_id, "room event", Some(room_event_id));
 
-        // Create an event that will only be inserted into the thread. This may not be a
-        // sensible operation in practice, as threads seem to always exist in a
-        // room, but let's test it anyway.
+        // Create an event that will only be inserted into the thread. This may
+        // not be a sensible operation in practice, as threads seem to
+        // always exist in a room, but let's test it anyway.
         let thread_event_id = event_id!("$thread_event");
         let thread_event =
             make_test_event_with_event_id(room_id, "thread event", Some(thread_event_id));
 
-        // Create an event that will be inserted into both the room and thread linked
-        // chunks.
+        // Create an event that will be inserted into both the room and thread
+        // linked chunks.
         let room_and_thread_event_id = event_id!("$room_and_thread");
         let room_and_thread_event = make_test_event_with_event_id(
             room_id,
@@ -2365,8 +2370,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .await
         .unwrap();
 
-        // Verify that all events can be retrieved and none are duplicated in the
-        // returned list.
+        // Verify that all events can be retrieved and none are duplicated in
+        // the returned list.
         let expected_event_ids =
             BTreeSet::from([room_event_id, thread_event_id, room_and_thread_event_id]);
         assert_matches!(self.get_room_events(room_id, None, None).await, Ok(events) => {
@@ -2425,8 +2430,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let room_id = *DEFAULT_TEST_ROOM_ID;
         let thread_root = event_id!("$thread_root");
 
-        // Create an event that will be inserted into both the room and thread linked
-        // chunks.
+        // Create an event that will be inserted into both the room and thread
+        // linked chunks.
         let event_id = event_id!("$event");
         let event = make_test_event_with_event_id(room_id, "event", Some(event_id));
 
@@ -2455,8 +2460,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .await
         .unwrap();
 
-        // Save updated version of original event, which should replace the content of
-        // the existing event
+        // Save updated version of original event, which should replace the
+        // content of the existing event
         let updated_content = "updated content";
         let updated = make_test_event_with_event_id(room_id, updated_content, Some(event_id));
         self.save_event(room_id, updated).await.unwrap();

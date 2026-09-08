@@ -168,8 +168,8 @@ impl RoomPreview {
             }
         }
 
-        // Finally, if everything else fails, try to build the room from information
-        // that the client itself might have about it.
+        // Finally, if everything else fails, try to build the room from
+        // information that the client itself might have about it.
         if let Some(room) = client.get_room(&room_id) {
             Ok(Self::from_known_room(&room).await)
         } else {
@@ -186,15 +186,17 @@ impl RoomPreview {
         room_or_alias_id: &RoomOrAliasId,
         via: Vec<OwnedServerName>,
     ) -> crate::Result<Option<Self>> {
-        // Get either the room alias or the room id without the leading identifier char
+        // Get either the room alias or the room id without the leading
+        // identifier char
         let search_term = if room_or_alias_id.is_room_alias_id() {
             Some(room_or_alias_id.as_str()[1..].to_owned())
         } else {
             None
         };
 
-        // If we have no alias, filtering using a room id is impossible, so just take
-        // the first 100 results and try to find the current room #YOLO
+        // If we have no alias, filtering using a room id is impossible, so just
+        // take the first 100 results and try to find the current room
+        // #YOLO
         let batch_size = if search_term.is_some() { 20 } else { 100 };
 
         if via.is_empty() {
@@ -248,9 +250,9 @@ impl RoomPreview {
 
         let response = client.send(request).await?;
 
-        // The server returns a `Left` room state for rooms the user has not joined. Be
-        // more precise than that, and set it to `None` if we haven't joined
-        // that room.
+        // The server returns a `Left` room state for rooms the user has not
+        // joined. Be more precise than that, and set it to `None` if we
+        // haven't joined that room.
         let cached_room = client.get_room(&room_id);
         let state = if cached_room.is_none() {
             None
@@ -411,8 +413,8 @@ mod tests {
         let server_names =
             ensure_server_names_is_not_empty(own_server_name, Vec::new(), room_or_alias_id);
 
-        // There was no own server name to check against, so no additional server name
-        // was added
+        // There was no own server name to check against, so no additional
+        // server name was added
         assert!(server_names.is_empty());
     }
 
@@ -436,8 +438,8 @@ mod tests {
         let server_names =
             ensure_server_names_is_not_empty(own_server_name, Vec::new(), room_or_alias_id);
 
-        // The room id's server name was the same as our own server name, so there's no
-        // need to add it
+        // The room id's server name was the same as our own server name, so
+        // there's no need to add it
         assert!(server_names.is_empty());
     }
 

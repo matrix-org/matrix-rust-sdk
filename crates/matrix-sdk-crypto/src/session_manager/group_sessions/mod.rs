@@ -434,9 +434,9 @@ impl GroupSessionManager {
                 .create_outbound_group_session(room_id, encryption_settings, SenderData::unknown())
                 .await?;
 
-            // Use our own device info to populate the SenderData that validates the
-            // InboundGroupSession that we create as a pair to the OutboundGroupSession we
-            // are sending out.
+            // Use our own device info to populate the SenderData that validates
+            // the InboundGroupSession that we create as a pair to
+            // the OutboundGroupSession we are sending out.
             let own_sender_data = if let Some(device) = own_device {
                 SenderDataFinder::find_using_device_data(
                     &self.store,
@@ -532,23 +532,24 @@ impl GroupSessionManager {
         device: &DeviceData,
         code: &WithheldCode,
     ) -> bool {
-        // The `m.no_olm` withheld code is special because it is supposed to be sent
-        // only once for a given device. The `Device` remembers the flag if we
-        // already sent a `m.no_olm` to this particular device so let's check
-        // that first.
+        // The `m.no_olm` withheld code is special because it is supposed to be
+        // sent only once for a given device. The `Device` remembers the
+        // flag if we already sent a `m.no_olm` to this particular
+        // device so let's check that first.
         //
-        // Keep in mind that any outbound group session might want to send this code to
-        // the device. So we need to check if any of our outbound group sessions
-        // is attempting to send the code to the device.
+        // Keep in mind that any outbound group session might want to send this
+        // code to the device. So we need to check if any of our
+        // outbound group sessions is attempting to send the code to the
+        // device.
         //
         // This still has a slight race where some other thread might remove the
         // outbound group session while a third is marking the device as having
         // received the code.
         //
-        // Since nothing terrible happens if we do end up sending the withheld code
-        // twice, and removing the race requires us to lock the store because the
-        // `OutboundGroupSession` and the `Device` both interact with the flag we'll
-        // leave it be.
+        // Since nothing terrible happens if we do end up sending the withheld
+        // code twice, and removing the race requires us to lock the
+        // store because the `OutboundGroupSession` and the `Device`
+        // both interact with the flag we'll leave it be.
         if code == &WithheldCode::NoOlm {
             device.was_withheld_code_sent() || self.sessions.has_session_withheld_to(device, code)
         } else {
@@ -561,14 +562,15 @@ impl GroupSessionManager {
         group_session: &OutboundGroupSession,
         withheld_devices: Vec<(DeviceData, WithheldCode)>,
     ) -> OlmResult<()> {
-        // Convert a withheld code for the group session into a to-device event content.
+        // Convert a withheld code for the group session into a to-device event
+        // content.
         let to_content = |code| {
             let content = group_session.withheld_code(code);
             Raw::new(&content).expect("We can always serialize a withheld content info").cast()
         };
 
-        // Helper to convert a chunk of device and withheld code pairs into a to-device
-        // request and it's accompanying share info.
+        // Helper to convert a chunk of device and withheld code pairs into a
+        // to-device request and it's accompanying share info.
         let chunk_to_request = |chunk| {
             let mut messages = BTreeMap::new();
             let mut share_infos = BTreeMap::new();
@@ -706,9 +708,9 @@ impl GroupSessionManager {
         // Having an inbound group session here means that we created a new
         // group session pair, which we then need to store.
         if let Some(mut inbound) = inbound {
-            // Use our own device info to populate the SenderData that validates the
-            // InboundGroupSession that we create as a pair to the OutboundGroupSession we
-            // are sending out.
+            // Use our own device info to populate the SenderData that validates
+            // the InboundGroupSession that we create as a pair to
+            // the OutboundGroupSession we are sending out.
             let own_sender_data = if let Some(device) = &device {
                 SenderDataFinder::find_using_device_data(
                     &self.store,
@@ -764,10 +766,11 @@ impl GroupSessionManager {
             })
             .collect();
 
-        // The `encrypt_for_devices()` method adds the to-device requests that will send
-        // out the room key to the `OutboundGroupSession`. It doesn't do that
-        // for the m.room_key_withheld events since we might have more of those
-        // coming from the `collect_session_recipients()` method. Instead they get
+        // The `encrypt_for_devices()` method adds the to-device requests that
+        // will send out the room key to the `OutboundGroupSession`. It
+        // doesn't do that for the m.room_key_withheld events since we
+        // might have more of those coming from the
+        // `collect_session_recipients()` method. Instead they get
         // returned by the method.
         let unable_to_encrypt_devices =
             self.encrypt_for_devices(devices, &outbound, &mut changes).await?;
@@ -775,8 +778,8 @@ impl GroupSessionManager {
         // Merge the withheld recipients.
         withheld_devices.extend(unable_to_encrypt_devices);
 
-        // Now handle and add the withheld recipients to the resulting requests to the
-        // `OutboundGroupSession`.
+        // Now handle and add the withheld recipients to the resulting requests
+        // to the `OutboundGroupSession`.
         self.handle_withheld_devices(&outbound, withheld_devices)?;
 
         // The to-device requests get added to the outbound group session, this
@@ -1328,8 +1331,8 @@ mod tests {
         let withheld_count: usize = count_withheld_from(&requests, WithheldCode::NoOlm);
         assert_eq!(withheld_count, 2);
 
-        // Re-sharing same session while request has not been sent should not produces
-        // withheld
+        // Re-sharing same session while request has not been sent should not
+        // produces withheld
         let new_requests = machine
             .share_room_key(first_room_id, users, EncryptionSettings::default())
             .await
@@ -1343,8 +1346,8 @@ mod tests {
             machine.mark_request_as_sent(&request.txn_id, &response).await.unwrap();
         }
 
-        // The fact that an olm was sent should be remembered even if sharing another
-        // session in an other room.
+        // The fact that an olm was sent should be remembered even if sharing
+        // another session in an other room.
         let second_room_id = room_id!("!other:localhost");
         let users = keys_claim.one_time_keys.keys().map(Deref::deref);
         let requests = machine
@@ -1576,7 +1579,8 @@ mod tests {
             .map(|r| r.message_count())
             .sum();
 
-        // withhelds are sent in clear so all device should be counted (even if no OTK)
+        // withhelds are sent in clear so all device should be counted (even if
+        // no OTK)
         assert_eq!(event_count, 149);
 
         // One should be blacklisted
@@ -1625,8 +1629,8 @@ mod tests {
         assert_eq!(withheld_count, 1);
         assert_eq!(requests.len(), 1);
 
-        // On the second room key share attempt we're not sending another `m.no_olm`
-        // code since the first one is taking care of this.
+        // On the second room key share attempt we're not sending another
+        // `m.no_olm` code since the first one is taking care of this.
         let second_requests =
             machine.share_room_key(second_room, users.into_iter(), settings).await.unwrap();
 
@@ -1640,8 +1644,8 @@ mod tests {
 
         let device = machine.get_device(bob_id, "BOBDEVICE".into(), None).await.unwrap().unwrap();
 
-        // The device should be marked as having the `m.no_olm` code received only after
-        // the request has been marked as sent.
+        // The device should be marked as having the `m.no_olm` code received
+        // only after the request has been marked as sent.
         assert!(!device.was_withheld_code_sent());
 
         for request in requests {
@@ -1684,7 +1688,8 @@ mod tests {
         let alice_device = DeviceData::new(alice_device_keys, LocalTrust::Unset);
 
         {
-            // Bob creates an Olm session with Alice and encrypts a message to her
+            // Bob creates an Olm session with Alice and encrypts a message to
+            // her
             let (alice_otk_id, alice_otk) = alice_otks.next().unwrap();
             let mut session = bob_account
                 .create_outbound_session(

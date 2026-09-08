@@ -144,8 +144,8 @@ mod tests {
             };
         }
 
-        // The last argument is deliberately some usage which is *not* correct for the
-        // type.
+        // The last argument is deliberately some usage which is *not* correct
+        // for the type.
         test_partial_eq!(MasterPubkey, master_key, master_keys, KeyUsage::SelfSigning);
         test_partial_eq!(SelfSigningPubkey, self_signing_key, self_signing_keys, KeyUsage::Master);
         test_partial_eq!(UserSigningPubkey, user_signing_key, user_signing_keys, KeyUsage::Master);

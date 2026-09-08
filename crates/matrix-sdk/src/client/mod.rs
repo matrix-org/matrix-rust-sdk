@@ -1212,8 +1212,8 @@ impl Client {
         Ev: SyncEvent + DeserializeOwned + SendOutsideWasm + SyncOutsideWasm + 'static,
         Ctx: EventHandlerContext + SendOutsideWasm + SyncOutsideWasm + 'static,
     {
-        // The default value is `None`. It becomes `Some((Ev, Ctx))` once it has a
-        // new value.
+        // The default value is `None`. It becomes `Some((Ev, Ctx))` once it has
+        // a new value.
         let shared_observable = SharedObservable::new(None);
 
         ObservableEventHandler::new(
@@ -1490,11 +1490,12 @@ impl Client {
         };
 
         if let Some(room) = self.get_room(&room_id) {
-            // The cached data can only be trusted if the room state is joined or
-            // banned: for invite and knock rooms, no updates will be received
-            // for the rooms after the invite/knock action took place so we may
-            // have very out to date data for important fields such as
-            // `join_rule`. For left rooms, the homeserver should return the latest info.
+            // The cached data can only be trusted if the room state is joined
+            // or banned: for invite and knock rooms, no updates
+            // will be received for the rooms after the invite/knock
+            // action took place so we may have very out to date
+            // data for important fields such as `join_rule`. For
+            // left rooms, the homeserver should return the latest info.
             match room.state() {
                 RoomState::Joined | RoomState::Banned => {
                     return Ok(RoomPreview::from_known_room(&room).await);
@@ -1775,12 +1776,12 @@ impl Client {
             room.set_is_direct(true).await?;
         }
 
-        // If we joined following an invite, check if we had previously received a key
-        // bundle from the inviter, and import it if so.
+        // If we joined following an invite, check if we had previously received
+        // a key bundle from the inviter, and import it if so.
         //
-        // It's important that we only do this once `BaseClient::room_joined` has
-        // completed: see the notes on `BundleReceiverTask::handle_bundle` on avoiding a
-        // race.
+        // It's important that we only do this once `BaseClient::room_joined`
+        // has completed: see the notes on
+        // `BundleReceiverTask::handle_bundle` on avoiding a race.
         #[cfg(feature = "e2e-encryption")]
         if self.inner.enable_share_history_on_invite
             && let Some(inviter) =
@@ -1806,8 +1807,9 @@ impl Client {
     /// * `room_id` - The `RoomId` of the room to be joined.
     #[instrument(skip(self))]
     pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<Room> {
-        // See who invited us to this room, if anyone. Note we have to do this before
-        // making the `/join` request, otherwise we could race against the sync.
+        // See who invited us to this room, if anyone. Note we have to do this
+        // before making the `/join` request, otherwise we could race
+        // against the sync.
         let pre_join_info = self.prepare_join_room_by_id(room_id).await;
 
         let request = join_room_by_id::v3::Request::new(room_id.to_owned());
@@ -2199,11 +2201,13 @@ impl Client {
             if let Err(Some(ErrorKind::UnknownToken { .. })) =
                 result.as_ref().map_err(HttpError::client_api_error_kind)
             {
-                // If the access token is actually expired, mark it as expired and fallback to
-                // the unauthenticated request below.
+                // If the access token is actually expired, mark it as expired
+                // and fallback to the unauthenticated request
+                // below.
                 self.auth_ctx().set_access_token_expired(&access_token);
             } else {
-                // If the request succeeded or it's an other error, just stop now.
+                // If the request succeeded or it's an other error, just stop
+                // now.
                 return result;
             }
         }
@@ -2242,9 +2246,10 @@ impl Client {
         let homeserver = self.homeserver();
         let scheme = homeserver.scheme();
 
-        // Use the server name, either an explicit one or an implicit one taken from
-        // the user id: sometimes we'll have only the homeserver url available and no
-        // server name, but the server name can be extracted from the current user id.
+        // Use the server name, either an explicit one or an implicit one taken
+        // from the user id: sometimes we'll have only the homeserver
+        // url available and no server name, but the server name can be
+        // extracted from the current user id.
         let server_url = self
             .server()
             .map(|server| server.to_string())
@@ -2261,10 +2266,12 @@ impl Client {
             None
         };
 
-        // If we didn't get a well-known value yet, try with the homeserver url instead:
+        // If we didn't get a well-known value yet, try with the homeserver url
+        // instead:
         if response.is_none() {
-            // Sometimes people configure their well-known directly on the homeserver so use
-            // this as a fallback when the server name is unknown.
+            // Sometimes people configure their well-known directly on the
+            // homeserver so use this as a fallback when the server
+            // name is unknown.
             warn!(
                 "Fetching the well-known from the server name didn't work, using the homeserver url instead"
             );
@@ -2390,7 +2397,8 @@ impl Client {
         let mut supported_versions_guard = match cached_supported_versions.refresh_lock.try_lock() {
             Ok(guard) => guard,
             Err(_) => {
-                // There is already a refresh in progress, wait for it to finish.
+                // There is already a refresh in progress, wait for it to
+                // finish.
                 let guard = cached_supported_versions.refresh_lock.lock().await;
 
                 if let Err(error) = guard.as_ref() {
@@ -2405,7 +2413,8 @@ impl Client {
                     return Ok(value.into_data());
                 }
 
-                // The data wasn't cached or has expired, we need to make another request.
+                // The data wasn't cached or has expired, we need to make
+                // another request.
                 guard
             }
         };
@@ -2507,8 +2516,8 @@ impl Client {
             return Ok(None);
         };
 
-        // Spawn a task to refresh the cache if it has expired and we have a valid
-        // access token.
+        // Spawn a task to refresh the cache if it has expired and we have a
+        // valid access token.
         if value.has_expired() && self.auth_ctx().has_valid_access_token() {
             debug!("spawning task to refresh supported versions cache");
 
@@ -2626,11 +2635,12 @@ impl Client {
         let _well_known_guard = match well_known_cache.refresh_lock.try_lock() {
             Ok(guard) => guard,
             Err(_) => {
-                // There is already a refresh in progress, wait for it to finish.
+                // There is already a refresh in progress, wait for it to
+                // finish.
                 let guard = well_known_cache.refresh_lock.lock().await;
 
-                // A refresh can't fail because we ignore failures, so there shouldn't be an
-                // error in the refresh lock.
+                // A refresh can't fail because we ignore failures, so there
+                // shouldn't be an error in the refresh lock.
 
                 // Reuse the data if it was cached and it hasn't expired.
                 if let CachedValue::Cached(value) = well_known_cache.value()
@@ -2639,7 +2649,8 @@ impl Client {
                     return value.into_data();
                 }
 
-                // The data wasn't cached or has expired, we need to make another request.
+                // The data wasn't cached or has expired, we need to make
+                // another request.
                 guard
             }
         };
@@ -2770,8 +2781,8 @@ impl Client {
             return CachedValue::NotSet;
         };
 
-        // Spawn a task to refresh the cache if it has expired and we have a valid
-        // access token.
+        // Spawn a task to refresh the cache if it has expired and we have a
+        // valid access token.
         if value.has_expired() && self.auth_ctx().has_valid_access_token() {
             debug!("spawning task to refresh RTC transports cache");
 
@@ -2793,7 +2804,8 @@ impl Client {
         let mut refresh_guard = match cache.refresh_lock.try_lock() {
             Ok(guard) => guard,
             Err(_) => {
-                // There is already a refresh in progress, wait for it to finish.
+                // There is already a refresh in progress, wait for it to
+                // finish.
                 let guard = cache.refresh_lock.lock().await;
 
                 if let Err(error) = guard.as_ref() {
@@ -2808,7 +2820,8 @@ impl Client {
                     return Ok(value.into_data());
                 }
 
-                // The data wasn't cached or has expired, we need to make another request.
+                // The data wasn't cached or has expired, we need to make
+                // another request.
                 guard
             }
         };
@@ -2820,11 +2833,13 @@ impl Client {
                 Ok(Some(transports))
             }
             Err(error) if error.is_endpoint_not_implemented() => {
-                // The homeserver doesn't implement the RTC transports endpoint. Cache
-                // `None` (with the normal TTL) so we don't hit the endpoint on every
-                // call; this self-heals after the TTL in case the homeserver is
-                // upgraded. `None` is kept distinct from `Some(vec![])` (a homeserver
-                // that advertises no transports) so callers can decide whether to fall
+                // The homeserver doesn't implement the RTC transports endpoint.
+                // Cache `None` (with the normal TTL) so we
+                // don't hit the endpoint on every call; this
+                // self-heals after the TTL in case the homeserver is
+                // upgraded. `None` is kept distinct from `Some(vec![])` (a
+                // homeserver that advertises no transports) so
+                // callers can decide whether to fall
                 // back to the well-known foci (see `Client::rtc_foci`).
                 debug!("homeserver does not implement the RTC transports endpoint");
                 *refresh_guard = Ok(());
@@ -2889,8 +2904,8 @@ impl Client {
             return Ok(Some(transports));
         }
 
-        // The homeserver doesn't implement the discovery endpoint or does not expose
-        // any transports, fall back to the well-known foci.
+        // The homeserver doesn't implement the discovery endpoint or does not
+        // expose any transports, fall back to the well-known foci.
         // `well_known` returns `None` when well-known discovery is
         // disabled, which correctly collapses into "nothing was discovered".
         Ok(self.well_known().await.map(|well_known| well_known.rtc_foci))
@@ -3727,7 +3742,8 @@ impl Client {
     /// This is async and fallible as it may use the network to retrieve the
     /// server supported features, if they aren't cached already.
     pub async fn enabled_thread_subscriptions(&self) -> Result<bool> {
-        // Check if the client is configured to support thread subscriptions first.
+        // Check if the client is configured to support thread subscriptions
+        // first.
         match self.base_client().threading_support {
             ThreadingSupport::Enabled { with_subscriptions: false }
             | ThreadingSupport::Disabled => return Ok(false),
@@ -4236,7 +4252,8 @@ pub(crate) mod tests {
             .mount()
             .await;
 
-        // The `/versions` is on the homeserver (e.g. `matrix-client.matrix.org`).
+        // The `/versions` is on the homeserver (e.g.
+        // `matrix-client.matrix.org`).
         homeserver.mock_versions().ok().mock_once().named("versions").mount().await;
 
         let client = Client::builder()
@@ -4270,14 +4287,14 @@ pub(crate) mod tests {
         assert_eq!(client.homeserver(), Url::parse(&homeserver_url).unwrap());
 
         let new_server = Url::parse("http://example.org").unwrap();
-        // Since we're explicitly setting the server to something else, like we might do
-        // during QR code login...
+        // Since we're explicitly setting the server to something else, like we
+        // might do during QR code login...
         client.set_homeserver(new_server.clone());
 
         // The new URL should be set in the homeserver field.
         assert_eq!(client.homeserver(), new_server);
-        // But the server field should be set to empty, since we didn't do any discovery
-        // now.
+        // But the server field should be set to empty, since we didn't do any
+        // discovery now.
         assert!(client.server().is_none())
     }
 
@@ -4475,7 +4492,8 @@ pub(crate) mod tests {
             [room_id!("!beta:localhost"), room_id!("!alpha:localhost")]
         );
 
-        // Tracking the first room yet again should move it to the front of the list
+        // Tracking the first room yet again should move it to the front of the
+        // list
         account.track_recently_visited_room(owned_room_id!("!alpha:localhost")).await.unwrap();
         assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 2);
         assert_eq!(
@@ -4610,7 +4628,8 @@ pub(crate) mod tests {
 
         drop(versions_mock);
 
-        // Now, reset the cache, and observe the endpoint being called again once.
+        // Now, reset the cache, and observe the endpoint being called again
+        // once.
         client.reset_supported_versions().await.unwrap();
 
         server.mock_versions().ok().expect(2).named("second versions mock").mount().await;
@@ -4630,7 +4649,8 @@ pub(crate) mod tests {
         // Call the method to trigger a cache refresh background task.
         client.supported_versions_cached().await.unwrap().unwrap();
 
-        // We wait for the task to finish, the endpoint should have been called again.
+        // We wait for the task to finish, the endpoint should have been called
+        // again.
         sleep(Duration::from_secs(1)).await;
         assert_matches!(client.inner.caches.supported_versions.value(), CachedValue::Cached(value) if !value.has_expired());
     }
@@ -4689,7 +4709,8 @@ pub(crate) mod tests {
 
         drop(well_known_mock);
 
-        // Now, reset the cache, and observe the endpoints being called again once.
+        // Now, reset the cache, and observe the endpoints being called again
+        // once.
         client.reset_well_known().await.unwrap();
 
         server.mock_well_known().ok().named("second well known mock").expect(2).mount().await;
@@ -4708,9 +4729,10 @@ pub(crate) mod tests {
         // Call the method again to trigger a cache refresh background task.
         client.well_known().await;
 
-        // We wait for the task to finish, the endpoint should have been called again.
-        // We need to wait a bit because the first requests using the server name of the
-        // user will fail, only the requests using the homeserver URL will succeed.
+        // We wait for the task to finish, the endpoint should have been called
+        // again. We need to wait a bit because the first requests using
+        // the server name of the user will fail, only the requests
+        // using the homeserver URL will succeed.
         sleep(Duration::from_secs(5)).await;
         assert_matches!(client.inner.caches.well_known.value(), CachedValue::Cached(value) if !value.has_expired());
     }
@@ -4775,7 +4797,8 @@ pub(crate) mod tests {
         // Call the method again to trigger a cache refresh background task.
         client.rtc_transports().await.unwrap();
 
-        // We wait for the task to finish, the endpoint should have been called again.
+        // We wait for the task to finish, the endpoint should have been called
+        // again.
         sleep(Duration::from_secs(1)).await;
         assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired());
     }
@@ -4789,10 +4812,10 @@ pub(crate) mod tests {
 
         let server = MatrixMockServer::new().await;
 
-        // The homeserver doesn't implement the endpoint: it responds with a 404 and an
-        // `M_UNRECOGNIZED` error (as a homeserver does for an unrecognized endpoint).
-        // We expect it to be hit only once, despite several calls, thanks to the
-        // negative caching.
+        // The homeserver doesn't implement the endpoint: it responds with a 404
+        // and an `M_UNRECOGNIZED` error (as a homeserver does for an
+        // unrecognized endpoint). We expect it to be hit only once,
+        // despite several calls, thanks to the negative caching.
         Mock::given(method("GET"))
             .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
             .respond_with(ResponseTemplate::new(404).set_body_json(json!({
@@ -4809,7 +4832,8 @@ pub(crate) mod tests {
         // First call hits the network and gets a 404, which is cached as `None`
         // (unsupported), distinct from `Some(vec![])` (supported but empty).
         assert_eq!(client.rtc_transports().await.unwrap(), None);
-        // Subsequent call hits the in-memory cache, without re-hitting the endpoint.
+        // Subsequent call hits the in-memory cache, without re-hitting the
+        // endpoint.
         assert_eq!(client.rtc_transports().await.unwrap(), None);
         assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired());
     }
@@ -4855,8 +4879,8 @@ pub(crate) mod tests {
 
         let _transports_mock = mock_rtc_transports_endpoint(&server, true).await;
 
-        // The homeserver implements the discovery endpoint, so the well-known must not
-        // be queried at all.
+        // The homeserver implements the discovery endpoint, so the well-known
+        // must not be queried at all.
         let _well_known_mock = server
             .mock_well_known()
             .ok()
@@ -4888,8 +4912,8 @@ pub(crate) mod tests {
 
         let client = server.client_builder().build().await;
 
-        // The homeserver doesn't implement the discovery endpoint, so the well-known
-        // foci are used instead.
+        // The homeserver doesn't implement the discovery endpoint, so the
+        // well-known foci are used instead.
         assert_eq!(client.discover_rtc_transports().await.unwrap(), Some(rtc_foci));
     }
 
@@ -4914,8 +4938,9 @@ pub(crate) mod tests {
             .build()
             .await;
 
-        // The homeserver doesn't implement the discovery endpoint, and falling back to
-        // the well-known isn't allowed, so nothing could be discovered.
+        // The homeserver doesn't implement the discovery endpoint, and falling
+        // back to the well-known isn't allowed, so nothing could be
+        // discovered.
         assert_eq!(client.discover_rtc_transports().await.unwrap(), None);
         // The other well-known consumers are disabled too.
         assert!(client.well_known_rtc_transports().await.unwrap().is_empty());
@@ -4936,8 +4961,9 @@ pub(crate) mod tests {
         let client = server.client_builder().build().await;
         client.disable_well_known_lookup(true);
 
-        // The homeserver doesn't implement the discovery endpoint, and falling back to
-        // the well-known isn't allowed, so nothing could be discovered.
+        // The homeserver doesn't implement the discovery endpoint, and falling
+        // back to the well-known isn't allowed, so nothing could be
+        // discovered.
         assert_eq!(client.discover_rtc_transports().await.unwrap(), None);
         // The other well-known consumers are disabled too.
         assert!(client.well_known_rtc_transports().await.unwrap().is_empty());
@@ -4996,7 +5022,8 @@ pub(crate) mod tests {
 
         drop(well_known_mock);
 
-        // Now, reset the cache, and observe the endpoints being called again once.
+        // Now, reset the cache, and observe the endpoints being called again
+        // once.
         client.reset_well_known().await.unwrap();
 
         server
@@ -5021,8 +5048,8 @@ pub(crate) mod tests {
             .build()
             .await;
 
-        // We don't define a mock server on purpose here, so that the error is really a
-        // network error.
+        // We don't define a mock server on purpose here, so that the error is
+        // really a network error.
         client.whoami().await.unwrap_err();
     }
 
@@ -5079,8 +5106,8 @@ pub(crate) mod tests {
         let client = MockClientBuilder::new(None).build().await;
 
         let room_id = room_id!("!room:example.org");
-        // Room is not present so the client won't be able to find it. The call will
-        // timeout.
+        // Room is not present so the client won't be able to find it. The call
+        // will timeout.
         timeout(Duration::from_secs(1), client.await_room_remote_echo(room_id)).await.unwrap_err();
     }
 
@@ -5397,8 +5424,8 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_load_or_fetch_max_upload_size_with_auth_matrix_version() {
-        // The default Matrix version we use is 1.11 or higher, so authenticated media
-        // is supported.
+        // The default Matrix version we use is 1.11 or higher, so authenticated
+        // media is supported.
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
@@ -5412,8 +5439,9 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_load_or_fetch_max_upload_size_with_auth_stable_feature() {
-        // The server must advertise support for the stable feature for authenticated
-        // media support, so we mock the `GET /versions` response.
+        // The server must advertise support for the stable feature for
+        // authenticated media support, so we mock the `GET /versions`
+        // response.
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().no_server_versions().build().await;
 

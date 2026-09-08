@@ -382,12 +382,13 @@ impl WidgetSettings {
         let query =
             serde_html_form::to_string(query_params).map_err(|_| url::ParseError::Overflow)?;
 
-        // Revert the encoding for the template parameters. So we can have a unified
-        // replace logic.
+        // Revert the encoding for the template parameters. So we can have a
+        // unified replace logic.
         let query = query.replace("%24", "$");
 
-        // All the params will be set inside the fragment (to keep the traffic to the
-        // server minimal and most importantly don't send the passwords).
+        // All the params will be set inside the fragment (to keep the traffic
+        // to the server minimal and most importantly don't send the
+        // passwords).
         raw_url.set_fragment(Some(&format!("?{query}")));
 
         // for EC we always want init on content load to be true.
@@ -455,8 +456,8 @@ mod tests {
         }
     }
 
-    // Convert query strings to BTreeSet so that we can compare the urls independent
-    // of the order of the params.
+    // Convert query strings to BTreeSet so that we can compare the urls
+    // independent of the order of the params.
     type QuerySet = BTreeSet<(String, String)>;
 
     use serde_html_form::from_str;
@@ -803,12 +804,12 @@ mod tests {
 
     #[test]
     fn test_call_intent_serialization() {
-        // The call intent serialized value must match the expected enum names as
-        // defined in the Element-Call repo:
+        // The call intent serialized value must match the expected enum names
+        // as defined in the Element-Call repo:
         // https://github.com/element-hq/element-call/blob/de8fdcfa694659a29f2c7a4401dd09cfec846a96/src/UrlParams.ts#L32
-        // The enum uses serde rename `snake_case` to serialize the values, but it makes
-        // it invisible that it is important, so ensure that the values are
-        // correct.
+        // The enum uses serde rename `snake_case` to serialize the values, but
+        // it makes it invisible that it is important, so ensure that
+        // the values are correct.
         assert_eq!(serde_json::to_string(&Intent::StartCall).unwrap(), r#""start_call""#);
         assert_eq!(serde_json::to_string(&Intent::JoinExisting).unwrap(), r#""join_existing""#);
         assert_eq!(

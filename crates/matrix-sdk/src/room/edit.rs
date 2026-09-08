@@ -227,8 +227,8 @@ macro_rules! set_caption {
         let filename = $event.filename().to_owned();
         // As a reminder:
         // - body and no filename set means the body is the filename
-        // - body and filename set means the body is the caption, and filename is the
-        //   filename.
+        // - body and filename set means the body is the caption, and filename is
+        //   the filename.
         if let Some(caption) = $caption {
             $event.filename = Some(filename);
             $event.body = caption;

@@ -109,8 +109,8 @@ impl BaseClient {
         );
 
         if rooms.is_empty() && extensions.is_empty() {
-            // we received a room reshuffling event only, there won't be anything for us to
-            // process. stop early
+            // we received a room reshuffling event only, there won't be
+            // anything for us to process. stop early
             return Ok(SyncResponse::default());
         }
 
@@ -186,9 +186,10 @@ impl BaseClient {
             }
         }
 
-        // Handle read receipts and typing notifications independently of the rooms:
-        // these both live in a different subsection of the server's response,
-        // so they may exist without any update for the associated room.
+        // Handle read receipts and typing notifications independently of the
+        // rooms: these both live in a different subsection of the
+        // server's response, so they may exist without any update for
+        // the associated room.
         processors::room::msc4186::extensions::dispatch_typing_ephemeral_events(
             &extensions.typing,
             &mut room_updates.joined,
@@ -206,7 +207,8 @@ impl BaseClient {
 
         context.state_changes.ambiguity_maps = ambiguity_cache.cache;
 
-        // Persist any global profile updates received through the profiles extension.
+        // Persist any global profile updates received through the profiles
+        // extension.
         context.state_changes.global_profiles = extensions.profiles.users.clone();
 
         // Save the changes and apply them.
@@ -219,8 +221,9 @@ impl BaseClient {
         )
         .await?;
 
-        // Profile-only updates don't modify any rooms, so nothing else broadcasts
-        // them. Surface the change so subscribers can react accordingly.
+        // Profile-only updates don't modify any rooms, so nothing else
+        // broadcasts them. Surface the change so subscribers can react
+        // accordingly.
         self.notify_global_profile_updates(
             extensions.profiles.users.keys().cloned().collect(),
             state_store_guard,
@@ -228,8 +231,9 @@ impl BaseClient {
 
         let mut context = processors::Context::default();
 
-        // Now that all the rooms information have been saved, update the display name
-        // of the updated rooms (which relies on information stored in the database).
+        // Now that all the rooms information have been saved, update the
+        // display name of the updated rooms (which relies on
+        // information stored in the database).
         processors::room::display_name::update_for_rooms(
             &mut context,
             &room_updates,
@@ -454,8 +458,8 @@ mod tests {
         let alice = user_id!("@alice:e.uk");
         let bob = user_id!("@bob:e.uk");
 
-        // Given a sliding sync response carrying the profiles extension (MSC4262)
-        // for two users, and no rooms.
+        // Given a sliding sync response carrying the profiles extension
+        // (MSC4262) for two users, and no rooms.
         let mut response = http::Response::new("0".to_owned());
         response.extensions.profiles.users.insert(
             alice.to_owned(),
@@ -539,7 +543,8 @@ mod tests {
         // Given a subscriber to global profile updates.
         let mut global_profile_updates = client.subscribe_to_global_profile_updates();
 
-        // When a sliding sync response carries the profiles extension for two users.
+        // When a sliding sync response carries the profiles extension for two
+        // users.
         let mut response = http::Response::new("0".to_owned());
         response.extensions.profiles.users.insert(
             alice.to_owned(),
@@ -593,8 +598,8 @@ mod tests {
         let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
 
-        // When I send sliding sync response containing a room (with identifiable data
-        // in joined_count)
+        // When I send sliding sync response containing a room (with
+        // identifiable data in joined_count)
         let mut room = http::response::Room::new();
         room.joined_count = Some(uint!(41));
         let response = response_with_room(room_id, room);
@@ -625,8 +630,8 @@ mod tests {
         let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
 
-        // When I send sliding sync response containing a room with a name set in the
-        // sliding sync response,
+        // When I send sliding sync response containing a room with a name set
+        // in the sliding sync response,
         let mut room = http::response::Room::new();
         room.name = Some("little room".to_owned());
         let response = response_with_room(room_id, room);
@@ -639,7 +644,8 @@ mod tests {
             .await
             .expect("Failed to process sync");
 
-        // No m.room.name event, no heroes, no members => considered an empty room!
+        // No m.room.name event, no heroes, no members => considered an empty
+        // room!
         let client_room = client.get_room(room_id).expect("No room found");
         assert!(client_room.name().is_none());
         assert_eq!(
@@ -661,8 +667,8 @@ mod tests {
         let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
 
-        // When I send sliding sync response containing a room with a name set in the
-        // sliding sync response, and a m.room.name event,
+        // When I send sliding sync response containing a room with a name set
+        // in the sliding sync response, and a m.room.name event,
         let mut room = http::response::Room::new();
 
         room.name = Some("little room".to_owned());
@@ -695,8 +701,8 @@ mod tests {
         let user_id = user_id!("@w:e.uk");
         let inviter = user_id!("@john:mastodon.org");
 
-        // When I send sliding sync response containing a room with a name set in the
-        // sliding sync response,
+        // When I send sliding sync response containing a room with a name set
+        // in the sliding sync response,
         let mut room = http::response::Room::new();
         set_room_invited(&mut room, inviter, user_id);
         room.name = Some("name from sliding sync response".to_owned());
@@ -734,8 +740,8 @@ mod tests {
         let user_id = user_id!("@w:e.uk");
         let inviter = user_id!("@john:mastodon.org");
 
-        // When I send sliding sync response containing a room with a name set in the
-        // sliding sync response, and a m.room.name event,
+        // When I send sliding sync response containing a room with a name set
+        // in the sliding sync response, and a m.room.name event,
         let mut room = http::response::Room::new();
 
         set_room_invited(&mut room, inviter, user_id);
@@ -769,8 +775,8 @@ mod tests {
         let room_id = room_id!("!r:e.uk");
         let user_id = client.session_meta().unwrap().user_id.to_owned();
 
-        // When the room is properly set as knocked with the current user id as state
-        // key,
+        // When the room is properly set as knocked with the current user id as
+        // state key,
         let mut room = http::response::Room::new();
         set_room_knocked(&mut room, &user_id);
 
@@ -811,8 +817,8 @@ mod tests {
             .await
             .expect("Failed to process sync");
 
-        // The room is invited since the membership event doesn't belong to the current
-        // user.
+        // The room is invited since the membership event doesn't belong to the
+        // current user.
         let client_room = client.get_room(room_id).expect("No room found");
         assert_eq!(client_room.state(), RoomState::Invited);
     }
@@ -993,7 +999,8 @@ mod tests {
             .await
             .expect("Failed to process sync");
 
-        // The room is NOT left because state events from `timeline` must be IGNORED!
+        // The room is NOT left because state events from `timeline` must be
+        // IGNORED!
         assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Joined);
     }
 
@@ -1072,9 +1079,9 @@ mod tests {
         // When B leaves
         update_room_membership(&client, room_id, user_b_id, MembershipState::Leave).await;
 
-        // Then B is still a direct target, and is in Leave state (B is a direct target
-        // because we want to return to our old DM in the UI even if the other
-        // user left, so we can reinvite them. See https://github.com/matrix-org/matrix-rust-sdk/issues/2017)
+        // Then B is still a direct target, and is in Leave state (B is a direct
+        // target because we want to return to our old DM in the UI even
+        // if the other user left, so we can reinvite them. See https://github.com/matrix-org/matrix-rust-sdk/issues/2017)
         assert!(
             direct_targets(&client, room_id).contains(<&DirectUserIdentifier>::from(user_b_id))
         );
@@ -1101,9 +1108,9 @@ mod tests {
         // When B declines the invitation (i.e. leaves)
         update_room_membership(&client, room_id, user_b_id, MembershipState::Leave).await;
 
-        // Then B is still a direct target, and is in Leave state (B is a direct target
-        // because we want to return to our old DM in the UI even if the other
-        // user left, so we can reinvite them. See https://github.com/matrix-org/matrix-rust-sdk/issues/2017)
+        // Then B is still a direct target, and is in Leave state (B is a direct
+        // target because we want to return to our old DM in the UI even
+        // if the other user left, so we can reinvite them. See https://github.com/matrix-org/matrix-rust-sdk/issues/2017)
         assert!(
             direct_targets(&client, room_id).contains(<&DirectUserIdentifier>::from(user_b_id))
         );
@@ -1248,7 +1255,8 @@ mod tests {
 
         // Avatar is unset.
 
-        // When I send sliding sync response containing an avatar set to `null` (!).
+        // When I send sliding sync response containing an avatar set to `null`
+        // (!).
         let room = {
             let mut room = http::response::Room::new();
             room.avatar = JsOption::Null;
@@ -1404,7 +1412,8 @@ mod tests {
         let room_id = room_id!("!r:e.uk");
         let user_id = user_id!("@u:e.uk");
 
-        // When I send sliding sync response containing an invited room with an avatar
+        // When I send sliding sync response containing an invited room with an
+        // avatar
         let mut room = room_with_avatar(mxc_uri!("mxc://e.uk/med1"), user_id);
         set_room_invited(&mut room, user_id, user_id);
         let response = response_with_room(room_id, room);
@@ -1434,7 +1443,8 @@ mod tests {
         let user_id = user_id!("@u:e.uk");
         let room_alias_id = room_alias_id!("#myroom:e.uk");
 
-        // When I send sliding sync response containing an invited room with an avatar
+        // When I send sliding sync response containing an invited room with an
+        // avatar
         let mut room = room_with_canonical_alias(room_alias_id, user_id);
         set_room_invited(&mut room, user_id, user_id);
         let response = response_with_room(room_id, room);
@@ -1460,8 +1470,8 @@ mod tests {
         let user_id = user_id!("@u:e.uk");
         let room_alias_id = room_alias_id!("#myroom:e.uk");
 
-        // When the sliding sync response contains an explicit room name as well as an
-        // alias
+        // When the sliding sync response contains an explicit room name as well
+        // as an alias
         let mut room = room_with_canonical_alias(room_alias_id, user_id);
         room.name = Some("This came from the server".to_owned());
         let response = response_with_room(room_id, room);
@@ -1474,7 +1484,8 @@ mod tests {
             .await
             .expect("Failed to process sync");
 
-        // Then the room's name is NOT overridden by the server-computed display name.
+        // Then the room's name is NOT overridden by the server-computed display
+        // name.
         let client_room = client.get_room(room_id).expect("No room found");
         assert_eq!(
             client_room.compute_display_name().await.unwrap().into_inner().to_string(),
@@ -1550,8 +1561,8 @@ mod tests {
                 client
             };
 
-            // When the sliding sync response contains an explicit room name as well as an
-            // alias
+            // When the sliding sync response contains an explicit room name as
+            // well as an alias
             let room = room_with_name("Hello World", user_id);
             let response = response_with_room(room_id, room);
             client
@@ -1599,8 +1610,8 @@ mod tests {
         let gordon = owned_user_id!("@gordon:e.uk");
         let alice = owned_user_id!("@alice:e.uk");
 
-        // When I send sliding sync response containing a room (with identifiable data
-        // in `heroes`)
+        // When I send sliding sync response containing a room (with
+        // identifiable data in `heroes`)
         let mut room = http::response::Room::new();
         room.heroes = Some(vec![
             assign!(http::response::Hero::new(gordon), {
@@ -1672,7 +1683,8 @@ mod tests {
 
         assert_pending!(room_info_subscriber);
 
-        // When a subsequent sync carries only a profiles-extension update for Alice.
+        // When a subsequent sync carries only a profiles-extension update for
+        // Alice.
         let mut response = http::Response::new("1".to_owned());
         response.extensions.profiles.users.insert(
             alice.clone(),
@@ -1718,7 +1730,8 @@ mod tests {
         let client = logged_in_base_client(None).await;
         let room_id = room_id!("!r:e.uk");
 
-        // When I send sliding sync response containing a room with a recency stamp
+        // When I send sliding sync response containing a room with a recency
+        // stamp
         let room = assign!(http::response::Room::new(), {
             bump_stamp: Some(42u32.into()),
         });
@@ -1744,7 +1757,8 @@ mod tests {
         let room_id = room_id!("!r:e.uk");
 
         {
-            // When I send sliding sync response containing a room with a recency stamp
+            // When I send sliding sync response containing a room with a
+            // recency stamp
             let room = assign!(http::response::Room::new(), {
                 bump_stamp: Some(42u32.into()),
             });
@@ -1764,7 +1778,8 @@ mod tests {
         }
 
         {
-            // When I send sliding sync response containing a room with NO recency stamp
+            // When I send sliding sync response containing a room with NO
+            // recency stamp
             let room = assign!(http::response::Room::new(), {
                 bump_stamp: None,
             });
@@ -1784,8 +1799,8 @@ mod tests {
         }
 
         {
-            // When I send sliding sync response containing a room with a NEW recency
-            // timestamp
+            // When I send sliding sync response containing a room with a NEW
+            // recency timestamp
             let room = assign!(http::response::Room::new(), {
                 bump_stamp: Some(153u32.into()),
             });
@@ -1812,7 +1827,8 @@ mod tests {
         let mut room_info_notable_update_stream = client.room_info_notable_update_receiver();
         let room_id = room_id!("!r:e.uk");
 
-        // When I send sliding sync response containing a room with a recency stamp.
+        // When I send sliding sync response containing a room with a recency
+        // stamp.
         let room = assign!(http::response::Room::new(), {
             bump_stamp: Some(42u32.into()),
         });
@@ -1826,8 +1842,8 @@ mod tests {
             .await
             .expect("Failed to process sync");
 
-        // Then a room info notable update is NOT received, because it's the first time
-        // the room is seen.
+        // Then a room info notable update is NOT received, because it's the
+        // first time the room is seen.
         assert_matches!(
             room_info_notable_update_stream.recv().await,
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
@@ -1844,7 +1860,8 @@ mod tests {
         );
         assert!(room_info_notable_update_stream.is_empty());
 
-        // When I send sliding sync response containing a room with a recency stamp.
+        // When I send sliding sync response containing a room with a recency
+        // stamp.
         let room = assign!(http::response::Room::new(), {
             bump_stamp: Some(43u32.into()),
         });
@@ -1904,7 +1921,8 @@ mod tests {
             }
         );
 
-        // Send sliding sync response containing a membership event with 'join' value.
+        // Send sliding sync response containing a membership event with 'join'
+        // value.
         let room_id = room_id!("!r:e.uk");
         let events = vec![
             Raw::from_json_string(
@@ -1933,7 +1951,8 @@ mod tests {
             .await
             .expect("Failed to process sync");
 
-        // Room was already joined, no `MEMBERSHIP` update should be triggered here
+        // Room was already joined, no `MEMBERSHIP` update should be triggered
+        // here
         assert_matches!(
             room_info_notable_update_stream.recv().await,
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
@@ -2000,7 +2019,8 @@ mod tests {
             .await
             .expect("Failed to process sync");
 
-        // Other notable updates are received, but not the ones we are interested by.
+        // Other notable updates are received, but not the ones we are
+        // interested by.
         assert_matches!(
             room_info_notable_update_stream.recv().await,
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
@@ -2017,8 +2037,8 @@ mod tests {
         );
         assert!(room_info_notable_update_stream.is_empty());
 
-        // When I receive a sliding sync response containing one update about an unread
-        // marker,
+        // When I receive a sliding sync response containing one update about an
+        // unread marker,
         let room_id = room_id!("!r:e.uk");
         let room_account_data_events = vec![
             Raw::from_json_string(
@@ -2126,7 +2146,8 @@ mod tests {
             .await
             .expect("Failed to process sync");
 
-        // Other notable updates are received, but not the ones we are interested by.
+        // Other notable updates are received, but not the ones we are
+        // interested by.
         assert_matches!(
             room_info_notable_update_stream.recv().await,
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
@@ -2249,7 +2270,8 @@ mod tests {
             .await
             .expect("Failed to process sync");
 
-        // Other notable updates are received, but not the ones we are interested by.
+        // Other notable updates are received, but not the ones we are
+        // interested by.
         assert_matches!(
             room_info_notable_update_stream.recv().await,
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
@@ -2308,7 +2330,8 @@ mod tests {
         );
         assert!(room_info_notable_update_stream.is_empty());
 
-        // When I receive a sliding sync response with a stable unread marker update,
+        // When I receive a sliding sync response with a stable unread marker
+        // update,
         let stable_room_account_data_events = vec![
             Raw::from_json_string(
                 json!({
@@ -2372,8 +2395,8 @@ mod tests {
         );
         assert!(room_info_notable_update_stream.is_empty());
 
-        // Finally, when I receive a sliding sync response with a stable unread marker
-        // update again,
+        // Finally, when I receive a sliding sync response with a stable unread
+        // marker update again,
         let stable_room_account_data_events = vec![
             Raw::from_json_string(
                 json!({
@@ -2538,8 +2561,8 @@ mod tests {
         let room_id_1 = room_id!("!r1");
         let room_id_2 = room_id!("!r2");
 
-        // A room is considered encrypted when it receives a `m.room.encryption` event,
-        // period.
+        // A room is considered encrypted when it receives a `m.room.encryption`
+        // event, period.
         //
         // A room is considered **not** encrypted when it receives no
         // `m.room.encryption` event but it was requested, period.
@@ -2548,8 +2571,8 @@ mod tests {
         //
         // - two of them receive a `m.room.encryption` event
         // - the last one does not receive a `m.room.encryption`.
-        // - the first one is configured with a `required_state` for this event, the
-        //   others have nothing.
+        // - the first one is configured with a `required_state` for this event,
+        //   the others have nothing.
         //
         // The trick is that, since sliding sync makes an union of all the
         // `required_state`s, then all rooms are technically requesting a
@@ -2572,9 +2595,10 @@ mod tests {
 
         let mut response = http::Response::new("0".to_owned());
 
-        // Create two rooms that are encrypted, i.e. they have a `m.room.encryption`
-        // state event in their `required_state`. Create a third room that is not
-        // encrypted, i.e. it doesn't have a `m.room.encryption` state event.
+        // Create two rooms that are encrypted, i.e. they have a
+        // `m.room.encryption` state event in their `required_state`.
+        // Create a third room that is not encrypted, i.e. it doesn't
+        // have a `m.room.encryption` state event.
         {
             let not_encrypted_room = http::response::Room::new();
             let mut encrypted_room = http::response::Room::new();
@@ -2617,8 +2641,8 @@ mod tests {
         let room_id_0 = room_id!("!r0");
         let room_id_1 = room_id!("!r1");
 
-        // A room is considered encrypted when it receives a `m.room.encryption` event,
-        // period.
+        // A room is considered encrypted when it receives a `m.room.encryption`
+        // event, period.
         //
         // A room is considered **not** encrypted when it receives no
         // `m.room.encryption` event but it was requested, period.
@@ -2652,14 +2676,14 @@ mod tests {
             .await
             .expect("Failed to process sync");
 
-        // Encrypted, because the presence of a `m.room.encryption` always mean the room
-        // is encrypted.
+        // Encrypted, because the presence of a `m.room.encryption` always mean
+        // the room is encrypted.
         assert_matches!(
             client.get_room(room_id_0).unwrap().encryption_state(),
             EncryptionState::Encrypted
         );
-        // Unknown, because the absence of `m.room.encryption` when not requested
-        // means we don't know what the state is.
+        // Unknown, because the absence of `m.room.encryption` when not
+        // requested means we don't know what the state is.
         assert_matches!(
             client.get_room(room_id_1).unwrap().encryption_state(),
             EncryptionState::Unknown
@@ -2815,8 +2839,8 @@ mod tests {
     }
 
     fn set_room_invited(room: &mut http::response::Room, inviter: &UserId, invitee: &UserId) {
-        // Sliding Sync shows an almost-empty event to indicate that we are invited to a
-        // room. Just the type is supplied.
+        // Sliding Sync shows an almost-empty event to indicate that we are
+        // invited to a room. Just the type is supplied.
 
         let evt = Raw::new(&json!({
             "type": "m.room.member",
@@ -2832,8 +2856,8 @@ mod tests {
 
         room.invite_state = Some(vec![evt]);
 
-        // We expect that there will also be an invite event in the required_state,
-        // assuming you've asked for this type of event.
+        // We expect that there will also be an invite event in the
+        // required_state, assuming you've asked for this type of event.
         room.required_state.push(make_state_event(
             inviter,
             invitee.as_str(),
@@ -2843,8 +2867,8 @@ mod tests {
     }
 
     fn set_room_knocked(room: &mut http::response::Room, knocker: &UserId) {
-        // Sliding Sync shows an almost-empty event to indicate that we are invited to a
-        // room. Just the type is supplied.
+        // Sliding Sync shows an almost-empty event to indicate that we are
+        // invited to a room. Just the type is supplied.
 
         let evt = Raw::new(&json!({
             "type": "m.room.member",

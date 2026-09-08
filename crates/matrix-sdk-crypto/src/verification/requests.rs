@@ -449,9 +449,9 @@ impl VerificationRequest {
             _ => return Ok(None),
         };
 
-        // We may have previously started our own QR verification (e.g. two devices
-        // displaying QR code at the same time), so we need to replace it with the newly
-        // scanned code.
+        // We may have previously started our own QR verification (e.g. two
+        // devices displaying QR code at the same time), so we need to
+        // replace it with the newly scanned code.
         if self
             .verification_cache
             .get_qr(qr_verification.other_user_id(), qr_verification.flow_id().as_str())
@@ -742,12 +742,14 @@ impl VerificationRequest {
                 Ok(())
             }
             InnerRequest::Transitioned(s) => {
-                // This is the same as the `Ready` state. We need to support this in the case
-                // someone tries QR code verification and notices that they can't scan the QR
+                // This is the same as the `Ready` state. We need to support
+                // this in the case someone tries QR code
+                // verification and notices that they can't scan the QR
                 // code for one reason or the other, in that case they are able
                 // to transition into the emoji based SAS verification.
                 //
-                // In this case we're going to from one `Transitioned` state into another.
+                // In this case we're going to from one `Transitioned` state
+                // into another.
                 let s = s.clone();
 
                 if let Some(new_state) = s
@@ -808,8 +810,9 @@ impl VerificationRequest {
         content: OutgoingContent,
         other_device_id: DeviceIdOrAllDevices,
     ) -> Option<(Sas, OutgoingVerificationRequest)> {
-        // We may have previously started QR verification and generated a QR code. If we
-        // now switch to SAS flow, the previous verification has to be replaced
+        // We may have previously started QR verification and generated a QR
+        // code. If we now switch to SAS flow, the previous verification
+        // has to be replaced
         cfg_if::cfg_if! {
             if #[cfg(feature = "qrcode")] {
                 if self.verification_cache.get_qr(sas.other_user_id(), sas.flow_id().as_str()).is_some() {
@@ -1378,9 +1381,12 @@ async fn receive_start<T: Clone>(
                         .get(sender, request_state.flow_id.as_str());
                     match old_verification {
                         Some(Verification::SasV1(_old)) => {
-                            // If there is already a SAS verification, i.e. we already started one
-                            // before the other side tried to do the same; ignore it if we did and
-                            // we're the lexicographically smaller user ID (or device ID if equal).
+                            // If there is already a SAS verification, i.e. we
+                            // already started one
+                            // before the other side tried to do the same;
+                            // ignore it if we did and
+                            // we're the lexicographically smaller user ID (or
+                            // device ID if equal).
                             use std::cmp::Ordering;
                             if !matches!(
                                 (
@@ -1403,17 +1409,23 @@ async fn receive_start<T: Clone>(
                         }
                         #[cfg(feature = "qrcode")]
                         Some(Verification::QrV1(old)) => {
-                            // If there is already a QR verification, our ability to transition to
-                            // SAS depends on how far we got through the QR flow.
+                            // If there is already a QR verification, our
+                            // ability to transition to
+                            // SAS depends on how far we got through the QR
+                            // flow.
                             if let QrVerificationState::Started = old.state() {
-                                // it is legit to transition from QR display to SAS
+                                // it is legit to transition from QR display to
+                                // SAS
                                 info!("Transitioned from QR display to SAS");
                                 request_state.verification_cache.replace_sas(new.to_owned());
                                 Ok(Some(state.to_transitioned(request_state, new.into())))
                             } else {
-                                // otherwise, we've either scanned their QR code, or they have
-                                // scanned ours -- i.e., an `m.key.verification.start` with method
-                                // `m.reciprocate.v1` has already been sent/received and, per the
+                                // otherwise, we've either scanned their QR
+                                // code, or they have
+                                // scanned ours -- i.e., an
+                                // `m.key.verification.start` with method
+                                // `m.reciprocate.v1` has already been
+                                // sent/received and, per the
                                 // spec, it is too late to switch to SAS.
                                 warn!(qr_state = ?old.state(), "Invalid transition from QR to SAS");
                                 request_state.verification_cache.insert_sas(new.to_owned());
@@ -1707,8 +1719,8 @@ mod tests {
 
     #[async_test]
     async fn test_request_refusal_to_device() {
-        // test what happens when we cancel() a request that we have just received over
-        // to-device messages.
+        // test what happens when we cancel() a request that we have just
+        // received over to-device messages.
         let (_alice, alice_store, bob, bob_store) = setup_stores().await;
         let bob_device = DeviceData::from_account(&bob);
 
@@ -1880,7 +1892,8 @@ mod tests {
             Some(vec![VerificationMethod::QrCodeScanV1, VerificationMethod::QrCodeShowV1]),
         );
 
-        // Each side can start its own QR verification flow by generating QR code
+        // Each side can start its own QR verification flow by generating QR
+        // code
         let alice_verification = alice_request.generate_qr_code().await.unwrap();
         let bob_verification = bob_request.generate_qr_code().await.unwrap();
 
@@ -1919,8 +1932,8 @@ mod tests {
 
         assert_eq!(bob_device_data, other_device_data);
 
-        // Finally we assert that the verification has been reciprocated rather than
-        // cancelled due to a duplicate verification flow
+        // Finally we assert that the verification has been reciprocated rather
+        // than cancelled due to a duplicate verification flow
         assert!(!alice_verification.is_cancelled());
         assert!(alice_verification.reciprocated());
     }
@@ -1943,7 +1956,8 @@ mod tests {
             Some(all_methods()),
         );
 
-        // Each side can start its own QR verification flow by generating QR code
+        // Each side can start its own QR verification flow by generating QR
+        // code
         let alice_verification = alice_request.generate_qr_code().await.unwrap();
         let bob_verification = bob_request.generate_qr_code().await.unwrap();
 
@@ -1959,8 +1973,8 @@ mod tests {
         assert!(alice_verification.is_some());
         assert!(bob_verification.is_some());
 
-        // Alice can now start SAS verification flow instead of QR without cancelling
-        // the request
+        // Alice can now start SAS verification flow instead of QR without
+        // cancelling the request
         let (sas, request) = alice_request.start_sas().await.unwrap().unwrap();
         assert_let!(
             VerificationRequestState::Transitioned {

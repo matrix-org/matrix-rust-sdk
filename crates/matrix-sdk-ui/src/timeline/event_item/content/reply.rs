@@ -144,8 +144,9 @@ impl EmbeddedEvent {
             [TimelineAction::HandleAggregation { kind, .. }] => {
                 // As an exception, edits are allowed to be embedded events.
 
-                // For an embedded event, we don't need to fill a few fields; it's in an
-                // embedded view context, so there's no strong need to show all detailed
+                // For an embedded event, we don't need to fill a few fields;
+                // it's in an embedded view context, so there's
+                // no strong need to show all detailed
                 // information about it.
                 let reactions = Default::default();
                 let thread_root = None;
@@ -178,7 +179,8 @@ impl EmbeddedEvent {
                     }
 
                     _ => {
-                        // The event can't be represented as a standalone timeline item.
+                        // The event can't be represented as a standalone
+                        // timeline item.
                         warn!("embedded event is an aggregation: {}", kind.debug_string());
                         None
                     }
@@ -198,9 +200,11 @@ impl EmbeddedEvent {
                 Ok(None)
             }
             [_, _, ..] => {
-                // Multiple actions can happen e.g. when a beacon_info with prev_content
-                // is replied to: it produces both an AddItem and a HandleAggregation.
-                // There is no meaningful single content to extract in that case.
+                // Multiple actions can happen e.g. when a beacon_info with
+                // prev_content is replied to: it produces both
+                // an AddItem and a HandleAggregation.
+                // There is no meaningful single content to extract in that
+                // case.
                 warn!("Ignoring embedded event that produced multiple timeline actions");
                 Ok(None)
             }

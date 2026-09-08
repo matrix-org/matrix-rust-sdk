@@ -225,7 +225,8 @@ impl BackupMachine {
         if let Some(user_signatures) = signatures.get(&self.store.static_account().user_id) {
             for device_key_id in user_signatures.keys() {
                 if device_key_id.algorithm() == DeviceKeyAlgorithm::Ed25519 {
-                    // No need to check our own device here, we're doing that using
+                    // No need to check our own device here, we're doing that
+                    // using
                     // the check_own_device_signature().
                     if device_key_id.key_name() == self.store.static_account().device_id {
                         continue;
@@ -622,10 +623,10 @@ impl BackupMachine {
             }
         }
 
-        // FIXME: This method is a bit flawed: we have no real idea which backup version
-        //   these keys came from. For example, we might have reset the backup
-        //   since the keys were downloaded. For now, let's assume they came from
-        //   the "current" backup version.
+        // FIXME: This method is a bit flawed: we have no real idea which backup
+        // version   these keys came from. For example, we might have
+        // reset the backup   since the keys were downloaded. For now,
+        // let's assume they came from   the "current" backup version.
         let backup_version = self.backup_version().await;
 
         self.store
@@ -840,7 +841,8 @@ mod tests {
         let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
         let backup_machine = machine.backup_machine();
 
-        // We set up a backup key, so that we can test `backup_machine.backup()` later.
+        // We set up a backup key, so that we can test `backup_machine.backup()`
+        // later.
         let decryption_key = BackupDecryptionKey::new();
         let backup_key = decryption_key.megolm_v1_public_key();
         backup_key.set_version("1".to_owned());
@@ -865,8 +867,8 @@ mod tests {
             .await
             .expect("We should be able to import a room key");
 
-        // Now check that the session was correctly imported, and that it is marked as
-        // backed up
+        // Now check that the session was correctly imported, and that it is
+        // marked as backed up
         let session = machine.store().get_inbound_group_session(room_id, session_id).await.unwrap();
         assert_let!(Some(session) = session);
         assert!(
@@ -918,8 +920,8 @@ mod tests {
             .await
             .unwrap();
 
-        // Create the machine using `with_store` and without a call to enable_backup_v1,
-        // like regenerate_olm would do
+        // Create the machine using `with_store` and without a call to
+        // enable_backup_v1, like regenerate_olm would do
         let alice = OlmMachineBuilder::new(alice_id(), alice_device_id())
             .with_crypto_store(store)
             .build()

@@ -140,8 +140,8 @@ impl ThreadEventCache {
             }),
         };
 
-        // If at least one event has been loaded, it means there is a timeline. Let's
-        // emit a generic update.
+        // If at least one event has been loaded, it means there is a timeline.
+        // Let's emit a generic update.
         if timeline_is_not_empty {
             let _ = generic_update_sender
                 .send(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() });
@@ -337,8 +337,8 @@ impl ThreadEventCache {
         let mut state = self.inner.state.write().await?;
         let timeline_event_diffs = state.replace_in_memory_utds(resolved_events)?;
 
-        // Drain the updates to the store, events have already been updated before
-        // calling this method.
+        // Drain the updates to the store, events have already been updated
+        // before calling this method.
         let _ = state.thread_linked_chunk_mut().store_updates().take();
 
         state
@@ -687,8 +687,8 @@ mod timed_tests {
 
         // But only part of events are loaded from the store.
         {
-            // The thread must contain only one event because only one chunk has been
-            // loaded.
+            // The thread must contain only one event because only one chunk has
+            // been loaded.
             assert_eq!(thread_events.len(), 1);
             assert_eq!(thread_events[0].event_id().unwrap(), thread_event_id_1);
 
@@ -749,8 +749,8 @@ mod timed_tests {
         );
         assert!(generic_stream.is_empty());
 
-        // Events individually are forgotten by the event cache, after clearing the
-        // threads.
+        // Events individually are forgotten by the event cache, after clearing
+        // the threads.
         assert!(thread_event_cache.find_event(thread_event_id_0).await.unwrap().is_none());
         assert!(thread_event_cache.find_event(thread_event_id_1).await.unwrap().is_none());
 
@@ -790,9 +790,9 @@ mod timed_tests {
             .in_thread(thread_root, thread_event_id_1)
             .into_event();
 
-        // Prefill the store with some data. The room usually has all events duplicated
-        // from the threads. It's important to make the test pass when checking the
-        // generic update.
+        // Prefill the store with some data. The room usually has all events
+        // duplicated from the threads. It's important to make the test
+        // pass when checking the generic update.
         let updates = vec![
             // An empty items chunk.
             Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(0), next: None },
@@ -851,14 +851,15 @@ mod timed_tests {
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        // Let's check whether the generic updates are received for the initialisation.
+        // Let's check whether the generic updates are received for the
+        // initialisation.
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
         let (thread_event_cache, _drop_handles) =
             event_cache.thread(room_id, thread_root).await.unwrap();
         let (thread_events, mut thread_stream) = thread_event_cache.subscribe().await.unwrap();
 
-        // The room **and** the thread have been loaded. Two generic updates must have
-        // been triggered.
+        // The room **and** the thread have been loaded. Two generic updates
+        // must have been triggered.
         for _ in 0..2 {
             assert_matches!(
                 generic_stream.recv().await,
@@ -869,14 +870,14 @@ mod timed_tests {
         }
         assert!(generic_stream.is_empty());
 
-        // The initial events contain one event because only the last chunk is loaded by
-        // default.
+        // The initial events contain one event because only the last chunk is
+        // loaded by default.
         assert_eq!(thread_events.len(), 1);
         assert_eq!(thread_events[0].event_id().unwrap(), thread_event_id_1);
         assert!(thread_stream.is_empty());
 
-        // The thread knows all events in the storage though, even if they aren't
-        // loaded.
+        // The thread knows all events in the storage though, even if they
+        // aren't loaded.
         assert!(thread_event_cache.find_event(thread_event_id_0).await.unwrap().is_some());
         assert!(thread_event_cache.find_event(thread_event_id_1).await.unwrap().is_some());
 
@@ -911,14 +912,15 @@ mod timed_tests {
             .await
             .unwrap();
 
-        // Just checking the generic update is correct. There is a duplicate event, so
-        // no generic changes whatsoever!
+        // Just checking the generic update is correct. There is a duplicate
+        // event, so no generic changes whatsoever!
         assert!(generic_stream.recv().now_or_never().is_none());
 
-        // The stream doesn't report these changes *yet*. Use the events vector given
-        // when subscribing, to check that the events correspond to their new
-        // positions. The duplicated item is removed (so it's not the first
-        // element anymore), and it's added to the back of the list.
+        // The stream doesn't report these changes *yet*. Use the events vector
+        // given when subscribing, to check that the events correspond
+        // to their new positions. The duplicated item is removed (so
+        // it's not the first element anymore), and it's added to the
+        // back of the list.
         let (thread_events, _) = thread_event_cache.subscribe().await.unwrap();
         assert_eq!(thread_events.len(), 2);
         assert_eq!(thread_events[0].event_id(), Some(thread_event_id_0));
@@ -990,8 +992,8 @@ mod timed_tests {
         // there are no events in the cache.
         assert!(thread_events.is_empty());
 
-        // Storage doesn't contain anything. It would also be valid that it contains a
-        // single initial empty items chunk.
+        // Storage doesn't contain anything. It would also be valid that it
+        // contains a single initial empty items chunk.
         let raw_chunks = event_cache_store
             .load_all_chunks(LinkedChunkId::Thread(room_id, thread_root))
             .await
@@ -1105,8 +1107,9 @@ mod timed_tests {
 
         // Okay. We are ready for the test!
         //
-        // First off, let's check `thread_event_cache_p0` has access to the first event
-        // loaded in-memory, then do a pagination, and see more events.
+        // First off, let's check `thread_event_cache_p0` has access to the
+        // first event loaded in-memory, then do a pagination, and see
+        // more events.
         let mut updates_stream_p0 = {
             let thread_event_cache = &thread_event_cache_p0;
 
@@ -1171,15 +1174,16 @@ mod timed_tests {
 
         // Do this a couple times, for the fun.
         for _ in 0..3 {
-            // Third, because `thread_event_cache_p1` has locked the store, the lock
-            // is dirty for `thread_event_cache_p0`, so it will shrink to its last
-            // chunk for the thread!
+            // Third, because `thread_event_cache_p1` has locked the store, the
+            // lock is dirty for `thread_event_cache_p0`, so it will
+            // shrink to its last chunk for the thread!
             {
                 let thread_event_cache = &thread_event_cache_p0;
                 let updates_stream = &mut updates_stream_p0;
 
-                // `thread_event_id_1` must be loaded in memory, just like before.
-                // However, `thread_event_id_0` must NOT be loaded in memory. It WAS loaded, but
+                // `thread_event_id_1` must be loaded in memory, just like
+                // before. However, `thread_event_id_0` must NOT
+                // be loaded in memory. It WAS loaded, but
                 // the state has been reloaded to its last chunk.
                 let (initial_updates, _) = thread_event_cache.subscribe().await.unwrap();
 
@@ -1221,15 +1225,17 @@ mod timed_tests {
                 );
             }
 
-            // Fourth, because `thread_event_cache_p0` has locked the store again, the lock
-            // is dirty for `thread_event_cache_p1` too!, so it will shrink to its last
-            // chunk for the thread!
+            // Fourth, because `thread_event_cache_p0` has locked the store
+            // again, the lock is dirty for `thread_event_cache_p1`
+            // too!, so it will shrink to its last chunk for the
+            // thread!
             {
                 let thread_event_cache = &thread_event_cache_p1;
                 let updates_stream = &mut updates_stream_p1;
 
-                // `thread_event_id_1` must be loaded in memory, just like before.
-                // However, `thread_event_id_0` must NOT be loaded in memory. It WAS loaded, but
+                // `thread_event_id_1` must be loaded in memory, just like
+                // before. However, `thread_event_id_0` must NOT
+                // be loaded in memory. It WAS loaded, but
                 // the state has shrunk to its last chunk.
                 let (initial_updates, _) = thread_event_cache.subscribe().await.unwrap();
 
@@ -1292,7 +1298,8 @@ mod timed_tests {
         let event_1 =
             f.text_msg("world").event_id(event_id_1).in_thread(thread_id, event_id_1).into_event();
 
-        // Fill the event cache store with an initial linked chunk with 2 events chunks.
+        // Fill the event cache store with an initial linked chunk with 2 events
+        // chunks.
         {
             client
                 .event_cache_store()
@@ -1351,8 +1358,8 @@ mod timed_tests {
         assert_eq!(outcome.events[1].event_id(), Some(thread_id));
         assert!(outcome.reached_start);
 
-        // We also get an update about the loading from the store. Ignore it, for this
-        // test's sake.
+        // We also get an update about the loading from the store. Ignore it,
+        // for this test's sake.
         assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = stream1.recv());
         assert_eq!(diffs.len(), 2);
         assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value } => {
@@ -1371,8 +1378,8 @@ mod timed_tests {
         assert!(generic_stream.is_empty());
 
         // Have another subscriber.
-        // Since it's not the first one, and the previous one loaded some more events,
-        // the second subscribers sees them all.
+        // Since it's not the first one, and the previous one loaded some more
+        // events, the second subscribers sees them all.
         let (events2, stream2) = thread_event_cache.subscribe().await.unwrap();
         assert_eq!(events2.len(), 3);
         assert_eq!(events2[0].event_id(), Some(thread_id));

@@ -384,7 +384,8 @@ impl CrossSigningResetHandle {
 
                     match e.as_uiaa_response() {
                         Some(uiaa_info) => {
-                            // Return the error except if we are at the `m.oauth` stage where we
+                            // Return the error except if we are at the
+                            // `m.oauth` stage where we
                             // want to keep polling.
                             if !matches!(self.auth_type, CrossSigningResetAuthType::OAuth(_))
                                 && uiaa_info.auth_error.is_some()
@@ -484,9 +485,9 @@ impl FromStr for DuplicateOneTimeKeyErrorMessage {
     type Err = serde_json::Error;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        // First we split the string into two parts, the part containing the old key and
-        // the part containing the new key. The parts are conveniently separated
-        // by a `;` character.
+        // First we split the string into two parts, the part containing the old
+        // key and the part containing the new key. The parts are
+        // conveniently separated by a `;` character.
         let mut split = s.split_terminator(';');
 
         let old_key = split
@@ -496,8 +497,8 @@ impl FromStr for DuplicateOneTimeKeyErrorMessage {
             .next()
             .ok_or(serde_json::Error::custom("New key is missing in the error message"))?;
 
-        // Now we remove the lengthy prefix from the part containing the old key, we
-        // should be left with just the JSON of the signed key.
+        // Now we remove the lengthy prefix from the part containing the old
+        // key, we should be left with just the JSON of the signed key.
         let old_key_index = old_key
             .find("Old key:")
             .ok_or(serde_json::Error::custom("Old key is missing the prefix"))?;
@@ -507,15 +508,16 @@ impl FromStr for DuplicateOneTimeKeyErrorMessage {
             .strip_prefix("Old key:")
             .ok_or(serde_json::Error::custom("Old key is missing the prefix"))?;
 
-        // The part containing the new key is much simpler, we just remove a static
-        // prefix.
+        // The part containing the new key is much simpler, we just remove a
+        // static prefix.
         let new_key = new_key
             .trim()
             .strip_prefix("new key:")
             .ok_or(serde_json::Error::custom("New key is missing the prefix"))?;
 
-        // The JSON containing the new key is for some reason quoted using single
-        // quotes, so let's replace them with normal double quotes.
+        // The JSON containing the new key is for some reason quoted using
+        // single quotes, so let's replace them with normal double
+        // quotes.
         let new_key = new_key.replace("'", "\"");
 
         // Let's deserialize now.
@@ -770,9 +772,12 @@ impl Client {
                         Some(e) if e.status_code == 400 => {
                             if let ErrorBody::Standard(StandardErrorBody { message, .. }) = &e.body
                             {
-                                // This is one of the nastiest errors we can have. The server
-                                // telling us that we already have a one-time key uploaded means
-                                // that we forgot about some of our one-time keys. This will lead to
+                                // This is one of the nastiest errors we can
+                                // have. The server
+                                // telling us that we already have a one-time
+                                // key uploaded means
+                                // that we forgot about some of our one-time
+                                // keys. This will lead to
                                 // UTDs.
                                 {
                                     let already_reported = self
@@ -955,13 +960,13 @@ impl Encryption {
     ) -> Result<(), BundleImportError> {
         self.import_secrets_bundle_impl(bundle).await?;
 
-        // Upload the device keys, this will ensure that other devices see us as a fully
-        // verified device as soon as this method returns.
+        // Upload the device keys, this will ensure that other devices see us as
+        // a fully verified device as soon as this method returns.
         self.ensure_device_keys_upload().await?;
         self.wait_for_e2ee_initialization_tasks().await;
 
-        // If our initialization tasks completed before we imported the secrets bundle,
-        // backups might not have been enabled.
+        // If our initialization tasks completed before we imported the secrets
+        // bundle, backups might not have been enabled.
         //
         // In this case attempt to enable them again.
         if !self.backups().are_enabled().await {
@@ -1855,8 +1860,9 @@ impl Encryption {
 
         // Gently try to initialize the crypto store generation counter.
         //
-        // If we don't get the lock immediately, then it is already acquired by another
-        // process, and we'll get to reload next time we acquire the lock.
+        // If we don't get the lock immediately, then it is already acquired by
+        // another process, and we'll get to reload next time we acquire
+        // the lock.
         {
             let lock_result = lock.try_lock_once().await?;
 
@@ -1904,9 +1910,10 @@ impl Encryption {
             }
             Ok(generation_number)
         } else {
-            // XXX: not sure this is reachable. Seems like the OlmMachine should always have
-            // been initialised by the time we get here. Ideally we'd panic, or return an
-            // error, but for now I'm just adding some logging to check if it
+            // XXX: not sure this is reachable. Seems like the OlmMachine should
+            // always have been initialised by the time we get here.
+            // Ideally we'd panic, or return an error, but for now
+            // I'm just adding some logging to check if it
             // happens, and returning the magic number 0.
             warn!("Encryption::on_lock_newly_acquired: called before OlmMachine initialised");
             Ok(0)
@@ -1999,9 +2006,10 @@ impl Encryption {
     ///   allow for the initial upload of cross-signing keys without
     ///   authentication, rendering this parameter obsolete.
     pub(crate) async fn spawn_initialization_task(&self, auth_data: Option<AuthData>) {
-        // It's fine to be async here as we're only getting the lock protecting the
-        // `OlmMachine`. Since the lock shouldn't be that contested right after logging
-        // in we won't delay the login or restoration of the Client.
+        // It's fine to be async here as we're only getting the lock protecting
+        // the `OlmMachine`. Since the lock shouldn't be that contested
+        // right after logging in we won't delay the login or
+        // restoration of the Client.
         let bundle_receiver_task = if self.client.inner.enable_share_history_on_invite {
             Some(BundleReceiverTask::new(&self.client).await)
         } else {
@@ -2014,8 +2022,8 @@ impl Encryption {
 
         tasks.setup_e2ee = Some(spawn(
             async move {
-                // Update the current state first, so we don't have to wait for the result of
-                // network requests
+                // Update the current state first, so we don't have to wait for
+                // the result of network requests
                 this.update_verification_state().await;
 
                 if this.settings().auto_enable_cross_signing
@@ -2190,8 +2198,9 @@ impl Encryption {
         let users = recipient_devices.iter().map(|device| device.user_id());
 
         // Will claim one-time-key for users that needs it
-        // TODO: For later optimisation: This will establish missing olm sessions with
-        // all this users devices, but we just want for some devices.
+        // TODO: For later optimisation: This will establish missing olm
+        // sessions with all this users devices, but we just want for
+        // some devices.
         self.client.claim_one_time_keys(users).await?;
 
         let olm = self.client.olm_machine().await;
@@ -2228,7 +2237,8 @@ impl Encryption {
                 .send_inner(ruma_request, Some(RequestConfig::short_retry()), Default::default())
                 .await;
 
-            // If the sending failed we need to collect the failures to report them
+            // If the sending failed we need to collect the failures to report
+            // them
             if send_result.is_err() {
                 // Mark the sending as failed
                 for (user_id, device_map) in request.messages {
@@ -2370,7 +2380,8 @@ mod tests {
             .unwrap();
         client2.matrix_auth().restore_session(session, RoomLoadSettings::default()).await.unwrap();
 
-        // When the lock isn't enabled, any attempt at locking won't return a guard.
+        // When the lock isn't enabled, any attempt at locking won't return a
+        // guard.
         let guard = client1.encryption().try_lock_store_once().await.unwrap();
         assert!(guard.is_none());
 
@@ -2381,11 +2392,13 @@ mod tests {
         let acquired1 = client1.encryption().spin_lock_store(None).await.unwrap();
         assert!(acquired1.is_some());
 
-        // Keep the olm machine, so we can see if it's changed later, by comparing Arcs.
+        // Keep the olm machine, so we can see if it's changed later, by
+        // comparing Arcs.
         let initial_olm_machine =
             client1.olm_machine().await.clone().expect("must have an olm machine");
 
-        // Also enable backup to check that new machine has the same backup keys.
+        // Also enable backup to check that new machine has the same backup
+        // keys.
         let decryption_key = matrix_sdk_base::crypto::store::types::BackupDecryptionKey::new();
         let backup_key = decryption_key.megolm_v1_public_key();
         backup_key.set_version("1".to_owned());
@@ -2531,8 +2544,8 @@ mod tests {
         // We can get its initial value, and it's Unknown
         assert_next_matches_with_timeout!(verification_state, VerificationState::Unknown);
 
-        // We set up a mocked request to check this endpoint is not called before
-        // reading the new state
+        // We set up a mocked request to check this endpoint is not called
+        // before reading the new state
         let keys_requested = Arc::new(AtomicBool::new(false));
         let inner_bool = keys_requested.clone();
 
@@ -2550,7 +2563,8 @@ mod tests {
         // When the session is initialised and the encryption tasks spawn
         set_client_session(&client).await;
 
-        // Then we can get an updated value without waiting for any network requests
+        // Then we can get an updated value without waiting for any network
+        // requests
         assert!(keys_requested.load(Ordering::SeqCst).not());
         assert_next_matches_with_timeout!(verification_state, VerificationState::Unverified);
     }

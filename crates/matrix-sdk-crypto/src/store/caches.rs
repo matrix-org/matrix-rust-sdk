@@ -242,13 +242,14 @@ impl UsersForKeyQuery {
     ) -> bool {
         let last_invalidation = self.user_map.get(user).copied();
 
-        // If there were any jobs waiting for this key query to complete, we can flag
-        // them as completed and remove them from our list. We also clear out any tasks
-        // that have been cancelled.
+        // If there were any jobs waiting for this key query to complete, we can
+        // flag them as completed and remove them from our list. We also
+        // clear out any tasks that have been cancelled.
         self.tasks_awaiting_key_query.retain(|waiter| {
             let Some(waiter) = waiter.upgrade() else {
-                // the TaskAwaitingKeyQuery has been dropped, so it probably timed out and the
-                // caller went away. We can remove it from our list whether or not it's for this
+                // the TaskAwaitingKeyQuery has been dropped, so it probably
+                // timed out and the caller went away. We can
+                // remove it from our list whether or not it's for this
                 // user.
                 trace!("removing expired waiting task");
 

@@ -103,8 +103,8 @@ async fn check_authorization_url(
                     "Expected Matrix API scope not found in scopes"
                 );
 
-                // Only check the device ID if we know it. If it's generated randomly we don't
-                // know it.
+                // Only check the device ID if we know it. If it's generated
+                // randomly we don't know it.
                 if let Some(device_id) = device_id {
                     let device_id_scope =
                         format!("urn:matrix:org.matrix.msc2967.client:device:{device_id}");
@@ -122,7 +122,8 @@ async fn check_authorization_url(
                 }
 
                 if let Some(additional_scopes) = &additional_scopes {
-                    // Check if the additional scopes are present in the actual scopes.
+                    // Check if the additional scopes are present in the actual
+                    // scopes.
                     let expected_len = 2 + additional_scopes.len();
                     assert_eq!(actual_scopes.len(), expected_len, "Expected {expected_len} scopes",);
 
@@ -394,7 +395,8 @@ async fn test_finish_login() -> anyhow::Result<()> {
     let client = server.client_builder().registered_with_oauth().build().await;
     let oauth = client.oauth();
 
-    // If the state is missing, then any attempt to finish authorizing will fail.
+    // If the state is missing, then any attempt to finish authorizing will
+    // fail.
     let res = oauth.finish_login(UrlOrQuery::Query("code=42&state=none".to_owned())).await;
 
     assert_matches!(
@@ -607,7 +609,8 @@ async fn test_insecure_clients() -> anyhow::Result<()> {
     ] {
         let oauth = client.oauth();
 
-        // Restore the previous session so we have an existing set of refresh tokens.
+        // Restore the previous session so we have an existing set of refresh
+        // tokens.
         oauth
             .restore_session(mock_session(prev_tokens.clone()), RoomLoadSettings::default())
             .await?;
@@ -674,8 +677,8 @@ async fn test_register_client() {
     assert_eq!(response.client_id.as_str(), "test_client_id");
 
     let auth_data = oauth.data().unwrap();
-    // There is a difference of ending slash between the strings so we parse them
-    // with `Url` which will normalize that.
+    // There is a difference of ending slash between the strings so we parse
+    // them with `Url` which will normalize that.
     assert_eq!(auth_data.client_id, response.client_id);
 }
 
@@ -711,7 +714,8 @@ async fn test_server_metadata_cache() {
     // Call the method to trigger a cache refresh background task.
     oauth.cached_server_metadata().await.expect("We should be able to fetch the server metadata");
 
-    // We wait for the task to finish, the endpoint should have been called again.
+    // We wait for the task to finish, the endpoint should have been called
+    // again.
     sleep(Duration::from_secs(1)).await;
     assert_matches!(client.inner.caches.server_metadata.value(), CachedValue::Cached(value) if !value.has_expired());
 }
@@ -748,8 +752,8 @@ async fn test_server_metadata_cache_refresh_lock() {
     sleep(Duration::from_millis(200)).await;
 
     // Spawn the second and third requests. The first that acquires a lock will
-    // retry the request and succeed, and the second one will read the value from
-    // the cache.
+    // retry the request and succeed, and the second one will read the value
+    // from the cache.
     let oauth_clone = oauth.clone();
     let second_request = spawn(async move { oauth_clone.server_metadata().await });
     let third_request = spawn(async move { oauth.server_metadata().await });

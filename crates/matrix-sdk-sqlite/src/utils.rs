@@ -229,7 +229,8 @@ pub(crate) trait SqliteAsyncConnExt {
             return Err(error.into());
         } else {
             trace!("VACUUM complete");
-            // Once vacuumed, truncate the WAL file again to purge the copied DB contents.
+            // Once vacuumed, truncate the WAL file again to purge the copied DB
+            // contents.
             self.wal_checkpoint().await;
         }
 

@@ -451,8 +451,8 @@ impl BaseClient {
         if room.state() != RoomState::Knocked {
             let store_guard = self.state_store.lock().lock().await;
 
-            // We are no longer joined to the room, so the invite acceptance details are no
-            // longer relevant.
+            // We are no longer joined to the room, so the invite acceptance
+            // details are no longer relevant.
             #[cfg(feature = "e2e-encryption")]
             if let Some(olm_machine) = self.olm_machine().await.as_ref() {
                 olm_machine.store().clear_room_pending_key_bundle(room_id).await?
@@ -520,23 +520,26 @@ impl BaseClient {
     ) -> Result<Room> {
         let room = self.state_store.get_or_create_room(room_id, RoomState::Joined);
 
-        // If the state isn't `RoomState::Joined` then this means that we knew about
-        // this room before. Let's modify the existing state now.
+        // If the state isn't `RoomState::Joined` then this means that we knew
+        // about this room before. Let's modify the existing state now.
         if room.state() != RoomState::Joined {
             let store_guard = self.state_store_lock().lock().await;
 
             #[cfg(feature = "e2e-encryption")]
             {
-                // If our previous state was an invite and we're now in the joined state, this
-                // means that the user has explicitly accepted an invite. Let's
-                // remember some details about the invite.
+                // If our previous state was an invite and we're now in the
+                // joined state, this means that the user has
+                // explicitly accepted an invite. Let's remember
+                // some details about the invite.
                 //
-                // This is somewhat of a workaround for our lack of cryptographic membership.
-                // Later on we will decide if historic room keys should be accepted
-                // based on this info. If a user has accepted an invite and we receive a room
-                // key bundle shortly after, we might accept it. If we don't do
-                // this, the homeserver could trick us into accepting any historic room key
-                // bundle.
+                // This is somewhat of a workaround for our lack of
+                // cryptographic membership. Later on we will
+                // decide if historic room keys should be accepted
+                // based on this info. If a user has accepted an invite and we
+                // receive a room key bundle shortly after, we
+                // might accept it. If we don't do
+                // this, the homeserver could trick us into accepting any
+                // historic room key bundle.
                 let previous_state = room.state();
                 if previous_state == RoomState::Invited
                     && let Some(inviter) = inviter
@@ -572,8 +575,8 @@ impl BaseClient {
         if room.state() != RoomState::Left {
             let store_guard = self.state_store.lock().lock().await;
 
-            // We are no longer joined to the room, so the invite acceptance details are no
-            // longer relevant.
+            // We are no longer joined to the room, so the invite acceptance
+            // details are no longer relevant.
             #[cfg(feature = "e2e-encryption")]
             if let Some(olm_machine) = self.olm_machine().await.as_ref() {
                 olm_machine.store().clear_room_pending_key_bundle(room_id).await?
@@ -822,8 +825,9 @@ impl BaseClient {
 
         let mut context = Context::default();
 
-        // Now that all the rooms information have been saved, update the display name
-        // of the updated rooms (which relies on information stored in the database).
+        // Now that all the rooms information have been saved, update the
+        // display name of the updated rooms (which relies on
+        // information stored in the database).
         processors::room::display_name::update_for_rooms(
             &mut context,
             &room_updates,
@@ -879,9 +883,10 @@ impl BaseClient {
     ) -> Result<()> {
         if request.membership.is_some() || request.not_membership.is_some() || request.at.is_some()
         {
-            // This function assumes all members are loaded at once to optimise how display
-            // name disambiguation works. Using it with partial member list results
-            // would produce incorrect disambiguated display name entries
+            // This function assumes all members are loaded at once to optimise
+            // how display name disambiguation works. Using it with
+            // partial member list results would produce incorrect
+            // disambiguated display name entries
             return Err(Error::InvalidReceiveMembersParameters);
         }
 
@@ -908,13 +913,14 @@ impl BaseClient {
                 }
             };
 
-            // TODO: All the actions in this loop used to be done only when the membership
-            // event was not in the store before. This was changed with the new room API,
-            // because e.g. leaving a room makes members events outdated and they need to be
-            // fetched by `members`. Therefore, they need to be overwritten here, even
-            // if they exist.
-            // However, this makes a new problem occur where setting the member events here
-            // potentially races with the sync.
+            // TODO: All the actions in this loop used to be done only when the
+            // membership event was not in the store before. This
+            // was changed with the new room API, because e.g.
+            // leaving a room makes members events outdated and they need to be
+            // fetched by `members`. Therefore, they need to be overwritten
+            // here, even if they exist.
+            // However, this makes a new problem occur where setting the member
+            // events here potentially races with the sync.
             // See <https://github.com/matrix-org/matrix-rust-sdk/issues/1205>.
 
             #[cfg(feature = "e2e-encryption")]
@@ -978,10 +984,12 @@ impl BaseClient {
 
         #[cfg(feature = "e2e-encryption")]
         if let Some(olm) = self.olm_machine().await.as_ref() {
-            // With the introduction of MSC4268, it is no longer sufficient to check for
-            // changes to session recipients when we send a message, since we may miss
-            // join/leave pairs in our view of the room state. Instead, we should rotate
-            // the room key whenever we fully reload the member list as a precaution.
+            // With the introduction of MSC4268, it is no longer sufficient to
+            // check for changes to session recipients when we send
+            // a message, since we may miss join/leave pairs in our
+            // view of the room state. Instead, we should rotate the
+            // room key whenever we fully reload the member list as a
+            // precaution.
             tracing::debug!("Rotating room key due to full member list reload");
             if let Err(e) = olm.discard_room_key(room_id).await {
                 tracing::warn!("Error discarding room key: {e:?}");
@@ -1313,12 +1321,14 @@ impl RequestedRequiredStates {
 
 impl From<&v5::Request> for RequestedRequiredStates {
     fn from(request: &v5::Request) -> Self {
-        // The following information is missing in the MSC4186 at the time of writing
-        // (2025-03-12) but: the `required_state`s from all lists and from all room
-        // subscriptions are combined by doing an union.
+        // The following information is missing in the MSC4186 at the time of
+        // writing (2025-03-12) but: the `required_state`s from all
+        // lists and from all room subscriptions are combined by doing
+        // an union.
         //
         // Thus, we can do the same here, put the union in `default` and keep
-        // `for_rooms` empty. The `Self::for_room` will automatically do the fallback.
+        // `for_rooms` empty. The `Self::for_room` will automatically do the
+        // fallback.
         let mut default = BTreeSet::new();
 
         for list in request.lists.values() {
@@ -1496,7 +1506,8 @@ mod tests {
         {
             let requested_required_states = RequestedRequiredStates::from(&request);
 
-            // Union of state events, all in `default`, still nothing in `for_rooms`.
+            // Union of state events, all in `default`, still nothing in
+            // `for_rooms`.
             assert_eq!(
                 requested_required_states.default,
                 &[
@@ -1524,7 +1535,8 @@ mod tests {
         {
             let requested_required_states = RequestedRequiredStates::from(&request);
 
-            // Union of state events, all in `default`, still nothing in `for_rooms`.
+            // Union of state events, all in `default`, still nothing in
+            // `for_rooms`.
             assert_eq!(
                 requested_required_states.default,
                 &[
@@ -1754,8 +1766,8 @@ mod tests {
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
 
-        // When I process the result of a /members request that only contains an invited
-        // member,
+        // When I process the result of a /members request that only contains an
+        // invited member,
         let request = api::membership::get_member_events::v3::Request::new(room_id.to_owned());
 
         let raw_member_event = json!({
@@ -1812,7 +1824,8 @@ mod tests {
             .await
             .unwrap();
 
-        // Preamble: let the SDK know about the room, and that the invited user left it.
+        // Preamble: let the SDK know about the room, and that the invited user
+        // left it.
         let f = EventFactory::new().sender(user_id);
         let mut sync_builder = SyncResponseBuilder::new();
         let response = sync_builder
@@ -2072,8 +2085,8 @@ mod tests {
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
 
-        // Let us first check the initial state, we should have a room in the invite
-        // state.
+        // Let us first check the initial state, we should have a room in the
+        // invite state.
         let invited_room = client
             .get_room(known_room_id)
             .expect("The sync should have created a room in the invited state");
@@ -2097,8 +2110,8 @@ mod tests {
         );
         assert_eq!(details.inviter, user_id);
 
-        // If we didn't know about the room before the join, we assume that there wasn't
-        // an invite and we don't record the timestamp.
+        // If we didn't know about the room before the join, we assume that
+        // there wasn't an invite and we don't record the timestamp.
         assert!(client.get_room(unknown_room_id).is_none());
         let unknown_room = client
             .room_joined(unknown_room_id, Some(user_id.to_owned()))

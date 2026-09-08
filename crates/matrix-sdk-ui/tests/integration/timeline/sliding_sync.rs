@@ -719,7 +719,8 @@ async fn test_timeline_refreshes_sender_profile_on_global_profile_update() -> Re
     assert_let!(TimelineDetails::Ready(profile) = alice_message.sender_profile());
     assert!(profile.status.is_none(), "The status should be unset before the profile update.");
 
-    // A sync carrying only a global profiles update for Alice with a new status.
+    // A sync carrying only a global profiles update for Alice with a new
+    // status.
     receive_response! {
         [server.server(), stream]
         {

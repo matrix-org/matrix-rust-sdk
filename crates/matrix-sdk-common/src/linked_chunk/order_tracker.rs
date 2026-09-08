@@ -136,8 +136,8 @@ where
     /// Will return `None` if the position doesn't match a known chunk in the
     /// linked chunk, or if the chunk is a gap.
     pub fn ordering(&self, event_pos: Position) -> Option<usize> {
-        // Check the precondition: there must not be any pending updates for this
-        // reader.
+        // Check the precondition: there must not be any pending updates for
+        // this reader.
         debug_assert!(self.updates.read().unwrap().is_reader_up_to_date(self.token));
 
         // Find the chunk that contained the event.
@@ -149,12 +149,12 @@ where
                     // The event is out of bounds for this chunk, return None.
                     return None;
                 }
-                // The final ordering is the number of items before the event, plus its own
-                // index within the chunk.
+                // The final ordering is the number of items before the event,
+                // plus its own index within the chunk.
                 return Some(ordering + offset_within_chunk);
             }
-            // This is not the target chunk yet, so add the size of the current chunk to the
-            // number of seen items, and continue.
+            // This is not the target chunk yet, so add the size of the current
+            // chunk to the number of seen items, and continue.
             ordering += *chunk_length;
         }
 
@@ -276,9 +276,9 @@ mod tests {
 
     #[async_test]
     async fn test_lazy_loading() {
-        // Assume that all the chunks haven't been loaded yet, so we have a few of them
-        // in some memory, and some of them are still in an hypothetical
-        // database.
+        // Assume that all the chunks haven't been loaded yet, so we have a few
+        // of them in some memory, and some of them are still in an
+        // hypothetical database.
         let db_metadata = vec![
             // Hypothetical non-empty items chunk with items 'a', 'b', 'c'.
             ChunkMetadata {
@@ -325,8 +325,8 @@ mod tests {
 
         let tracker = linked_chunk.order_tracker(Some(db_metadata)).unwrap();
 
-        // At first, even if the main linked chunk is empty, the order tracker can
-        // compute the position for unloaded items.
+        // At first, even if the main linked chunk is empty, the order tracker
+        // can compute the position for unloaded items.
 
         // Order of 'a':
         assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(0), 0)), Some(0));
@@ -347,7 +347,8 @@ mod tests {
         assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(2), 1)), Some(4));
         // Order of 'f':
         assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(2), 2)), Some(5));
-        // No subsequent entry in the same chunk, it's been split when inserting g.
+        // No subsequent entry in the same chunk, it's been split when inserting
+        // g.
         assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(2), 3)), None);
 
         // Order of 'g':
@@ -358,9 +359,9 @@ mod tests {
 
     #[async_test]
     async fn test_lazy_updates() {
-        // Assume that all the chunks haven't been loaded yet, so we have a few of them
-        // in some memory, and some of them are still in an hypothetical
-        // database.
+        // Assume that all the chunks haven't been loaded yet, so we have a few
+        // of them in some memory, and some of them are still in an
+        // hypothetical database.
         let db_metadata = vec![
             // Hypothetical non-empty items chunk with items 'a', 'b'.
             ChunkMetadata {
@@ -511,9 +512,9 @@ mod tests {
 
     #[async_test]
     async fn test_out_of_band_updates() {
-        // Assume that all the chunks haven't been loaded yet, so we have a few of them
-        // in some memory, and some of them are still in an hypothetical
-        // database.
+        // Assume that all the chunks haven't been loaded yet, so we have a few
+        // of them in some memory, and some of them are still in an
+        // hypothetical database.
         let db_metadata = vec![
             // Hypothetical non-empty items chunk with items 'a', 'b'.
             ChunkMetadata {
@@ -555,15 +556,16 @@ mod tests {
         // Order of 'e':
         assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(2), 1)), Some(3));
 
-        // It's possible to apply updates out of band, i.e. without affecting the
-        // observed linked chunk. This can be useful when an update only applies
-        // to a database, but not to the in-memory linked chunk.
+        // It's possible to apply updates out of band, i.e. without affecting
+        // the observed linked chunk. This can be useful when an update
+        // only applies to a database, but not to the in-memory linked
+        // chunk.
         tracker.map_updates(&[Update::RemoveChunk(ChunkIdentifier::new(0))]);
 
         // 'b' doesn't exist anymore, so its ordering is now undefined.
         assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(0), 1)), None);
-        // 'e' has been shifted back by 2 places, aka the number of items in the first
-        // chunk.
+        // 'e' has been shifted back by 2 places, aka the number of items in the
+        // first chunk.
         assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(2), 1)), Some(1));
     }
 }
