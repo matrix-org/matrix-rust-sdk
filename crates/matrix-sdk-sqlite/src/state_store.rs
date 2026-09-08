@@ -1174,6 +1174,35 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
             )
             .await?)
     }
+
+    async fn get_events_receipts(
+        &self,
+        room_id: Key,
+        receipt_type: Key,
+        thread: Key,
+        event_ids: Vec<Key>,
+    ) -> Result<Vec<Vec<u8>>> {
+        self.chunk_large_query_over(event_ids, None, move |txn, event_ids| {
+            let sql = format!(
+                "SELECT data FROM receipt
+                 WHERE room_id = ? AND receipt_type = ? AND thread = ? AND event_id IN ({})",
+                event_ids.host_parameters(),
+            );
+
+            let params = rusqlite::params_from_iter(
+                [room_id.clone(), receipt_type.clone(), thread.clone()]
+                    .into_iter()
+                    .chain(event_ids),
+            );
+
+            Ok(txn
+                .prepare(&sql)?
+                .query(params)?
+                .mapped(|row| row.get(0))
+                .collect::<Result<_, _>>()?)
+        })
+        .await
+    }
 }
 
 #[async_trait]
@@ -1985,6 +2014,46 @@ impl StateStore for SqliteStateStore {
                 self.deserialize_json::<ReceiptData>(value).map(|d| (d.user_id, d.receipt))
             })
             .collect()
+    }
+
+    async fn get_event_room_receipt_events_batch<'a>(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        receipt_thread: &ReceiptThread,
+        event_ids: &[&'a EventId],
+    ) -> Result<BTreeMap<&'a EventId, Vec<(OwnedUserId, Receipt)>>> {
+        if event_ids.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+
+        let room_id = self.encode_key(keys::RECEIPT, room_id);
+        let receipt_type = self.encode_key(keys::RECEIPT, receipt_type.to_string());
+        // We cannot have a NULL primary key so we rely on serialization instead
+        // of the string representation.
+        let receipt_thread =
+            self.encode_key(keys::RECEIPT, rmp_serde::to_vec_named(receipt_thread)?);
+        let encoded_event_ids =
+            event_ids.iter().map(|&event_id| self.encode_key(keys::RECEIPT, event_id)).collect();
+
+        let rows = self
+            .read()
+            .await?
+            .get_events_receipts(room_id, receipt_type, receipt_thread, encoded_event_ids)
+            .await?;
+
+        // The `event_id` column may hold a hashed key, so the rows are grouped by
+        // the event id stored in their data instead.
+        let mut receipts: HashMap<OwnedEventId, Vec<(OwnedUserId, Receipt)>> = HashMap::new();
+        for value in rows {
+            let data = self.deserialize_json::<ReceiptData>(&value)?;
+            receipts.entry(data.event_id).or_default().push((data.user_id, data.receipt));
+        }
+
+        Ok(event_ids
+            .iter()
+            .filter_map(|&event_id| Some((event_id, receipts.remove(event_id)?)))
+            .collect())
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
