@@ -283,7 +283,7 @@ impl MatrixDriver {
         let room = self.room.clone();
         // Every custom to-device type: the widget machine filters by capability. The
         // SDK's internal crypto traffic is already left out.
-        let messages = room.client().subscribe_to_to_device_messages(vec![]);
+        let messages = room.client().subscribe_to_custom_to_device_messages(vec![]);
 
         stream! {
             for await message in messages {

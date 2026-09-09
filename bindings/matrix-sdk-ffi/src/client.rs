@@ -2401,13 +2401,13 @@ impl Client {
     /// messages it could not decrypt are never delivered.
     ///
     /// Use the returned [`TaskHandle`] to cancel the subscription.
-    pub fn subscribe_to_to_device_messages(
+    pub fn subscribe_to_custom_to_device_messages(
         &self,
         event_types: Vec<String>,
         listener: Box<dyn ToDeviceMessageListener>,
     ) -> Arc<TaskHandle> {
         let event_types = event_types.into_iter().map(ToDeviceEventType::from).collect();
-        let messages = self.inner.subscribe_to_to_device_messages(event_types);
+        let messages = self.inner.subscribe_to_custom_to_device_messages(event_types);
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             pin_mut!(messages);
@@ -2423,7 +2423,7 @@ impl Client {
 }
 
 /// A listener for incoming to-device messages, registered with
-/// [`Client::subscribe_to_to_device_messages`].
+/// [`Client::subscribe_to_custom_to_device_messages`].
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait ToDeviceMessageListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_message(&self, message: ToDeviceMessage);

@@ -1,4 +1,4 @@
-//! Tests for [`matrix_sdk::Client::subscribe_to_to_device_messages`].
+//! Tests for [`matrix_sdk::Client::subscribe_to_custom_to_device_messages`].
 
 use futures_util::pin_mut;
 use matrix_sdk::{assert_next_with_timeout, test_utils::mocks::MatrixMockServer};
@@ -12,11 +12,11 @@ fn custom(event_type: &str) -> ToDeviceEventType {
 }
 
 #[async_test]
-async fn test_subscribe_to_to_device_messages() {
+async fn test_subscribe_to_custom_to_device_messages() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let stream = client.subscribe_to_to_device_messages(vec![custom("m.custom.wanted")]);
+    let stream = client.subscribe_to_custom_to_device_messages(vec![custom("m.custom.wanted")]);
     pin_mut!(stream);
 
     server
@@ -40,11 +40,11 @@ async fn test_subscribe_to_to_device_messages() {
 }
 
 #[async_test]
-async fn test_subscribe_to_to_device_messages_filters_by_type() {
+async fn test_subscribe_to_custom_to_device_messages_filters_by_type() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let stream = client.subscribe_to_to_device_messages(vec![custom("m.custom.wanted")]);
+    let stream = client.subscribe_to_custom_to_device_messages(vec![custom("m.custom.wanted")]);
     pin_mut!(stream);
 
     server
@@ -72,11 +72,11 @@ async fn test_subscribe_to_to_device_messages_filters_by_type() {
 }
 
 #[async_test]
-async fn test_subscribe_to_to_device_messages_empty_filter_yields_every_custom_type() {
+async fn test_subscribe_to_custom_to_device_messages_empty_filter_yields_every_custom_type() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let stream = client.subscribe_to_to_device_messages(vec![]);
+    let stream = client.subscribe_to_custom_to_device_messages(vec![]);
     pin_mut!(stream);
 
     server
@@ -111,7 +111,7 @@ async fn test_subscribe_to_to_device_messages_empty_filter_yields_every_custom_t
 /// type.
 #[cfg(feature = "experimental-send-custom-to-device")]
 #[async_test]
-async fn test_subscribe_to_to_device_messages_never_yields_internal_types() {
+async fn test_subscribe_to_custom_to_device_messages_never_yields_internal_types() {
     use matrix_sdk_base::crypto::CollectStrategy;
     use ruma::serde::Raw;
 
@@ -120,7 +120,7 @@ async fn test_subscribe_to_to_device_messages_never_yields_internal_types() {
     let (alice, bob) = server.set_up_alice_and_bob_for_encryption().await;
 
     // Ask for everything, including internal types by name.
-    let stream = alice.subscribe_to_to_device_messages(vec![
+    let stream = alice.subscribe_to_custom_to_device_messages(vec![
         custom("m.dummy"),
         custom("m.room.encrypted"),
         custom("m.custom.wanted"),
@@ -185,11 +185,11 @@ async fn test_subscribe_to_to_device_messages_never_yields_internal_types() {
 }
 
 #[async_test]
-async fn test_subscribe_to_to_device_messages_stops_on_drop() {
+async fn test_subscribe_to_custom_to_device_messages_stops_on_drop() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let stream = client.subscribe_to_to_device_messages(vec![custom("m.custom.wanted")]);
+    let stream = client.subscribe_to_custom_to_device_messages(vec![custom("m.custom.wanted")]);
     drop(stream);
 
     // Dropping the stream deregisters the event handler; a message received
@@ -206,7 +206,7 @@ async fn test_subscribe_to_to_device_messages_stops_on_drop() {
         .await;
 
     // A new subscription only sees what arrives after it was created.
-    let stream = client.subscribe_to_to_device_messages(vec![custom("m.custom.wanted")]);
+    let stream = client.subscribe_to_custom_to_device_messages(vec![custom("m.custom.wanted")]);
     pin_mut!(stream);
     assert_pending!(stream);
 }

@@ -292,7 +292,7 @@ async fn test_subscribe_to_encrypted_to_device_messages() {
     let bob_device_id = bob.device_id().unwrap();
 
     let messages =
-        alice.subscribe_to_to_device_messages(vec![ToDeviceEventType::from("my.custom.to.device")]);
+        alice.subscribe_to_custom_to_device_messages(vec![ToDeviceEventType::from("my.custom.to.device")]);
     pin_mut!(messages);
 
     let bob_alice_device = bob

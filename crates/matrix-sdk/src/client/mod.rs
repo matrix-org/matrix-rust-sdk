@@ -1438,7 +1438,7 @@ impl Client {
     /// use matrix_sdk::ruma::events::ToDeviceEventType;
     ///
     /// let messages =
-    ///     client.subscribe_to_to_device_messages(vec![ToDeviceEventType::from(
+    ///     client.subscribe_to_custom_to_device_messages(vec![ToDeviceEventType::from(
     ///         "io.element.call.encryption_keys",
     ///     )]);
     /// pin_mut!(messages);
@@ -1452,7 +1452,7 @@ impl Client {
     /// }
     /// # };
     /// ```
-    pub fn subscribe_to_to_device_messages(
+    pub fn subscribe_to_custom_to_device_messages(
         &self,
         event_types: Vec<ToDeviceEventType>,
     ) -> impl Stream<Item = ToDeviceMessage> + use<> {
@@ -4040,7 +4040,7 @@ pub struct StoreSizes {
 
 /// A custom to-device message received by the client.
 ///
-/// Yielded by [`Client::subscribe_to_to_device_messages`].
+/// Yielded by [`Client::subscribe_to_custom_to_device_messages`].
 #[derive(Debug, Clone)]
 pub struct ToDeviceMessage {
     /// The event as it was received, decrypted if it was sent encrypted.
