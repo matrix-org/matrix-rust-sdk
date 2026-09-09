@@ -4,7 +4,7 @@ use futures_util::pin_mut;
 use matrix_sdk::{assert_next_with_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::async_test;
 use ruma::events::ToDeviceEventType;
-use serde_json::json;
+use serde_json::{Value as JsonValue, json};
 use stream_assert::assert_pending;
 
 fn custom(event_type: &str) -> ToDeviceEventType {
@@ -86,7 +86,10 @@ async fn test_subscribe_to_custom_to_device_messages_empty_filter_yields_every_c
                 .add_to_device_event(json!({
                     "sender": "@alice:example.com",
                     "type": "m.custom.first",
-                    "content": {},
+                    "content": {
+                        "a": "test",
+                        "a_list": ["a", "b"]
+                    },
                 }))
                 .add_to_device_event(json!({
                     "sender": "@alice:example.com",
@@ -98,8 +101,15 @@ async fn test_subscribe_to_custom_to_device_messages_empty_filter_yields_every_c
 
     let message = assert_next_with_timeout!(stream);
     assert_eq!(message.raw.get_field::<String>("type").unwrap().unwrap(), "m.custom.first");
+    // The content is handed out verbatim.
+    assert_eq!(
+        message.raw.get_field::<JsonValue>("content").unwrap().unwrap(),
+        json!({ "a": "test", "a_list": ["a", "b"] })
+    );
+
     let message = assert_next_with_timeout!(stream);
     assert_eq!(message.raw.get_field::<String>("type").unwrap().unwrap(), "m.custom.second");
+    assert_eq!(message.raw.get_field::<JsonValue>("content").unwrap().unwrap(), json!({}));
 
     assert_pending!(stream);
 }
