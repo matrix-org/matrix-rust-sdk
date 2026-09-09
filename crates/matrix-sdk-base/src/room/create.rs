@@ -16,8 +16,7 @@ use matrix_sdk_common::ROOM_VERSION_RULES_FALLBACK;
 use ruma::{
     OwnedUserId, RoomVersionId, assign,
     events::{
-        EmptyStateKey, RedactContent, RedactedStateEventContent, StateEventContent, StateEventType,
-        StaticEventContent,
+        EmptyStateKey, RedactContent,
         macros::EventContent,
         room::create::{PreviousRoom, RoomCreateEventContent},
     },
@@ -129,14 +128,6 @@ impl RoomCreateWithCreatorEventContent {
         } else {
             vec![self.creator.clone()]
         }
-    }
-}
-
-impl RedactedStateEventContent for RoomCreateWithCreatorEventContent {
-    type StateKey = <RoomCreateWithCreatorEventContent as StateEventContent>::StateKey;
-
-    fn event_type(&self) -> StateEventType {
-        RoomCreateWithCreatorEventContent::TYPE.into()
     }
 }
 

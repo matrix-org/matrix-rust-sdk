@@ -2,8 +2,8 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, UserId,
     events::{
         AnyStateEventContent, AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-        RedactContent, RedactedStateEventContent, StateEventType, StaticEventContent,
-        StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
+        RedactContent, StateEventType, StaticEventContent, StaticStateEventContent,
+        StrippedStateEvent, SyncStateEvent,
         room::{
             create::{StrippedRoomCreateEvent, SyncRoomCreateEvent},
             member::RoomMemberEventContent,
@@ -117,7 +117,6 @@ pub type MinimalRoomMemberEvent = MinimalStateEvent<RoomMemberEventContent>;
 impl<C> From<SyncStateEvent<C>> for MinimalStateEvent<C>
 where
     C: StaticStateEventContent + RedactContent,
-    C::Redacted: RedactedStateEventContent + Into<C>,
 {
     fn from(ev: SyncStateEvent<C>) -> Self {
         Self { content: ev.content, event_id: Some(ev.event_id) }
@@ -127,7 +126,6 @@ where
 impl<C> From<&SyncStateEvent<C>> for MinimalStateEvent<C>
 where
     C: Clone + StaticStateEventContent + RedactContent,
-    C::Redacted: Clone + RedactedStateEventContent + Into<C>,
 {
     fn from(ev: &SyncStateEvent<C>) -> Self {
         Self { content: ev.content.clone(), event_id: Some(ev.event_id.clone()) }
@@ -329,8 +327,7 @@ impl RawStateEventWithKeys<AnySyncStateEvent> {
     pub fn deserialize_as<F, C>(&mut self, as_variant_fn: F) -> Option<&SyncStateEvent<C>>
     where
         F: FnOnce(&AnySyncStateEvent) -> Option<&SyncStateEvent<C>>,
-        C: StaticEventContent + StaticStateEventContent + RedactContent,
-        C::Redacted: RedactedStateEventContent,
+        C: StaticEventContent + StaticStateEventContent,
     {
         let any_event = self.deserialize()?;
         let event = as_variant_fn(any_event);

@@ -14,7 +14,7 @@
 
 //! SDK-specific variations of response types from Ruma.
 
-use std::{collections::BTreeMap, fmt, hash::Hash, iter, sync::LazyLock};
+use std::{collections::BTreeMap, hash::Hash, iter, sync::LazyLock};
 
 pub use matrix_sdk_common::deserialized_responses::*;
 use regex::Regex;
@@ -23,8 +23,7 @@ use ruma::{
     UserId,
     events::{
         AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, EventContentFromType,
-        RedactContent, RedactedStateEventContent, StateEventContent, StaticStateEventContent,
-        StrippedStateEvent, SyncStateEvent,
+        StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
         room::{
             member::{MembershipState, RoomMemberEvent, RoomMemberEventContent},
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
@@ -301,8 +300,7 @@ impl RawAnySyncOrStrippedState {
     /// without changing the underlying JSON.
     pub fn cast<C>(self) -> RawSyncOrStrippedState<C>
     where
-        C: StaticStateEventContent + RedactContent,
-        C::Redacted: RedactedStateEventContent,
+        C: StaticStateEventContent,
     {
         match self {
             Self::Sync(raw) => RawSyncOrStrippedState::Sync(raw.cast_unchecked()),
@@ -351,8 +349,7 @@ impl AnySyncOrStrippedState {
 #[serde(untagged)]
 pub enum RawSyncOrStrippedState<C>
 where
-    C: StaticStateEventContent + RedactContent,
-    C::Redacted: RedactedStateEventContent,
+    C: StaticStateEventContent,
 {
     /// An event from a room in joined or left state.
     Sync(Raw<SyncStateEvent<C>>),
@@ -362,14 +359,12 @@ where
 
 impl<C> RawSyncOrStrippedState<C>
 where
-    C: StaticStateEventContent + RedactContent,
-    C::Redacted: RedactedStateEventContent + fmt::Debug + Clone,
+    C: StaticStateEventContent,
 {
     /// Try to deserialize the inner JSON as the expected type.
     pub fn deserialize(&self) -> serde_json::Result<SyncOrStrippedState<C>>
     where
-        C: StaticStateEventContent + EventContentFromType + RedactContent,
-        C::Redacted: RedactedStateEventContent<StateKey = C::StateKey> + EventContentFromType,
+        C: StaticStateEventContent + EventContentFromType,
     {
         match self {
             Self::Sync(ev) => Ok(SyncOrStrippedState::Sync(ev.deserialize()?)),
@@ -385,8 +380,7 @@ pub type RawMemberEvent = RawSyncOrStrippedState<RoomMemberEventContent>;
 #[derive(Clone, Debug)]
 pub enum SyncOrStrippedState<C>
 where
-    C: StaticStateEventContent + RedactContent,
-    C::Redacted: RedactedStateEventContent + fmt::Debug + Clone,
+    C: StaticStateEventContent,
 {
     /// An event from a room in joined or left state.
     Sync(SyncStateEvent<C>),
@@ -396,8 +390,7 @@ where
 
 impl<C> SyncOrStrippedState<C>
 where
-    C: StaticStateEventContent + RedactContent,
-    C::Redacted: RedactedStateEventContent<StateKey = C::StateKey> + fmt::Debug + Clone,
+    C: StaticStateEventContent,
 {
     /// If this is a `SyncStateEvent`, return a reference to the inner event.
     pub fn as_sync(&self) -> Option<&SyncStateEvent<C>> {
@@ -451,10 +444,7 @@ where
 
 impl<C> SyncOrStrippedState<C>
 where
-    C: StaticStateEventContent + RedactContent,
-    C::Redacted: RedactedStateEventContent<StateKey = <C as StateEventContent>::StateKey>
-        + fmt::Debug
-        + Clone,
+    C: StaticStateEventContent,
 {
     /// The inner content of the wrapped event.
     pub fn original_content(&self) -> Option<&C> {

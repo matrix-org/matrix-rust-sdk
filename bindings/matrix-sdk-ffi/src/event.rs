@@ -20,8 +20,8 @@ use ruma::{
     events::{
         AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
         MessageLikeEventContent as RumaMessageLikeEventContent, MessageLikeEventType,
-        RedactContent, RedactedStateEventContent, StateEventType, StaticStateEventContent,
-        SyncMessageLikeEvent, SyncStateEvent, TimelineEventType as RumaTimelineEventType,
+        RedactContent, StateEventType, StaticStateEventContent, SyncMessageLikeEvent,
+        SyncStateEvent, TimelineEventType as RumaTimelineEventType,
         room::{
             encrypted,
             message::{MessageType as RumaMessageType, Relation},
@@ -498,8 +498,7 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
 
 fn get_state_event_original_content<C>(event: SyncStateEvent<C>) -> anyhow::Result<C>
 where
-    C: StaticStateEventContent + RedactContent + Clone,
-    <C as RedactContent>::Redacted: RedactedStateEventContent<StateKey = C::StateKey>,
+    C: StaticStateEventContent,
 {
     let original_content = event.content;
     Ok(original_content)
