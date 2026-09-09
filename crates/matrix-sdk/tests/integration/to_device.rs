@@ -210,13 +210,35 @@ async fn test_subscribe_to_custom_to_device_messages_stops_on_drop() {
             builder.add_to_device_event(json!({
                 "sender": "@alice:example.com",
                 "type": "m.custom.wanted",
-                "content": {},
+                "content": { "seen_by": "nobody" },
             }));
         })
         .await;
 
-    // A new subscription only sees what arrives after it was created.
+    // A new subscription only sees what arrives after it was created: the message
+    // sent while nobody was subscribed is gone, not buffered.
     let stream = client.subscribe_to_custom_to_device_messages(vec![custom("m.custom.wanted")]);
     pin_mut!(stream);
+    assert_pending!(stream);
+
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_to_device_event(json!({
+                "sender": "@alice:example.com",
+                "type": "m.custom.wanted",
+                "content": { "seen_by": "the new subscriber" },
+            }));
+        })
+        .await;
+
+    // …and the new subscription does work: only the message that arrived after it
+    // was created comes through.
+    let message = assert_next_with_timeout!(stream);
+    assert_eq!(
+        message.raw.get_field::<JsonValue>("content").unwrap().unwrap(),
+        json!({ "seen_by": "the new subscriber" })
+    );
+
     assert_pending!(stream);
 }
