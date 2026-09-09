@@ -15,6 +15,8 @@
 
 #[cfg(feature = "e2e-encryption")]
 use std::sync::Arc;
+#[cfg(all(feature = "e2e-encryption", feature = "unstable-msc4354"))]
+use std::sync::Mutex as StdMutex;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
@@ -24,6 +26,8 @@ use std::{
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::Stream;
+#[cfg(all(feature = "e2e-encryption", feature = "unstable-msc4354"))]
+use matrix_sdk_common::executor::AbortOnDrop;
 use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, timer};
 #[cfg(feature = "experimental-x509-identity-verification")]
 use matrix_sdk_crypto::x509::{RawX509Signer, RawX509Verifier};
@@ -140,6 +144,12 @@ pub struct BaseClient {
     #[cfg(feature = "e2e-encryption")]
     pub handle_verification_events: bool,
 
+    /// The task retrying to decrypt encrypted sticky events (MSC4354) as room
+    /// keys arrive. Bound to the room keys stream of the current `OlmMachine`,
+    /// so it is replaced whenever the machine is.
+    #[cfg(all(feature = "e2e-encryption", feature = "unstable-msc4354"))]
+    sticky_redecryptor: Arc<StdMutex<Option<AbortOnDrop<()>>>>,
+
     /// Whether the client supports threads or not.
     pub threading_support: ThreadingSupport,
 
@@ -225,6 +235,8 @@ impl BaseClient {
             },
             #[cfg(feature = "e2e-encryption")]
             handle_verification_events: true,
+            #[cfg(all(feature = "e2e-encryption", feature = "unstable-msc4354"))]
+            sticky_redecryptor: Default::default(),
             threading_support,
             #[cfg(feature = "experimental-x509-identity-verification")]
             x509_signer: None,
@@ -262,6 +274,8 @@ impl BaseClient {
             room_key_recipient_strategy: self.room_key_recipient_strategy.clone(),
             decryption_settings: self.decryption_settings.clone(),
             handle_verification_events,
+            #[cfg(feature = "unstable-msc4354")]
+            sticky_redecryptor: Default::default(),
             threading_support: self.threading_support,
             #[cfg(feature = "experimental-x509-identity-verification")]
             x509_signer: self.x509_signer.clone(),
@@ -432,7 +446,25 @@ impl BaseClient {
 
         let olm_machine = builder.build().await.map_err(OlmError::from)?;
 
+        // Subscribe before the machine is shared, so that no room key is missed.
+        #[cfg(feature = "unstable-msc4354")]
+        let room_keys_stream = olm_machine.store().room_keys_received_stream();
+
         *self.olm_machine.write().await = Some(olm_machine);
+
+        // Retry pending encrypted sticky events as this machine receives room
+        // keys; the task bound to the previous machine, if any, is dropped.
+        #[cfg(feature = "unstable-msc4354")]
+        {
+            let redecryptor = crate::sticky::spawn_redecryptor(
+                room_keys_stream,
+                self.olm_machine.clone(),
+                self.decryption_settings.clone(),
+                self.state_store.clone(),
+            );
+            *self.sticky_redecryptor.lock().unwrap() = Some(redecryptor);
+        }
+
         Ok(())
     }
 

@@ -27,6 +27,8 @@ mod tags;
 mod tombstone;
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+#[cfg(feature = "unstable-msc4354")]
+use std::sync::{Arc, OnceLock};
 
 pub use call::CallIntentConsensus;
 pub use create::*;
@@ -105,6 +107,13 @@ pub struct Room {
 
     /// A sender that will notify receivers when room member updates happen.
     pub room_member_updates_sender: broadcast::Sender<RoomMembersUpdate>,
+
+    /// The sticky events (MSC4354) of this room.
+    ///
+    /// Created on first use, so that rooms that never see a sticky
+    /// event don't pay for a map and its maintenance task.
+    #[cfg(feature = "unstable-msc4354")]
+    pub(super) sticky_events: Arc<OnceLock<crate::sticky::StickyEvents>>,
 }
 
 impl Room {
@@ -134,12 +143,31 @@ impl Room {
             room_info_notable_update_sender,
             seen_knock_request_ids_map: SharedObservable::new_async(None),
             room_member_updates_sender,
+            #[cfg(feature = "unstable-msc4354")]
+            sticky_events: Default::default(),
         }
     }
 
     /// Get the unique room id of the room.
     pub fn room_id(&self) -> &RoomId {
         &self.room_id
+    }
+
+    /// The sticky events ([MSC4354]) of this room.
+    ///
+    /// [MSC4354]: https://github.com/matrix-org/matrix-spec-proposals/pull/4354
+    #[cfg(feature = "unstable-msc4354")]
+    pub fn sticky_events(&self) -> &crate::sticky::StickyEvents {
+        self.sticky_events.get_or_init(|| crate::sticky::StickyEvents::new(self.room_id.clone()))
+    }
+
+    /// The sticky events of this room, if it ever had any.
+    ///
+    /// Unlike [`Room::sticky_events`], this doesn't create the map of a room
+    /// that has never seen a sticky event.
+    #[cfg(feature = "unstable-msc4354")]
+    pub(crate) fn sticky_events_if_any(&self) -> Option<&crate::sticky::StickyEvents> {
+        self.sticky_events.get()
     }
 
     /// Get a copy of the room creators.

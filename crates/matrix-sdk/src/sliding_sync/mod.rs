@@ -455,6 +455,13 @@ impl SlidingSync {
 
         position.pos = pos;
 
+        // The sticky events extension only sends a `next_batch` when it has
+        // something new; keep the previous one otherwise.
+        #[cfg(feature = "unstable-msc4354")]
+        if let Some(next_batch) = sliding_sync_response.extensions.sticky_events.next_batch.take() {
+            position.sticky_events_since = Some(next_batch);
+        }
+
         Ok(update_summary)
     }
 
@@ -573,6 +580,12 @@ impl SlidingSync {
         if to_device_enabled {
             request.extensions.to_device.since =
                 restored_fields.and_then(|fields| fields.to_device_token);
+        }
+
+        // Same for the sticky events token, which lives in memory only.
+        #[cfg(feature = "unstable-msc4354")]
+        if self.is_sticky_events_enabled() {
+            request.extensions.sticky_events.since = position_guard.sticky_events_since.clone();
         }
 
         Ok((
@@ -718,6 +731,12 @@ impl SlidingSync {
         self.inner.extensions.thread_subscriptions.enabled == Some(true)
     }
 
+    /// Is the sticky events extension enabled for this sliding sync instance?
+    #[cfg(feature = "unstable-msc4354")]
+    fn is_sticky_events_enabled(&self) -> bool {
+        self.inner.extensions.sticky_events.enabled == Some(true)
+    }
+
     #[cfg(not(feature = "e2e-encryption"))]
     fn is_e2ee_enabled(&self) -> bool {
         false
@@ -855,6 +874,13 @@ impl SlidingSync {
             // Invalidate in memory.
             position.pos = None;
 
+            // Start the stream of sticky events over too: the server will
+            // re-send those that are still live.
+            #[cfg(feature = "unstable-msc4354")]
+            {
+                position.sticky_events_since = None;
+            }
+
             // Propagate to disk.
             // Note: this propagates both the sliding sync state and the cached lists'
             // state to disk.
@@ -971,6 +997,16 @@ pub(super) struct SlidingSyncPositionMarkers {
     /// An ephemeral position in the current stream, as received from the
     /// previous `/sync` response, or `None` for the first request.
     pos: Option<String>,
+
+    /// The position in the stream of sticky events (MSC4480), as received in
+    /// the `next_batch` of the extension in the previous response, or `None`
+    /// for the first request.
+    ///
+    /// This is deliberately not persisted: without it, the server sends every
+    /// sticky event that is still live, which is exactly what a fresh client
+    /// needs.
+    #[cfg(feature = "unstable-msc4354")]
+    sticky_events_since: Option<String>,
 }
 
 /// A summary of the updates received after a sync (like in
@@ -1815,6 +1851,99 @@ mod tests {
             assert_eq!(to_device.enabled, Some(true));
             assert_eq!(to_device.since, Some(since_token));
         }
+    }
+
+    #[cfg(feature = "unstable-msc4354")]
+    #[async_test]
+    async fn test_extensions_sticky_events_since_is_set() -> Result<()> {
+        let server = MockServer::start().await;
+
+        #[derive(Deserialize)]
+        struct PartialRequest {
+            txn_id: Option<String>,
+        }
+
+        // The server answers with a sticky events `next_batch` on the first two
+        // responses, then without.
+        let response_count = Arc::new(Mutex::new(0));
+        let _mock_guard = Mock::given(SlidingSyncMatcher)
+            .respond_with(move |request: &Request| {
+                let request: PartialRequest = request.body_json().unwrap();
+                let count = {
+                    let mut count = response_count.lock().unwrap();
+                    *count += 1;
+                    *count
+                };
+
+                let mut response = json!({
+                    "txn_id": request.txn_id,
+                    "pos": count.to_string(),
+                });
+
+                if count <= 2 {
+                    response["extensions"] = json!({
+                        "org.matrix.msc4354.sticky_events": {
+                            "next_batch": format!("sticky_{count}"),
+                        }
+                    });
+                }
+
+                ResponseTemplate::new(200).set_body_json(response)
+            })
+            .mount_as_scoped(&server)
+            .await;
+
+        let client = logged_in_client(Some(server.uri())).await;
+
+        let sliding_sync = client
+            .sliding_sync("sticky")?
+            .with_sticky_events_extension(assign!(
+                http::request::StickyEvents::default(),
+                { enabled: Some(true) }
+            ))
+            .build()
+            .await?;
+
+        // No `since` to start with.
+        {
+            let (request, _, _) = sliding_sync.generate_sync_request().await?;
+            assert_eq!(request.extensions.sticky_events.enabled, Some(true));
+            assert!(request.extensions.sticky_events.since.is_none());
+        }
+
+        // The `next_batch` of a response is the `since` of the next request.
+        sliding_sync.sync_once().await?;
+
+        {
+            let (request, _, _) = sliding_sync.generate_sync_request().await?;
+            assert_eq!(request.extensions.sticky_events.since.as_deref(), Some("sticky_1"));
+        }
+
+        sliding_sync.sync_once().await?;
+
+        {
+            let (request, _, _) = sliding_sync.generate_sync_request().await?;
+            assert_eq!(request.extensions.sticky_events.since.as_deref(), Some("sticky_2"));
+        }
+
+        // A response without `next_batch` leaves the `since` untouched.
+        sliding_sync.sync_once().await?;
+
+        {
+            let (request, _, _) = sliding_sync.generate_sync_request().await?;
+            assert_eq!(request.extensions.sticky_events.since.as_deref(), Some("sticky_2"));
+        }
+
+        // Expiring the session starts the stream of sticky events over.
+        sliding_sync.expire_session().await;
+
+        {
+            let (request, _, _) = sliding_sync.generate_sync_request().await?;
+            assert!(request.pos.is_none());
+            assert!(request.extensions.sticky_events.since.is_none());
+        }
+
+        Ok(())
     }
 
     // With MSC4186, with the `e2ee` extension enabled, if a request has no `pos`,
