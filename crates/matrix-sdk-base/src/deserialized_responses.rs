@@ -419,7 +419,7 @@ where
     /// The sender of this event.
     pub fn sender(&self) -> &UserId {
         match self {
-            Self::Sync(e) => e.sender(),
+            Self::Sync(e) => &e.sender,
             Self::Stripped(e) => &e.sender,
         }
     }
@@ -427,7 +427,7 @@ where
     /// The ID of this event.
     pub fn event_id(&self) -> Option<&EventId> {
         match self {
-            Self::Sync(e) => Some(e.event_id()),
+            Self::Sync(e) => Some(&e.event_id),
             Self::Stripped(_) => None,
         }
     }
@@ -435,7 +435,7 @@ where
     /// The server timestamp of this event.
     pub fn origin_server_ts(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         match self {
-            Self::Sync(e) => Some(e.origin_server_ts()),
+            Self::Sync(e) => Some(e.origin_server_ts),
             Self::Stripped(_) => None,
         }
     }
@@ -443,7 +443,7 @@ where
     /// The state key associated to this state event.
     pub fn state_key(&self) -> &C::StateKey {
         match self {
-            Self::Sync(e) => e.state_key(),
+            Self::Sync(e) => &e.state_key,
             Self::Stripped(e) => &e.state_key,
         }
     }
@@ -459,7 +459,7 @@ where
     /// The inner content of the wrapped event.
     pub fn original_content(&self) -> Option<&C> {
         match self {
-            Self::Sync(e) => e.as_original().map(|e| &e.content),
+            Self::Sync(e) => Some(&e.content),
             Self::Stripped(e) => Some(&e.content),
         }
     }
@@ -472,7 +472,7 @@ impl MemberEvent {
     /// The membership state of the user.
     pub fn membership(&self) -> &MembershipState {
         match self {
-            MemberEvent::Sync(e) => e.membership(),
+            MemberEvent::Sync(e) => &e.content.membership,
             MemberEvent::Stripped(e) => &e.content.membership,
         }
     }
@@ -488,7 +488,7 @@ impl MemberEvent {
     /// display for this member event.
     pub fn displayname_value(&self) -> Option<&str> {
         match self {
-            Self::Sync(event) => event.as_original()?.content.displayname.as_deref(),
+            Self::Sync(event) => event.content.displayname.as_deref(),
             Self::Stripped(event) => event.content.displayname.as_deref(),
         }
     }
@@ -507,7 +507,7 @@ impl MemberEvent {
     /// display for this member event.
     pub fn avatar_url(&self) -> Option<&MxcUri> {
         match self {
-            Self::Sync(event) => event.as_original()?.content.avatar_url.as_deref(),
+            Self::Sync(event) => event.content.avatar_url.as_deref(),
             Self::Stripped(event) => event.content.avatar_url.as_deref(),
         }
     }
@@ -515,16 +515,15 @@ impl MemberEvent {
     /// The optional reason why the membership changed.
     pub fn reason(&self) -> Option<&str> {
         match self {
-            MemberEvent::Sync(SyncStateEvent::Original(c)) => c.content.reason.as_deref(),
+            MemberEvent::Sync(c) => c.content.reason.as_deref(),
             MemberEvent::Stripped(e) => e.content.reason.as_deref(),
-            _ => None,
         }
     }
 
     /// The optional timestamp for this member event.
     pub fn timestamp(&self) -> Option<UInt> {
         match self {
-            MemberEvent::Sync(SyncStateEvent::Original(c)) => Some(c.origin_server_ts.0),
+            MemberEvent::Sync(c) => Some(c.origin_server_ts.0),
             _ => None,
         }
     }

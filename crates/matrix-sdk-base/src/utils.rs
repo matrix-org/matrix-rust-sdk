@@ -120,14 +120,7 @@ where
     C::Redacted: RedactedStateEventContent + Into<C>,
 {
     fn from(ev: SyncStateEvent<C>) -> Self {
-        match ev {
-            SyncStateEvent::Original(ev) => {
-                Self { content: ev.content, event_id: Some(ev.event_id) }
-            }
-            SyncStateEvent::Redacted(ev) => {
-                Self { content: ev.content.into(), event_id: Some(ev.event_id) }
-            }
-        }
+        Self { content: ev.content, event_id: Some(ev.event_id) }
     }
 }
 
@@ -137,34 +130,18 @@ where
     C::Redacted: Clone + RedactedStateEventContent + Into<C>,
 {
     fn from(ev: &SyncStateEvent<C>) -> Self {
-        match ev {
-            SyncStateEvent::Original(ev) => {
-                Self { content: ev.content.clone(), event_id: Some(ev.event_id.clone()) }
-            }
-            SyncStateEvent::Redacted(ev) => {
-                Self { content: ev.content.clone().into(), event_id: Some(ev.event_id.clone()) }
-            }
-        }
+        Self { content: ev.content.clone(), event_id: Some(ev.event_id.clone()) }
     }
 }
 
 impl From<&SyncRoomCreateEvent> for MinimalStateEvent<RoomCreateWithCreatorEventContent> {
     fn from(ev: &SyncRoomCreateEvent) -> Self {
-        match ev {
-            SyncStateEvent::Original(ev) => Self {
-                content: RoomCreateWithCreatorEventContent::from_event_content(
-                    ev.content.clone(),
-                    ev.sender.clone(),
-                ),
-                event_id: Some(ev.event_id.clone()),
-            },
-            SyncStateEvent::Redacted(ev) => Self {
-                content: RoomCreateWithCreatorEventContent::from_event_content(
-                    ev.content.clone(),
-                    ev.sender.clone(),
-                ),
-                event_id: Some(ev.event_id.clone()),
-            },
+        Self {
+            content: RoomCreateWithCreatorEventContent::from_event_content(
+                ev.content.clone(),
+                ev.sender.clone(),
+            ),
+            event_id: Some(ev.event_id.clone()),
         }
     }
 }

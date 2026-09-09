@@ -19,8 +19,7 @@ use regex::Regex;
 #[cfg(feature = "unstable-msc4426")]
 use ruma::profile::{CallProfileField, StatusProfileField};
 use ruma::{
-    OwnedMxcUri, OwnedUserId, RoomAliasId, UserId,
-    events::{SyncStateEvent, member_hints::MemberHintsEventContent},
+    OwnedMxcUri, OwnedUserId, RoomAliasId, UserId, events::member_hints::MemberHintsEventContent,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
@@ -341,7 +340,7 @@ impl Room {
                     .inspect_err(|e| warn!("Couldn't deserialize the member hints event: {e}"))
                     .ok()
             })
-            .and_then(|event| as_variant!(event, SyncOrStrippedState::Sync(SyncStateEvent::Original(e)) => e.content))
+            .and_then(|event| as_variant!(event, SyncOrStrippedState::Sync(e) => e.content))
             .unwrap_or_default())
     }
 }

@@ -84,7 +84,7 @@ async fn test_back_pagination() {
         assert_let!(TimelineItemContent::OtherState(state) = message.as_event().unwrap().content());
         assert_eq!(state.state_key(), "");
         assert_let!(
-            AnyOtherStateEventContentChange::RoomName(StateEventContentChange::Original {
+            AnyOtherStateEventContentChange::RoomName(StateEventContentChange {
                 content,
                 prev_content
             }) = state.content()
@@ -817,7 +817,7 @@ async fn test_empty_chunk() {
         assert_let!(TimelineItemContent::OtherState(state) = message.as_event().unwrap().content());
         assert_eq!(state.state_key(), "");
         assert_let!(
-            AnyOtherStateEventContentChange::RoomName(StateEventContentChange::Original {
+            AnyOtherStateEventContentChange::RoomName(StateEventContentChange {
                 content,
                 prev_content
             }) = state.content()
@@ -914,7 +914,7 @@ async fn test_until_num_items_with_empty_chunk() {
         assert_let!(TimelineItemContent::OtherState(state) = message.as_event().unwrap().content());
         assert_eq!(state.state_key(), "");
         assert_let!(
-            AnyOtherStateEventContentChange::RoomName(StateEventContentChange::Original {
+            AnyOtherStateEventContentChange::RoomName(StateEventContentChange {
                 content,
                 prev_content
             }) = state.content()

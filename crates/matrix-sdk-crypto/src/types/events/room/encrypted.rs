@@ -72,7 +72,7 @@ impl JsonCastable<EncryptedEvent>
 
 #[cfg(feature = "experimental-encrypted-state-events")]
 impl JsonCastable<EncryptedEvent>
-    for ruma::events::room::encrypted::unstable_state::OriginalSyncStateRoomEncryptedEvent
+    for ruma::events::room::encrypted::unstable_state::SyncStateRoomEncryptedEvent
 {
 }
 

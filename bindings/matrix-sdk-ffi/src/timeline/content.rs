@@ -17,9 +17,7 @@ use std::collections::HashMap;
 use matrix_sdk::room::power_levels::power_level_user_changes;
 use matrix_sdk_base::CallIntentConsensus;
 use matrix_sdk_ui::timeline::RoomPinnedEventsChange;
-use ruma::events::{
-    StateEventContentChange, room::history_visibility::HistoryVisibility as RumaHistoryVisibility,
-};
+use ruma::events::room::history_visibility::HistoryVisibility as RumaHistoryVisibility;
 
 use crate::{
     client::JoinRule, event::FfiTimelineEventType, ruma::AssetType,
@@ -66,18 +64,12 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
                     .and_then(|a| a.call_started_ts_millis)
                     .map(|it| it.0.into()),
             },
-            Content::MembershipChange(membership) => {
-                let reason = match membership.content() {
-                    StateEventContentChange::Original { content, .. } => content.reason.clone(),
-                    _ => None,
-                };
-                TimelineItemContent::RoomMembership {
-                    user_id: membership.user_id().to_string(),
-                    user_display_name: membership.display_name(),
-                    change: membership.change().map(Into::into),
-                    reason,
-                }
-            }
+            Content::MembershipChange(membership) => TimelineItemContent::RoomMembership {
+                user_id: membership.user_id().to_string(),
+                user_display_name: membership.display_name(),
+                change: membership.change().map(Into::into),
+                reason: membership.content().content.reason.clone(),
+            },
 
             Content::ProfileChange(profile) => {
                 let (display_name, prev_display_name) = profile
@@ -393,36 +385,22 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherStateEventContentChange> for OtherSt
             Content::PolicyRuleServer(_) => Self::PolicyRuleServer,
             Content::PolicyRuleUser(_) => Self::PolicyRuleUser,
             Content::RoomAvatar(c) => {
-                let url = match c {
-                    FullContent::Original { content, .. } => {
-                        content.url.as_ref().map(ToString::to_string)
-                    }
-                    FullContent::Redacted(_) => None,
-                };
+                let url = c.content.url.as_ref().map(ToString::to_string);
                 Self::RoomAvatar { url }
             }
             Content::RoomCanonicalAlias(_) => Self::RoomCanonicalAlias,
             Content::RoomCreate(c) => {
-                let federate = match c {
-                    FullContent::Original { content, .. } => content.federate,
-                    FullContent::Redacted(content) => content.federate,
-                };
+                let federate = c.content.federate;
                 Self::RoomCreate { federate }
             }
             Content::RoomEncryption(_) => Self::RoomEncryption,
             Content::RoomGuestAccess(_) => Self::RoomGuestAccess,
             Content::RoomHistoryVisibility(c) => {
-                let history_visibility = match c {
-                    FullContent::Original { content, .. } => &content.history_visibility,
-                    FullContent::Redacted(content) => &content.history_visibility,
-                };
+                let history_visibility = &c.content.history_visibility;
                 Self::RoomHistoryVisibility { history_visibility: history_visibility.into() }
             }
             Content::RoomJoinRules(c) => {
-                let ruma_join_rule = match c {
-                    FullContent::Original { content, .. } => &content.join_rule,
-                    FullContent::Redacted(content) => &content.join_rule,
-                };
+                let ruma_join_rule = &c.content.join_rule;
                 let join_rule = match ruma_join_rule.clone().try_into() {
                     Ok(jr) => Some(jr),
                     Err(err) => {
@@ -433,18 +411,12 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherStateEventContentChange> for OtherSt
                 Self::RoomJoinRules { join_rule }
             }
             Content::RoomName(c) => {
-                let name = match c {
-                    FullContent::Original { content, .. } => content.name.clone(),
-                    FullContent::Redacted(_) => None,
-                };
+                let name = c.content.name.clone();
                 Self::RoomName { name }
             }
             Content::RoomPinnedEvents(c) => Self::RoomPinnedEvents { change: c.into() },
             Content::RoomPowerLevels(c) => {
-                let (content, prev_content) = match c.clone() {
-                    FullContent::Original { content, prev_content } => (content, prev_content),
-                    FullContent::Redacted(content) => (content, None),
-                };
+                let FullContent { content, prev_content } = c.clone();
 
                 Self::RoomPowerLevels {
                     events: content
@@ -492,18 +464,12 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherStateEventContentChange> for OtherSt
             }
             Content::RoomServerAcl(_) => Self::RoomServerAcl,
             Content::RoomThirdPartyInvite(c) => {
-                let display_name = match c {
-                    FullContent::Original { content, .. } => content.display_name.clone(),
-                    FullContent::Redacted(_) => None,
-                };
+                let display_name = c.content.display_name.clone();
                 Self::RoomThirdPartyInvite { display_name }
             }
             Content::RoomTombstone(_) => Self::RoomTombstone,
             Content::RoomTopic(c) => {
-                let topic = match c {
-                    FullContent::Original { content, .. } => content.topic.clone(),
-                    FullContent::Redacted(_) => None,
-                };
+                let topic = c.content.topic.clone();
                 Self::RoomTopic { topic }
             }
             Content::SpaceChild(_) => Self::SpaceChild,

@@ -832,13 +832,13 @@ impl RoomInfo {
         if raw_event.event_type == StateEventType::MemberHints
             && let Some(AnySyncStateEvent::MemberHints(new_hints)) = raw_event.deserialize()
             // If we have both old and new member hints events
-            && let (Some(current_hints), Some(new)) =
-                (&self.base_info.member_hints, new_hints.as_original())
+            && let Some(current_hints) =
+                &self.base_info.member_hints
             // Then we check if their contents don't match
             && current_hints
                 .content
                 .service_members
-                 != new.content.service_members
+                 != new_hints.content.service_members
         {
             // And reset the computed value in that case
             self.summary.active_service_members = None;

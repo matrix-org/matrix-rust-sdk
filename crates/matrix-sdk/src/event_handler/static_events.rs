@@ -117,24 +117,6 @@ where
     type IsPrefix = <C as StaticEventContent>::IsPrefix;
 }
 
-impl<C> SyncEvent for events::OriginalSyncStateEvent<C>
-where
-    C: StaticEventContent + StaticStateEventContent,
-{
-    const KIND: HandlerKind = HandlerKind::OriginalState;
-    const TYPE: Option<&'static str> = Some(C::TYPE);
-    type IsPrefix = <C as StaticEventContent>::IsPrefix;
-}
-
-impl<C> SyncEvent for events::RedactedSyncStateEvent<C>
-where
-    C: StaticEventContent + RedactedStateEventContent,
-{
-    const KIND: HandlerKind = HandlerKind::RedactedState;
-    const TYPE: Option<&'static str> = Some(C::TYPE);
-    type IsPrefix = <C as StaticEventContent>::IsPrefix;
-}
-
 impl<C> SyncEvent for events::StrippedStateEvent<C>
 where
     C: StaticEventContent + StaticStateEventContent,

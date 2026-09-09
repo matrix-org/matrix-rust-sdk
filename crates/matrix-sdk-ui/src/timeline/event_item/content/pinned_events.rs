@@ -33,37 +33,32 @@ pub enum RoomPinnedEventsChange {
 
 impl From<&StateEventContentChange<RoomPinnedEventsEventContent>> for RoomPinnedEventsChange {
     fn from(value: &StateEventContentChange<RoomPinnedEventsEventContent>) -> Self {
-        match value {
-            StateEventContentChange::Original { content, prev_content } => {
-                if let Some(prev_content) = prev_content {
-                    let mut new_pinned: HashSet<&OwnedEventId> =
-                        HashSet::from_iter(&content.pinned);
-                    let mut still_pinned: HashSet<&OwnedEventId> =
-                        HashSet::from_iter(&prev_content.pinned);
+        let StateEventContentChange { content, prev_content } = value;
 
-                    // Newly added elements will be kept in new_pinned, previous ones in
-                    // still_pinned instead
-                    still_pinned.retain(|item| new_pinned.remove(item));
+        if let Some(prev_content) = prev_content {
+            let mut new_pinned: HashSet<&OwnedEventId> = HashSet::from_iter(&content.pinned);
+            let mut still_pinned: HashSet<&OwnedEventId> = HashSet::from_iter(&prev_content.pinned);
 
-                    let added = !new_pinned.is_empty();
-                    let removed = still_pinned.len() < prev_content.pinned.len();
-                    if added && removed {
-                        RoomPinnedEventsChange::Changed
-                    } else if added {
-                        RoomPinnedEventsChange::Added
-                    } else if removed {
-                        RoomPinnedEventsChange::Removed
-                    } else {
-                        // Any other case
-                        RoomPinnedEventsChange::Changed
-                    }
-                } else {
-                    // If there is no previous content we can assume the first pinned event id was
-                    // just added
-                    RoomPinnedEventsChange::Added
-                }
+            // Newly added elements will be kept in new_pinned, previous ones in
+            // still_pinned instead
+            still_pinned.retain(|item| new_pinned.remove(item));
+
+            let added = !new_pinned.is_empty();
+            let removed = still_pinned.len() < prev_content.pinned.len();
+            if added && removed {
+                RoomPinnedEventsChange::Changed
+            } else if added {
+                RoomPinnedEventsChange::Added
+            } else if removed {
+                RoomPinnedEventsChange::Removed
+            } else {
+                // Any other case
+                RoomPinnedEventsChange::Changed
             }
-            StateEventContentChange::Redacted(_) => RoomPinnedEventsChange::Changed,
+        } else {
+            // If there is no previous content we don't know if the event was redacted or if
+            // there was no previous event
+            RoomPinnedEventsChange::Changed
         }
     }
 }
@@ -79,25 +74,18 @@ mod tests {
     use crate::timeline::event_item::content::pinned_events::RoomPinnedEventsChange;
 
     #[test]
-    fn redacted_pinned_events_content_has_generic_changes() {
-        let content = StateEventContentChange::Redacted(RoomPinnedEventsEventContent::new(vec![]));
+    fn pinned_events_content_with_no_prev_content_has_generic_changes() {
+        let content = StateEventContentChange {
+            content: RoomPinnedEventsEventContent::new(vec![owned_event_id!("$1")]),
+            prev_content: None,
+        };
         let ret: RoomPinnedEventsChange = (&content).into();
         assert_matches!(ret, RoomPinnedEventsChange::Changed);
     }
 
     #[test]
-    fn pinned_events_content_with_no_prev_content_returns_added() {
-        let content = StateEventContentChange::Original {
-            content: RoomPinnedEventsEventContent::new(vec![owned_event_id!("$1")]),
-            prev_content: None,
-        };
-        let ret: RoomPinnedEventsChange = (&content).into();
-        assert_matches!(ret, RoomPinnedEventsChange::Added);
-    }
-
-    #[test]
     fn pinned_events_content_with_added_ids_returns_added() {
-        let content = StateEventContentChange::Original {
+        let content = StateEventContentChange {
             content: RoomPinnedEventsEventContent::new(vec![owned_event_id!("$1")]),
             prev_content: Some(RoomPinnedEventsEventContent::new(Vec::new())),
         };
@@ -107,7 +95,7 @@ mod tests {
 
     #[test]
     fn pinned_events_content_with_removed_ids_returns_removed() {
-        let content = StateEventContentChange::Original {
+        let content = StateEventContentChange {
             content: RoomPinnedEventsEventContent::new(Vec::new()),
             prev_content: Some(RoomPinnedEventsEventContent::new(vec![owned_event_id!("$1")])),
         };
@@ -117,7 +105,7 @@ mod tests {
 
     #[test]
     fn pinned_events_content_with_added_and_removed_ids_returns_changed() {
-        let content = StateEventContentChange::Original {
+        let content = StateEventContentChange {
             content: RoomPinnedEventsEventContent::new(vec![owned_event_id!("$2")]),
             prev_content: Some(RoomPinnedEventsEventContent::new(vec![owned_event_id!("$1")])),
         };
@@ -127,7 +115,7 @@ mod tests {
 
     #[test]
     fn pinned_events_content_with_changed_order_returns_changed() {
-        let content = StateEventContentChange::Original {
+        let content = StateEventContentChange {
             content: RoomPinnedEventsEventContent::new(vec![
                 owned_event_id!("$2"),
                 owned_event_id!("$1"),
@@ -146,7 +134,7 @@ mod tests {
         // Returning Changed is counter-intuitive, but it makes no sense to display in
         // the timeline 'UserFoo didn't change anything in the pinned events'
 
-        let content = StateEventContentChange::Original {
+        let content = StateEventContentChange {
             content: RoomPinnedEventsEventContent::new(vec![
                 owned_event_id!("$1"),
                 owned_event_id!("$2"),

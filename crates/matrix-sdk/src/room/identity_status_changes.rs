@@ -191,7 +191,7 @@ fn wrap_room_member_events(
     let (sender, receiver) = mpsc::channel(16);
     let handle =
         room.client.add_room_event_handler(room_id, move |event: SyncRoomMemberEvent| async move {
-            if *event.state_key() == own_user_id {
+            if event.state_key == own_user_id {
                 return;
             }
             let _: Result<_, _> =
