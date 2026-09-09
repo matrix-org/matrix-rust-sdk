@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap},
     mem,
     sync::Arc,
 };
@@ -27,7 +27,6 @@ use ruma::{
     events::{
         MessageLikeEventType, StateEventType,
         ignored_user_list::IgnoredUserListEventContent,
-        presence::PresenceEvent,
         room::{
             member::{MembershipState, RoomMemberEventContent},
             power_levels::{PowerLevelAction, RoomPowerLevels, UserPowerLevel},
@@ -99,30 +98,13 @@ impl Room {
 
         let profiles = self.store.get_profiles(self.room_id(), &user_ids);
 
-        let presences = async {
-            Ok(self
-                .store
-                .get_presence_events(&user_ids)
-                .await?
-                .into_iter()
-                .filter_map(|e| {
-                    e.deserialize().ok().map(|presence| (presence.sender.clone(), presence))
-                })
-                .collect::<BTreeMap<_, _>>())
-        };
-
         #[cfg(feature = "unstable-msc4426")]
-        let (member_events, mut profiles, mut presences, mut global_profiles) = future::try_join4(
-            member_events,
-            profiles,
-            presences,
-            self.store.get_global_profiles(&user_ids),
-        )
-        .await?;
+        let (member_events, mut profiles, mut global_profiles) =
+            future::try_join3(member_events, profiles, self.store.get_global_profiles(&user_ids))
+                .await?;
 
         #[cfg(not(feature = "unstable-msc4426"))]
-        let (member_events, mut profiles, mut presences) =
-            future::try_join3(member_events, profiles, presences).await?;
+        let (member_events, mut profiles) = future::try_join(member_events, profiles).await?;
 
         let display_names = member_events.iter().map(|e| e.display_name()).collect::<Vec<_>>();
         let room_info = self.member_room_info(&display_names).await?;
@@ -133,13 +115,11 @@ impl Room {
             let profile = profiles.remove(event.user_id());
             #[cfg(feature = "unstable-msc4426")]
             let global_profile = global_profiles.remove(event.user_id());
-            let presence = presences.remove(event.user_id());
             members.push(RoomMember::from_parts(
                 event,
                 profile,
                 #[cfg(feature = "unstable-msc4426")]
                 global_profile,
-                presence,
                 display_name,
                 &room_info,
             ))
@@ -196,25 +176,18 @@ impl Room {
 
             Ok(Some(raw_event.deserialize()?))
         };
-        let presence = async {
-            let raw_event = self.store.get_presence_event(user_id).await?;
-            Ok::<Option<PresenceEvent>, StoreError>(raw_event.and_then(|e| e.deserialize().ok()))
-        };
-
         let profile = async { self.store.get_profile(self.room_id(), user_id).await };
 
         #[cfg(feature = "unstable-msc4426")]
-        let (Some(event), presence, profile, global_profile) =
-            future::try_join4(event, presence, profile, async {
-                self.store.get_global_profile(user_id).await
-            })
-            .await?
+        let (Some(event), profile, global_profile) = future::try_join3(event, profile, async {
+            self.store.get_global_profile(user_id).await
+        })
+        .await?
         else {
             return Ok(None);
         };
         #[cfg(not(feature = "unstable-msc4426"))]
-        let (Some(event), presence, profile) = future::try_join3(event, presence, profile).await?
-        else {
+        let (Some(event), profile) = future::try_join(event, profile).await? else {
             return Ok(None);
         };
 
@@ -226,7 +199,6 @@ impl Room {
             profile,
             #[cfg(feature = "unstable-msc4426")]
             global_profile,
-            presence,
             &display_names[0],
             &room_info,
         )))
@@ -282,8 +254,6 @@ pub struct RoomMember {
     // The user's call indicator, taken from their global profile.
     #[cfg(feature = "unstable-msc4426")]
     pub(crate) call: Option<CallProfileField>,
-    #[allow(dead_code)]
-    pub(crate) presence: Arc<Option<PresenceEvent>>,
     pub(crate) power_levels: Arc<RoomPowerLevels>,
     pub(crate) max_power_level: i64,
     pub(crate) display_name_ambiguous: bool,
@@ -300,7 +270,6 @@ impl RoomMember {
         event: MemberEvent,
         profile: Option<MinimalRoomMemberEvent>,
         #[cfg(feature = "unstable-msc4426")] global_profile: Option<UserProfile>,
-        presence: Option<PresenceEvent>,
         display_name: &DisplayName,
         room_info: &MemberRoomInfo<'_>,
     ) -> Self {
@@ -332,7 +301,6 @@ impl RoomMember {
             status,
             #[cfg(feature = "unstable-msc4426")]
             call,
-            presence: presence.into(),
             power_levels: power_levels.clone(),
             max_power_level: *max_power_level,
             display_name_ambiguous,
@@ -694,14 +662,8 @@ mod tests {
         };
 
         // Without a global profile, neither field is set.
-        let member = RoomMember::from_parts(
-            event.clone(),
-            None,
-            None,
-            None,
-            &event.display_name(),
-            &room_info,
-        );
+        let member =
+            RoomMember::from_parts(event.clone(), None, None, &event.display_name(), &room_info);
         assert!(member.status().is_none());
         assert!(member.call().is_none());
 
@@ -718,14 +680,8 @@ mod tests {
         ]);
 
         let display_name = event.display_name();
-        let member = RoomMember::from_parts(
-            event,
-            None,
-            Some(global_profile),
-            None,
-            &display_name,
-            &room_info,
-        );
+        let member =
+            RoomMember::from_parts(event, None, Some(global_profile), &display_name, &room_info);
 
         let status = member.status().expect("status is set");
         assert_eq!(status.text, "Working");
