@@ -92,6 +92,8 @@ pub struct EventTimelineItem {
     pub(super) unredacted_item: Option<UnredactedEventTimelineItem>,
     /// Send state of our own pending redaction of this event, if any.
     pub(super) redaction_send_state: Option<EventSendState>,
+    /// Send state of our own pending edits of this event, if any.
+    pub(super) edit_send_state: Option<EventSendState>,
     /// The kind of event timeline item, local or remote.
     pub(super) kind: EventTimelineItemKind,
     /// Whether or not the event belongs to an encrypted room.
@@ -175,6 +177,7 @@ impl EventTimelineItem {
             content,
             unredacted_item: None,
             redaction_send_state: None,
+            edit_send_state: None,
             kind,
             is_room_encrypted,
         }
@@ -226,6 +229,13 @@ impl EventTimelineItem {
     /// when the event isn't redacted or the redaction came from the server.
     pub fn redaction_send_state(&self) -> Option<&EventSendState> {
         self.redaction_send_state.as_ref()
+    }
+
+    /// Send state of our own pending edits of this event: a failed edit wins
+    /// over a pending one, which wins over a sent one. `None` when there is no
+    /// local edit.
+    pub fn edit_send_state(&self) -> Option<&EventSendState> {
+        self.edit_send_state.as_ref()
     }
 
     /// Get the time that the local event was pushed in the send queue at.
@@ -576,6 +586,7 @@ impl EventTimelineItem {
             content,
             unredacted_item,
             redaction_send_state: None,
+            edit_send_state: None,
             kind,
             is_room_encrypted: self.is_room_encrypted,
         }
@@ -605,6 +616,7 @@ impl EventTimelineItem {
             content: unredacted_item.content.clone(),
             unredacted_item: None,
             redaction_send_state: None,
+            edit_send_state: None,
             kind,
             is_room_encrypted: self.is_room_encrypted,
         }
@@ -963,7 +975,6 @@ mod tests {
             kind: MsgLikeKind::Message(Message {
                 msgtype: MessageType::Text(TextMessageEventContent::plain("hello")),
                 edited: false,
-                edit_send_state: None,
                 mentions: None,
             }),
             reactions: Default::default(),

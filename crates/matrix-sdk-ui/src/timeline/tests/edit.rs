@@ -463,14 +463,14 @@ async fn test_local_edit_send_state_transitions() {
     let original_id = event_id!("$original");
     timeline.handle_live_event(f.text_msg("hello").sender(*ALICE).event_id(original_id)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    assert!(item.content().as_message().unwrap().edit_send_state().is_none());
+    assert!(item.edit_send_state().is_none());
 
     // A pending local edit is applied and exposed as not sent yet.
     let txn_id = timeline.handle_local_event(local_edit(original_id, "edited")).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     let msg = item.content().as_message().unwrap();
     assert_eq!(msg.body(), "edited");
-    assert_matches!(msg.edit_send_state(), Some(EventSendState::NotSentYet { progress: None }));
+    assert_matches!(item.edit_send_state(), Some(EventSendState::NotSentYet { progress: None }));
 
     // Upload progress lands on the edit.
     timeline
@@ -486,10 +486,7 @@ async fn test_local_edit_send_state_transitions() {
         )
         .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    assert_matches!(
-        item.content().as_message().unwrap().edit_send_state(),
-        Some(EventSendState::NotSentYet { progress: Some(_) })
-    );
+    assert_matches!(item.edit_send_state(), Some(EventSendState::NotSentYet { progress: Some(_) }));
 
     // A failure is exposed, the edited content stays.
     timeline.controller.update_event_send_state(&txn_id, failed_state()).await;
@@ -497,7 +494,7 @@ async fn test_local_edit_send_state_transitions() {
     let msg = item.content().as_message().unwrap();
     assert_eq!(msg.body(), "edited");
     assert_matches!(
-        msg.edit_send_state(),
+        item.edit_send_state(),
         Some(EventSendState::SendingFailed { is_recoverable: false, .. })
     );
 
@@ -507,10 +504,7 @@ async fn test_local_edit_send_state_transitions() {
         .update_event_send_state(&txn_id, EventSendState::NotSentYet { progress: None })
         .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    assert_matches!(
-        item.content().as_message().unwrap().edit_send_state(),
-        Some(EventSendState::NotSentYet { progress: None })
-    );
+    assert_matches!(item.edit_send_state(), Some(EventSendState::NotSentYet { progress: None }));
 
     // Sent.
     let edit_id = event_id!("$edit");
@@ -519,10 +513,7 @@ async fn test_local_edit_send_state_transitions() {
         .update_event_send_state(&txn_id, EventSendState::Sent { event_id: edit_id.to_owned() })
         .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    assert_matches!(
-        item.content().as_message().unwrap().edit_send_state(),
-        Some(EventSendState::Sent { .. })
-    );
+    assert_matches!(item.edit_send_state(), Some(EventSendState::Sent { .. }));
 
     // The remote echo of the edit clears it.
     timeline
@@ -537,7 +528,7 @@ async fn test_local_edit_send_state_transitions() {
     let msg = item.content().as_message().unwrap();
     assert_eq!(msg.body(), "edited");
     assert!(msg.is_edited());
-    assert!(msg.edit_send_state().is_none());
+    assert!(item.edit_send_state().is_none());
 
     assert_pending!(stream);
 }
@@ -560,10 +551,7 @@ async fn test_failed_edit_wins_over_a_later_pending_edit() {
     // The first edit fails: it blocks the second one, so the item says failed.
     timeline.controller.update_event_send_state(&first, failed_state()).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    assert_matches!(
-        item.content().as_message().unwrap().edit_send_state(),
-        Some(EventSendState::SendingFailed { .. })
-    );
+    assert_matches!(item.edit_send_state(), Some(EventSendState::SendingFailed { .. }));
 
     // Once the first one is sent, the second one's pending state shows.
     timeline
@@ -571,10 +559,7 @@ async fn test_failed_edit_wins_over_a_later_pending_edit() {
         .update_event_send_state(&first, EventSendState::Sent { event_id: owned_event_id!("$e1") })
         .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    assert_matches!(
-        item.content().as_message().unwrap().edit_send_state(),
-        Some(EventSendState::NotSentYet { .. })
-    );
+    assert_matches!(item.edit_send_state(), Some(EventSendState::NotSentYet { .. }));
 
     assert_pending!(stream);
 }
@@ -614,7 +599,7 @@ async fn test_edit_remote_echo_before_sent_leaves_no_pending_state() {
     let msg = item.content().as_message().unwrap();
     assert_eq!(msg.body(), "edited");
     assert!(msg.is_edited());
-    assert!(msg.edit_send_state().is_none());
+    assert!(item.edit_send_state().is_none());
 
     assert_pending!(stream);
 }

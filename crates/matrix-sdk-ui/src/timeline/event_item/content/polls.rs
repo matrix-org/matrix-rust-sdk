@@ -28,8 +28,6 @@ use ruma::{
     },
 };
 
-use crate::timeline::EventSendState;
-
 /// Holds the state of a poll.
 ///
 /// This struct should be created for each poll start event handled and then
@@ -45,7 +43,6 @@ pub struct PollState {
     pub(in crate::timeline) response_data: Vec<ResponseData>,
     pub(in crate::timeline) end_event_timestamp: Option<MilliSecondsSinceUnixEpoch>,
     pub(in crate::timeline) has_been_edited: bool,
-    pub(in crate::timeline) edit_send_state: Option<EventSendState>,
 }
 
 #[derive(Clone, Debug)]
@@ -66,7 +63,6 @@ impl PollState {
             response_data: vec![],
             end_event_timestamp: None,
             has_been_edited: false,
-            edit_send_state: None,
         }
     }
 
@@ -85,13 +81,6 @@ impl PollState {
         } else {
             None
         }
-    }
-
-    /// Send state of our own pending edits of this poll: a failed edit wins
-    /// over a pending one, which wins over a sent one. `None` when there is no
-    /// local edit.
-    pub fn edit_send_state(&self) -> Option<&EventSendState> {
-        self.edit_send_state.as_ref()
     }
 
     /// Add a response to a poll.

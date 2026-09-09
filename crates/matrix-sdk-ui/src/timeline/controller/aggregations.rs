@@ -540,7 +540,8 @@ impl Aggregation {
             }
 
             AggregationKind::Edit(_) => {
-                event.to_mut().content_mut().set_edit_send_state(edit_send_state(siblings))
+                event.to_mut().edit_send_state = edit_send_state(siblings);
+                true
             }
 
             AggregationKind::Redaction => {
@@ -738,12 +739,16 @@ impl Aggregations {
                     // Otherwise nothing is pending anymore.
                     // TODO likely need to change the item to indicate
                     // it's been un-edited etc.
-                    if resolved || cowed.to_mut().content_mut().set_edit_send_state(None) {
-                        items.replace(
-                            item_pos,
-                            TimelineItem::new(cowed.into_owned(), item.internal_id.to_owned()),
-                        );
+                    if !resolved {
+                        if cowed.edit_send_state.is_none() {
+                            return Ok(true);
+                        }
+                        cowed.to_mut().edit_send_state = None;
                     }
+                    items.replace(
+                        item_pos,
+                        TimelineItem::new(cowed.into_owned(), item.internal_id.to_owned()),
+                    );
                 }
             }
         } else {
@@ -1006,7 +1011,7 @@ fn resolve_edits(
 
     if let Some((edit, is_local_echo)) = best_edit {
         if edit_item(event, edit, is_local_echo) {
-            event.to_mut().content_mut().set_edit_send_state(edit_send_state(aggregations));
+            event.to_mut().edit_send_state = edit_send_state(aggregations);
             true
         } else {
             false

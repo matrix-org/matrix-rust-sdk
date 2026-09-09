@@ -746,7 +746,6 @@ mod observable_items_tests {
                     kind: MsgLikeKind::Message(Message {
                         msgtype: MessageType::Text(TextMessageEventContent::plain("hello")),
                         edited: false,
-                        edit_send_state: None,
                         mentions: None,
                     }),
                     reactions: Default::default(),
@@ -783,7 +782,6 @@ mod observable_items_tests {
                     kind: MsgLikeKind::Message(Message {
                         msgtype: MessageType::Text(TextMessageEventContent::plain("hello")),
                         edited: false,
-                        edit_send_state: None,
                         mentions: None,
                     }),
                     reactions: Default::default(),
