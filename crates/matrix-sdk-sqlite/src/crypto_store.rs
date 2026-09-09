@@ -249,7 +249,7 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 15;
+const DATABASE_VERSION: u8 = 19;
 
 /// key for the dehydrated device pickle key in the key/value table.
 const DEHYDRATED_DEVICE_PICKLE_KEY: &str = "dehydrated_device_pickle_key";
@@ -524,6 +524,22 @@ pub(crate) async fn run_migrations(
                 update_query.execute((info, row.get::<_, Vec<u8>>(0)?))?;
             }
             txn.set_db_version(18)
+        })
+        .await?;
+    }
+
+    if version < 19 {
+        debug!("Upgrading database to version 19");
+        // Remove the sliding sync `pos` value stored in the crypto store.
+        // There was recently an event cache migration that emptied the cache but never
+        // reset the `pos` value, this fixes it.
+        let user_id = store.load_account().await?.map(|account| account.user_id.clone());
+
+        conn.with_transaction(move |txn| {
+            if let Some(user_id) = user_id {
+                txn.clear_kv(&format!("sliding_sync_store::room-list::{user_id}::instance"))?;
+            }
+            txn.set_db_version(19)
         })
         .await?;
     }
