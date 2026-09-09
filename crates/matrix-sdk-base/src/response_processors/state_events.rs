@@ -15,11 +15,7 @@
 use std::collections::BTreeSet;
 
 use as_variant::as_variant;
-use ruma::{
-    RoomId,
-    events::{AnySyncStateEvent, SyncStateEvent},
-    serde::Raw,
-};
+use ruma::{RoomId, events::AnySyncStateEvent, serde::Raw};
 use tracing::error;
 
 use super::Context;
@@ -198,7 +194,7 @@ pub mod sync {
 
         match event.membership() {
             MembershipState::Join | MembershipState::Invite => {
-                new_users.insert(event.state_key());
+                new_users.insert(&event.state_key);
             }
             _ => (),
         }
@@ -402,11 +398,7 @@ pub fn validate_create_event_predecessor(
         return;
     };
 
-    // Redacted and non-redacted create events use the same content type.
-    let content = match event {
-        SyncStateEvent::Original(event) => &event.content,
-        SyncStateEvent::Redacted(event) => &event.content,
-    };
+    let content = &event.content;
 
     let Some(mut predecessor_room_id) =
         content.predecessor.as_ref().map(|predecessor| predecessor.room_id.clone())
@@ -423,11 +415,7 @@ pub fn validate_create_event_predecessor(
             // Ahhh, there is a loop with `m.room.create` events!
             // We remove the predecessor so that we don't process it later.
             let mut event = event.clone();
-
-            match &mut event {
-                SyncStateEvent::Original(event) => event.content.predecessor.take(),
-                SyncStateEvent::Redacted(event) => event.content.predecessor.take(),
-            };
+            event.content.predecessor.take();
 
             raw_event.set_cached_event(event.into());
 
@@ -469,13 +457,16 @@ pub fn is_tombstone_event_valid(
 
     let Some(tombstone) = raw_event
         .deserialize_as(|any_event| as_variant!(any_event, AnySyncStateEvent::RoomTombstone))
-        .and_then(|event| Some(&event.as_original()?.content))
+        .map(|event| &event.content)
     else {
         // `true` means no problem. No successor = no problem here.
         return true;
     };
 
-    let mut successor_room_id = tombstone.replacement_room.clone();
+    let Some(mut successor_room_id) = tombstone.replacement_room.clone() else {
+        // `true` means no problem. No successor = no problem here.
+        return true;
+    };
 
     loop {
         // We must check immediately if the `successor_room_id` is in `already_seen` in

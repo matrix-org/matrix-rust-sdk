@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::events::room::encryption::PossiblyRedactedRoomEncryptionEventContent;
+use ruma::events::room::encryption::RoomEncryptionEventContent;
 
 use super::Room;
 
@@ -24,7 +24,7 @@ impl Room {
 
     /// Get the `m.room.encryption` content that enabled end to end encryption
     /// in the room.
-    pub fn encryption_settings(&self) -> Option<PossiblyRedactedRoomEncryptionEventContent> {
+    pub fn encryption_settings(&self) -> Option<RoomEncryptionEventContent> {
         self.info.read().base_info.encryption.clone()
     }
 }

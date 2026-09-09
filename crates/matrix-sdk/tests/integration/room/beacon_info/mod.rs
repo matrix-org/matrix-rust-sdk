@@ -106,17 +106,17 @@ async fn test_start_live_location_share_for_room() {
         panic!("Expected a BeaconInfo event");
     };
 
-    let content = ev.as_original().unwrap().content.clone();
+    let content = ev.content.clone();
 
-    assert_eq!(ev.sender(), room.own_user_id());
-    assert_eq!(ev.state_key(), "@example:localhost");
-    assert_eq!(ev.event_id(), event_id!("$15139375514XsgmR:localhost"));
+    assert_eq!(ev.sender, room.own_user_id());
+    assert_eq!(ev.state_key, "@example:localhost");
+    assert_eq!(ev.event_id, event_id!("$15139375514XsgmR:localhost"));
     assert_eq!(ev.event_type(), StateEventType::BeaconInfo);
-    assert_eq!(ev.origin_server_ts(), MilliSecondsSinceUnixEpoch(uint!(1_636_829_458)));
+    assert_eq!(ev.origin_server_ts, MilliSecondsSinceUnixEpoch(uint!(1_636_829_458)));
 
     assert_eq!(content.description, Some("Live Share".to_owned()));
     assert_eq!(content.timeout, Duration::from_millis(3000));
-    assert_eq!(content.ts, MilliSecondsSinceUnixEpoch(uint!(1_636_829_458)));
+    assert_eq!(content.ts, Some(MilliSecondsSinceUnixEpoch(uint!(1_636_829_458))));
     assert_eq!(content.asset.type_, AssetType::Self_);
 
     assert!(content.live);
@@ -240,17 +240,17 @@ async fn test_stop_sharing_live_location() {
         panic!("Expected a BeaconInfo event");
     };
 
-    let content = ev.as_original().unwrap().content.clone();
+    let content = ev.content.clone();
 
-    assert_eq!(ev.sender(), room.own_user_id());
-    assert_eq!(ev.state_key(), "@example:localhost");
-    assert_eq!(ev.event_id(), event_id!("$15139375514XsgmR:localhost"));
+    assert_eq!(ev.sender, room.own_user_id());
+    assert_eq!(ev.state_key, "@example:localhost");
+    assert_eq!(ev.event_id, event_id!("$15139375514XsgmR:localhost"));
     assert_eq!(ev.event_type(), StateEventType::BeaconInfo);
-    assert_eq!(ev.origin_server_ts(), MilliSecondsSinceUnixEpoch(uint!(1_636_829_458)));
+    assert_eq!(ev.origin_server_ts, MilliSecondsSinceUnixEpoch(uint!(1_636_829_458)));
 
     assert_eq!(content.description, Some("Live Share".to_owned()));
     assert_eq!(content.timeout, Duration::from_millis(3000));
-    assert_eq!(content.ts, MilliSecondsSinceUnixEpoch(uint!(1_636_829_458)));
+    assert_eq!(content.ts, Some(MilliSecondsSinceUnixEpoch(uint!(1_636_829_458))));
     assert_eq!(content.asset.type_, AssetType::Self_);
 
     assert!(!content.live);

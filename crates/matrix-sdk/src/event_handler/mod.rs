@@ -128,8 +128,6 @@ pub enum HandlerKind {
     OriginalMessageLike,
     RedactedMessageLike,
     State,
-    OriginalState,
-    RedactedState,
     StrippedState,
     ToDevice,
     Presence,
@@ -138,10 +136,6 @@ pub enum HandlerKind {
 impl HandlerKind {
     fn message_like_redacted(redacted: bool) -> Self {
         if redacted { Self::RedactedMessageLike } else { Self::OriginalMessageLike }
-    }
-
-    fn state_redacted(redacted: bool) -> Self {
-        if redacted { Self::RedactedState } else { Self::OriginalState }
     }
 }
 
@@ -403,13 +397,6 @@ impl Client {
         room: Option<&Room>,
         state: &State,
     ) -> serde_json::Result<()> {
-        #[derive(Deserialize)]
-        struct StateEventDetails<'a> {
-            #[serde(borrow, rename = "type")]
-            event_type: Cow<'a, str>,
-            unsigned: Option<UnsignedDetails>,
-        }
-
         let state_events = match state {
             State::Before(events) => events,
             State::After(events) => events,
@@ -417,17 +404,6 @@ impl Client {
 
         // Event handlers for possibly-redacted state events
         self.handle_sync_events(HandlerKind::State, room, state_events).await?;
-
-        // Event handlers specifically for redacted OR unredacted state events
-        for raw_event in state_events {
-            let StateEventDetails { event_type, unsigned } =
-                raw_event.deserialize_as_unchecked()?;
-            let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
-            let handler_kind = HandlerKind::state_redacted(redacted);
-
-            self.call_event_handlers(room, raw_event.json(), handler_kind, &event_type, None, &[])
-                .await;
-        }
 
         Ok(())
     }
@@ -451,8 +427,10 @@ impl Client {
 
             let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
             let (handler_kind_g, handler_kind_r) = match state_key {
-                Some(_) => (HandlerKind::State, HandlerKind::state_redacted(redacted)),
-                None => (HandlerKind::MessageLike, HandlerKind::message_like_redacted(redacted)),
+                Some(_) => (HandlerKind::State, None),
+                None => {
+                    (HandlerKind::MessageLike, Some(HandlerKind::message_like_redacted(redacted)))
+                }
             };
 
             let raw_event = item.raw().json();
@@ -471,15 +449,17 @@ impl Client {
             .await;
 
             // Event handlers specifically for redacted OR unredacted timeline events
-            self.call_event_handlers(
-                room,
-                raw_event,
-                handler_kind_r,
-                &event_type,
-                encryption_info,
-                push_actions,
-            )
-            .await;
+            if let Some(handler_kind_r) = handler_kind_r {
+                self.call_event_handlers(
+                    room,
+                    raw_event,
+                    handler_kind_r,
+                    &event_type,
+                    encryption_info,
+                    push_actions,
+                )
+                .await;
+            }
 
             // Event handlers for `AnySyncTimelineEvent`
             let kind = HandlerKind::Timeline;
@@ -751,9 +731,9 @@ mod tests {
             AnySyncStateEvent, AnySyncTimelineEvent, AnyToDeviceEvent,
             macros::EventContent,
             room::{
-                member::{MembershipState, OriginalSyncRoomMemberEvent, StrippedRoomMemberEvent},
-                name::OriginalSyncRoomNameEvent,
-                power_levels::OriginalSyncRoomPowerLevelsEvent,
+                member::{MembershipState, StrippedRoomMemberEvent, SyncRoomMemberEvent},
+                name::SyncRoomNameEvent,
+                power_levels::SyncRoomPowerLevelsEvent,
             },
             secret_storage::key::SecretStorageKeyEvent,
             typing::SyncTypingEvent,
@@ -793,7 +773,7 @@ mod tests {
 
         client.add_event_handler({
             let member_count = member_count.clone();
-            move |_ev: OriginalSyncRoomMemberEvent, _room: Room| async move {
+            move |_ev: SyncRoomMemberEvent, _room: Room| async move {
                 member_count.fetch_add(1, SeqCst);
             }
         });
@@ -805,7 +785,7 @@ mod tests {
         });
         client.add_event_handler({
             let power_levels_count = power_levels_count.clone();
-            move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: Room| async move {
+            move |_ev: SyncRoomPowerLevelsEvent, _client: Client, _room: Room| async move {
                 power_levels_count.fetch_add(1, SeqCst);
             }
         });
@@ -904,14 +884,14 @@ mod tests {
         // Room event handlers for member events in both rooms
         client.add_room_event_handler(room_id_a, {
             let member_count = member_count.clone();
-            move |_ev: OriginalSyncRoomMemberEvent, _room: Room| {
+            move |_ev: SyncRoomMemberEvent, _room: Room| {
                 member_count.fetch_add(1, SeqCst);
                 future::ready(())
             }
         });
         client.add_room_event_handler(room_id_b, {
             let member_count = member_count.clone();
-            move |_ev: OriginalSyncRoomMemberEvent, _room: Room| {
+            move |_ev: SyncRoomMemberEvent, _room: Room| {
                 member_count.fetch_add(1, SeqCst);
                 future::ready(())
             }
@@ -920,7 +900,7 @@ mod tests {
         // Power levels event handlers for member events in room A
         client.add_room_event_handler(room_id_a, {
             let power_levels_count = power_levels_count.clone();
-            move |_ev: OriginalSyncRoomPowerLevelsEvent, _client: Client, _room: Room| {
+            move |_ev: SyncRoomPowerLevelsEvent, _client: Client, _room: Room| {
                 power_levels_count.fetch_add(1, SeqCst);
                 future::ready(())
             }
@@ -932,9 +912,7 @@ mod tests {
             // lint is buggy: rustc wants the explicit conversion from ! to () here, but clippy
             // thinks it's useless.
             #[allow(clippy::unused_unit)]
-            async move |_ev: OriginalSyncRoomNameEvent| -> () {
-                unreachable!("No room event in room B")
-            },
+            async move |_ev: SyncRoomNameEvent| -> () { unreachable!("No room event in room B") },
         );
 
         let f = EventFactory::new().sender(user_id!("@example:localhost"));
@@ -963,9 +941,9 @@ mod tests {
     async fn test_add_event_handler_with_tuples() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
-        client.add_event_handler(
-            |_ev: OriginalSyncRoomMemberEvent, (_room, _client): (Room, Client)| future::ready(()),
-        );
+        client.add_event_handler(|_ev: SyncRoomMemberEvent, (_room, _client): (Room, Client)| {
+            future::ready(())
+        });
 
         // If it compiles, it works. No need to assert anything.
 
@@ -980,7 +958,7 @@ mod tests {
 
         client.add_event_handler({
             let member_count = member_count.clone();
-            move |_ev: OriginalSyncRoomMemberEvent| async move {
+            move |_ev: SyncRoomMemberEvent| async move {
                 member_count.fetch_add(1, SeqCst);
             }
         });
@@ -989,7 +967,7 @@ mod tests {
             // lint is buggy: rustc wants the explicit conversion from ! to () here, but clippy
             // thinks it's useless.
             #[allow(clippy::unused_unit)]
-            async move |_ev: OriginalSyncRoomMemberEvent| -> () {
+            async move |_ev: SyncRoomMemberEvent| -> () {
                 panic!("handler should have been removed");
             },
         );
@@ -999,14 +977,14 @@ mod tests {
             // lint is buggy: rustc wants the explicit conversion from ! to () here, but clippy
             // thinks it's useless.
             #[allow(clippy::unused_unit)]
-            async move |_ev: OriginalSyncRoomMemberEvent| -> () {
+            async move |_ev: SyncRoomMemberEvent| -> () {
                 panic!("handler should have been removed");
             },
         );
 
         client.add_event_handler({
             let member_count = member_count.clone();
-            move |_ev: OriginalSyncRoomMemberEvent| async move {
+            move |_ev: SyncRoomMemberEvent| async move {
                 member_count.fetch_add(1, SeqCst);
             }
         });
@@ -1029,7 +1007,7 @@ mod tests {
     async fn test_event_handler_drop_guard() {
         let client = no_retry_test_client(None).await;
 
-        let handle = client.add_event_handler(|_ev: OriginalSyncRoomMemberEvent| async {});
+        let handle = client.add_event_handler(|_ev: SyncRoomMemberEvent| async {});
         assert_eq!(client.inner.event_handlers.len(), 1);
 
         {
@@ -1048,7 +1026,7 @@ mod tests {
         // I/O aren't.
         let client = no_retry_test_client(None).await;
 
-        client.add_event_handler(|_ev: OriginalSyncRoomMemberEvent, client: Client| async move {
+        client.add_event_handler(|_ev: SyncRoomMemberEvent, client: Client| async move {
             // All of Client's async methods that do network requests (and
             // possibly some that don't) are `!Send` on wasm. We obviously want
             // to be able to use them in event handlers.
@@ -1067,7 +1045,7 @@ mod tests {
         let counter = Arc::new(AtomicU8::new(0));
         client.add_event_handler_context(counter.clone());
         client.add_event_handler(
-            |_ev: Raw<OriginalSyncRoomMemberEvent>, counter: Ctx<Arc<AtomicU8>>| async move {
+            |_ev: Raw<SyncRoomMemberEvent>, counter: Ctx<Arc<AtomicU8>>| async move {
                 counter.fetch_add(1, SeqCst);
             },
         );
@@ -1108,7 +1086,7 @@ mod tests {
         let room_id_0 = room_id!("!r0.matrix.org");
         let room_id_1 = room_id!("!r1.matrix.org");
 
-        let observable = client.observe_events::<OriginalSyncRoomNameEvent, Room>();
+        let observable = client.observe_events::<SyncRoomNameEvent, Room>();
 
         let mut subscriber = observable.subscribe();
 
@@ -1161,7 +1139,7 @@ mod tests {
         let room_id = room_id!("!r0.matrix.org");
 
         let observable_for_room =
-            client.observe_room_events::<OriginalSyncRoomNameEvent, (Room, Client)>(room_id);
+            client.observe_room_events::<SyncRoomNameEvent, (Room, Client)>(room_id);
 
         let mut subscriber_for_room = observable_for_room.subscribe();
 
@@ -1212,7 +1190,7 @@ mod tests {
         let room_id = room_id!("!r0.matrix.org");
 
         let observable_for_room =
-            client.observe_room_events::<OriginalSyncRoomNameEvent, (Room, Client)>(room_id);
+            client.observe_room_events::<SyncRoomNameEvent, (Room, Client)>(room_id);
 
         let mut subscriber_for_room = observable_for_room.subscribe();
 

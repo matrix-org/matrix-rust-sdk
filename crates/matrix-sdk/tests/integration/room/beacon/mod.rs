@@ -202,7 +202,7 @@ async fn test_most_recent_event_in_stream() {
     assert!(beacon_info.is_live());
     assert_eq!(beacon_info.description, Some("Live Share".to_owned()));
     assert_eq!(beacon_info.timeout, Duration::from_millis(3_600_000));
-    assert_eq!(beacon_info.ts, current_time);
+    assert_eq!(beacon_info.ts, Some(current_time));
     assert_eq!(beacon_info.asset.type_, AssetType::Self_);
 }
 
@@ -274,7 +274,7 @@ async fn test_observe_single_live_location_share() {
     assert!(beacon_info.is_live());
     assert_eq!(beacon_info.description, Some("Test Live Share".to_owned()));
     assert_eq!(beacon_info.timeout, Duration::from_millis(3_600_000));
-    assert_eq!(beacon_info.ts, current_time);
+    assert_eq!(beacon_info.ts, Some(current_time));
 }
 
 #[async_test]

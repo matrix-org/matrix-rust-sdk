@@ -14,7 +14,7 @@
 
 //! SDK-specific variations of response types from Ruma.
 
-use std::{collections::BTreeMap, fmt, hash::Hash, iter, sync::LazyLock};
+use std::{collections::BTreeMap, hash::Hash, iter, sync::LazyLock};
 
 pub use matrix_sdk_common::deserialized_responses::*;
 use regex::Regex;
@@ -23,8 +23,7 @@ use ruma::{
     UserId,
     events::{
         AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, EventContentFromType,
-        PossiblyRedactedStateEventContent, RedactContent, RedactedStateEventContent,
-        StateEventContent, StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
+        StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
         room::{
             member::{MembershipState, RoomMemberEvent, RoomMemberEventContent},
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
@@ -301,8 +300,7 @@ impl RawAnySyncOrStrippedState {
     /// without changing the underlying JSON.
     pub fn cast<C>(self) -> RawSyncOrStrippedState<C>
     where
-        C: StaticStateEventContent + RedactContent,
-        C::Redacted: RedactedStateEventContent,
+        C: StaticStateEventContent,
     {
         match self {
             Self::Sync(raw) => RawSyncOrStrippedState::Sync(raw.cast_unchecked()),
@@ -351,26 +349,22 @@ impl AnySyncOrStrippedState {
 #[serde(untagged)]
 pub enum RawSyncOrStrippedState<C>
 where
-    C: StaticStateEventContent + RedactContent,
-    C::Redacted: RedactedStateEventContent,
+    C: StaticStateEventContent,
 {
     /// An event from a room in joined or left state.
     Sync(Raw<SyncStateEvent<C>>),
     /// An event from a room in invited state.
-    Stripped(Raw<StrippedStateEvent<C::PossiblyRedacted>>),
+    Stripped(Raw<StrippedStateEvent<C>>),
 }
 
 impl<C> RawSyncOrStrippedState<C>
 where
-    C: StaticStateEventContent + RedactContent,
-    C::Redacted: RedactedStateEventContent + fmt::Debug + Clone,
+    C: StaticStateEventContent,
 {
     /// Try to deserialize the inner JSON as the expected type.
     pub fn deserialize(&self) -> serde_json::Result<SyncOrStrippedState<C>>
     where
-        C: StaticStateEventContent + EventContentFromType + RedactContent,
-        C::Redacted: RedactedStateEventContent<StateKey = C::StateKey> + EventContentFromType,
-        C::PossiblyRedacted: PossiblyRedactedStateEventContent + EventContentFromType,
+        C: StaticStateEventContent + EventContentFromType,
     {
         match self {
             Self::Sync(ev) => Ok(SyncOrStrippedState::Sync(ev.deserialize()?)),
@@ -386,20 +380,17 @@ pub type RawMemberEvent = RawSyncOrStrippedState<RoomMemberEventContent>;
 #[derive(Clone, Debug)]
 pub enum SyncOrStrippedState<C>
 where
-    C: StaticStateEventContent + RedactContent,
-    C::Redacted: RedactedStateEventContent + fmt::Debug + Clone,
+    C: StaticStateEventContent,
 {
     /// An event from a room in joined or left state.
     Sync(SyncStateEvent<C>),
     /// An event from a room in invited state.
-    Stripped(StrippedStateEvent<C::PossiblyRedacted>),
+    Stripped(StrippedStateEvent<C>),
 }
 
 impl<C> SyncOrStrippedState<C>
 where
-    C: StaticStateEventContent + RedactContent,
-    C::Redacted: RedactedStateEventContent<StateKey = C::StateKey> + fmt::Debug + Clone,
-    C::PossiblyRedacted: PossiblyRedactedStateEventContent<StateKey = C::StateKey>,
+    C: StaticStateEventContent,
 {
     /// If this is a `SyncStateEvent`, return a reference to the inner event.
     pub fn as_sync(&self) -> Option<&SyncStateEvent<C>> {
@@ -411,7 +402,7 @@ where
 
     /// If this is a `StrippedStateEvent`, return a reference to the inner
     /// event.
-    pub fn as_stripped(&self) -> Option<&StrippedStateEvent<C::PossiblyRedacted>> {
+    pub fn as_stripped(&self) -> Option<&StrippedStateEvent<C>> {
         match self {
             Self::Sync(_) => None,
             Self::Stripped(ev) => Some(ev),
@@ -421,7 +412,7 @@ where
     /// The sender of this event.
     pub fn sender(&self) -> &UserId {
         match self {
-            Self::Sync(e) => e.sender(),
+            Self::Sync(e) => &e.sender,
             Self::Stripped(e) => &e.sender,
         }
     }
@@ -429,7 +420,7 @@ where
     /// The ID of this event.
     pub fn event_id(&self) -> Option<&EventId> {
         match self {
-            Self::Sync(e) => Some(e.event_id()),
+            Self::Sync(e) => Some(&e.event_id),
             Self::Stripped(_) => None,
         }
     }
@@ -437,7 +428,7 @@ where
     /// The server timestamp of this event.
     pub fn origin_server_ts(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         match self {
-            Self::Sync(e) => Some(e.origin_server_ts()),
+            Self::Sync(e) => Some(e.origin_server_ts),
             Self::Stripped(_) => None,
         }
     }
@@ -445,7 +436,7 @@ where
     /// The state key associated to this state event.
     pub fn state_key(&self) -> &C::StateKey {
         match self {
-            Self::Sync(e) => e.state_key(),
+            Self::Sync(e) => &e.state_key,
             Self::Stripped(e) => &e.state_key,
         }
     }
@@ -453,17 +444,12 @@ where
 
 impl<C> SyncOrStrippedState<C>
 where
-    C: StaticStateEventContent<PossiblyRedacted = C>
-        + RedactContent
-        + PossiblyRedactedStateEventContent,
-    C::Redacted: RedactedStateEventContent<StateKey = <C as StateEventContent>::StateKey>
-        + fmt::Debug
-        + Clone,
+    C: StaticStateEventContent,
 {
     /// The inner content of the wrapped event.
     pub fn original_content(&self) -> Option<&C> {
         match self {
-            Self::Sync(e) => e.as_original().map(|e| &e.content),
+            Self::Sync(e) => Some(&e.content),
             Self::Stripped(e) => Some(&e.content),
         }
     }
@@ -476,7 +462,7 @@ impl MemberEvent {
     /// The membership state of the user.
     pub fn membership(&self) -> &MembershipState {
         match self {
-            MemberEvent::Sync(e) => e.membership(),
+            MemberEvent::Sync(e) => &e.content.membership,
             MemberEvent::Stripped(e) => &e.content.membership,
         }
     }
@@ -492,7 +478,7 @@ impl MemberEvent {
     /// display for this member event.
     pub fn displayname_value(&self) -> Option<&str> {
         match self {
-            Self::Sync(event) => event.as_original()?.content.displayname.as_deref(),
+            Self::Sync(event) => event.content.displayname.as_deref(),
             Self::Stripped(event) => event.content.displayname.as_deref(),
         }
     }
@@ -511,7 +497,7 @@ impl MemberEvent {
     /// display for this member event.
     pub fn avatar_url(&self) -> Option<&MxcUri> {
         match self {
-            Self::Sync(event) => event.as_original()?.content.avatar_url.as_deref(),
+            Self::Sync(event) => event.content.avatar_url.as_deref(),
             Self::Stripped(event) => event.content.avatar_url.as_deref(),
         }
     }
@@ -519,16 +505,15 @@ impl MemberEvent {
     /// The optional reason why the membership changed.
     pub fn reason(&self) -> Option<&str> {
         match self {
-            MemberEvent::Sync(SyncStateEvent::Original(c)) => c.content.reason.as_deref(),
+            MemberEvent::Sync(c) => c.content.reason.as_deref(),
             MemberEvent::Stripped(e) => e.content.reason.as_deref(),
-            _ => None,
         }
     }
 
     /// The optional timestamp for this member event.
     pub fn timestamp(&self) -> Option<UInt> {
         match self {
-            MemberEvent::Sync(SyncStateEvent::Original(c)) => Some(c.origin_server_ts.0),
+            MemberEvent::Sync(c) => Some(c.origin_server_ts.0),
             _ => None,
         }
     }

@@ -20,8 +20,8 @@ use ruma::{
     events::{
         AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
         MessageLikeEventContent as RumaMessageLikeEventContent, MessageLikeEventType,
-        RedactContent, RedactedStateEventContent, StateEventType, StaticStateEventContent,
-        SyncMessageLikeEvent, SyncStateEvent, TimelineEventType as RumaTimelineEventType,
+        RedactContent, StateEventType, StaticStateEventContent, SyncMessageLikeEvent,
+        SyncStateEvent, TimelineEventType as RumaTimelineEventType,
         room::{
             encrypted,
             message::{MessageType as RumaMessageType, Relation},
@@ -316,7 +316,7 @@ pub enum StateEventContent {
     RoomServerAcl,
     RoomThirdPartyInvite,
     RoomTombstone,
-    RoomTopic { topic: String },
+    RoomTopic { topic: Option<String> },
     SpaceChild,
     SpaceParent,
     BeaconInfo,
@@ -338,7 +338,7 @@ impl TryFrom<AnySyncStateEvent> for StateEventContent {
             AnySyncStateEvent::RoomHistoryVisibility(_) => StateEventContent::RoomHistoryVisibility,
             AnySyncStateEvent::RoomJoinRules(_) => StateEventContent::RoomJoinRules,
             AnySyncStateEvent::RoomMember(content) => {
-                let state_key = content.state_key().to_string();
+                let state_key = content.state_key.to_string();
                 let original_content = get_state_event_original_content(content)?;
                 StateEventContent::RoomMemberContent {
                     user_id: state_key,
@@ -498,11 +498,9 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
 
 fn get_state_event_original_content<C>(event: SyncStateEvent<C>) -> anyhow::Result<C>
 where
-    C: StaticStateEventContent + RedactContent + Clone,
-    <C as RedactContent>::Redacted: RedactedStateEventContent<StateKey = C::StateKey>,
+    C: StaticStateEventContent,
 {
-    let original_content =
-        event.as_original().context("Failed to get original content")?.content.clone();
+    let original_content = event.content;
     Ok(original_content)
 }
 

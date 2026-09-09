@@ -650,7 +650,7 @@ async fn test_event() {
         AnySyncTimelineEvent::State(AnySyncStateEvent::RoomTombstone(event)) =
             timeline_event.raw().deserialize().unwrap()
     );
-    assert_eq!(event.event_id(), event_id);
+    assert_eq!(event.event_id, event_id);
 
     let push_actions = timeline_event.push_actions().unwrap();
     assert!(push_actions.iter().any(|a| a.is_highlight()));

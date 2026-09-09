@@ -22,15 +22,12 @@ use ruma::{
     events::{
         direct::OwnedDirectUserIdentifier,
         room::{
-            avatar::PossiblyRedactedRoomAvatarEventContent,
-            canonical_alias::PossiblyRedactedRoomCanonicalAliasEventContent,
-            create::RoomCreateEventContent, encryption::PossiblyRedactedRoomEncryptionEventContent,
-            guest_access::PossiblyRedactedRoomGuestAccessEventContent,
-            history_visibility::PossiblyRedactedRoomHistoryVisibilityEventContent,
-            join_rules::PossiblyRedactedRoomJoinRulesEventContent,
-            name::PossiblyRedactedRoomNameEventContent,
-            tombstone::PossiblyRedactedRoomTombstoneEventContent,
-            topic::PossiblyRedactedRoomTopicEventContent,
+            avatar::RoomAvatarEventContent, canonical_alias::RoomCanonicalAliasEventContent,
+            create::RoomCreateEventContent, encryption::RoomEncryptionEventContent,
+            guest_access::RoomGuestAccessEventContent,
+            history_visibility::RoomHistoryVisibilityEventContent,
+            join_rules::RoomJoinRulesEventContent, name::RoomNameEventContent,
+            tombstone::RoomTombstoneEventContent, topic::RoomTopicEventContent,
         },
     },
 };
@@ -139,18 +136,17 @@ fn encryption_state_default() -> bool {
 /// [`BaseRoomInfo`] version 1.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct BaseRoomInfoV1 {
-    avatar: Option<MinimalStateEvent<PossiblyRedactedRoomAvatarEventContent>>,
-    canonical_alias: Option<MinimalStateEvent<PossiblyRedactedRoomCanonicalAliasEventContent>>,
+    avatar: Option<MinimalStateEvent<RoomAvatarEventContent>>,
+    canonical_alias: Option<MinimalStateEvent<RoomCanonicalAliasEventContent>>,
     dm_targets: HashSet<OwnedUserId>,
-    encryption: Option<PossiblyRedactedRoomEncryptionEventContent>,
-    guest_access: Option<MinimalStateEvent<PossiblyRedactedRoomGuestAccessEventContent>>,
-    history_visibility:
-        Option<MinimalStateEvent<PossiblyRedactedRoomHistoryVisibilityEventContent>>,
-    join_rules: Option<MinimalStateEvent<PossiblyRedactedRoomJoinRulesEventContent>>,
+    encryption: Option<RoomEncryptionEventContent>,
+    guest_access: Option<MinimalStateEvent<RoomGuestAccessEventContent>>,
+    history_visibility: Option<MinimalStateEvent<RoomHistoryVisibilityEventContent>>,
+    join_rules: Option<MinimalStateEvent<RoomJoinRulesEventContent>>,
     max_power_level: i64,
-    name: Option<MinimalStateEvent<PossiblyRedactedRoomNameEventContent>>,
-    tombstone: Option<MinimalStateEvent<PossiblyRedactedRoomTombstoneEventContent>>,
-    topic: Option<MinimalStateEvent<PossiblyRedactedRoomTopicEventContent>>,
+    name: Option<MinimalStateEvent<RoomNameEventContent>>,
+    tombstone: Option<MinimalStateEvent<RoomTombstoneEventContent>>,
+    topic: Option<MinimalStateEvent<RoomTopicEventContent>>,
 }
 
 impl BaseRoomInfoV1 {

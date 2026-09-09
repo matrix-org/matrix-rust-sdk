@@ -336,8 +336,9 @@ impl SpaceRoomList {
                     let children_state = children_state.clone();
                     async move {
                         let child_state = children_state.get(&room.summary.room_id);
-                        let via =
-                            child_state.map(|state| state.content.via.clone()).unwrap_or_default();
+                        let via = child_state
+                            .and_then(|state| state.content.via.clone())
+                            .unwrap_or_default();
                         let suggested =
                             child_state.map(|state| state.content.suggested).unwrap_or(false);
                         SpaceRoom::new_from_summary(

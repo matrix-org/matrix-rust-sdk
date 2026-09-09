@@ -105,8 +105,7 @@ use ruma::{
     assign,
     events::{
         AnyRoomAccountDataEvent, AnyRoomAccountDataEventContent, AnyTimelineEvent, EmptyStateKey,
-        Mentions, MessageLikeEventContent, OriginalSyncStateEvent, RedactContent,
-        RedactedStateEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
+        Mentions, MessageLikeEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
         RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
         StaticStateEventContent, SyncStateEvent,
         beacon::BeaconEventContent,
@@ -118,7 +117,7 @@ use ruma::{
         room::{
             ImageInfo, MediaSource, ThumbnailInfo,
             avatar::{self, RoomAvatarEventContent},
-            encryption::PossiblyRedactedRoomEncryptionEventContent,
+            encryption::RoomEncryptionEventContent,
             history_visibility::HistoryVisibility,
             member::{MembershipChange, RoomMemberEventContent, SyncRoomMemberEvent},
             message::{
@@ -148,8 +147,7 @@ use ruma::{
 };
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::{
-    events::room::encrypted::unstable_state::OriginalSyncStateRoomEncryptedEvent,
-    serde::JsonCastable,
+    events::room::encrypted::unstable_state::SyncStateRoomEncryptedEvent, serde::JsonCastable,
 };
 use serde::de::DeserializeOwned;
 use thiserror::Error;
@@ -774,12 +772,10 @@ impl Room {
                     return event;
                 }
             }
-            Ok(AnySyncTimelineEvent::State(AnySyncStateEvent::RoomEncrypted(
-                SyncStateEvent::Original(_),
-            ))) => {
+            Ok(AnySyncTimelineEvent::State(AnySyncStateEvent::RoomEncrypted(_))) => {
                 if let Ok(event) = self
                     .decrypt_event(
-                        event.cast_ref_unchecked::<OriginalSyncStateRoomEncryptedEvent>(),
+                        event.cast_ref_unchecked::<SyncStateRoomEncryptedEvent>(),
                         push_ctx,
                     )
                     .await
@@ -1068,8 +1064,7 @@ impl Room {
                     Ok(response) => Some(
                         response
                             .into_content()
-                            .deserialize_as_unchecked::<PossiblyRedactedRoomEncryptionEventContent>(
-                            )?,
+                            .deserialize_as_unchecked::<RoomEncryptionEventContent>()?,
                     ),
                     Err(err) if err.client_api_error_kind() == Some(&ErrorKind::NotFound) => None,
                     Err(err) => return Err(err.into()),
@@ -1267,14 +1262,7 @@ impl Room {
             return Err(Error::InsufficientData);
         };
 
-        let event = raw_event.deserialize()?;
-
-        let mut content = match event {
-            SyncStateEvent::Original(original_event) => original_event.content,
-            SyncStateEvent::Redacted(redacted_event) => {
-                RoomMemberEventContent::new(redacted_event.content.membership)
-            }
-        };
+        let mut content = raw_event.deserialize()?.content;
 
         content.displayname = display_name;
         self.send_state_event_for_key(user_id, content).await
@@ -1310,10 +1298,7 @@ impl Room {
     /// ```
     pub async fn get_state_events_static<C>(&self) -> Result<Vec<RawSyncOrStrippedState<C>>>
     where
-        C: StaticEventContent<IsPrefix = ruma::events::False>
-            + StaticStateEventContent
-            + RedactContent,
-        C::Redacted: RedactedStateEventContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False> + StaticStateEventContent,
     {
         Ok(self.client.state_store().get_state_events_static(self.room_id()).await?)
     }
@@ -1356,11 +1341,8 @@ impl Room {
         state_keys: I,
     ) -> Result<Vec<RawSyncOrStrippedState<C>>>
     where
-        C: StaticEventContent<IsPrefix = ruma::events::False>
-            + StaticStateEventContent
-            + RedactContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False> + StaticStateEventContent,
         C::StateKey: Borrow<K>,
-        C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + Sized + Sync + 'a,
         I: IntoIterator<Item = &'a K> + Send,
         I::IntoIter: Send,
@@ -1406,9 +1388,7 @@ impl Room {
     pub async fn get_state_event_static<C>(&self) -> Result<Option<RawSyncOrStrippedState<C>>>
     where
         C: StaticEventContent<IsPrefix = ruma::events::False>
-            + StaticStateEventContent<StateKey = EmptyStateKey>
-            + RedactContent,
-        C::Redacted: RedactedStateEventContent,
+            + StaticStateEventContent<StateKey = EmptyStateKey>,
     {
         self.get_state_event_static_for_key(&EmptyStateKey).await
     }
@@ -1437,11 +1417,8 @@ impl Room {
         state_key: &K,
     ) -> Result<Option<RawSyncOrStrippedState<C>>>
     where
-        C: StaticEventContent<IsPrefix = ruma::events::False>
-            + StaticStateEventContent
-            + RedactContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False> + StaticStateEventContent,
         C::StateKey: Borrow<K>,
-        C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + ?Sized + Sync,
     {
         Ok(self
@@ -1465,10 +1442,9 @@ impl Room {
             .into_iter()
             // Extract state key (ie. the parent's id) and sender
             .filter_map(|parent_event| match parent_event.deserialize() {
-                Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(e))) => {
-                    Some((e.state_key.to_owned(), e.sender))
+                Ok(SyncOrStrippedState::Sync(e)) => {
+                    e.content.is_valid().then_some((e.state_key, e.sender))
                 }
-                Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => None,
                 Ok(SyncOrStrippedState::Stripped(e)) => Some((e.state_key.to_owned(), e.sender)),
                 Err(e) => {
                     info!(room_id = ?self.room_id(), "Could not deserialize m.space.parent: {e}");
@@ -1489,12 +1465,12 @@ impl Room {
                     .await?
                 {
                     match child_event.deserialize() {
-                        Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(_))) => {
+                        Ok(SyncOrStrippedState::Sync(e)) if e.content.is_valid() => {
                             // There is a valid m.space.child in the parent pointing to
                             // this room
                             return Ok(ParentSpace::Reciprocal(parent_room));
                         }
-                        Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => {}
+                        Ok(SyncOrStrippedState::Sync(_)) => {}
                         Ok(SyncOrStrippedState::Stripped(_)) => {}
                         Err(e) => {
                             info!(
@@ -3434,10 +3410,7 @@ impl Room {
             .get_state_event_static::<RoomServerAclEventContent>()
             .await?
             .and_then(|ev| ev.deserialize().ok());
-        let acl = acl_ev.as_ref().and_then(|ev| match ev {
-            SyncOrStrippedState::Sync(ev) => ev.as_original().map(|ev| &ev.content),
-            SyncOrStrippedState::Stripped(ev) => Some(&ev.content),
-        });
+        let acl = acl_ev.as_ref().and_then(|ev| ev.original_content());
 
         // Filter out server names that:
         // - Are blocked due to server ACLs
@@ -3962,15 +3935,17 @@ impl Room {
     pub(crate) async fn get_user_beacon_info(
         &self,
         user_id: &UserId,
-    ) -> Result<OriginalSyncStateEvent<BeaconInfoEventContent>, BeaconError> {
+    ) -> Result<SyncStateEvent<BeaconInfoEventContent>, BeaconError> {
         let raw_event = self
             .get_state_event_static_for_key::<BeaconInfoEventContent, _>(user_id)
             .await?
             .ok_or(BeaconError::NotFound)?;
 
         match raw_event.deserialize()? {
-            SyncOrStrippedState::Sync(SyncStateEvent::Original(beacon_info)) => Ok(beacon_info),
-            SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_)) => Err(BeaconError::Redacted),
+            SyncOrStrippedState::Sync(beacon_info) if beacon_info.is_redacted() => {
+                Err(BeaconError::Redacted)
+            }
+            SyncOrStrippedState::Sync(beacon_info) => Ok(beacon_info),
             SyncOrStrippedState::Stripped(_) => Err(BeaconError::Stripped),
         }
     }
@@ -4186,7 +4161,7 @@ impl Room {
                 // when any of the branches changes
                 tokio::select! {
                     Some((event, _)) = requests_stream.next() => {
-                        if let Some(event) = event.as_original() {
+                        if !event.is_redacted() {
                             // If we can calculate the membership change, try to emit only when needed
                             let emit = if event.prev_content().is_some() {
                                 matches!(event.membership_change(),

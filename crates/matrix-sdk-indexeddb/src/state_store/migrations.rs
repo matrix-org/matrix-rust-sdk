@@ -614,7 +614,7 @@ async fn migrate_to_v6(db: Database, store_cipher: Option<&StoreCipher>) -> Resu
             let value = result?;
             let member_event = deserialize_value::<Raw<SyncRoomMemberEvent>>(store_cipher, &value)?
                 .deserialize()?;
-            let key = encode_key(store_cipher, keys::USER_IDS, (room_id, member_event.state_key()));
+            let key = encode_key(store_cipher, keys::USER_IDS, (room_id, &member_event.state_key));
             let value = serialize_value(store_cipher, &RoomMember::from(&member_event))?;
 
             values.push((key, value));

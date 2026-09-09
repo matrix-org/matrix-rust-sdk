@@ -41,7 +41,7 @@ use ruma::{
     OwnedRoomId, OwnedUserId, RoomId, UserId,
     api::client::{self as api, sync::sync_events::v5},
     events::{
-        StateEvent, StateEventType,
+        StateEventType,
         ignored_user_list::IgnoredUserListEventContent,
         push_rules::{PushRulesEvent, PushRulesEventContent},
         room::member::SyncRoomMemberEvent,
@@ -920,17 +920,16 @@ impl BaseClient {
             #[cfg(feature = "e2e-encryption")]
             match member.membership() {
                 MembershipState::Join | MembershipState::Invite => {
-                    user_ids.insert(member.state_key().to_owned());
+                    user_ids.insert(member.state_key.clone());
                 }
                 _ => (),
             }
 
-            if let StateEvent::Original(e) = &member
-                && is_member_active(&e.content.membership)
-                && let Some(d) = &e.content.displayname
+            if is_member_active(&member.content.membership)
+                && let Some(d) = &member.content.displayname
             {
                 let display_name = DisplayName::new(d);
-                ambiguity_map.entry(display_name).or_default().insert(member.state_key().clone());
+                ambiguity_map.entry(display_name).or_default().insert(member.state_key.clone());
             }
 
             let sync_member: SyncRoomMemberEvent = member.clone().into();
@@ -943,7 +942,7 @@ impl BaseClient {
                 .or_default()
                 .entry(member.event_type())
                 .or_default()
-                .insert(member.state_key().to_string(), raw_event.clone().cast());
+                .insert(member.state_key.to_string(), raw_event.clone().cast());
             chunk.push(member);
         }
 
@@ -1065,7 +1064,7 @@ impl BaseClient {
 
                 let members = self.state_store.get_user_ids(room_id, filter).await?;
 
-                let Some(settings) = EncryptionSettings::from_possibly_redacted(
+                let Some(settings) = EncryptionSettings::new(
                     room_encryption_event,
                     history_visibility,
                     self.room_key_recipient_strategy.clone(),

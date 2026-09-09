@@ -19,8 +19,7 @@ use regex::Regex;
 #[cfg(feature = "unstable-msc4426")]
 use ruma::profile::{CallProfileField, StatusProfileField};
 use ruma::{
-    OwnedMxcUri, OwnedUserId, RoomAliasId, UserId,
-    events::{SyncStateEvent, member_hints::MemberHintsEventContent},
+    OwnedMxcUri, OwnedUserId, RoomAliasId, UserId, events::member_hints::MemberHintsEventContent,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
@@ -341,7 +340,7 @@ impl Room {
                     .inspect_err(|e| warn!("Couldn't deserialize the member hints event: {e}"))
                     .ok()
             })
-            .and_then(|event| as_variant!(event, SyncOrStrippedState::Sync(SyncStateEvent::Original(e)) => e.content))
+            .and_then(|event| as_variant!(event, SyncOrStrippedState::Sync(e) => e.content))
             .unwrap_or_default())
     }
 }
@@ -591,11 +590,9 @@ mod tests {
         events::{
             StateEventType,
             room::{
-                canonical_alias::{
-                    PossiblyRedactedRoomCanonicalAliasEventContent, RoomCanonicalAliasEventContent,
-                },
+                canonical_alias::RoomCanonicalAliasEventContent,
                 member::{MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent},
-                name::{PossiblyRedactedRoomNameEventContent, RoomNameEventContent},
+                name::RoomNameEventContent,
             },
         },
         owned_room_alias_id, owned_user_id, room_alias_id, room_id,
@@ -637,21 +634,18 @@ mod tests {
 
     fn make_canonical_alias_event() -> MinimalStateEvent<RoomCanonicalAliasEventContent> {
         MinimalStateEvent {
-            content: assign!(PossiblyRedactedRoomCanonicalAliasEventContent::new(), {
+            content: assign!(RoomCanonicalAliasEventContent::new(), {
                 alias: Some(owned_room_alias_id!("#test:example.com")),
             }),
             event_id: None,
         }
     }
 
-    fn make_name_event_with(name: &str) -> MinimalStateEvent<PossiblyRedactedRoomNameEventContent> {
-        MinimalStateEvent {
-            content: RoomNameEventContent::new(name.to_owned()).into(),
-            event_id: None,
-        }
+    fn make_name_event_with(name: &str) -> MinimalStateEvent<RoomNameEventContent> {
+        MinimalStateEvent { content: RoomNameEventContent::new(name.to_owned()), event_id: None }
     }
 
-    fn make_name_event() -> MinimalStateEvent<PossiblyRedactedRoomNameEventContent> {
+    fn make_name_event() -> MinimalStateEvent<RoomNameEventContent> {
         make_name_event_with("Test Room")
     }
 

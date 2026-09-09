@@ -21,8 +21,7 @@ use eyeball_im::VectorDiff;
 use matrix_sdk_test::{ALICE, BOB, async_test};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, event_id,
-    events::beacon_info::{BeaconInfoEventContent, RedactedBeaconInfoEventContent},
-    owned_event_id, uint,
+    events::beacon_info::BeaconInfoEventContent, owned_event_id, uint,
 };
 use stream_assert::{assert_next_matches, assert_pending};
 
@@ -730,7 +729,7 @@ async fn test_redacted_beacon_info_produces_redacted_item() {
         .handle_live_event(timeline.factory.redacted_state(
             &ALICE,
             ALICE.as_str(),
-            RedactedBeaconInfoEventContent::new(),
+            BeaconInfoEventContent::new(None, Duration::ZERO, false, None),
         ))
         .await;
 

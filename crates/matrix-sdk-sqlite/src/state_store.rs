@@ -1421,7 +1421,7 @@ impl StateStore for SqliteStateStore {
                                 )?;
 
                                 if let Some(profile) =
-                                    profiles.and_then(|p| p.get(member_event.state_key()))
+                                    profiles.and_then(|p| p.get(&member_event.state_key))
                                 {
                                     let room_id = this.encode_key(keys::PROFILE, &room_id);
                                     let user_id = this.encode_key(keys::PROFILE, &state_key);

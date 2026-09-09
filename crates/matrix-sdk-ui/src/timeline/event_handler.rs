@@ -27,7 +27,7 @@ use ruma::{
     events::{
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, MessageLikeEventContent, MessageLikeEventType,
-        StateEventContentChange, StateEventType, SyncStateEvent,
+        StateEventContentChange, StateEventType,
         beacon_info::BeaconInfoEventContent,
         poll::unstable_start::{
             NewUnstablePollStartEventContentWithoutRelation, UnstablePollStartEventContent,
@@ -315,27 +315,24 @@ impl TimelineAction {
             },
 
             AnySyncTimelineEvent::State(ev) => match ev {
-                AnySyncStateEvent::RoomMember(ev) => match ev {
-                    SyncStateEvent::Original(ev) => {
-                        vec![Self::add_item(TimelineItemContent::room_member(
-                            ev.state_key,
-                            StateEventContentChange::Original {
-                                content: ev.content,
-                                prev_content: ev.unsigned.prev_content,
-                            },
-                            ev.sender,
+                AnySyncStateEvent::RoomMember(ev) => {
+                    let is_redacted = ev.is_redacted();
+                    vec![Self::add_item(TimelineItemContent::room_member(
+                        ev.state_key,
+                        StateEventContentChange {
+                            content: ev.content,
+                            prev_content: ev.unsigned.prev_content,
+                        },
+                        is_redacted,
+                        ev.sender,
+                    ))]
+                }
+                AnySyncStateEvent::BeaconInfo(ev) => {
+                    if ev.is_redacted() {
+                        vec![Self::add_item(TimelineItemContent::MsgLike(
+                            MsgLikeContent::redacted(),
                         ))]
-                    }
-                    SyncStateEvent::Redacted(ev) => {
-                        vec![Self::add_item(TimelineItemContent::room_member(
-                            ev.state_key,
-                            StateEventContentChange::Redacted(ev.content),
-                            ev.sender,
-                        ))]
-                    }
-                },
-                AnySyncStateEvent::BeaconInfo(ev) => match ev {
-                    SyncStateEvent::Original(ev) => {
+                    } else {
                         // Check the `live` field directly, not `is_live()` which
                         // considers timeout. We want to create a timeline item for any
                         // beacon_info that was started as live, regardless of whether
@@ -387,18 +384,17 @@ impl TimelineAction {
                             }]
                         }
                     }
-                    SyncStateEvent::Redacted(_) => {
-                        vec![Self::add_item(TimelineItemContent::MsgLike(
-                            MsgLikeContent::redacted(),
-                        ))]
-                    }
-                },
-                ev => vec![Self::add_item(TimelineItemContent::OtherState(OtherState {
-                    state_key: ev.state_key().to_owned(),
-                    content: AnyOtherStateEventContentChange::with_event_content(
-                        ev.content_change(),
-                    ),
-                }))],
+                }
+                ev => {
+                    let is_redacted = ev.is_redacted();
+                    vec![Self::add_item(TimelineItemContent::OtherState(OtherState {
+                        state_key: ev.state_key().to_owned(),
+                        content: AnyOtherStateEventContentChange::with_event_content(
+                            ev.content_change(),
+                        ),
+                        is_redacted,
+                    }))]
+                }
             },
         }
     }

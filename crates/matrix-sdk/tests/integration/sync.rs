@@ -96,10 +96,7 @@ async fn test_receive_room_encryption_event_via_sync() {
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     let (event, _) = assert_ready!(event_subscriber);
-    assert_eq!(
-        event.as_original().unwrap().content.algorithm,
-        EventEncryptionAlgorithm::MegolmV1AesSha2
-    );
+    assert_eq!(event.content.algorithm, Some(EventEncryptionAlgorithm::MegolmV1AesSha2));
 
     // Now we receive an event with an invalid content but a valid type
     // and state key.
@@ -238,7 +235,7 @@ async fn test_receive_room_avatar_event_via_sync() {
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     let (event, _) = assert_ready!(event_subscriber);
-    assert_eq!(event.as_original().unwrap().content.url.as_deref(), Some(avatar_url));
+    assert_eq!(event.content.url.as_deref(), Some(avatar_url));
 
     // Now we receive an event with an invalid content but a valid type
     // and state key.
@@ -371,7 +368,7 @@ async fn test_receive_room_name_event_via_sync() {
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     let (event, _) = assert_ready!(event_subscriber);
-    assert_eq!(event.as_original().unwrap().content.name, "My room");
+    assert_eq!(event.content.name.as_deref(), Some("My room"));
 
     // Now we receive an event with an invalid content but a valid type
     // and state key.
@@ -503,7 +500,7 @@ async fn test_receive_room_create_event_via_sync() {
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     let (event, _) = assert_ready!(event_subscriber);
-    assert_eq!(event.as_original().unwrap().content.room_version, RoomVersionId::V12);
+    assert_eq!(event.content.room_version, RoomVersionId::V12);
 
     // Now we receive an event with an invalid content but a valid type
     // and state key.
@@ -681,7 +678,7 @@ async fn test_receive_room_history_visibility_event_via_sync() {
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     let (event, _) = assert_ready!(event_subscriber);
-    assert_eq!(event.as_original().unwrap().content.history_visibility, HistoryVisibility::Shared);
+    assert_eq!(event.content.history_visibility, HistoryVisibility::Shared);
 
     // Now we receive an event with an invalid content but a valid type
     // and state key.
@@ -813,7 +810,7 @@ async fn test_receive_room_guest_access_event_via_sync() {
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     let (event, _) = assert_ready!(event_subscriber);
-    assert_eq!(event.as_original().unwrap().content.guest_access, GuestAccess::CanJoin);
+    assert_eq!(event.content.guest_access, GuestAccess::CanJoin);
 
     // Now we receive an event with an invalid content but a valid type
     // and state key.
@@ -946,7 +943,7 @@ async fn test_receive_room_join_rules_event_via_sync() {
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     let (event, _) = assert_ready!(event_subscriber);
-    assert_eq!(event.as_original().unwrap().content.join_rule, JoinRule::Public);
+    assert_eq!(event.content.join_rule, JoinRule::Public);
 
     // Now we receive an event with an invalid content but a valid type
     // and state key.
@@ -1083,7 +1080,7 @@ async fn test_receive_room_canonical_alias_event_via_sync() {
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     let (event, _) = assert_ready!(event_subscriber);
-    assert_eq!(event.as_original().unwrap().content.alias.as_deref(), Some(room_alias));
+    assert_eq!(event.content.alias.as_deref(), Some(room_alias));
 
     // Now we receive an event with an invalid content but a valid type
     // and state key.
@@ -1217,7 +1214,7 @@ async fn test_receive_room_topic_event_via_sync() {
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     let (event, _) = assert_ready!(event_subscriber);
-    assert_eq!(event.as_original().unwrap().content.topic, room_topic);
+    assert_eq!(event.content.topic.as_deref(), Some(room_topic));
 
     // Now we receive an event with an invalid content but a valid type
     // and state key.
@@ -1355,7 +1352,7 @@ async fn test_receive_room_tombstone_event_via_sync() {
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     let (event, _) = assert_ready!(event_subscriber);
-    assert_eq!(event.as_original().unwrap().content.replacement_room, tombstone_replacement);
+    assert_eq!(event.content.replacement_room.as_deref(), Some(tombstone_replacement));
 
     // Now we receive an event with an invalid content but a valid type
     // and state key.
@@ -1490,7 +1487,7 @@ async fn test_receive_room_power_levels_event_via_sync() {
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     let (event, _) = assert_ready!(event_subscriber);
-    assert_eq!(i64::from(event.as_original().unwrap().content.users_default), -10);
+    assert_eq!(i64::from(event.content.users_default), -10);
 
     // Now we receive an event with an invalid content but a valid type
     // and state key.
@@ -1624,7 +1621,7 @@ async fn test_receive_room_pinned_events_event_via_sync() {
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     let (event, _) = assert_ready!(event_subscriber);
-    assert_eq!(event.as_original().unwrap().content.pinned, &[pinned_event]);
+    assert_eq!(event.content.pinned, &[pinned_event]);
 
     // Now we receive an event with an invalid content but a valid type
     // and state key.

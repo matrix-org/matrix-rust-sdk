@@ -75,7 +75,7 @@ use ruma::{
     assign,
     events::room::{
         MediaSource, ThumbnailInfo,
-        member::{MembershipChange, OriginalSyncRoomMemberEvent},
+        member::{MembershipChange, SyncRoomMemberEvent},
     },
 };
 #[cfg(feature = "experimental-send-custom-to-device")]
@@ -2131,7 +2131,7 @@ impl Encryption {
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
     fn setup_room_membership_session_discard_handler(&self) {
         let client = WeakClient::from_client(&self.client);
-        self.client.add_event_handler(|ev: OriginalSyncRoomMemberEvent, room: Room| async move {
+        self.client.add_event_handler(|ev: SyncRoomMemberEvent, room: Room| async move {
             let Some(client) = client.get() else {
                 // The main client has been dropped.
                 return;

@@ -12,15 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, ops::Deref};
+use std::collections::HashMap;
 
 use matrix_sdk_common::BoxFuture;
 use ruma::{
     OwnedUserId, UserId,
-    events::{
-        SyncStateEvent,
-        room::member::{MembershipState, SyncRoomMemberEvent},
-    },
+    events::room::member::{MembershipState, SyncRoomMemberEvent},
 };
 
 use super::UserIdentity;
@@ -134,11 +131,11 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
 
     async fn process_membership_change(
         &mut self,
-        sync_room_member_event: Box<SyncRoomMemberEvent>,
+        event: Box<SyncRoomMemberEvent>,
     ) -> Vec<IdentityStatusChange> {
         // Ignore redacted events - memberships should come through as new events, not
         // redactions.
-        if let SyncStateEvent::Original(event) = sync_room_member_event.deref() {
+        if !event.is_redacted() {
             let user_id = &event.state_key;
             // Ignore non-existent users, and changes to our own identity
             if let Some(user_identity @ UserIdentity::Other(_)) =
