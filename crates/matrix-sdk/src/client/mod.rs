@@ -1437,10 +1437,9 @@ impl Client {
     /// use futures_util::{StreamExt, pin_mut};
     /// use matrix_sdk::ruma::events::ToDeviceEventType;
     ///
-    /// let messages =
-    ///     client.subscribe_to_custom_to_device_messages(vec![ToDeviceEventType::from(
-    ///         "io.element.call.encryption_keys",
-    ///     )]);
+    /// let messages = client.subscribe_to_custom_to_device_messages(vec![
+    ///     ToDeviceEventType::from("io.element.call.encryption_keys"),
+    /// ]);
     /// pin_mut!(messages);
     ///
     /// while let Some(message) = messages.next().await {
