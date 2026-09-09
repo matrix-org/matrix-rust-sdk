@@ -763,8 +763,8 @@ impl GossipMachine {
             .await
             .filter(|outgoing_session| outgoing_session.session_id() == session.session_id());
 
-        // If this is our own, verified device, we share the entire session from the
-        // earliest known index.
+        // If this is our own, verified device, we share the entire session from
+        // the earliest known index.
         if device.user_id() == self.user_id() && device.is_verified() {
             Ok(None)
         // Otherwise, if the records show we previously shared with this device,
@@ -800,15 +800,16 @@ impl GossipMachine {
         if self.inner.room_key_requests_enabled.load(Ordering::SeqCst) {
             let request = self.inner.store.get_secret_request_by_info(key_info).await?;
 
-            // Don't send out duplicate requests, users can re-request them if they
-            // think a second request might succeed.
+            // Don't send out duplicate requests, users can re-request them if
+            // they think a second request might succeed.
             if request.is_none() {
                 let devices = self.inner.store.get_user_devices(self.user_id()).await?;
 
                 // Devices will only respond to key requests if the devices are
-                // verified, if the device isn't verified by us it's unlikely that
-                // we're verified by them either. Don't request keys if there isn't
-                // at least one verified device.
+                // verified, if the device isn't verified by us it's unlikely
+                // that we're verified by them either. Don't
+                // request keys if there isn't at least one
+                // verified device.
                 Ok(devices.is_any_verified())
             } else {
                 Ok(false)
@@ -1009,12 +1010,13 @@ impl GossipMachine {
                 }
             }
         } else {
-            // We would need to fire out a request to figure out if this backup decryption
-            // key is the one that is used for the current backup and if the
-            // backup is trusted.
+            // We would need to fire out a request to figure out if this backup
+            // decryption key is the one that is used for the
+            // current backup and if the backup is trusted.
             //
-            // So we put the secret into our inbox. Later users can inspect the contents of
-            // the inbox and decide if they want to activate the backup.
+            // So we put the secret into our inbox. Later users can inspect the
+            // contents of the inbox and decide if they want to
+            // activate the backup.
             info!("Received a backup decryption key, storing it into the secret inbox.");
             changes.secrets.push(secret.into());
         }
@@ -1322,8 +1324,8 @@ mod tests {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> CryptoStoreWrapper {
-        // Properly create the store by first saving the own device and then the account
-        // data.
+        // Properly create the store by first saving the own device and then the
+        // account data.
         let account = Account::with_device_id(user_id, device_id);
         let device = DeviceData::from_account(&account);
         device.set_trust_state(LocalTrust::Verified);
@@ -1791,8 +1793,8 @@ mod tests {
             Err(KeyForwardDecision::MissingOutboundSession)
         );
 
-        // Finally, let's ensure we don't share the session with a device that rotated
-        // its curve25519 key.
+        // Finally, let's ensure we don't share the session with a device that
+        // rotated its curve25519 key.
         let bob_device = DeviceData::from_account(&bob_account());
         machine.inner.store.save_device_data(&[bob_device]).await.unwrap();
 
@@ -1803,8 +1805,9 @@ mod tests {
             Err(KeyForwardDecision::ChangedSenderKey)
         );
 
-        // Now let's encrypt some messages in another session to increment the message
-        // index and then share it with our own untrusted device.
+        // Now let's encrypt some messages in another session to increment the
+        // message index and then share it with our own untrusted
+        // device.
         own_device.set_trust_state(LocalTrust::Unset);
 
         for _ in 1..=3 {
@@ -1820,9 +1823,9 @@ mod tests {
 
         machine.inner.outbound_group_sessions.insert(other_outbound.clone());
 
-        // Since our device is untrusted, we should share the session starting only from
-        // the current index (at which the message was marked as shared). This
-        // should be 3 since we encrypted 3 messages.
+        // Since our device is untrusted, we should share the session starting
+        // only from the current index (at which the message was marked
+        // as shared). This should be 3 since we encrypted 3 messages.
         assert_matches!(machine.should_share_key(&own_device, &other_inbound).await, Ok(Some(3)));
 
         own_device.set_trust_state(LocalTrust::Verified);
@@ -2155,7 +2158,8 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        // We need a trusted device, otherwise we won't serve nor accept secrets.
+        // We need a trusted device, otherwise we won't serve nor accept
+        // secrets.
         bob_device.set_trust_state(LocalTrust::Verified);
         alice_device.set_trust_state(LocalTrust::Verified);
         alice_machine.store().save_device_data(&[bob_device.inner]).await.unwrap();

@@ -275,13 +275,14 @@ impl SecretStorageKey {
                 let mut iv_array = [0u8; 16];
                 iv_array.copy_from_slice(iv);
 
-                // I'm not particularly convinced that this couldn't have been done simpler.
-                // Why do we need to reproduce the ciphertext?
-                // Couldn't we just generate the MAC tag
-                // using the `ZERO_MESSAGE`?
+                // I'm not particularly convinced that this couldn't have been
+                // done simpler. Why do we need to reproduce the
+                // ciphertext? Couldn't we just generate the MAC
+                // tag using the `ZERO_MESSAGE`?
                 //
-                // If someone is reading this and is designing a new secret encryption
-                // algorithm, please consider the above suggestion.
+                // If someone is reading this and is designing a new secret
+                // encryption algorithm, please consider the
+                // above suggestion.
                 let key = AesHmacSha2Key::from_secret_storage_key(&self.secret_key, "");
                 let ciphertext = key.apply_keystream(Self::ZERO_MESSAGE.to_vec(), &iv_array);
                 let expected_mac = HmacSha256Mac::from_slice(mac.as_bytes())
@@ -420,7 +421,8 @@ impl SecretStorageKey {
     // method.
     fn parse_base58_key(value: &str) -> Result<Box<[u8; 32]>, DecodeError> {
         // The spec tells us to remove any whitespace:
-        // > When decoding a raw key, the process should be reversed, with the exception
+        // > When decoding a raw key, the process should be reversed, with the
+        // > exception
         // > that whitespace is insignificant in the user’s input.
         //
         // Spec link: https://spec.matrix.org/unstable/client-server-api/#key-representation
@@ -486,19 +488,20 @@ impl SecretStorageKey {
         bytes[0..2].copy_from_slice(Self::PREFIX.as_slice());
         bytes[2..34].copy_from_slice(self.secret_key.as_slice());
 
-        // All the bytes in the string above, including the two header bytes, are XORed
-        // together to form a parity byte. This parity byte is appended to the byte
-        // string.
+        // All the bytes in the string above, including the two header bytes,
+        // are XORed together to form a parity byte. This parity byte is
+        // appended to the byte string.
         bytes[34] = Self::parity_byte(self.secret_key.as_slice());
 
-        // The byte string is encoded using Base58, using the same mapping as is used
-        // for Bitcoin addresses.
+        // The byte string is encoded using Base58, using the same mapping as is
+        // used for Bitcoin addresses.
         let base_58 =
             bs58::encode(bytes.as_slice()).with_alphabet(bs58::Alphabet::BITCOIN).into_string();
 
         bytes.zeroize();
 
-        // The string is formatted into groups of four characters separated by spaces.
+        // The string is formatted into groups of four characters separated by
+        // spaces.
         base_58
             .chars()
             .collect::<Vec<char>>()

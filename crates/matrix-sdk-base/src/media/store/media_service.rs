@@ -572,8 +572,9 @@ mod tests {
             _policy: MediaRetentionPolicy,
             current_time: SystemTime,
         ) -> Result<(), Self::Error> {
-            // This is mostly a noop. We don't care about this test implementation, only
-            // whether this method was called with the right time.
+            // This is mostly a noop. We don't care about this test
+            // implementation, only whether this method was called
+            // with the right time.
             self.inner().cleanup_time = Some(current_time);
 
             Ok(())
@@ -667,7 +668,8 @@ mod tests {
         let media_content = store.inner().media_list[0].clone();
         assert!(media_content.ignore_policy);
 
-        // Try a cleanup. With the empty policy the store should not be accessed.
+        // Try a cleanup. With the empty policy the store should not be
+        // accessed.
         assert_eq!(store.last_media_cleanup_time_inner().await.unwrap(), None);
         store.reset_accessed();
 
@@ -715,8 +717,8 @@ mod tests {
 
         store.reset_accessed();
 
-        // Add small media, it should work because its size is lower than the max file
-        // size.
+        // Add small media, it should work because its size is lower than the
+        // max file size.
         service
             .add_media_content(
                 &store,
@@ -755,7 +757,8 @@ mod tests {
         service.inner.time_provider.set_now(now);
         store.reset_accessed();
 
-        // Add big media, it will not work because it is bigger than the max file size.
+        // Add big media, it will not work because it is bigger than the max
+        // file size.
         service
             .add_media_content(
                 &store,
@@ -880,8 +883,8 @@ mod tests {
 
         assert_eq!(store.last_media_cleanup_time_inner().await.unwrap(), Some(now));
 
-        // Try again one minute in the future, nothing is spawned because we need to
-        // wait for one hour.
+        // Try again one minute in the future, nothing is spawned because we
+        // need to wait for one hour.
         let now = now + Duration::from_secs(60);
         service.inner.time_provider.set_now(now);
         service.get_media_content(&store, &request_1).await.unwrap();

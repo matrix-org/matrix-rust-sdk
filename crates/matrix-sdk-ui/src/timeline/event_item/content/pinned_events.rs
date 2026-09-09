@@ -42,8 +42,9 @@ impl From<&StateEventContentChange<RoomPinnedEventsEventContent>> for RoomPinned
                         let mut still_pinned: HashSet<&OwnedEventId> =
                             HashSet::from_iter(old_pinned);
 
-                        // Newly added elements will be kept in new_pinned, previous ones in
-                        // still_pinned instead
+                        // Newly added elements will be kept in new_pinned,
+                        // previous ones in still_pinned
+                        // instead
                         still_pinned.retain(|item| new_pinned.remove(item));
 
                         let added = !new_pinned.is_empty();
@@ -59,12 +60,13 @@ impl From<&StateEventContentChange<RoomPinnedEventsEventContent>> for RoomPinned
                             RoomPinnedEventsChange::Changed
                         }
                     } else {
-                        // We don't know the previous state, so let's assume a generic change
+                        // We don't know the previous state, so let's assume a
+                        // generic change
                         RoomPinnedEventsChange::Changed
                     }
                 } else {
-                    // If there is no previous content we can assume the first pinned event id was
-                    // just added
+                    // If there is no previous content we can assume the first
+                    // pinned event id was just added
                     RoomPinnedEventsChange::Added
                 }
             }
@@ -161,8 +163,9 @@ mod tests {
 
     #[test]
     fn pinned_events_content_with_no_changes_returns_changed() {
-        // Returning Changed is counter-intuitive, but it makes no sense to display in
-        // the timeline 'UserFoo didn't change anything in the pinned events'
+        // Returning Changed is counter-intuitive, but it makes no sense to
+        // display in the timeline 'UserFoo didn't change anything in
+        // the pinned events'
 
         let content = StateEventContentChange::Original {
             content: RoomPinnedEventsEventContent::new(vec![

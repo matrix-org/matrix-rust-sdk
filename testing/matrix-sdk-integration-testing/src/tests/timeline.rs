@@ -208,9 +208,10 @@ async fn test_toggling_reaction() -> Result<()> {
             assert_matches!(reaction.status, ReactionStatus::LocalToRemote(..));
         }
 
-        // Remote echo is added twice: one from the Send Queue because the event is sent
-        // and inserted in the Event Cache and one from the Event Cache via the sync.
-        // The difference is it gets a read receipt, that's why we get a second update.
+        // Remote echo is added twice: one from the Send Queue because the event
+        // is sent and inserted in the Event Cache and one from the
+        // Event Cache via the sync. The difference is it gets a read
+        // receipt, that's why we get a second update.
         for timeline_update in timeline_updates.iter().skip(1) {
             let event = assert_event_is_updated!(timeline_update, event_id, message_position);
 
@@ -223,7 +224,8 @@ async fn test_toggling_reaction() -> Result<()> {
 
             // Remote event should have a timestamp <= than now.
             // Note: this can actually be equal because if the timestamp from
-            // server is not available, it might be created with a local call to `now()`
+            // server is not available, it might be created with a local call to
+            // `now()`
             assert!(reaction.timestamp <= MilliSecondsSinceUnixEpoch::now());
         }
 
@@ -295,8 +297,8 @@ async fn test_stale_local_echo_time_abort_edit() {
     let local_echo = assert_matches!(vector_diff, VectorDiff::PushBack { value } => value);
 
     if !local_echo.is_local_echo() {
-        // If the server raced and we've already received the remote echo, then this
-        // test is meaningless, so short-circuit and leave it.
+        // If the server raced and we've already received the remote echo, then
+        // this test is meaningless, so short-circuit and leave it.
         return;
     }
 
@@ -306,13 +308,13 @@ async fn test_stale_local_echo_time_abort_edit() {
 
     // It is then sent. The timeline stream can be racy here:
     //
-    // - either the local echo is marked as sent *before*, and we receive an update
-    //   for this before the remote echo.
+    // - either the local echo is marked as sent *before*, and we receive an
+    //   update for this before the remote echo.
     // - or the remote echo comes up faster.
     //
     // We collect all diffs but we no longer check them. This is tested by unit
-    // tests already, and testing that here is a bit more complex before of the racy
-    // situation.
+    // tests already, and testing that here is a bit more complex before of the
+    // racy situation.
     {
         let mut diffs = Vec::with_capacity(3);
 
@@ -425,8 +427,8 @@ async fn test_enabling_backups_retries_decryption() {
     // We don't need Alice anymore.
     alice_sync.abort();
 
-    // I know that this is Alice again, but it's the Alice's second device which she
-    // named Bob.
+    // I know that this is Alice again, but it's the Alice's second device which
+    // she named Bob.
     let bob = TestClientBuilder::with_exact_username(user_id.localpart().to_owned())
         .use_sqlite()
         .encryption_settings(encryption_settings)
@@ -456,8 +458,8 @@ async fn test_enabling_backups_retries_decryption() {
         .expect("We should be able to paginate the timeline to fetch the history");
 
     // Wait for the event cache and the timeline to do their job.
-    // Timeline triggers a pagination, that inserts events in the event cache, that
-    // then broadcasts new events into the timeline. All this is async.
+    // Timeline triggers a pagination, that inserts events in the event cache,
+    // that then broadcasts new events into the timeline. All this is async.
     sleep(Duration::from_millis(300)).await;
 
     let item =
@@ -466,16 +468,16 @@ async fn test_enabling_backups_retries_decryption() {
     // The event is not decrypted yet.
     assert!(item.content().is_unable_to_decrypt());
 
-    // We now connect to the backup which will not give us the room key right away,
-    // we first need to encounter a UTD to attempt the download.
+    // We now connect to the backup which will not give us the room key right
+    // away, we first need to encounter a UTD to attempt the download.
     bob.encryption()
         .recovery()
         .recover("Bomber's code")
         .await
         .expect("We should be able to recover from Bob's device");
 
-    // Let's subscribe to our timeline so we don't miss the transition from UTD to
-    // decrypted event.
+    // Let's subscribe to our timeline so we don't miss the transition from UTD
+    // to decrypted event.
     let (_, mut stream) = timeline
         .subscribe_filter_map(|item| {
             item.as_event().cloned().filter(|item| item.event_id() == Some(&event_id))
@@ -498,7 +500,8 @@ async fn test_enabling_backups_retries_decryption() {
         .await
         .expect("We should have downloaded the room key from the backup");
 
-    // Alright, we should now receive an update that the event had been decrypted.
+    // Alright, we should now receive an update that the event had been
+    // decrypted.
     let _vector_diff = timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
 
     // Let's fetch the event again.
@@ -621,7 +624,8 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
         .await
         .expect("We should be able to load the room list");
 
-    // Let's stop the sync so we don't receive the room key using the usual channel.
+    // Let's stop the sync so we don't receive the room key using the usual
+    // channel.
     sync_service.stop().await;
 
     debug!("Alice sends the message");
@@ -653,8 +657,9 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
             .expect("We should be able to paginate the timeline to fetch the history");
 
         // Wait for the event cache and the timeline to do their job.
-        // Timeline triggers a pagination, that inserts events in the event cache, that
-        // then broadcasts new events into the timeline. All this is async.
+        // Timeline triggers a pagination, that inserts events in the event
+        // cache, that then broadcasts new events into the timeline. All
+        // this is async.
         sleep(Duration::from_millis(300)).await;
 
         if let Some(timeline_item) = timeline.item_by_event_id(&event_id).await {
@@ -670,8 +675,8 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
     // The event is not decrypted yet.
     assert!(item.content().is_unable_to_decrypt());
 
-    // Let's subscribe to our timeline so we don't miss the transition from UTD to
-    // decrypted event.
+    // Let's subscribe to our timeline so we don't miss the transition from UTD
+    // to decrypted event.
     let (_, mut stream) = timeline
         .subscribe_filter_map(|item| {
             item.as_event().cloned().filter(|item| item.event_id() == Some(&event_id))
@@ -700,7 +705,8 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
         .await
         .expect("We should be able toe get a notification item for the given event");
 
-    // Alright, we should now receive an update that the event had been decrypted.
+    // Alright, we should now receive an update that the event had been
+    // decrypted.
     let _vector_diff = timeout(Duration::from_secs(10), stream.next()).await.unwrap().unwrap();
 
     // Let's fetch the event again.
@@ -891,8 +897,8 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
     let update2 = assert_next_with_timeout!(timeline_stream);
 
     {
-        // Then we updated the timeline to reflect the fact that the message is from a
-        // verified device.
+        // Then we updated the timeline to reflect the fact that the message is
+        // from a verified device.
         let messages = timeline_messages(&timeline).await;
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].content().as_message().unwrap().body(), "secret message");
@@ -992,8 +998,8 @@ async fn test_thread_focused_timeline() -> TestResult {
     assert_eq!(items[1].as_event().unwrap().event_id().unwrap(), thread_root);
     assert_eq!(items[2].as_event().unwrap().event_id().unwrap(), thread_reply_event_id);
 
-    // If Alice paginates backwards, nothing happens on the timeline, as we've hit
-    // the start in the /context response.
+    // If Alice paginates backwards, nothing happens on the timeline, as we've
+    // hit the start in the /context response.
     let hit_start = timeline.paginate_backwards(10).await?;
     assert!(hit_start);
 
@@ -1057,8 +1063,8 @@ async fn test_local_echo_to_send_event_has_encryption_info() -> TestResult {
     assert_matches!(local_echo.send_state(), Some(EventSendState::NotSentYet { progress: None }));
     assert_eq!(local_echo.content().as_message().unwrap().body(), "It's a secret to everybody");
 
-    // Now we receive an update from the send queue that the event is in the sent
-    // state.
+    // Now we receive an update from the send queue that the event is in the
+    // sent state.
     let vector_diff = timeout(Duration::from_secs(5), stream.next()).await?;
     let sent_event =
         assert_matches!(vector_diff, Some(VectorDiff::Set { index: 0, value }) => value);
@@ -1121,8 +1127,8 @@ async fn prepare_room_with_pinned_events(
     let timeline = room.timeline().await?;
     timeline.room().pin_event(&event_id).await?;
 
-    // Now send a bunch of normal events, this ensures that our pinned event isn't
-    // in the main timeline when we restore things.
+    // Now send a bunch of normal events, this ensures that our pinned event
+    // isn't in the main timeline when we restore things.
     for i in 0..number_of_normal_events {
         room.send(RoomMessageEventContent::text_plain(format!("Normal event {i}"))).await?;
     }
@@ -1172,8 +1178,8 @@ async fn test_pinned_events_are_decrypted_after_recovering_with_event_count(
     // We need to subscribe to the room, otherwise we won't request the
     // `m.room.pinned_events` state event.
     //
-    // Additionally if we subscribe to the room after we already synced, we won't
-    // receive the event, likely due to a Synapse bug.
+    // Additionally if we subscribe to the room after we already synced, we
+    // won't receive the event, likely due to a Synapse bug.
     sync_service.room_list_service().set_room_subscriptions(&[&room_id]).await;
     sync_service.start().await;
     another_alice.encryption().wait_for_e2ee_initialization_tasks().await;
@@ -1224,8 +1230,8 @@ async fn test_pinned_events_are_decrypted_after_recovering_with_event_count(
     another_alice.encryption().recovery().recover(RECOVERY_PASSPHRASE).await?;
     assert_eq!(another_alice.encryption().recovery().state(), RecoveryState::Enabled);
 
-    // The next update for the timeline should replace the UTD item with a decrypted
-    // value.
+    // The next update for the timeline should replace the UTD item with a
+    // decrypted value.
     let next_item = assert_next_with_timeout!(stream, 5000);
 
     assert_let!(VectorDiff::Set { index: 0, value } = next_item);
@@ -1236,8 +1242,8 @@ async fn test_pinned_events_are_decrypted_after_recovering_with_event_count(
     let message = content.as_message().expect("The pinned event should be a message");
     assert_eq!(message.body(), "It's a secret to everybody");
 
-    // And we check that we don't have any more items in the timeline, the UTD item
-    // was indeed replaced.
+    // And we check that we don't have any more items in the timeline, the UTD
+    // item was indeed replaced.
     let items = pinned_timeline.items().await;
     assert_eq!(items.len(), 2);
 
@@ -1313,8 +1319,8 @@ async fn test_permalink_timelines_redecrypt() -> TestResult {
     // We need to subscribe to the room, otherwise we won't request the
     // `m.room.pinned_events` state event.
     //
-    // Additionally if we subscribe to the room after we already synced, we won't
-    // receive the event, likely due to a Synapse bug.
+    // Additionally if we subscribe to the room after we already synced, we
+    // won't receive the event, likely due to a Synapse bug.
     sync_service.room_list_service().set_room_subscriptions(&[&room_id]).await;
     sync_service.start().await;
     another_alice.encryption().wait_for_e2ee_initialization_tasks().await;
@@ -1364,8 +1370,8 @@ async fn test_permalink_timelines_redecrypt() -> TestResult {
     another_alice.encryption().recovery().recover(RECOVERY_PASSPHRASE).await?;
     assert_eq!(another_alice.encryption().recovery().state(), RecoveryState::Enabled);
 
-    // The next update for the timeline should replace the UTD item with a decrypted
-    // value.
+    // The next update for the timeline should replace the UTD item with a
+    // decrypted value.
     let next_item = assert_next_with_timeout!(stream, 5000);
 
     assert_let!(VectorDiff::Set { index: 0, value } = next_item);
@@ -1376,8 +1382,8 @@ async fn test_permalink_timelines_redecrypt() -> TestResult {
     let message = content.as_message().expect("The focused event should be a message");
     assert_eq!(message.body(), "It's a secret to everybody");
 
-    // And we check that we don't have any more items in the timeline, the UTD item
-    // was indeed replaced.
+    // And we check that we don't have any more items in the timeline, the UTD
+    // item was indeed replaced.
     let items = permalink_timeline.items().await;
     assert_eq!(items.len(), 3);
 
@@ -1495,8 +1501,8 @@ async fn test_latest_thread_event_is_redecrypted_and_updated() -> TestResult {
     alice2.encryption().recovery().recover(RECOVERY_PASSPHRASE).await?;
     assert_eq!(alice2.encryption().recovery().state(), RecoveryState::Enabled);
 
-    // The next update for the timeline should replace the UTD item with a decrypted
-    // value.
+    // The next update for the timeline should replace the UTD item with a
+    // decrypted value.
     let next_item = assert_next_with_timeout!(stream, 5000);
     assert_let!(VectorDiff::Set { index: 7, value } = next_item);
     assert_eq!(value.event_id(), Some(thread_root_event_id.as_ref()));
@@ -1627,8 +1633,8 @@ async fn test_send_message_updates() -> Result<()> {
     assert_let!(diffs = stream.next().await.unwrap());
     assert_eq!(diffs.len(), 4);
 
-    // FIXME: this is some "bouncing" behavior! The timeline should only trigger a
-    // single `Set` update for the sent event, here, ideally.
+    // FIXME: this is some "bouncing" behavior! The timeline should only trigger
+    // a single `Set` update for the sent event, here, ideally.
     {
         // Removal of the duplicate event.
         assert_let!(VectorDiff::Remove { index: 1 } = &diffs[0]);

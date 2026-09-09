@@ -423,17 +423,17 @@ impl Account {
     ) -> Self {
         let identity_keys = account.identity_keys();
 
-        // Let's generate some initial one-time keys while we're here. Since we know
-        // that this is a completely new [`Account`] we're certain that the
-        // server does not yet have any one-time keys of ours.
+        // Let's generate some initial one-time keys while we're here. Since we
+        // know that this is a completely new [`Account`] we're certain
+        // that the server does not yet have any one-time keys of ours.
         //
         // This ensures we upload one-time keys along with our device keys right
         // away, rather than waiting for the key counts to be echoed back to us
         // from the server.
         //
-        // It would be nice to do this for the fallback key as well but we can't assume
-        // that the server supports fallback keys. Maybe one of these days we
-        // will be able to do so.
+        // It would be nice to do this for the fallback key as well but we can't
+        // assume that the server supports fallback keys. Maybe one of
+        // these days we will be able to do so.
         account.generate_one_time_keys(account.max_number_of_one_time_keys());
 
         Self {
@@ -578,9 +578,10 @@ impl Account {
             self.generate_one_time_keys_if_needed();
         }
 
-        // If the server supports fallback keys or if it did so in the past, shown by
-        // the existence of a fallback creation timestamp, generate a new one if
-        // we don't have one, or if the current fallback key expired.
+        // If the server supports fallback keys or if it did so in the past,
+        // shown by the existence of a fallback creation timestamp,
+        // generate a new one if we don't have one, or if the current
+        // fallback key expired.
         if unused_fallback_keys.is_some() || self.fallback_creation_timestamp.is_some() {
             self.generate_fallback_key_if_needed();
         }
@@ -654,28 +655,32 @@ impl Account {
         const FALLBACK_KEY_MAX_AGE: Duration = Duration::from_secs(3600 * 24 * 7);
 
         if let Some(time) = self.fallback_creation_timestamp {
-            // `to_system_time()` returns `None` if the the UNIX_EPOCH + `time` doesn't fit
-            // into a i64. This will likely never happen, but let's rotate the
-            // key in case the values are messed up for some other reason.
+            // `to_system_time()` returns `None` if the the UNIX_EPOCH + `time`
+            // doesn't fit into a i64. This will likely never
+            // happen, but let's rotate the key in case the values
+            // are messed up for some other reason.
             let Some(system_time) = time.to_system_time() else {
                 return true;
             };
 
-            // `elapsed()` errors if the `system_time` is in the future, this should mean
-            // that our clock has changed to the past, let's rotate just in case
-            // and then we'll get to a normal time.
+            // `elapsed()` errors if the `system_time` is in the future, this
+            // should mean that our clock has changed to the past,
+            // let's rotate just in case and then we'll get to a
+            // normal time.
             let Ok(elapsed) = system_time.elapsed() else {
                 return true;
             };
 
-            // Alright, our times are normal and we know how much time elapsed since the
-            // last time we created/rotated a fallback key.
+            // Alright, our times are normal and we know how much time elapsed
+            // since the last time we created/rotated a fallback
+            // key.
             //
             // If the key is older than a week, then we rotate it.
             elapsed > FALLBACK_KEY_MAX_AGE
         } else {
-            // We never created a fallback key, or we're migrating to the time-based
-            // fallback key rotation, so let's generate a new fallback key.
+            // We never created a fallback key, or we're migrating to the
+            // time-based fallback key rotation, so let's generate a
+            // new fallback key.
             true
         }
     }
@@ -1309,8 +1314,8 @@ impl Account {
         self.mark_as_shared();
 
         debug!("Marking one-time keys as published");
-        // First mark the current keys as published, as updating the key counts might
-        // generate some new keys if we're still below the limit.
+        // First mark the current keys as published, as updating the key counts
+        // might generate some new keys if we're still below the limit.
         self.mark_keys_as_published();
         self.update_key_counts(&response.one_time_key_counts, None, false);
 
@@ -1332,8 +1337,8 @@ impl Account {
                 let mut errors_by_olm_session = Vec::new();
 
                 if let Some(sessions) = existing_sessions {
-                    // Try to decrypt the message using each Session we share with the
-                    // given curve25519 sender key.
+                    // Try to decrypt the message using each Session we share
+                    // with the given curve25519 sender key.
                     for session in sessions.lock().await.iter_mut() {
                         match session.decrypt(message).await {
                             Ok(p) => {
@@ -1342,9 +1347,11 @@ impl Account {
                             }
 
                             Err(e) => {
-                                // An error here is completely normal, after all we don't know
+                                // An error here is completely normal, after all
+                                // we don't know
                                 // which session was used to encrypt a message.
-                                // We keep hold of the error, so that if *all* sessions fail to
+                                // We keep hold of the error, so that if *all*
+                                // sessions fail to
                                 // decrypt, we can log something useful.
                                 errors_by_olm_session.push((session.session_id().to_owned(), e));
                             }
@@ -1373,18 +1380,22 @@ impl Account {
                             return Ok((SessionType::Existing(session.clone()), p));
                         }
 
-                        // The message was intended for this session, but we weren't able to
-                        // decrypt it.
+                        // The message was intended for this session, but we
+                        // weren't able to decrypt it.
                         //
-                        // There's no point trying any other sessions, nor should we try to
-                        // create a new one since we have already previously created a `Session`
-                        // with the same keys.
+                        // There's no point trying any other sessions, nor
+                        // should we try to create a new
+                        // one since we have already previously created a
+                        // `Session` with the same keys.
                         //
-                        // (Attempts to create a new session would likely fail anyway since the
-                        // corresponding one-time key would've been already used up in the
-                        // previous session creation operation. The one exception where this
-                        // would not be so is if the fallback key was used for creating the
-                        // session in lieu of an OTK.)
+                        // (Attempts to create a new session would likely fail
+                        // anyway since the
+                        // corresponding one-time key would've been already used
+                        // up in the previous session
+                        // creation operation. The one exception where this
+                        // would not be so is if the fallback key was used for
+                        // creating the session in lieu
+                        // of an OTK.)
 
                         warn!(
                             session_id = session.session_id(),
@@ -1410,9 +1421,10 @@ impl Account {
                         }
                     };
 
-                // We need to add the new session to the session cache, otherwise
-                // we might try to create the same session again.
-                // TODO: separate the session cache from the storage so we only add
+                // We need to add the new session to the session cache,
+                // otherwise we might try to create the same
+                // session again. TODO: separate the session
+                // cache from the storage so we only add
                 // it to the cache but don't store it.
                 let mut changes =
                     Changes { sessions: vec![result.session.clone()], ..Default::default() };
@@ -1466,9 +1478,10 @@ impl Account {
         {
             Ok(result) => Ok((session, result)),
             Err(e) => {
-                // We might have created a new session but decryption might still
-                // have failed, store it for the error case here, this is fine
-                // since we don't expect this to happen often or at all.
+                // We might have created a new session but decryption might
+                // still have failed, store it for the error
+                // case here, this is fine since we don't expect
+                // this to happen often or at all.
                 match session {
                     SessionType::New(s) | SessionType::Existing(s) => {
                         store.save_sessions(&[s]).await?;
@@ -1574,9 +1587,9 @@ impl Account {
         event: &AnyDecryptedOlmEvent,
     ) -> OlmResult<Option<Device>> {
         // If the event contained sender_device_keys, check them now.
-        // WARN: If you move or modify this check, ensure that the code below is still
-        // valid. The processing of the historic room key bundle depends on this being
-        // here.
+        // WARN: If you move or modify this check, ensure that the code below is
+        // still valid. The processing of the historic room key bundle
+        // depends on this being here.
         let sender_device_keys = Self::check_sender_device_keys(event, sender_key)?;
         if let AnyDecryptedOlmEvent::RoomKey(_) = event {
             // If this event is an `m.room_key` event, defer the check for
@@ -1586,18 +1599,18 @@ impl Account {
             return Ok(None);
         }
 
-        // MSC4268 requires room key bundle events to have a `sender_device_keys` field.
-        // Enforce that now.
+        // MSC4268 requires room key bundle events to have a
+        // `sender_device_keys` field. Enforce that now.
         if let AnyDecryptedOlmEvent::RoomKeyBundle(_) = event {
             sender_device_keys.ok_or(EventError::MissingSigningKey).inspect_err(|_| {
                 warn!("The room key bundle was missing the sender device keys in the event")
             })?;
         }
 
-        // For event types other than `m.room_key`, we need to look up the device in the
-        // database irrespective of whether the `sender_device_keys` field is
-        // present in the event, because it may have been marked as "locally
-        // trusted" in the database.
+        // For event types other than `m.room_key`, we need to look up the
+        // device in the database irrespective of whether the
+        // `sender_device_keys` field is present in the event, because
+        // it may have been marked as "locally trusted" in the database.
         let store_device = store.get_device_from_curve_key(event.sender(), sender_key).await?;
 
         match (store_device, sender_device_keys) {
@@ -1616,8 +1629,9 @@ impl Account {
             }
 
             (None, Some(sender_device_keys)) => {
-                // We have already validated the signature on `sender_device_keys`, so this
-                // try_into cannot fail.
+                // We have already validated the signature on
+                // `sender_device_keys`, so this try_into cannot
+                // fail.
                 let sender_device_data = sender_device_keys.try_into().expect("Conversion of DeviceKeys to DeviceData failed despite the signature already having been checked");
                 Ok(Some(store.wrap_device_data(sender_device_data).await?))
             }
@@ -1649,13 +1663,14 @@ impl Account {
         // to-device events with unverified senders from being allowed
         // through here, but there are some exceptions:
         //
-        // * m.room_key - we hold on to these until later, so if the sender becomes
-        //   verified later we can still use the key.
+        // * m.room_key - we hold on to these until later, so if the sender
+        //   becomes verified later we can still use the key.
         //
         // * m.room_key_request, m.room_key.withheld, m.key.verification.*,
-        //   m.secret.request - these are allowed as plaintext events, so we also allow
-        //   them encrypted from insecure devices. Note: the list of allowed types here
-        //   should match with what is allowed in handle_to_device_event.
+        //   m.secret.request - these are allowed as plaintext events, so we
+        //   also allow them encrypted from insecure devices. Note: the list of
+        //   allowed types here should match with what is allowed in
+        //   handle_to_device_event.
         match event_type {
             "m.room_key"
             | "m.room_key.withheld"
@@ -1669,13 +1684,14 @@ impl Account {
             | "m.key.verification.accept"
             | "m.key.verification.cancel"
             | "m.key.verification.request" => {
-                // This is one of the exception types - we allow it even if the sender device is
-                // not verified.
+                // This is one of the exception types - we allow it even if the
+                // sender device is not verified.
                 true
             }
             _ => {
-                // This is not an exception type - check for "exclude insecure devices" mode,
-                // and whether the sender is verified.
+                // This is not an exception type - check for "exclude insecure
+                // devices" mode, and whether the sender is
+                // verified.
                 satisfies_sender_trust_requirement(
                     &result.encryption_info,
                     &decryption_settings.sender_device_trust_requirement,
@@ -1699,7 +1715,8 @@ impl Account {
             .as_ref()
             .map(|device| {
                 if device.is_verified() {
-                    // The device is locally verified or signed by a verified user
+                    // The device is locally verified or signed by a verified
+                    // user
                     VerificationState::Verified
                 } else if device.is_cross_signed_by_owner() {
                     // The device is not verified, but it is signed by its owner
@@ -1806,8 +1823,8 @@ impl Account {
             OlmError::EventError(EventError::InvalidSenderDeviceKeys)
         })?;
 
-        // Check that the Ed25519 key in the sender_device_keys matches the `ed25519`
-        // key in the `keys` field in the event.
+        // Check that the Ed25519 key in the sender_device_keys matches the
+        // `ed25519` key in the `keys` field in the event.
         if sender_device_keys.ed25519_key() != Some(event.keys().ed25519) {
             warn!(
                 "Received a to-device message with sender_device_keys with incorrect \
@@ -1818,8 +1835,8 @@ impl Account {
             return Err(OlmError::EventError(EventError::InvalidSenderDeviceKeys));
         }
 
-        // Check that the Curve25519 key in the sender_device_keys matches the key that
-        // was used for the Olm session.
+        // Check that the Curve25519 key in the sender_device_keys matches the
+        // key that was used for the Olm session.
         if sender_device_keys.curve25519_key() != Some(sender_key) {
             warn!(
                 "Received a to-device message with sender_device_keys with incorrect \
@@ -1838,7 +1855,8 @@ impl Account {
     /// that we don't want the inner state to be shared.
     #[doc(hidden)]
     pub fn deep_clone(&self) -> Self {
-        // `vodozemac::Account` isn't really cloneable, but... Don't tell anyone.
+        // `vodozemac::Account` isn't really cloneable, but... Don't tell
+        // anyone.
         Self::from_pickle(self.pickle()).unwrap()
     }
 }
@@ -2048,8 +2066,8 @@ mod tests {
         );
         account.mark_keys_as_published();
 
-        // There's no unused fallback key on the server, but our initial fallback key
-        // did not yet expire.
+        // There's no unused fallback key on the server, but our initial
+        // fallback key did not yet expire.
         let unused_fallback_keys = &[];
         account.update_key_counts(&one_time_keys, Some(unused_fallback_keys.as_ref()), false);
         let (_, _, fallback_keys) = account.keys_for_upload();

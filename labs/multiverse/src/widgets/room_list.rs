@@ -140,8 +140,8 @@ impl Widget for &mut RoomList {
     where
         Self: Sized,
     {
-        // We create two blocks, one is for the header (outer) and the other is for list
-        // (inner).
+        // We create two blocks, one is for the header (outer) and the other is
+        // for list (inner).
         let outer_block = Block::default()
             .borders(Borders::RIGHT)
             .border_set(symbols::border::THICK)
@@ -152,16 +152,16 @@ impl Widget for &mut RoomList {
         let inner_block =
             Block::default().borders(Borders::NONE).fg(TEXT_COLOR).bg(NORMAL_ROW_COLOR);
 
-        // We get the inner area from outer_block. We'll use this area later to render
-        // the table.
+        // We get the inner area from outer_block. We'll use this area later to
+        // render the table.
         let outer_area = area;
         let inner_area = outer_block.inner(outer_area);
 
         // We can render the header in outer_area.
         outer_block.render(outer_area, buf);
 
-        // Don't keep this lock too long by cloning the content. RAM's free these days,
-        // right?
+        // Don't keep this lock too long by cloning the content. RAM's free
+        // these days, right?
         let mut room_info = self.room_infos.lock().clone();
 
         // Iterate through all elements in the `items` and stylize them.
@@ -204,7 +204,8 @@ impl Widget for &mut RoomList {
             })
             .collect();
 
-        // Create a List from all list items and highlight the currently selected one.
+        // Create a List from all list items and highlight the currently
+        // selected one.
         let items = List::new(items)
             .block(inner_block)
             .highlight_style(

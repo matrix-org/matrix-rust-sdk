@@ -109,9 +109,10 @@ async fn test_getting_most_recent_session() {
 
     let mut changes = Changes::default();
 
-    // Since the sessions are created quickly in succession and our timestamps have
-    // a resolution in seconds, it's very likely that we're going to end up
-    // with the same timestamps, so we manually masage them to be 10s apart.
+    // Since the sessions are created quickly in succession and our timestamps
+    // have a resolution in seconds, it's very likely that we're going to
+    // end up with the same timestamps, so we manually masage them to be 10s
+    // apart.
     let session_id = {
         let sessions = alice_machine
             .store()
@@ -126,8 +127,9 @@ async fn test_getting_most_recent_session() {
 
         let mut session_id = None;
 
-        // Iterate through the sessions skipping the first and last element so we know
-        // that the correct session isn't the first nor the last one.
+        // Iterate through the sessions skipping the first and last element so
+        // we know that the correct session isn't the first nor the last
+        // one.
         let (_, sessions_slice) = sessions.as_mut_slice().split_last_mut().unwrap();
 
         for session in sessions_slice.iter_mut().skip(1) {
@@ -160,8 +162,8 @@ async fn test_get_most_recent_session_of_device_with_no_curve_key() {
     let bob_device_id = device_id!("BOB_DEVICE");
 
     let bob_device_data = {
-        // Create a device with no Curve25519 key. It has to have an Ed25519 key, and be
-        // signed, for us to accept it
+        // Create a device with no Curve25519 key. It has to have an Ed25519
+        // key, and be signed, for us to accept it
         let bob_signing_key = Ed25519SecretKey::new();
 
         // Generate the unsigned structure
@@ -190,8 +192,8 @@ async fn test_get_most_recent_session_of_device_with_no_curve_key() {
 
     alice_machine.store().save_device_data(&[bob_device_data]).await.unwrap();
 
-    // Now, fetch the device from the store, and the most recent session should be
-    // None.
+    // Now, fetch the device from the store, and the most recent session should
+    // be None.
     let device = alice_machine.get_device(bob_user_id, bob_device_id, None).await.unwrap().unwrap();
     let newest_session = device.get_most_recent_session().await.unwrap();
     assert!(newest_session.is_none());

@@ -315,8 +315,8 @@ impl TaskMonitor {
             let failure_reason = match result {
                 Ok(()) => {
                     if runs_forever {
-                        // The background forever task ended, this is considered an early
-                        // termination.
+                        // The background forever task ended, this is considered
+                        // an early termination.
                         BackgroundTaskFailureReason::EarlyTermination
                     } else {
                         // The task ended successfully, no failure to report.
@@ -469,10 +469,10 @@ impl BackgroundTaskHandle {
     /// The task will be stopped and will NOT be reported as a failure
     /// (this is considered intentional termination).
     pub fn abort(&self) {
-        // Note: ordering matters here, we set the flag before aborting otherwise
-        // there's a possible race condition where the abort() is observed
-        // before the flag is set, and the task monitor would consider this an
-        // unexpected termination.
+        // Note: ordering matters here, we set the flag before aborting
+        // otherwise there's a possible race condition where the abort()
+        // is observed before the flag is set, and the task monitor
+        // would consider this an unexpected termination.
         self.intentionally_aborted.store(true, Ordering::Release);
         self.abort_handle.abort();
     }

@@ -272,8 +272,9 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 1 {
         debug!("Creating database");
-        // First turn on WAL mode, this can't be done in the transaction, it fails with
-        // the error message: "cannot change into wal mode from within a transaction".
+        // First turn on WAL mode, this can't be done in the transaction, it
+        // fails with the error message: "cannot change into wal mode
+        // from within a transaction".
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/media_store/001_init.sql"))?;
@@ -547,8 +548,8 @@ impl MediaStoreInner for SqliteMediaStore {
         let data = conn
             .with_transaction::<_, rusqlite::Error, _>(move |txn| {
                 // Update the last access.
-                // We need to do this first so the transaction is in write mode right away.
-                // See: https://sqlite.org/lang_transaction.html#read_transactions_versus_write_transactions
+                // We need to do this first so the transaction is in write mode
+                // right away. See: https://sqlite.org/lang_transaction.html#read_transactions_versus_write_transactions
                 txn.execute(
                     "UPDATE media SET last_access = ? WHERE uri = ? AND format = ?",
                     (timestamp, &uri, &format),
@@ -607,10 +608,12 @@ impl MediaStoreInner for SqliteMediaStore {
                     }
                 }
 
-                // Finally, if the cache size is too big, remove old items until it fits.
+                // Finally, if the cache size is too big, remove old items until
+                // it fits.
                 if let Some(max_cache_size) = policy.max_cache_size {
-                    // i64 is the integer type used by SQLite, use it here to avoid usize overflow
-                    // during the conversion of the result.
+                    // i64 is the integer type used by SQLite, use it here to
+                    // avoid usize overflow during the
+                    // conversion of the result.
                     let cache_size = txn
                         .query_row(
                             "SELECT sum(length(data)) FROM media WHERE ignore_policy IS FALSE",
@@ -622,9 +625,11 @@ impl MediaStoreInner for SqliteMediaStore {
                         )?
                         .unwrap_or_default();
 
-                    // If the cache size is overflowing or bigger than max cache size, clean up.
+                    // If the cache size is overflowing or bigger than max cache
+                    // size, clean up.
                     if cache_size > max_cache_size {
-                        // Get the sizes of the media contents ordered by last access.
+                        // Get the sizes of the media contents ordered by last
+                        // access.
                         let mut cached_stmt = txn.prepare_cached(
                             "SELECT rowid, length(data) FROM media \
                              WHERE ignore_policy IS FALSE ORDER BY last_access DESC",
@@ -658,8 +663,10 @@ impl MediaStoreInner for SqliteMediaStore {
                                 }
                                 Some(acc) => accumulated_items_size = acc,
                                 None => {
-                                    // The accumulated size is overflowing but the setting cannot be
-                                    // bigger than usize::MAX, we can stop accumulating.
+                                    // The accumulated size is overflowing but
+                                    // the setting cannot be
+                                    // bigger than usize::MAX, we can stop
+                                    // accumulating.
                                     limit_reached = true;
                                     rows_to_remove.push(row_id);
                                 }
@@ -794,8 +801,8 @@ mod tests {
             .await
             .expect("adding file failed");
 
-        // Since the precision of the timestamp is in seconds, wait so the timestamps
-        // differ.
+        // Since the precision of the timestamp is in seconds, wait so the
+        // timestamps differ.
         tokio::time::sleep(Duration::from_secs(3)).await;
 
         media_store
@@ -814,8 +821,8 @@ mod tests {
         assert_eq!(contents[0], thumbnail_content, "thumbnail is not last access");
         assert_eq!(contents[1], content, "file is not second-to-last access");
 
-        // Since the precision of the timestamp is in seconds, wait so the timestamps
-        // differ.
+        // Since the precision of the timestamp is in seconds, wait so the
+        // timestamps differ.
         tokio::time::sleep(Duration::from_secs(3)).await;
 
         // Access the file so its last access is more recent.

@@ -857,7 +857,8 @@ async fn test_subscribe_to_typing_notifications() {
                 let mut typing_sequences = typing_sequences.lock().unwrap();
                 typing_sequences.push(typing_user_ids);
 
-                // When we have received 2 typing notifications, we can stop listening.
+                // When we have received 2 typing notifications, we can stop
+                // listening.
                 if typing_sequences.len() == 2 {
                     break;
                 }
@@ -865,8 +866,8 @@ async fn test_subscribe_to_typing_notifications() {
         }
     });
 
-    // Then send a typing notification with 3 users typing, including the current
-    // user.
+    // Then send a typing notification with 3 users typing, including the
+    // current user.
     let f = EventFactory::new();
     server
         .sync_room(
@@ -1233,8 +1234,8 @@ async fn test_remove_outdated_seen_knock_requests_ids_when_membership_changed() 
     let seen = room.get_seen_knock_request_ids().await.unwrap();
     assert_eq!(seen.len(), 1);
 
-    // If we then load the members again and the previously knocking member is in
-    // another state now
+    // If we then load the members again and the previously knocking member is
+    // in another state now
     let joined_event = f.member(user_id).membership(MembershipState::Join).into_raw();
 
     server.mock_get_members().ok(vec![joined_event]).mock_once().mount().await;
@@ -1278,8 +1279,8 @@ async fn test_remove_outdated_seen_knock_requests_ids_when_we_have_an_outdated_k
     let seen = room.get_seen_knock_request_ids().await.unwrap();
     assert_eq!(seen.len(), 1);
 
-    // If we then load the members again and the previously knocking member has a
-    // different event id
+    // If we then load the members again and the previously knocking member has
+    // a different event id
     let knock_event = f
         .member(user_id)
         .membership(MembershipState::Knock)
@@ -1340,8 +1341,8 @@ async fn test_subscribe_to_knock_requests_clears_seen_ids_on_member_reload() {
     assert_eq!(seen_knock.event_id, knock_event_id);
     assert!(seen_knock.is_seen);
 
-    // If we then load the members again and the previously knocking member is in
-    // another state now
+    // If we then load the members again and the previously knocking member is
+    // in another state now
     let joined_event = f.member(user_id).membership(MembershipState::Join).into_raw();
 
     server.mock_get_members().ok(vec![joined_event]).mock_once().mount().await;

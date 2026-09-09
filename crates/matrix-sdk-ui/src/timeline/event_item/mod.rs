@@ -334,8 +334,8 @@ impl EventTimelineItem {
 
     /// Flag indicating this timeline item can be edited by the current user.
     pub fn is_editable(&self) -> bool {
-        // Steps here should be in sync with [`EventTimelineItem::edit_info`] and
-        // [`Timeline::edit_poll`].
+        // Steps here should be in sync with [`EventTimelineItem::edit_info`]
+        // and [`Timeline::edit_poll`].
 
         if !self.is_own() {
             // In theory could work, but it's hard to compute locally.
@@ -397,8 +397,9 @@ impl EventTimelineItem {
         }
 
         // A live-location item originates from a `beacon_info` *state* event,
-        // which cannot be encrypted (except with `experimental-encrypted-state-events`
-        // flag). The actual location updates (`beacon` message-like events)
+        // which cannot be encrypted (except with
+        // `experimental-encrypted-state-events` flag). The actual
+        // location updates (`beacon` message-like events)
         // *are* encrypted.
         //
         // When there are no beacons yet we return `None` (the state event
@@ -446,8 +447,9 @@ impl EventTimelineItem {
         } else if self.content.is_message() {
             true
         } else if self.content().as_live_location_state().is_some() {
-            // Live location sharing session (MSC3489) events are state events, not always
-            // displayed in a timeline, so can't be replied to.
+            // Live location sharing session (MSC3489) events are state events,
+            // not always displayed in a timeline, so can't be
+            // replied to.
             false
         } else {
             self.latest_json().is_some()

@@ -410,8 +410,8 @@ async fn test_login_with_cross_signing_bootstrapping() {
 
                     *num_calls += 1;
                 } else {
-                    // Second time, we use a login token. Pretend MSC3967 is enabled and require an
-                    // empty auth.
+                    // Second time, we use a login token. Pretend MSC3967 is
+                    // enabled and require an empty auth.
                     assert!(params.auth.is_none());
                 }
             }

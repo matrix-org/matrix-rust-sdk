@@ -40,7 +40,8 @@ async fn setup_mocking_sliding_sync_server(
     Mock::given(SlidingSyncMatcher)
         .respond_with(move |request: &Request| {
             let partial_request: PartialSlidingSyncRequest = request.body_json().unwrap();
-            // Repeat the transaction id in the response, to validate sticky parameters.
+            // Repeat the transaction id in the response, to validate sticky
+            // parameters.
             let mut pos = match partial_request.conn_id.as_deref() {
                 Some("encryption") => encryption_pos.lock().unwrap(),
                 Some("room-list") => room_pos.lock().unwrap(),
@@ -140,7 +141,8 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     );
     assert!(latest_room_list_pos.is_some());
 
-    // Now reset the server, wait for a bit that it doesn't receive extra requests.
+    // Now reset the server, wait for a bit that it doesn't receive extra
+    // requests.
     drop(guard);
     server.reset().await;
     let _guard =
@@ -150,8 +152,8 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
 
     assert!(server.received_requests().await.unwrap().is_empty());
 
-    // When restarting and waiting a bit, the server gets new requests, starting at
-    // the same position than just before being stopped.
+    // When restarting and waiting a bit, the server gets new requests, starting
+    // at the same position than just before being stopped.
     sync_service.start().await;
     assert_next_matches!(state_stream, State::Running);
     assert!(sync_service.is_supervisor_running().await);
@@ -176,8 +178,9 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
                 num_encryption_sync_requests += 1;
             } else if conn_id == "room-list" {
                 if num_room_list_requests == 0 {
-                    // Either it's the same pos, or it's the next one if the request could be
-                    // processed by the client.
+                    // Either it's the same pos, or it's the next one if the
+                    // request could be processed by the
+                    // client.
                     let mut current_pos = None;
                     for (key, val) in request.url.query_pairs() {
                         if key == "pos" {

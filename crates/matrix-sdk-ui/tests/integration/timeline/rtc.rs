@@ -429,8 +429,8 @@ async fn test_only_update_notification_after_it_has_been_marked_as_last() {
         )
         .await;
 
-    // Ensure that the existing notification timeline item has no info about the new
-    // call
+    // Ensure that the existing notification timeline item has no info about the
+    // new call
     assert_let_timeout!(Some(_timeline_updates) = timeline_stream.next());
 
     let items = timeline.items().await;
@@ -493,8 +493,8 @@ async fn test_only_update_notification_after_it_has_been_marked_as_last() {
             notification.content()
     );
 
-    // If there is a new membership, then this is a new call, should not update the
-    // old notification
+    // If there is a new membership, then this is a new call, should not update
+    // the old notification
 
     server
         .sync_room(

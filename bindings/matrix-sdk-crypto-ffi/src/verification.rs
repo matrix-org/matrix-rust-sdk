@@ -260,9 +260,9 @@ impl Sas {
         listener: Box<dyn SasListener>,
     ) {
         while let Some(state) = stream.next().await {
-            // If we receive a done or a cancelled state we're at the end of our road, we
-            // break out of the loop to deallocate the stream and finish the
-            // task.
+            // If we receive a done or a cancelled state we're at the end of our
+            // road, we break out of the loop to deallocate the
+            // stream and finish the task.
             let should_break =
                 matches!(state, RustSasState::Done { .. } | RustSasState::Cancelled { .. });
 
@@ -442,9 +442,9 @@ impl QrCode {
         listener: Box<dyn QrCodeListener>,
     ) {
         while let Some(state) = stream.next().await {
-            // If we receive a done or a cancelled state we're at the end of our road, we
-            // break out of the loop to deallocate the stream and finish the
-            // task.
+            // If we receive a done or a cancelled state we're at the end of our
+            // road, we break out of the loop to deallocate the
+            // stream and finish the task.
             let should_break = matches!(
                 state,
                 QrVerificationState::Done { .. } | QrVerificationState::Cancelled { .. }
@@ -787,9 +787,9 @@ impl VerificationRequest {
         listener: Box<dyn VerificationRequestListener>,
     ) {
         while let Some(state) = stream.next().await {
-            // If we receive a done or a cancelled state we're at the end of our road, we
-            // break out of the loop to deallocate the stream and finish the
-            // task.
+            // If we receive a done or a cancelled state we're at the end of our
+            // road, we break out of the loop to deallocate the
+            // stream and finish the task.
             let should_break = matches!(
                 state,
                 RustVerificationRequestState::Done | RustVerificationRequestState::Cancelled { .. }

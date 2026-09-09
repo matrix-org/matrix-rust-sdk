@@ -330,7 +330,8 @@ async fn test_send_attachment_from_bytes() -> TestResult {
             assert_let!(MessageType::File(file) = msg.msgtype());
             assert_let!(MediaSource::Plain(uri) = &file.source);
 
-            // Check if the upload finished and the URI now refers to the final MXC URI.
+            // Check if the upload finished and the URI now refers to the final
+            // MXC URI.
             if progress.current == progress.total && *uri == "mxc://sdk.rs/media" {
                 break;
             }
@@ -422,8 +423,8 @@ async fn test_send_media_with_thumbnail() -> TestResult {
         assert_let!(MessageType::Image(content) = msg.msgtype());
         assert_eq!(content.filename(), "image.png");
 
-        // At the moment, it's stored in the media cache store, so its media source
-        // references a local URI.
+        // At the moment, it's stored in the media cache store, so its media
+        // source references a local URI.
         assert_let!(MediaSource::Plain(uri) = &content.source);
         assert!(uri.to_string().contains("localhost"));
 
@@ -433,7 +434,8 @@ async fn test_send_media_with_thumbnail() -> TestResult {
         assert!(uri.to_string().contains("localhost"));
 
         let thumbnail = media_info.thumbnail_info.as_ref().unwrap();
-        // Sanity checks, although we're not quite interested in these values here.
+        // Sanity checks, although we're not quite interested in these values
+        // here.
         assert_eq!(thumbnail.height.unwrap(), uint!(13));
         assert_eq!(thumbnail.width.unwrap(), uint!(37));
         assert_eq!(thumbnail.size.unwrap(), uint!(42));
@@ -507,7 +509,8 @@ async fn test_send_media_with_thumbnail() -> TestResult {
         );
         assert_let!(Some(msg) = item.content().as_message());
 
-        // Message is an image, as intended, and both MXC URIs are not local anymore.
+        // Message is an image, as intended, and both MXC URIs are not local
+        // anymore.
         assert_let!(MessageType::Image(content) = msg.msgtype());
         assert_eq!(content.filename(), "image.png");
 
@@ -538,9 +541,9 @@ async fn test_send_media_with_thumbnail() -> TestResult {
         );
         assert_eq!(thumbnail_uri.to_string(), "mxc://sdk.rs/thumbnail");
 
-        // Now, getting the thumbnail should be a cache hit and not require an extra
-        // endpoint to be set up; the test will fail with a 404 error if there's
-        // a cache miss.
+        // Now, getting the thumbnail should be a cache hit and not require an
+        // extra endpoint to be set up; the test will fail with a 404
+        // error if there's a cache miss.
         let use_cache = true;
         let retrieved_thumbnail_data = client
             .media()
@@ -556,8 +559,8 @@ async fn test_send_media_with_thumbnail() -> TestResult {
         // And the thumbnail data matches what we've sent.
         assert_eq!(retrieved_thumbnail_data, thumbnail_data);
 
-        // Another way to get the thumbnail data is to request a thumbnail with the same
-        // sizes as the ones we've sent during the upload.
+        // Another way to get the thumbnail data is to request a thumbnail with
+        // the same sizes as the ones we've sent during the upload.
         let retrieved_thumbnail_data = client
             .media()
             .get_media_content(

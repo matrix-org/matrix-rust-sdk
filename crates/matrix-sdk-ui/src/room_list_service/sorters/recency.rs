@@ -62,9 +62,9 @@ type Score = u64;
 fn extract_scores(left: &RoomListItem, right: &RoomListItem) -> (Option<Score>, Option<Score>) {
     // Warning 1.
     //
-    // Be careful. This method is called **a lot** in the context of a sorter. Using
-    // `Room::latest_event` would be dramatic as it returns a clone of the
-    // `LatestEventValue`. It's better to use the more specific method
+    // Be careful. This method is called **a lot** in the context of a sorter.
+    // Using `Room::latest_event` would be dramatic as it returns a clone of
+    // the `LatestEventValue`. It's better to use the more specific method
     // `Room::latest_event_timestamp`, where the value is cached in
     // `RoomListItem::cached_latest_event_timestamp`.
 
@@ -74,12 +74,12 @@ fn extract_scores(left: &RoomListItem, right: &RoomListItem) -> (Option<Score>, 
     // must always be the same while sorting the rooms. Thus, the following
     // rules must apply:
     //
-    // - Nominal case: Two rooms with a latest event can be compared together based
-    //   on their latest event's timestamp,
-    // - Case #1: If a room has a latest event, but the other doesn't have one, the
-    //   first room has a score but the other doesn't have one,
-    // - Case #2: If none of the room has a latest event, we fallback to the recency
-    //   stamp for both rooms.
+    // - Nominal case: Two rooms with a latest event can be compared together
+    //   based on their latest event's timestamp,
+    // - Case #1: If a room has a latest event, but the other doesn't have one,
+    //   the first room has a score but the other doesn't have one,
+    // - Case #2: If none of the room has a latest event, we fallback to the
+    //   recency stamp for both rooms.
     //
     // The most important aspect is: if room returns its latest event's
     // timestamp or its recency stamp, _once_, it must return it every time
@@ -202,7 +202,8 @@ mod tests {
 
         // `room_a` has `None`, `room_b` has something else.
         //
-        // One of the room has a latest event, so the recency stamp MUST BE IGNORED.
+        // One of the room has a latest event, so the recency stamp MUST BE
+        // IGNORED.
         {
             set_latest_event_value(&mut room_a, none()).await;
             set_latest_event_value(&mut room_b, remote(3)).await;
@@ -212,7 +213,8 @@ mod tests {
 
         // `room_b` has `None`, `room_a` has something else.
         //
-        // One of the room has a latest event, so the recency stamp MUST BE IGNORED.
+        // One of the room has a latest event, so the recency stamp MUST BE
+        // IGNORED.
         {
             set_latest_event_value(&mut room_a, remote(3)).await;
             set_latest_event_value(&mut room_b, none()).await;
@@ -317,9 +319,9 @@ mod tests {
         }
     }
 
-    // Property tests to ensure that our comparison implementation for the `Score`
-    // is total[1]. If it wasn't so, a call to `sort_by()` with the given
-    // `cmp()` method could panic.
+    // Property tests to ensure that our comparison implementation for the
+    // `Score` is total[1]. If it wasn't so, a call to `sort_by()` with the
+    // given `cmp()` method could panic.
     //
     // [1]: https://en.wikipedia.org/wiki/Total_order
     proptest! {

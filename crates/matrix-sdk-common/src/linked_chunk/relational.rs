@@ -220,21 +220,24 @@ where
                         let linked_chunk_items =
                             self.items.entry(linked_chunk_id.to_owned()).or_default();
 
-                        // Ensure item does not already exist in another position
-                        // in this linked chunk.
+                        // Ensure item does not already exist in another
+                        // position in this linked
+                        // chunk.
                         //
-                        // Note that we do not check `items_chunks`, going through each
-                        // `ItemRow` is very slow. So, it is imperative that `items` is
-                        // kept in sync with `items_chunks` in order for the check below
-                        // to be sufficient.
+                        // Note that we do not check `items_chunks`, going
+                        // through each `ItemRow` is
+                        // very slow. So, it is imperative that `items` is
+                        // kept in sync with `items_chunks` in order for the
+                        // check below to be sufficient.
                         if let Some((_, position)) = linked_chunk_items.get(&item_id)
                             && position.is_some()
                         {
                             return Err(RelationalLinkedChunkError::ItemAlreadyInLinkedChunk);
                         }
 
-                        // Ensure position is not occupied by another item. If position
-                        // is already occupied, return an error.
+                        // Ensure position is not occupied by another item. If
+                        // position is already occupied,
+                        // return an error.
                         if self.items_positions.insert((linked_chunk_id.to_owned(), at)).not() {
                             return Err(RelationalLinkedChunkError::PositionAlreadyOccupied);
                         }
@@ -246,7 +249,8 @@ where
                             item: Either::Item(item_id),
                         });
 
-                        // Ensure item is updated if it exists anywhere else in the store
+                        // Ensure item is updated if it exists anywhere else in
+                        // the store
                         for items in &mut self.items.values_mut() {
                             items.entry(item.id()).and_modify(|e| e.0 = item.clone());
                         }
@@ -272,7 +276,8 @@ where
                         .insert(item_id.clone(), (item.clone(), Some(at)));
                     existing.item = Either::Item(item_id.clone());
 
-                    // Ensure item is updated if it exists anywhere else in the store
+                    // Ensure item is updated if it exists anywhere else in the
+                    // store
                     for items in &mut self.items.values_mut() {
                         items.entry(item_id.clone()).and_modify(|e| e.0 = item.clone());
                     }
@@ -307,7 +312,8 @@ where
                             entry_to_remove = Some(nth);
                         }
 
-                        // Update all items that come _after_ `at` to shift their index.
+                        // Update all items that come _after_ `at` to shift
+                        // their index.
                         if position.chunk_identifier() == at.chunk_identifier()
                             && position.index() > at.index()
                         {
@@ -588,7 +594,8 @@ where
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<(Option<RawChunk<Item, Gap>>, ChunkIdentifierGenerator), String> {
-        // Find the latest chunk identifier to generate a `ChunkIdentifierGenerator`.
+        // Find the latest chunk identifier to generate a
+        // `ChunkIdentifierGenerator`.
         let chunk_identifier_generator = match self
             .chunks
             .iter()
@@ -651,7 +658,8 @@ where
         linked_chunk_id: LinkedChunkId<'_>,
         before_chunk_identifier: ChunkIdentifier,
     ) -> Result<Option<RawChunk<Item, Gap>>, String> {
-        // Find the chunk before the chunk identified by `before_chunk_identifier`.
+        // Find the chunk before the chunk identified by
+        // `before_chunk_identifier`.
         let Some(chunk_row) = self.chunks.iter().find(|chunk_row| {
             chunk_row.linked_chunk_id == linked_chunk_id
                 && chunk_row.next_chunk == Some(before_chunk_identifier)
@@ -813,8 +821,9 @@ where
     Ok(match first_item.item {
         // This is a chunk of kind `Items`.
         Either::Item(_) => {
-            // Count all the items. We add an additional filter that will exclude gaps, in
-            // case the chunk is malformed, but we should not have to, in theory.
+            // Count all the items. We add an additional filter that will
+            // exclude gaps, in case the chunk is malformed, but we
+            // should not have to, in theory.
 
             let mut num_items = 0;
             for item in items {

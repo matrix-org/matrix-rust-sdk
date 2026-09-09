@@ -185,9 +185,9 @@ impl IdentityManager {
             "Handling a `/keys/query` response"
         );
 
-        // Parse the strings into server names and filter out our own server. We should
-        // never get failures from our own server but let's remove it as a
-        // precaution anyways.
+        // Parse the strings into server names and filter out our own server. We
+        // should never get failures from our own server but let's
+        // remove it as a precaution anyways.
         let failed_servers = response
             .failures
             .keys()
@@ -214,22 +214,25 @@ impl IdentityManager {
 
         self.store.save_changes(changes).await?;
 
-        // Update the sender data on any existing inbound group sessions based on the
-        // changes in this response.
+        // Update the sender data on any existing inbound group sessions based
+        // on the changes in this response.
         //
-        // `update_sender_data_from_device_changes` relies on being able to look up the
-        // user identities from the store, so this has to happen *after* the
-        // changes from `handle_cross_signing_keys` are saved.
+        // `update_sender_data_from_device_changes` relies on being able to look
+        // up the user identities from the store, so this has to happen
+        // *after* the changes from `handle_cross_signing_keys` are
+        // saved.
         //
-        // Note: it might be possible for this to race against session creation. If a
-        // new session is received at the same time as a `/keys/query` response is being
-        // processed, it could be saved without up-to-date sender data, but it might be
+        // Note: it might be possible for this to race against session creation.
+        // If a new session is received at the same time as a
+        // `/keys/query` response is being processed, it could be saved
+        // without up-to-date sender data, but it might be
         // saved too late for it to be picked up by
-        // `update_sender_data_from_device_changes`. However, this should be rare,
-        // since, in general, /sync responses which might create a new session
-        // are not processed at the same time as /keys/query responses (assuming
-        // that the application does not call `OlmMachine::receive_sync_changes`
-        // at the same time as `OlmMachine::mark_request_as_sent`).
+        // `update_sender_data_from_device_changes`. However, this should be
+        // rare, since, in general, /sync responses which might create a
+        // new session are not processed at the same time as /keys/query
+        // responses (assuming that the application does not call
+        // `OlmMachine::receive_sync_changes` at the same time as
+        // `OlmMachine::mark_request_as_sent`).
         self.update_sender_data_from_device_changes(&devices).await?;
 
         // if this request is one of those we expected to be in flight, pass the
@@ -485,7 +488,8 @@ impl IdentityManager {
             }
             #[cfg(feature = "experimental-x509-identity-verification")]
             {
-                // Check if we need to re-sign our identity with the X.509 signer.
+                // Check if we need to re-sign our identity with the X.509
+                // signer.
                 *self.x509_signature_upload_request.lock().await =
                     identity.refresh_x509_signature(&self.store).await.unwrap_or(None).into();
             }
@@ -603,7 +607,8 @@ impl IdentityManager {
             *changed_private_identity = self.check_private_identity(&identity).await;
             Ok(identity.into())
         } else {
-            // First time seen, create the identity. The current MSK will be pinned.
+            // First time seen, create the identity. The current MSK will be
+            // pinned.
             let identity = OtherUserIdentityData::new(master_key, self_signing)?;
             let is_verified = maybe_verified_own_identity
                 .is_some_and(|own_user_identity| own_user_identity.is_identity_signed(&identity));
@@ -803,8 +808,9 @@ impl IdentityManager {
         let mut changes = IdentityChanges::default();
         let mut changed_identity = None;
 
-        // We want to check if the updated/new other identities are trusted by us or
-        // not. This is based on the current verified state of the own identity.
+        // We want to check if the updated/new other identities are trusted by
+        // us or not. This is based on the current verified state of the
+        // own identity.
         let maybe_own_verified_identity = self
             .store
             .get_identity(self.user_id())
@@ -813,8 +819,9 @@ impl IdentityManager {
             .filter(|own| own.is_verified());
 
         for (user_id, master_key) in &response.master_keys {
-            // Get the master and self-signing key for each identity; those are required for
-            // every user identity type. If we don't have those we skip over.
+            // Get the master and self-signing key for each identity; those are
+            // required for every user identity type. If we don't
+            // have those we skip over.
             let Some((master_key, self_signing)) =
                 Self::get_minimal_set_of_keys(master_key.cast_ref(), response)
             else {
@@ -857,14 +864,16 @@ impl IdentityManager {
         &self,
         users: impl IntoIterator<Item = &'a UserId>,
     ) -> (OwnedTransactionId, KeysQueryRequest) {
-        // Since this is an "out-of-band" request, we just make up a transaction ID and
-        // do not store the details in `self.keys_query_request_details`.
+        // Since this is an "out-of-band" request, we just make up a transaction
+        // ID and do not store the details in
+        // `self.keys_query_request_details`.
         //
-        // `receive_keys_query_response` will process the response as normal, except
-        // that it will not mark the users as "up-to-date".
+        // `receive_keys_query_response` will process the response as normal,
+        // except that it will not mark the users as "up-to-date".
 
-        // We assume that there aren't too many users here; if we find a usecase that
-        // requires lots of users to be up-to-date we may need to rethink this.
+        // We assume that there aren't too many users here; if we find a usecase
+        // that requires lots of users to be up-to-date we may need to
+        // rethink this.
         (TransactionId::new(), KeysQueryRequest::new(users.into_iter().map(|u| u.to_owned())))
     }
 
@@ -925,9 +934,9 @@ impl IdentityManager {
         // Forget about any previous key queries in flight.
         *self.keys_query_request_details.lock().await = None;
 
-        // We always want to track our own user, but in case we aren't in an encrypted
-        // room yet, we won't be tracking ourselves yet. This ensures we are always
-        // tracking ourselves.
+        // We always want to track our own user, but in case we aren't in an
+        // encrypted room yet, we won't be tracking ourselves yet. This
+        // ensures we are always tracking ourselves.
         //
         // The check for emptiness is done first for performance.
         let (users, sequence_number) = {
@@ -947,15 +956,17 @@ impl IdentityManager {
         if users.is_empty() {
             Ok(BTreeMap::new())
         } else {
-            // Let's remove users that are part of the `FailuresCache`. The cache, which is
-            // a TTL cache, remembers users for which a previous `/key/query` request has
-            // failed. We don't retry a `/keys/query` for such users for a
+            // Let's remove users that are part of the `FailuresCache`. The
+            // cache, which is a TTL cache, remembers users for
+            // which a previous `/key/query` request has failed. We
+            // don't retry a `/keys/query` for such users for a
             // certain amount of time.
             let users = users.into_iter().filter(|u| !self.failures.contains(u.server_name()));
 
-            // We don't want to create a single `/keys/query` request with an infinite
-            // amount of users. Some servers will likely bail out after a
-            // certain amount of users and the responses will be large. In the
+            // We don't want to create a single `/keys/query` request with an
+            // infinite amount of users. Some servers will likely
+            // bail out after a certain amount of users and the
+            // responses will be large. In the
             // case of a transmission error, we'll have to retransmit the large
             // response.
             //
@@ -974,8 +985,8 @@ impl IdentityManager {
                 .collect();
 
             // Collect the request IDs, these will be used later in the
-            // `receive_keys_query_response()` method to figure out if the user can be
-            // marked as up-to-date/non-dirty.
+            // `receive_keys_query_response()` method to figure out if the user
+            // can be marked as up-to-date/non-dirty.
             let request_ids = requests.keys().cloned().collect();
             let request_details = KeysQueryRequestDetails { sequence_number, request_ids };
 
@@ -1033,36 +1044,41 @@ impl IdentityManager {
 
             // Now, look for users who have no devices at all.
             //
-            // If a user has no devices at all, that implies we have never (successfully)
-            // done a `/keys/query` for them; we wait for one to complete if it is
-            // in flight. (Of course, the user might genuinely have no devices, but
-            // that's fine, it just means we redundantly grab the cache guard and
-            // check the pending-query flag.)
+            // If a user has no devices at all, that implies we have never
+            // (successfully) done a `/keys/query` for them; we wait
+            // for one to complete if it is in flight. (Of course,
+            // the user might genuinely have no devices, but
+            // that's fine, it just means we redundantly grab the cache guard
+            // and check the pending-query flag.)
             if !devices.is_empty() {
                 // This user has at least one known device.
                 //
-                // The device list may also be outdated in this case; but in this
-                // situation, we are racing between sending a message and retrieving their
-                // device list. That's an inherently racy situation and there is no real
-                // benefit to waiting for the `/keys/query` request to complete. So we don't
-                // bother.
+                // The device list may also be outdated in this case; but in
+                // this situation, we are racing between sending
+                // a message and retrieving their device list.
+                // That's an inherently racy situation and there is no real
+                // benefit to waiting for the `/keys/query` request to complete.
+                // So we don't bother.
                 //
                 // We just add their devices to the result and carry on.
                 devices_by_user.insert(user_id.to_owned(), devices);
                 continue;
             }
 
-            // *However*, if the user's server is currently subject to a backoff due to
-            // previous failures, then `users_for_key_query` won't attempt to query
-            // for the user's devices, so there's no point waiting.
+            // *However*, if the user's server is currently subject to a backoff
+            // due to previous failures, then `users_for_key_query`
+            // won't attempt to query for the user's devices, so
+            // there's no point waiting.
             //
             // XXX: this is racy. It's possible that:
-            //  * `failures` included the user's server when `users_for_key_query` was
-            //    called, so the user was not returned in the `KeyQueryRequest`, and:
+            //  * `failures` included the user's server when
+            //    `users_for_key_query` was called, so the user was not returned
+            //    in the `KeyQueryRequest`, and:
             //  * The backoff has now expired.
             //
-            // In that case, we'll end up waiting for the *next* `users_for_key_query` call,
-            // which might not be for 30 seconds or so. (And by then, it might be `failed`
+            // In that case, we'll end up waiting for the *next*
+            // `users_for_key_query` call, which might not be for 30
+            // seconds or so. (And by then, it might be `failed`
             // again.)
             if self.failures.contains(user_id.server_name()) {
                 users_with_no_devices_on_failed_servers.push(user_id);
@@ -1080,12 +1096,13 @@ impl IdentityManager {
         }
 
         if !users_with_no_devices_on_unfailed_servers.is_empty() {
-            // For each user with no devices, fire off a task to wait for a `/keys/query`
-            // result if one is pending.
+            // For each user with no devices, fire off a task to wait for a
+            // `/keys/query` result if one is pending.
             //
-            // We don't actually update the `devices_by_user` map here since that could
-            // require concurrent access to it. Instead each task returns a
-            // `(OwnedUserId, HashMap)` pair (or rather, an `Option` of one) so that we can
+            // We don't actually update the `devices_by_user` map here since
+            // that could require concurrent access to it. Instead
+            // each task returns a `(OwnedUserId, HashMap)` pair (or
+            // rather, an `Option` of one) so that we can
             // add the results to the map.
             let results = join_all(
                 users_with_no_devices_on_unfailed_servers
@@ -1147,26 +1164,28 @@ impl IdentityManager {
         device_changes: &DeviceChanges,
     ) -> Result<(), CryptoStoreError> {
         for device in device_changes.new.iter().chain(device_changes.changed.iter()) {
-            // 1. Look for InboundGroupSessions from the device whose sender_data is
-            //    UnknownDevice. For such sessions, we now have the device, and can update
-            //    the sender_data accordingly.
+            // 1. Look for InboundGroupSessions from the device whose
+            //    sender_data is UnknownDevice. For such sessions, we now have
+            //    the device, and can update the sender_data accordingly.
             //
-            // In theory, we only need to do this for new devices. In practice, I'm a bit
-            // worried about races leading us to getting stuck in the
-            // UnknownDevice state, so we'll paper over that by doing this check
-            // on device updates too.
+            // In theory, we only need to do this for new devices. In practice,
+            // I'm a bit worried about races leading us to getting
+            // stuck in the UnknownDevice state, so we'll paper over
+            // that by doing this check on device updates too.
             self.update_sender_data_for_sessions_for_device(device, SenderDataType::UnknownDevice)
                 .await?;
 
             // 2. If, and only if, the device is now correctly cross-signed (ie,
-            //    device.is_cross_signed_by_owner() is true, and we have the master
-            //    cross-signing key for the owner), look for InboundGroupSessions from the
-            //    device whose sender_data is DeviceInfo. We can also update the sender_data
-            //    for these sessions.
+            //    device.is_cross_signed_by_owner() is true, and we have the
+            //    master cross-signing key for the owner), look for
+            //    InboundGroupSessions from the device whose sender_data is
+            //    DeviceInfo. We can also update the sender_data for these
+            //    sessions.
             //
-            // In theory, we can skip a couple of steps of the SenderDataFinder algorithm,
-            // because we're doing the cross-signing check here. In practice,
-            // it's *way* easier just to use the same logic.
+            // In theory, we can skip a couple of steps of the SenderDataFinder
+            // algorithm, because we're doing the cross-signing
+            // check here. In practice, it's *way* easier just to
+            // use the same logic.
             let device_owner_identity = self.store.get_user_identity(device.user_id()).await?;
             if device_owner_identity.is_some_and(|id| device.is_cross_signed_by_owner(&id)) {
                 self.update_sender_data_for_sessions_for_device(device, SenderDataType::DeviceInfo)
@@ -1414,9 +1433,9 @@ pub(crate) mod testing {
         ruma_response_from_json(data)
     }
 
-    // An updated version of `other_key_query` featuring an additional signature on
-    // the master key *Note*: The added signature is actually not valid, but a
-    // valid signature  is not required for our test.
+    // An updated version of `other_key_query` featuring an additional signature
+    // on the master key *Note*: The added signature is actually not valid,
+    // but a valid signature  is not required for our test.
     pub fn other_key_query_cross_signed() -> KeyQueryResponse {
         let data = json!({
             "device_keys": {
@@ -1932,7 +1951,8 @@ pub(crate) mod tests {
                 .any(|(_, r)| r.device_keys.contains_key(alice))
         );
 
-        // clearing the failure flag should make the user reappear in the query list.
+        // clearing the failure flag should make the user reappear in the query
+        // list.
         manager.failures.remove([alice.server_name().to_owned()].iter());
         assert!(
             manager
@@ -2075,8 +2095,9 @@ pub(crate) mod tests {
         let (new_request_id, _) =
             manager.as_ref().unwrap().build_key_query_for_users(vec![user_id()]);
 
-        // A second `/keys/query` response with the same result shouldn't fire a change
-        // notification: the identity and device should be unchanged.
+        // A second `/keys/query` response with the same result shouldn't fire a
+        // change notification: the identity and device should be
+        // unchanged.
         manager
             .as_ref()
             .unwrap()
@@ -2086,7 +2107,8 @@ pub(crate) mod tests {
 
         assert_pending!(stream);
 
-        // dropping the manager (and hence dropping the store) should close the stream
+        // dropping the manager (and hence dropping the store) should close the
+        // stream
         manager.take();
         assert_closed!(stream);
     }
@@ -2291,8 +2313,8 @@ pub(crate) mod tests {
         assert!(!other_identity.has_pin_violation());
     }
 
-    // Set up a machine do initial own key query and import cross-signing secret to
-    // make the current session verified.
+    // Set up a machine do initial own key query and import cross-signing secret
+    // to make the current session verified.
     async fn common_verified_identity_changes_machine_setup() -> OlmMachine {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
@@ -2338,8 +2360,8 @@ pub(crate) mod tests {
         assert!(bob_identity.is_verified());
 
         // ######
-        // Second test: Assert that the local latch stays on if the identity is rotated
-        // ######
+        // Second test: Assert that the local latch stays on if the identity is
+        // rotated ######
         let keys_query = DataSet::bob_keys_query_response_rotated();
         let txn_id = TransactionId::new();
         machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
@@ -2388,8 +2410,8 @@ pub(crate) mod tests {
         // The verified latch is off
         assert!(!carol_identity.was_previously_verified());
 
-        // Carol is verified, likely from another session. Ensure the latch is updated
-        // when the key query response is processed
+        // Carol is verified, likely from another session. Ensure the latch is
+        // updated when the key query response is processed
         let keys_query = DataSet::carol_keys_query_response_signed();
         let txn_id = TransactionId::new();
         machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
@@ -2453,17 +2475,20 @@ pub(crate) mod tests {
             machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap().own().unwrap();
 
         let bob_identity = machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap();
-        // Bob is verified by our identity but our own identity is not yet trusted
+        // Bob is verified by our identity but our own identity is not yet
+        // trusted
         assert!(!bob_identity.was_previously_verified());
         assert!(own_identity.is_identity_signed(&bob_identity.other().unwrap()));
 
         let carol_identity =
             machine.get_identity(DataSet::carol_id(), None).await.unwrap().unwrap();
-        // Carol is verified by our identity but our own identity is not yet trusted
+        // Carol is verified by our identity but our own identity is not yet
+        // trusted
         assert!(!carol_identity.was_previously_verified());
         assert!(own_identity.is_identity_signed(&carol_identity.other().unwrap()));
 
-        // Marking our own identity as trusted should update the existing identities
+        // Marking our own identity as trusted should update the existing
+        // identities
         let _ = own_identity.verify().await;
 
         let own_identity = machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap();
@@ -2491,7 +2516,8 @@ pub(crate) mod tests {
 
         let bob_identity =
             machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
-        // Carol is verified by our identity but our own identity is not yet trusted
+        // Carol is verified by our identity but our own identity is not yet
+        // trusted
         assert!(own_identity.is_identity_signed(&bob_identity));
         assert!(!bob_identity.was_previously_verified());
 
@@ -2502,11 +2528,13 @@ pub(crate) mod tests {
             .unwrap()
             .other()
             .unwrap();
-        // Carol is verified by our identity but our own identity is not yet trusted
+        // Carol is verified by our identity but our own identity is not yet
+        // trusted
         assert!(own_identity.is_identity_signed(&carol_identity));
         assert!(!carol_identity.was_previously_verified());
 
-        // Marking our own identity as trusted should update the existing identities
+        // Marking our own identity as trusted should update the existing
+        // identities
         machine
             .import_cross_signing_keys(CrossSigningKeyExport {
                 master_key: DataSet::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
@@ -2548,7 +2576,8 @@ pub(crate) mod tests {
         async fn test_adds_device_info_to_existing_sessions() {
             let manager = manager_test_helper(user_id(), device_id()).await;
 
-            // Given that we have lots of sessions in the store, from each of two devices
+            // Given that we have lots of sessions in the store, from each of
+            // two devices
             let account1 = Account::new(user_id());
             let account2 = Account::new(other_user_id());
 
@@ -2733,8 +2762,8 @@ pub(crate) mod tests {
         .await;
         assert!(manager_old.get_x509_signature_upload_request().await.is_none());
 
-        // If we have an identity manager with the same signer, then it won't try
-        // to re-sign the master key.
+        // If we have an identity manager with the same signer, then it won't
+        // try to re-sign the master key.
         let manager_current = manager_with_private_identity_and_x509(
             identity.clone(),
             account.deep_clone(),

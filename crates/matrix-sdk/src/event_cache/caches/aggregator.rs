@@ -94,7 +94,8 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
                 | RelationType::Replacement
                 | RelationType::Reference
                 | _ => {
-                    // First, look for the related event in `timeline` backwards.
+                    // First, look for the related event in `timeline`
+                    // backwards.
                     if let Some(thread_root) = match timeline.events[..nth]
                         .iter()
                         .rev()
@@ -127,8 +128,9 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
 
             // No explicit relation, okay, but it can still be related to a thread!
             None => {
-                // We previously found events that are part of a thread, but we didn't see the
-                // thread root yet. And guess what? This might be this event!
+                // We previously found events that are part of a thread, but we
+                // didn't see the thread root yet. And guess
+                // what? This might be this event!
                 if let Some(event_id) = event.event_id()
                     && existing_threads.contains_key(event_id)
                 {
@@ -186,8 +188,9 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
             _ => None,
         })
     {
-        // 1. Create an empty `Timeline` if it doesn't exist so that it triggers the
-        //    update for this thread in `Caches`. This is done by `default_entry`.
+        // 1. Create an empty `Timeline` if it doesn't exist so that it triggers
+        //    the update for this thread in `Caches`. This is done by
+        //    `default_entry`.
         // 2. Accumulate the read receipt event.
         new_events_by_thread
             .entry(thread_root.to_owned())

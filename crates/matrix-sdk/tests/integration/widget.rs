@@ -206,9 +206,9 @@ async fn test_negotiate_capabilities_immediately() {
         let request_id = msg["requestId"].as_str().unwrap();
 
         // Let's send a request to get supported versions in the middle
-        // of a capabilities negotiation to ensure that we're not "deadlocked" by
-        // not processing messages while waiting for a reply from a widget to the
-        // the toWidget request.
+        // of a capabilities negotiation to ensure that we're not "deadlocked"
+        // by not processing messages while waiting for a reply from a
+        // widget to the the toWidget request.
         {
             send_request(
                 &driver_handle,
@@ -231,7 +231,8 @@ async fn test_negotiate_capabilities_immediately() {
     }
 
     {
-        // Receive a "request" with the capabilities we were actually granted (wtf?)
+        // Receive a "request" with the capabilities we were actually granted
+        // (wtf?)
         let msg = recv_message(&driver_handle).await;
         assert_eq!(msg["api"], "toWidget");
         assert_eq!(msg["action"], "notify_capabilities");
@@ -543,8 +544,8 @@ async fn test_receive_live_events() {
         })
         .await;
 
-    // The to device and room events are racing -> we dont know the order and just
-    // need to store them separately.
+    // The to device and room events are racing -> we dont know the order and
+    // just need to store them separately.
     let mut to_device: JsonObject = JsonObject::new();
     let mut events = vec![];
     for _ in 0..4 {
@@ -615,8 +616,8 @@ async fn test_block_clear_to_device_in_e2ee_room() {
         })
         .await;
 
-    // The message should be filtered out because it is not encrypted and the room
-    // is encrypted
+    // The message should be filtered out because it is not encrypted and the
+    // room is encrypted
     assert_matches!(recv_message(&driver_handle).now_or_never(), None);
 }
 
@@ -2109,8 +2110,9 @@ async fn test_get_rtc_transports_endpoint_unsupported() {
     )
     .await;
 
-    // The widget receives an error (as opposed to an empty list), so it can tell
-    // the endpoint apart from a homeserver that advertises no transports.
+    // The widget receives an error (as opposed to an empty list), so it can
+    // tell the endpoint apart from a homeserver that advertises no
+    // transports.
     let response = recv_message(&driver_handle).await;
     assert_eq!(response["api"], "fromWidget");
     assert_eq!(response["action"], "org.matrix.msc4515.get_rtc_transports");

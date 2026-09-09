@@ -245,9 +245,10 @@ impl ReadReceiptsExt for ReadReceipts {
         let mut counting_receipts = false;
 
         for event in events {
-            // Sliding sync sometimes sends the same event multiple times, so it can be at
-            // the beginning and end of a batch, for instance. In that case, just reset
-            // every time we see the event matching the receipt.
+            // Sliding sync sometimes sends the same event multiple times, so it
+            // can be at the beginning and end of a batch, for
+            // instance. In that case, just reset every time we see
+            // the event matching the receipt.
             if event.event_id() == Some(receipt_event_id) {
                 // Bingo! Switch over to the counting state, after resetting the
                 // previous counts.
@@ -320,7 +321,8 @@ impl<'cache> EventFilter for RoomReadReceiptEventFilter<'cache> {
 
     fn filter(&self, event: &TimelineEvent) -> bool {
         // This type is built from a `RoomEventCacheState`. The room event cache
-        // contains all events, including in-thread events. We need to filter them!
+        // contains all events, including in-thread events. We need to filter
+        // them!
         (self.with_threading_support && extract_thread_root(event.raw()).is_some()).not()
     }
 
@@ -333,8 +335,8 @@ impl<'cache> EventFilter for RoomReadReceiptEventFilter<'cache> {
         user_id: &UserId,
         receipt_type: ReceiptType,
     ) -> Option<(OwnedEventId, Receipt)> {
-        // We want to prioritize an `Unthreaded` receipt over a `Main`-threaded one, for
-        // better compatibility with thread-unaware clients.
+        // We want to prioritize an `Unthreaded` receipt over a `Main`-threaded
+        // one, for better compatibility with thread-unaware clients.
         for receipt_thread in [ReceiptThread::Unthreaded, ReceiptThread::Main] {
             let receipt_event = self
                 .state_store
@@ -384,9 +386,9 @@ impl<'cache> EventFilter for ThreadReadReceiptEventFilter<'cache> {
     }
 
     fn filter(&self, _event: &TimelineEvent) -> bool {
-        // This type is built from a `ThreadEventCacheState`. The thread event cache
-        // contains all in-thread events for this particular thread. No need to filter
-        // them.
+        // This type is built from a `ThreadEventCacheState`. The thread event
+        // cache contains all in-thread events for this particular
+        // thread. No need to filter them.
         true
     }
 
@@ -441,8 +443,8 @@ fn select_best_receipt<T>(
 where
     T: EventFilter,
 {
-    // If we had a new receipt event, add the main/unthreaded receipts it contains
-    // to the pending receipts list. We'll try to chase them later.
+    // If we had a new receipt event, add the main/unthreaded receipts it
+    // contains to the pending receipts list. We'll try to chase them later.
     if let Some(receipt_event) = new_receipt_event {
         for (event_id, receipts) in &receipt_event.0 {
             for ty in ALL_RECEIPT_TYPES {
@@ -459,14 +461,14 @@ where
     }
 
     // This loop folds two actions at once:
-    // - try to find the most recent receipt, by looking at the events in reverse
-    //   order (i.e. from the most recent to the least recent),
-    // - try to match stashed receipts against known events in the linked chunk, so
-    //   as to shrink the stash of pending receipts.
+    // - try to find the most recent receipt, by looking at the events in
+    //   reverse order (i.e. from the most recent to the least recent),
+    // - try to match stashed receipts against known events in the linked chunk,
+    //   so as to shrink the stash of pending receipts.
     //
-    // We can early exit out of this loop, as soon as there's no more work to do,
-    // i.e., we've found a better receipt, *and* there's no more pending receipt
-    // to try to match against events in the linked chunk.
+    // We can early exit out of this loop, as soon as there's no more work to
+    // do, i.e., we've found a better receipt, *and* there's no more pending
+    // receipt to try to match against events in the linked chunk.
 
     let mut receipt = None;
 
@@ -474,9 +476,11 @@ where
         event_filter.filter(event).then_some((event, event.event_id()?))
     }) {
         if receipt.is_none() {
-            // Try to see if the latest active receipt is still the most recent receipt.
+            // Try to see if the latest active receipt is still the most recent
+            // receipt.
             if latest_active == Some(event_id) {
-                // The latest active receipt is still the most recent receipt, so keep it.
+                // The latest active receipt is still the most recent receipt,
+                // so keep it.
                 trace!(active = %event_id, "the latest active receipt is still the most recent; stopping search");
                 receipt = Some(event_id.to_owned());
             }
@@ -488,17 +492,17 @@ where
             }
         }
 
-        // Early exit condition (see the comment above): we've already found a most
-        // recent receipt, and there's no other pending receipts to match against known
-        // events.
+        // Early exit condition (see the comment above): we've already found a
+        // most recent receipt, and there's no other pending receipts to
+        // match against known events.
         if receipt.is_some() && pending_receipts.is_empty() {
             trace!("exiting loop; found a better receipt, and no more pending receipt to match");
             break;
         }
 
-        // Try to match pending receipts to events known in the linked chunk. If we
-        // haven't found any receipt yet, the first matched pending receipt is a better
-        // one!
+        // Try to match pending receipts to events known in the linked chunk. If
+        // we haven't found any receipt yet, the first matched pending
+        // receipt is a better one!
         pending_receipts.retain(|pending| {
             if *pending == event_id {
                 if receipt.is_none() {
@@ -508,11 +512,13 @@ where
                     trace!(%event_id, "discarding a pending receipt that wasn't selected");
                 }
 
-                // Don't keep the pending receipt in the pending list: we've already identified
-                // a better, more recent receipt at this point (found == Some).
+                // Don't keep the pending receipt in the pending list: we've
+                // already identified a better, more recent
+                // receipt at this point (found == Some).
                 false
             } else {
-                // Keep the receipt, in case the associated event shows up later.
+                // Keep the receipt, in case the associated event shows up
+                // later.
                 true
             }
         });
@@ -543,8 +549,9 @@ async fn try_find_stored_receipts<T>(
             if read_receipts.latest_active.is_none() {
                 read_receipts.latest_active = Some(LatestReadReceipt { event_id });
             } else {
-                // This loop has already flagged a read receipt as the new `latest_active`.
-                // Extra read receipts can go to the pending receipts list, as they're lower
+                // This loop has already flagged a read receipt as the new
+                // `latest_active`. Extra read receipts can go
+                // to the pending receipts list, as they're lower
                 // priority, by the implementation notes above.
                 read_receipts.pending.push(event_id);
             }
@@ -570,8 +577,8 @@ pub(crate) async fn compute_unread_counts<T>(
 {
     debug!(?read_receipts, "Starting");
 
-    // If we don't have a latest active receipt for this timeline, try to reload one
-    // from the state store into the `ReadReceipts`.
+    // If we don't have a latest active receipt for this timeline, try to reload
+    // one from the state store into the `ReadReceipts`.
     if read_receipts.latest_active.is_none() {
         try_find_stored_receipts(user_id, event_filter, read_receipts).await;
     }
@@ -586,17 +593,17 @@ pub(crate) async fn compute_unread_counts<T>(
     );
 
     if let Some(event_id) = better_receipt {
-        // We've found the id of an event to which the receipt attaches. The associated
-        // event may either come from the new batch of events associated to
-        // this sync, or it may live in the past timeline events we know
-        // about.
+        // We've found the id of an event to which the receipt attaches. The
+        // associated event may either come from the new batch of events
+        // associated to this sync, or it may live in the past timeline
+        // events we know about.
 
         // First, save the event id as the latest one that has a read receipt.
         trace!(%event_id, "Saving a new active read receipt");
         read_receipts.latest_active = Some(LatestReadReceipt { event_id: event_id.clone() });
 
-        // The event for the receipt is in the linked chunk, so we'll find it and can
-        // count safely from here.
+        // The event for the receipt is in the linked chunk, so we'll find it
+        // and can count safely from here.
         read_receipts.find_and_process_events(
             &event_id,
             user_id,
@@ -609,9 +616,10 @@ pub(crate) async fn compute_unread_counts<T>(
         return;
     }
 
-    // Request a pagination: we haven't found a better receipt, but we haven't even
-    // found the latest active receipt! Hand it the receipt event ids we're chasing
-    // so the backfill can stop as soon as one of them is loaded.
+    // Request a pagination: we haven't found a better receipt, but we haven't
+    // even found the latest active receipt! Hand it the receipt event ids
+    // we're chasing so the backfill can stop as soon as one of them is
+    // loaded.
     if let Some(back_pagination_queue) = back_pagination_queue {
         let targets: HashSet<OwnedEventId> = read_receipts
             .pending
@@ -622,9 +630,9 @@ pub(crate) async fn compute_unread_counts<T>(
         paginate_for_read_receipt(back_pagination_queue, event_filter.room_id(), targets);
     }
 
-    // If we haven't returned at this point, it means we don't have any new "active"
-    // read receipt. So either there was a previous one further in the past, or
-    // none.
+    // If we haven't returned at this point, it means we don't have any new
+    // "active" read receipt. So either there was a previous one further in
+    // the past, or none.
     //
     // In that case, the number of unreads is *at most* the number of processed
     // events. Reset the number of unreads, and recount them all.
@@ -810,7 +818,8 @@ mod tests {
         let user_id = user_id!("@alice:example.org");
         let other_user_id = user_id!("@bob:example.org");
 
-        // An edit to a message from somebody else doesn't mark the room as unread.
+        // An edit to a message from somebody else doesn't mark the room as
+        // unread.
         let ev = EventFactory::new()
             .text_msg("* edited message")
             .edit(
@@ -829,7 +838,8 @@ mod tests {
         let user_id = user_id!("@alice:example.org");
         let other_user_id = user_id!("@bob:example.org");
 
-        // A redact of a message from somebody else doesn't mark the room as unread.
+        // A redact of a message from somebody else doesn't mark the room as
+        // unread.
         let ev = EventFactory::new()
             .redaction(event_id!("$151957878228ssqrj:localhost"))
             .sender(other_user_id)
@@ -844,7 +854,8 @@ mod tests {
         let user_id = user_id!("@alice:example.org");
         let other_user_id = user_id!("@bob:example.org");
 
-        // A reaction from somebody else to a message doesn't mark the room as unread.
+        // A reaction from somebody else to a message doesn't mark the room as
+        // unread.
         let ev = EventFactory::new()
             .reaction(event_id!("$15275047031IXQRj:localhost"), "👍")
             .sender(other_user_id)
@@ -885,7 +896,8 @@ mod tests {
 
         let user_id = user_id!("@alice:example.org");
 
-        // An interesting event from oneself doesn't count as a new unread message.
+        // An interesting event from oneself doesn't count as a new unread
+        // message.
         let event = make_event(user_id, Vec::new());
         let mut receipts = ReadReceipts::default();
         receipts.process_event(&event, user_id);
@@ -893,7 +905,8 @@ mod tests {
         assert_eq!(receipts.num_mentions, 0);
         assert_eq!(receipts.num_notifications, 0);
 
-        // An interesting event from someone else does count as a new unread message.
+        // An interesting event from someone else does count as a new unread
+        // message.
         let event = make_event(user_id!("@bob:example.org"), Vec::new());
         let mut receipts = ReadReceipts::default();
         receipts.process_event(&event, user_id);
@@ -929,8 +942,8 @@ mod tests {
         assert_eq!(receipts.num_mentions, 1);
         assert_eq!(receipts.num_notifications, 1);
 
-        // Technically this `push_actions` set would be a bug somewhere else, but let's
-        // make sure to resist against it.
+        // Technically this `push_actions` set would be a bug somewhere else,
+        // but let's make sure to resist against it.
         let event = make_event(user_id!("@bob:example.org"), vec![Action::Notify, Action::Notify]);
         let mut receipts = ReadReceipts::default();
         receipts.process_event(&event, user_id);
@@ -944,16 +957,16 @@ mod tests {
         let ev0 = event_id!("$0");
         let user_id = user_id!("@alice:example.org");
 
-        // When provided with no events, we report not finding the event to which the
-        // receipt relates.
+        // When provided with no events, we report not finding the event to
+        // which the receipt relates.
         let mut receipts = ReadReceipts::default();
         assert!(receipts.find_and_process_events(ev0, user_id, [].iter()).not());
         assert_eq!(receipts.num_unread, 0);
         assert_eq!(receipts.num_notifications, 0);
         assert_eq!(receipts.num_mentions, 0);
 
-        // When provided with one event, that's not the receipt event, we don't count
-        // it.
+        // When provided with one event, that's not the receipt event, we don't
+        // count it.
         fn make_event(event_id: &EventId) -> TimelineEvent {
             EventFactory::new()
                 .text_msg("A")
@@ -977,9 +990,9 @@ mod tests {
         assert_eq!(receipts.num_notifications, 13);
         assert_eq!(receipts.num_mentions, 37);
 
-        // When provided with one event that's the receipt target, we find it, reset the
-        // count, and since there's nothing else, we stop there and end up with
-        // zero counts.
+        // When provided with one event that's the receipt target, we find it,
+        // reset the count, and since there's nothing else, we stop
+        // there and end up with zero counts.
         let mut receipts = ReadReceipts {
             num_unread: 42,
             num_notifications: 13,
@@ -991,8 +1004,8 @@ mod tests {
         assert_eq!(receipts.num_notifications, 0);
         assert_eq!(receipts.num_mentions, 0);
 
-        // When provided with multiple events and not the receipt event, we do not count
-        // anything..
+        // When provided with multiple events and not the receipt event, we do
+        // not count anything..
         let mut receipts = ReadReceipts {
             num_unread: 42,
             num_notifications: 13,
@@ -1017,8 +1030,8 @@ mod tests {
         assert_eq!(receipts.num_notifications, 13);
         assert_eq!(receipts.num_mentions, 37);
 
-        // When provided with multiple events including one that's the receipt event, we
-        // find it and count from it.
+        // When provided with multiple events including one that's the receipt
+        // event, we find it and count from it.
         let mut receipts = ReadReceipts {
             num_unread: 42,
             num_notifications: 13,
@@ -1042,7 +1055,8 @@ mod tests {
         assert_eq!(receipts.num_notifications, 0);
         assert_eq!(receipts.num_mentions, 0);
 
-        // Even if duplicates are present in the new events list, the count is correct.
+        // Even if duplicates are present in the new events list, the count is
+        // correct.
         let mut receipts = ReadReceipts {
             num_unread: 42,
             num_notifications: 13,
@@ -1138,7 +1152,8 @@ mod tests {
         let room_id = room_id!("!roomid:example.org");
         let f = EventFactory::new().room(room_id).sender(*ALICE);
 
-        // Create a non-empty linked chunk, with no messages sent by the current user.
+        // Create a non-empty linked chunk, with no messages sent by the current
+        // user.
         let mut linked_chunk = EventLinkedChunk::new();
         linked_chunk.push_events(vec![
             f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
@@ -1182,8 +1197,8 @@ mod tests {
         let f = EventFactory::new().room(room_id).sender(*ALICE);
         let own_user_id = user_id!("@not_alice:example.org");
 
-        // Create a non-empty linked chunk, with one message sent by the current user,
-        // which will act as an implicit read receipt.
+        // Create a non-empty linked chunk, with one message sent by the current
+        // user, which will act as an implicit read receipt.
         let mut linked_chunk = EventLinkedChunk::new();
         linked_chunk.push_events(vec![
             f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
@@ -1224,7 +1239,8 @@ mod tests {
         let room_id = room_id!("!roomid:example.org");
         let f = EventFactory::new().room(room_id).sender(*ALICE);
 
-        // Create a non-empty linked chunk, with no messages sent by the current user.
+        // Create a non-empty linked chunk, with no messages sent by the current
+        // user.
         let mut linked_chunk = EventLinkedChunk::new();
         linked_chunk.push_events(vec![
             f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
@@ -1268,7 +1284,8 @@ mod tests {
         let f = EventFactory::new().room(room_id).sender(*ALICE);
         let own_user_id = user_id!("@not_alice:example.org");
 
-        // Create a non-empty linked chunk, with no messages sent by the current user.
+        // Create a non-empty linked chunk, with no messages sent by the current
+        // user.
         let mut linked_chunk = EventLinkedChunk::new();
         linked_chunk.push_events(vec![
             f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
@@ -1296,7 +1313,8 @@ mod tests {
             state_store: &state_store,
         };
 
-        // Then there's a new best receipt, which is the explicit one from the event
+        // Then there's a new best receipt, which is the explicit one from the
+        // event
         let receipt = select_best_receipt(
             own_user_id,
             &linked_chunk,
@@ -1316,7 +1334,8 @@ mod tests {
         let f = EventFactory::new().room(room_id).sender(*ALICE);
         let own_user_id = user_id!("@not_alice:example.org");
 
-        // Create a non-empty linked chunk, with no messages sent by the current user.
+        // Create a non-empty linked chunk, with no messages sent by the current
+        // user.
         let mut linked_chunk = EventLinkedChunk::new();
         linked_chunk.push_events(vec![
             f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
@@ -1366,7 +1385,8 @@ mod tests {
         let f = EventFactory::new().room(room_id).sender(*ALICE);
         let own_user_id = user_id!("@not_alice:example.org");
 
-        // Create a non-empty linked chunk, with no messages sent by the current user.
+        // Create a non-empty linked chunk, with no messages sent by the current
+        // user.
         let mut linked_chunk = EventLinkedChunk::new();
         linked_chunk.push_events(vec![
             f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
@@ -1391,7 +1411,8 @@ mod tests {
             state_store: &state_store,
         };
 
-        // Then there's a new best receipt, which is the matched pending receipt.
+        // Then there's a new best receipt, which is the matched pending
+        // receipt.
         let receipt = select_best_receipt(
             own_user_id,
             &linked_chunk,
@@ -1411,8 +1432,8 @@ mod tests {
         let f = EventFactory::new().room(room_id).sender(*ALICE);
         let own_user_id = user_id!("@not_alice:example.org");
 
-        // Create a non-empty linked chunk, with one message sent by the current user,
-        // which will act as an implicit read receipt.
+        // Create a non-empty linked chunk, with one message sent by the current
+        // user, which will act as an implicit read receipt.
         let mut linked_chunk = EventLinkedChunk::new();
         linked_chunk.push_events(vec![
             f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
@@ -1445,8 +1466,8 @@ mod tests {
             state_store: &state_store,
         };
 
-        // Then there's a new best receipt, which is the most advanced in the linked
-        // chunk: $4.
+        // Then there's a new best receipt, which is the most advanced in the
+        // linked chunk: $4.
         let receipt = select_best_receipt(
             own_user_id,
             &linked_chunk,
@@ -1457,8 +1478,8 @@ mod tests {
         );
         assert_eq!(receipt.unwrap(), event_id!("$4"));
 
-        // Receipt 6 is still pending, and there's a new pending receipt for 7 too. ($2
-        // has been cleaned because it has been seen).
+        // Receipt 6 is still pending, and there's a new pending receipt for 7
+        // too. ($2 has been cleaned because it has been seen).
         assert_eq!(pending_receipts.len(), 2);
         assert!(pending_receipts.iter().any(|ev| ev == event_id!("$6")));
         assert!(pending_receipts.iter().any(|ev| ev == event_id!("$7")));

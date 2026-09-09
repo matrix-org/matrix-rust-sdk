@@ -1026,11 +1026,12 @@ pub(crate) mod tests {
         assert_matches!(sanitize_server_name("https://matrix.server.org/something"), Err(_))
     }
 
-    // Note: Due to a limitation of the http mocking library the following tests all
-    // supply an http:// url, to `server_name_or_homeserver_url` rather than the plain server name,
+    // Note: Due to a limitation of the http mocking library the following tests
+    // all supply an http:// url, to `server_name_or_homeserver_url` rather than the plain server name,
     // otherwise  the builder will prepend https:// and the request will fail. In practice, this
-    // isn't a problem as the builder first strips the scheme and then checks if the
-    // name is a valid server name, so it is a close enough approximation.
+    // isn't a problem as the builder first strips the scheme and then checks if
+    // the name is a valid server name, so it is a close enough
+    // approximation.
 
     #[async_test]
     async fn test_discovery_invalid_server() {
@@ -1061,8 +1062,8 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_discovery_web_server() {
-        // Given a random web server that isn't a Matrix homeserver or hosting the
-        // well-known file for one.
+        // Given a random web server that isn't a Matrix homeserver or hosting
+        // the well-known file for one.
         let server = MockServer::start().await;
         let mut builder = ClientBuilder::new();
 
@@ -1115,8 +1116,8 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_discovery_well_known_legacy() {
-        // Given a base server with a well-known file that points to a homeserver that
-        // doesn't support sliding sync.
+        // Given a base server with a well-known file that points to a
+        // homeserver that doesn't support sliding sync.
         let server = MockServer::start().await;
         let homeserver = make_mock_homeserver().await;
         let mut builder = ClientBuilder::new();
@@ -1134,7 +1135,8 @@ pub(crate) mod tests {
         let client = builder.build().await.unwrap();
 
         // Then a client should be built with native support for sliding sync.
-        // It's native support because it's the default. Nothing is checked here.
+        // It's native support because it's the default. Nothing is checked
+        // here.
         assert!(client.sliding_sync_version().is_native());
     }
 
@@ -1145,12 +1147,12 @@ pub(crate) mod tests {
             .server_name(&ServerName::parse("example.org").unwrap())
             .disable_well_known_lookup(true);
 
-        // When building it. Note that no mock server is involved: the whole point is
-        // that not a single request is made.
+        // When building it. Note that no mock server is involved: the whole
+        // point is that not a single request is made.
         let error = builder.build().await.unwrap_err();
 
-        // Then the operation should fail, rather than assume that the server name is
-        // also the homeserver.
+        // Then the operation should fail, rather than assume that the server
+        // name is also the homeserver.
         assert_matches!(error, ClientBuildError::WellKnownLookupDisabled);
 
         // And the same goes for its insecure counterpart.
@@ -1166,8 +1168,9 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_discovery_server_name_or_url_with_well_known_lookup_disabled() {
-        // Given a homeserver that also serves a well-known file, which must never be
-        // requested. `MockServer` verifies the expectation when it is dropped.
+        // Given a homeserver that also serves a well-known file, which must
+        // never be requested. `MockServer` verifies the expectation
+        // when it is dropped.
         let homeserver = make_mock_homeserver().await;
         Mock::given(method("GET"))
             .and(path("/.well-known/matrix/client"))
@@ -1194,8 +1197,9 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_homeserver_url_never_contacts_the_server_name() {
-        // Given a deployment where the server name serves a well-known that points to
-        // the underlying homeserver (hosted on an unrelated domain in this test).
+        // Given a deployment where the server name serves a well-known that
+        // points to the underlying homeserver (hosted on an unrelated
+        // domain in this test).
         let mock_server = MockServer::start().await;
         let address = *mock_server.address();
         let port = address.port();
@@ -1233,7 +1237,8 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        // Then homeserver should be the only host that was contacted while building.
+        // Then homeserver should be the only host that was contacted while
+        // building.
         let resolved_hosts = resolver.hosts.lock().unwrap();
         assert!(!resolved_hosts.is_empty(), "The homeserver should have been contacted");
         assert!(

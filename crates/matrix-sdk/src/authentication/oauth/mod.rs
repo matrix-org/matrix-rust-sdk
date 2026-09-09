@@ -317,8 +317,9 @@ impl OAuth {
         &self,
         lock_value: String,
     ) -> Result<(), OAuthError> {
-        // FIXME: it must be deferred only because we're using the crypto store and it's
-        // initialized only in `set_or_reload_session`, not if we use a dedicated store.
+        // FIXME: it must be deferred only because we're using the crypto store
+        // and it's initialized only in `set_or_reload_session`, not if
+        // we use a dedicated store.
         let mut lock = self.ctx().deferred_cross_process_lock_init.lock().await;
         if lock.is_some() {
             return Err(CrossProcessRefreshLockError::DuplicatedLock.into());
@@ -337,8 +338,8 @@ impl OAuth {
         let deferred_init_lock = self.ctx().deferred_cross_process_lock_init.lock().await;
 
         // Don't `take()` the value, so that subsequent calls to
-        // `enable_cross_process_refresh_lock` will keep on failing if we've enabled the
-        // lock at least once.
+        // `enable_cross_process_refresh_lock` will keep on failing if we've
+        // enabled the lock at least once.
         let Some(lock_value) = deferred_init_lock.as_ref() else {
             return;
         };
@@ -355,8 +356,8 @@ impl OAuth {
 
         let manager = CrossProcessRefreshManager::new(store.clone(), lock);
 
-        // This method is guarded with the `deferred_cross_process_lock_init` lock held,
-        // so this `set` can't be an error.
+        // This method is guarded with the `deferred_cross_process_lock_init`
+        // lock held, so this `set` can't be an error.
         let _ = self.ctx().cross_process_token_refresh_manager.set(manager);
     }
 
@@ -516,7 +517,8 @@ impl OAuth {
         let mut server_metadata_guard = match server_metadata_cache.refresh_lock.try_lock() {
             Ok(guard) => guard,
             Err(_) => {
-                // There is already a refresh in progress, wait for it to finish.
+                // There is already a refresh in progress, wait for it to
+                // finish.
                 let guard = server_metadata_cache.refresh_lock.lock().await;
 
                 // Reuse the data if the request was successful.
@@ -675,8 +677,8 @@ impl OAuth {
         let registration_response =
             register_client(self.http_client(), registration_endpoint, client_metadata).await?;
 
-        // The format of the credentials changes according to the client metadata that
-        // was sent. Public clients only get a client ID.
+        // The format of the credentials changes according to the client
+        // metadata that was sent. Public clients only get a client ID.
         self.restore_registered_client(registration_response.client_id.clone());
 
         Ok(registration_response)
@@ -753,8 +755,8 @@ impl OAuth {
             .set(AuthData::OAuth(data))
             .expect("Client authentication data was already set");
 
-        // Initialize the cross-process locking by saving our tokens' hash into the
-        // database, if we've enabled the cross-process lock.
+        // Initialize the cross-process locking by saving our tokens' hash into
+        // the database, if we've enabled the cross-process lock.
 
         #[cfg(feature = "e2e-encryption")]
         if let Some(cross_process_lock) = self.ctx().cross_process_token_refresh_manager.get() {
@@ -765,12 +767,14 @@ impl OAuth {
                 .await
                 .map_err(|err| crate::Error::OAuth(Box::new(err.into())))?;
 
-            // After we got the lock, it's possible that our session doesn't match the one
-            // read from the database, because of a race: another process has
-            // refreshed the tokens while we were waiting for the lock.
+            // After we got the lock, it's possible that our session doesn't
+            // match the one read from the database, because of a
+            // race: another process has refreshed the tokens while
+            // we were waiting for the lock.
             //
-            // In that case, if there's a mismatch, we reload the session and update the
-            // hash. Otherwise, we save our hash into the database.
+            // In that case, if there's a mismatch, we reload the session and
+            // update the hash. Otherwise, we save our hash into the
+            // database.
 
             if guard.hash_mismatch {
                 Box::pin(self.handle_session_hash_mismatch(&mut guard))
@@ -1021,10 +1025,12 @@ impl OAuth {
             let mut cross_process_guard = cross_process_manager.spin_lock().await?;
 
             if cross_process_guard.hash_mismatch {
-                // At this point, we're finishing a login while another process had written
-                // something in the database. It's likely the information in the database is
-                // just outdated and wasn't properly updated, but display a warning, just in
-                // case this happens frequently.
+                // At this point, we're finishing a login while another process
+                // had written something in the database. It's
+                // likely the information in the database is
+                // just outdated and wasn't properly updated, but display a
+                // warning, just in case this happens
+                // frequently.
                 warn!("unexpected cross-process hash mismatch when finishing login (see comment)");
             }
 
@@ -1195,10 +1201,11 @@ impl OAuth {
 
         self.client.auth_ctx().set_session_tokens(tokens);
 
-        // Call the save_session_callback if set, while the optional lock is being held.
+        // Call the save_session_callback if set, while the optional lock is
+        // being held.
         if let Some(save_session_callback) = self.client.auth_ctx().save_session_callback.get() {
-            // Satisfies the save_session_callback invariant: set_session_tokens has
-            // been called just above.
+            // Satisfies the save_session_callback invariant: set_session_tokens
+            // has been called just above.
             tracing::debug!("call save_session_callback");
             if let Err(err) = save_session_callback(self.client.clone()) {
                 error!("when saving session after refresh: {err}");
@@ -1243,8 +1250,8 @@ impl OAuth {
 
         let Ok(mut refresh_status_guard) = refresh_status_lock else {
             debug!("another refresh is happening, waiting for result.");
-            // There's already a request to refresh happening in the same process. Wait for
-            // it to finish.
+            // There's already a request to refresh happening in the same
+            // process. Wait for it to finish.
             let res = client.auth_ctx().refresh_token_lock.lock().await.clone();
             debug!("other refresh is a {}", if res.is_ok() { "success" } else { "failure " });
             return res;
@@ -1252,14 +1259,16 @@ impl OAuth {
 
         debug!("no other refresh happening in background, starting.");
 
-        // Fetch the authorization server metadata *before* taking the cross-process
-        // lock, checking the session hash, or reading the refresh token. This request
-        // can stall for a long time when the OS suspends the process (e.g. iOS
-        // background suspension), and while suspended the lock lease lapses, which
-        // lets another process refresh and rotate the token. Doing it first means the
-        // lock and the hash check happen after the stall, so such a rotation is caught
-        // below as a hash mismatch instead of being exchanged while stale, which the
-        // server rejects with `invalid_grant` and signs the user out.
+        // Fetch the authorization server metadata *before* taking the
+        // cross-process lock, checking the session hash, or reading the
+        // refresh token. This request can stall for a long time when
+        // the OS suspends the process (e.g. iOS background suspension),
+        // and while suspended the lock lease lapses, which lets another
+        // process refresh and rotate the token. Doing it first means the
+        // lock and the hash check happen after the stall, so such a rotation is
+        // caught below as a hash mismatch instead of being exchanged
+        // while stale, which the server rejects with `invalid_grant`
+        // and signs the user out.
         let server_metadata = match self.server_metadata().await {
             Ok(metadata) => metadata,
             Err(err) => {
@@ -1295,8 +1304,9 @@ impl OAuth {
                     Box::pin(self.handle_session_hash_mismatch(&mut cross_process_guard))
                         .await
                         .map_err(|err| RefreshTokenError::OAuth(Arc::new(err.into())))?;
-                    // Optimistic exit: assume that the underlying process did update fast enough.
-                    // In the worst case, we'll do another refresh Soon™.
+                    // Optimistic exit: assume that the underlying process did
+                    // update fast enough. In the worst
+                    // case, we'll do another refresh Soon™.
                     tracing::info!("other process handled refresh for us, assuming success");
                     *refresh_status_guard = Ok(());
                     return Ok(());
@@ -1307,9 +1317,10 @@ impl OAuth {
                 None
             };
 
-        // Read the refresh token only now, after the hash check above, so we always
-        // exchange the token that is current in the store, never one that another
-        // process rotated out from under us while we were suspended.
+        // Read the refresh token only now, after the hash check above, so we
+        // always exchange the token that is current in the store, never
+        // one that another process rotated out from under us while we
+        // were suspended.
         let Some(session_tokens) = self.client.session_tokens() else {
             warn!("invalid state: missing session tokens");
             fail!(refresh_status_guard, RefreshTokenError::RefreshTokenRequired);
@@ -1320,9 +1331,10 @@ impl OAuth {
             fail!(refresh_status_guard, RefreshTokenError::RefreshTokenRequired);
         };
 
-        // Do not interrupt refresh access token requests and processing, by detaching
-        // the request sending and response processing.
-        // Make sure to keep the `refresh_status_guard` during the entire processing.
+        // Do not interrupt refresh access token requests and processing, by
+        // detaching the request sending and response processing.
+        // Make sure to keep the `refresh_status_guard` during the entire
+        // processing.
 
         let this = self.clone();
 
@@ -1821,8 +1833,8 @@ impl AuthorizationResponse {
     ///
     /// Returns an error if the query doesn't have the expected format.
     fn parse_query(query: &str) -> Result<Self, RedirectUriQueryParseError> {
-        // For some reason deserializing the enum with `serde(untagged)` doesn't work,
-        // so let's try both variants separately.
+        // For some reason deserializing the enum with `serde(untagged)` doesn't
+        // work, so let's try both variants separately.
         if let Ok(code) = serde_html_form::from_str(query) {
             return Ok(AuthorizationResponse::Success(code));
         }

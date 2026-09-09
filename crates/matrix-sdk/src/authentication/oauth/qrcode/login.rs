@@ -67,20 +67,20 @@ async fn finish_login<Q>(
     trace!("Registering the client with the OAuth 2.0 authorization server.");
     let server_metadata = register_client(&oauth, registration_data).await?;
 
-    // We want to use the Curve25519 public key for the device ID, so let's generate
-    // a new vodozemac `Account` now.
+    // We want to use the Curve25519 public key for the device ID, so let's
+    // generate a new vodozemac `Account` now.
     let account = vodozemac::olm::Account::new();
     let public_key = account.identity_keys().curve25519;
     let device_id = public_key;
 
-    // Let's tell the OAuth 2.0 authorization server that we want to log in using
-    // the device authorization grant described in [RFC8628](https://datatracker.ietf.org/doc/html/rfc8628).
+    // Let's tell the OAuth 2.0 authorization server that we want to log in
+    // using the device authorization grant described in [RFC8628](https://datatracker.ietf.org/doc/html/rfc8628).
     trace!("Requesting device authorization.");
     let auth_grant_response =
         request_device_authorization(&oauth, &server_metadata, device_id).await?;
 
-    // Now we need to inform the other device of the login protocols we picked and
-    // the URL they should use to log us in.
+    // Now we need to inform the other device of the login protocols we picked
+    // and the URL they should use to log us in.
     trace!("Letting the existing device know about the device authorization grant.");
     let message =
         QrAuthMessage::authorization_grant_login_protocol((&auth_grant_response).into(), device_id);
@@ -103,17 +103,17 @@ async fn finish_login<Q>(
     }
 
     // The OAuth 2.0 authorization server may or may not show this user code to
-    // double check that we're talking to the right server. Let us display this, so
-    // the other device can double check this as well.
+    // double check that we're talking to the right server. Let us display this,
+    // so the other device can double check this as well.
     let user_code = auth_grant_response.user_code();
     state.set(LoginProgress::WaitingForToken { user_code: user_code.secret().to_owned() });
 
-    // Let's now wait for the access token to be provided to use by the OAuth 2.0
-    // authorization server.
+    // Let's now wait for the access token to be provided to use by the OAuth
+    // 2.0 authorization server.
     trace!("Waiting for the OAuth 2.0 authorization server to give us the access token.");
     if let Err(e) = wait_for_tokens(&oauth, &server_metadata, &auth_grant_response).await {
-        // If we received an error, and it's one of the ones we should report to the
-        // other side, do so now.
+        // If we received an error, and it's one of the ones we should report to
+        // the other side, do so now.
         if let Some(e) = e.as_request_token_error() {
             match e {
                 DeviceCodeErrorResponseType::AccessDenied => {
@@ -134,8 +134,8 @@ async fn finish_login<Q>(
         return Err(e.into());
     }
 
-    // We only received an access token from the OAuth 2.0 authorization server, we
-    // have no clue who we are, so we need to figure out our user ID
+    // We only received an access token from the OAuth 2.0 authorization server,
+    // we have no clue who we are, so we need to figure out our user ID
     // now. TODO: This snippet is almost the same as the
     // OAuth::finish_login_method(), why is that method even a public
     // method and not called as part of the set session tokens method.
@@ -163,8 +163,8 @@ async fn finish_login<Q>(
     let message = QrAuthMessage::LoginSuccess;
     channel.send_json(&message).await?;
 
-    // Let's wait for the secrets bundle to be sent to us, otherwise we won't be a
-    // fully E2EE enabled device.
+    // Let's wait for the secrets bundle to be sent to us, otherwise we won't be
+    // a fully E2EE enabled device.
     trace!("Waiting for the secrets bundle.");
     let bundle = match channel.receive_json().await? {
         QrAuthMessage::LoginSecrets(bundle) => bundle,
@@ -181,12 +181,12 @@ async fn finish_login<Q>(
         }
     };
 
-    // Import the secrets bundle, this will allow us to sign the device keys with
-    // the master key when we upload them.
+    // Import the secrets bundle, this will allow us to sign the device keys
+    // with the master key when we upload them.
     client.encryption().import_secrets_bundle_impl(&bundle).await?;
 
-    // Upload the device keys, this will ensure that other devices see us as a fully
-    // verified device ass soon as this method returns.
+    // Upload the device keys, this will ensure that other devices see us as a
+    // fully verified device ass soon as this method returns.
     client
         .encryption()
         .ensure_device_keys_upload()
@@ -293,27 +293,28 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            // Before we get here, the other device has created a new rendezvous session
-            // and presented a QR code which this device has scanned.
-            // -- MSC4108 Secure channel setup steps 1-3
+            // Before we get here, the other device has created a new rendezvous
+            // session and presented a QR code which this device has
+            // scanned. -- MSC4108 Secure channel setup steps 1-3
 
-            // First things first, establish the secure channel. Since we're the one that
-            // scanned the QR code, we're certain that the secure channel is
-            // secure, under the assumption that we didn't scan the wrong QR code.
-            // -- MSC4108 Secure channel setup steps 3-5
+            // First things first, establish the secure channel. Since we're the
+            // one that scanned the QR code, we're certain that the
+            // secure channel is secure, under the assumption that
+            // we didn't scan the wrong QR code. -- MSC4108 Secure
+            // channel setup steps 3-5
             let channel = self.establish_secure_channel().await?;
 
             trace!("Established the secure channel.");
 
-            // The other side isn't yet sure that it's talking to the right device, show
-            // a check code so they can confirm.
+            // The other side isn't yet sure that it's talking to the right
+            // device, show a check code so they can confirm.
             // -- MSC4108 Secure channel setup step 6
             let check_code = channel.check_code().to_owned();
             self.state.set(LoginProgress::EstablishingSecureChannel(QrProgress { check_code }));
 
-            // The user now enters the checkcode on the other device which verifies it
-            // and will only facilitate the login if the code matches.
-            // -- MSC4108 Secure channel setup step 7
+            // The user now enters the checkcode on the other device which
+            // verifies it and will only facilitate the login if the
+            // code matches. -- MSC4108 Secure channel setup step 7
 
             // Now attempt to finish the login.
             // -- MSC4108 OAuth 2.0 login all steps
@@ -380,13 +381,13 @@ impl<'a> IntoFuture for LoginWithGeneratedQrCode<'a> {
 
             trace!("Established the secure channel.");
 
-            // Wait for the other device to send us the m.login.protocols message
-            // so that we can discover the homeserver to use for logging in.
-            // -- MSC4108 OAuth 2.0 login step 1
+            // Wait for the other device to send us the m.login.protocols
+            // message so that we can discover the homeserver to use
+            // for logging in. -- MSC4108 OAuth 2.0 login step 1
             let message = channel.receive_json().await?;
 
-            // Verify that the device authorization grant is supported and extract
-            // the homeserver URL.
+            // Verify that the device authorization grant is supported and
+            // extract the homeserver URL.
             let homeserver = match message {
                 QrAuthMessage::LoginProtocols { protocols, homeserver } => {
                     if !protocols.contains(&LoginProtocolType::DeviceAuthorizationGrant) {
@@ -415,8 +416,8 @@ impl<'a> IntoFuture for LoginWithGeneratedQrCode<'a> {
                 }
             };
 
-            // Change the login homeserver if it is different from the server hosting the
-            // secure channel.
+            // Change the login homeserver if it is different from the server
+            // hosting the secure channel.
             if self.client.homeserver() != homeserver {
                 self.client
                     .switch_homeserver_and_re_resolve_well_known(homeserver)
@@ -444,23 +445,23 @@ impl<'a> LoginWithGeneratedQrCode<'a> {
     ) -> Result<EstablishedSecureChannel, SecureChannelError> {
         let http_client = self.client.inner.http_client.clone();
 
-        // Create a new ephemeral key pair and a rendezvous session to request a login
-        // with.
+        // Create a new ephemeral key pair and a rendezvous session to request a
+        // login with.
         // -- MSC4108 Secure channel setup steps 1 & 2
         let secure_channel = SecureChannel::login(http_client, &self.client.homeserver()).await?;
 
-        // Extract the QR code data and emit a progress update so that the caller can
-        // present the QR code for scanning by the other device.
-        // -- MSC4108 Secure channel setup step 3
+        // Extract the QR code data and emit a progress update so that the
+        // caller can present the QR code for scanning by the other
+        // device. -- MSC4108 Secure channel setup step 3
         let qr_code_data = secure_channel.qr_code_data().clone();
         trace!("Generated QR code.");
         self.state.set(LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrReady(
             qr_code_data,
         )));
 
-        // Wait for the secure channel to connect. The other device now needs to scan
-        // the QR code and send us the LoginInitiateMessage which we respond to
-        // with the LoginOkMessage. -- MSC4108 step 4 & 5
+        // Wait for the secure channel to connect. The other device now needs to
+        // scan the QR code and send us the LoginInitiateMessage which
+        // we respond to with the LoginOkMessage. -- MSC4108 step 4 & 5
         let channel = secure_channel.connect().await?;
 
         // The other device now verifies our message, computes the checkcode and
@@ -473,8 +474,8 @@ impl<'a> LoginWithGeneratedQrCode<'a> {
             CheckCodeSender::new(tx),
         )));
 
-        // Retrieve the entered checkcode and verify it to confirm that the channel is
-        // actually secure.
+        // Retrieve the entered checkcode and verify it to confirm that the
+        // channel is actually secure.
         // -- MSC4108 Secure channel setup step 7
         let check_code = rx.await.map_err(|_| SecureChannelError::CannotReceiveCheckCode)?;
         trace!("Received check code.");
@@ -684,8 +685,8 @@ mod test {
 
         trace!("Established the secure channel.");
 
-        // The other side isn't yet sure that it's talking to the right device, show
-        // a check code so they can confirm.
+        // The other side isn't yet sure that it's talking to the right device,
+        // show a check code so they can confirm.
         let check_code = channel.check_code();
 
         let check_code_sender =
@@ -776,8 +777,8 @@ mod test {
 
         let homeserver_url = rendezvous_server.homeserver_url.clone();
 
-        // Create Alice, the existing client, as a logged-in client. They will scan the
-        // QR code generated by Bob.
+        // Create Alice, the existing client, as a logged-in client. They will
+        // scan the QR code generated by Bob.
         let alice = server.client_builder().logged_in_with_oauth().build().await;
         assert!(alice.session_meta().is_some(), "Alice should be logged in");
 
@@ -885,8 +886,8 @@ mod test {
 
         let rendezvous_homeserver_url = rendezvous_server.homeserver_url.clone();
 
-        // Create Alice, the existing client, as a logged-in client. They will scan the
-        // QR code generated by Bob.
+        // Create Alice, the existing client, as a logged-in client. They will
+        // scan the QR code generated by Bob.
         let alice = login_server.client_builder().logged_in_with_oauth().build().await;
         assert!(alice.session_meta().is_some(), "Alice should be logged in");
 
@@ -908,7 +909,8 @@ mod test {
             QrCodeIntentData::Msc4108 { data: Msc4108IntentData::Login, .. }
         );
 
-        // Alice and Bob should have different homeservers configured at the start.
+        // Alice and Bob should have different homeservers configured at the
+        // start.
         let initial_server_url = initial_server.server().uri().parse().unwrap();
         assert_eq!(bob.homeserver(), initial_server_url);
         let login_server_url = login_server.server().uri().parse().unwrap();
@@ -1131,8 +1133,8 @@ mod test {
 
         let homeserver_url = rendezvous_server.homeserver_url.clone();
 
-        // Create Alice, the existing client, as a logged-in client. They will scan the
-        // QR code generated by Bob.
+        // Create Alice, the existing client, as a logged-in client. They will
+        // scan the QR code generated by Bob.
         let alice = server.client_builder().logged_in_with_oauth().build().await;
         assert!(alice.session_meta().is_some(), "Alice should be logged in");
 

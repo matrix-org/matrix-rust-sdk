@@ -80,8 +80,9 @@ impl RoomList {
                 .spawn_infinite_task("room_list::loading_state_task", async move {
                     pin_mut!(room_list_service_state);
 
-                    // As soon as `RoomListService` changes its state, if it isn't
-                    // `Terminated` nor `Error`, we know we have fetched something,
+                    // As soon as `RoomListService` changes its state, if it
+                    // isn't `Terminated` nor `Error`, we
+                    // know we have fetched something,
                     // so the room list is loaded.
                     while let Some(state) = room_list_service_state.next().await {
                         use State::*;
@@ -97,7 +98,8 @@ impl RoomList {
 
                     loading_state.set(RoomListLoadingState::Loaded { maximum_number_of_rooms });
 
-                    // Wait for updates on the maximum number of rooms to update again.
+                    // Wait for updates on the maximum number of rooms to update
+                    // again.
                     let mut maximum_number_of_rooms_stream =
                         sliding_sync_list.maximum_number_of_rooms_stream();
 
@@ -362,9 +364,10 @@ impl RoomListDynamicEntriesController {
         let limit = self.limit.get();
 
         if limit < max {
-            // With this logic, it is possible that `limit` becomes greater than `max` if
-            // `max - limit < page_size`, and that's perfectly fine. It's OK to have a
-            // `limit` greater than `max`, but it's not OK to increase the limit
+            // With this logic, it is possible that `limit` becomes greater than
+            // `max` if `max - limit < page_size`, and that's
+            // perfectly fine. It's OK to have a `limit` greater
+            // than `max`, but it's not OK to increase the limit
             // indefinitely.
             self.limit.set_if_not_eq(limit + self.page_size);
         }

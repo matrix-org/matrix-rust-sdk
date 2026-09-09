@@ -245,7 +245,8 @@ mod tests {
                 return false;
             };
 
-            // The body's `since` field is set equal to the matcher's next_token.
+            // The body's `since` field is set equal to the matcher's
+            // next_token.
             if !body.get_field::<String>("since").is_ok_and(|s| s == self.next_token) {
                 return false;
             }
@@ -254,8 +255,8 @@ mod tests {
                 return false;
             }
 
-            // The body's `filter` field has `generic_search_term` equal to the matcher's
-            // next_token.
+            // The body's `filter` field has `generic_search_term` equal to the
+            // matcher's next_token.
             if !body.get_field::<Filter>("filter").is_ok_and(|s| {
                 if self.filter_term.is_none() {
                     s.is_none() || s.is_some_and(|s| s.generic_search_term.is_none())

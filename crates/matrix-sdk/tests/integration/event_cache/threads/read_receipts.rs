@@ -475,8 +475,8 @@ async fn test_mentions_increments_unread_mentions() {
     let (_, mut thread_updates) = thread.subscribe().await.unwrap();
     assert!(thread_updates.is_empty());
 
-    // For mentions to be properly counted, we need to have a member event for the
-    // current user.
+    // For mentions to be properly counted, we need to have a member event for
+    // the current user.
     let member_event = f
         .member(client.user_id().unwrap())
         .membership(MembershipState::Join)
@@ -524,8 +524,8 @@ async fn test_compute_unread_counts_considers_active_receipt() {
     let (_, mut thread_updates) = thread.subscribe().await.unwrap();
     assert!(thread_updates.is_empty());
 
-    // Starting with a room with 1 implicit receipt, then two messages from Alice,
-    // and a receipt on Alice's first message $2,
+    // Starting with a room with 1 implicit receipt, then two messages from
+    // Alice, and a receipt on Alice's first message $2,
     server
         .sync_room(
             &client,
@@ -560,7 +560,8 @@ async fn test_compute_unread_counts_considers_active_receipt() {
 
     assert_let_timeout!(Ok(_) = thread_updates.recv());
 
-    // The message counts are properly updated (one new message unread after $2).
+    // The message counts are properly updated (one new message unread after
+    // $2).
     assert_eq!(thread.num_unread_messages().await.unwrap(), 1);
 
     // Provided a sync with one new message from Alice in the same room.
@@ -623,8 +624,8 @@ async fn test_unread_counts_updated_after_duplicate_only_sync_response() {
     // We receive the thread update for the two new messages.
     assert_let_timeout!(Ok(_) = thread_updates.recv());
 
-    // Then, provided a sync with a single duplicated message sent by somebody else,
-    // but a read receipt for the existing message $2,
+    // Then, provided a sync with a single duplicated message sent by somebody
+    // else, but a read receipt for the existing message $2,
     server
         .sync_room(
             &client,
@@ -647,7 +648,8 @@ async fn test_unread_counts_updated_after_duplicate_only_sync_response() {
 
     assert_let_timeout!(Ok(_) = thread_updates.recv());
 
-    // The message counts are properly updated (zero new message unread after $2).
+    // The message counts are properly updated (zero new message unread after
+    // $2).
     assert_eq!(thread.num_unread_messages().await.unwrap(), 0);
 }
 
@@ -663,8 +665,9 @@ async fn test_read_receipt_from_store_used_as_latest_active() {
     let thread_id = event_id!("$t");
     let f = EventFactory::new().room(room_id).sender(*ALICE);
 
-    // Important test note: the read receipt must be in the state store *before* the
-    // event cache is subscribed to, so that it's not marked as active at start.
+    // Important test note: the read receipt must be in the state store *before*
+    // the event cache is subscribed to, so that it's not marked as active
+    // at start.
     server
         .sync_room(
             &client,

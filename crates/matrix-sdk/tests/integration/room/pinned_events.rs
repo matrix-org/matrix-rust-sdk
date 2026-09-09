@@ -37,8 +37,8 @@ impl PinningTestSetup<'_> {
 
         server.mock_room_state_encryption().plain().mount().await;
 
-        // This is necessary to get an empty list of pinned events when there are no
-        // pinned events state event in the required state.
+        // This is necessary to get an empty list of pinned events when there
+        // are no pinned events state event in the required state.
         Mock::given(method("GET"))
             .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.room.pinned_events/.*"))
             .and(header("authorization", "Bearer 1234"))
@@ -179,8 +179,8 @@ async fn test_pinned_events_are_loaded_from_network_then_are_reloaded_from_stora
         // Sync the room with the pinned event ID in the room state.
         //
         // This is important: the pinned events list must include our event ID,
-        // otherwise the initial reload from network will clear the storage-loaded
-        // events.
+        // otherwise the initial reload from network will clear the
+        // storage-loaded events.
         let pinned_events_state = f.room_pinned_events(vec![pinned_event_id.to_owned()]);
 
         let _room = server
@@ -194,8 +194,8 @@ async fn test_pinned_events_are_loaded_from_network_then_are_reloaded_from_stora
         let (pinned_events_cache, _drop_handles) =
             event_cache.pinned_events(room_id).await.unwrap();
 
-        // Getting the pinned events cache triggers `PinnedEventsCache::new()` which
-        // spawns a task that calls `reload_from_storage()` first.
+        // Getting the pinned events cache triggers `PinnedEventsCache::new()`
+        // which spawns a task that calls `reload_from_storage()` first.
         let (events, mut subscriber) = pinned_events_cache.subscribe().await.unwrap();
         let mut events = events.into();
 
@@ -362,8 +362,8 @@ async fn test_pinned_events_dont_include_thread_responses() {
 
     server.mock_room_event().match_event_id().ok(pinned_event.clone()).mock_once().mount().await;
 
-    // Serve a thread relation over network; it should NOT be included in the pinned
-    // event cache for that room.
+    // Serve a thread relation over network; it should NOT be included in the
+    // pinned event cache for that room.
     server
         .mock_room_relations()
         .match_subrequest(IncludeRelations::AllRelations)
@@ -412,9 +412,9 @@ async fn test_pinned_events_dont_include_thread_responses() {
         }
     }
 
-    // Verify the pinned event was loaded from the network, and that there wasn't
-    // any other event loaded (in particular, the thread response shouldn't be
-    // included in the pinned events).
+    // Verify the pinned event was loaded from the network, and that there
+    // wasn't any other event loaded (in particular, the thread response
+    // shouldn't be included in the pinned events).
     assert_eq!(events.len(), 1, "Expected pinned events to be loaded from network");
     assert_eq!(
         events[0].event_id().unwrap(),

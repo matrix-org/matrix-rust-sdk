@@ -205,10 +205,10 @@ impl SqliteCryptoStore {
     ) -> Result<InboundGroupSession> {
         let mut pickle: PickledInboundGroupSession = self.deserialize_value(&value)?;
 
-        // The `backed_up` SQL column is the source of truth, because we update it
-        // inside `mark_inbound_group_sessions_as_backed_up` and don't update
-        // the pickled value inside the `data` column (until now, when we are puling it
-        // out of the DB).
+        // The `backed_up` SQL column is the source of truth, because we update
+        // it inside `mark_inbound_group_sessions_as_backed_up` and
+        // don't update the pickled value inside the `data` column
+        // (until now, when we are puling it out of the DB).
         pickle.backed_up = backed_up;
 
         Ok(InboundGroupSession::from_pickle(pickle)?)
@@ -216,8 +216,8 @@ impl SqliteCryptoStore {
 
     fn deserialize_key_request(&self, value: &[u8], sent_out: bool) -> Result<GossipRequest> {
         let mut request: GossipRequest = self.deserialize_value(value)?;
-        // sent_out SQL column is source of truth, sent_out field in serialized value
-        // needed for other stores though
+        // sent_out SQL column is source of truth, sent_out field in serialized
+        // value needed for other stores though
         request.sent_out = sent_out;
         Ok(request)
     }
@@ -275,8 +275,9 @@ pub(crate) async fn initialize_store(conn: &SqliteAsyncConn, version: u8) -> Res
 
     if version < 1 {
         debug!("Creating database");
-        // First turn on WAL mode, this can't be done in the transaction, it fails with
-        // the error message: "cannot change into wal mode from within a transaction".
+        // First turn on WAL mode, this can't be done in the transaction, it
+        // fails with the error message: "cannot change into wal mode
+        // from within a transaction".
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/crypto_store/001_init.sql"))?;
@@ -859,8 +860,9 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
                 move |mut stmt| {
                     let sender_data_type = sender_data_type as u8;
 
-                    // If we are not provided with an `after_session_id`, use a key which will sort
-                    // before all real keys: the empty string.
+                    // If we are not provided with an `after_session_id`, use a
+                    // key which will sort before all real
+                    // keys: the empty string.
                     let after_session_id = after_session_id.unwrap_or(Key::Plain(Vec::new()));
 
                     stmt.query(named_params! {
@@ -893,8 +895,9 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
         }
 
         self.chunk_large_query_over(session_ids, None, move |txn, session_ids| {
-            // Safety: host parameters are not generated using any user input except the
-            // number of session IDs, so it is safe from injection.
+            // Safety: host parameters are not generated using any user input
+            // except the number of session IDs, so it is safe from
+            // injection.
             let query = format!(
                 "UPDATE inbound_group_session SET backed_up = TRUE where session_id IN ({})",
                 session_ids.host_parameters()
@@ -1140,10 +1143,11 @@ impl CryptoStore for SqliteCryptoStore {
     }
 
     async fn save_pending_changes(&self, changes: PendingChanges) -> Result<()> {
-        // Serialize calls to `save_pending_changes`; there are multiple await points
-        // below, and we're pickling data as we go, so we don't want to
-        // invalidate data we've previously read and overwrite it in the store.
-        // TODO: #2000 should make this lock go away, or change its shape.
+        // Serialize calls to `save_pending_changes`; there are multiple await
+        // points below, and we're pickling data as we go, so we don't
+        // want to invalidate data we've previously read and overwrite
+        // it in the store. TODO: #2000 should make this lock go away,
+        // or change its shape.
         let _guard = self.save_changes_lock.lock().await;
 
         let pickled_account = if let Some(account) = changes.account {
@@ -1170,10 +1174,11 @@ impl CryptoStore for SqliteCryptoStore {
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
-        // Serialize calls to `save_changes`; there are multiple await points below, and
-        // we're pickling data as we go, so we don't want to invalidate data
-        // we've previously read and overwrite it in the store.
-        // TODO: #2000 should make this lock go away, or change its shape.
+        // Serialize calls to `save_changes`; there are multiple await points
+        // below, and we're pickling data as we go, so we don't want to
+        // invalidate data we've previously read and overwrite it in the
+        // store. TODO: #2000 should make this lock go away, or change
+        // its shape.
         let _guard = self.save_changes_lock.lock().await;
 
         let pickled_private_identity =
@@ -1346,7 +1351,8 @@ impl CryptoStore for SqliteCryptoStore {
         sessions: Vec<InboundGroupSession>,
         backed_up_to_version: Option<&str>,
     ) -> matrix_sdk_crypto::store::Result<(), Self::Error> {
-        // Sanity-check that the data in the sessions corresponds to backed_up_version
+        // Sanity-check that the data in the sessions corresponds to
+        // backed_up_version
         sessions.iter().for_each(|s| {
             let backed_up = s.backed_up();
             if backed_up != backed_up_to_version.is_some() {
@@ -1358,8 +1364,8 @@ impl CryptoStore for SqliteCryptoStore {
             }
         });
 
-        // Currently, this store doesn't save the backup version separately, so this
-        // just delegates to save_changes.
+        // Currently, this store doesn't save the backup version separately, so
+        // this just delegates to save_changes.
         self.save_changes(Changes { inbound_group_sessions: sessions, ..Changes::default() }).await
     }
 
@@ -1939,7 +1945,8 @@ mod tests {
         let tmpdir = tempdir().unwrap();
         let destination = tmpdir.path().join(db_name);
 
-        // Copy the test database to the tempdir so our test runs are idempotent.
+        // Copy the test database to the tempdir so our test runs are
+        // idempotent.
         std::fs::copy(&database_path, destination).unwrap();
 
         tmpdir

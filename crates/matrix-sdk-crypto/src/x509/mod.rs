@@ -250,9 +250,10 @@ pub(crate) mod tests {
 
         use sha2::{Digest, Sha256};
 
-        // The actual bytes in the SKI don't actually matter that much (and the RFC just
-        // makes a couple of suggestions): they just need to be a reasonably
-        // unique way of referring to the certificate with the right public key.
+        // The actual bytes in the SKI don't actually matter that much (and the
+        // RFC just makes a couple of suggestions): they just need to be
+        // a reasonably unique way of referring to the certificate with
+        // the right public key.
         let spki = signing_key.subject_public_key_info();
         let spki_hash = Sha256::digest(&spki);
         let ski_bytes = &spki_hash.as_slice()[0..20];

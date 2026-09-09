@@ -128,8 +128,9 @@ impl StateMachine {
             }
 
             Running => {
-                // We haven't changed the state for a while, we go back to `Recovering` to avoid
-                // requesting potentially large data. See `Self::last_state_update` to learn
+                // We haven't changed the state for a while, we go back to
+                // `Recovering` to avoid requesting potentially
+                // large data. See `Self::last_state_update` to learn
                 // the details.
                 if self.last_state_update_time.lock().unwrap().elapsed() > self.state_lifespan {
                     set_all_rooms_to_selective_sync_mode(sliding_sync).await?;

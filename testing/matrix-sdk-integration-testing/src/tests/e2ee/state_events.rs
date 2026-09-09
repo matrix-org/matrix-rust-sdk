@@ -89,8 +89,8 @@ async fn test_e2ee_state_events() -> Result<()> {
     // Alice invites Bob to the room
     alice_room.invite_user_by_id(bob.user_id().unwrap()).await?;
 
-    // Alice is done. Bob has been invited and the room key bundle should have been
-    // sent out. Let's stop syncing so the logs contain less noise.
+    // Alice is done. Bob has been invited and the room key bundle should have
+    // been sent out. Let's stop syncing so the logs contain less noise.
     alice_sync_service.stop().await;
 
     let bob_response = bob.sync_once().instrument(bob_span.clone()).await?;

@@ -515,15 +515,15 @@ mod tests {
 
         // We test two things:
 
-        // Converting the WidgetCapability (ffi struct) to Capabilities (rust sdk
-        // struct)
+        // Converting the WidgetCapability (ffi struct) to Capabilities (rust
+        // sdk struct)
         let cap = Into::<Capabilities>::into(widget_cap);
         // Converting Capabilities (rust sdk struct) to a json list.
         let cap_json_repr = serde_json::to_string(&cap).unwrap();
 
-        // Converting to a Vec<String> allows to check if the required elements exist
-        // without breaking the test each time the order of permissions might
-        // change.
+        // Converting to a Vec<String> allows to check if the required elements
+        // exist without breaking the test each time the order of
+        // permissions might change.
         let permission_array: Vec<String> = serde_json::from_str(&cap_json_repr).unwrap();
 
         let cap_assert = |capability: &str| {

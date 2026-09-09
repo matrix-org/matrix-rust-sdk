@@ -67,8 +67,8 @@ use crate::{
 /// Replace the source by the final ones in all the media types handled by
 /// [`Room::make_attachment_type()`].
 fn update_media_event_after_upload(echo: &mut RoomMessageEventContent, sent: SentMediaInfo) {
-    // Some variants look really similar below, but the `event` and `info` are all
-    // different types…
+    // Some variants look really similar below, but the `event` and `info` are
+    // all different types…
     match &mut echo.msgtype {
         MessageType::Audio(event) => {
             event.source = sent.file;
@@ -93,9 +93,10 @@ fn update_media_event_after_upload(echo: &mut RoomMessageEventContent, sent: Sen
         }
 
         _ => {
-            // All `MessageType` created by `Room::make_attachment_type` should be
-            // handled here. The only way to end up here is that a message type has
-            // been tampered with in the database.
+            // All `MessageType` created by `Room::make_attachment_type` should
+            // be handled here. The only way to end up here is that
+            // a message type has been tampered with in the
+            // database.
             error!("Invalid message type in database: {}", echo.msgtype());
             // Only crash debug builds.
             debug_assert!(false, "invalid message type in database");
@@ -111,17 +112,17 @@ fn update_gallery_event_after_upload(
     sent: HashMap<String, AccumulatedSentMediaInfo>,
 ) {
     let MessageType::Gallery(gallery) = &mut echo.msgtype else {
-        // All `GalleryItemType` created by `Room::make_gallery_item_type` should be
-        // handled here. The only way to end up here is that a item type has
-        // been tampered with in the database.
+        // All `GalleryItemType` created by `Room::make_gallery_item_type`
+        // should be handled here. The only way to end up here is that a
+        // item type has been tampered with in the database.
         error!("Invalid gallery item types in database");
         // Only crash debug builds.
         debug_assert!(false, "invalid item type in database {:?}", echo.msgtype());
         return;
     };
 
-    // Some variants look really similar below, but the `event` and `info` are all
-    // different types…
+    // Some variants look really similar below, but the `event` and `info` are
+    // all different types…
     for itemtype in gallery.itemtypes.iter_mut() {
         match itemtype {
             GalleryItemType::Audio(event) => match sent.get(&event.source.unique_key()) {
@@ -157,9 +158,10 @@ fn update_gallery_event_after_upload(
             },
 
             _ => {
-                // All `GalleryItemType` created by `Room::make_gallery_item_type` should be
-                // handled here. The only way to end up here is that a item type has
-                // been tampered with in the database.
+                // All `GalleryItemType` created by
+                // `Room::make_gallery_item_type` should be
+                // handled here. The only way to end up here is that a item type
+                // has been tampered with in the database.
                 error!("Invalid gallery item types in database");
                 // Only crash debug builds.
                 debug_assert!(false, "invalid gallery item type in database {itemtype:?}");
@@ -442,8 +444,8 @@ impl RoomSendQueue {
             let txn = TransactionId::new();
             trace!(upload_thumbnail_txn = %txn, "media has a thumbnail");
 
-            // Create the information required for filling the thumbnail section of the
-            // event.
+            // Create the information required for filling the thumbnail section
+            // of the event.
             let (data, content_type, thumbnail_info) = thumbnail.into_parts();
             let file_size = data.len();
 
@@ -552,8 +554,8 @@ impl QueueStorage {
             extra_content,
         )?;
 
-        // Indicates observers that the upload finished, by editing the local echo for
-        // the event into its final form before sending.
+        // Indicates observers that the upload finished, by editing the local
+        // echo for the event into its final form before sending.
         new_updates.push(RoomSendQueueUpdate::ReplacedLocalEvent {
             transaction_id: event_txn.clone(),
             new_content: new_content.clone(),
@@ -605,8 +607,8 @@ impl QueueStorage {
         for (item_info, sent_media) in zip(item_infos, sent_media_vec) {
             let FinishGalleryItemInfo { file_upload: file_upload_txn, thumbnail_info } = item_info;
 
-            // Store the sent media under the original cache key for later insertion into
-            // the local echo.
+            // Store the sent media under the original cache key for later
+            // insertion into the local echo.
             let from_req = Media::make_local_file_media_request(&file_upload_txn);
             sent_infos.insert(from_req.source.unique_key(), sent_media.clone());
 
@@ -624,8 +626,8 @@ impl QueueStorage {
         let new_content = SerializableEventContent::new(&local_echo.into())
             .map_err(RoomSendQueueStorageError::JsonSerialization)?;
 
-        // Indicates observers that the upload finished, by editing the local echo for
-        // the event into its final form before sending.
+        // Indicates observers that the upload finished, by editing the local
+        // echo for the event into its final form before sending.
         new_updates.push(RoomSendQueueUpdate::ReplacedLocalEvent {
             transaction_id: event_txn.clone(),
             new_content: new_content.clone(),
@@ -661,8 +663,8 @@ impl QueueStorage {
         event_txn: OwnedTransactionId,
         parent_is_thumbnail_upload: bool,
     ) -> Result<(), RoomSendQueueError> {
-        // The previous file or thumbnail has been sent, now transform the dependent
-        // file or thumbnail upload request into a ready one.
+        // The previous file or thumbnail has been sent, now transform the
+        // dependent file or thumbnail upload request into a ready one.
         let sent_media = parent_key
             .into_media()
             .ok_or(RoomSendQueueError::StorageError(RoomSendQueueStorageError::InvalidParentKey))?;
@@ -682,11 +684,12 @@ impl QueueStorage {
              or thumbnail upload request",
         );
 
-        // If the parent request was a thumbnail upload, don't add it to the list of
-        // accumulated medias yet because its dependent file upload is still
-        // pending. If the parent request was a file upload, we know that both
-        // the file and its thumbnail (if any) have finished uploading and we
-        // can add them to the accumulated sent media.
+        // If the parent request was a thumbnail upload, don't add it to the
+        // list of accumulated medias yet because its dependent file
+        // upload is still pending. If the parent request was a file
+        // upload, we know that both the file and its thumbnail (if any)
+        // have finished uploading and we can add them to the
+        // accumulated sent media.
         #[cfg(feature = "unstable-msc4274")]
         let accumulated = if parent_is_thumbnail_upload {
             sent_media.accumulated
@@ -754,11 +757,13 @@ impl QueueStorage {
         if let Some(thumbnail_txn) = &handles.upload_thumbnail_txn
             && store.remove_send_queue_request(&self.room_id, thumbnail_txn).await?
         {
-            // The thumbnail upload existed as a request: either it was pending (something
-            // else was being sent), or it was actively being sent.
+            // The thumbnail upload existed as a request: either it was pending
+            // (something else was being sent), or it was actively
+            // being sent.
             trace!("could remove thumbnail request, removing 2 dependent requests now");
 
-            // 1. Try to abort sending using the being_sent info, in case it was active.
+            // 1. Try to abort sending using the being_sent info, in case it was
+            //    active.
             if let Some(info) = guard.being_sent.as_ref()
                 && info.transaction_id == *thumbnail_txn
             {
@@ -794,11 +799,13 @@ impl QueueStorage {
 
         if !removed_dependent_upload {
             if store.remove_send_queue_request(&self.room_id, &handles.upload_file_txn).await? {
-                // The upload existed as a request: either it was pending (something else was
-                // being sent), or it was actively being sent.
+                // The upload existed as a request: either it was pending
+                // (something else was being sent), or it was
+                // actively being sent.
                 trace!("could remove file upload request, removing 1 dependent request");
 
-                // 1. Try to abort sending using the being_sent info, in case it was active.
+                // 1. Try to abort sending using the being_sent info, in case it
+                //    was active.
                 if let Some(info) = guard.being_sent.as_ref()
                     && info.transaction_id == handles.upload_file_txn
                 {
@@ -819,23 +826,27 @@ impl QueueStorage {
             } else {
                 // The upload was not in the send queue, so it's completed.
                 //
-                // It means the event sending is either still queued as a dependent request, or
-                // it's graduated into a request.
+                // It means the event sending is either still queued as a
+                // dependent request, or it's graduated into a
+                // request.
                 if !removed_dependent_event
                     && !store
                         .remove_dependent_queued_request(&self.room_id, &event_as_dependent)
                         .await?
                 {
-                    // The media event has been promoted into a request, or the promoted request
-                    // has been sent already: we couldn't abort, let the caller decide what to do.
+                    // The media event has been promoted into a request, or the
+                    // promoted request has been sent
+                    // already: we couldn't abort, let the caller decide what to
+                    // do.
                     debug!("uploads already happened => deferring to aborting an event sending");
                     return Ok(false);
                 }
             }
         }
 
-        // At this point, all the requests and dependent requests have been cleaned up.
-        // Perform the final step: empty the cache from the local items.
+        // At this point, all the requests and dependent requests have been
+        // cleaned up. Perform the final step: empty the cache from the
+        // local items.
         {
             let media_store = client.media_store().lock().await?;
             media_store
@@ -868,13 +879,15 @@ impl QueueStorage {
         // The media event can be in one of three states:
         // - still stored as a dependent request,
         // - stored as a queued request, active (aka it's being sent).
-        // - stored as a queued request, not active yet (aka it's not being sent yet),
+        // - stored as a queued request, not active yet (aka it's not being sent
+        //   yet),
         //
         // We'll handle each of these cases one by one.
 
         {
-            // If the event can be found as a dependent event, update the captions, save it
-            // back into the database, and return early.
+            // If the event can be found as a dependent event, update the
+            // captions, save it back into the database, and return
+            // early.
             let dependent_requests = store.load_dependent_queued_requests(&self.room_id).await?;
 
             if let Some(found) =
@@ -1016,9 +1029,10 @@ async fn update_media_cache_keys_after_upload(
                 "storing thumbnail as a thumbnail for the uploaded media, and a file in itself, in cache store"
             );
 
-            // Try to reload the content of the thumbnail from the media store. As it's not
-            // a strong requirement to store the thumbnail a second time, we
-            // silently log errors instead of propagating them to the caller.
+            // Try to reload the content of the thumbnail from the media store.
+            // As it's not a strong requirement to store the
+            // thumbnail a second time, we silently log errors
+            // instead of propagating them to the caller.
             match media_store
                 .get_media_content(&MediaRequestParameters {
                     source: from_request_params.source.clone(),
@@ -1027,8 +1041,9 @@ async fn update_media_cache_keys_after_upload(
                 .await
             {
                 Ok(Some(thumbnail_content)) => {
-                    // Also cache this as a thumbnail for the thumbnail, in the media store; the
-                    // ElementX apps expect that specific format for thumbnails.
+                    // Also cache this as a thumbnail for the thumbnail, in the
+                    // media store; the ElementX apps expect
+                    // that specific format for thumbnails.
                     media_store
                         .add_media_content(
                             &MediaRequestParameters {
@@ -1052,7 +1067,8 @@ async fn update_media_cache_keys_after_upload(
                 }
 
                 Err(err) => {
-                    // Silently log the error, but proceed, as storing the thumbnail as such isn't
+                    // Silently log the error, but proceed, as storing the
+                    // thumbnail as such isn't
                     // a strong requirement.
                     error!(
                         from = ?from_request_params.source,

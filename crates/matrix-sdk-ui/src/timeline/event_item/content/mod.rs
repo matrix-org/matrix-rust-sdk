@@ -246,7 +246,8 @@ impl TimelineItemContent {
                 None
             }
             [_, _, ..] => {
-                // There is no meaningful single content to extract in that case.
+                // There is no meaningful single content to extract in that
+                // case.
                 warn!("Ignoring event that produced multiple timeline actions");
                 None
             }
@@ -851,7 +852,8 @@ impl AnyOtherStateEventContentChange {
     /// `AnyStateEventContentChange`.
     ///
     /// Panics if the event content does not match one of the variants.
-    // This could be a `From` implementation but we don't want it in the public API.
+    // This could be a `From` implementation but we don't want it in the public
+    // API.
     pub(crate) fn with_event_content(content: AnyStateEventContentChange) -> Self {
         let event_type = content.event_type();
 

@@ -53,13 +53,13 @@ async fn test_must_explicitly_subscribe() {
 
     let room_id = room_id!("!omelette:fromage.fr");
 
-    // If I create a room event subscriber for a room before subscribing the event
-    // cache,
+    // If I create a room event subscriber for a room before subscribing the
+    // event cache,
     let room = server.sync_joined_room(&client, room_id).await;
     let result = room.event_cache().await;
 
-    // Then it fails, because one must explicitly call `.subscribe()` on the event
-    // cache.
+    // Then it fails, because one must explicitly call `.subscribe()` on the
+    // event cache.
     assert_matches!(result, Err(EventCacheError::NotSubscribedYet));
 }
 
@@ -286,11 +286,12 @@ async fn test_backpaginate_once() {
         room_event_cache.pagination().run_backwards_once(20).await.unwrap()
     };
 
-    // I'll get all the previous events, in "reverse" order (same as the response).
+    // I'll get all the previous events, in "reverse" order (same as the
+    // response).
     let BackPaginationOutcome { events, reached_start } = outcome;
 
-    // The event cache figures this is the last chunk of events in the room, because
-    // there's no prior gap this time.
+    // The event cache figures this is the last chunk of events in the room,
+    // because there's no prior gap this time.
     assert!(reached_start);
 
     assert_eq!(events.len(), 2);
@@ -607,7 +608,8 @@ async fn test_reset_while_backpaginating() {
     //
     // So events have to happen in this order:
     // - the backpagination request is sent, with a prev-batch A
-    // - the sync endpoint returns *after* the backpagination started, before the
+    // - the sync endpoint returns *after* the backpagination started, before
+    //   the
     // backpagination ends
     // - the backpagination ends, with a prev-batch token that's now stale.
     //
@@ -657,14 +659,15 @@ async fn test_reset_while_backpaginating() {
 
     let outcome = backpagination.await.expect("join failed").unwrap();
 
-    // Backpagination will automatically restart, so eventually we get the events.
+    // Backpagination will automatically restart, so eventually we get the
+    // events.
     let BackPaginationOutcome { events, .. } = outcome;
     assert!(!events.is_empty());
 
     // Assert the updates as diffs.
     {
-        // The room shrinks the linked chunk to the last event chunk, so it clears and
-        // re-adds the latest event.
+        // The room shrinks the linked chunk to the last event chunk, so it
+        // clears and re-adds the latest event.
         assert_let_timeout!(
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
                 room_stream.recv()
@@ -728,8 +731,8 @@ async fn test_backpaginating_without_token() {
     // We don't have a token.
     let pagination = room_event_cache.pagination();
 
-    // If we try to back-paginate with a token, it will hit the end of the timeline
-    // and give us the resulting event.
+    // If we try to back-paginate with a token, it will hit the end of the
+    // timeline and give us the resulting event.
     let BackPaginationOutcome { events, reached_start } =
         pagination.run_backwards_once(20).await.unwrap();
 
@@ -788,8 +791,8 @@ async fn test_limited_timeline_resets_pagination() {
     let mut pagination_status = pagination.status();
     assert_eq!(pagination_status.get(), PaginationStatus::Idle { hit_timeline_start: false });
 
-    // If we try to back-paginate with a token, it will hit the end of the timeline
-    // and give us the resulting event.
+    // If we try to back-paginate with a token, it will hit the end of the
+    // timeline and give us the resulting event.
     let BackPaginationOutcome { events, reached_start } =
         pagination.run_backwards_once(20).await.unwrap();
 
@@ -823,7 +826,8 @@ async fn test_limited_timeline_resets_pagination() {
         )
         .await;
 
-    // We have a limited sync, which triggers a shrink to the latest chunk: a gap.
+    // We have a limited sync, which triggers a shrink to the latest chunk: a
+    // gap.
     assert_let_timeout!(
         Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
             room_stream.recv()
@@ -931,10 +935,10 @@ async fn test_backpaginate_with_no_initial_events() {
 
     // The first back-pagination will return these two events.
     //
-    // Note: it's important to return the same event that came from sync: since we
-    // will back-paginate without a prev-batch token first, we'll back-paginate
-    // from the end of the timeline, which must include the event we got from
-    // sync.
+    // Note: it's important to return the same event that came from sync: since
+    // we will back-paginate without a prev-batch token first, we'll
+    // back-paginate from the end of the timeline, which must include the
+    // event we got from sync.
 
     // We need to trigger the following conditions:
     // - a back-pagination starts,
@@ -944,8 +948,9 @@ async fn test_backpaginate_with_no_initial_events() {
     // - We don't have a prev-batch token to start with, so the first
     //   back-pagination doesn't start before DEFAULT_WAIT_FOR_TOKEN_DURATION
     //   seconds.
-    // - While the back-pagination is actually running, we need a sync adding events
-    //   to happen (after DEFAULT_WAIT_FOR_TOKEN_DURATION + 500 milliseconds).
+    // - While the back-pagination is actually running, we need a sync adding
+    //   events to happen (after DEFAULT_WAIT_FOR_TOKEN_DURATION + 500
+    //   milliseconds).
     // - The back-pagination finishes after this sync (after
     //   DEFAULT_WAIT_FOR_TOKEN_DURATION + 1 seconds).
 
@@ -975,15 +980,15 @@ async fn test_backpaginate_with_no_initial_events() {
 
     let pagination = room_event_cache.pagination();
 
-    // Run pagination: since there's no token, we'll wait a bit for a sync to return
-    // one, and since there's none, we'll end up starting from the end of the
-    // timeline.
+    // Run pagination: since there's no token, we'll wait a bit for a sync to
+    // return one, and since there's none, we'll end up starting from the
+    // end of the timeline.
     let pagination_clone = pagination.clone();
 
     let first_pagination = spawn(async move { pagination_clone.run_backwards_once(20).await });
 
-    // Make sure we've waited for the initial token long enough (3 seconds, as of
-    // 2024-12-16).
+    // Make sure we've waited for the initial token long enough (3 seconds, as
+    // of 2024-12-16).
     sleep(Duration::from_millis(3000) + wait_time).await;
     server
         .sync_room(
@@ -1037,7 +1042,8 @@ async fn test_backpaginate_replace_empty_gap() {
     let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
     wait_for_initial_events(events, &mut stream).await;
 
-    // The first back-pagination will return a previous-batch token, but no events.
+    // The first back-pagination will return a previous-batch token, but no
+    // events.
     server
         .mock_room_messages()
         .match_from("prev_batch")
@@ -1090,7 +1096,8 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
         f.text_msg("sup").event_id(event_id!("$3")).into_raw_sync(),
     ];
 
-    // Start with a room with a few events, limited timeline and prev-batch token.
+    // Start with a room with a few events, limited timeline and prev-batch
+    // token.
     let room = server
         .sync_room(
             &client,
@@ -1124,11 +1131,11 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
         .mount()
         .await;
 
-    // The first sync was limited, so we have unloaded the full linked chunk, and it
-    // only contains the events returned by the sync.
+    // The first sync was limited, so we have unloaded the full linked chunk,
+    // and it only contains the events returned by the sync.
     //
-    // The first back-pagination will hit the network, and let us know we've reached
-    // the end of the room.
+    // The first back-pagination will hit the network, and let us know we've
+    // reached the end of the room.
 
     let outcome = pagination.run_backwards_once(20).await.unwrap();
     assert!(outcome.reached_start);
@@ -1156,12 +1163,12 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
         assert_eq!(events.len(), 3);
     }
 
-    // If any of the following back-paginations fail with a network error, that's
-    // because we've stored a gap that's useless. All back-paginations must be
-    // loading from the store.
+    // If any of the following back-paginations fail with a network error,
+    // that's because we've stored a gap that's useless. All
+    // back-paginations must be loading from the store.
     //
-    // The sync was limited, which unloaded the linked chunk, and reloaded only the
-    // final events chunk.
+    // The sync was limited, which unloaded the linked chunk, and reloaded only
+    // the final events chunk.
 
     let outcome = pagination.run_backwards_once(20).await.unwrap();
     assert!(outcome.events.is_empty());
@@ -1190,7 +1197,8 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
-    // Start with a room with a single event, limited timeline and prev-batch token.
+    // Start with a room with a single event, limited timeline and prev-batch
+    // token.
     let room = server
         .sync_room(
             &client,
@@ -1259,9 +1267,9 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
         .await;
 
     // Run pagination once: it will consume prev-batch2 first, which is the most
-    // recent token, which returns an empty batch, thus indicating the start of the
-    // room; but we still have a chunk in storage, so it appears like it's not the
-    // start *yet*.
+    // recent token, which returns an empty batch, thus indicating the start of
+    // the room; but we still have a chunk in storage, so it appears like
+    // it's not the start *yet*.
     let pagination = room_event_cache.pagination();
 
     let outcome = pagination.run_backwards_once(20).await.unwrap();
@@ -1269,8 +1277,8 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     assert!(outcome.events.is_empty());
     assert!(stream.is_empty());
 
-    // For prev-batch, the back-pagination returns two events we already know, and a
-    // previous batch token.
+    // For prev-batch, the back-pagination returns two events we already know,
+    // and a previous batch token.
     server
         .mock_room_messages()
         .match_from("prev-batch")
@@ -1283,17 +1291,17 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
         .mount()
         .await;
 
-    // Run pagination a second time: it will consume prev-batch, which is the least
-    // recent token.
+    // Run pagination a second time: it will consume prev-batch, which is the
+    // least recent token.
     let outcome = pagination.run_backwards_once(20).await.unwrap();
     assert!(outcome.reached_start);
     assert!(outcome.events.is_empty());
     assert!(stream.is_empty());
 
-    // If this back-pagination fails, that's because it's trying to hit network. In
-    // that case, it means we stored the gap with the prev-batch3 token, while
-    // we shouldn't have to, since it is useless; all events were deduplicated
-    // from the previous pagination.
+    // If this back-pagination fails, that's because it's trying to hit network.
+    // In that case, it means we stored the gap with the prev-batch3 token,
+    // while we shouldn't have to, since it is useless; all events were
+    // deduplicated from the previous pagination.
 
     let (events, stream) = room_event_cache.subscribe().await.unwrap();
     assert_event_matches_msg(&events[0], "hello");
@@ -1318,7 +1326,8 @@ async fn test_dont_delete_gap_that_wasnt_inserted() {
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
-    // Start with a room with a single event, limited timeline and prev-batch token.
+    // Start with a room with a single event, limited timeline and prev-batch
+    // token.
     let room = server
         .sync_room(
             &client,
@@ -1354,8 +1363,8 @@ async fn test_dont_delete_gap_that_wasnt_inserted() {
     // This doesn't cause an update, because nothing changed.
     assert!(stream.is_empty());
 
-    // After a restart, a sync with the same sliding sync window may return the same
-    // events, but no prev-batch token this time.
+    // After a restart, a sync with the same sliding sync window may return the
+    // same events, but no prev-batch token this time.
     server
         .sync_room(
             &client,
@@ -1457,8 +1466,8 @@ async fn test_apply_redaction_when_redaction_comes_later() {
     // And done for now.
     assert!(subscriber.is_empty());
 
-    // If another client is created with the same store, then the stored event is
-    // already redacted.
+    // If another client is created with the same store, then the stored event
+    // is already redacted.
     drop(client);
 
     let client = server
@@ -1821,8 +1830,8 @@ async fn test_lazy_loading() {
         // Oh! 5 events! How classy.
         assert_eq!(outcome.events.len(), 5);
 
-        // Hello you. Well… Uoy olleh! Remember, this is a backwards pagination, so
-        // events are returned in reverse order.
+        // Hello you. Well… Uoy olleh! Remember, this is a backwards pagination,
+        // so events are returned in reverse order.
         assert_event_id!(outcome.events[0], "$ev2_4");
         assert_event_id!(outcome.events[1], "$ev2_3");
         assert_event_id!(outcome.events[2], "$ev2_2");
@@ -1866,8 +1875,8 @@ async fn test_lazy_loading() {
     // moaare!
     //
     // One more chunk will be loaded from the store. This new chunk contains a
-    // gap. Network will be reached. 4 events will be received, and inserted in the
-    // event cache store, forever 🫶.
+    // gap. Network will be reached. 4 events will be received, and inserted in
+    // the event cache store, forever 🫶.
     {
         let _network_pagination = mock_server
             .mock_room_messages()
@@ -1898,7 +1907,8 @@ async fn test_lazy_loading() {
         assert_event_id!(outcome.events[2], "$ev1_2");
         assert_event_id!(outcome.events[3], "$ev1_1");
 
-        // And there is more because we didn't reach the start of the timeline yet.
+        // And there is more because we didn't reach the start of the timeline
+        // yet.
         assert!(outcome.reached_start.not());
 
         // Let's check the stream. It should reflect what the
@@ -1991,11 +2001,11 @@ async fn test_lazy_loading() {
     // pagination, because (i) it contained an `end` token, and (ii) not all the
     // fetched events were duplicated. Let's paginate again!
     //
-    // The new network pagination will return, let's say, 2 known events. They will
-    // all be deduplicated, so zero events will be inserted. However, we do paginate
-    // until there's at least one event. The first pagination will return zero
-    // event, the gap chunk will be removed, a second pagination will then run.
-    // This time, the store will be hit.
+    // The new network pagination will return, let's say, 2 known events. They
+    // will all be deduplicated, so zero events will be inserted. However,
+    // we do paginate until there's at least one event. The first pagination
+    // will return zero event, the gap chunk will be removed, a second
+    // pagination will then run. This time, the store will be hit.
     {
         let _network_pagination = mock_server
             .mock_room_messages()
@@ -2018,10 +2028,11 @@ async fn test_lazy_loading() {
 
         let outcome = room_event_cache.pagination().run_backwards_until(1).await.unwrap();
 
-        // 🙊 … 5 events! Wait, what? Yes! The network has returned 2 known events, they
-        // have all been deduplicated, resulting in the removal of the gap chunk.
-        // We then re-ran the pagination, and this time the store is reached, and it
-        // reflects the deduplicated $ev0_5 from a previous back-pagination.
+        // 🙊 … 5 events! Wait, what? Yes! The network has returned 2 known
+        // events, they have all been deduplicated, resulting in the
+        // removal of the gap chunk. We then re-ran the pagination, and
+        // this time the store is reached, and it reflects the
+        // deduplicated $ev0_5 from a previous back-pagination.
         assert_eq!(outcome.events.len(), 5);
 
         // Hello to all of you!
@@ -2169,10 +2180,10 @@ async fn test_deduplication() {
         .await;
 
     // What should we see?
-    // - On `updates_stream`: 2 events from the loaded chunk #1 must be removed, and
-    //   6 events must be added inserted (!); indeed, 4 are removed and re-inserted
-    //   at the back, plus 2 events are newly inserted at the back, so 6 are
-    //   inserted,
+    // - On `updates_stream`: 2 events from the loaded chunk #1 must be removed,
+    //   and 6 events must be added inserted (!); indeed, 4 are removed and
+    //   re-inserted at the back, plus 2 events are newly inserted at the back,
+    //   so 6 are inserted,
     // - On the store, 2 events must be removed from chunk #0
     //
     // First off, let's check `updates_stream`.
@@ -2208,7 +2219,8 @@ async fn test_deduplication() {
     {
         let outcome = room_event_cache.pagination().run_backwards_until(1).await.unwrap();
 
-        // Alrighty, we should get 2 events since 2 of 4 should have been removed.
+        // Alrighty, we should get 2 events since 2 of 4 should have been
+        // removed.
         assert_eq!(outcome.events.len(), 2);
 
         // Hello, in reverse order because it's a backward pagination.
@@ -2297,7 +2309,8 @@ async fn test_timeline_then_empty_timeline_then_deduplication_with_storage() {
         )
         .await;
 
-    // The timeline is limited, so the linked chunk is shrunk to the latest chunk.
+    // The timeline is limited, so the linked chunk is shrunk to the latest
+    // chunk.
     assert_let_timeout!(
         Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
             subscriber.recv()
@@ -2383,8 +2396,8 @@ async fn test_clear_all_rooms() {
     let f = EventFactory::new().room(sleeping_room_id);
     let ev0 = f.text_msg("hi").sender(*ALICE).event_id(event_id!("$ev0")).into_event();
 
-    // Feed the cache with one room with one event, before the client is created.
-    // This room will remain sleeping.
+    // Feed the cache with one room with one event, before the client is
+    // created. This room will remain sleeping.
     {
         let cid = ChunkIdentifier::new(0);
         event_cache_store
@@ -2489,8 +2502,8 @@ async fn test_sync_while_back_paginate() {
         .state_store(state_memory_store);
 
     {
-        // First, initialize the sync so the client is aware of the room, in the state
-        // store.
+        // First, initialize the sync so the client is aware of the room, in the
+        // state store.
         let client = server
             .client_builder()
             .on_builder(|builder| builder.store_config(store_config.clone()))
@@ -2499,8 +2512,8 @@ async fn test_sync_while_back_paginate() {
         server.sync_joined_room(&client, room_id).await;
     }
 
-    // Then, use a new client that will restore the state from the state store, and
-    // with an empty event cache store.
+    // Then, use a new client that will restore the state from the state store,
+    // and with an empty event cache store.
     let client = server
         .client_builder()
         .on_builder(|builder| builder.store_config(store_config))
@@ -2653,8 +2666,8 @@ async fn test_relations_ordering() {
         .edit(target_event_id, RoomMessageEventContentWithoutRelation::text_plain("hello world"))
         .event_id(edit4);
 
-    // We receive two edit events via sync, as well as a gap; this will shrink the
-    // linked chunk.
+    // We receive two edit events via sync, as well as a gap; this will shrink
+    // the linked chunk.
     server
         .sync_room(
             &client,
@@ -2682,8 +2695,8 @@ async fn test_relations_ordering() {
     let (_, relations) =
         room_event_cache.find_event_with_relations(target_event_id, None).await.unwrap().unwrap();
     assert_eq!(relations.len(), 2);
-    // And the edit events are correctly ordered according to their position in the
-    // linked chunk.
+    // And the edit events are correctly ordered according to their position in
+    // the linked chunk.
     assert_eq!(relations[0].event_id().unwrap(), edit3);
     assert_eq!(relations[1].event_id().unwrap(), edit4);
 
@@ -2703,8 +2716,8 @@ async fn test_relations_ordering() {
     assert_eq!(outcome.events.len(), 1);
 
     {
-        // Sanity check: we load the first chunk with the first event, from disk, and
-        // reach the start of the timeline.
+        // Sanity check: we load the first chunk with the first event, from
+        // disk, and reach the start of the timeline.
         let outcome = room_event_cache.pagination().run_backwards_once(1).await.unwrap();
         assert!(outcome.reached_start);
     }
@@ -2899,8 +2912,8 @@ async fn test_send_queue_does_insert_event_in_the_event_cache() {
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
-    // Inject a first event via the sync so that the Event Cache is _not_ empty, and
-    // the Send Queue can insert its event inside the Event Cache.
+    // Inject a first event via the sync so that the Event Cache is _not_ empty,
+    // and the Send Queue can insert its event inside the Event Cache.
     let room = server
         .sync_room(
             &client,
@@ -3021,8 +3034,8 @@ async fn test_backpaginate_on_a_single_event_inserted_via_send_queue_from_an_emp
     let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
     let BackPaginationOutcome { reached_start, .. } = outcome;
 
-    // The event cache can't know whether this is the start or not, and it shouldn't
-    // assume so.
+    // The event cache can't know whether this is the start or not, and it
+    // shouldn't assume so.
     assert!(reached_start.not());
 }
 
@@ -3074,8 +3087,8 @@ async fn test_order_tracker_is_reset_when_cross_process_is_dirty() {
     // Little dance to force `process_a` to be dirty:
     // - process A syncs 2 events,
     // - process B syncs a gap + 1 event (to ensure process A won't be able to
-    //   retrieve an event if something went wrong): it is dirty, it will reload, no
-    //   problem,
+    //   retrieve an event if something went wrong): it is dirty, it will
+    //   reload, no problem,
     // - process B syncs a gap + 1 event again: it is not dirty, no problem.
     // - process A is syncs 3 events: it is dirty, it will reload, but if the
     //   `OrderTracker` is not reset correctly, it will panic.

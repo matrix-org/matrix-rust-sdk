@@ -890,8 +890,9 @@ impl Client {
         let mut subscriber = q.subscribe_errors();
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            // Respawn tasks for rooms that had unsent events. At this point we've just
-            // created the subscriber, so it'll be notified about errors.
+            // Respawn tasks for rooms that had unsent events. At this point
+            // we've just created the subscriber, so it'll be
+            // notified about errors.
             q.respawn_tasks_for_rooms_with_unsent_requests().await;
 
             loop {
@@ -959,7 +960,8 @@ impl Client {
     ) -> Arc<TaskHandle> {
         macro_rules! observe {
             ($t:ty, $cb: expr) => {{
-                // Using an Arc here is mandatory or else the subscriber will never trigger
+                // Using an Arc here is mandatory or else the subscriber will never
+                // trigger
                 let observer =
                     Arc::new(self.inner.observe_events::<RumaGlobalAccountDataEvent<$t>, ()>());
 
@@ -1030,7 +1032,8 @@ impl Client {
     ) -> Result<Arc<TaskHandle>, ClientError> {
         macro_rules! observe {
             ($t:ty, $cb: expr) => {{
-                // Using an Arc here is mandatory or else the subscriber will never trigger
+                // Using an Arc here is mandatory or else the subscriber will never
+                // trigger
                 let observer =
                     Arc::new(self.inner.observe_room_events::<RumaRoomAccountDataEvent<$t>, ()>(
                         &RoomId::parse(&room_id)?,
@@ -1311,8 +1314,9 @@ impl Client {
             });
         }
 
-        // UTDs detected before this duration may be reclassified as "late decryption"
-        // events (or discarded, if they get decrypted fast enough).
+        // UTDs detected before this duration may be reclassified as "late
+        // decryption" events (or discarded, if they get decrypted fast
+        // enough).
         const UTD_HOOK_GRACE_PERIOD: Duration = Duration::from_secs(60);
 
         let mut utd_hook_manager = UtdHookManager::new(
@@ -1389,8 +1393,8 @@ impl Client {
 
     /// Updates the user's avatar using the provided MXC url.
     pub async fn set_avatar_url(&self, url: String) -> Result<(), ClientError> {
-        // MxcUri can't just be instantiated, serde deserialization seems to be the only
-        // way
+        // MxcUri can't just be instantiated, serde deserialization seems to be
+        // the only way
         let mxc = serde_json::from_str::<OwnedMxcUri>(&url)?;
         // Validate the newly generated MxcUri
         mxc.validate().map_err(ClientError::from_err)?;
@@ -1703,7 +1707,8 @@ impl Client {
                     );
                 }
             } else {
-                // Room has no events; just clear any stale explicit unread flag.
+                // Room has no events; just clear any stale explicit unread
+                // flag.
                 if let Err(err) = sdk_room.set_unread_flag(false).await {
                     warn!(
                         "mark_all_rooms_as_read: failed to clear unread flag for {}: {err}",
@@ -2001,8 +2006,8 @@ impl Client {
             .collect::<Result<Vec<_>, _>>()
             .context("at least one `via` server name is invalid")?;
 
-        // The `into()` call below doesn't work if I do `(&room_id).into()`, so I let
-        // rustc win that one fight.
+        // The `into()` call below doesn't work if I do `(&room_id).into()`, so
+        // I let rustc win that one fight.
         let room_id: &RoomId = &room_id;
 
         let room_preview = self.inner.get_room_preview(room_id.into(), via_servers).await?;
@@ -2018,8 +2023,8 @@ impl Client {
         let room_alias =
             RoomAliasId::parse(&room_alias).context("room_alias is not a valid room alias")?;
 
-        // The `into()` call below doesn't work if I do `(&room_id).into()`, so I let
-        // rustc win that one fight.
+        // The `into()` call below doesn't work if I do `(&room_id).into()`, so
+        // I let rustc win that one fight.
         let room_alias: &RoomAliasId = &room_alias;
 
         let room_preview = self.inner.get_room_preview(room_alias.into(), Vec::new()).await?;
@@ -2127,14 +2132,16 @@ impl Client {
                 sync_service.inner.expire_sessions().await;
             }
 
-            // Disable the send queues, as they might read and write to the state store.
-            // Events being send might still be active, and cause errors if
-            // processing finishes, so this will only minimize damage. Since
-            // this method should only be called in exceptional cases, this has
-            // been deemed acceptable.
+            // Disable the send queues, as they might read and write to the
+            // state store. Events being send might still be active,
+            // and cause errors if processing finishes, so this will
+            // only minimize damage. Since this method should only
+            // be called in exceptional cases, this has been deemed
+            // acceptable.
             self.inner.send_queue().set_enabled(false).await;
 
-            // Clean up the media cache according to the current media retention policy.
+            // Clean up the media cache according to the current media retention
+            // policy.
             self.inner
                 .media_store()
                 .lock()
@@ -2145,9 +2152,9 @@ impl Client {
                 .map_err(Error::from)?;
 
             // Clear all the room chunks. It's important to *not* call
-            // `EventCacheStore::clear_all_events` here, because there might be live
-            // observers of the linked chunks, and that would cause some very bad state
-            // mismatch.
+            // `EventCacheStore::clear_all_events` here, because there might be
+            // live observers of the linked chunks, and that would
+            // cause some very bad state mismatch.
             self.inner.event_cache().clear_all_rooms().await?;
 
             // Delete the state store file, if it exists.
@@ -2155,11 +2162,13 @@ impl Client {
             if let Some(store_path) = &self.store_path {
                 debug!("Removing the state store: {}", store_path.display());
 
-                // The state store and the crypto store both live in the same store path, so we
-                // can't blindly delete the directory.
+                // The state store and the crypto store both live in the same
+                // store path, so we can't blindly delete the
+                // directory.
                 //
-                // Delete the state store SQLite file, as well as the write-ahead log (WAL) and
-                // shared-memory (SHM) files, if they exist.
+                // Delete the state store SQLite file, as well as the
+                // write-ahead log (WAL) and shared-memory (SHM)
+                // files, if they exist.
 
                 for file_name in [
                     PathBuf::from(STATE_STORE_DATABASE_NAME),
@@ -3695,7 +3704,8 @@ mod tests {
 
         let user_id = ruma::user_id!("@user:example.com");
 
-        // A display name with avatar/status/call explicitly set as `null` JSON values.
+        // A display name with avatar/status/call explicitly set as `null` JSON
+        // values.
         let mut profile = RumaUserProfile::new();
         profile
             .set(ProfileFieldName::DisplayName.as_str().to_owned(), serde_json::json!("Example"));

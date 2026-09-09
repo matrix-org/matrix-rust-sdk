@@ -330,7 +330,8 @@ impl RawStateEventWithKeys<AnySyncStateEvent> {
             }
         };
 
-        // If the state key is missing, it is not a state event according to the spec.
+        // If the state key is missing, it is not a state event according to the
+        // spec.
         Some(Self {
             event_type,
             state_key: state_key?,

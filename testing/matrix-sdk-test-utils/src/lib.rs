@@ -17,13 +17,14 @@ macro_rules! init_tracing_for_tests {
 
             tracing_subscriber::registry()
                 .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                    // Output is only printed for failing tests, but still we shouldn't overload
-                    // the output with unnecessary info. When debugging a specific test, it's easy
-                    // to override this default by setting the `RUST_LOG` environment variable.
+                    // Output is only printed for failing tests, but still we shouldn't
+                    // overload the output with unnecessary info. When
+                    // debugging a specific test, it's easy to override this
+                    // default by setting the `RUST_LOG` environment variable.
                     //
-                    // Since tracing_subscriber does prefix matching, the `matrix_sdk=` directive
-                    // takes effect for all the main crates (`matrix_sdk_base`, `matrix_sdk_crypto`
-                    // and so on).
+                    // Since tracing_subscriber does prefix matching, the `matrix_sdk=`
+                    // directive takes effect for all the main crates
+                    // (`matrix_sdk_base`, `matrix_sdk_crypto` and so on).
                     "info,matrix_sdk=debug".into()
                 }))
                 .with(tracing_subscriber::fmt::layer().with_test_writer())

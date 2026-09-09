@@ -577,16 +577,18 @@ impl PrivateCrossSigningIdentity {
 
         // This is duplicated with
         // `matrix_sdk_crypto::identities::user::OwnUserIdentity::verify`,
-        // but there's no good way to prevent this (at least not one we can see).
+        // but there's no good way to prevent this (at least not one we can
+        // see).
         let cross_signing_key: &mut CrossSigningKey = &mut *master.public_key_mut().as_mut();
 
         account.sign_cross_signing_key(cross_signing_key)?;
 
         #[cfg(feature = "experimental-x509-identity-verification")]
         if let Some(x509_signer) = x509_signer {
-            // X.509 signing can and will fail - the user may enter the wrong PIN, the
-            // hardware key could vanish mid-sign, etc. We should not, however, let this
-            // prevent us from setting up normal cross-signing, so we log and disregard
+            // X.509 signing can and will fail - the user may enter the wrong
+            // PIN, the hardware key could vanish mid-sign, etc. We
+            // should not, however, let this prevent us from setting
+            // up normal cross-signing, so we log and disregard
             // any errors.
             x509_signer
                 .sign_cross_signing_key(&account.user_id, cross_signing_key)

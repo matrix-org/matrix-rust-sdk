@@ -148,8 +148,8 @@ impl Caches {
             update_sender,
         );
 
-        // If at least one event has been loaded, it means there is a timeline. Let's
-        // emit a generic update.
+        // If at least one event has been loaded, it means there is a timeline.
+        // Let's emit a generic update.
         if timeline_is_not_empty {
             let _ = generic_update_sender
                 .send(room::RoomEventCacheGenericUpdate { room_id: room_id.to_owned() });
@@ -291,9 +291,9 @@ impl Caches {
     pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
         let Self { room, threads: _, pinned_events, event_focused, internals } = &self;
 
-        // This method will compute a `JoinedRoomUpdate` for each cache. The game is to
-        // avoid cloning useless data or to clone as few data as possible. That's a fun
-        // game.
+        // This method will compute a `JoinedRoomUpdate` for each cache. The
+        // game is to avoid cloning useless data or to clone as few data
+        // as possible. That's a fun game.
         let JoinedRoomUpdate {
             // Read receipts are computed by the Event Cache, see [`read_receipts`], we
             // don't need the server value.
@@ -339,8 +339,9 @@ impl Caches {
         // Threads.
         {
             let timeline_and_read_receipts_for_threads = {
-                // To aggregate the timelines for threads, we need to lookup in the room cache
-                // and the thread caches. We acquire a read lock over all the caches, and select
+                // To aggregate the timelines for threads, we need to lookup in
+                // the room cache and the thread caches. We
+                // acquire a read lock over all the caches, and select
                 // the room cache and thread cache' states.
                 let all_states_lock = states::CacheStateLock::new(
                     states::selectors::AllStatesSelector::new(room.room_id().to_owned()),
@@ -359,7 +360,8 @@ impl Caches {
             };
 
             for (thread_id, (timeline, read_receipts)) in timeline_and_read_receipts_for_threads {
-                // Update the thread summary if and only if there are new events.
+                // Update the thread summary if and only if there are new
+                // events.
                 let update_thread_summary = timeline.events.is_empty().not();
 
                 let thread = self.thread(thread_id).await?;
@@ -387,8 +389,9 @@ impl Caches {
 
         // Event-focused.
         {
-            // An event-focused cache isn't listening to live update. Consequently, it is
-            // not interested by this kind of update.
+            // An event-focused cache isn't listening to live update.
+            // Consequently, it is not interested by this kind of
+            // update.
             let _ = event_focused;
         }
 
@@ -399,9 +402,9 @@ impl Caches {
     pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
         let Self { room, threads: _, pinned_events, event_focused, internals } = &self;
 
-        // This method will compute a `JoinedRoomUpdate` for each cache. The game is to
-        // avoid cloning useless data or to clone as few data as possible. That's a fun
-        // game.
+        // This method will compute a `JoinedRoomUpdate` for each cache. The
+        // game is to avoid cloning useless data or to clone as few data
+        // as possible. That's a fun game.
         let LeftRoomUpdate {
             // State-events are not stored in the Event Cache.
             state: _,
@@ -426,8 +429,9 @@ impl Caches {
         // Threads.
         {
             let timeline_and_read_receipts_for_threads = {
-                // To aggregate the timelines for threads, we need to lookup in the room cache
-                // and the thread caches. We acquire a read lock over all the caches, and select
+                // To aggregate the timelines for threads, we need to lookup in
+                // the room cache and the thread caches. We
+                // acquire a read lock over all the caches, and select
                 // the room cache and thread cache' states.
                 let all_caches_states_lock = states::CacheStateLock::new(
                     states::selectors::AllStatesSelector::new(room.room_id().to_owned()),
@@ -464,8 +468,9 @@ impl Caches {
 
         // Event-focused.
         {
-            // An event-focused cache isn't listening to live update. Consequently, it is
-            // not interested by this kind of update.
+            // An event-focused cache isn't listening to live update.
+            // Consequently, it is not interested by this kind of
+            // update.
             let _ = event_focused;
         }
 
@@ -510,16 +515,16 @@ impl Caches {
         event_type: Option<&str>,
         session_id: Option<&str>,
     ) -> Result<impl Iterator<Item = Event>> {
-        // All caches store their events in the store except one. Let's start by looking
-        // inside the store.
+        // All caches store their events in the store except one. Let's start by
+        // looking inside the store.
         let mut events = {
             let state = self.internals.state.read().await?;
 
             state.store.get_room_events(self.room.room_id(), event_type, session_id).await?
         };
 
-        // The only cache to not store its events is the event-focused cache. Its events
-        // only live in memory.
+        // The only cache to not store its events is the event-focused cache.
+        // Its events only live in memory.
         {
             let event_focused = self.event_focused.read().await;
 

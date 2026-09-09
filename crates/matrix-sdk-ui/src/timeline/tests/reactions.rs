@@ -273,8 +273,8 @@ async fn send_first_message(
 
 #[async_test]
 async fn test_reinserted_item_keeps_reactions() {
-    // This test checks that after deduplicating events, the reactions attached to
-    // the deduplicated event are not lost.
+    // This test checks that after deduplicating events, the reactions attached
+    // to the deduplicated event are not lost.
     let timeline = TestTimeline::new().await;
     let f = &timeline.factory;
 

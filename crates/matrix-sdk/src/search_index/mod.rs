@@ -704,7 +704,8 @@ mod tests {
 
         let f = EventFactory::new().room(room_id).sender(user_id!("@user_id:localhost"));
 
-        // Indexable dummy message required because RoomIndex is initialised lazily.
+        // Indexable dummy message required because RoomIndex is initialised
+        // lazily.
         let dummy = f.text_msg("dummy").event_id(dummy_id);
 
         let original = f.text_msg("This is a message").event_id(original_id);
@@ -744,8 +745,8 @@ mod tests {
 
         assert_eq!(results.len(), 0, "Search should return 0 results, got {results:?}");
 
-        // Adding the original after some pending edits should add the latest edit
-        // instead of the original.
+        // Adding the original after some pending edits should add the latest
+        // edit instead of the original.
         server
             .sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(original))
             .await;
@@ -759,8 +760,8 @@ mod tests {
             results[0].1
         );
 
-        // Editing the original after it exists and there has been another edit should
-        // delete the previous edits and add this one
+        // Editing the original after it exists and there has been another edit
+        // should delete the previous edits and add this one
         server.sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(edit3)).await;
 
         let results = room.search("message", 3, None).await.unwrap();

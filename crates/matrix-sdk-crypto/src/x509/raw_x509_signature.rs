@@ -75,7 +75,8 @@ impl RawX509Signature {
             [first, .., last] => (first, last),
         };
 
-        // The subject key identifier of the cert for the key that we signed with.
+        // The subject key identifier of the cert for the key that we signed
+        // with.
         let leaf_ski = first_cert
             .tbs_certificate
             .get::<SubjectKeyIdentifier>()
@@ -83,8 +84,8 @@ impl RawX509Signature {
             .ok_or(IntoX509SignatureError::LeafCertificateMissingSubjectKeyIdentifier)?
             .1;
 
-        // The authority key identifier of the highest cert in the chain, which should
-        // be the subject key identifier of the CA.
+        // The authority key identifier of the highest cert in the chain, which
+        // should be the subject key identifier of the CA.
         let authority_key_identifier = last_cert
             .tbs_certificate
             .get::<AuthorityKeyIdentifier>()
@@ -157,8 +158,8 @@ impl RawX509Signature {
                 .expect("Unable to encode SignedData as DER"),
         });
 
-        // Construct a device ID from the authority key identifier to guarantee a unique
-        // ID per CA.
+        // Construct a device ID from the authority key identifier to guarantee
+        // a unique ID per CA.
         let device_id = OwnedDeviceId::from(base64_encode(authority_key_identifier_bytes));
 
         Ok((device_id, signature))
@@ -173,9 +174,9 @@ trait IntoSetOfVec<T: der::DerOrd> {
 
 impl<T: der::DerOrd> IntoSetOfVec<T> for Vec<T> {
     fn into_set_of_vec(self) -> SetOfVec<T> {
-        // Building a SetOfVec has to calculate the lengths of each of the entries,
-        // which is theoretically fallible if the lengths cannot be represented as a
-        // `usize`.
+        // Building a SetOfVec has to calculate the lengths of each of the
+        // entries, which is theoretically fallible if the lengths
+        // cannot be represented as a `usize`.
         //
         // In practice, I can't see why it would fail.
         self.try_into().expect("Unable to construct SetOfVec")
@@ -423,20 +424,23 @@ impl X509SignatureScheme {
     pub fn get_signature_algorithm(&self) -> AlgorithmIdentifierOwned {
         match self {
             X509SignatureScheme::RsaPssSha512 => {
-                // The format of the AlgorithmIdentifier for RSA-PSS is defined by
-                // [RFC 4055 §3.1]( https://www.rfc-editor.org/info/rfc4055/#section-3.1) and
+                // The format of the AlgorithmIdentifier for RSA-PSS is defined
+                // by [RFC 4055 §3.1]( https://www.rfc-editor.org/info/rfc4055/#section-3.1) and
                 // [RFC 8017 §A.2.3](https://www.rfc-editor.org/info/rfc8017#appendix-A.2.3).
                 //
-                // If you are interested in the details of all the parameters, then
-                // https://crypto.stackexchange.com/a/58708 is a decent primer. Happily,
-                // there are established conventions followed by any sane implementation
-                // of RSA-PSS, and the RustCrypto folks have done most of the legwork
-                // for us in `pkcs1::RsaPssParams`.
+                // If you are interested in the details of all the parameters,
+                // then https://crypto.stackexchange.com/a/58708 is a decent primer. Happily,
+                // there are established conventions followed by any sane
+                // implementation of RSA-PSS, and the RustCrypto
+                // folks have done most of the legwork for us in
+                // `pkcs1::RsaPssParams`.
                 //
-                // Normal behaviour is to use the digest length as the length of the salt
-                // (as recommended by RFC 4055) - 64 bytes in the case of SHA-512.
+                // Normal behaviour is to use the digest length as the length of
+                // the salt (as recommended by RFC 4055) - 64
+                // bytes in the case of SHA-512.
                 //
-                // This code is inlined from `rsa::pss::get_default_pss_signature_algo_id`,
+                // This code is inlined from
+                // `rsa::pss::get_default_pss_signature_algo_id`,
                 // to avoid bringing in the entire `rsa` crate just for this.
                 AlgorithmIdentifierOwned {
                     oid: const_oid::db::rfc5912::ID_RSASSA_PSS,
@@ -502,8 +506,8 @@ mod test {
         assert_eq!(roundtripped.to_cms_pem(), SIG);
 
         // The SKI of the CA cert is
-        // D8:5E:91:9A:17:F0:C3:5B:13:DB:75:42:7D:21:37:9A:DF:3E:96:11, which when
-        // base64-encoded is...
+        // D8:5E:91:9A:17:F0:C3:5B:13:DB:75:42:7D:21:37:9A:DF:3E:96:11, which
+        // when base64-encoded is...
         assert_eq!(authority_key_identifier, "2F6Rmhfww1sT23VCfSE3mt8+lhE");
     }
 }

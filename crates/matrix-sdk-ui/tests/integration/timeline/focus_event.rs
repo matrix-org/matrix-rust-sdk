@@ -289,7 +289,8 @@ async fn test_focused_timeline_local_echoes() {
     sleep(Duration::from_millis(100)).await;
     assert_pending!(timeline_stream);
 
-    // Add a reaction to the focused event, which will cause a local echo to happen.
+    // Add a reaction to the focused event, which will cause a local echo to
+    // happen.
     timeline.toggle_reaction(&event_item.identifier(), "✨").await.unwrap();
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
@@ -449,7 +450,8 @@ async fn test_focused_timeline_handles_threaded_event() {
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
-    // The new item loaded is inserted at the start, just after the date divider.
+    // The new item loaded is inserted at the start, just after the date
+    // divider.
     assert_let!(VectorDiff::Insert { index: 1, value: item } = &timeline_updates[0]);
     assert_eq!(item.as_event().unwrap().content().as_message().unwrap().body(), "Prev");
 
@@ -483,8 +485,8 @@ async fn test_focused_timeline_handles_threaded_event() {
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
-    // Same as before, the previous event is inserted at the front, after the date
-    // divider.
+    // Same as before, the previous event is inserted at the front, after the
+    // date divider.
     assert_let!(VectorDiff::Insert { index: 1, value: item } = &timeline_updates[0]);
     assert_eq!(item.as_event().unwrap().content().as_message().unwrap().body(), "Root");
 
@@ -702,8 +704,8 @@ async fn test_focused_timeline_handles_other_thread_event_when_forcing_threaded_
     assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "Ho");
 
-    // We paginate backwards once and hit the start of the thread which will trigger
-    // an /event request for the thread root.
+    // We paginate backwards once and hit the start of the thread which will
+    // trigger an /event request for the thread root.
     server
         .mock_room_relations()
         .match_from("prev_token")
@@ -859,7 +861,8 @@ async fn test_focused_timeline_filters_out_threaded_events() {
     // Only the non-threaded event is inserted at the start.
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
-    // The new item loaded is inserted at the start, just after the date divider.
+    // The new item loaded is inserted at the start, just after the date
+    // divider.
     assert_let!(VectorDiff::Insert { index: 1, value: item } = &timeline_updates[0]);
     assert_eq!(item.as_event().unwrap().content().as_message().unwrap().body(), "Prev no thread");
 
