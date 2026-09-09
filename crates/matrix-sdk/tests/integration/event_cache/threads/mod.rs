@@ -741,6 +741,18 @@ async fn test_redact_touches_threads() {
         assert_eq!(summary.latest_reply.as_ref(), Some(&thread_resp2));
         assert_eq!(summary.num_replies, 2);
 
+        // The thread's own copy of the root event receives the summary too.
+        assert_let_timeout!(
+            Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                thread_stream.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+        assert_let!(VectorDiff::Set { index: 0, value: new_root } = &diffs[0]);
+        assert_eq!(new_root.event_id(), Some(thread_root_id.as_ref()));
+        let summary = new_root.thread_summary.summary().unwrap();
+        assert_eq!(summary.latest_reply.as_ref(), Some(&thread_resp2));
+        assert_eq!(summary.num_replies, 2);
+
         assert!(thread_stream.is_empty());
         assert!(room_stream.is_empty());
     }
@@ -775,6 +787,18 @@ async fn test_redact_touches_threads() {
         assert_eq!(new_event.event_id(), Some(thread_resp1.as_ref()));
         let deserialized = new_event.raw().deserialize().unwrap();
         assert!(deserialized.is_redacted());
+
+        // The thread's own copy of the root event gets the updated summary.
+        assert_let_timeout!(
+            Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                thread_stream.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+        assert_let!(VectorDiff::Set { index: 0, value: new_root } = &diffs[0]);
+        assert_eq!(new_root.event_id(), Some(thread_root_id.as_ref()));
+        let summary = new_root.thread_summary.summary().unwrap();
+        assert_eq!(summary.latest_reply.as_ref(), Some(&thread_resp2));
+        assert_eq!(summary.num_replies, 1);
 
         // That's it!
         assert!(thread_stream.is_empty());
@@ -852,6 +876,16 @@ async fn test_redact_touches_threads() {
         assert_eq!(new_event.event_id(), Some(thread_resp2.as_ref()));
         let deserialized = new_event.raw().deserialize().unwrap();
         assert!(deserialized.is_redacted());
+
+        // The summary is removed from the thread's own copy of the root event.
+        assert_let_timeout!(
+            Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                thread_stream.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+        assert_let!(VectorDiff::Set { index: 0, value: new_root } = &diffs[0]);
+        assert_eq!(new_root.event_id(), Some(thread_root_id.as_ref()));
+        assert!(new_root.thread_summary.summary().is_none());
 
         // That's it!
         assert!(thread_stream.is_empty());
@@ -933,6 +967,19 @@ async fn test_edits_touches_threads() {
         .await;
 
     wait_for_initial_events(thread_events, &mut thread_stream).await;
+
+    // The thread's own copy of the root event receives the summary too.
+    {
+        assert_let_timeout!(
+            Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                thread_stream.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+        assert_let!(VectorDiff::Set { index: 0, value: new_root } = &diffs[0]);
+        assert_eq!(new_root.event_id(), Some(thread_root_id.as_ref()));
+        assert_eq!(new_root.thread_summary.summary().unwrap().num_replies, 2);
+    }
+
     let (room_events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
     assert!(room_stream.is_empty());
@@ -1005,6 +1052,22 @@ async fn test_edits_touches_threads() {
             assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
             assert_eq!(new_events.len(), 1);
             assert_eq!(new_events[0].event_id(), Some(first_edit));
+        }
+
+        // Second update: the thread's own root copy gets the updated summary.
+        {
+            assert_let_timeout!(
+                Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                    diffs,
+                    ..
+                })) = thread_stream.recv()
+            );
+            assert_eq!(diffs.len(), 1);
+            assert_let!(VectorDiff::Set { index: 0, value: new_root } = &diffs[0]);
+            assert_eq!(new_root.event_id(), Some(thread_root_id.as_ref()));
+            let summary = new_root.thread_summary.summary().unwrap();
+            assert_eq!(summary.latest_reply.as_deref(), Some(first_edit));
+            assert_eq!(summary.num_replies, 2);
         }
 
         // That's it.
@@ -1081,6 +1144,23 @@ async fn test_edits_touches_threads() {
             assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
             assert_eq!(new_events.len(), 1);
             assert_eq!(new_events[0].event_id(), Some(second_edit));
+        }
+
+        // Second update: the thread's own root copy gets the (unchanged)
+        // summary, mirroring the room update above.
+        {
+            assert_let_timeout!(
+                Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                    diffs,
+                    ..
+                })) = thread_stream.recv()
+            );
+            assert_eq!(diffs.len(), 1);
+            assert_let!(VectorDiff::Set { index: 0, value: new_root } = &diffs[0]);
+            assert_eq!(new_root.event_id(), Some(thread_root_id.as_ref()));
+            let summary = new_root.thread_summary.summary().unwrap();
+            assert_eq!(summary.latest_reply.as_deref(), Some(first_edit));
+            assert_eq!(summary.num_replies, 2);
         }
 
         // That's it.

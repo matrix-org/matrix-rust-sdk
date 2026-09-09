@@ -562,7 +562,11 @@ impl EventCache {
                 let new_thread_summary =
                     thread_cache.state().read().await?.compute_thread_summary().await?;
 
-                all_caches.room.update_thread_summary(&thread_id, new_thread_summary).await?;
+                all_caches
+                    .room
+                    .update_thread_summary(&thread_id, new_thread_summary.clone())
+                    .await?;
+                thread_cache.update_root_thread_summary(new_thread_summary).await?;
             }
         }
 

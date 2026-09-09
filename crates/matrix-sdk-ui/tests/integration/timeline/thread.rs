@@ -950,7 +950,7 @@ async fn test_thread_filtering_for_sync() {
     // event.
     {
         assert_let_timeout!(Some(timeline_updates) = thread_timeline_stream.next());
-        assert_eq!(timeline_updates.len(), 4);
+        assert_eq!(timeline_updates.len(), 5);
 
         assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
         let event_item = value.as_event().unwrap();
@@ -971,6 +971,12 @@ async fn test_thread_filtering_for_sync() {
 
         assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
         assert!(value.is_date_divider());
+
+        // The thread's own copy of the root event gets the thread summary too.
+        assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[4]);
+        let event_item = value.as_event().unwrap();
+        assert_eq!(event_item.content().as_message().unwrap().body(), "Thread root");
+        assert_matches!(event_item.content().thread_summary(), Some(_));
 
         assert_pending!(timeline_stream);
     }

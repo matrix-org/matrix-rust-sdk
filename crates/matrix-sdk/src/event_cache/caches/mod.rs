@@ -369,7 +369,9 @@ impl Caches {
                     let new_thread_summary =
                         thread.state().read().await?.compute_thread_summary().await?;
 
-                    room.update_thread_summary(thread.thread_id(), new_thread_summary).await?;
+                    room.update_thread_summary(thread.thread_id(), new_thread_summary.clone())
+                        .await?;
+                    thread.update_root_thread_summary(new_thread_summary).await?;
                 }
             }
         }

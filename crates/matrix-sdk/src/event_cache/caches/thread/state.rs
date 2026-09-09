@@ -17,7 +17,7 @@ use std::iter::empty;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     apply_redaction, check_validity_of_replacement_events,
-    deserialized_responses::ThreadSummary,
+    deserialized_responses::{ThreadSummary, ThreadSummaryStatus},
     event_cache::{Event, Gap, store::EventCacheStoreLockGuard, thread::ThreadInfo},
     linked_chunk::{
         ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
@@ -646,6 +646,31 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         event_id: &EventId,
     ) -> Result<Option<(EventLocation, Event)>> {
         find_event(event_id, &self.room_id, &self.thread_linked_chunk, &self.store).await
+    }
+
+    /// Update the bundled thread summary carried by this thread's root event,
+    /// on the copy living in this thread's own linked chunk.
+    ///
+    /// The room's copy of the root event is handled separately by the room
+    /// state's `update_thread_summary`; without this, the root loaded in a
+    /// thread-focused timeline keeps a stale summary.
+    #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
+    pub async fn update_root_thread_summary(
+        &mut self,
+        new_thread_summary: Option<ThreadSummary>,
+    ) -> Result<Vec<VectorDiff<Event>>> {
+        let thread_id = self.state.thread_id.clone();
+
+        let Some((location, mut thread_root_event)) = self.find_event(&thread_id).await? else {
+            trace!(%thread_id, "thread root event is missing from the thread linked chunk");
+            return Ok(Vec::new());
+        };
+
+        trace!(%thread_id, "updating thread summary on the thread's own root copy");
+        thread_root_event.thread_summary = ThreadSummaryStatus::from_opt(new_thread_summary);
+        self.replace_event_at(location, thread_root_event).await?;
+
+        Ok(self.state.thread_linked_chunk.updates_as_vector_diffs())
     }
 
     /// Replaces a single event, be it saved in memory or in the store.

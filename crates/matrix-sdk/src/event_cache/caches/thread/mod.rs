@@ -20,7 +20,10 @@ mod updates;
 
 use std::{fmt, sync::Arc};
 
-use matrix_sdk_base::{event_cache::Event, read_receipts::ReadReceipts, sync::Timeline};
+use matrix_sdk_base::{
+    deserialized_responses::ThreadSummary, event_cache::Event, read_receipts::ReadReceipts,
+    sync::Timeline,
+};
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, events::relation::RelationType,
     room_version_rules::RoomVersionRules,
@@ -279,6 +282,32 @@ impl ThreadEventCache {
             state
                 .update_sender
                 .send(ThreadEventCacheUpdate::AddReadReceiptEvent { event: read_receipts }, None);
+        }
+
+        Ok(())
+    }
+
+    /// Update the thread root event's bundled summary on the copy stored in
+    /// this thread's own linked chunk, notifying subscribers (e.g.
+    /// thread-focused timelines rendering the root event).
+    pub(in super::super) async fn update_root_thread_summary(
+        &self,
+        new_thread_summary: Option<ThreadSummary>,
+    ) -> Result<()> {
+        let mut state = self.inner.state.write().await?;
+
+        let timeline_event_diffs = state.update_root_thread_summary(new_thread_summary).await?;
+
+        if !timeline_event_diffs.is_empty() {
+            state.update_sender.send(
+                ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                    diffs: timeline_event_diffs,
+                    origin: EventsOrigin::Sync,
+                }),
+                // This function is part of the `RoomEventCache` flow. The generic update is
+                // handled by it.
+                None,
+            );
         }
 
         Ok(())
