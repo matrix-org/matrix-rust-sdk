@@ -131,6 +131,58 @@ async fn test_thread_contains_its_root_event() {
 }
 
 #[async_test]
+async fn test_no_root_summary_update_when_root_not_in_thread() {
+    // When a thread receives new events but its own linked chunk doesn't
+    // contain the root event (it hasn't been back-paginated yet), updating the
+    // root's summary is a no-op, and no spurious update is emitted to thread
+    // subscribers.
+
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    let room_id = room_id!("!galette:saucisse.bzh");
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let thread_root_id = event_id!("$thread_root");
+    let thread_resp_id = event_id!("$thread_resp");
+
+    let _room = server.sync_room(&client, JoinedRoomBuilder::new(room_id)).await;
+
+    let (thread_event_cache, _drop_handles) =
+        event_cache.thread(room_id, thread_root_id).await.unwrap();
+    let (thread_events, mut thread_stream) = thread_event_cache.subscribe().await.unwrap();
+    assert!(thread_events.is_empty());
+
+    // Receive an in-thread event; the root event itself is not synced, so the
+    // thread's linked chunk doesn't contain it.
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("that's a good point")
+                    .in_thread(thread_root_id, thread_root_id)
+                    .event_id(thread_resp_id),
+            ),
+        )
+        .await;
+
+    // The reply is added to the thread.
+    assert_let_timeout!(
+        Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            thread_stream.recv()
+    );
+    assert_eq!(diffs.len(), 1);
+
+    // The thread summary has been recomputed for the root event, but since the
+    // thread's own chunk doesn't contain the root, no update is emitted.
+    sleep(Duration::from_millis(200)).await;
+    assert!(thread_stream.is_empty());
+}
+
+#[async_test]
 async fn test_ignored_user_empties_threads() {
     let server = MatrixMockServer::new().await;
     let client = client_with_threading_support(&server).await;
