@@ -1466,10 +1466,10 @@ impl Room {
             // Extract state key (ie. the parent's id) and sender
             .filter_map(|parent_event| match parent_event.deserialize() {
                 Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(e))) => {
-                    Some((e.state_key.to_owned(), e.sender))
+                    Some((e.state_key, e.sender))
                 }
                 Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => None,
-                Ok(SyncOrStrippedState::Stripped(e)) => Some((e.state_key.to_owned(), e.sender)),
+                Ok(SyncOrStrippedState::Stripped(e)) => Some((e.state_key, e.sender)),
                 Err(e) => {
                     info!(room_id = ?self.room_id(), "Could not deserialize m.space.parent: {e}");
                     None
