@@ -1148,7 +1148,8 @@ mod observable_items_tests {
         }
 
         // Timeline item with a remote event, but late.
-        // I don't know if this case is possible in reality, but let's be robust.
+        // I don't know if this case is possible in reality, but let's be
+        // robust.
         transaction.insert(3, item("$ev2"), Some(2));
 
         assert_mapping! {
@@ -1961,8 +1962,9 @@ impl AllRemoteEvents {
 
     /// Get the position of an event in the events array by its ID.
     pub fn position_by_event_id(&self, event_id: &EventId) -> Option<usize> {
-        // Reverse the iterator to start looking at the end. Since this will give us the
-        // "reverse" position, reverse the index after finding the event.
+        // Reverse the iterator to start looking at the end. Since this will
+        // give us the "reverse" position, reverse the index after
+        // finding the event.
         self.0
             .iter()
             .enumerate()
@@ -1974,12 +1976,13 @@ impl AllRemoteEvents {
     /// greater than `new_timeline_item_index`.
     fn increment_all_timeline_item_index_after(&mut self, new_timeline_item_index: usize) {
         // Traverse items from back to front because:
-        // - if `new_timeline_item_index` is 0, we need to shift all items anyways, so
-        //   all items must be traversed,
-        // - otherwise, it's unlikely we want to traverse all items: the item has been
-        //   either inserted or pushed back, so there is no need to traverse the first
-        //   items; we can also break the iteration as soon as all timeline item index
-        //   after `new_timeline_item_index` has been updated.
+        // - if `new_timeline_item_index` is 0, we need to shift all items
+        //   anyways, so all items must be traversed,
+        // - otherwise, it's unlikely we want to traverse all items: the item
+        //   has been either inserted or pushed back, so there is no need to
+        //   traverse the first items; we can also break the iteration as soon
+        //   as all timeline item index after `new_timeline_item_index` has been
+        //   updated.
         for event_meta in self.0.iter_mut().rev() {
             if let Some(timeline_item_index) = event_meta.timeline_item_index.as_mut() {
                 if *timeline_item_index >= new_timeline_item_index {
@@ -1996,12 +1999,13 @@ impl AllRemoteEvents {
     /// `removed_timeline_item_index`.
     fn decrement_all_timeline_item_index_after(&mut self, removed_timeline_item_index: usize) {
         // Traverse items from back to front because:
-        // - if `new_timeline_item_index` is 0, we need to shift all items anyways, so
-        //   all items must be traversed,
-        // - otherwise, it's unlikely we want to traverse all items: the item has been
-        //   either inserted or pushed back, so there is no need to traverse the first
-        //   items; we can also break the iteration as soon as all timeline item index
-        //   after `new_timeline_item_index` has been updated.
+        // - if `new_timeline_item_index` is 0, we need to shift all items
+        //   anyways, so all items must be traversed,
+        // - otherwise, it's unlikely we want to traverse all items: the item
+        //   has been either inserted or pushed back, so there is no need to
+        //   traverse the first items; we can also break the iteration as soon
+        //   as all timeline item index after `new_timeline_item_index` has been
+        //   updated.
         for event_meta in self.0.iter_mut().rev() {
             if let Some(timeline_item_index) = event_meta.timeline_item_index.as_mut() {
                 if *timeline_item_index > removed_timeline_item_index {
@@ -2197,9 +2201,9 @@ mod all_remote_events_tests {
         // Push back with a `timeline_item_index`.
         events.push_back(event_meta("$ev2", Some(1)));
 
-        // Push back with a `timeline_item_index` pointing to a timeline item that is
-        // not the last one. Is it possible in practise? Normally not, but let's test
-        // it anyway.
+        // Push back with a `timeline_item_index` pointing to a timeline item
+        // that is not the last one. Is it possible in practise?
+        // Normally not, but let's test it anyway.
         events.push_back(event_meta("$ev3", Some(1)));
 
         assert_events!(

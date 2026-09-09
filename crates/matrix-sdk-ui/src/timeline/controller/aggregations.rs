@@ -294,7 +294,8 @@ impl Aggregation {
 
                 let previous_reaction = reactions.get(key).and_then(|by_user| by_user.get(sender));
 
-                // If the reaction was already added to the item, we don't need to add it back.
+                // If the reaction was already added to the item, we don't need
+                // to add it back.
                 //
                 // Search for a previous reaction that would be equivalent.
 
@@ -433,7 +434,8 @@ impl Aggregation {
                     let by_user = reactions.get_mut(key);
                     if let Some(by_user) = by_user {
                         by_user.swap_remove(sender);
-                        // If this was the last reaction, remove the entire map for this key.
+                        // If this was the last reaction, remove the entire map
+                        // for this key.
                         if by_user.is_empty() {
                             reactions.swap_remove(key);
                         }
@@ -547,16 +549,16 @@ impl Aggregations {
     /// Add a given aggregation that relates to the [`TimelineItemContent`]
     /// identified by the given [`TimelineEventItemId`].
     pub fn add(&mut self, related_to: TimelineEventItemId, aggregation: Aggregation) {
-        // If the aggregation is a redaction, it invalidates all the other aggregations;
-        // remove them.
+        // If the aggregation is a redaction, it invalidates all the other
+        // aggregations; remove them.
         if matches!(aggregation.kind, AggregationKind::Redaction { .. }) {
             for agg in self.related_events.remove(&related_to).unwrap_or_default() {
                 self.inverted_map.remove(&agg.own_id);
             }
         }
 
-        // If there was any redaction among the current aggregation, adding a new one
-        // should be a noop.
+        // If there was any redaction among the current aggregation, adding a
+        // new one should be a noop.
         if let Some(previous_aggregations) = self.related_events.get(&related_to)
             && previous_aggregations
                 .iter()
@@ -567,18 +569,19 @@ impl Aggregations {
 
         self.inverted_map.insert(aggregation.own_id.clone(), related_to.clone());
 
-        // We can have 3 different states for the same aggregation in related_events, in
-        // chronological order:
+        // We can have 3 different states for the same aggregation in
+        // related_events, in chronological order:
         //
         // 1. The local echo with a transaction ID.
-        // 2. The local echo with the event ID returned by the server after sending the
-        //    event.
+        // 2. The local echo with the event ID returned by the server after
+        //    sending the event.
         // 3. The remote echo received via sync.
         //
-        // The transition from states 1 to 2 is handled in `mark_aggregation_as_sent()`.
-        // So here we need to handle the transition from states 2 to 3. We need to
-        // replace the local echo by the remote echo, which might have more data, like
-        // the raw JSON.
+        // The transition from states 1 to 2 is handled in
+        // `mark_aggregation_as_sent()`. So here we need to handle the
+        // transition from states 2 to 3. We need to replace the local
+        // echo by the remote echo, which might have more data, like the
+        // raw JSON.
         let related_events = self.related_events.entry(related_to).or_default();
         if let Some(pos) = related_events.iter().position(|agg| agg.own_id == aggregation.own_id) {
             related_events.remove(pos);
@@ -611,8 +614,8 @@ impl Aggregations {
                 .position(|agg| agg.own_id == *aggregation_id)
                 .map(|idx| aggregations.remove(idx));
 
-            // If this was the last aggregation, remove the entry in the `related_events`
-            // mapping.
+            // If this was the last aggregation, remove the entry in the
+            // `related_events` mapping.
             if aggregations.is_empty() {
                 self.related_events.remove(found);
             }
@@ -645,7 +648,8 @@ impl Aggregations {
                     warn!("error when unapplying aggregation: {err}");
                 }
                 ApplyAggregationResult::Edit => {
-                    // This edit has been removed; try to find another that still applies.
+                    // This edit has been removed; try to find another that
+                    // still applies.
                     if let Some(aggregations) = self.related_events.get(found) {
                         if resolve_edits(aggregations, items, &mut cowed) {
                             items.replace(
@@ -734,7 +738,8 @@ impl Aggregations {
 
         // Update the aggregations in the `related_events` field.
         if let Some(aggregations) = self.related_events.remove(&from) {
-            // Update the inverted mappings (from aggregation's id, to the new target id).
+            // Update the inverted mappings (from aggregation's id, to the new
+            // target id).
             for a in &aggregations {
                 if let Some(prev_target) = self.inverted_map.remove(&a.own_id) {
                     debug_assert_eq!(prev_target, from);
@@ -783,7 +788,8 @@ impl Aggregations {
                 }
 
                 AggregationKind::Redaction { is_local } => {
-                    // Mark the redaction as being remote and apply it (irreversibly).
+                    // Mark the redaction as being remote and apply it
+                    // (irreversibly).
                     *is_local = false;
 
                     let found = found.clone();
@@ -791,8 +797,8 @@ impl Aggregations {
                 }
 
                 AggregationKind::Reaction { reaction_status, .. } => {
-                    // Mark the reaction as becoming remote, and signal that update to the
-                    // caller.
+                    // Mark the reaction as becoming remote, and signal that
+                    // update to the caller.
                     *reaction_status = ReactionStatus::RemoteToRemote(event_id);
 
                     let found = found.clone();
@@ -821,10 +827,10 @@ fn resolve_edits(
     items: &ObservableItemsTransaction<'_>,
     event: &mut Cow<'_, EventTimelineItem>,
 ) -> bool {
-    // A tuple of the best edit, if we have found one and a boolean indicating if
-    // the edit is coming from a local echo. If it's from a local echo, we can't
-    // validate it as we don't have a raw JSON, but this isn't that important as
-    // we're sure we won't send ourselves invalid edits.
+    // A tuple of the best edit, if we have found one and a boolean indicating
+    // if the edit is coming from a local echo. If it's from a local echo,
+    // we can't validate it as we don't have a raw JSON, but this isn't that
+    // important as we're sure we won't send ourselves invalid edits.
     let mut best_edit: Option<(PendingEdit, bool)> = None;
     let mut best_edit_pos = None;
 
@@ -832,21 +838,24 @@ fn resolve_edits(
         if let AggregationKind::Edit(pending_edit) = &a.kind {
             match &a.own_id {
                 TimelineEventItemId::TransactionId(_) => {
-                    // A local echo is always the most recent edit: use this one.
+                    // A local echo is always the most recent edit: use this
+                    // one.
                     best_edit = Some((pending_edit.clone(), true));
                     break;
                 }
 
                 TimelineEventItemId::EventId(event_id) => {
                     if let Some(best_edit_pos) = &mut best_edit_pos {
-                        // Find the position of the timeline owning the edit: either the bundled
-                        // item owner if this was a bundled edit, or the edit event itself.
+                        // Find the position of the timeline owning the edit:
+                        // either the bundled item owner
+                        // if this was a bundled edit, or the edit event itself.
                         let pos = items.position_by_event_id(
                             pending_edit.bundled_item_owner.as_ref().unwrap_or(event_id),
                         );
 
                         if let Some(pos) = pos {
-                            // If the edit is more recent (higher index) than the previous best
+                            // If the edit is more recent (higher index) than
+                            // the previous best
                             // edit we knew about, use this one.
                             if pos > *best_edit_pos {
                                 best_edit = Some((pending_edit.clone(), false));
@@ -856,17 +865,19 @@ fn resolve_edits(
                         } else {
                             trace!(edit_id = ?a.own_id, "couldn't find timeline meta for edit event");
 
-                            // The edit event isn't in the timeline, so it might be a bundled
-                            // edit. In this case, record it as the best edit if and only if
-                            // there wasn't any other.
+                            // The edit event isn't in the timeline, so it might
+                            // be a bundled edit. In
+                            // this case, record it as the best edit if and only
+                            // if there wasn't any
+                            // other.
                             if best_edit.is_none() {
                                 best_edit = Some((pending_edit.clone(), false));
                                 trace!(?best_edit_pos, edit_id = ?a.own_id, "found bundled edit");
                             }
                         }
                     } else {
-                        // There wasn't any best edit yet, so record this one as being it, with
-                        // its position.
+                        // There wasn't any best edit yet, so record this one as
+                        // being it, with its position.
                         best_edit = Some((pending_edit.clone(), false));
                         best_edit_pos = items.position_by_event_id(event_id);
                         trace!(?best_edit_pos, edit_id = ?a.own_id, "first best edit");
@@ -895,8 +906,8 @@ fn edit_item(
     // We can receive edits from a local echo, i.e. the edit wasn't yet received
     // from the homeserver.
     //
-    // Before we send an edit we check that the event is allowed to be edited and
-    // that the replacement content is allowed.
+    // Before we send an edit we check that the event is allowed to be edited
+    // and that the replacement content is allowed.
     //
     // We don't have yet a full JSON of the event, so we can't do the validation
     // here.

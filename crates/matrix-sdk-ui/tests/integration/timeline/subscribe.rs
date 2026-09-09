@@ -136,7 +136,8 @@ async fn test_event_filter() {
     // The implicit read receipt of Alice is moving from Alice's message...
     assert_let!(VectorDiff::Set { index: 1, value: first } = &timeline_updates[1]);
     assert_eq!(first.as_event().unwrap().read_receipts().len(), 0, "no more implicit read receipt");
-    // … to Alice's edit. But since this item isn't visible, it's lost in the weeds!
+    // … to Alice's edit. But since this item isn't visible, it's lost in the
+    // weeds!
 
     // The edit is applied to the first event.
     assert_let!(VectorDiff::Set { index: 1, value: first } = &timeline_updates[2]);

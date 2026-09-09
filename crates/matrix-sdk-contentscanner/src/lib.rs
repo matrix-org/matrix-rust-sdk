@@ -229,8 +229,9 @@ impl MediaFetcher for ContentScannerMediaFetcher {
                         let mut reader =
                             AttachmentDecryptor::new(&mut cursor, file.as_ref().clone().into())?;
 
-                        // Encrypted size should be the same as the decrypted size,
-                        // rounded up to a cipher block.
+                        // Encrypted size should be the same as the decrypted
+                        // size, rounded up to a cipher
+                        // block.
                         let mut decrypted = Vec::with_capacity(content_len);
 
                         reader.read_to_end(&mut decrypted)?;
@@ -599,7 +600,8 @@ mod tests {
         // The encrypted media content to return
         let encrypted: Vec<u8> = vec![0xEA, 0x10, 0x2D, 0x01, 0x53, 0xB7, 0x87, 0xF0, 0x75, 0xED];
 
-        // Set up the mock server as the content scanner one, with the expected endpoint
+        // Set up the mock server as the content scanner one, with the expected
+        // endpoint
         Mock::given(method("POST"))
             .and(path("/_matrix/media_proxy/unstable/download_encrypted"))
             .respond_with(ResponseTemplate::new(200).set_body_bytes(encrypted.clone()))
@@ -627,8 +629,8 @@ mod tests {
             format: MediaFormat::File,
         };
 
-        // If there was a decryption error, we'd be able to check the decryption took
-        // place
+        // If there was a decryption error, we'd be able to check the decryption
+        // took place
         let result = client
             .media()
             .get_media_content(&request, false)

@@ -444,7 +444,8 @@ async fn test_gappy_sync_keeps_then_next_sync_resets_unread_count() {
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
-    // First sync: two messages from BOB, no read receipt → unread count becomes 2.
+    // First sync: two messages from BOB, no read receipt → unread count becomes
+    // 2.
     server
         .sync_room(
             &client,
@@ -470,8 +471,8 @@ async fn test_gappy_sync_keeps_then_next_sync_resets_unread_count() {
 
     assert_let_timeout!(Ok(_) = room_cache_updates.recv());
 
-    // The unread count is recomputed while "$1" and "$2" are still in the linked
-    // chunk (shrinking happens after), so it remains 2.
+    // The unread count is recomputed while "$1" and "$2" are still in the
+    // linked chunk (shrinking happens after), so it remains 2.
     assert_eq!(room.num_unread_messages(), 2);
 
     // Normal (non-gappy) sync: one new message from BOB.
@@ -511,8 +512,8 @@ async fn test_mentions_increments_unread_mentions() {
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
-    // For mentions to be properly counted, we need to have a member event for the
-    // current user.
+    // For mentions to be properly counted, we need to have a member event for
+    // the current user.
     let member_event = f
         .member(client.user_id().unwrap())
         .membership(MembershipState::Join)
@@ -557,8 +558,8 @@ async fn test_compute_unread_counts_considers_active_receipt() {
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
-    // Starting with a room with 1 implicit receipt, then two messages from Bob, and
-    // a receipt on Bob's first message $2,
+    // Starting with a room with 1 implicit receipt, then two messages from Bob,
+    // and a receipt on Bob's first message $2,
     server
         .sync_room(
             &client,
@@ -585,7 +586,8 @@ async fn test_compute_unread_counts_considers_active_receipt() {
     assert_let_timeout!(Ok(_) = room_cache_updates.recv());
     assert_let_timeout!(Ok(_) = room_cache_updates.recv());
 
-    // The message counts are properly updated (one new message unread after $2).
+    // The message counts are properly updated (one new message unread after
+    // $2).
     assert_eq!(room.num_unread_messages(), 1);
 
     // Provided a sync with one new message from Bob in the same room,
@@ -631,8 +633,8 @@ async fn test_select_best_receipt_considers_thread_config() {
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
-    // Starting with a room that has two messages from Bob, and one threaded answer
-    // to one of Bob's messages.
+    // Starting with a room that has two messages from Bob, and one threaded
+    // answer to one of Bob's messages.
     let thread_root = event_id!("$1");
     server
         .sync_room(
@@ -651,8 +653,8 @@ async fn test_select_best_receipt_considers_thread_config() {
 
     assert_let_timeout!(Ok(_) = room_cache_updates.recv());
 
-    // The message counts include all messages from the main timeline, because the
-    // implicit receipt sent in a thread isn't taken into account.
+    // The message counts include all messages from the main timeline, because
+    // the implicit receipt sent in a thread isn't taken into account.
     assert_eq!(room.num_unread_messages(), 2);
 }
 
@@ -690,8 +692,8 @@ async fn test_unread_counts_updated_after_duplicate_only_sync_response() {
         Ok(RoomEventCacheUpdate::UpdateTimelineEvents(..)) = room_cache_updates.recv()
     );
 
-    // Then, provided a sync with a single duplicated message sent by somebody else,
-    // but a read receipt for the existing message $2,
+    // Then, provided a sync with a single duplicated message sent by somebody
+    // else, but a read receipt for the existing message $2,
     server
         .sync_room(
             &client,
@@ -715,7 +717,8 @@ async fn test_unread_counts_updated_after_duplicate_only_sync_response() {
         Ok(RoomEventCacheUpdate::AddReadReceiptEvent { .. }) = room_cache_updates.recv()
     );
 
-    // The message counts are properly updated (zero new message unread after $2).
+    // The message counts are properly updated (zero new message unread after
+    // $2).
     assert_eq!(room.num_unread_messages(), 0);
 }
 
@@ -742,8 +745,8 @@ async fn test_compute_unread_counts_triggers_backpaginations() {
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
-    // Already set up the mock for /messages, as the background pagination will hit
-    // it as soon as the sync is received.
+    // Already set up the mock for /messages, as the background pagination will
+    // hit it as soon as the sync is received.
     server
         .mock_room_messages()
         .match_from("prev_batch")
@@ -788,8 +791,8 @@ async fn test_compute_unread_counts_triggers_backpaginations() {
     // timeline, which are $3 and $4).
     assert_eq!(room.num_unread_messages(), 2);
 
-    // Then, there's a background pagination happening in the room, which will fetch
-    // the missing $1 and $2.
+    // Then, there's a background pagination happening in the room, which will
+    // fetch the missing $1 and $2.
     assert_let_timeout!(Duration::from_millis(150), Ok(_) = room_cache_updates.recv());
 
     // The message counts are properly updated (three messages after $1).
@@ -807,8 +810,9 @@ async fn test_read_receipt_from_store_used_as_latest_active() {
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
-    // Important test note: the read receipt must be in the state store *before* the
-    // event cache is subscribed to, so that it's not marked as active at start.
+    // Important test note: the read receipt must be in the state store *before*
+    // the event cache is subscribed to, so that it's not marked as active
+    // at start.
     let room = server
         .sync_room(
             &client,
@@ -854,8 +858,9 @@ async fn test_all_read_receipts_from_store_used_as_latest_active() {
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
-    // Important test note: the read receipt must be in the state store *before* the
-    // event cache is subscribed to, so that it's not marked as active at start.
+    // Important test note: the read receipt must be in the state store *before*
+    // the event cache is subscribed to, so that it's not marked as active
+    // at start.
     let room = server
         .sync_room(
             &client,

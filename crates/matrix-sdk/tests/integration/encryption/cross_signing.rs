@@ -124,8 +124,8 @@ async fn test_reset_unstable_oauth() {
         .await;
 
     // And finally succeed.
-    // This works because the first mocked endpoint that matches the path is used
-    // until it is invalidated by `up_to_n_times`.
+    // This works because the first mocked endpoint that matches the path is
+    // used until it is invalidated by `up_to_n_times`.
     server
         .mock_upload_cross_signing_keys()
         .ok()
@@ -182,8 +182,8 @@ async fn test_reset_stable_oauth() {
 
     server.mock_upload_keys().ok().expect(1).named("Initial device keys upload").mount().await;
 
-    // First, return the UIAA response without expecting the UIAA auth data in the
-    // request.
+    // First, return the UIAA response without expecting the UIAA auth data in
+    // the request.
     server
         .mock_upload_cross_signing_keys()
         .uiaa_stable_oauth(session, None)
@@ -192,8 +192,8 @@ async fn test_reset_stable_oauth() {
         .mount()
         .await;
 
-    // Then return the UIAA response 5 times while expecting the UIAA auth data in
-    // the request.
+    // Then return the UIAA response 5 times while expecting the UIAA auth data
+    // in the request.
     let extra_error =
         StandardErrorBody::new(ErrorKind::Forbidden, "Stage not completed".to_owned());
     server
@@ -207,8 +207,8 @@ async fn test_reset_stable_oauth() {
         .await;
 
     // And finally succeed.
-    // This works because the first mocked endpoint that matches the path is used
-    // until it is invalidated by `up_to_n_times`.
+    // This works because the first mocked endpoint that matches the path is
+    // used until it is invalidated by `up_to_n_times`.
     server
         .mock_upload_cross_signing_keys()
         .expect_uiaa_auth_data(&expected_auth_data)

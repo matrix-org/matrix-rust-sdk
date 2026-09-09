@@ -512,8 +512,8 @@ impl NotificationSettings {
             return Ok(RoomNotificationSettings::new(mode.into(), false));
         }
 
-        // If the user has not defined a notification mode, return the default one for
-        // this room
+        // If the user has not defined a notification mode, return the default
+        // one for this room
         let mode = notification_settings
             .get_default_room_notification_mode(is_encrypted.into(), is_one_to_one.into())
             .await;

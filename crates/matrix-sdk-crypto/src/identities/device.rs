@@ -189,59 +189,69 @@ impl Device {
         session: &InboundGroupSession,
     ) -> Result<bool, MismatchedIdentityKeysError> {
         if session.has_been_imported() {
-            // An imported room key means that we did not receive the room key as a
-            // `m.room_key` event when the room key was initially exchanged.
+            // An imported room key means that we did not receive the room key
+            // as a `m.room_key` event when the room key was
+            // initially exchanged.
             //
             // This could mean a couple of things:
             //      1. We received the room key as a `m.forwarded_room_key`.
             //      2. We imported the room key through a file export.
             //      3. We imported the room key through a backup.
             //
-            // To be certain that a `Device` is the owner of a room key we need to have a
-            // proof that the `Curve25519` key of this `Device` was used to
-            // initially exchange the room key. This proof is provided by the Olm decryption
+            // To be certain that a `Device` is the owner of a room key we need
+            // to have a proof that the `Curve25519` key of this
+            // `Device` was used to initially exchange the room key.
+            // This proof is provided by the Olm decryption
             // step, see below for further clarification.
             //
-            // Each of the above room key methods that receive room keys do not contain this
-            // proof and we received only a claim that the room key is tied to a
-            // `Curve25519` key.
+            // Each of the above room key methods that receive room keys do not
+            // contain this proof and we received only a claim that
+            // the room key is tied to a `Curve25519` key.
             //
-            // Since there's no way to verify that the claim is true, we say that we don't
-            // know that the room key belongs to this device.
+            // Since there's no way to verify that the claim is true, we say
+            // that we don't know that the room key belongs to this
+            // device.
             Ok(false)
         } else if let Some(key) =
             session.signing_keys().get(&DeviceKeyAlgorithm::Ed25519).and_then(|k| k.ed25519())
         {
-            // Room keys are received as an `m.room.encrypted` to-device message using the
-            // `m.olm` algorithm. Upon decryption of the `m.room.encrypted` to-device
-            // message, the decrypted content will contain also an `Ed25519` public key[1].
+            // Room keys are received as an `m.room.encrypted` to-device message
+            // using the `m.olm` algorithm. Upon decryption of the
+            // `m.room.encrypted` to-device message, the decrypted
+            // content will contain also an `Ed25519` public key[1].
             //
-            // The inclusion of this key means that the `Curve25519` key of the `Device` and
-            // Olm `Session`, established using the DH authentication of the
-            // double ratchet, "binds" the `Ed25519` key of the `Device`. In other words, it
-            // prevents an attack in which Mallory publishes Bob's public `Curve25519` key
-            // as her own, and subsequently forwards an Olm message she received from Bob to
-            // Alice, claiming that she, Mallory, originated the Olm message (leading Alice
-            // to believe that Mallory also sent the messages in the subsequent Megolm
-            // session).
+            // The inclusion of this key means that the `Curve25519` key of the
+            // `Device` and Olm `Session`, established using the DH
+            // authentication of the double ratchet, "binds" the
+            // `Ed25519` key of the `Device`. In other words, it
+            // prevents an attack in which Mallory publishes Bob's public
+            // `Curve25519` key as her own, and subsequently
+            // forwards an Olm message she received from Bob to
+            // Alice, claiming that she, Mallory, originated the Olm message
+            // (leading Alice to believe that Mallory also sent the
+            // messages in the subsequent Megolm session).
             //
             // On the other hand, the `Ed25519` key binds the `Curve25519` key
             // using a signature which is uploaded to the server as
             // `device_keys` and downloaded by us using a `/keys/query` request.
             //
             // A `Device` is considered to be the owner of a room key iff:
-            //     1. The `Curve25519` key that was used to establish the Olm `Session` that
-            //        was used to decrypt the to-device message is binding the `Ed25519` key
-            //        of this `Device` via the content of the to-device message, and:
-            //     2. The `Ed25519` key of this device has signed a `device_keys` object
-            //        that contains the `Curve25519` key from step 1.
+            //     1. The `Curve25519` key that was used to establish the Olm
+            //        `Session` that was used to decrypt the to-device message
+            //        is binding the `Ed25519` key of this `Device` via the
+            //        content of the to-device message, and:
+            //     2. The `Ed25519` key of this device has signed a
+            //        `device_keys` object that contains the `Curve25519` key
+            //        from step 1.
             //
-            // We don't need to check the signature of the `Device` here, since we don't
-            // accept a `Device` unless it has a valid `Ed25519` signature.
+            // We don't need to check the signature of the `Device` here, since
+            // we don't accept a `Device` unless it has a valid
+            // `Ed25519` signature.
             //
-            // We do check that the `Curve25519` that was used to decrypt the event carrying
-            // the `m.room_key` and the `Ed25519` key that was part of the
-            // decrypted content matches the keys found in this `Device`.
+            // We do check that the `Curve25519` that was used to decrypt the
+            // event carrying the `m.room_key` and the `Ed25519` key
+            // that was part of the decrypted content matches the
+            // keys found in this `Device`.
             //
             // ```text
             //                                              ┌───────────────────────┐
@@ -1149,7 +1159,8 @@ pub(crate) mod tests {
         assert!(device.update_device(&device_keys).unwrap());
         assert_eq!(&display_name, device.display_name().as_ref().unwrap());
 
-        // A second call to `update_device` with the same data should return `false`.
+        // A second call to `update_device` with the same data should return
+        // `false`.
         assert!(!device.update_device(&device_keys).unwrap());
     }
 

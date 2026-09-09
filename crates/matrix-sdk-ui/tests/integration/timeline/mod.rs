@@ -91,8 +91,8 @@ async fn test_timeline_is_threaded() {
     }
 
     {
-        // An event-focused timeline, focused on a non-thread event, isn't threaded when
-        // no context is requested.
+        // An event-focused timeline, focused on a non-thread event, isn't
+        // threaded when no context is requested.
         let f = EventFactory::new();
         let event_id = event_id!("$target1");
         let event =
@@ -118,8 +118,8 @@ async fn test_timeline_is_threaded() {
     }
 
     {
-        // But an event-focused timeline, focused on an in-thread event, is threaded
-        // when no context is requested \o/
+        // But an event-focused timeline, focused on an in-thread event, is
+        // threaded when no context is requested \o/
         let f = EventFactory::new();
         let thread_root = event_id!("$thread_root");
         let event_id = event_id!("$target2");
@@ -184,7 +184,8 @@ async fn test_timeline_is_threaded() {
     }
 
     {
-        // An event-focused timeline, focused on a non-thread event, isn't threaded.
+        // An event-focused timeline, focused on a non-thread event, isn't
+        // threaded.
         let f = EventFactory::new();
         let event = f
             .text_msg("hello world")
@@ -212,7 +213,8 @@ async fn test_timeline_is_threaded() {
     }
 
     {
-        // But an event-focused timeline, focused on an in-thread event, is threaded \o/
+        // But an event-focused timeline, focused on an in-thread event, is
+        // threaded \o/
         let f = EventFactory::new();
         let thread_root = event_id!("$thread_root");
         let event = f
@@ -243,7 +245,8 @@ async fn test_timeline_is_threaded() {
     }
 
     {
-        // An event-focused timeline, focused on a thread root, is also threaded \o/
+        // An event-focused timeline, focused on a thread root, is also threaded
+        // \o/
         let f = EventFactory::new();
         let event = f
             .text_msg("hey to you too")
@@ -543,8 +546,8 @@ async fn test_redact_local_sent_message() {
 
     assert_pending!(timeline_stream);
 
-    // Mock the redaction response for the event we just sent. Ensure it's called
-    // once.
+    // Mock the redaction response for the event we just sent. Ensure it's
+    // called once.
     server.mock_room_redact().ok(event_id!("$redaction_event_id")).mock_once().mount().await;
 
     // Let's redact the local echo with the remote handle.
@@ -759,8 +762,8 @@ async fn test_duplicate_maintains_correct_order() {
     let content = items[1].as_event().unwrap().content().as_message().unwrap().body();
     assert_eq!(content, "C");
 
-    // We receive multiple events, and C is now the last one (because we supposedly
-    // increased the timeline limit).
+    // We receive multiple events, and C is now the last one (because we
+    // supposedly increased the timeline limit).
     server
         .sync_room(
             &client,
@@ -831,8 +834,8 @@ async fn test_timeline_without_encryption_can_update() {
         .await;
 
     // Previously this would have panicked.
-    // We're creating a timeline without read receipts tracking to check only the
-    // encryption changes.
+    // We're creating a timeline without read receipts tracking to check only
+    // the encryption changes.
     let timeline = TimelineBuilder::new(&room).build().await.unwrap();
 
     let (items, mut stream) = timeline.subscribe().await;

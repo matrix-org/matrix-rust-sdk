@@ -73,7 +73,8 @@ async fn test_get_notification_mode() {
     assert_matches!(mode, Some(RoomNotificationMode::AllMessages));
 
     // Joined room without user-defined rules
-    // As this room has no user-defined rules, the encryption status will be fetched
+    // As this room has no user-defined rules, the encryption status will be
+    // fetched
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.room.encryption/"))
         .and(header("authorization", "Bearer 1234"))
@@ -157,8 +158,8 @@ async fn test_cached_notification_mode_is_updated_when_syncing() {
         Some(RoomNotificationMode::AllMessages)
     );
 
-    // Now if we receive a response with no custom push rules for the room, just the
-    // base ones
+    // Now if we receive a response with no custom push rules for the room, just
+    // the base ones
     let mut ruleset = Ruleset::default();
     ruleset.underride = [
         ConditionalPushRule::call(),

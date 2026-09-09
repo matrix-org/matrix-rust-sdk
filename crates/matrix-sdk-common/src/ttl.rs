@@ -74,8 +74,8 @@ impl<T> TtlValue<T> {
 
     /// Mark this value has expired.
     pub fn expire(&mut self) {
-        // We assume that the system time is always correct and we are far from the UNIX
-        // epoch so a timestamp of 0 should always be expired.
+        // We assume that the system time is always correct and we are far from
+        // the UNIX epoch so a timestamp of 0 should always be expired.
         self.last_fetch_ts = Some(0.0)
     }
 

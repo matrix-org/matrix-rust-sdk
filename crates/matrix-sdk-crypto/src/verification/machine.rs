@@ -208,8 +208,8 @@ impl VerificationMachine {
     fn is_timestamp_valid(timestamp: MilliSecondsSinceUnixEpoch) -> bool {
         // The event should be ignored if the event is older than 10 minutes
         let old_timestamp_threshold: UInt = uint!(600);
-        // The event should be ignored if the event is 5 minutes or more into the
-        // future.
+        // The event should be ignored if the event is 5 minutes or more into
+        // the future.
         let timestamp_threshold: UInt = uint!(300);
 
         let timestamp = timestamp.as_secs();

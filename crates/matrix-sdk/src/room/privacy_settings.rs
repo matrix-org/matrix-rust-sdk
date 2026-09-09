@@ -222,7 +222,8 @@ mod tests {
             .mount()
             .await;
 
-        // After that, we'd create a new room alias association in the room directory
+        // After that, we'd create a new room alias association in the room
+        // directory
         server.mock_room_directory_create_room_alias().ok().mock_once().mount().await;
 
         let published = room

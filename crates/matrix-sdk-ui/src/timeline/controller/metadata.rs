@@ -180,13 +180,14 @@ impl TimelineMetadata {
     }
 
     pub(super) fn clear(&mut self) {
-        // Note: we don't clear the next internal id to avoid bad cases of stale unique
-        // ids across timeline clears.
+        // Note: we don't clear the next internal id to avoid bad cases of stale
+        // unique ids across timeline clears.
         self.aggregations.clear();
         self.replies.clear();
         self.fully_read_event = None;
-        // We forgot about the fully read marker right above, so wait for a new one
-        // before attempting to update it for each new timeline item.
+        // We forgot about the fully read marker right above, so wait for a new
+        // one before attempting to update it for each new timeline
+        // item.
         self.has_up_to_date_read_marker_item = true;
         self.read_receipts.clear();
     }
@@ -206,8 +207,9 @@ impl TimelineMetadata {
             return Some(RelativePosition::Same);
         }
 
-        // We can make early returns here because we know all events since the end of
-        // the timeline, so the first event encountered is the oldest one.
+        // We can make early returns here because we know all events since the
+        // end of the timeline, so the first event encountered is the
+        // oldest one.
         for event_meta in all_remote_events.iter().rev() {
             if event_meta.event_id == event_a {
                 return Some(RelativePosition::Before);
@@ -259,8 +261,8 @@ impl TimelineMetadata {
         });
 
         if let Some(fully_read_event_idx) = &mut fully_read_event_idx {
-            // The item at position `i` is the first item that's fully read, we're about to
-            // insert a read marker just after it.
+            // The item at position `i` is the first item that's fully read,
+            // we're about to insert a read marker just after it.
             //
             // Do another forward pass to skip all the events we've sent too.
 
@@ -275,15 +277,18 @@ impl TimelineMetadata {
                 });
 
             if let Some(next) = next {
-                // `next` point to the first item that's not sent by us, so the *previous* of
-                // next is the right place where to insert the fully read marker.
+                // `next` point to the first item that's not sent by us, so the
+                // *previous* of next is the right place where
+                // to insert the fully read marker.
                 *fully_read_event_idx = next.wrapping_sub(1);
             } else {
-                // There's no event after the read marker that's not sent by us, i.e. the full
-                // timeline has been read: the fully read marker goes to the end, even after the
+                // There's no event after the read marker that's not sent by us,
+                // i.e. the full timeline has been read: the
+                // fully read marker goes to the end, even after the
                 // local timeline items.
                 //
-                // TODO (@hywan): Should we introduce a `items.position_of_last_remote()` to
+                // TODO (@hywan): Should we introduce a
+                // `items.position_of_last_remote()` to
                 // insert before the local timeline items?
                 *fully_read_event_idx = items.len().wrapping_sub(1);
             }
@@ -291,28 +296,31 @@ impl TimelineMetadata {
 
         match (read_marker_idx, fully_read_event_idx) {
             (None, None) => {
-                // We didn't have a previous read marker, and we didn't find the fully-read
-                // event in the timeline items. Don't do anything, and retry on
-                // the next event we add.
+                // We didn't have a previous read marker, and we didn't find the
+                // fully-read event in the timeline items. Don't
+                // do anything, and retry on the next event we
+                // add.
                 self.has_up_to_date_read_marker_item = false;
             }
 
             (None, Some(idx)) => {
-                // Only insert the read marker if it is not at the end of the timeline.
+                // Only insert the read marker if it is not at the end of the
+                // timeline.
                 if idx + 1 < items.len() {
                     let idx = idx + 1;
                     items.insert(idx, TimelineItem::read_marker(), None);
                     self.has_up_to_date_read_marker_item = true;
                 } else {
-                    // The next event might require a read marker to be inserted at the current
-                    // end.
+                    // The next event might require a read marker to be inserted
+                    // at the current end.
                     self.has_up_to_date_read_marker_item = false;
                 }
             }
 
             (Some(_), None) => {
-                // We didn't find the timeline item containing the event referred to by the read
-                // marker. Retry next time we get a new event.
+                // We didn't find the timeline item containing the event
+                // referred to by the read marker. Retry next
+                // time we get a new event.
                 self.has_up_to_date_read_marker_item = false;
             }
 
@@ -320,7 +328,8 @@ impl TimelineMetadata {
                 if from >= to {
                     // The read marker can't move backwards.
                     if from + 1 == items.len() {
-                        // The read marker has nothing after it. An item disappeared; remove it.
+                        // The read marker has nothing after it. An item
+                        // disappeared; remove it.
                         items.remove(from);
                     }
                     self.has_up_to_date_read_marker_item = true;
@@ -330,11 +339,14 @@ impl TimelineMetadata {
                 let prev_len = items.len();
                 let read_marker = items.remove(from);
 
-                // Only insert the read marker if it is not at the end of the timeline.
+                // Only insert the read marker if it is not at the end of the
+                // timeline.
                 if to + 1 < prev_len {
-                    // Since the fully-read event's index was shifted to the left
-                    // by one position by the remove call above, insert the fully-
-                    // read marker at its previous position, rather than that + 1
+                    // Since the fully-read event's index was shifted to the
+                    // left by one position by the remove
+                    // call above, insert the fully-
+                    // read marker at its previous position, rather than that +
+                    // 1
                     items.insert(to, read_marker, None);
                     self.has_up_to_date_read_marker_item = true;
                 } else {
@@ -515,14 +527,17 @@ impl TimelineMetadata {
                 thread_root = Some(thread.event_id);
 
                 if is_thread_focus && thread.is_falling_back {
-                    // In general, a threaded event is marked as a response to the previous message
-                    // in the thread, to maintain backwards compatibility with clients not
+                    // In general, a threaded event is marked as a response to
+                    // the previous message in the thread,
+                    // to maintain backwards compatibility with clients not
                     // supporting threads.
                     //
-                    // But we can have actual replies to other in-thread events. The
-                    // `is_falling_back` bool helps distinguishing both use cases.
+                    // But we can have actual replies to other in-thread events.
+                    // The `is_falling_back` bool helps
+                    // distinguishing both use cases.
                     //
-                    // If this timeline is thread-focused, we only mark non-falling-back replies as
+                    // If this timeline is thread-focused, we only mark
+                    // non-falling-back replies as
                     // actual in-thread replies.
                     None
                 } else {

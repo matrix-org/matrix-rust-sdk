@@ -108,12 +108,13 @@ impl Rules {
         is_encrypted: IsEncrypted,
         is_one_to_one: IsOneToOne,
     ) -> RoomNotificationMode {
-        // get the correct default rule ID based on `is_encrypted` and `is_one_to_one`
+        // get the correct default rule ID based on `is_encrypted` and
+        // `is_one_to_one`
         let predefined_rule_id = get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one);
         let rule_id = predefined_rule_id.as_str();
 
-        // If there is an `Underride` rule that should trigger a notification, the mode
-        // is `AllMessages`
+        // If there is an `Underride` rule that should trigger a notification,
+        // the mode is `AllMessages`
         if self
             .ruleset
             .get(RuleKind::Underride, rule_id)
@@ -425,8 +426,8 @@ pub(crate) mod tests {
         let rules = Rules::new(ruleset);
         let mode = rules.get_user_defined_room_notification_mode(&room_id_a);
 
-        // The mode should be Mute as there is an Override rule that doesn't notify,
-        // with a condition matching the room_id_a
+        // The mode should be Mute as there is an Override rule that doesn't
+        // notify, with a condition matching the room_id_a
         assert_eq!(mode, Some(RoomNotificationMode::Mute));
     }
 
@@ -492,8 +493,8 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_is_user_mention_enabled() {
-        // If `IsUserMention` is enable, then is_user_mention_enabled() should return
-        // `true` even if the deprecated rules are disabled
+        // If `IsUserMention` is enable, then is_user_mention_enabled() should
+        // return `true` even if the deprecated rules are disabled
         let mut ruleset = server_default_ruleset_with_legacy_mentions();
         ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention, true)
@@ -517,8 +518,8 @@ pub(crate) mod tests {
                 .unwrap()
         );
 
-        // If `IsUserMention` is disabled, then is_user_mention_enabled() should return
-        // `false` even if the deprecated rules are enabled
+        // If `IsUserMention` is disabled, then is_user_mention_enabled() should
+        // return `false` even if the deprecated rules are enabled
         let mut ruleset = server_default_ruleset_with_legacy_mentions();
         ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention, false)
@@ -553,8 +554,9 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_is_room_mention_enabled() {
-        // If `IsRoomMention` is present and enabled then is_room_mention_enabled()
-        // should return `true` even if the deprecated rule is disabled
+        // If `IsRoomMention` is present and enabled then
+        // is_room_mention_enabled() should return `true` even if the
+        // deprecated rule is disabled
         let mut ruleset = server_default_ruleset_with_legacy_mentions();
         ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention, true)
@@ -574,8 +576,9 @@ pub(crate) mod tests {
                 .unwrap()
         );
 
-        // If `IsRoomMention` is present and disabled then is_room_mention_enabled()
-        // should return `false` even if the deprecated rule is enabled
+        // If `IsRoomMention` is present and disabled then
+        // is_room_mention_enabled() should return `false` even if the
+        // deprecated rule is enabled
         let mut ruleset = server_default_ruleset_with_legacy_mentions();
         ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention, false)

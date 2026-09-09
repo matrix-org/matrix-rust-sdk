@@ -196,8 +196,9 @@ impl DisplayName {
         let decancered = decancer::cure!(&replaced).ok().map(|cured| {
             let removed_left_to_right = LEFT_TO_RIGHT_REGEX.replace_all(cured.as_ref(), "");
             let replaced = I_REGEX.replace_all(&removed_left_to_right, "l");
-            // We re-run the dot replacement because decancer normalized a lot of weird
-            // characets into a `.`, it just doesn't do that for /u{1d16d}.
+            // We re-run the dot replacement because decancer normalized a lot
+            // of weird characets into a `.`, it just doesn't do
+            // that for /u{1d16d}.
             let replaced = DOT_REGEX.replace_all(&replaced, ":");
             let replaced = ZERO_REGEX.replace_all(&replaced, "o");
 
@@ -212,7 +213,8 @@ impl DisplayName {
     /// If the display name has cancer (i.e. fails normalisation or has a
     /// different normalised form) or looks like an MXID, then it's ambiguous.
     pub fn is_inherently_ambiguous(&self) -> bool {
-        // If we look like an MXID or have hidden characters then we're ambiguous.
+        // If we look like an MXID or have hidden characters then we're
+        // ambiguous.
         self.looks_like_an_mxid() || self.has_hidden_characters() || self.decancered.is_none()
     }
 
@@ -602,8 +604,9 @@ mod test {
 
     #[test]
     fn test_display_name_inherently_ambiguous() {
-        // These should not be inherently ambiguous, only if another similarly looking
-        // display name appears should they be considered to be ambiguous.
+        // These should not be inherently ambiguous, only if another similarly
+        // looking display name appears should they be considered to be
+        // ambiguous.
         assert_not_ambiguous!("Alice");
         assert_not_ambiguous!("Carol");
         assert_not_ambiguous!("Car0l");

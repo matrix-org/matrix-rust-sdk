@@ -182,7 +182,8 @@ impl MediaStore for IndexeddbMediaStore {
         let transaction =
             self.transaction(&[MediaMetadata::OBJECT_STORE], TransactionMode::Readwrite)?;
         if let Some(mut metadata) = transaction.get_media_metadata_by_id(from).await? {
-            // delete before adding, in case `from` and `to` generate the same key
+            // delete before adding, in case `from` and `to` generate the same
+            // key
             transaction.delete_media_metadata_by_id(from).await?;
             metadata.request_parameters = to.clone();
             transaction.add_media_metadata(&metadata).await?;

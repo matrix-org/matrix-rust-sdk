@@ -89,7 +89,8 @@ impl IndexableEvent {
         // by multiplying by 1_000_000 [1]. If the number of milliseconds is too
         // big, the multiplication will overflow.
         //
-        // To avoid this panic, we cap the number of milliseconds to a maximum value.
+        // To avoid this panic, we cap the number of milliseconds to a maximum
+        // value.
         //
         // [1]: https://github.com/quickwit-oss/tantivy/blob/31ca1a8ba290b425f871d2e2384592045ec01b8d/common/src/datetime.rs#L62-L67
         if let Some(timestamp) = &mut timestamp {
@@ -294,10 +295,11 @@ impl RoomIndex {
             self.uncommitted_removes.insert(event);
         }
 
-        // Uncommitted documents added in this same batch also get deleted by the
-        // term above, so reconcile them too. Otherwise `contains` would still
-        // report them as present and a subsequent re-add (e.g. from an edit)
-        // would be wrongly skipped, leaving the document deleted.
+        // Uncommitted documents added in this same batch also get deleted by
+        // the term above, so reconcile them too. Otherwise `contains`
+        // would still report them as present and a subsequent re-add
+        // (e.g. from an edit) would be wrongly skipped, leaving the
+        // document deleted.
         let uncommitted: Vec<_> = self
             .uncommitted_adds
             .iter()
@@ -804,8 +806,9 @@ mod tests {
         let edit = to_indexable(&edit);
 
         // An original and its edit arriving in the same batch produce an `Add`
-        // and an `Edit` of the same document. The `Edit`'s removal must not drop
-        // the document added earlier in the same uncommitted batch.
+        // and an `Edit` of the same document. The `Edit`'s removal must not
+        // drop the document added earlier in the same uncommitted
+        // batch.
         index.bulk_execute(vec![
             RoomIndexOperation::Add(edit.clone()),
             RoomIndexOperation::Edit(original_id.to_owned(), edit),

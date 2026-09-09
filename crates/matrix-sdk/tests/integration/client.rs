@@ -1607,8 +1607,8 @@ async fn test_total_unread_notifications() {
         .await;
     assert!(marked_unread_room.is_marked_unread());
 
-    // A room that is both only needs the user's attention once, so it contributes
-    // its notifications and not one more.
+    // A room that is both only needs the user's attention once, so it
+    // contributes its notifications and not one more.
     let both_notifications_and_unread = server
         .sync_room(
             &client,
@@ -1895,9 +1895,9 @@ async fn test_logout() {
     let oauth_client = server.client_builder().logged_in_with_oauth().build().await;
     let res = oauth_client.logout().await;
 
-    // This returns an error because it requires a HTTPS server URI, or to be able
-    // to call `OAuth::insecure_rewrite_https_to_http()`, but at least we are
-    // testing the OAuth branch inside `Client::logout()`.
+    // This returns an error because it requires a HTTPS server URI, or to be
+    // able to call `OAuth::insecure_rewrite_https_to_http()`, but at least
+    // we are testing the OAuth branch inside `Client::logout()`.
     assert_matches!(res, Err(Error::OAuth(oauth_error)));
     assert_matches!(*oauth_error, OAuthError::Logout(OAuthTokenRevocationError::Url(_)));
 }
@@ -1982,8 +1982,8 @@ async fn test_server_version_without_auth() {
     // token has expired.
     server.mock_versions().expect_default_access_token().error_unknown_token(true).mount().await;
 
-    // If we do not provide an access token, all is fine as the endpoint does not
-    // require one.
+    // If we do not provide an access token, all is fine as the endpoint does
+    // not require one.
     server.mock_versions().expect_missing_access_token().ok().mount().await;
 
     let request_config = RequestConfig::new().disable_retry();

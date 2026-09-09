@@ -130,10 +130,10 @@ fn filter_for_initial_update(
     mut input: Vec<IdentityStatusChange>,
     own_user_id: &UserId,
 ) -> Vec<IdentityStatusChange> {
-    // We are never interested in changes to our own identity, and also for initial
-    // updates, we are only interested in "bad" states where we need to
-    // notify the user, so we can remove Verified states (Pinned states are
-    // already missing, because Pinned is considered the default).
+    // We are never interested in changes to our own identity, and also for
+    // initial updates, we are only interested in "bad" states where we need
+    // to notify the user, so we can remove Verified states (Pinned states
+    // are already missing, because Pinned is considered the default).
     input.retain(|change| {
         change.user_id != own_user_id && change.changed_to != IdentityState::Verified
     });
@@ -488,8 +488,8 @@ mod tests {
 
         // And we were notified about the change when the user left
         let change2 = assert_next_with_timeout!(stream);
-        // Note: the user left the room, but we see that as them "becoming pinned" i.e.
-        // "you no longer need to notify about this user".
+        // Note: the user left the room, but we see that as them "becoming
+        // pinned" i.e. "you no longer need to notify about this user".
         assert_eq!(change2[0].user_id, t.bob_user_id());
         assert_eq!(change2[0].changed_to, IdentityState::Pinned);
         assert_eq!(change2.len(), 1);
@@ -507,10 +507,11 @@ mod tests {
         let stream = t.subscribe_to_identity_status_changes().await;
         pin_mut!(stream);
 
-        // NOTE: below we pull the changes out of the subscription after each action.
-        // This makes sure that the identity changes and membership changes are properly
-        // ordered. If we pull them out later, the identity changes get shifted forward
-        // because they rely on less-complex async stuff under the hood. Calling
+        // NOTE: below we pull the changes out of the subscription after each
+        // action. This makes sure that the identity changes and
+        // membership changes are properly ordered. If we pull them out
+        // later, the identity changes get shifted forward because they
+        // rely on less-complex async stuff under the hood. Calling
         // next_change ends up winding the async machinery sufficiently that the
         // membership change and any subsequent events have fully completed.
 
@@ -588,9 +589,9 @@ mod tests {
         assert_eq!(next_change.len(), 1);
     }
 
-    // TODO: I (andyb) haven't figured out how to test room membership changes that
-    // affect our own user (they should not be shown). Specifically, I haven't
-    // figure out how to get out own user into a non-pinned state.
+    // TODO: I (andyb) haven't figured out how to test room membership changes
+    // that affect our own user (they should not be shown). Specifically, I
+    // haven't figure out how to get out own user into a non-pinned state.
 
     mod test_setup {
         use futures_core::Stream;
@@ -675,7 +676,8 @@ mod tests {
                         .await
                         .expect("Should not fail to pin");
                 } else {
-                    // There was no existing identity. Set one. It will be pinned by default.
+                    // There was no existing identity. Set one. It will be
+                    // pinned by default.
                     self.change_bob_identity(IdentityChangeDataSet::key_query_with_identity_a())
                         .await;
                 }
@@ -705,8 +707,9 @@ mod tests {
                 let requested_master_key = master_key_json(&requested);
                 let a_master_key = master_key_json(&a);
 
-                // Change/set their identity pin it, then change it again - this will definitely
-                // unpin, even if the first identity we supply is their very first, making them
+                // Change/set their identity pin it, then change it again - this
+                // will definitely unpin, even if the first
+                // identity we supply is their very first, making them
                 // initially pinned.
                 if requested_master_key == a_master_key {
                     self.change_bob_identity(b).await;
@@ -813,8 +816,9 @@ mod tests {
                     .await
                     .expect("Should be able to bootstrap cross-signing");
 
-                // Note: if you change the user_id, you will need to change lots of hard-coded
-                // stuff inside IdentityChangeDataSet
+                // Note: if you change the user_id, you will need to change lots
+                // of hard-coded stuff inside
+                // IdentityChangeDataSet
                 let bob_user_id = owned_user_id!("@bob:localhost");
 
                 let sync_response_builder = SyncResponseBuilder::default();

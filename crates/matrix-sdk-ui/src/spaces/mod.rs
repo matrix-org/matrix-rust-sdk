@@ -194,7 +194,8 @@ impl SpaceService {
             })
             .abort_on_drop();
 
-        // Make sure to also update the currently joined spaces for the initial values.
+        // Make sure to also update the currently joined spaces for the initial
+        // values.
         let (spaces, filters, graph) = Self::build_space_state(&client).await;
         Self::update_space_state_if_needed(
             Vector::from(spaces),
@@ -419,9 +420,9 @@ impl SpaceService {
             // Redacting state is a "weird" thing to do, so send {} instead.
             // https://github.com/matrix-org/matrix-spec/issues/2252
             //
-            // Specifically, "The redaction of the state doesn't participate in state
-            // resolution so behaves quite differently from e.g. sending an empty form of
-            // that state events".
+            // Specifically, "The redaction of the state doesn't participate in
+            // state resolution so behaves quite differently from
+            // e.g. sending an empty form of that state events".
             space_room
                 .send_state_event_raw("m.space.child", child_id.as_str(), serde_json::json!({}))
                 .await
@@ -512,8 +513,8 @@ impl SpaceService {
         // And also store `m.space.child` ordering info for later use
         let mut space_child_states = HashMap::<OwnedRoomId, SpaceRoomChildState>::new();
 
-        // Iterate over all joined spaces and populate the graph with edges based
-        // on `m.space.parent` and `m.space.child` state events.
+        // Iterate over all joined spaces and populate the graph with edges
+        // based on `m.space.parent` and `m.space.child` state events.
         for space in joined_spaces.iter() {
             graph.add_node(space.room_id().to_owned());
 
@@ -853,8 +854,8 @@ mod tests {
             )
             .await;
 
-        // Build the `SpaceService` and expect the room to show up with no updates
-        // pending
+        // Build the `SpaceService` and expect the room to show up with no
+        // updates pending
 
         let space_service = SpaceService::new(client.clone()).await;
 
@@ -1156,7 +1157,8 @@ mod tests {
 
     #[async_test]
     async fn test_editable_spaces() {
-        // Given a space hierarchy where the user is admin of some spaces and subspaces.
+        // Given a space hierarchy where the user is admin of some spaces and
+        // subspaces.
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
@@ -1366,7 +1368,8 @@ mod tests {
 
     #[async_test]
     async fn test_add_child_to_space_without_space_admin() {
-        // Given a space and child room where the user is a regular member of both.
+        // Given a space and child room where the user is a regular member of
+        // both.
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
@@ -1410,15 +1413,15 @@ mod tests {
         let result =
             space_service.add_child_to_space(child_id.to_owned(), space_id.to_owned()).await;
 
-        // Then the operation fails when trying to set the space child event and the
-        // parent event is not attempted.
+        // Then the operation fails when trying to set the space child event and
+        // the parent event is not attempted.
         assert!(result.is_err());
     }
 
     #[async_test]
     async fn test_add_child_to_space_without_child_admin() {
-        // Given a space and child room where the user is admin of the space but not of
-        // the child.
+        // Given a space and child room where the user is admin of the space but
+        // not of the child.
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
@@ -1464,8 +1467,8 @@ mod tests {
             space_service.add_child_to_space(child_id.to_owned(), space_id.to_owned()).await;
 
         error!("result: {:?}", result);
-        // Then the operation succeeds in setting the space child event and the parent
-        // event is not attempted.
+        // Then the operation succeeds in setting the space child event and the
+        // parent event is not attempted.
         assert!(result.is_ok());
     }
 
@@ -1568,14 +1571,15 @@ mod tests {
         let result =
             space_service.remove_child_from_space(child_id.to_owned(), parent_id.to_owned()).await;
 
-        // Then the child event is removed successfully and the parent event removal is
-        // not attempted.
+        // Then the child event is removed successfully and the parent event
+        // removal is not attempted.
         assert!(result.is_ok());
     }
 
     #[async_test]
     async fn test_remove_child_from_space_without_child_event() {
-        // Given a space with a child where the space's m.space.child event wasn't set.
+        // Given a space with a child where the space's m.space.child event
+        // wasn't set.
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
@@ -1620,14 +1624,15 @@ mod tests {
         let result =
             space_service.remove_child_from_space(child_id.to_owned(), parent_id.to_owned()).await;
 
-        // Then the parent event is removed successfully and the child event removal is
-        // not attempted.
+        // Then the parent event is removed successfully and the child event
+        // removal is not attempted.
         assert!(result.is_ok());
     }
 
     #[async_test]
     async fn test_remove_unknown_child_from_space() {
-        // Given a space with a child room that is unknown (not in the client store).
+        // Given a space with a child room that is unknown (not in the client
+        // store).
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
@@ -1637,7 +1642,8 @@ mod tests {
 
         let space_child_event_id = event_id!("$1");
         server.mock_set_space_child().ok(space_child_event_id.to_owned()).expect(1).mount().await;
-        // The parent event should not be attempted since the child room is unknown.
+        // The parent event should not be attempted since the child room is
+        // unknown.
         server.mock_set_space_parent().unauthorized().expect(0).mount().await;
 
         let parent_id = room_id!("!parent_space:example.org");
@@ -1669,8 +1675,9 @@ mod tests {
             .remove_child_from_space(unknown_child_id.to_owned(), parent_id.to_owned())
             .await;
 
-        // Then the operation succeeds: the child event is removed from the space,
-        // and the parent event removal is skipped since the child room is unknown.
+        // Then the operation succeeds: the child event is removed from the
+        // space, and the parent event removal is skipped since the
+        // child room is unknown.
         assert!(result.is_ok());
     }
 
@@ -1697,8 +1704,8 @@ mod tests {
             )
             .await;
 
-        // Build the `SpaceService` and expect the room to show up with no updates
-        // pending
+        // Build the `SpaceService` and expect the room to show up with no
+        // updates pending
         let space_service = SpaceService::new(client.clone()).await;
 
         let (initial_values, joined_spaces_subscriber) =

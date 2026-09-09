@@ -375,8 +375,8 @@ impl Timeline {
         mut content: AnyMessageLikeEventContent,
         extra_content: Option<serde_json::Map<String, serde_json::Value>>,
     ) -> Result<SendHandle, Error> {
-        // If this is a room event we're sending in a threaded timeline, we add the
-        // thread relation ourselves.
+        // If this is a room event we're sending in a threaded timeline, we add
+        // the thread relation ourselves.
         if content.relation().is_none()
             && let Some(reply) = self.infer_reply(None).await
         {
@@ -500,8 +500,9 @@ impl Timeline {
     /// automatically fills the [`Reply`] information based on the current
     /// timeline focus.
     pub(crate) async fn infer_reply(&self, in_reply_to: Option<OwnedEventId>) -> Option<Reply> {
-        // If there's a replied-to event id, the reply is pretty straightforward, and we
-        // should only infer the `EnforceThread` based on the current focus.
+        // If there's a replied-to event id, the reply is pretty
+        // straightforward, and we should only infer the `EnforceThread`
+        // based on the current focus.
         if let Some(in_reply_to) = in_reply_to {
             let enforce_thread = if self.controller.is_threaded() {
                 EnforceThread::Threaded(ReplyWithinThread::Yes)
@@ -517,14 +518,15 @@ impl Timeline {
 
         let thread_root = self.controller.thread_root()?;
 
-        // The latest event id is used for the reply-to fallback, for clients which
-        // don't handle threads. It should be correctly set to the latest
-        // event in the thread, which the timeline instance might or might
-        // not know about; in this case, we do a best effort of filling it, and resort
-        // to using the thread root if we don't know about any event.
+        // The latest event id is used for the reply-to fallback, for clients
+        // which don't handle threads. It should be correctly set to the
+        // latest event in the thread, which the timeline instance might
+        // or might not know about; in this case, we do a best effort of
+        // filling it, and resort to using the thread root if we don't
+        // know about any event.
         //
-        // Note: we could trigger a back-pagination if the timeline is empty, and wait
-        // for the results, if the timeline is too often empty.
+        // Note: we could trigger a back-pagination if the timeline is empty,
+        // and wait for the results, if the timeline is too often empty.
 
         let latest_event_id = self
             .controller
@@ -578,7 +580,8 @@ impl Timeline {
                 let new_content: AnyMessageLikeEventContent = match new_content {
                     EditedContent::RoomMessage(message) => {
                         if item.content.is_message() {
-                            // The replacement becomes the pending event itself, so restore its
+                            // The replacement becomes the pending event itself,
+                            // so restore its
                             // relations, which the payload can't carry by type.
                             AnyMessageLikeEventContent::RoomMessage(
                                 message.with_relation(item.content.relation()),
@@ -741,8 +744,9 @@ impl Timeline {
                 Ok(())
             }
             TimelineItemHandle::Local(handle) => {
-                // Forward the reason: if the local echo was being sent and the send wins the
-                // race, the server-side redaction that materializes the abort carries it.
+                // Forward the reason: if the local echo was being sent and the
+                // send wins the race, the server-side redaction
+                // that materializes the abort carries it.
                 if !handle
                     .abort_with_reason(reason.map(ToOwned::to_owned))
                     .await

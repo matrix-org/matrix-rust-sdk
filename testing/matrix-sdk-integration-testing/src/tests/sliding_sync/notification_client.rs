@@ -35,8 +35,8 @@ use crate::helpers::TestClientBuilder;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_notification() -> Result<()> {
-    // Create new users for each test run, to avoid conflicts with invites existing
-    // from previous runs.
+    // Create new users for each test run, to avoid conflicts with invites
+    // existing from previous runs.
     let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
     let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
@@ -118,7 +118,8 @@ async fn test_notification() -> Result<()> {
             NotificationClient::new(bob.clone(), process_setup.clone()).await.unwrap();
         let notification =
             notification_client.get_notification_with_context(&room_id, &event_id).await;
-        // We aren't authorized to inspect events from rooms we were not invited to.
+        // We aren't authorized to inspect events from rooms we were not invited
+        // to.
         assert!(matches!(notification.unwrap_err(), Error::SdkError(matrix_sdk::Error::Http(..))));
     } else {
         warn!("Couldn't get the invite event.");
@@ -175,8 +176,9 @@ async fn test_notification() -> Result<()> {
         if is_sliding_sync {
             assert_eq!(notification.joined_members_count, 2);
         } else {
-            // This can't be computed for /context, because we only get a single request,
-            // and not a full sync response that would contain a room summary.
+            // This can't be computed for /context, because we only get a single
+            // request, and not a full sync response that would
+            // contain a room summary.
             warn!("joined member counts: {}", notification.joined_members_count);
         }
 

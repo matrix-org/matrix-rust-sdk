@@ -565,8 +565,9 @@ impl InboundGroupSession {
     /// depending on whether this session's first known index is equal to,
     /// lower than, or higher than, that of `other`.
     pub async fn compare_ratchet(&self, other: &InboundGroupSession) -> SessionOrdering {
-        // If this is the same object the ordering is the same, we can't compare because
-        // we would deadlock while trying to acquire the same lock twice.
+        // If this is the same object the ordering is the same, we can't compare
+        // because we would deadlock while trying to acquire the same
+        // lock twice.
         if Arc::ptr_eq(&self.inner, &other.inner) {
             SessionOrdering::Equal
         } else if self.sender_key() != other.sender_key()
@@ -971,7 +972,8 @@ mod tests {
 
     #[async_test]
     async fn test_can_deserialise_pickled_session_without_sender_data() {
-        // Given the raw JSON for a picked inbound group session without any sender_data
+        // Given the raw JSON for a picked inbound group session without any
+        // sender_data
         let pickle = r#"
         {
             "pickle": {
@@ -1017,8 +1019,8 @@ mod tests {
         // Then it was parsed correctly
         assert_eq!(unpickled.session_id(), "XbmrPa1kMwmdtNYng1B2gsfoo8UtF+NklzsTZiaVKyY");
 
-        // And we populated the InboundGroupSession's sender_data with a default value,
-        // with legacy_session set to true.
+        // And we populated the InboundGroupSession's sender_data with a default
+        // value, with legacy_session set to true.
         assert_let!(
             SenderData::UnknownDevice { legacy_session, owner_check_failed } =
                 unpickled.sender_data
@@ -1052,7 +1054,8 @@ mod tests {
 
         // Then it looks as we expect
 
-        // (Break out this list of numbers as otherwise it bothers the json macro below)
+        // (Break out this list of numbers as otherwise it bothers the json
+        // macro below)
         let expected_inner = vec![
             193, 203, 223, 152, 33, 132, 200, 168, 24, 197, 79, 174, 231, 202, 45, 245, 128, 131,
             178, 165, 148, 37, 241, 214, 178, 218, 25, 33, 68, 48, 153, 104, 122, 6, 249, 198, 97,
@@ -1097,7 +1100,8 @@ mod tests {
 
     #[async_test]
     async fn test_can_deserialise_pickled_session_with_sender_data() {
-        // Given the raw JSON for a picked inbound group session (including sender_data)
+        // Given the raw JSON for a picked inbound group session (including
+        // sender_data)
         let pickle = r#"
         {
             "pickle": {
@@ -1148,8 +1152,8 @@ mod tests {
         // Then it was parsed correctly
         assert_eq!(unpickled.session_id(), "XbmrPa1kMwmdtNYng1B2gsfoo8UtF+NklzsTZiaVKyY");
 
-        // And we populated the InboundGroupSession's sender_data with the provided
-        // values
+        // And we populated the InboundGroupSession's sender_data with the
+        // provided values
         assert_let!(
             SenderData::UnknownDevice { legacy_session, owner_check_failed } =
                 unpickled.sender_data

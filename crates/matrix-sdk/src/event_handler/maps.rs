@@ -75,8 +75,9 @@ impl EventHandlerMaps {
         ev_type: &str,
         room_id: Option<&'a RoomId>,
     ) -> impl Iterator<Item = (EventHandlerHandle, &'a EventHandlerFn)> + 'a {
-        // Use get_key_value instead of just get to be able to access the event_type
-        // from the BTreeMap key as &'static str, required for EventHandlerHandle.
+        // Use get_key_value instead of just get to be able to access the
+        // event_type from the BTreeMap key as &'static str, required
+        // for EventHandlerHandle.
         let kind_kv = self.by_kind.get_key_value(&ev_kind).map(|(_, handlers)| (None, handlers));
         let kind_type_kv = self
             .by_kind_type

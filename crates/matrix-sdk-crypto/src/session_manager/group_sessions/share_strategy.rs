@@ -200,8 +200,8 @@ pub(crate) async fn collect_session_recipients(
     // 3. The history visibility changed.
     // 4. The encryption algorithm changed.
     //
-    // `result.should_rotate` is true if the first or second in that list is true;
-    // we now need to check for the other two.
+    // `result.should_rotate` is true if the first or second in that list is
+    // true; we now need to check for the other two.
     let device_removed = result.should_rotate;
 
     let visibility_changed = outbound.settings().history_visibility != settings.history_visibility;
@@ -240,8 +240,8 @@ pub(crate) async fn collect_recipients_for_share_strategy(
     let mut result = CollectRecipientsResult::default();
     let mut verified_users_with_new_identities: Vec<OwnedUserId> = Default::default();
 
-    // If we have an outbound session, check if a user is missing from the set of
-    // users that should get the session but is in the set of users that
+    // If we have an outbound session, check if a user is missing from the set
+    // of users that should get the session but is in the set of users that
     // received the session.
     if let Some(outbound) = outbound {
         let view = outbound.sharing_view();
@@ -322,8 +322,8 @@ pub(crate) async fn collect_recipients_for_share_strategy(
             }
 
             // If `error_on_verified_user_problem` is set, then
-            // `unsigned_devices_of_verified_users` may be populated. If so, we need to bail
-            // out with an error.
+            // `unsigned_devices_of_verified_users` may be populated. If so, we
+            // need to bail out with an error.
             if !unsigned_devices_of_verified_users.is_empty() {
                 return Err(OlmError::SessionRecipientCollectionError(
                     SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(
@@ -470,9 +470,10 @@ fn is_session_overshared_for_user(
     let newly_deleted_or_blacklisted: BTreeSet<&DeviceId> = view
         .iter_shares(Some(user_id), None)
         .filter_map(|(_user_id, device_id, info)| {
-            // If a devices who we've shared the session with before is not in the
-            // list of devices that should receive the session, we need to rotate.
-            // We also collect all of those device IDs to log them out.
+            // If a devices who we've shared the session with before is not in
+            // the list of devices that should receive the session,
+            // we need to rotate. We also collect all of those
+            // device IDs to log them out.
             if matches!(info, ShareInfo::Shared(_)) && !recipient_device_ids.contains(device_id) {
                 Some(device_id)
             } else {
@@ -911,8 +912,8 @@ fn split_devices_for_user_for_error_on_verified_user_problem_strategy(
 ) -> ErrorOnVerifiedUserProblemResult {
     let mut recipient_devices = RecipientDevicesForUser::default();
 
-    // We construct unsigned_devices_of_verified_users lazily, because chances are
-    // we won't need it.
+    // We construct unsigned_devices_of_verified_users lazily, because chances
+    // are we won't need it.
     let mut unsigned_devices_of_verified_users: Option<Vec<OwnedDeviceId>> = None;
 
     for d in user_devices.into_values() {
@@ -975,8 +976,8 @@ fn handle_device_for_user_for_error_on_verified_user_problem_strategy(
         ErrorOnVerifiedUserProblemDeviceDecision::UnsignedOfVerified
     } else if device.is_dehydrated()
         && device_owner_identity.is_none_or(|owner_id| {
-            // Dehydrated devices must be signed by their owners, whether or not that
-            // owner is verified
+            // Dehydrated devices must be signed by their owners, whether or not
+            // that owner is verified
             !device.is_cross_signed_by_owner(owner_id)
         })
     {
@@ -992,8 +993,8 @@ fn split_devices_for_user_for_identity_based_strategy(
 ) -> RecipientDevicesForUser {
     match device_owner_identity {
         None => {
-            // withheld all the users devices, we need to have an identity for this
-            // distribution mode
+            // withheld all the users devices, we need to have an identity for
+            // this distribution mode
             RecipientDevicesForUser {
                 allowed_devices: Vec::default(),
                 denied_devices_with_code: user_devices
@@ -1451,8 +1452,8 @@ mod tests {
         assert!(dave_devices_shared.unwrap().is_empty());
         assert!(good_devices_shared.unwrap().is_empty());
 
-        // dan is verified by me and has one of his devices self signed, so should get
-        // the key
+        // dan is verified by me and has one of his devices self signed, so
+        // should get the key
         let dan_devices_shared =
             share_result.devices.get(KeyDistributionTestData::dan_id()).unwrap();
 
@@ -1758,7 +1759,8 @@ mod tests {
         let encryption_settings = error_on_verification_problem_encryption_settings();
         let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
 
-        // We should be able to share a key, and it should include the unsigned device.
+        // We should be able to share a key, and it should include the unsigned
+        // device.
         let share_result = collect_session_recipients(
             machine.store(),
             iter::once(DataSet::bob_id()),
@@ -1830,7 +1832,8 @@ mod tests {
         let encryption_settings = error_on_verification_problem_encryption_settings();
         let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
 
-        // We should be able to share a key, and it should exclude the unsigned device.
+        // We should be able to share a key, and it should exclude the unsigned
+        // device.
         let share_result = collect_session_recipients(
             machine.store(),
             iter::once(DataSet::bob_id()),
@@ -2012,8 +2015,8 @@ mod tests {
         let bob_keys = DataSet::bob_keys_query_response_rotated();
         machine.mark_request_as_sent(&TransactionId::new(), &bob_keys).await.unwrap();
 
-        // Double-check the state of Bob: he should be unverified, and should have an
-        // unsigned device.
+        // Double-check the state of Bob: he should be unverified, and should
+        // have an unsigned device.
         let bob_identity = machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap();
         assert!(!bob_identity.other().unwrap().is_verified());
 
@@ -2088,8 +2091,8 @@ mod tests {
         let keys_query = DataSet::bob_keys_query_response_signed();
         machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
-        // Double-check the state of Bob: his identity should be signed but unverified,
-        // and he should have an unsigned device.
+        // Double-check the state of Bob: his identity should be signed but
+        // unverified, and he should have an unsigned device.
         let bob_identity =
             machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
         assert!(
@@ -2160,8 +2163,8 @@ mod tests {
     async fn test_verified_user_changed_identity() {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
-        // We start with Bob, who is verified and has one unsigned device. We have also
-        // verified our own identity.
+        // We start with Bob, who is verified and has one unsigned device. We
+        // have also verified our own identity.
         let machine = unsigned_of_verified_setup().await;
 
         // Bob then rotates his identity
@@ -2446,8 +2449,8 @@ mod tests {
         ) {
             let machine = test_machine().await;
 
-            // Bob is a user with cross-signing, who has a single (verified) dehydrated
-            // device.
+            // Bob is a user with cross-signing, who has a single (verified)
+            // dehydrated device.
             let bob_user_id = user_id!("@bob:localhost");
             let bob_dehydrated_device_id = device_id!("DEHYDRATED_DEVICE");
             let keys_query = key_query_response_template_with_cross_signing(bob_user_id)
@@ -2502,8 +2505,8 @@ mod tests {
         ) {
             let machine = test_machine().await;
 
-            // Bob is a user with cross-signing, who has a single (unverified) dehydrated
-            // device.
+            // Bob is a user with cross-signing, who has a single (unverified)
+            // dehydrated device.
             let bob_user_id = user_id!("@bob:localhost");
             let bob_dehydrated_device_id = device_id!("DEHYDRATED_DEVICE");
             let keys_query = key_query_response_template_with_cross_signing(bob_user_id)
@@ -2524,8 +2527,8 @@ mod tests {
             )
             .await;
 
-            // ... it shouldn't be shared with anyone, and there should be a withheld
-            // message for the dehydrated device.
+            // ... it shouldn't be shared with anyone, and there should be a
+            // withheld message for the dehydrated device.
             assert_withheld_to(recips, bob_user_id, bob_dehydrated_device_id);
         }
 
@@ -2571,8 +2574,8 @@ mod tests {
                 key_query_response_template_with_cross_signing(bob_user_id).build_response();
             machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
-            // He then changes identity, and adds a dehydrated device (signed with his new
-            // identity)
+            // He then changes identity, and adds a dehydrated device (signed
+            // with his new identity)
             let bob_dehydrated_device_id = device_id!("DEHYDRATED_DEVICE");
             let keys_query = key_query_response_template_with_changed_cross_signing(bob_user_id)
                 .with_dehydrated_device(bob_dehydrated_device_id, true)
@@ -2626,8 +2629,8 @@ mod tests {
             )
             .await;
 
-            // ... it shouldn't be shared with anyone, and there should be a withheld
-            // message for the dehydrated device.
+            // ... it shouldn't be shared with anyone, and there should be a
+            // withheld message for the dehydrated device.
             assert_withheld_to(recips, bob_user_id, bob_dehydrated_device_id);
         }
 
@@ -2675,8 +2678,8 @@ mod tests {
             )
             .await;
 
-            // The key share should fail with an error indicating that recipients
-            // were previously verified.
+            // The key share should fail with an error indicating that
+            // recipients were previously verified.
             assert_matches::assert_matches!(
                 share_result,
                 Err(crate::OlmError::SessionRecipientCollectionError(
@@ -2703,8 +2706,8 @@ mod tests {
                 .build_response();
             machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
-            // He then changes identity, and adds a dehydrated device (signed with his new
-            // identity)
+            // He then changes identity, and adds a dehydrated device (signed
+            // with his new identity)
             let keys_query = key_query_response_template_with_changed_cross_signing(bob_user_id)
                 .with_dehydrated_device(bob_dehydrated_device_id, true)
                 .build_response();
@@ -3338,8 +3341,8 @@ mod tests {
         let bob_keys = DataSet::bob_keys_query_response_signed();
         machine.mark_request_as_sent(&TransactionId::new(), &bob_keys).await.unwrap();
 
-        // Double-check the state of Bob: he should be verified, and should have one
-        // signed and one unsigned device.
+        // Double-check the state of Bob: he should be verified, and should have
+        // one signed and one unsigned device.
         let bob_identity = machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap();
         assert!(bob_identity.other().unwrap().is_verified());
 

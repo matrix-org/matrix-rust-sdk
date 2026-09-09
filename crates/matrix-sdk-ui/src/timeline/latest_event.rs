@@ -160,8 +160,8 @@ impl LatestEventValue {
                     },
 
                     TimelineAction::HandleAggregation { kind, .. } => {
-                        // Add some debug logging here to help diagnose issues with the latest
-                        // event.
+                        // Add some debug logging here to help diagnose issues
+                        // with the latest event.
                         trace!("latest event is an aggregation: {}", kind.debug_string());
                         Self::None
                     }

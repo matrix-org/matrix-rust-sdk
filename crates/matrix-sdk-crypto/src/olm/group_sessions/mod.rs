@@ -211,12 +211,14 @@ impl TryFrom<ExportedRoomKey> for ForwardedRoomKeyContent {
     fn try_from(room_key: ExportedRoomKey) -> Result<ForwardedRoomKeyContent, Self::Error> {
         match room_key.algorithm {
             EventEncryptionAlgorithm::MegolmV1AesSha2 => {
-                // The forwarded room key content only supports a single claimed sender
-                // key and it requires it to be a Ed25519 key. This here will be lossy
-                // conversion since we're dropping all other key types.
+                // The forwarded room key content only supports a single claimed
+                // sender key and it requires it to be a Ed25519
+                // key. This here will be lossy conversion since
+                // we're dropping all other key types.
                 //
-                // This was fixed by the megolm v2 content. Hopefully we'll deprecate megolm v1
-                // before we have multiple signing keys.
+                // This was fixed by the megolm v2 content. Hopefully we'll
+                // deprecate megolm v1 before we have multiple
+                // signing keys.
                 if let Some(SigningKey::Ed25519(claimed_ed25519_key)) =
                     room_key.sender_claimed_keys.get(&DeviceKeyAlgorithm::Ed25519)
                 {

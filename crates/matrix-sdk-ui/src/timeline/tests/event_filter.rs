@@ -480,7 +480,8 @@ async fn test_event_filter_exclude_membership_changes() {
         )
         .await;
 
-    // The timeline should contain everything except for the invite and join events
+    // The timeline should contain everything except for the invite and join
+    // events
     let event_items: Vec<Arc<TimelineItem>> = timeline.get_event_items().await;
     let num_text_message_items = event_items.iter().filter(is_text_message_item).count();
     let num_room_name_items = event_items.iter().filter(is_room_name_item).count();
@@ -533,8 +534,8 @@ async fn test_event_filter_exclude_profile_changes() {
         )
         .await;
 
-    // The timeline should contain everything except for the display name and avatar
-    // URL changes
+    // The timeline should contain everything except for the display name and
+    // avatar URL changes
     let event_items: Vec<Arc<TimelineItem>> = timeline.get_event_items().await;
     let num_text_message_items = event_items.iter().filter(is_text_message_item).count();
     let num_room_name_items = event_items.iter().filter(is_room_name_item).count();
@@ -653,8 +654,8 @@ async fn test_event_filter_can_exclude_only_join_and_leave_membership_changes() 
     let num_room_topic_items = event_items.iter().filter(is_room_topic_item).count();
     let num_membership_change_items = event_items.iter().filter(is_membership_change_item).count();
     let num_profile_change_items = event_items.iter().filter(is_profile_change_item).count();
-    // 2 profile changes + 1 text message + 1 room name + 1 room topic + 1 invited
-    // membership change
+    // 2 profile changes + 1 text message + 1 room name + 1 room topic + 1
+    // invited membership change
     assert_eq!(event_items.len(), 6);
     assert_eq!(num_text_message_items, 1);
     assert_eq!(num_room_name_items, 1);

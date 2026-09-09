@@ -272,7 +272,8 @@ impl UserIdentity {
                 let content = i.verification_request_content(methods.clone());
 
                 let room = if let Some(room) = self.client.get_dm_room(i.user_id()) {
-                    // Make sure that the user, to be verified, is still in the room
+                    // Make sure that the user, to be verified, is still in the
+                    // room
                     if !room
                         .members(RoomMemberships::ACTIVE)
                         .await?

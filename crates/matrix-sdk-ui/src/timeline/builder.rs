@@ -163,7 +163,8 @@ impl TimelineBuilder {
     pub async fn build(self) -> Result<Timeline, Error> {
         let Self { room, settings, unable_to_decrypt_hook, focus, internal_id_prefix } = self;
 
-        // Subscribe the event cache to sync responses, in case we hadn't done it yet.
+        // Subscribe the event cache to sync responses, in case we hadn't done
+        // it yet.
         let client = room.client();
         let event_cache = client.event_cache();
         event_cache.subscribe()?;
@@ -302,9 +303,10 @@ impl TimelineBuilder {
         };
 
         if has_events {
-            // The events we're injecting might be encrypted events, but we might
-            // have received the room key to decrypt them while nobody was listening to the
-            // `m.room_key` event, let's retry now.
+            // The events we're injecting might be encrypted events, but we
+            // might have received the room key to decrypt them
+            // while nobody was listening to the `m.room_key` event,
+            // let's retry now.
             timeline.retry_decryption_for_all_events().await;
         }
 

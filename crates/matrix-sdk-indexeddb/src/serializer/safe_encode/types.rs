@@ -230,37 +230,42 @@ impl SafeEncodeSerializer {
         // `MaybeEncrypted`. However, `serialize_value` previously used a
         // different format, so we need to handle that in case we have old data.
         //
-        // If we can convert the JsValue into a `MaybeEncrypted`, then it's probably one
-        // of those.
+        // If we can convert the JsValue into a `MaybeEncrypted`, then it's
+        // probably one of those.
         //
-        // - `MaybeEncrypted::Encrypted` becomes a JS object with properties {`version`,
-        //   `nonce`, `ciphertext`}.
+        // - `MaybeEncrypted::Encrypted` becomes a JS object with properties
+        //   {`version`, `nonce`, `ciphertext`}.
         //
-        // - `MaybeEncrypted::Unencrypted` becomes a JS string containing base64 text.
+        // - `MaybeEncrypted::Unencrypted` becomes a JS string containing base64
+        //   text.
         //
         // Otherwise, it probably uses our old serialization format:
         //
-        // - Encrypted values were: serialized to an array of JSON bytes; encrypted to
-        //   an array of u8 bytes; stored in a Rust object; serialized (again) into an
-        //   array of JSON bytes. Net result is a JS array.
+        // - Encrypted values were: serialized to an array of JSON bytes;
+        //   encrypted to an array of u8 bytes; stored in a Rust object;
+        //   serialized (again) into an array of JSON bytes. Net result is a JS
+        //   array.
         //
-        // - Unencrypted values were serialized to JSON, then deserialized into a
-        //   javascript object/string/array/bool.
+        // - Unencrypted values were serialized to JSON, then deserialized into
+        //   a javascript object/string/array/bool.
         //
         // Note that there are several potential ambiguities here:
         //
         // - A JS string could either be a legacy unencrypted value, or a
-        //   `MaybeEncrypted::Unencrypted`. However, the only thing that actually got
-        //   stored as a string under the legacy system was `backup_key_v1`, and that is
-        //   special-cased not to use this path — so if we can convert it into a
-        //   `MaybeEncrypted::Unencrypted`, then we assume it is one.
+        //   `MaybeEncrypted::Unencrypted`. However, the only thing that
+        //   actually got stored as a string under the legacy system was
+        //   `backup_key_v1`, and that is special-cased not to use this path —
+        //   so if we can convert it into a `MaybeEncrypted::Unencrypted`, then
+        //   we assume it is one.
         //
-        // - A JS array could be either a legacy encrypted value or a legacy unencrypted
-        //   value. We can tell the difference by whether we have a `cipher`.
+        // - A JS array could be either a legacy encrypted value or a legacy
+        //   unencrypted value. We can tell the difference by whether we have a
+        //   `cipher`.
         //
         // - A JS object could be either a legacy unencrypted value or a
-        //   `MaybeEncrypted::Encrypted`. We assume that no legacy JS objects have the
-        //   properties to be successfully decoded into a `MaybeEncrypted::Encrypted`.
+        //   `MaybeEncrypted::Encrypted`. We assume that no legacy JS objects
+        //   have the properties to be successfully decoded into a
+        //   `MaybeEncrypted::Encrypted`.
 
         // First check if it looks like a `MaybeEncrypted`, of either type.
         if let Ok(maybe_encrypted) = serde_wasm_bindgen::from_value(value.clone()) {
@@ -290,25 +295,27 @@ impl SafeEncodeSerializer {
 
                 // Looks like legacy encrypted format.
                 //
-                // `value` is a JS-side array containing the byte values. Turn it into a
-                // rust-side Vec<u8>, then decrypt.
+                // `value` is a JS-side array containing the byte values. Turn
+                // it into a rust-side Vec<u8>, then decrypt.
                 let value: Vec<u8> = serde_wasm_bindgen::from_value(value)?;
                 Ok(cipher.decrypt_value(&value).map_err(CryptoStoreError::backend)?)
             }
 
             None => {
-                // Legacy unencrypted format could be just about anything; just try
-                // JSON-serializing the value, then deserializing it into the
-                // desired type.
+                // Legacy unencrypted format could be just about anything; just
+                // try JSON-serializing the value, then
+                // deserializing it into the desired type.
                 //
-                // Note that the stored data was actually encoded by JSON-serializing it, and
-                // then deserializing the JSON into Javascript objects — so, for
+                // Note that the stored data was actually encoded by
+                // JSON-serializing it, and then deserializing
+                // the JSON into Javascript objects — so, for
                 // example, `HashMap`s are converted into Javascript Objects
                 // (whose keys are always strings) rather than Maps (whose keys
-                // can be other things). `serde_wasm_bindgen::from_value` will complain about
-                // such things. The correct thing to do is to go *back* to JSON
-                // and then deserialize into Rust again, which is what `JsValue::into_serde`
-                // does.
+                // can be other things). `serde_wasm_bindgen::from_value` will
+                // complain about such things. The correct thing
+                // to do is to go *back* to JSON
+                // and then deserialize into Rust again, which is what
+                // `JsValue::into_serde` does.
                 Ok(value.into_serde()?)
             }
         }
@@ -333,7 +340,8 @@ impl SafeEncodeSerializer {
         &self,
         value: MaybeEncrypted,
     ) -> Result<T, CryptoStoreError> {
-        // First extract the plaintext JSON, either by decrypting or un-base64-ing.
+        // First extract the plaintext JSON, either by decrypting or
+        // un-base64-ing.
         let plaintext = Zeroizing::new(match (&self.store_cipher, value) {
             (Some(cipher), MaybeEncrypted::Encrypted(enc)) => {
                 cipher.decrypt_value_base64_data(enc).map_err(CryptoStoreError::backend)?
@@ -409,8 +417,8 @@ mod tests {
         let data = serde_json::to_vec(&data).unwrap();
         let serialized = JsValue::from_serde(&data).unwrap();
 
-        // Now, try deserializing with `deserialize_value`, and check we get the right
-        // thing.
+        // Now, try deserializing with `deserialize_value`, and check we get the
+        // right thing.
         let serializer = SafeEncodeSerializer::new(Some(Arc::new(cipher)));
         let deserialized: TestStruct =
             serializer.deserialize_value(serialized).expect("could not deserialize");

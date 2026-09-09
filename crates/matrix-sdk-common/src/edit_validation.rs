@@ -136,15 +136,15 @@ pub fn check_validity_of_replacement_events(
     // We don't check the room ID here since this event might have been received
     // over /sync, in this case the JSON likely won't contain the room ID field.
 
-    // The original event and replacement event must have the same sender (i.e. you
-    // cannot edit someone else’s messages).
+    // The original event and replacement event must have the same sender (i.e.
+    // you cannot edit someone else’s messages).
     if original_event.sender != replacement_event.sender {
         return Err(EditValidityError::InvalidSender);
     }
 
-    // This check isn't part of the list in the spec, but it makes sense to check if
-    // the replacement event is has the correct rel_type and if it's an edit for the
-    // original event.
+    // This check isn't part of the list in the spec, but it makes sense to
+    // check if the replacement event is has the correct rel_type and if
+    // it's an edit for the original event.
     if let Some(relates_to) = replacement_event.content.relates_to {
         if relates_to.rel_type != Some(REPLACEMENT_REL_TYPE)
             || relates_to.event_id != Some(original_event.event_id)
@@ -155,8 +155,8 @@ pub fn check_validity_of_replacement_events(
         return Err(EditValidityError::NotReplacement);
     }
 
-    // The replacement and original events must have the same type (i.e. you cannot
-    // change the original event’s type).
+    // The replacement and original events must have the same type (i.e. you
+    // cannot change the original event’s type).
     if original_event.event_type != replacement_event.event_type {
         return Err(EditValidityError::MismatchContentType {
             content_type: original_event.event_type.to_owned(),
@@ -164,15 +164,15 @@ pub fn check_validity_of_replacement_events(
         });
     }
 
-    // The replacement and original events must not have a state_key property (i.e.
-    // you cannot edit state events at all).
+    // The replacement and original events must not have a state_key property
+    // (i.e. you cannot edit state events at all).
     if original_event.state_key.is_some() || replacement_event.state_key.is_some() {
         return Err(EditValidityError::StateKeyPresent);
     }
 
-    // The original event must not, itself, have a rel_type of m.replace (i.e. you
-    // cannot edit an edit — though you can send multiple edits for a single
-    // original event).
+    // The original event must not, itself, have a rel_type of m.replace (i.e.
+    // you cannot edit an edit — though you can send multiple edits for a
+    // single original event).
     if let Some(relates_to) = original_event.content.relates_to
         && relates_to.rel_type == Some(REPLACEMENT_REL_TYPE)
     {

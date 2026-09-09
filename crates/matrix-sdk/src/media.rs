@@ -288,8 +288,8 @@ impl Media {
         content_type: &Mime,
         data: Vec<u8>,
     ) -> Result<()> {
-        // Do a best-effort at reporting an expired MXC URI here; otherwise the server
-        // may complain about it later.
+        // Do a best-effort at reporting an expired MXC URI here; otherwise the
+        // server may complain about it later.
         if let Some(expire_date) = uri.expire_date
             && MilliSecondsSinceUnixEpoch::now() >= expire_date
         {
@@ -433,11 +433,12 @@ impl Media {
         request: &MediaRequestParameters,
         use_cache: bool,
     ) -> Result<Vec<u8>> {
-        // This is a local media. Force to read the media's content from the store: it
-        // cannot exist somewhere else!
+        // This is a local media. Force to read the media's content from the
+        // store: it cannot exist somewhere else!
         if Self::is_local_uri(&request.source) {
-            // Local medias are always cached with `MediaFormat::File`, be it the file
-            // itself or its thumbnail (see `RoomSendQueue::cache_media`), so ignore the
+            // Local medias are always cached with `MediaFormat::File`, be it
+            // the file itself or its thumbnail (see
+            // `RoomSendQueue::cache_media`), so ignore the
             // requested format.
             let request = &MediaRequestParameters {
                 source: request.source.clone(),
@@ -455,8 +456,8 @@ impl Media {
             }
         }
 
-        // Read from the cache: if it doesn't exist, the execution continues by reading
-        // the media from the network.
+        // Read from the cache: if it doesn't exist, the execution continues by
+        // reading the media from the network.
         if use_cache
             && let Some(content) =
                 self.client.media_store().lock().await?.get_media_content(request).await?
@@ -844,8 +845,9 @@ impl MediaFetcher for DefaultMediaFetcher {
                             file.as_ref().clone().into(),
                         )?;
 
-                        // Encrypted size should be the same as the decrypted size,
-                        // rounded up to a cipher block.
+                        // Encrypted size should be the same as the decrypted
+                        // size, rounded up to a cipher
+                        // block.
                         let mut decrypted = Vec::with_capacity(content_len);
 
                         reader.read_to_end(&mut decrypted)?;

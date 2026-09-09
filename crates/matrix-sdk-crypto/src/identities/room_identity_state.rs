@@ -136,15 +136,16 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
         &mut self,
         sync_room_member_event: Box<SyncRoomMemberEvent>,
     ) -> Vec<IdentityStatusChange> {
-        // Ignore redacted events - memberships should come through as new events, not
-        // redactions.
+        // Ignore redacted events - memberships should come through as new
+        // events, not redactions.
         if let SyncStateEvent::Original(event) = sync_room_member_event.deref() {
             let user_id = &event.state_key;
             // Ignore non-existent users, and changes to our own identity
             if let Some(user_identity @ UserIdentity::Other(_)) =
                 self.room.user_identity(user_id).await
             {
-                // Don't notify on membership changes of verified or pinned identities
+                // Don't notify on membership changes of verified or pinned
+                // identities
                 if matches!(
                     self.room.state_of(&user_identity),
                     IdentityState::Verified | IdentityState::Pinned
@@ -154,15 +155,16 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
 
                 match event.content.membership {
                     MembershipState::Join | MembershipState::Invite => {
-                        // They are joining the room - check whether we need to display a
-                        // warning to the user
+                        // They are joining the room - check whether we need to
+                        // display a warning to the user
                         if let Some(update) = self.update_user_state(user_id, &user_identity) {
                             return vec![update];
                         }
                     }
                     MembershipState::Leave | MembershipState::Ban => {
-                        // They are leaving the room - treat that as if they are becoming
-                        // Pinned, which means the UI will remove any banner it was displaying
+                        // They are leaving the room - treat that as if they are
+                        // becoming Pinned, which means
+                        // the UI will remove any banner it was displaying
                         // for them.
 
                         if let Some(update) =
@@ -442,7 +444,8 @@ mod tests {
         let mut room = FakeRoom::new();
         let mut state = RoomIdentityState::new(room.clone()).await;
 
-        // When a new unpinned user identity appears but they are not in the room
+        // When a new unpinned user identity appears but they are not in the
+        // room
         let updates =
             identity_change(&mut room, user_id, IdentityState::PinViolation, true, false).await;
         let update = state.process_change(updates).await;

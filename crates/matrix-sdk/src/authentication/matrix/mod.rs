@@ -518,7 +518,8 @@ impl MatrixAuth {
 
         let refresh_token_lock = &self.client.auth_ctx().refresh_token_lock;
         let Ok(mut guard) = refresh_token_lock.try_lock() else {
-            // Somebody else is also doing a token refresh; wait for it to finish first.
+            // Somebody else is also doing a token refresh; wait for it to
+            // finish first.
             return refresh_token_lock.lock().await.clone();
         };
 
@@ -778,8 +779,8 @@ impl MatrixAuth {
         room_load_settings: RoomLoadSettings,
         #[cfg(feature = "e2e-encryption")] login_info: Option<login::v3::LoginInfo>,
     ) -> Result<()> {
-        // This API doesn't have any data but by setting this variant we protect the
-        // user from using both authentication APIs at once.
+        // This API doesn't have any data but by setting this variant we protect
+        // the user from using both authentication APIs at once.
         self.client
             .auth_ctx()
             .auth_data

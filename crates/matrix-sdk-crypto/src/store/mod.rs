@@ -165,9 +165,10 @@ impl KeyQueryManager {
         drop(loaded);
         let mut loaded = cache.loaded_tracked_users.write().await;
 
-        // Check again if the users have been loaded, in case another call to this
-        // method loaded the tracked users between the time we tried to
-        // acquire the lock and the time we actually acquired the lock.
+        // Check again if the users have been loaded, in case another call to
+        // this method loaded the tracked users between the time we
+        // tried to acquire the lock and the time we actually acquired
+        // the lock.
         if *loaded {
             return Ok(());
         }
@@ -205,8 +206,9 @@ impl KeyQueryManager {
         user: &UserId,
     ) -> Result<UserKeyQueryResult> {
         {
-            // Drop the cache early, so we don't keep it while waiting (since writing the
-            // results requires to write in the cache, thus take another lock).
+            // Drop the cache early, so we don't keep it while waiting (since
+            // writing the results requires to write in the cache,
+            // thus take another lock).
             self.ensure_sync_tracked_users(&cache).await?;
             drop(cache);
         }
@@ -713,8 +715,9 @@ impl Store {
 
         let result = match (index_comparison, trust_level_comparison) {
             (SessionOrdering::Unconnected, _) => {
-                // If this happens, it means that we have two sessions purporting to have the
-                // same session id, but where the ratchets do not match up.
+                // If this happens, it means that we have two sessions
+                // purporting to have the same session id, but
+                // where the ratchets do not match up.
                 // In other words, someone is playing silly buggers.
                 warn!(
                     "Received a group session with an ratchet that does not connect to the one in the store, discarding"
@@ -725,7 +728,8 @@ impl Store {
             (SessionOrdering::Better, std::cmp::Ordering::Greater)
             | (SessionOrdering::Better, std::cmp::Ordering::Equal)
             | (SessionOrdering::Equal, std::cmp::Ordering::Greater) => {
-                // The new session is unambiguously better than what we have in the store.
+                // The new session is unambiguously better than what we have in
+                // the store.
                 info!(
                     ?index_comparison,
                     ?trust_level_comparison,
@@ -737,7 +741,8 @@ impl Store {
             (SessionOrdering::Worse, std::cmp::Ordering::Less)
             | (SessionOrdering::Worse, std::cmp::Ordering::Equal)
             | (SessionOrdering::Equal, std::cmp::Ordering::Less) => {
-                // The new session is unambiguously worse than the one we have in the store.
+                // The new session is unambiguously worse than the one we have
+                // in the store.
                 warn!(
                     ?index_comparison,
                     ?trust_level_comparison,
@@ -1688,7 +1693,8 @@ impl Store {
         &self,
         predicate: impl FnMut(&InboundGroupSession) -> bool,
     ) -> Result<impl Stream<Item = ExportedRoomKey>> {
-        // TODO: if/when there is a get_inbound_group_sessions_stream, use that here.
+        // TODO: if/when there is a get_inbound_group_sessions_stream, use that
+        // here.
         let sessions = self.get_inbound_group_sessions().await?;
         Ok(futures_util::stream::iter(sessions.into_iter().filter(predicate))
             .then(|session| async move { session.export().await }))
@@ -1720,8 +1726,9 @@ impl Store {
             }
         }
 
-        // If we received a key bundle ourselves, in which one or more sessions was
-        // marked as "history not shared", pass that on to the new user.
+        // If we received a key bundle ourselves, in which one or more sessions
+        // was marked as "history not shared", pass that on to the new
+        // user.
         let withhelds = self.get_withheld_sessions_by_room_id(room_id).await?;
         for withheld in withhelds {
             if withheld.content.withheld_code() == WithheldCode::HistoryNotShared {
@@ -1763,9 +1770,9 @@ impl Store {
 
         tracing::Span::current().record("sender_data", tracing::field::debug(&sender_data));
 
-        // The sender's device must be either `SenderData::SenderUnverified` (i.e.,
-        // TOFU-trusted) or `SenderData::SenderVerified` (i.e., fully verified
-        // via user verification and cross-signing).
+        // The sender's device must be either `SenderData::SenderUnverified`
+        // (i.e., TOFU-trusted) or `SenderData::SenderVerified` (i.e.,
+        // fully verified via user verification and cross-signing).
         let Ok(forwarder_data) = (&sender_data).try_into() else {
             warn!(
                 "Not accepting a historic room key bundle due to insufficient trust in the sender"
@@ -1820,8 +1827,8 @@ impl Store {
 
             // Case 3: A bundle containing useful room keys.
             (_, false) => {
-                // We have at least some good keys, if we also have some bad ones let's
-                // mention that here.
+                // We have at least some good keys, if we also have some bad
+                // ones let's mention that here.
                 if !bad.is_empty() {
                     warn!(
                         bad_key_count = bad.len(),
@@ -2004,7 +2011,8 @@ mod tests {
         let megolm_signing_key = Ed25519Keypair::new();
         let inbound = make_inbound_group_session(&alice_account, &megolm_signing_key, room_id);
 
-        // Bob already knows about the session, at index 5, with the device keys.
+        // Bob already knows about the session, at index 5, with the device
+        // keys.
         let mut inbound_at_index_5 =
             InboundGroupSession::from_export(&inbound.export_at_index(5).await).unwrap();
         inbound_at_index_5.sender_data = inbound.sender_data.clone();
@@ -2025,7 +2033,8 @@ mod tests {
         copy.sender_data = inbound.sender_data.clone();
         assert_eq!(bob.store().merge_received_group_session(copy).await.unwrap(), None);
 
-        // But when we receive a better copy of the session, we should get it back
+        // But when we receive a better copy of the session, we should get it
+        // back
         let mut better =
             InboundGroupSession::from_export(&inbound.export_at_index(0).await).unwrap();
         better.sender_data = inbound.sender_data.clone();
@@ -2109,9 +2118,9 @@ mod tests {
     /// Make a Megolm [`SessionKey`] using the given Ed25519 key as a signing
     /// key/session ID.
     fn make_session_key(signing_key: &Ed25519Keypair) -> SessionKey {
-        // `SessionKey::new` is not public, so the easiest way to construct a Megolm
-        // session using a known Ed25519 key is to build a byte array in the export
-        // format.
+        // `SessionKey::new` is not public, so the easiest way to construct a
+        // Megolm session using a known Ed25519 key is to build a byte
+        // array in the export format.
 
         let mut session_key_bytes = vec![0u8; 229];
         // 0: version
@@ -2291,8 +2300,8 @@ mod tests {
 
     #[async_test]
     async fn test_build_room_key_bundle() {
-        // Given: Alice has sent a number of room keys to Bob, including some in the
-        // wrong room, and some that are not marked as shared...
+        // Given: Alice has sent a number of room keys to Bob, including some in
+        // the wrong room, and some that are not marked as shared...
         let alice = OlmMachine::new(user_id!("@a:s.co"), device_id!("ALICE")).await;
         let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("BOB")).await;
 
@@ -2344,7 +2353,8 @@ mod tests {
         // We sort the sessions in the bundle, so that the snapshot is stable.
         bundle.room_keys.sort_by_key(|session| session.session_id.clone());
 
-        // We substitute the algorithm, since this changes based on feature flags.
+        // We substitute the algorithm, since this changes based on feature
+        // flags.
         let algorithm = if cfg!(feature = "experimental-algorithms") {
             "m.megolm.v2.aes-sha2"
         } else {

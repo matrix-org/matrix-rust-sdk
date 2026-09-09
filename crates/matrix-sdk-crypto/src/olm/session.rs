@@ -159,15 +159,17 @@ impl Session {
         }
 
         impl EventType for Content<'_> {
-            // This is a bit of a hack: usually we just define the `EVENT_TYPE` and use the
-            // default implementation of `event_type()`. We can't do this here
-            // because the event type isn't static.
+            // This is a bit of a hack: usually we just define the `EVENT_TYPE`
+            // and use the default implementation of `event_type()`.
+            // We can't do this here because the event type isn't
+            // static.
             //
-            // We have to provide `EVENT_TYPE` to conform to the `EventType` trait, but
-            // don't actually use it, so we just leave it empty.
+            // We have to provide `EVENT_TYPE` to conform to the `EventType`
+            // trait, but don't actually use it, so we just leave it
+            // empty.
             //
-            // This works because the serialization uses `event_type()` and this type is
-            // contained to this function.
+            // This works because the serialization uses `event_type()` and this
+            // type is contained to this function.
             const EVENT_TYPE: &'static str = "";
 
             fn event_type(&self) -> &str {
@@ -405,7 +407,8 @@ mod tests {
             panic!("Wrong Olm message type");
         };
 
-        // Then Bob should be able to create a session from the message and decrypt it.
+        // Then Bob should be able to create a session from the message and
+        // decrypt it.
         let bob_session_result = bob
             .create_inbound_session(
                 alice_device.curve25519_key().unwrap(),
@@ -414,8 +417,8 @@ mod tests {
             )
             .unwrap();
 
-        // Also ensure that the encrypted payload has the device keys under the stable
-        // prefix
+        // Also ensure that the encrypted payload has the device keys under the
+        // stable prefix
         let plaintext: Value = serde_json::from_str(&bob_session_result.plaintext).unwrap();
         assert_eq!(plaintext["sender_device_keys"]["user_id"].as_str(), Some("@alice:localhost"));
 

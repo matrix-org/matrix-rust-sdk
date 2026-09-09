@@ -288,14 +288,15 @@ impl Timeline {
     pub async fn add_listener(&self, listener: Box<dyn TimelineListener>) -> Arc<TaskHandle> {
         let (timeline_items, timeline_stream) = self.inner.subscribe().await;
 
-        // It's important that the initial items are passed *before* we forward the
-        // stream updates, with a guaranteed ordering. Otherwise, it could
-        // be that the listener be called before the initial items have been
-        // handled by the caller. See #3535 for details.
+        // It's important that the initial items are passed *before* we forward
+        // the stream updates, with a guaranteed ordering. Otherwise, it
+        // could be that the listener be called before the initial items
+        // have been handled by the caller. See #3535 for details.
 
-        // Note we pass initial items as a reset update, as a way to give the callers a
-        // unified way to handle the initial batch of items as well as other
-        // batches, instead of having a separate callback for the initial items.
+        // Note we pass initial items as a reset update, as a way to give the
+        // callers a unified way to handle the initial batch of items as
+        // well as other batches, instead of having a separate callback
+        // for the initial items.
         listener.on_update(vec![TimelineDiff::new(VectorDiff::Reset { values: timeline_items })]);
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
@@ -330,9 +331,9 @@ impl Timeline {
 
         // Send the current state even if it hasn't changed right away.
         //
-        // Note: don't do it in the spawned function, so that the caller is immediately
-        // aware of the current state, and this doesn't depend on the async runtime
-        // having an available worker
+        // Note: don't do it in the spawned function, so that the caller is
+        // immediately aware of the current state, and this doesn't
+        // depend on the async runtime having an available worker
         listener.on_update(initial);
 
         Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
@@ -580,8 +581,9 @@ impl Timeline {
             Ok(()) => Ok(()),
 
             Err(timeline::Error::EventNotInTimeline(_)) => {
-                // If we couldn't edit, assume it was an (remote) event that wasn't in the
-                // timeline, and try to edit it via the room itself.
+                // If we couldn't edit, assume it was an (remote) event that
+                // wasn't in the timeline, and try to edit it
+                // via the room itself.
                 let event_id = match event_or_transaction_id {
                     EventOrTransactionId::EventId { event_id } => EventId::parse(event_id)?,
                     EventOrTransactionId::TransactionId { .. } => {

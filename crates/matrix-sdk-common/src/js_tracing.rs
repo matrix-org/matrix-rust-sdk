@@ -295,8 +295,8 @@ impl<'a> JsFieldVisitor<'a> {
     }
 
     fn pad_and_record(&mut self, name: &str, value: &dyn Debug) -> fmt::Result {
-        // If this is the first field since the message, make a new line. Otherwise,
-        // just print a space.
+        // If this is the first field since the message, make a new line.
+        // Otherwise, just print a space.
         if self.is_empty {
             self.is_empty = false;
             write!(self.writer, "\n    ")?;

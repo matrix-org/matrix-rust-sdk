@@ -579,8 +579,8 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let log_path = temp_dir.path();
 
-        // Manually create several log files with different timestamps (alphabetically
-        // sorted = oldest first) Total of 240 bytes
+        // Manually create several log files with different timestamps
+        // (alphabetically sorted = oldest first) Total of 240 bytes
         std::fs::write(log_path.join("total.2024-01-01-10-00.log"), "x".repeat(80)).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(10));
         std::fs::write(log_path.join("total.2024-01-01-10-01.log"), "y".repeat(80)).unwrap();
@@ -673,7 +673,8 @@ mod tests {
 
     #[test]
     fn test_time_based_rotation_logic() {
-        // Test that the rotation logic correctly identifies when rotation is needed
+        // Test that the rotation logic correctly identifies when rotation is
+        // needed
         let temp_dir = tempdir().unwrap();
         let log_path = temp_dir.path();
 
@@ -735,8 +736,8 @@ mod tests {
         )
         .unwrap();
 
-        // The old file should still exist because we can't manipulate mtime easily
-        // But we verify that cleanup doesn't crash
+        // The old file should still exist because we can't manipulate mtime
+        // easily But we verify that cleanup doesn't crash
         writer.trim().unwrap();
 
         // Verify we can still write

@@ -154,8 +154,8 @@ async fn test_interactive_verification_started_from_request() {
     let event = request_to_event(bob.user_id(), &start_request_from_bob);
     alice.handle_verification_event(&event).await;
 
-    // Since Alice's user id is lexicographically smaller than Bob's, Alice does not
-    // do anything with the request, however.
+    // Since Alice's user id is lexicographically smaller than Bob's, Alice does
+    // not do anything with the request, however.
     assert!(alice.user_id() < bob.user_id());
 
     // ----------------------------------------------------------------------------

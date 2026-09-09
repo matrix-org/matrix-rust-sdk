@@ -219,8 +219,8 @@ impl<'a> TryFrom<&'a Raw<AnyTimelineEvent>> for FilterInput<'a> {
     type Error = serde_json::Error;
 
     fn try_from(raw_event: &'a Raw<AnyTimelineEvent>) -> Result<Self, Self::Error> {
-        // FilterInput first checks if it can deserialize as a state event (state_key
-        // exists) and then as a message-like event.
+        // FilterInput first checks if it can deserialize as a state event
+        // (state_key exists) and then as a message-like event.
         raw_event.deserialize_as()
     }
 }
@@ -251,9 +251,10 @@ pub struct FilterInputToDevice<'a> {
 impl<'a> TryFrom<&'a Raw<AnyToDeviceEvent>> for FilterInput<'a> {
     type Error = serde_json::Error;
     fn try_from(raw_event: &'a Raw<AnyToDeviceEvent>) -> Result<Self, Self::Error> {
-        // deserialize_as::<FilterInput> will first try state, message-like and then
-        // to-device. The `AnyToDeviceEvent` would match message like first, so
-        // we need to explicitly deserialize as `FilterInputToDevice`.
+        // deserialize_as::<FilterInput> will first try state, message-like and
+        // then to-device. The `AnyToDeviceEvent` would match message
+        // like first, so we need to explicitly deserialize as
+        // `FilterInputToDevice`.
         raw_event.deserialize_as::<FilterInputToDevice<'a>>().map(FilterInput::ToDevice)
     }
 }
@@ -278,9 +279,11 @@ impl<'a> From<&'a SendEventRequest> for FilterInput<'a> {
                         .unwrap_or_else(|e| {
                             debug!("Failed to deserialize event content for filter: {e}");
                             // Fallback to empty content is safe.
-                            // If we do have a filter matching any content type, it will match
+                            // If we do have a filter matching any content type,
+                            // it will match
                             // independent of the body.
-                            // Any filter that does only match a specific content type will not
+                            // Any filter that does only match a specific
+                            // content type will not
                             // match the empty content.
                             Default::default()
                         })
@@ -369,7 +372,8 @@ mod tests {
         assert!(!reaction_event_filter().matches(&FilterInput::state("m.reaction", "")));
     }
 
-    // Tests against an `m.room.member` filter with `state_key = "@self:example.me"`
+    // Tests against an `m.room.member` filter with `state_key =
+    // "@self:example.me"`
     fn self_member_event_filter() -> Filter {
         Filter::State(StateEventFilter::WithTypeAndStateKey(
             StateEventType::RoomMember,

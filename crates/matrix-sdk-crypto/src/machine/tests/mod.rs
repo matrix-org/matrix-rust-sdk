@@ -483,8 +483,8 @@ async fn steal_account_private_key(machine: &OlmMachine) -> Box<Ed25519SecretKey
         signing_key: SecretKeysHack,
     }
 
-    // Serialize the underlying AccountPickle which contains the account's private
-    // key
+    // Serialize the underlying AccountPickle which contains the account's
+    // private key
     let account_pickle =
         machine.inner.store.transaction().await.account().await.unwrap().pickle().pickle;
 
@@ -624,13 +624,14 @@ async fn test_to_device_messages_from_dehydrated_devices_are_ignored() {
     let (alice, bob) = create_dehydrated_machine_and_pair().await;
 
     // When we send a to-device message from alice to bob
-    // (Note: we send a room_key message, but it could be any to-device message.)
+    // (Note: we send a room_key message, but it could be any to-device
+    // message.)
     let room_id = room_id!("!test:example.org");
     let (decrypted, room_key_updates) =
         send_room_key_to_device(&alice, &bob, room_id).await.unwrap();
 
-    // Then the to-device message was discarded, because it was from a dehydrated
-    // device
+    // Then the to-device message was discarded, because it was from a
+    // dehydrated device
     assert!(decrypted.is_empty());
 
     // And the room key was not imported as a session
@@ -686,9 +687,9 @@ async fn send_room_key_to_device(
 /// session for messages from alice to bob, and ensure bob knows alice's device
 /// is dehydrated.
 async fn create_dehydrated_machine_and_pair() -> (OlmMachine, OlmMachine) {
-    // Create a store holding info about an account that is linked to a dehydrated
-    // device. This should never happen in real life, so we have to poke the
-    // info into the store directly.
+    // Create a store holding info about an account that is linked to a
+    // dehydrated device. This should never happen in real life, so we have
+    // to poke the info into the store directly.
     let alice_store = MemoryStore::new();
     let alice_dehydrated_account = Account::new_dehydrated(alice_id());
     let mut alice_static_account = alice_dehydrated_account.static_data().clone();
@@ -742,8 +743,8 @@ async fn test_request_missing_secrets() {
 
     assert_eq!(outgoing_to_device.len(), 4);
 
-    // The second time, as there are already in-flight requests, it should have no
-    // effect.
+    // The second time, as there are already in-flight requests, it should have
+    // no effect.
     let should_query_secrets_now = alice.query_missing_secrets_from_other_sessions().await.unwrap();
     assert!(!should_query_secrets_now);
 }
@@ -772,8 +773,8 @@ async fn test_request_missing_secrets_cross_signed() {
         .collect_vec();
     assert_eq!(outgoing_to_device.len(), 1);
 
-    // The second time, as there are already in-flight requests, it should have no
-    // effect.
+    // The second time, as there are already in-flight requests, it should have
+    // no effect.
     let should_query_secrets_now = alice.query_missing_secrets_from_other_sessions().await.unwrap();
     assert!(!should_query_secrets_now);
 }
@@ -1193,7 +1194,8 @@ async fn test_withheld_unverified() {
     .await
     .unwrap();
 
-    // We should receive a notification on the room_keys_withheld_received_stream
+    // We should receive a notification on the
+    // room_keys_withheld_received_stream
     let withheld_received = room_keys_withheld_received_stream
         .next()
         .now_or_never()
@@ -1707,18 +1709,18 @@ async fn test_importing_private_cross_signing_keys_verifies_the_public_identity(
 
 #[async_test]
 async fn test_wait_on_key_query_doesnt_block_store() {
-    // Waiting for a key query shouldn't delay other write attempts to the store.
-    // This test will end immediately if it works, and times out after a few seconds
-    // if it failed.
+    // Waiting for a key query shouldn't delay other write attempts to the
+    // store. This test will end immediately if it works, and times out
+    // after a few seconds if it failed.
 
     let machine = OlmMachine::new(bob_id(), bob_device_id()).await;
 
-    // Mark Alice as a tracked user, so it gets into the groups of users for which
-    // we need to query keys.
+    // Mark Alice as a tracked user, so it gets into the groups of users for
+    // which we need to query keys.
     machine.update_tracked_users([alice_id()]).await.unwrap();
 
-    // Start a background task that will wait for the key query to finish silently
-    // in the background.
+    // Start a background task that will wait for the key query to finish
+    // silently in the background.
     let machine_cloned = machine.clone();
     let wait = spawn(async move {
         let machine = machine_cloned;
@@ -1783,8 +1785,8 @@ async fn test_fix_incorrect_usage_of_backup_key_causing_decryption_errors() {
 
     let backed_up_room_key: BackedUpRoomKey = serde_json::from_value(data).unwrap();
 
-    // Create the machine using `with_store` and without a call to enable_backup_v1,
-    // like regenerate_olm would do
+    // Create the machine using `with_store` and without a call to
+    // enable_backup_v1, like regenerate_olm would do
     let alice = OlmMachineBuilder::new(user_id(), alice_device_id())
         .with_crypto_store(store)
         .build()

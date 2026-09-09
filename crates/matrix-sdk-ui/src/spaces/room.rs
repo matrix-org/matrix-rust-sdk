@@ -248,8 +248,8 @@ mod tests {
             Ordering::Greater
         );
 
-        // Rooms without an order provided through the `children_state` should be
-        // sorted by their `m.space.child` `origin_server_ts`
+        // Rooms without an order provided through the `children_state` should
+        // be sorted by their `m.space.child` `origin_server_ts`
         assert_eq!(
             SpaceRoom::compare_rooms(
                 (

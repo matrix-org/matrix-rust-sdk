@@ -141,8 +141,8 @@ impl VerificationState {
             VerificationState::Verified => ShieldState::None,
             VerificationState::Unverified(level) => match level {
                 VerificationLevel::UnverifiedIdentity => {
-                    // If you didn't show interest in verifying that user we don't
-                    // nag you with an error message.
+                    // If you didn't show interest in verifying that user we
+                    // don't nag you with an error message.
                     ShieldState::None
                 }
                 VerificationLevel::VerificationViolation => {
@@ -154,7 +154,8 @@ impl VerificationState {
                     }
                 }
                 VerificationLevel::UnsignedDevice => {
-                    // This is a high warning. The sender hasn't verified his own device.
+                    // This is a high warning. The sender hasn't verified his
+                    // own device.
                     ShieldState::Red {
                         code: ShieldStateCode::UnsignedDevice,
                         message: UNSIGNED_DEVICE,
@@ -162,17 +163,20 @@ impl VerificationState {
                 }
                 VerificationLevel::None(link) => match link {
                     DeviceLinkProblem::MissingDevice => {
-                        // Have to warn as it could have been a temporary injected device.
-                        // Notice that the device might just not be known at this time, so callers
-                        // should retry when there is a device change for that user.
+                        // Have to warn as it could have been a temporary
+                        // injected device. Notice that
+                        // the device might just not be known at this time, so
+                        // callers should retry when
+                        // there is a device change for that user.
                         ShieldState::Red {
                             code: ShieldStateCode::UnknownDevice,
                             message: UNKNOWN_DEVICE,
                         }
                     }
                     DeviceLinkProblem::InsecureSource => {
-                        // In legacy mode, we tone down this warning as it is quite common and
-                        // mostly noise (due to legacy backup and lack of trusted forwards).
+                        // In legacy mode, we tone down this warning as it is
+                        // quite common and mostly noise
+                        // (due to legacy backup and lack of trusted forwards).
                         ShieldState::Grey {
                             code: ShieldStateCode::AuthenticityNotGuaranteed,
                             message: AUTHENTICITY_NOT_GUARANTEED,
@@ -368,8 +372,8 @@ impl<'de> Deserialize<'de> for EncryptionInfo {
     where
         D: serde::Deserializer<'de>,
     {
-        // Backwards compatibility: Capture session_id at root if exists. In legacy
-        // EncryptionInfo the session_id was not in AlgorithmInfo
+        // Backwards compatibility: Capture session_id at root if exists. In
+        // legacy EncryptionInfo the session_id was not in AlgorithmInfo
         #[derive(Deserialize)]
         struct Helper {
             pub sender: OwnedUserId,
@@ -706,7 +710,8 @@ impl TimelineEvent {
                 {
                     match unsigned_decryption_result {
                         UnsignedDecryptionResult::Decrypted(encryption_info) => {
-                            // The bundled event was encrypted, and we could decrypt it: pass that
+                            // The bundled event was encrypted, and we could
+                            // decrypt it: pass that
                             // information around.
                             return Some(Box::new(
                                 TimelineEvent::from_decrypted_with_max_timestamp(
@@ -728,7 +733,8 @@ impl TimelineEvent {
                         }
 
                         UnsignedDecryptionResult::UnableToDecrypt(utd_info) => {
-                            // The bundled event was a UTD; store that information.
+                            // The bundled event was a UTD; store that
+                            // information.
                             return Some(Box::new(TimelineEvent::from_utd_with_max_timestamp(
                                 latest_event.cast(),
                                 utd_info.clone(),
@@ -756,8 +762,9 @@ impl TimelineEvent {
             }
 
             Ok(Some(MessageLikeEventType::RoomEncrypted)) => {
-                // The bundled latest thread event is encrypted, but we didn't have any
-                // information about it in the unsigned map. Try to fetch the information from
+                // The bundled latest thread event is encrypted, but we didn't
+                // have any information about it in the unsigned
+                // map. Try to fetch the information from
                 // the content instead.
                 let session_id = if let Some(content) =
                     latest_event.get_field::<EncryptedEventScheme>("content").ok().flatten()
@@ -825,8 +832,9 @@ impl TimelineEvent {
             TimelineEventKind::Decrypted(decrypted) => decrypted.event = replacement,
             TimelineEventKind::UnableToDecrypt { event, .. }
             | TimelineEventKind::PlainText { event } => {
-                // It's safe to cast `AnyMessageLikeEvent` into `AnySyncMessageLikeEvent`,
-                // because the former contains a superset of the fields included in the latter.
+                // It's safe to cast `AnyMessageLikeEvent` into
+                // `AnySyncMessageLikeEvent`, because the former
+                // contains a superset of the fields included in the latter.
                 *event = replacement.cast();
             }
         }
@@ -1155,8 +1163,8 @@ where
 {
     // Start by deserializing as to an untyped JSON value.
     let v: serde_json::Value = Deserialize::deserialize(d)?;
-    // Backwards compatibility: `MissingMegolmSession` used to be stored without the
-    // withheld code.
+    // Backwards compatibility: `MissingMegolmSession` used to be stored without
+    // the withheld code.
     if v.as_str().is_some_and(|s| s == "MissingMegolmSession") {
         return Ok(UnableToDecryptReason::MissingMegolmSession { withheld_code: None });
     }
@@ -1221,8 +1229,9 @@ impl UnableToDecryptReason {
     /// Returns true if this UTD is due to a missing room key (and hence might
     /// resolve itself if we wait a bit.)
     pub fn is_missing_room_key(&self) -> bool {
-        // In case of MissingMegolmSession with a withheld code we return false here
-        // given that this API is used to decide if waiting a bit will help.
+        // In case of MissingMegolmSession with a withheld code we return false
+        // here given that this API is used to decide if waiting a bit
+        // will help.
         matches!(
             self,
             Self::MissingMegolmSession { withheld_code: None } | Self::UnknownMegolmMessageIndex
@@ -1344,10 +1353,11 @@ impl From<SyncTimelineEventDeserializationHelperV1> for TimelineEvent {
             thread_summary,
         } = value;
 
-        // If `timestamp` is `None`, it is very likely that the event was serialised
-        // before the addition of the `timestamp` field. We _could_ compute it here, but
-        // if the `timestamp` was malicious, it means we are going to _cap_ the
-        // `timestamp` to `now()` for every deserialisation. It is annoying because it
+        // If `timestamp` is `None`, it is very likely that the event was
+        // serialised before the addition of the `timestamp` field. We
+        // _could_ compute it here, but if the `timestamp` was
+        // malicious, it means we are going to _cap_ the `timestamp` to
+        // `now()` for every deserialisation. It is annoying because it
         // means the event is no longer deterministic, it's not constant.
         // We don't want that. Consequently, we keep `None` here, and we let
         // [`TimelineEvent::timestamp`] to handle that case for us.
@@ -1395,12 +1405,13 @@ impl From<SyncTimelineEventDeserializationHelperV0> for TimelineEvent {
             unsigned_encryption_info,
         } = value;
 
-        // We do not compute the `timestamp` value here because if the `timestamp` is
-        // malicious, it means we are going to _cap_ the `timestamp` to `now()` for
-        // every deserialisation. It is annoying because it means the event is no longer
-        // deterministic, it's not constant. We don't want that. Consequently, we keep
-        // `None` here, and we let [`TimelineEvent::timestamp`] to handle that case for
-        // us.
+        // We do not compute the `timestamp` value here because if the
+        // `timestamp` is malicious, it means we are going to _cap_ the
+        // `timestamp` to `now()` for every deserialisation. It is
+        // annoying because it means the event is no longer
+        // deterministic, it's not constant. We don't want that. Consequently,
+        // we keep `None` here, and we let [`TimelineEvent::timestamp`]
+        // to handle that case for us.
         let timestamp = None;
 
         let kind = match encryption_info {
@@ -1782,8 +1793,8 @@ mod tests {
         assert_eq!(event.timestamp(), Some(MilliSecondsSinceUnixEpoch(UInt::new_saturating(2189))));
         assert!(event.timestamp_raw().is_none());
 
-        // Test that the previous format, with an undecryptable unsigned event, can also
-        // be deserialized.
+        // Test that the previous format, with an undecryptable unsigned event,
+        // can also be deserialized.
         let serialized = json!({
             "event": {
                 "content": {"body": "secret", "msgtype": "m.text"},
@@ -1862,8 +1873,8 @@ mod tests {
 
         let raw = Raw::new(&event).unwrap().cast_unchecked();
 
-        // When creating a timeline event from a raw event, the thread summary is always
-        // extracted, if available.
+        // When creating a timeline event from a raw event, the thread summary
+        // is always extracted, if available.
         let timeline_event = TimelineEvent::from_plaintext(raw);
         assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Some(ThreadSummary { num_replies, latest_reply }) => {
             assert_eq!(num_replies, 2);
@@ -1872,8 +1883,8 @@ mod tests {
 
         assert!(timeline_event.bundled_latest_thread_event.is_some());
 
-        // When deserializing an old serialized timeline event, the thread summary is
-        // also extracted, if it wasn't serialized.
+        // When deserializing an old serialized timeline event, the thread
+        // summary is also extracted, if it wasn't serialized.
         let serialized_timeline_item = json!({
             "kind": {
                 "PlainText": {
@@ -1886,8 +1897,9 @@ mod tests {
             serde_json::from_value(serialized_timeline_item).unwrap();
         assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Unknown);
 
-        // The bundled latest thread event is not persisted, so it should be `None` when
-        // deserialized from a previously serialized `TimelineEvent`.
+        // The bundled latest thread event is not persisted, so it should be
+        // `None` when deserialized from a previously serialized
+        // `TimelineEvent`.
         assert!(timeline_event.bundled_latest_thread_event.is_none());
     }
 

@@ -282,8 +282,8 @@ impl EventCacheStore for MemoryStore {
             .collect();
 
         // Remove any duplicate events which may exist in both a room and thread
-        // linked chunk. Additionally, remove any position information from non-room
-        // linked chunks.
+        // linked chunk. Additionally, remove any position information from
+        // non-room linked chunks.
         let mut deduplicated = HashMap::new();
         for (linked_chunk_id, (event, position)) in related_events {
             let event_id = event

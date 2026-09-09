@@ -184,7 +184,8 @@ mod tests {
         let timeline = vector![decrypted_event("session1")];
         // When we ask what to retry
         let answer = compute_redecryption_candidates(&timeline);
-        // Then we don't need to decrypt anything, but we do refetch the encryption info
+        // Then we don't need to decrypt anything, but we do refetch the
+        // encryption info
         assert!(answer.0.is_empty());
         assert_eq!(answer.1.first().map(|s| s.as_str()), Some("session1"));
     }

@@ -232,7 +232,8 @@ impl SendQueue {
                 },
             );
 
-        // Getting the [`RoomSendQueue`] is sufficient to spawn the task if needs be.
+        // Getting the [`RoomSendQueue`] is sufficient to spawn the task if
+        // needs be.
         for room_id in room_ids {
             if let Some(room) = self.client.get_room(&room_id) {
                 let _ = self.for_room(room);
@@ -293,8 +294,8 @@ impl SendQueue {
             room.set_enabled(enabled);
         }
 
-        // Reload some extra rooms that might not have been awaken yet, but could have
-        // requests from previous sessions.
+        // Reload some extra rooms that might not have been awaken yet, but
+        // could have requests from previous sessions.
         self.respawn_tasks_for_rooms_with_unsent_requests().await;
     }
 
@@ -682,8 +683,8 @@ impl RoomSendQueue {
                 break;
             }
 
-            // Try to apply dependent requests now; those applying to previously failed
-            // attempts (local echoes) would succeed now.
+            // Try to apply dependent requests now; those applying to previously
+            // failed attempts (local echoes) would succeed now.
             let mut new_updates = Vec::new();
             if let Err(err) = queue.apply_dependent_requests(&mut new_updates).await {
                 warn!("errors when applying dependent requests: {err}");
@@ -712,7 +713,8 @@ impl RoomSendQueue {
 
                 Err(err) => {
                     warn!("error when loading next request to send: {err}");
-                    // Don't hammer a failing store; back off a bit before retrying.
+                    // Don't hammer a failing store; back off a bit before
+                    // retrying.
                     matrix_sdk_common::sleep::sleep(STORE_ERROR_BACKOFF).await;
                     continue;
                 }
@@ -743,8 +745,9 @@ impl RoomSendQueue {
                     ..
                 } = &queued_request.kind
                 {
-                    // Prepare to watch and communicate the request's progress for media uploads, if
-                    // it has been requested.
+                    // Prepare to watch and communicate the request's progress
+                    // for media uploads, if it has been
+                    // requested.
                     let (media_upload_progress_info, http_progress) =
                         if report_media_upload_progress.load(Ordering::SeqCst) {
                             let media_upload_progress_info =
@@ -794,25 +797,37 @@ impl RoomSendQueue {
                                 },
                             );
 
-                            // The event has been sent to the server and the server has received it.
-                            // Yepee! Now, we usually wait on the server to give us back the event
-                            // via the sync.
+                            // The event has been sent to the server and the
+                            // server has received it.
+                            // Yepee! Now, we usually wait on the server to give
+                            // us back the event via
+                            // the sync.
                             //
-                            // Problem: sometimes the network lags, can be down, or the server may
+                            // Problem: sometimes the network lags, can be down,
+                            // or the server may
                             // be slow; well, anything can happen.
                             //
-                            // It results in a weird situation where the user sees its event being
-                            // sent, then disappears before it's received again from the server.
+                            // It results in a weird situation where the user
+                            // sees its event being
+                            // sent, then disappears before it's received again
+                            // from the server.
                             //
-                            // To avoid this situation, we eagerly save the event in the Event
-                            // Cache. It's similar to what would happen if the event was echoed back
-                            // from the server via the sync, but we avoid any network issues. The
-                            // Event Cache is smart enough to deduplicate events based on the event
+                            // To avoid this situation, we eagerly save the
+                            // event in the Event
+                            // Cache. It's similar to what would happen if the
+                            // event was echoed back
+                            // from the server via the sync, but we avoid any
+                            // network issues. The
+                            // Event Cache is smart enough to deduplicate events
+                            // based on the event
                             // ID, so it's safe to do that.
                             //
-                            // If this little feature fails, it MUST NOT stop the Send Queue. Any
-                            // errors are logged, but the Send Queue will continue as if everything
-                            // happened successfully. This feature is not considered “crucial”.
+                            // If this little feature fails, it MUST NOT stop
+                            // the Send Queue. Any
+                            // errors are logged, but the Send Queue will
+                            // continue as if everything
+                            // happened successfully. This feature is not
+                            // considered “crucial”.
                             if let Ok((room_event_cache, _drop_handles)) = room.event_cache().await
                             {
                                 let timeline_event = match Raw::from_json_string(
@@ -857,7 +872,8 @@ impl RoomSendQueue {
                                     }
                                 };
 
-                                // In case of an error, just log the error but don't stop the Send
+                                // In case of an error, just log the error but
+                                // don't stop the Send
                                 // Queue. This feature is not crucial.
                                 if let Some(timeline_event) = timeline_event
                                     && let Err(err) = room_event_cache
@@ -878,7 +894,8 @@ impl RoomSendQueue {
                         }
 
                         SentRequestKey::Media(sent_media_info) => {
-                            // Generate some final progress information, even if incremental
+                            // Generate some final progress information, even if
+                            // incremental
                             // progress wasn't requested.
                             let index =
                                 media_upload_progress_info.as_ref().map_or(0, |info| info.index);
@@ -890,8 +907,10 @@ impl RoomSendQueue {
                                 })
                                 .unwrap_or(AbstractProgress { current: 1, total: 1 });
 
-                            // Purposefully don't use `send_update` here, because we don't want to
-                            // notify the global listeners about an upload progress update.
+                            // Purposefully don't use `send_update` here,
+                            // because we don't want to
+                            // notify the global listeners about an upload
+                            // progress update.
                             let _ = update_sender.send(RoomSendQueueUpdate::MediaUpload {
                                 related_to: related_txn_id.as_ref().unwrap_or(&txn_id).clone(),
                                 file: Some(sent_media_info.file),
@@ -911,7 +930,8 @@ impl RoomSendQueue {
                                 },
                             );
 
-                            // The redaction event has been sent to the server and the server has
+                            // The redaction event has been sent to the server
+                            // and the server has
                             // received it. It's safe to cache the event
                             // now to avoid any inconsistencies until the server
                             // sends down the remote echo via the sync.
@@ -965,7 +985,8 @@ impl RoomSendQueue {
                                     }
                                 };
 
-                                // In case of an error, just log the error but don't stop the Send
+                                // In case of an error, just log the error but
+                                // don't stop the Send
                                 // Queue. This feature is not crucial.
                                 if let Some(timeline_event) = timeline_event
                                     && let Err(err) = room_event_cache
@@ -1015,14 +1036,16 @@ impl RoomSendQueue {
                         _ => false,
                     };
 
-                    // Disable the queue for this room after any kind of error happened.
+                    // Disable the queue for this room after any kind of error
+                    // happened.
                     locally_enabled.store(false, Ordering::SeqCst);
 
                     if is_recoverable {
                         warn!(txn_id = %txn_id, error = ?err, "Recoverable error when sending request: {err}, disabling send queue");
 
-                        // In this case, we intentionally keep the request in the queue, but mark it
-                        // as not being sent anymore.
+                        // In this case, we intentionally keep the request in
+                        // the queue, but mark it as not
+                        // being sent anymore.
                         queue.mark_as_not_being_sent(&txn_id).await;
 
                         // Let observers know about a failure *after* we've
@@ -1033,9 +1056,11 @@ impl RoomSendQueue {
                     } else {
                         warn!(txn_id = %txn_id, error = ?err, "Unrecoverable error when sending request: {err}");
 
-                        // Mark the request as wedged, so it's not picked at any future point;
-                        // it will also block subsequent requests in the same room from being
-                        // sent, until it's unwedged or removed, so as to preserve ordering.
+                        // Mark the request as wedged, so it's not picked at any
+                        // future point; it will also
+                        // block subsequent requests in the same room from being
+                        // sent, until it's unwedged or removed, so as to
+                        // preserve ordering.
                         if let Err(storage_error) =
                             queue.mark_as_wedged(&txn_id, QueueWedgeError::from(&err)).await
                         {
@@ -1232,8 +1257,8 @@ impl RoomSendQueue {
     pub fn set_enabled(&self, enabled: bool) {
         self.inner.locally_enabled.store(enabled, Ordering::SeqCst);
 
-        // No need to wake a task to tell it it's been disabled, so only notify if we're
-        // re-enabling the queue.
+        // No need to wake a task to tell it it's been disabled, so only notify
+        // if we're re-enabling the queue.
         if enabled {
             self.inner.notifier.notify_one();
         }
@@ -1474,11 +1499,13 @@ impl QueueStorage {
         let queued_requests =
             guard.client()?.state_store().load_send_queue_requests(&self.room_id).await?;
 
-        // Only ever consider the head of the queue: requests must be sent in the
-        // order they were queued, so a wedged request (which failed to be sent with an
-        // unrecoverable error) blocks all the requests queued after it. Otherwise,
-        // messages would be sent out of order, until the wedged request is either
-        // manually unwedged or removed (both of which will wake up the sending task).
+        // Only ever consider the head of the queue: requests must be sent in
+        // the order they were queued, so a wedged request (which failed
+        // to be sent with an unrecoverable error) blocks all the
+        // requests queued after it. Otherwise, messages would be sent
+        // out of order, until the wedged request is either
+        // manually unwedged or removed (both of which will wake up the sending
+        // task).
         if let Some(request) = queued_requests.first().filter(|queued| !queued.is_wedged()) {
             let (cancel_upload_tx, cancel_upload_rx) =
                 if matches!(request.kind, QueuedRequestKind::MediaUpload { .. }) {
@@ -1702,7 +1729,8 @@ impl QueueStorage {
         let client = guard.client()?;
         let store = client.state_store();
 
-        // There's only a single media to be sent, so it has at most one thumbnail.
+        // There's only a single media to be sent, so it has at most one
+        // thumbnail.
         let thumbnail_file_sizes = vec![thumbnail.as_ref().map(|t| t.file_size)];
 
         let thumbnail_info = self
@@ -1799,8 +1827,8 @@ impl QueueStorage {
             {
                 let upload_thumbnail_txn = thumbnail_info.txn.clone();
 
-                // Save the thumbnail upload request as a dependent request of the last file
-                // upload.
+                // Save the thumbnail upload request as a dependent request of
+                // the last file upload.
                 store
                     .save_dependent_queued_request(
                         &self.room_id,
@@ -1823,7 +1851,8 @@ impl QueueStorage {
                 None
             };
 
-            // Save the file upload as a dependent request of the previous upload.
+            // Save the file upload as a dependent request of the previous
+            // upload.
             store
                 .save_dependent_queued_request(
                     &self.room_id,
@@ -1848,8 +1877,8 @@ impl QueueStorage {
             last_upload_file_txn = upload_file_txn.clone();
         }
 
-        // Push the request for the event itself as a dependent request of the last file
-        // upload.
+        // Push the request for the event itself as a dependent request of the
+        // last file upload.
         store
             .save_dependent_queued_request(
                 &self.room_id,
@@ -1911,7 +1940,8 @@ impl QueueStorage {
                 )
                 .await?;
 
-            // Save the file upload request as a dependent request of the thumbnail upload.
+            // Save the file upload request as a dependent request of the
+            // thumbnail upload.
             store
                 .save_dependent_queued_request(
                     &self.room_id,
@@ -1967,15 +1997,16 @@ impl QueueStorage {
 
         // If the target event has been already sent, abort immediately.
         if !requests.iter().any(|item| item.transaction_id == transaction_id) {
-            // We didn't find it as a queued request; try to find it as a dependent queued
-            // request.
+            // We didn't find it as a queued request; try to find it as a
+            // dependent queued request.
             let dependent_requests = store.load_dependent_queued_requests(&self.room_id).await?;
             if !dependent_requests
                 .into_iter()
                 .filter_map(|item| item.is_own_event().then_some(item.own_transaction_id))
                 .any(|child_txn| *child_txn == *transaction_id)
             {
-                // We didn't find it as either a request or a dependent request, abort.
+                // We didn't find it as either a request or a dependent request,
+                // abort.
                 return Ok(None);
             }
         }
@@ -2007,9 +2038,10 @@ impl QueueStorage {
 
         let queued_requests = store.load_send_queue_requests(&self.room_id).await?;
 
-        // Media upload requests aren't returned as echoes themselves (the media event,
-        // represented as a dependent request, is), so carry their send errors over to
-        // the dependent request's echo: a wedged upload wedges the media event.
+        // Media upload requests aren't returned as echoes themselves (the media
+        // event, represented as a dependent request, is), so carry
+        // their send errors over to the dependent request's echo: a
+        // wedged upload wedges the media event.
         let mut media_upload_errors: HashMap<OwnedTransactionId, QueueWedgeError> = queued_requests
             .iter()
             .filter_map(|queued| match queued.kind {
@@ -2036,8 +2068,10 @@ impl QueueStorage {
                     },
 
                     QueuedRequestKind::MediaUpload { .. } => {
-                        // Don't return uploaded medias as their own things; the accompanying
-                        // event represented as a dependent request should be sufficient.
+                        // Don't return uploaded medias as their own things; the
+                        // accompanying
+                        // event represented as a dependent request should be
+                        // sufficient.
                         return None;
                     }
 
@@ -2080,7 +2114,8 @@ impl QueueStorage {
                 }),
 
                 DependentQueuedRequestKind::UploadFileOrThumbnail { .. } => {
-                    // Don't reflect these: only the associated event is interesting to observers.
+                    // Don't reflect these: only the associated event is
+                    // interesting to observers.
                     None
                 }
 
@@ -2092,7 +2127,8 @@ impl QueueStorage {
                 } => {
                     let upload_thumbnail_txn = thumbnail_info.map(|info| info.txn);
 
-                    // If one of the uploads wedged, the media event is wedged too.
+                    // If one of the uploads wedged, the media event is wedged
+                    // too.
                     let send_error = media_upload_errors.remove(&file_upload).or_else(|| {
                         upload_thumbnail_txn
                             .as_ref()
@@ -2210,7 +2246,8 @@ impl QueueStorage {
                         .get_room(&self.room_id)
                         .ok_or(RoomSendQueueError::RoomDisappeared)?;
 
-                    // Check the event is one we know how to edit with an edit event.
+                    // Check the event is one we know how to edit with an edit
+                    // event.
 
                     // It must be deserializable…
                     let edited_content = match new_content.deserialize() {
@@ -2300,9 +2337,10 @@ impl QueueStorage {
                         .get_room(&self.room_id)
                         .ok_or(RoomSendQueueError::RoomDisappeared)?;
 
-                    // Ideally we'd use the send queue to send the redaction, but the protocol has
-                    // changed the shape of a room.redaction after v11, so keep it simple and try
-                    // once here.
+                    // Ideally we'd use the send queue to send the redaction,
+                    // but the protocol has changed the
+                    // shape of a room.redaction after v11, so keep it simple
+                    // and try once here.
 
                     if let Err(err) = room
                         .redact(
@@ -2316,8 +2354,8 @@ impl QueueStorage {
                         return Ok(false);
                     }
                 } else {
-                    // The parent event is still local (sending must have failed); redact the local
-                    // echo.
+                    // The parent event is still local (sending must have
+                    // failed); redact the local echo.
                     let removed = store
                         .remove_send_queue_request(
                             &self.room_id,
@@ -2480,7 +2518,8 @@ impl QueueStorage {
             match self.try_apply_single_dependent_request(&client, dependent, new_updates).await {
                 Ok(should_remove) => {
                     if should_remove {
-                        // The dependent request has been successfully applied, forget about it.
+                        // The dependent request has been successfully applied,
+                        // forget about it.
                         store
                             .remove_dependent_queued_request(&self.room_id, &dependent_id)
                             .await
@@ -2860,7 +2899,8 @@ impl SendHandle {
 
         for handles in &self.media_handles {
             if queue.abort_upload(&self.transaction_id, handles).await? {
-                // Wake up the queue, in case it was blocked on this request being wedged.
+                // Wake up the queue, in case it was blocked on this request
+                // being wedged.
                 self.room.inner.notifier.notify_one();
 
                 // Propagate a cancelled update.
@@ -2879,7 +2919,8 @@ impl SendHandle {
         if queue.cancel_event(&self.transaction_id, reason).await? {
             trace!("successful abort");
 
-            // Wake up the queue, in case it was blocked on this request being wedged.
+            // Wake up the queue, in case it was blocked on this request being
+            // wedged.
             self.room.inner.notifier.notify_one();
 
             // Propagate a cancelled update too.
@@ -2992,10 +3033,10 @@ impl SendHandle {
 
         // If we have media handles, also try to unwedge them.
         //
-        // It's fine to always do it to *all* the transaction IDs at once, because only
-        // one of the three requests will be active at the same time, i.e. only
-        // one entry will be updated in the store. The other two are either
-        // done, or dependent requests.
+        // It's fine to always do it to *all* the transaction IDs at once,
+        // because only one of the three requests will be active at the
+        // same time, i.e. only one entry will be updated in the store.
+        // The other two are either done, or dependent requests.
 
         for handles in &self.media_handles {
             room.queue
@@ -3008,7 +3049,8 @@ impl SendHandle {
             }
         }
 
-        // Wake up the queue, in case the room was asleep before unwedging the request.
+        // Wake up the queue, in case the room was asleep before unwedging the
+        // request.
         room.notifier.notify_one();
 
         self.room.send_update(RoomSendQueueUpdate::RetryEvent {
@@ -3035,7 +3077,8 @@ impl SendHandle {
         {
             trace!("successfully queued react");
 
-            // Wake up the queue, in case the room was asleep before the sending.
+            // Wake up the queue, in case the room was asleep before the
+            // sending.
             self.room.inner.notifier.notify_one();
 
             // Propagate a new local event.
@@ -3095,8 +3138,8 @@ impl SendReactionHandle {
             return Ok(true);
         }
 
-        // The reaction has already been queued for sending, try to abort it using a
-        // regular abort.
+        // The reaction has already been queued for sending, try to abort it
+        // using a regular abort.
         let handle = SendHandle {
             room: self.room.clone(),
             transaction_id: self.transaction_id.clone().into(),
@@ -3143,7 +3186,8 @@ impl SendRedactionHandle {
         if queue.cancel_event(&self.transaction_id, None).await? {
             trace!("successful redaction abort");
 
-            // Wake up the queue, in case it was blocked on this request being wedged.
+            // Wake up the queue, in case it was blocked on this request being
+            // wedged.
             self.room.inner.notifier.notify_one();
 
             // Propagate a cancelled update too.
@@ -3177,8 +3221,8 @@ fn canonicalize_dependent_requests(
                     | DependentQueuedRequestKind::RedactEventWithReason { .. }
             )
         }) {
-            // The parent event has already been flagged for redaction, don't consider the
-            // other dependent events.
+            // The parent event has already been flagged for redaction, don't
+            // consider the other dependent events.
             continue;
         }
 

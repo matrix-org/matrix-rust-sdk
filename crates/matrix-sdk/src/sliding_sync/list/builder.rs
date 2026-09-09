@@ -55,7 +55,8 @@ pub struct SlidingSyncListBuilder {
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for SlidingSyncListBuilder {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Print debug values for the builder, except `once_built` which is ignored.
+        // Print debug values for the builder, except `once_built` which is
+        // ignored.
         formatter
             .debug_struct("SlidingSyncListBuilder")
             .field("sync_mode", &self.sync_mode)
@@ -244,10 +245,10 @@ impl SlidingSyncListBuilder {
 
         // If we reloaded from the cache, update values in the list here.
         //
-        // Note about ordering: because of the contract with the observables, the
-        // initial values, if filled, have to be observable in the `once_built`
-        // callback. That's why we're doing this here *after* constructing the
-        // list, and not a few lines above.
+        // Note about ordering: because of the contract with the observables,
+        // the initial values, if filled, have to be observable in the
+        // `once_built` callback. That's why we're doing this here
+        // *after* constructing the list, and not a few lines above.
 
         if let Some(SlidingSyncListCachedData { maximum_number_of_rooms }) =
             self.reloaded_cached_data

@@ -154,8 +154,8 @@ async fn test_mutual_sas_verification_with_notification_client_ignores_verificat
         )
         .await;
 
-    // If the ignore_verification_events parameter is true in NotificationClient,
-    // no verification request should have been received
+    // If the ignore_verification_events parameter is true in
+    // NotificationClient, no verification request should have been received
     assert!(verification.is_none());
 
     Ok(())
@@ -729,8 +729,8 @@ async fn test_encryption_missing_member_keys() -> Result<()> {
         assert!(found, "event has not been found for alice");
     }
 
-    // Bob wasn't aware of Carl's presence (no sync() since Carl joined), so Carl
-    // won't see it first.
+    // Bob wasn't aware of Carl's presence (no sync() since Carl joined), so
+    // Carl won't see it first.
     let carl_found_event = Arc::new(Mutex::new(false));
     {
         warn!("carl is looking for the decrypted message");
@@ -801,11 +801,11 @@ async fn test_failed_members_response() -> Result<()> {
 
     bob.sync_once().await?;
 
-    // Although we haven't joined the room yet, logic in `sync_members` looks at the
-    // room's visibility first; since it may be unknown for this room, from the
-    // point of view of Bob, it'll be assumed to be the default, aka shared. As
-    // a result, `sync_members()` doesn't even spawn a network request, and
-    // silently ignores the request.
+    // Although we haven't joined the room yet, logic in `sync_members` looks at
+    // the room's visibility first; since it may be unknown for this room,
+    // from the point of view of Bob, it'll be assumed to be the default,
+    // aka shared. As a result, `sync_members()` doesn't even spawn a
+    // network request, and silently ignores the request.
 
     let result = bob.get_room(alice_room.room_id()).unwrap().sync_members().await;
     assert!(result.is_ok());
@@ -964,8 +964,8 @@ pub(super) async fn assert_can_perform_interactive_verification(
 
     second_client.encryption().wait_for_e2ee_initialization_tasks().await;
 
-    // The second client doesn't have access to the backup, nor is recovery in the
-    // enabled state.
+    // The second client doesn't have access to the backup, nor is recovery in
+    // the enabled state.
     assert_eq!(second_client.encryption().recovery().state(), RecoveryState::Incomplete);
     assert_eq!(second_client.encryption().backups().state(), BackupState::Unknown);
 
@@ -981,10 +981,12 @@ pub(super) async fn assert_can_perform_interactive_verification(
         .await?
         .expect("We should have access to the first device once we have synced");
 
-    // The first client is not verified from the point of view of the second client.
+    // The first client is not verified from the point of view of the second
+    // client.
     assert!(!seconds_first_device.is_verified());
 
-    // Make the first client aware of the device we're requesting verification for
+    // Make the first client aware of the device we're requesting verification
+    // for
     first_client.sync_once().await?;
 
     // Let's send out a request to verify with each other.
@@ -1022,7 +1024,8 @@ pub(super) async fn assert_can_perform_interactive_verification(
 
     seconds_sas.accept().await?;
 
-    // We need to sync a couple of times so the clients exchange the shared secret.
+    // We need to sync a couple of times so the clients exchange the shared
+    // secret.
     first_client.sync_once().await?;
     second_client.sync_once().await?;
     first_client.sync_once().await?;
@@ -1037,8 +1040,8 @@ pub(super) async fn assert_can_perform_interactive_verification(
     firsts_sas.confirm().await?;
     seconds_sas.confirm().await?;
 
-    // After both sides confirm, we need a couple more syncs to exchange the final
-    // verification events.
+    // After both sides confirm, we need a couple more syncs to exchange the
+    // final verification events.
     second_client.sync_once().await?;
     first_client.sync_once().await?;
     second_client.sync_once().await?;
@@ -1066,9 +1069,9 @@ pub(super) async fn assert_can_perform_interactive_verification(
         "The recovery state should be in the Incomplete state, since we have not yet received all secrets"
     );
 
-    // We still need to gossip the secrets from one device to the other, the first
-    // device syncs to receive the gossip requests, then the second device syncs
-    // to receive the secrets.
+    // We still need to gossip the secrets from one device to the other, the
+    // first device syncs to receive the gossip requests, then the second
+    // device syncs to receive the secrets.
     first_client.sync_once().await?;
     warn!("The second client is doing its final sync");
     second_client.sync_once().await?;
