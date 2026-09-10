@@ -307,17 +307,12 @@ impl NotificationClient {
             }
         };
 
-        // Run an `EncryptionSync` loop, attempting to decrypt the event after each
-        // iteration:
-        // - the first iteration allows to get SS events as well as send e2ee requests,
-        // - the following ones let the SS homeserver forward events triggered by the
-        //   sending of e2ee requests, such as the room key we're missing.
+        // Run an `EncryptionSync` loop, trying to decrypt the event after each
+        // iteration. The first one fetches SS events and sends e2ee requests; the
+        // rest let the homeserver forward events those requests triggered.
         //
-        // Stop as soon as the event could be decrypted, or once the minimum number of
-        // iterations has been run and the deadline has passed.
-        //
-        // Just log out errors, but don't have them abort the notification processing:
-        // an undecrypted notification is still better than no notifications.
+        // Stop once the event is decrypted, or once the minimum number of
+        // iterations has run and the deadline has passed.
 
         let encryption_sync = match EncryptionSyncService::new(
             self.client.clone(),
