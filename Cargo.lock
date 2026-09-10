@@ -3754,6 +3754,7 @@ version = "0.18.0"
 dependencies = [
  "anyhow",
  "async-compat",
+ "async-trait",
  "chrono",
  "console_error_panic_hook",
  "extension-trait",
