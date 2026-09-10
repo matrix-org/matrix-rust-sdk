@@ -48,6 +48,7 @@ rustls-aws-lc-rs = ["matrix-sdk/rustls-aws-lc-rs", "matrix-sdk-ui/rustls-aws-lc-
 
 [dependencies]
 anyhow.workspace = true
+async-trait.workspace = true
 chrono.workspace = true
 extension-trait = "1.0.2"
 eyeball-im.workspace = true

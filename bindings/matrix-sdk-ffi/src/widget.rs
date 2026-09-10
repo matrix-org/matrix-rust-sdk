@@ -20,7 +20,7 @@ use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::events::MessageLikeEventType;
 use tracing::error;
 
-use crate::{room::Room, runtime::get_runtime_handle};
+use crate::room::Room;
 
 #[derive(uniffi::Record)]
 pub struct WidgetDriverAndHandle {
@@ -430,8 +430,10 @@ impl From<matrix_sdk::widget::Filter> for WidgetEventFilter {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
+#[cfg_attr(target_family = "wasm", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait::async_trait)]
 pub trait WidgetCapabilitiesProvider: SendOutsideWasm + SyncOutsideWasm {
-    fn acquire_capabilities(&self, capabilities: WidgetCapabilities) -> WidgetCapabilities;
+    async fn acquire_capabilities(&self, capabilities: WidgetCapabilities) -> WidgetCapabilities;
 }
 
 struct CapabilitiesProviderWrap(Arc<dyn WidgetCapabilitiesProvider>);
@@ -441,15 +443,9 @@ impl matrix_sdk::widget::CapabilitiesProvider for CapabilitiesProviderWrap {
         &self,
         capabilities: matrix_sdk::widget::Capabilities,
     ) -> matrix_sdk::widget::Capabilities {
-        let this = self.0.clone();
-        // This could require a prompt to the user. Ideally the callback
-        // interface would just be async, but that's not supported yet so use
-        // one of tokio's blocking task threads instead.
-        get_runtime_handle()
-            .spawn_blocking(move || this.acquire_capabilities(capabilities.into()).into())
-            .await
-            // propagate panics from the blocking task
-            .unwrap()
+        // This could require a prompt to the user; the callback interface is
+        // async, so just await it.
+        self.0.acquire_capabilities(capabilities.into()).await.into()
     }
 }
 
