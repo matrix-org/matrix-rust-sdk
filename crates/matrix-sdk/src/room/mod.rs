@@ -839,7 +839,22 @@ impl Room {
                 debug!("error when getting the event cache: {err}");
             }
         }
+
         self.event(event_id, request_config).await
+
+        // DO NOT save the event in the Event Cache!
+        //
+        // 1. This method might not be called by the Event Cache and thus
+        //    mustn't interfere with it,
+        // 2. Depending on how the event is saved in the
+        //    Event Cache, it can create deadlocks (see
+        //    https://github.com/matrix-org/matrix-rust-sdk/pull/6629).
+        // 3. If the Event Cache calls this method, it is very likely that the
+        //    event will be saved permanently in the database later on, so
+        //    saving it here is a waste of time and a source of possible bugs.
+        //
+        // `load_or_fetch_event_with_relations` has the same problem. It has a
+        // comment pointing to this comment to avoid duplicated explanations.
     }
 
     /// Try to load the event and its relations from the
@@ -950,6 +965,10 @@ impl Room {
         // Fetch the event from the server. A failure here is fatal, as we must return
         // the target event.
         let event = self.event(event_id, request_config).await?;
+
+        // DO NOT save the event in the Event Cache!
+        //
+        // To understand why, see the documentation in `load_or_fetch_event`.
 
         // Try to get the relations from the event cache (if we have one).
         if let Some((event_cache, _drop_handles)) = event_cache
