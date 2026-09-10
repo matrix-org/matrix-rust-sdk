@@ -33,12 +33,12 @@ use std::sync::Arc;
 
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
-    deserialized_responses::TimelineEvent,
+    deserialized_responses::{ThreadSummary, ThreadSummaryStatus, TimelineEvent},
     event_cache::{Event, Gap},
     linked_chunk::OwnedLinkedChunkId,
 };
 use matrix_sdk_common::{linked_chunk::ChunkIdentifier, serde_helpers::extract_thread_root};
-use ruma::{OwnedEventId, UInt, api::Direction};
+use ruma::{EventId, OwnedEventId, UInt, api::Direction};
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{instrument, trace};
 
@@ -656,6 +656,37 @@ impl EventFocusedCache {
             EventFocusedPaginationMode::Thread { thread_root } => Some(thread_root.clone()),
             _ => None,
         })
+    }
+
+    /// Update the thread summary on this cache's copy of the given thread
+    /// root event, if present, notifying observers.
+    pub(in super::super) async fn update_thread_summary(
+        &self,
+        thread_id: &EventId,
+        new_thread_summary: Option<ThreadSummary>,
+    ) -> Result<()> {
+        let mut state = self.inner.write().await?;
+
+        let Some((position, mut thread_root_event)) = state
+            .chunk
+            .events()
+            .find(|(_position, event)| event.event_id() == Some(thread_id))
+            .map(|(position, event)| (position, event.clone()))
+        else {
+            return Ok(());
+        };
+
+        trace!(%thread_id, "updating thread summary on the event-focused copy of the root");
+        thread_root_event.thread_summary = ThreadSummaryStatus::from_opt(new_thread_summary);
+        state
+            .chunk
+            .replace_event_at(position, thread_root_event)
+            .expect("should have been a valid position of an item");
+
+        state.propagate_changes();
+        state.notify_subscribers(EventsOrigin::Sync);
+
+        Ok(())
     }
 
     /// Try to locate the events in the linked chunk corresponding to the given

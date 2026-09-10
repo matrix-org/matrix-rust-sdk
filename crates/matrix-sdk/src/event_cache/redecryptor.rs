@@ -562,7 +562,16 @@ impl EventCache {
                 let new_thread_summary =
                     thread_cache.state().read().await?.compute_thread_summary().await?;
 
-                all_caches.room.update_thread_summary(&thread_id, new_thread_summary).await?;
+                all_caches
+                    .room
+                    .update_thread_summary(&thread_id, new_thread_summary.clone())
+                    .await?;
+
+                for event_focused in all_caches.event_focused.read().await.values() {
+                    event_focused
+                        .update_thread_summary(&thread_id, new_thread_summary.clone())
+                        .await?;
+                }
             }
         }
 

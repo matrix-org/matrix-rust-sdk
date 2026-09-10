@@ -20,7 +20,7 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
-    assert_let_timeout,
+    ThreadingSupport, assert_let_timeout,
     test_utils::mocks::{
         MatrixMockServer, RoomContextResponseTemplate, RoomMessagesResponseTemplate,
         RoomRelationsResponseTemplate,
@@ -242,6 +242,180 @@ async fn test_live_aggregations_are_reflected_on_focused_timelines() {
     let reactions = event_item.content().reactions().cloned().unwrap_or_default();
     assert_eq!(reactions.len(), 1);
     let _ = reactions["👍"][*BOB];
+}
+
+#[async_test]
+async fn test_focused_timeline_updates_thread_summary_on_root() {
+    // A timeline focused on a thread root reflects thread summary updates on
+    // its copy of the root.
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: false })
+        })
+        .build()
+        .await;
+
+    let f = EventFactory::new().room(room_id);
+    let thread_root = event_id!("$thread_root");
+
+    server
+        .mock_room_event_context()
+        .room(room_id)
+        .ok(RoomContextResponseTemplate::new(
+            f.text_msg("root of the thread").event_id(thread_root).sender(*BOB).into_event(),
+        ))
+        .mock_once()
+        .mount()
+        .await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let room = server.sync_joined_room(&client, room_id).await;
+    let timeline = TimelineBuilder::new(&room)
+        .with_focus(TimelineFocus::Event {
+            target: thread_root.to_owned(),
+            num_context_events: 20,
+            thread_mode: TimelineEventFocusThreadMode::Automatic { hide_threaded_events: true },
+        })
+        .build()
+        .await
+        .unwrap();
+
+    let (items, mut timeline_stream) = timeline.subscribe().await;
+
+    assert_eq!(items.len(), 1 + 1); // the root event and a date divider
+    assert!(items[0].is_date_divider());
+
+    let event_item = items[1].as_event().unwrap();
+    assert_eq!(event_item.content().as_message().unwrap().body(), "root of the thread");
+    assert!(event_item.content().thread_summary().is_none());
+
+    assert_pending!(timeline_stream);
+
+    // A threaded reply arrives via sync.
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id).add_timeline_bulk([f
+                    .text_msg("a threaded reply")
+                    .sender(*ALICE)
+                    .in_thread(thread_root, thread_root)
+                    .event_id(event_id!("$reply"))
+                    .into()]),
+            );
+        })
+        .await;
+
+    // The root's copy receives the new summary; the reply itself stays hidden.
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+
+    let mut saw_summary = false;
+    for update in &timeline_updates {
+        assert_let!(VectorDiff::Set { index: 1, value: item } = update);
+        let event_item = item.as_event().unwrap();
+        assert_eq!(event_item.content().as_message().unwrap().body(), "root of the thread");
+        if let Some(summary) = event_item.content().thread_summary() {
+            assert_eq!(summary.num_replies, 1);
+            saw_summary = true;
+        }
+    }
+    assert!(saw_summary, "the root's copy never received the thread summary");
+}
+
+#[async_test]
+async fn test_focused_timeline_updates_thread_summary_on_root_in_context() {
+    // Same as above, but the thread root is only part of another focused
+    // event's /context window.
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: false })
+        })
+        .build()
+        .await;
+
+    let f = EventFactory::new().room(room_id);
+    let thread_root = event_id!("$thread_root");
+    let focus_target = event_id!("$focus_target");
+
+    server
+        .mock_room_event_context()
+        .room(room_id)
+        .ok(RoomContextResponseTemplate::new(
+            f.text_msg("the focused event").event_id(focus_target).sender(*BOB).into_event(),
+        )
+        .events_before(vec![
+            f.text_msg("root of the thread").event_id(thread_root).sender(*ALICE).into_event(),
+        ]))
+        .mock_once()
+        .mount()
+        .await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let room = server.sync_joined_room(&client, room_id).await;
+    let timeline = TimelineBuilder::new(&room)
+        .with_focus(TimelineFocus::Event {
+            target: focus_target.to_owned(),
+            num_context_events: 20,
+            thread_mode: TimelineEventFocusThreadMode::Automatic { hide_threaded_events: true },
+        })
+        .build()
+        .await
+        .unwrap();
+
+    let (items, mut timeline_stream) = timeline.subscribe().await;
+
+    assert_eq!(items.len(), 2 + 1); // the root, the focused event, and a date divider
+    assert!(items[0].is_date_divider());
+
+    let root_item = items[1].as_event().unwrap();
+    assert_eq!(root_item.content().as_message().unwrap().body(), "root of the thread");
+    assert!(root_item.content().thread_summary().is_none());
+    assert_eq!(
+        items[2].as_event().unwrap().content().as_message().unwrap().body(),
+        "the focused event"
+    );
+
+    assert_pending!(timeline_stream);
+
+    // A threaded reply arrives via sync.
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id).add_timeline_bulk([f
+                    .text_msg("a threaded reply")
+                    .sender(*ALICE)
+                    .in_thread(thread_root, thread_root)
+                    .event_id(event_id!("$reply"))
+                    .into()]),
+            );
+        })
+        .await;
+
+    // The root's copy receives the new summary.
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+
+    let mut saw_summary = false;
+    for update in &timeline_updates {
+        assert_let!(VectorDiff::Set { index: 1, value: item } = update);
+        let event_item = item.as_event().unwrap();
+        assert_eq!(event_item.content().as_message().unwrap().body(), "root of the thread");
+        if let Some(summary) = event_item.content().thread_summary() {
+            assert_eq!(summary.num_replies, 1);
+            saw_summary = true;
+        }
+    }
+    assert!(saw_summary, "the root's copy never received the thread summary");
 }
 
 #[async_test]
