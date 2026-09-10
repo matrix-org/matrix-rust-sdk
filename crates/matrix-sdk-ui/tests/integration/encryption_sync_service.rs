@@ -174,6 +174,33 @@ async fn setup_mocking_sliding_sync_server(server: &MockServer) -> MockGuard {
 }
 
 #[async_test]
+async fn test_sync_holds_the_permit_while_the_stream_is_alive() -> anyhow::Result<()> {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let _guard = setup_mocking_sliding_sync_server(&server).await;
+
+    let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new_for_testing()));
+    let sync_permit_guard = sync_permit.clone().lock_owned().await;
+    let encryption_sync = EncryptionSyncService::new(client, None).await?;
+
+    let mut stream = Box::pin(encryption_sync.sync(sync_permit_guard));
+
+    // The permit is held before the stream is first polled…
+    assert!(sync_permit.try_lock().is_err());
+
+    // … and while it's being consumed.
+    assert!(matches!(stream.next().await, Some(Ok(()))));
+    assert!(sync_permit.try_lock().is_err());
+
+    // Dropping the stream releases it.
+    drop(stream);
+    assert!(sync_permit.try_lock().is_ok());
+
+    Ok(())
+}
+
+#[async_test]
 async fn test_encryption_sync_default_sync_presence_is_online() -> anyhow::Result<()> {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
