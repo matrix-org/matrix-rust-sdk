@@ -149,9 +149,6 @@ impl EncryptionSyncService {
                 // do so).
 
                 if lock_guard.is_none() {
-                    // If we can't acquire the cross-process lock on the first attempt,
-                    // that means the main process is running, or its lease hasn't expired
-                    // yet. In case it's the latter, wait a bit and retry.
                     tracing::debug!(
                         "Lock was already taken, and we're not the main loop; retrying in {}ms...",
                         LEASE_DURATION_MS
