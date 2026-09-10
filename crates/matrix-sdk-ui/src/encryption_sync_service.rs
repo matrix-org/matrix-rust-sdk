@@ -215,9 +215,13 @@ impl EncryptionSyncService {
     #[doc(hidden)] // Only public for testing purposes.
     pub fn sync(
         &self,
-        _permit: OwnedMutexGuard<EncryptionSyncPermit>,
+        permit: OwnedMutexGuard<EncryptionSyncPermit>,
     ) -> impl Stream<Item = Result<(), Error>> + '_ {
         stream!({
+            // Move the permit into the stream, so that it's held for as long as the stream
+            // is alive.
+            let _permit = permit;
+
             let sync = self.sliding_sync.sync();
 
             pin_mut!(sync);
