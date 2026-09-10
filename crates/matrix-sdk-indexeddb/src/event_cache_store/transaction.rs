@@ -29,7 +29,8 @@ use crate::{
             IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventError,
             IndexedEventEventIdKey, IndexedEventIdKey, IndexedEventPositionKey,
             IndexedEventRelationKey, IndexedEventRoomKey, IndexedGapIdKey, IndexedLease,
-            IndexedLeaseIdKey, IndexedNextChunkIdKey, IndexedThread, IndexedThreadIdKey,
+            IndexedLeaseIdKey, IndexedNextChunkIdKey, IndexedPreviousChunkIdKey, IndexedThread,
+            IndexedThreadIdKey,
         },
         types::{Chunk, ChunkType, Event, Gap, Lease, Position, Thread},
     },
@@ -163,6 +164,21 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     ) -> Result<Option<Chunk>, TransactionError> {
         self.get_item_by_key_components::<Chunk, IndexedChunkIdKey>((linked_chunk_id, chunk_id))
             .await
+    }
+
+    /// Query IndexedDB for chunks such that the previous chunk matches the
+    /// given chunk identifier and the given linked chunk id. If more than one
+    /// item is found, an error is returned.
+    pub async fn get_chunk_by_previous_chunk_id(
+        &self,
+        linked_chunk_id: LinkedChunkId<'_>,
+        previous_chunk_id: Option<ChunkIdentifier>,
+    ) -> Result<Option<Chunk>, TransactionError> {
+        self.get_item_by_key_components::<Chunk, IndexedPreviousChunkIdKey>((
+            linked_chunk_id,
+            previous_chunk_id,
+        ))
+        .await
     }
 
     /// Query IndexedDB for chunks such that the next chunk matches the given

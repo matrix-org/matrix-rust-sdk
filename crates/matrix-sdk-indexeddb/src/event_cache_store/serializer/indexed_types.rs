@@ -162,11 +162,15 @@ impl IndexedKeyComponentBounds<Lease> for IndexedLeaseIdKey {
 
 /// Represents the [`LINKED_CHUNKS`][1] object store.
 ///
-/// [1]: crate::event_cache_store::migrations::v1::create_linked_chunks_object_store
+/// [1]: crate::event_cache_store::migrations::v9::create_linked_chunks_object_store
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedChunk {
     /// The primary key of the object store.
     pub id: IndexedChunkIdKey,
+    /// An indexed key on the object store, which represents the
+    /// [`IndexedChunkIdKey`] of the previous chunk in the linked list, if it
+    /// exists.
+    pub previous: IndexedPreviousChunkIdKey,
     /// An indexed key on the object store, which represents the
     /// [`IndexedChunkIdKey`] of the next chunk in the linked list, if it
     /// exists.
@@ -188,6 +192,10 @@ impl Indexed for Chunk {
         Ok(IndexedChunk {
             id: <IndexedChunkIdKey as IndexedKey<Chunk>>::encode(
                 (self.linked_chunk_id.as_ref(), ChunkIdentifier::new(self.identifier)),
+                serializer,
+            ),
+            previous: IndexedPreviousChunkIdKey::encode(
+                (self.linked_chunk_id.as_ref(), self.previous.map(ChunkIdentifier::new)),
                 serializer,
             ),
             next: IndexedNextChunkIdKey::encode(
@@ -299,6 +307,76 @@ impl IndexedKey<Chunk> for IndexedNextChunkIdKey {
 }
 
 impl<'a> IndexedPrefixKeyComponentBounds<'a, Chunk, LinkedChunkId<'a>> for IndexedNextChunkIdKey {
+    fn lower_key_components_with_prefix(
+        linked_chunk_id: LinkedChunkId<'a>,
+    ) -> Self::KeyComponents<'a> {
+        (linked_chunk_id, None)
+    }
+
+    fn upper_key_components_with_prefix(
+        linked_chunk_id: LinkedChunkId<'a>,
+    ) -> Self::KeyComponents<'a> {
+        (linked_chunk_id, Some(*INDEXED_KEY_UPPER_CHUNK_IDENTIFIER))
+    }
+}
+
+/// The value associated with the [`previous`](IndexedChunk::previous) index of
+/// the [`LINKED_CHUNKS`][1] object store, which is constructed from:
+///
+/// - The (possibly) hashed Linked Chunk ID
+/// - The Chunk ID, if there is a previous chunk in the list.
+///
+/// Note: it would be more convenient to represent this type with an optional
+/// Chunk ID, but unfortunately, this creates an issue when querying for objects
+/// that don't have a `previous` value, because `None` serializes to `null`
+/// which is an invalid value in any part of an IndexedDB query.
+///
+/// Furthermore, each variant must serialize to the same type, so the `None`
+/// variant must contain a non-empty tuple.
+///
+/// [1]: crate::event_cache_store::migrations::v9::create_linked_chunks_object_store
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum IndexedPreviousChunkIdKey {
+    /// There is no previous chunk.
+    None((IndexedLinkedChunkId,)),
+    /// The identifier of the previous chunk in the list.
+    Some(IndexedChunkIdKey),
+}
+
+impl IndexedPreviousChunkIdKey {
+    pub fn none(linked_chunk_id: IndexedLinkedChunkId) -> Self {
+        Self::None((linked_chunk_id,))
+    }
+}
+
+impl IndexedKey<Chunk> for IndexedPreviousChunkIdKey {
+    const INDEX: Option<&'static str> = Some(keys::LINKED_CHUNKS_PREVIOUS);
+
+    type KeyComponents<'a> = (LinkedChunkId<'a>, Option<ChunkIdentifier>);
+
+    fn encode(
+        (linked_chunk_id, previous_chunk_id): Self::KeyComponents<'_>,
+        serializer: &SafeEncodeSerializer,
+    ) -> Self {
+        previous_chunk_id
+            .map(|id| {
+                Self::Some(<IndexedChunkIdKey as IndexedKey<Chunk>>::encode(
+                    (linked_chunk_id, id),
+                    serializer,
+                ))
+            })
+            .unwrap_or_else(|| {
+                let room_id =
+                    serializer.hash_key(keys::LINKED_CHUNK_IDS, linked_chunk_id.storage_key());
+                Self::none(room_id)
+            })
+    }
+}
+
+impl<'a> IndexedPrefixKeyComponentBounds<'a, Chunk, LinkedChunkId<'a>>
+    for IndexedPreviousChunkIdKey
+{
     fn lower_key_components_with_prefix(
         linked_chunk_id: LinkedChunkId<'a>,
     ) -> Self::KeyComponents<'a> {

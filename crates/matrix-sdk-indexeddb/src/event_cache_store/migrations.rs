@@ -21,10 +21,10 @@ use thiserror::Error;
 
 /// The current version and keys used in the database.
 pub mod current {
-    use super::{Version, v8};
+    use super::{Version, v9};
 
-    pub const VERSION: Version = Version::V8;
-    pub use v8::keys;
+    pub const VERSION: Version = Version::V9;
+    pub use v9::keys;
 }
 
 /// Opens a connection to the IndexedDB database and takes care of upgrading it
@@ -68,6 +68,8 @@ pub enum Version {
     V7 = 7,
     /// Version 8 of the database, for details see [`v8`].
     V8 = 8,
+    /// Version 9 of the database, for details see [`v9`].
+    V9 = 9,
 }
 
 impl Version {
@@ -82,7 +84,8 @@ impl Version {
             Self::V5 => v5::upgrade(transaction).map(Some),
             Self::V6 => v6::upgrade(transaction).map(Some),
             Self::V7 => v7::upgrade(transaction).map(Some),
-            Self::V8 => Ok(None),
+            Self::V8 => v8::upgrade(transaction).map(Some),
+            Self::V9 => Ok(None),
         }
     }
 }
@@ -105,6 +108,7 @@ impl TryFrom<u32> for Version {
             6 => Ok(Version::V6),
             7 => Ok(Version::V7),
             8 => Ok(Version::V8),
+            9 => Ok(Version::V9),
             v => Err(UnknownVersionError(v)),
         }
     }
@@ -505,6 +509,71 @@ pub mod v8 {
         let threads = transaction.object_store(keys::THREADS)?;
         threads.clear()?;
 
+        Ok(())
+    }
+
+    /// Upgrade database from `v8` to `v9`
+    pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
+        v9::add_previous_chunk_index(transaction)?;
+        Ok(Version::V9)
+    }
+}
+
+mod v9 {
+    use indexed_db_futures::Build;
+
+    pub mod keys {
+        // Re-use all the same keys from `v8`.
+        pub use super::super::v8::keys::*;
+
+        // Add new keys.
+        pub const LINKED_CHUNKS_PREVIOUS: &str = "linked_chunks_previous";
+        pub const LINKED_CHUNKS_PREVIOUS_KEY_PATH: &str = "previous";
+    }
+    use super::*;
+
+    /// Adds a `previous` index to the linked chunks object store, enabling
+    /// efficient lookup of the first chunk in a room's timeline.
+    ///
+    /// This requires clearing and recreating the linked chunks store, as well
+    /// as clearing all dependent stores (events, gaps, threads), following the
+    /// same approach as earlier migrations.
+    pub fn add_previous_chunk_index(transaction: &Transaction<'_>) -> Result<(), Error> {
+        // Recreate the linked chunks store with the new index.
+        let linked_chunks = transaction.object_store(keys::LINKED_CHUNKS)?;
+        // Via v3 migration, clear before deleting for Firefox performance
+        linked_chunks.clear()?;
+        transaction.db().delete_object_store(keys::LINKED_CHUNKS)?;
+        create_linked_chunks_object_store(transaction.db())?;
+
+        // Clear dependent stores.
+        transaction.object_store(keys::GAPS)?.clear()?;
+        transaction.object_store(keys::EVENTS)?.clear()?;
+        transaction.object_store(keys::THREADS)?.clear()?;
+
+        Ok(())
+    }
+
+    /// Create an object store for tracking information about linked chunks.
+    ///
+    /// * Primary Key - `id`
+    /// * Index - `next` - tracks the next chunk in linked chunks
+    /// * Index - `previous` - tracks the previous chunk in linked chunks,
+    ///   enabling efficient lookup of the first chunk
+    fn create_linked_chunks_object_store(db: &Database) -> Result<(), Error> {
+        let linked_chunks = db
+            .create_object_store(keys::LINKED_CHUNKS)
+            .with_key_path(keys::LINKED_CHUNKS_KEY_PATH.into())
+            .build()?;
+        let _ = linked_chunks
+            .create_index(keys::LINKED_CHUNKS_NEXT, keys::LINKED_CHUNKS_NEXT_KEY_PATH.into())
+            .build()?;
+        let _ = linked_chunks
+            .create_index(
+                keys::LINKED_CHUNKS_PREVIOUS,
+                keys::LINKED_CHUNKS_PREVIOUS_KEY_PATH.into(),
+            )
+            .build()?;
         Ok(())
     }
 }
