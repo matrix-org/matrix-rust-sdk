@@ -113,16 +113,12 @@ impl EncryptionSyncService {
         Ok(Self { client, sliding_sync })
     }
 
-    /// Runs an `EncryptionSyncService` loop, one iteration at a time.
+    /// Runs an `EncryptionSyncService` loop, yielding `Ok(())` after each
+    /// iteration so the caller can decide whether to continue or stop by
+    /// dropping the stream.
     ///
-    /// The returned stream yields `Ok(())` after each iteration of the sliding
-    /// sync loop, so that the caller can decide after each of them whether to
-    /// keep going (e.g. because an event still can't be decrypted) or to stop
-    /// by dropping the stream.
-    ///
-    /// If the cross-process lock is configured but could not be acquired, the
-    /// stream ends without yielding anything. Another process is expected to
-    /// run the encryption sync in this case.
+    /// Ends without yielding if the cross-process lock is configured but
+    /// can't be acquired (another process is expected to run the sync).
     ///
     /// Note: the [`EncryptionSyncPermit`] parameter ensures that there's at
     /// most one encryption sync running at any time. See its documentation
