@@ -189,7 +189,7 @@ async fn test_sync_holds_the_permit_while_the_stream_is_alive() -> anyhow::Resul
     // The permit is held before the stream is first polled…
     assert!(sync_permit.try_lock().is_err());
 
-    // …and while it's being consumed.
+    // … and while it's being consumed.
     assert!(matches!(stream.next().await, Some(Ok(()))));
     assert!(sync_permit.try_lock().is_err());
 
