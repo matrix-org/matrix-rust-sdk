@@ -22,10 +22,11 @@ use std::{
 use futures_util::{StreamExt as _, pin_mut};
 use itertools::Itertools;
 use matrix_sdk::{
-    Client, ClientBuildError, SlidingSyncList, SlidingSyncMode, room::Room, sleep::sleep,
+    Client, ClientBuildError, SlidingSyncList, SlidingSyncMode,
+    room::{PushContext, Room},
 };
 use matrix_sdk_base::{RoomState, StoreError, deserialized_responses::TimelineEvent};
-use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
+use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, timeout::timeout};
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, RoomId, UserId,
     api::client::sync::sync_events::v5 as http,
@@ -44,6 +45,7 @@ use ruma::{
     html::RemoveReplyFallback,
     push::Action,
     serde::Raw,
+    time::Instant,
     uint,
 };
 use thiserror::Error;
@@ -113,6 +115,16 @@ pub struct NotificationClient {
 impl NotificationClient {
     const CONNECTION_ID: &'static str = "notifications";
     const LOCK_ID: &'static str = "notifications";
+
+    /// Maximum time to wait for the main encryption sync to receive a
+    /// missing room key, in a [`NotificationProcessSetup::SingleProcess`]
+    /// setup where that sync is already running.
+    ///
+    /// The value matches the time budget of the other path, where no encryption
+    /// sync is running and the notification client runs one itself, using two
+    /// sync iterations of the sync, each of which long-polls for up to
+    /// 3 seconds.
+    const RUNNING_SYNC_DECRYPTION_DEADLINE: Duration = Duration::from_secs(6);
 
     /// Create a new notification client.
     pub async fn new(
@@ -258,53 +270,11 @@ impl NotificationClient {
                     permit_guard
                 } else {
                     // There's already a sync service active, thus the encryption sync is already
-                    // running elsewhere. As a matter of fact, if the event was encrypted, that
-                    // means we were racing against the encryption sync. Wait a bit, attempt to
-                    // decrypt, and carry on.
-
-                    // We repeat the sleep 3 times at most, each iteration we
-                    // double the amount of time waited, so overall we may wait up to 7 times this
-                    // amount.
-                    let mut wait = 200;
-
-                    debug!("Encryption sync running in background");
-                    for _ in 0..3 {
-                        trace!("waiting for decryption…");
-
-                        sleep(Duration::from_millis(wait)).await;
-
-                        // Note: We specify the cast type in case the
-                        // `experimental-encrypted-state-events` feature is enabled, which provides
-                        // multiple cast implementations.
-                        let new_event = room
-                            .decrypt_event(
-                                raw_event.cast_ref_unchecked::<OriginalSyncRoomEncryptedEvent>(),
-                                push_ctx.as_ref(),
-                            )
-                            .await?;
-
-                        match new_event.kind {
-                            matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt {
-                                utd_info, ..} => {
-                                if utd_info.reason.is_missing_room_key() {
-                                    // Decryption error that could be caused by a missing room
-                                    // key; retry in a few.
-                                    wait *= 2;
-                                } else {
-                                    debug!("Event could not be decrypted, but waiting longer is unlikely to help: {:?}", utd_info.reason);
-                                    return Ok(None);
-                                }
-                            }
-                            _ => {
-                                trace!("Waiting succeeded and event could be decrypted!");
-                                return Ok(Some(new_event));
-                            }
-                        }
-                    }
-
-                    // We couldn't decrypt the event after waiting a few times, abort.
-                    debug!("Timeout waiting for the encryption sync to decrypt notification.");
-                    return Ok(None);
+                    // running elsewhere, and we must not run a second one. As a matter of fact,
+                    // if the event was encrypted, that means we were racing against the
+                    // encryption sync: wait for it to receive the room key, then decrypt.
+                    debug!("Encryption sync running in background, waiting for the room key");
+                    return self.wait_for_room_key(room, raw_event, push_ctx.as_ref()).await;
                 }
             }
         };
@@ -353,6 +323,83 @@ impl NotificationClient {
             Err(err) => {
                 warn!("Encryption sync build error: {err:#}",);
                 Ok(None)
+            }
+        }
+    }
+
+    /// Wait for the main encryption sync to receive the room key needed to
+    /// decrypt `raw_event`, then decrypt it.
+    ///
+    /// This is used in a [`NotificationProcessSetup::SingleProcess`] setup when
+    /// the encryption sync is already running, since the notification client
+    /// must not run a second one.
+    ///
+    /// Returns `Ok(None)` if no key for the room has been received within
+    /// [`Self::RUNNING_SYNC_DECRYPTION_DEADLINE`], or if the event can't be
+    /// decrypted for another reason.
+    async fn wait_for_room_key(
+        &self,
+        room: &Room,
+        raw_event: &Raw<AnySyncTimelineEvent>,
+        push_ctx: Option<&PushContext>,
+    ) -> Result<Option<TimelineEvent>, Error> {
+        // Subscribe before the first decryption attempt, so that a key received in
+        // between can't be missed. The notification client shares its `OlmMachine` with
+        // the parent client, which the running encryption sync belongs to, so keys it
+        // receives are both reported here and usable by `try_decrypt` right away.
+        let Some(room_keys) = self.parent_client.encryption().room_keys_received_stream().await
+        else {
+            // No `OlmMachine`, hence no keys to wait for: a single attempt is all we can
+            // do.
+            return Ok(match try_decrypt(room, raw_event, push_ctx).await? {
+                DecryptionAttempt::Decrypted(event) => Some(event),
+                DecryptionAttempt::MissingRoomKey | DecryptionAttempt::Unrecoverable => None,
+            });
+        };
+        pin_mut!(room_keys);
+
+        let deadline = Instant::now() + Self::RUNNING_SYNC_DECRYPTION_DEADLINE;
+
+        loop {
+            match try_decrypt(room, raw_event, push_ctx).await? {
+                DecryptionAttempt::Decrypted(event) => {
+                    trace!("Waiting succeeded and event could be decrypted!");
+                    return Ok(Some(event));
+                }
+                DecryptionAttempt::Unrecoverable => return Ok(None),
+                DecryptionAttempt::MissingRoomKey => {}
+            }
+
+            // Wait for keys of this room to be received, then try again.
+            loop {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    debug!("Timeout waiting for the encryption sync to receive the room key.");
+                    return Ok(None);
+                }
+
+                match timeout(room_keys.next(), remaining).await {
+                    Ok(Some(Ok(keys))) => {
+                        if keys.iter().any(|key| &*key.room_id == room.room_id()) {
+                            trace!("Received room keys for the room, retrying decryption");
+                            break;
+                        }
+                        // Keys for other rooms can't help, keep waiting.
+                    }
+                    Ok(Some(Err(_))) => {
+                        // The stream lagged behind, so we may have missed keys for the room:
+                        // retry to be on the safe side.
+                        break;
+                    }
+                    Ok(None) => {
+                        debug!("The room keys stream ended while waiting for the room key.");
+                        return Ok(None);
+                    }
+                    Err(_) => {
+                        debug!("Timeout waiting for the encryption sync to receive the room key.");
+                        return Ok(None);
+                    }
+                }
             }
         }
     }
@@ -809,6 +856,51 @@ impl NotificationClient {
         )
         .await
     }
+}
+
+/// The outcome of an attempt at decrypting a notified event.
+enum DecryptionAttempt {
+    /// The event could be decrypted.
+    Decrypted(TimelineEvent),
+
+    /// The event could not be decrypted because the room key is missing; it may
+    /// still arrive.
+    MissingRoomKey,
+
+    /// The event could not be decrypted, and waiting longer is unlikely to
+    /// help.
+    Unrecoverable,
+}
+
+/// Attempt to decrypt an encrypted timeline event of `room`.
+async fn try_decrypt(
+    room: &Room,
+    raw_event: &Raw<AnySyncTimelineEvent>,
+    push_ctx: Option<&PushContext>,
+) -> Result<DecryptionAttempt, matrix_sdk::Error> {
+    // Note: We specify the cast type in case the
+    // `experimental-encrypted-state-events` feature is enabled, which provides
+    // multiple cast implementations.
+    let new_event = room
+        .decrypt_event(raw_event.cast_ref_unchecked::<OriginalSyncRoomEncryptedEvent>(), push_ctx)
+        .await?;
+
+    if let matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt {
+        utd_info, ..
+    } = &new_event.kind
+    {
+        return Ok(if utd_info.reason.is_missing_room_key() {
+            DecryptionAttempt::MissingRoomKey
+        } else {
+            debug!(
+                "Event could not be decrypted, but waiting longer is unlikely to help: {:?}",
+                utd_info.reason
+            );
+            DecryptionAttempt::Unrecoverable
+        });
+    }
+
+    Ok(DecryptionAttempt::Decrypted(new_event))
 }
 
 fn is_event_encrypted(event_type: TimelineEventType) -> bool {
