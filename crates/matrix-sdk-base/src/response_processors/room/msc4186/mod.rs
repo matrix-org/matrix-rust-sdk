@@ -104,6 +104,22 @@ pub async fn update_any_room(
         olm.store().clear_room_pending_key_bundle(room_info.room_id()).await?
     }
 
+    // If the room transitions to joined here without this client having performed the
+    // join (e.g. the server auto-joined us after our knock was accepted — the knocked
+    // state can flip STRAIGHT to joined, with the intermediate invite coalesced away),
+    // record the invite acceptance details so a shared-history key bundle can be
+    // accepted. NB: `room.state()` still holds the pre-response state at this point.
+    #[cfg(feature = "e2e-encryption")]
+    e2ee::record_invite_acceptance_for_server_initiated_join(
+        context,
+        e2ee.olm_machine,
+        &room,
+        room.state(),
+        room_info.state(),
+        &raw_state_events,
+    )
+    .await;
+
     room_info.mark_state_partially_synced();
     room_info.handle_encryption_state(requested_required_states.for_room(room_id));
 
