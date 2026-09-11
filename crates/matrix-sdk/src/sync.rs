@@ -16,6 +16,7 @@
 
 use std::{
     collections::{BTreeMap, btree_map},
+    error::Error as StdError,
     fmt,
     time::Duration,
 };
@@ -30,7 +31,9 @@ use matrix_sdk_base::{
     sync::SyncResponse as BaseSyncResponse,
     timer,
 };
-use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
+use matrix_sdk_common::{
+    BoxFuture, SendOutsideWasm, SyncOutsideWasm, deserialized_responses::ProcessedToDeviceEvent,
+};
 use ruma::{
     OwnedRoomId, RoomId,
     api::client::sync::sync_events::{
@@ -44,6 +47,48 @@ use ruma::{
 use tracing::{debug, error, instrument, warn};
 
 use crate::{Client, Result, Room, event_handler::HandlerKind};
+
+#[cfg(not(target_family = "wasm"))]
+type SyncResponseHookErrorSource = Box<dyn StdError + Send + Sync>;
+#[cfg(target_family = "wasm")]
+type SyncResponseHookErrorSource = Box<dyn StdError>;
+
+/// An error returned by a [`SyncResponseHook`].
+#[derive(Debug, thiserror::Error)]
+#[error("classic sync response hook failed: {0}")]
+pub struct SyncResponseHookError(#[source] SyncResponseHookErrorSource);
+
+impl SyncResponseHookError {
+    /// Create an error wrapping the given source error.
+    pub fn new(
+        error: impl StdError + SendOutsideWasm + SyncOutsideWasm + 'static,
+    ) -> SyncResponseHookError {
+        Self(Box::new(error))
+    }
+}
+
+/// A callback invoked before a classic `/sync` response is processed.
+///
+/// This hook can be used to durably persist the typed response before the SDK
+/// advances its sync token or applies any of the response's state. It is only
+/// used by classic sync APIs such as [`Client::sync_once`]; sliding sync and
+/// the sync service do not invoke it.
+///
+/// The hook may receive the same response more than once if the application
+/// retries a failed sync, so implementations must be idempotent. If the future
+/// is cancelled or returns an error, the SDK does not persist the response,
+/// advance its sync token, or invoke event, notification, or room update
+/// handlers.
+///
+/// The response has already been decoded into Ruma's typed representation. It
+/// does not provide byte-identical access to the HTTP response body.
+pub trait SyncResponseHook: SendOutsideWasm + SyncOutsideWasm + fmt::Debug {
+    /// Process a decoded classic `/sync` response before the SDK does.
+    fn on_sync_response<'a>(
+        &'a self,
+        response: &'a sync_events::v3::Response,
+    ) -> BoxFuture<'a, std::result::Result<(), SyncResponseHookError>>;
+}
 
 /// The processed response of a `/sync` request.
 #[derive(Clone, Default)]
@@ -151,6 +196,10 @@ impl Client {
         &self,
         response: sync_events::v3::Response,
     ) -> Result<BaseSyncResponse> {
+        if let Some(hook) = &self.inner.sync_response_hook {
+            hook.on_sync_response(&response).await?;
+        }
+
         subscribe_to_room_latest_events(
             self,
             response.rooms.join.keys().chain(response.rooms.leave.keys()),

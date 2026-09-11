@@ -47,7 +47,7 @@ use url::ParseError as UrlParseError;
 use crate::{
     authentication::oauth::OAuthError, cross_process_lock::CrossProcessLockError,
     event_cache::EventCacheError, media::MediaError, room::reply::ReplyError,
-    sliding_sync::Error as SlidingSyncError,
+    sliding_sync::Error as SlidingSyncError, sync::SyncResponseHookError,
 };
 
 /// Result type of the matrix-sdk.
@@ -392,6 +392,10 @@ pub enum Error {
     /// An error happened during handling of a media subrequest.
     #[error(transparent)]
     Media(#[from] MediaError),
+
+    /// The classic sync response hook rejected a response.
+    #[error(transparent)]
+    SyncResponseHook(#[from] SyncResponseHookError),
 
     /// An error happened while attempting to reply to an event.
     #[error(transparent)]
