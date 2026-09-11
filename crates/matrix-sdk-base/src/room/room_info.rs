@@ -1374,7 +1374,7 @@ impl RoomInfo {
 
 /// Type to represent a `RoomInfo::recency_stamp`.
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(transparent)]
 pub struct RoomRecencyStamp(u64);
 
