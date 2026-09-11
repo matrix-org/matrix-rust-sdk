@@ -43,6 +43,32 @@ use crate::{
     store::{Result as StoreResult, StateStoreExt, ambiguity_map::is_display_name_ambiguous},
 };
 
+/// The display name of a member, as [`RoomMember::display_name`] resolves it:
+/// the one from the profile the member set themselves, falling back to the
+/// latest member event's.
+fn display_name_value<'a>(
+    event: &'a MemberEvent,
+    profile: Option<&'a MinimalRoomMemberEvent>,
+) -> Option<&'a str> {
+    match profile {
+        Some(profile) => profile.content.displayname.as_deref(),
+        None => event.displayname_value(),
+    }
+}
+
+/// The name a member is shown under, as [`RoomMember::name`] renders it: their
+/// display name, falling back to the localpart of their user ID.
+///
+/// The ambiguity index must be looked up under this name, not under the latest
+/// member event's. The two differ for a kicked member: the kick event carries
+/// no display name, but the member's own profile is kept and its name is still
+/// rendered for them.
+fn displayed_name(event: &MemberEvent, profile: Option<&MinimalRoomMemberEvent>) -> DisplayName {
+    DisplayName::new(
+        display_name_value(event, profile).unwrap_or_else(|| event.user_id().localpart()),
+    )
+}
+
 impl Room {
     /// Check if the room has its members fully synced.
     ///
@@ -108,7 +134,10 @@ impl Room {
             })
             .collect::<BTreeMap<_, _>>();
 
-        let display_names = member_events.iter().map(|e| e.display_name()).collect::<Vec<_>>();
+        let display_names = member_events
+            .iter()
+            .map(|event| displayed_name(event, profiles.get(event.user_id())))
+            .collect::<Vec<_>>();
         let room_info = self.member_room_info(&display_names).await?;
 
         let mut members = Vec::new();
@@ -201,7 +230,7 @@ impl Room {
             return Ok(None);
         };
 
-        let display_names = [event.display_name()];
+        let display_names = [displayed_name(&event, profile.as_ref())];
         let room_info = self.member_room_info(&display_names).await?;
 
         Ok(Some(RoomMember::from_parts(
@@ -290,7 +319,7 @@ impl RoomMember {
         } = room_info;
 
         let user_id = event.user_id().to_owned();
-        let display_name = event.display_name();
+        let display_name = displayed_name(&event, profile.as_ref());
         let display_name_ambiguous = users_display_names
             .get(&display_name)
             .is_some_and(|s| is_display_name_ambiguous(&display_name, s));
@@ -331,11 +360,7 @@ impl RoomMember {
 
     /// Get the display name of the member if there is one.
     pub fn display_name(&self) -> Option<&str> {
-        if let Some(p) = self.profile.as_ref() {
-            p.content.displayname.as_deref()
-        } else {
-            self.event.displayname_value()
-        }
+        display_name_value(&self.event, (*self.profile).as_ref())
     }
 
     /// Get the name of the member.
