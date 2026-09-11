@@ -15,6 +15,7 @@
 use std::{cmp::Ordering, collections::HashMap};
 
 use futures_core::Stream;
+use futures_util::future::join;
 use indexmap::IndexMap;
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
@@ -579,20 +580,86 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
         }
     }
 
+    /// Load the read receipts of several events from the store, in one batch.
+    ///
+    /// Every requested event has an entry in the returned map, even when it
+    /// has no receipts, so that
+    /// [`Self::load_read_receipts_for_event`] can tell an event without
+    /// receipts from one that wasn't prefetched. If the batch read fails, the
+    /// map is empty and every event is read on its own instead.
+    pub(super) async fn prefetch_read_receipts(
+        &self,
+        event_ids: &[OwnedEventId],
+        room_data_provider: &P,
+    ) -> HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>> {
+        if event_ids.is_empty() {
+            return HashMap::new();
+        }
+
+        trace!(num_events = event_ids.len(), "prefetching the initial receipts of events");
+
+        let receipt_thread = self.focus.receipt_thread();
+
+        let mut receipts =
+            if matches!(receipt_thread, ReceiptThread::Unthreaded | ReceiptThread::Main) {
+                // Same as in `load_read_receipts_for_event`: accept both the main and the
+                // unthreaded receipts, for compatibility with clients using either.
+                let (main_receipts, unthreaded_receipts) = join(
+                    room_data_provider.load_event_receipts_batch(event_ids, &ReceiptThread::Main),
+                    room_data_provider
+                        .load_event_receipts_batch(event_ids, &ReceiptThread::Unthreaded),
+                )
+                .await;
+
+                // An entry is only complete with both halves.
+                let (Some(mut main_receipts), Some(unthreaded_receipts)) =
+                    (main_receipts, unthreaded_receipts)
+                else {
+                    return HashMap::new();
+                };
+
+                for (event_id, event_receipts) in unthreaded_receipts {
+                    main_receipts.entry(event_id).or_default().extend(event_receipts);
+                }
+
+                main_receipts
+            } else {
+                let Some(receipts) =
+                    room_data_provider.load_event_receipts_batch(event_ids, &receipt_thread).await
+                else {
+                    return HashMap::new();
+                };
+
+                receipts
+            };
+
+        for event_id in event_ids {
+            receipts.entry(event_id.clone()).or_default();
+        }
+
+        receipts
+    }
+
     /// Load the read receipts from the store for the given event ID.
     ///
     /// Populates the read receipts in-memory caches.
+    ///
+    /// The receipts are taken from `prefetched` when the event is part of it
+    /// (see [`Self::prefetch_read_receipts`]), and loaded from the store
+    /// otherwise.
     pub(super) async fn load_read_receipts_for_event(
         &mut self,
         event_id: &EventId,
         room_data_provider: &P,
+        prefetched: &mut HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>>,
     ) {
         trace!(%event_id, "loading initial receipts for an event");
 
         let receipt_thread = self.focus.receipt_thread();
 
-        let receipts = if matches!(receipt_thread, ReceiptThread::Unthreaded | ReceiptThread::Main)
-        {
+        let receipts = if let Some(receipts) = prefetched.remove(event_id) {
+            receipts
+        } else if matches!(receipt_thread, ReceiptThread::Unthreaded | ReceiptThread::Main) {
             // If the requested receipt thread is unthreaded or main, we maintain maximal
             // compatibility with clients using either unthreaded or main-thread read
             // receipts by allowing both here.

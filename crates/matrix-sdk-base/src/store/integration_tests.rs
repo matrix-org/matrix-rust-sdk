@@ -90,6 +90,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_power_level_saving(&self) -> TestResult;
     /// Test user receipts saving.
     async fn test_receipts_saving(&self) -> TestResult;
+    /// Test loading the receipts of several events at once.
+    async fn test_receipts_bulk_loading(&self) -> TestResult;
     /// Test custom storage.
     async fn test_custom_storage(&self) -> TestResult;
     /// Test stripped and non-stripped room member saving.
@@ -1042,6 +1044,100 @@ impl StateStoreIntegrationTests for DynStateStore {
         );
         assert_eq!(second_event_threaded_receipts[0].0, user_id());
         assert_eq!(second_event_threaded_receipts[0].1.ts.unwrap().0, third_receipt_ts);
+
+        Ok(())
+    }
+
+    async fn test_receipts_bulk_loading(&self) -> TestResult {
+        let room_id = room_id!("!test_receipts_bulk_loading:localhost");
+
+        let first_event_id = event_id!("$1435641916114394fHBLK:matrix.org");
+        let second_event_id = event_id!("$fHBLK1435641916114394:matrix.org");
+        let third_event_id = event_id!("$4394fHBLK143564191611:matrix.org");
+
+        let first_receipt_ts = uint!(1436451550);
+        let second_receipt_ts = uint!(1436451653);
+        let third_receipt_ts = uint!(1436474532);
+
+        let receipt_event = serde_json::from_value(json!({
+            first_event_id: {
+                "m.read": {
+                    user_id(): {
+                        "ts": first_receipt_ts,
+                    }
+                }
+            },
+            second_event_id: {
+                "m.read": {
+                    invited_user_id(): {
+                        "ts": second_receipt_ts,
+                    },
+                    user_id(): {
+                        "ts": third_receipt_ts,
+                        "thread_id": "main",
+                    }
+                }
+            }
+        }))?;
+
+        let mut changes = StateChanges::default();
+        changes.add_receipts(room_id, receipt_event);
+        self.save_changes(&changes).await?;
+
+        let requested =
+            [first_event_id.to_owned(), second_event_id.to_owned(), third_event_id.to_owned()];
+
+        // Events without receipts are absent from the map.
+        let unthreaded_receipts = self
+            .get_event_room_receipt_events_batch(
+                room_id,
+                ReceiptType::Read,
+                &ReceiptThread::Unthreaded,
+                &requested,
+            )
+            .await
+            .expect("failed to read the unthreaded receipts of the batch");
+        assert_eq!(unthreaded_receipts.len(), 2);
+        assert!(!unthreaded_receipts.contains_key(third_event_id));
+
+        let first_event_receipts = &unthreaded_receipts[first_event_id];
+        assert_eq!(first_event_receipts.len(), 1);
+        assert_eq!(first_event_receipts[0].0, user_id());
+        assert_eq!(first_event_receipts[0].1.ts.unwrap().0, first_receipt_ts);
+
+        let second_event_receipts = &unthreaded_receipts[second_event_id];
+        assert_eq!(second_event_receipts.len(), 1);
+        assert_eq!(second_event_receipts[0].0, invited_user_id());
+        assert_eq!(second_event_receipts[0].1.ts.unwrap().0, second_receipt_ts);
+
+        // Only the receipts of the requested thread are returned.
+        let threaded_receipts = self
+            .get_event_room_receipt_events_batch(
+                room_id,
+                ReceiptType::Read,
+                &ReceiptThread::Main,
+                &requested,
+            )
+            .await
+            .expect("failed to read the threaded receipts of the batch");
+        assert_eq!(threaded_receipts.len(), 1);
+
+        let second_event_receipts = &threaded_receipts[second_event_id];
+        assert_eq!(second_event_receipts.len(), 1);
+        assert_eq!(second_event_receipts[0].0, user_id());
+        assert_eq!(second_event_receipts[0].1.ts.unwrap().0, third_receipt_ts);
+
+        // An empty batch is an empty map.
+        let no_receipts = self
+            .get_event_room_receipt_events_batch(
+                room_id,
+                ReceiptType::Read,
+                &ReceiptThread::Unthreaded,
+                &[],
+            )
+            .await
+            .expect("failed to read the receipts of an empty batch");
+        assert!(no_receipts.is_empty());
 
         Ok(())
     }
@@ -2348,6 +2444,12 @@ macro_rules! statestore_integration_tests {
             async fn test_receipts_saving() -> TestResult {
                 let store = get_store().await?.into_state_store();
                 store.test_receipts_saving().await
+            }
+
+            #[async_test]
+            async fn test_receipts_bulk_loading() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_receipts_bulk_loading().await
             }
 
             #[async_test]
