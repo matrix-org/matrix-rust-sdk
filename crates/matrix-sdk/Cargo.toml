@@ -89,6 +89,10 @@ docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode", "feder
 # Add support for inline media galleries via msgtypes
 unstable-msc4274 = ["ruma/unstable-msc4274", "matrix-sdk-base/unstable-msc4274"]
 
+# Add support for sticky events (MSC4354), delivered over sliding sync via the
+# MSC4480 extension.
+unstable-msc4354 = ["matrix-sdk-base/unstable-msc4354"]
+
 # Add support for user status profile fields (m.status, m.call).
 unstable-msc4426 = ["matrix-sdk-base/unstable-msc4426"]
 

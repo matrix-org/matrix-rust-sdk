@@ -88,8 +88,8 @@ impl SlidingSyncBuilder {
         Ok(self.add_list(list))
     }
 
-    /// Activate e2ee, to-device-message, account data, typing and receipt
-    /// extensions if not yet configured.
+    /// Activate e2ee, to-device-message, account data, typing, receipt and
+    /// (if compiled in) sticky events extensions if not yet configured.
     ///
     /// Will leave any extension configuration found untouched, so the order
     /// does not matter.
@@ -114,6 +114,11 @@ impl SlidingSyncBuilder {
 
             if cfg.typing.enabled.is_none() {
                 cfg.typing.enabled = Some(true);
+            }
+
+            #[cfg(feature = "unstable-msc4354")]
+            if cfg.sticky_events.enabled.is_none() {
+                cfg.sticky_events.enabled = Some(true);
             }
         }
         self
@@ -212,6 +217,26 @@ impl SlidingSyncBuilder {
         self
     }
 
+    /// Set the sticky events (MSC4480) extension configuration.
+    ///
+    /// The `since` token of the extension is managed by the sliding sync
+    /// itself, any value set here is ignored.
+    #[cfg(feature = "unstable-msc4354")]
+    pub fn with_sticky_events_extension(
+        mut self,
+        sticky_events: http::request::StickyEvents,
+    ) -> Self {
+        self.extensions.get_or_insert_with(Default::default).sticky_events = sticky_events;
+        self
+    }
+
+    /// Unset the sticky events (MSC4480) extension configuration.
+    #[cfg(feature = "unstable-msc4354")]
+    pub fn without_sticky_events_extension(mut self) -> Self {
+        self.extensions.get_or_insert_with(Default::default).sticky_events = Default::default();
+        self
+    }
+
     /// Sets a custom timeout duration for the sliding sync polling endpoint.
     ///
     /// This is the maximum time to wait before the sliding sync server returns
@@ -298,7 +323,11 @@ impl SlidingSyncBuilder {
 
             lists,
 
-            position: Arc::new(AsyncMutex::new(SlidingSyncPositionMarkers { pos })),
+            position: Arc::new(AsyncMutex::new(SlidingSyncPositionMarkers {
+                pos,
+                #[cfg(feature = "unstable-msc4354")]
+                sticky_events_since: None,
+            })),
 
             room_subscriptions: StdRwLock::new(self.room_subscriptions),
             extensions: self.extensions.unwrap_or_default(),

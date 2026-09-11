@@ -23,6 +23,7 @@ use ruma::{
     owned_mxc_uri, room_id,
     time::{Duration, Instant},
 };
+use serde_json::{Value, json};
 use stream_assert::{assert_next_matches, assert_pending};
 use tempfile::TempDir;
 use tokio::{spawn, sync::Barrier, task::yield_now, time::sleep};
@@ -51,6 +52,33 @@ async fn new_persistent_room_list_service(
 
 // Same macro as in the main, with additional checking that the state
 // before/after the sync loop match those we expect.
+/// The extensions the room list service enables on every request.
+fn expected_extensions() -> Value {
+    expected_extensions_with(json!({}))
+}
+
+/// The extensions the room list service enables on every request, plus `extra`
+/// ones (those depending on what the server advertises).
+fn expected_extensions_with(extra: Value) -> Value {
+    let mut extensions = json!({
+        "account_data": { "enabled": true },
+        "receipts": { "enabled": true, "rooms": ["*"] },
+        "typing": { "enabled": true },
+        "org.matrix.msc4262.profiles": { "enabled": true },
+    });
+
+    #[cfg(feature = "unstable-msc4354")]
+    {
+        extensions["org.matrix.msc4354.sticky_events"] = json!({ "enabled": true });
+    }
+
+    if let Value::Object(extra) = extra {
+        extensions.as_object_mut().unwrap().extend(extra);
+    }
+
+    extensions
+}
+
 macro_rules! sync_then_assert_request_and_fake_response {
     (
         [$server:ident, $room_list:ident, $stream:ident]
@@ -369,21 +397,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                     "timeline_limit": 1,
                 },
             },
-            "extensions": {
-                "account_data": {
-                    "enabled": true
-                },
-                "receipts": {
-                    "enabled": true,
-                    "rooms": ["*"]
-                },
-                "typing": {
-                    "enabled": true,
-                },
-                "org.matrix.msc4262.profiles": {
-                    "enabled": true,
-                },
-            },
+            "extensions": expected_extensions(),
         },
         respond with = {
             "pos": "0",
@@ -2406,12 +2420,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                     "timeline_limit": 20,
                 },
             },
-            "extensions": {
-                "account_data": { "enabled": true },
-                "receipts": { "enabled": true, "rooms": [ "*" ] },
-                "typing": { "enabled": true },
-                "org.matrix.msc4262.profiles": { "enabled": true },
-            },
+            "extensions": expected_extensions(),
         },
         respond with = {
             "pos": "2",
@@ -2506,12 +2515,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                     "timeline_limit": 20,
                 },
             },
-            "extensions": {
-                "account_data": { "enabled": true },
-                "receipts": { "enabled": true, "rooms": [ "*" ] },
-                "typing": { "enabled": true },
-                "org.matrix.msc4262.profiles": { "enabled": true },
-            },
+            "extensions": expected_extensions(),
         },
         respond with = {
             "pos": "3",
@@ -2642,12 +2646,7 @@ async fn test_remove_and_reset_room_subscriptions() -> Result<(), Error> {
                     "timeline_limit": 20,
                 },
             },
-            "extensions": {
-                "account_data": { "enabled": true },
-                "receipts": { "enabled": true, "rooms": [ "*" ] },
-                "typing": { "enabled": true },
-                "org.matrix.msc4262.profiles": { "enabled": true },
-            },
+            "extensions": expected_extensions(),
         },
         respond with = {
             "pos": "2",
@@ -2749,12 +2748,7 @@ async fn test_remove_and_reset_room_subscriptions() -> Result<(), Error> {
                     "timeline_limit": 20,
                 },
             },
-            "extensions": {
-                "account_data": { "enabled": true },
-                "receipts": { "enabled": true, "rooms": [ "*" ] },
-                "typing": { "enabled": true },
-                "org.matrix.msc4262.profiles": { "enabled": true },
-            },
+            "extensions": expected_extensions(),
         },
         respond with = {
             "pos": "3",
@@ -3296,21 +3290,7 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
             [mock_server, room_list, sync]
             assert request = {
                 "conn_id": "room-list",
-                "extensions": {
-                    "account_data": {
-                        "enabled": true,
-                    },
-                    "receipts": {
-                        "enabled": true,
-                        "rooms": ["*"],
-                    },
-                    "typing": {
-                        "enabled": true,
-                    },
-                    "org.matrix.msc4262.profiles": {
-                        "enabled": true,
-                    },
-                },
+                "extensions": expected_extensions(),
                 "lists": {
                     "all_rooms": {
                         "filters": {},
@@ -3394,25 +3374,9 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
         [mock_server, room_list, sync]
         assert request = {
             "conn_id": "room-list",
-            "extensions": {
-                "account_data": {
-                    "enabled": true,
-                },
-                "receipts": {
-                    "enabled": true,
-                    "rooms": ["*"],
-                },
-                "typing": {
-                    "enabled": true,
-                },
-                "io.element.msc4308.thread_subscriptions": {
-                    "enabled": true,
-                    "limit": 10,
-                },
-                "org.matrix.msc4262.profiles": {
-                    "enabled": true,
-                },
-            },
+            "extensions": expected_extensions_with(json!({
+                "io.element.msc4308.thread_subscriptions": { "enabled": true, "limit": 10 },
+            })),
             "lists": {
                 "all_rooms": {
                     "filters": {},

@@ -226,6 +226,28 @@ impl BaseClient {
             state_store_guard,
         )?;
 
+        // Handle sticky events, now that the rooms are saved and their state is
+        // up to date.
+        #[cfg(feature = "unstable-msc4354")]
+        {
+            #[cfg(feature = "e2e-encryption")]
+            let olm_machine = self.olm_machine().await;
+
+            processors::room::msc4186::extensions::sticky_events(
+                &extensions.sticky_events,
+                rooms,
+                &room_updates.joined,
+                &self.state_store,
+                #[cfg(feature = "e2e-encryption")]
+                &processors::e2ee::E2EE::new(
+                    olm_machine.as_ref(),
+                    &self.decryption_settings,
+                    false,
+                ),
+            )
+            .await;
+        }
+
         let mut context = processors::Context::default();
 
         // Now that all the rooms information have been saved, update the display name
@@ -292,6 +314,8 @@ mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
+    #[cfg(feature = "unstable-msc4354")]
+    use ruma::events::AnySyncTimelineEvent;
     use ruma::{
         JsOption, MxcUri, OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, UserId,
         api::client::sync::sync_events::UnreadNotificationsCount,
@@ -445,6 +469,202 @@ mod tests {
             )
             .await
             .expect("Failed to process sync");
+    }
+
+    /// A sticky `m.rtc.member` event sent by Alice, sticky for 10 minutes from
+    /// now according to the server.
+    #[cfg(feature = "unstable-msc4354")]
+    fn sticky_event(event_id: &str, content: serde_json::Value) -> Raw<AnySyncTimelineEvent> {
+        serde_json::from_value(json!({
+            "type": "m.rtc.member",
+            "sender": "@alice:example.org",
+            "event_id": event_id,
+            "origin_server_ts": 1,
+            "content": content,
+            "msc4354_sticky": { "duration_ms": 600_000 },
+            "unsigned": { "msc4354_sticky_duration_ttl_ms": 600_000 },
+        }))
+        .unwrap()
+    }
+
+    #[cfg(feature = "unstable-msc4354")]
+    #[async_test]
+    async fn test_sticky_events_are_ingested_from_the_timeline() {
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!room:example.org");
+
+        let mut room = http::response::Room::new();
+        room.timeline.push(sticky_event(
+            "$a:example.org",
+            json!({ "msc4354_sticky_key": "slot", "application": "m.call" }),
+        ));
+
+        client
+            .process_sliding_sync(
+                &response_with_room(room_id, room),
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        let room = client.get_room(room_id).expect("found room");
+        let live = room.sticky_events().live();
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].key.sender, "@alice:example.org");
+        assert_eq!(live[0].key.sticky_key, "slot");
+        assert_eq!(live[0].event_id, "$a:example.org");
+        assert!(live[0].encryption_info().is_none());
+    }
+
+    #[cfg(feature = "unstable-msc4354")]
+    #[async_test]
+    async fn test_sticky_events_are_ingested_from_the_extension() {
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!room:example.org");
+
+        // The room must be known for its sticky events to be tracked.
+        let mut response = response_with_room(room_id, http::response::Room::new());
+
+        let mut sticky_room = http::response::StickyEventsRoom::default();
+        sticky_room.events = vec![
+            sticky_event(
+                "$a:example.org",
+                json!({ "msc4354_sticky_key": "laptop", "application": "m.call" }),
+            ),
+            sticky_event(
+                "$b:example.org",
+                json!({ "msc4354_sticky_key": "phone", "application": "m.call" }),
+            ),
+        ];
+        response.extensions.sticky_events.rooms.insert(room_id.to_owned(), sticky_room);
+
+        // Sticky events for a room we don't know about are ignored.
+        let mut unknown_room = http::response::StickyEventsRoom::default();
+        unknown_room.events = vec![sticky_event(
+            "$c:example.org",
+            json!({ "msc4354_sticky_key": "slot", "application": "m.call" }),
+        )];
+        response
+            .extensions
+            .sticky_events
+            .rooms
+            .insert(room_id!("!unknown:example.org").to_owned(), unknown_room);
+
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        let room = client.get_room(room_id).expect("found room");
+        let mut live = room.sticky_events().live();
+        live.sort_by(|a, b| a.key.sticky_key.cmp(&b.key.sticky_key));
+        assert_eq!(live.len(), 2);
+        assert_eq!(live[0].key.sticky_key, "laptop");
+        assert_eq!(live[1].key.sticky_key, "phone");
+
+        assert!(client.get_room(room_id!("!unknown:example.org")).is_none());
+    }
+
+    #[cfg(feature = "unstable-msc4354")]
+    #[async_test]
+    async fn test_sticky_events_are_forgotten_when_leaving_the_room() {
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!room:example.org");
+        let user_id = client.session_meta().unwrap().user_id.to_owned();
+
+        let mut room = http::response::Room::new();
+        set_room_joined(&mut room, &user_id);
+        room.timeline.push(sticky_event(
+            "$a:example.org",
+            json!({ "msc4354_sticky_key": "slot", "application": "m.call" }),
+        ));
+
+        client
+            .process_sliding_sync(
+                &response_with_room(room_id, room),
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        let room = client.get_room(room_id).expect("found room");
+        let mut subscriber = room.sticky_events().subscribe();
+        assert_eq!(room.sticky_events().live().len(), 1);
+
+        // We leave the room.
+        let mut room_response = http::response::Room::new();
+        set_room_left(&mut room_response, &user_id);
+
+        client
+            .process_sliding_sync(
+                &response_with_room(room_id, room_response),
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        assert_eq!(room.state(), RoomState::Left);
+        assert!(room.sticky_events().live().is_empty());
+
+        let update = subscriber.try_recv().unwrap();
+        assert_matches!(update.removed.as_slice(), [(key, crate::sticky::RemovalReason::RoomLeft)] => {
+            assert_eq!(key.sticky_key, "slot");
+        });
+    }
+
+    #[cfg(all(feature = "unstable-msc4354", feature = "e2e-encryption"))]
+    #[async_test]
+    async fn test_undecryptable_sticky_event_is_kept_aside_not_mapped() {
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!room:example.org");
+
+        // An encrypted sticky event for which we have no room key.
+        let encrypted: Raw<AnySyncTimelineEvent> = serde_json::from_value(json!({
+            "type": "m.room.encrypted",
+            "sender": "@alice:example.org",
+            "event_id": "$enc:example.org",
+            "origin_server_ts": 1,
+            "content": {
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "ciphertext": "AAAA",
+                "sender_key": "senderkey",
+                "session_id": "session",
+                "device_id": "DEV",
+            },
+            "msc4354_sticky": { "duration_ms": 600_000 },
+            "unsigned": { "msc4354_sticky_duration_ttl_ms": 600_000 },
+        }))
+        .unwrap();
+
+        let mut room = http::response::Room::new();
+        room.timeline.push(encrypted.clone());
+        let mut response = response_with_room(room_id, room);
+
+        // Once in the timeline, once in the extension: neither may end up in the
+        // map as an `m.room.encrypted` entry, its real type and key are unknown.
+        let mut sticky_room = http::response::StickyEventsRoom::default();
+        sticky_room.events = vec![encrypted];
+        response.extensions.sticky_events.rooms.insert(room_id.to_owned(), sticky_room);
+
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        let room = client.get_room(room_id).expect("found room");
+        assert!(room.sticky_events().live().is_empty());
+        assert!(room.sticky_events().has_pending());
     }
 
     #[async_test]
