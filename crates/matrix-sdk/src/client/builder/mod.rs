@@ -46,7 +46,10 @@ use matrix_sdk_sqlite::SqliteStoreConfig;
 use reqwest::Certificate;
 use ruma::{
     OwnedServerName, ServerName,
-    api::{MatrixVersion, SupportedVersions, error::FromHttpResponseError},
+    api::{
+        MatrixVersion, SupportedVersions, client::discovery::discover_support,
+        error::FromHttpResponseError,
+    },
     presence::PresenceState,
 };
 use thiserror::Error;
@@ -640,6 +643,54 @@ impl ClientBuilder {
         self
     }
 
+    /// Build the HTTP client this builder is configured to use.
+    fn make_http_client(&self) -> Result<HttpClient, ClientBuildError> {
+        #[cfg_attr(target_family = "wasm", allow(clippy::infallible_destructuring_match))]
+        let inner_http_client = match self.http_cfg.clone().unwrap_or_default() {
+            #[cfg(not(target_family = "wasm"))]
+            HttpConfig::Settings(mut settings) => {
+                settings.timeout = self.request_config.timeout;
+                settings.make_client()?
+            }
+            HttpConfig::Custom(c) => c,
+        };
+
+        Ok(HttpClient::new(inner_http_client, self.request_config))
+    }
+
+    /// Read the ways the administrator of the configured server can be
+    /// reached, as advertised at [`/.well-known/matrix/support`].
+    ///
+    /// That file is served by the server name's own domain rather than by the
+    /// homeserver API, so it usually answers even when the homeserver does
+    /// not, which is when naming someone to contact is most useful. That is
+    /// why this sits on the builder: [`Self::build`] may well have failed.
+    /// Since it consumes the builder, clone it beforehand to keep this
+    /// available on the failure path.
+    ///
+    /// The lookup uses the same HTTP settings [`Self::build`] would.
+    ///
+    /// A server that advertises nothing answers with a 404, reported as
+    /// [`ClientBuildError::AutoDiscovery`] or [`ClientBuildError::Http`]. An
+    /// advertised support page that is not an `http(s)` URL is dropped.
+    ///
+    /// A builder configured with [`Self::homeserver_url`] alone fails with
+    /// [`ClientBuildError::InvalidServerName`]: a delegating deployment serves
+    /// its well-knowns somewhere other than its homeserver.
+    ///
+    /// [`/.well-known/matrix/support`]: https://spec.matrix.org/v1.19/client-server-api/#getwell-knownmatrixsupport
+    pub async fn discover_server_support(
+        &self,
+    ) -> Result<discover_support::Response, ClientBuildError> {
+        let (server_name, protocol) = self
+            .homeserver_cfg
+            .as_ref()
+            .ok_or(ClientBuildError::MissingHomeserver)?
+            .server_name()?;
+
+        discover_server_support(&server_name, &protocol, &self.make_http_client()?).await
+    }
+
     /// Create a [`Client`] with the options set on this builder.
     ///
     /// # Errors
@@ -656,18 +707,11 @@ impl ClientBuilder {
     pub async fn build(self) -> Result<Client, ClientBuildError> {
         debug!("Starting to build the Client");
 
-        let homeserver_cfg = self.homeserver_cfg.ok_or(ClientBuildError::MissingHomeserver)?;
+        let homeserver_cfg =
+            self.homeserver_cfg.clone().ok_or(ClientBuildError::MissingHomeserver)?;
         Span::current().record("homeserver", debug(&homeserver_cfg));
 
-        #[cfg_attr(target_family = "wasm", allow(clippy::infallible_destructuring_match))]
-        let inner_http_client = match self.http_cfg.unwrap_or_default() {
-            #[cfg(not(target_family = "wasm"))]
-            HttpConfig::Settings(mut settings) => {
-                settings.timeout = self.request_config.timeout;
-                settings.make_client()?
-            }
-            HttpConfig::Custom(c) => c,
-        };
+        let http_client = self.make_http_client()?;
 
         let base_client = if let Some(base_client) = self.base_client {
             base_client
@@ -692,8 +736,6 @@ impl ClientBuilder {
 
             client
         };
-
-        let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
         #[allow(unused_variables)]
         let HomeserverDiscoveryResult { server, homeserver, supported_versions, well_known } =
@@ -996,6 +1038,7 @@ pub(crate) mod tests {
     use assert_matches2::assert_let;
     use matrix_sdk_test::{async_test, test_json};
     use reqwest::dns::{Addrs, Name, Resolve, Resolving};
+    use ruma::api::client::discovery::discover_support::ContactRole;
     use serde_json::{Value as JsonValue, json_internal};
     use url::Url;
     use wiremock::{
@@ -1057,6 +1100,172 @@ pub(crate) mod tests {
         // Then the operation should fail with an HTTP error.
         println!("{error}");
         assert_matches!(error, ClientBuildError::Http(_));
+    }
+
+    /// Mounts a support well-known advertising `support_page` alongside a
+    /// single contact.
+    async fn mock_support_well_known(server: &MockServer, support_page: &str) {
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/support"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "contacts": [
+                    {
+                        "role": "m.role.admin",
+                        "email_address": "admin@example.org",
+                    },
+                ],
+                "support_page": support_page,
+            })))
+            .mount(server)
+            .await;
+    }
+
+    #[async_test]
+    async fn test_discover_server_support() {
+        // Given a server that advertises how its administrator can be reached.
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/support"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "contacts": [
+                    {
+                        "role": "m.role.security",
+                        "email_address": "security@example.org",
+                    },
+                    {
+                        "role": "m.role.admin",
+                        "matrix_id": "@admin:example.org",
+                        "email_address": "admin@example.org",
+                    },
+                ],
+                "support_page": "https://example.org/support",
+            })))
+            .mount(&server)
+            .await;
+
+        // When asking for it.
+        let support = ClientBuilder::new()
+            .server_name_or_homeserver_url(server.uri())
+            .discover_server_support()
+            .await
+            .unwrap();
+
+        // Then every advertised way to reach them is returned.
+        assert_eq!(support.contacts.len(), 2);
+        assert_eq!(support.contacts[1].role, ContactRole::Admin);
+        assert_eq!(support.contacts[1].email_address.as_deref(), Some("admin@example.org"));
+        assert_eq!(support.support_page.as_deref(), Some("https://example.org/support"));
+    }
+
+    #[async_test]
+    async fn test_discover_server_support_uses_the_builder_settings() {
+        // Given a server that only answers a request carrying the configured user
+        // agent, which a default HTTP client would not send.
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/support"))
+            .and(header("user-agent", "test-agent"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "support_page": "https://example.org/support",
+            })))
+            .mount(&server)
+            .await;
+
+        // When asking for it with that user agent set on the builder.
+        let support = ClientBuilder::new()
+            .server_name_or_homeserver_url(server.uri())
+            .user_agent("test-agent")
+            .discover_server_support()
+            .await
+            .unwrap();
+
+        // Then the lookup went through the builder's own HTTP settings.
+        assert_eq!(support.support_page.as_deref(), Some("https://example.org/support"));
+    }
+
+    #[async_test]
+    async fn test_discover_server_support_keeps_a_plaintext_support_page() {
+        // Given a plaintext server advertising a plaintext support page.
+        let server = MockServer::start().await;
+        mock_support_well_known(&server, "http://example.org/support").await;
+
+        // When asking for it, then the page is kept: the lookup itself was no safer.
+        let support = ClientBuilder::new()
+            .server_name_or_homeserver_url(server.uri())
+            .discover_server_support()
+            .await
+            .unwrap();
+
+        assert_eq!(support.support_page.as_deref(), Some("http://example.org/support"));
+    }
+
+    #[async_test]
+    async fn test_discover_server_support_drops_a_support_page_that_is_not_a_web_url() {
+        // Given a server advertising something a browser must not be pointed at.
+        let server = MockServer::start().await;
+        mock_support_well_known(&server, "javascript:alert(1)").await;
+
+        // When asking for it.
+        let support = ClientBuilder::new()
+            .server_name_or_homeserver_url(server.uri())
+            .discover_server_support()
+            .await
+            .unwrap();
+
+        // Then the contacts are kept but the page is dropped.
+        assert_eq!(support.contacts.len(), 1);
+        assert_eq!(support.support_page, None);
+    }
+
+    #[async_test]
+    async fn test_discover_server_support_advertising_nothing() {
+        // Given a server that advertises nothing.
+        let server = MockServer::start().await;
+
+        // When asking for it, then the lookup fails rather than inventing a contact.
+        assert_matches!(
+            ClientBuilder::new()
+                .server_name_or_homeserver_url(server.uri())
+                .discover_server_support()
+                .await
+                .unwrap_err(),
+            ClientBuildError::AutoDiscovery(_) | ClientBuildError::Http(_)
+        );
+    }
+
+    #[async_test]
+    async fn test_discover_server_support_invalid_server() {
+        assert_matches!(
+            ClientBuilder::new()
+                .server_name_or_homeserver_url("⚠️ This won't work 🚫")
+                .discover_server_support()
+                .await
+                .unwrap_err(),
+            ClientBuildError::InvalidServerName
+        );
+    }
+
+    #[async_test]
+    async fn test_discover_server_support_with_a_homeserver_url() {
+        // A homeserver URL is not a server name: a delegating deployment serves its
+        // well-knowns elsewhere, so there is nothing to look up rather than someone
+        // else's contact to report.
+        assert_matches!(
+            ClientBuilder::new()
+                .homeserver_url("https://matrix-client.matrix.org")
+                .discover_server_support()
+                .await
+                .unwrap_err(),
+            ClientBuildError::InvalidServerName
+        );
+    }
+
+    #[async_test]
+    async fn test_discover_server_support_without_a_server() {
+        assert_matches!(
+            ClientBuilder::new().discover_server_support().await.unwrap_err(),
+            ClientBuildError::MissingHomeserver
+        );
     }
 
     #[async_test]

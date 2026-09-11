@@ -26,8 +26,8 @@ use matrix_sdk::reqwest::Certificate;
 #[cfg(feature = "experimental-search")]
 use matrix_sdk::search_index::SearchIndexStoreKind;
 use matrix_sdk::{
-    Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
-    RumaApiError, ThreadingSupport,
+    Client as MatrixClient, ClientBuildError as MatrixClientBuildError,
+    ClientBuilder as MatrixClientBuilder, HttpError, IdParseError, RumaApiError, ThreadingSupport,
     cross_process_lock::CrossProcessLockConfig as SdkCrossProcessLockConfig,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     event_cache::EventCacheError,
@@ -44,7 +44,10 @@ use matrix_sdk_base::{
     DmRoomDefinition,
     crypto::{CollectStrategy, DecryptionSettings, TrustRequirement},
 };
-use ruma::api::error::{DeserializationError, FromHttpResponseError};
+use ruma::api::{
+    client::discovery::discover_support,
+    error::{DeserializationError, FromHttpResponseError},
+};
 use tracing::debug;
 
 use super::client::Client;
@@ -196,6 +199,105 @@ pub struct ClientBuilder {
 /// read. This is more appropriate for detecting stalled connections when the
 /// size isn’t known beforehand.
 const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(60);
+
+impl ClientBuilder {
+    /// Applies to `inner_builder` the settings that decide which server to
+    /// reach and how to reach it.
+    ///
+    /// Those are the only ones a well-known lookup needs, so
+    /// [`Self::discover_server_support`] goes through here too and looks the
+    /// server up exactly the way [`Self::build`] would.
+    fn configure_server_access(
+        &self,
+        mut inner_builder: MatrixClientBuilder,
+    ) -> Result<MatrixClientBuilder, ClientBuildError> {
+        // Determine server either from URL, server name or user ID.
+        inner_builder = match self.homeserver_cfg.clone() {
+            Some(HomeserverConfig::Url(url)) => inner_builder.homeserver_url(url),
+            Some(HomeserverConfig::ServerName(server_name)) => {
+                let server_name = ServerName::parse(server_name)?;
+                inner_builder.server_name(&server_name)
+            }
+            Some(HomeserverConfig::ServerNameOrUrl(server_name_or_url)) => {
+                inner_builder.server_name_or_homeserver_url(server_name_or_url)
+            }
+            Some(HomeserverConfig::ServerNameFromUserId(user_id)) => {
+                let user = UserId::parse(user_id)?;
+                inner_builder.server_name(user.server_name())
+            }
+            None => {
+                return Err(ClientBuildError::Generic {
+                    message: "Failed to build: One of homeserver_url, server_name, server_name_or_homeserver_url or server_name_from_user_id must be called.".to_owned(),
+                });
+            }
+        };
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let mut certificates = Vec::new();
+            for certificate in &self.additional_root_certificates {
+                // We don't really know what type of certificate we may get here, so let's try
+                // first one type, then the other.
+                match Certificate::from_der(certificate) {
+                    Ok(cert) => {
+                        certificates.push(cert);
+                    }
+                    Err(der_error) => {
+                        let cert = Certificate::from_pem(certificate).map_err(|pem_error| {
+                            ClientBuildError::Generic {
+                                message: format!("Failed to add a root certificate as DER ({der_error:?}) or PEM ({pem_error:?})"),
+                            }
+                        })?;
+                        certificates.push(cert);
+                    }
+                }
+            }
+
+            inner_builder = inner_builder.add_root_certificates(certificates);
+
+            if self.disable_built_in_root_certificates {
+                inner_builder = inner_builder.disable_built_in_root_certificates();
+            }
+
+            if let Some(proxy) = &self.proxy {
+                inner_builder = inner_builder.proxy(proxy);
+            }
+
+            if self.disable_ssl_verification {
+                inner_builder = inner_builder.disable_ssl_verification();
+            }
+
+            if let Some(user_agent) = &self.user_agent {
+                inner_builder = inner_builder.user_agent(user_agent);
+            }
+        }
+
+        if let Some(config) = &self.request_config {
+            let mut updated_config = matrix_sdk::config::RequestConfig::default();
+            if let Some(retry_limit) = config.retry_limit {
+                updated_config =
+                    updated_config.retry_limit(retry_limit.try_into().unwrap_or(usize::MAX));
+            }
+            if let Some(timeout) = config.timeout {
+                updated_config = updated_config.timeout(Duration::from_millis(timeout));
+            }
+            updated_config = updated_config.read_timeout(DEFAULT_READ_TIMEOUT);
+            if let Some(max_concurrent_requests) = config.max_concurrent_requests
+                && max_concurrent_requests > 0
+            {
+                updated_config = updated_config
+                    .max_concurrent_requests(NonZeroUsize::new(max_concurrent_requests as usize));
+            }
+            if let Some(max_retry_time) = config.max_retry_time {
+                updated_config =
+                    updated_config.max_retry_time(Duration::from_millis(max_retry_time));
+            }
+            inner_builder = inner_builder.request_config(updated_config);
+        }
+
+        Ok(inner_builder)
+    }
+}
 
 #[matrix_sdk_ffi_macros::export]
 impl ClientBuilder {
@@ -504,10 +606,39 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    /// Read the ways the administrator of the configured server can be
+    /// reached, as advertised at `/.well-known/matrix/support`.
+    ///
+    /// That file is served by the server name's own domain rather than by the
+    /// homeserver API, so it usually answers even when the homeserver does
+    /// not, which is when naming someone to contact is most useful. That is
+    /// why this sits on the builder and stays callable after [`Self::build`]
+    /// has failed.
+    ///
+    /// Returns `None` when the server advertises nothing or cannot be reached
+    /// at all; either way there is nobody to name.
+    pub async fn discover_server_support(&self) -> Option<ServerSupport> {
+        let inner_builder = match self.configure_server_access(MatrixClient::builder()) {
+            Ok(inner_builder) => inner_builder,
+            Err(error) => {
+                debug!("Cannot look up the server's support contact: {error}");
+                return None;
+            }
+        };
+
+        match inner_builder.discover_server_support().await {
+            Ok(response) => Some(response.into()),
+            Err(error) => {
+                debug!("No support contact advertised by the server: {error}");
+                None
+            }
+        }
+    }
+
     pub async fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientBuildError> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = MatrixClient::builder()
-            .cross_process_store_config(builder.cross_process_lock_config.into());
+            .cross_process_store_config(builder.cross_process_lock_config.clone().into());
 
         let store_path = if let Some(store) = &builder.store {
             match store.build()? {
@@ -533,7 +664,7 @@ impl ClientBuilder {
         };
 
         #[cfg(feature = "experimental-search")]
-        if let Some(search_index_store) = builder.search_index_store {
+        if let Some(search_index_store) = builder.search_index_store.clone() {
             // Create the search index directory.
             match search_index_store {
                 SearchIndexStoreKind::UnencryptedDirectory(ref path)
@@ -547,66 +678,7 @@ impl ClientBuilder {
             inner_builder = inner_builder.search_index_store(search_index_store);
         }
 
-        // Determine server either from URL, server name or user ID.
-        inner_builder = match builder.homeserver_cfg {
-            Some(HomeserverConfig::Url(url)) => inner_builder.homeserver_url(url),
-            Some(HomeserverConfig::ServerName(server_name)) => {
-                let server_name = ServerName::parse(server_name)?;
-                inner_builder.server_name(&server_name)
-            }
-            Some(HomeserverConfig::ServerNameOrUrl(server_name_or_url)) => {
-                inner_builder.server_name_or_homeserver_url(server_name_or_url)
-            }
-            Some(HomeserverConfig::ServerNameFromUserId(user_id)) => {
-                let user = UserId::parse(user_id)?;
-                inner_builder.server_name(user.server_name())
-            }
-            None => {
-                return Err(ClientBuildError::Generic {
-                    message: "Failed to build: One of homeserver_url, server_name, server_name_or_homeserver_url or server_name_from_user_id must be called.".to_owned(),
-                });
-            }
-        };
-
-        #[cfg(not(target_family = "wasm"))]
-        {
-            let mut certificates = Vec::new();
-            for certificate in builder.additional_root_certificates {
-                // We don't really know what type of certificate we may get here, so let's try
-                // first one type, then the other.
-                match Certificate::from_der(&certificate) {
-                    Ok(cert) => {
-                        certificates.push(cert);
-                    }
-                    Err(der_error) => {
-                        let cert = Certificate::from_pem(&certificate).map_err(|pem_error| {
-                            ClientBuildError::Generic {
-                                message: format!("Failed to add a root certificate as DER ({der_error:?}) or PEM ({pem_error:?})"),
-                            }
-                        })?;
-                        certificates.push(cert);
-                    }
-                }
-            }
-
-            inner_builder = inner_builder.add_root_certificates(certificates);
-
-            if builder.disable_built_in_root_certificates {
-                inner_builder = inner_builder.disable_built_in_root_certificates();
-            }
-
-            if let Some(proxy) = builder.proxy {
-                inner_builder = inner_builder.proxy(proxy);
-            }
-
-            if builder.disable_ssl_verification {
-                inner_builder = inner_builder.disable_ssl_verification();
-            }
-
-            if let Some(user_agent) = builder.user_agent {
-                inner_builder = inner_builder.user_agent(user_agent);
-            }
-        }
+        inner_builder = builder.configure_server_access(inner_builder)?;
 
         if !builder.disable_automatic_token_refresh {
             inner_builder = inner_builder.handle_refresh_tokens();
@@ -633,29 +705,6 @@ impl ClientBuilder {
                 inner_builder = inner_builder
                     .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::DiscoverNative)
             }
-        }
-
-        if let Some(config) = builder.request_config {
-            let mut updated_config = matrix_sdk::config::RequestConfig::default();
-            if let Some(retry_limit) = config.retry_limit {
-                updated_config =
-                    updated_config.retry_limit(retry_limit.try_into().unwrap_or(usize::MAX));
-            }
-            if let Some(timeout) = config.timeout {
-                updated_config = updated_config.timeout(Duration::from_millis(timeout));
-            }
-            updated_config = updated_config.read_timeout(DEFAULT_READ_TIMEOUT);
-            if let Some(max_concurrent_requests) = config.max_concurrent_requests
-                && max_concurrent_requests > 0
-            {
-                updated_config = updated_config
-                    .max_concurrent_requests(NonZeroUsize::new(max_concurrent_requests as usize));
-            }
-            if let Some(max_retry_time) = config.max_retry_time {
-                updated_config =
-                    updated_config.max_retry_time(Duration::from_millis(max_retry_time));
-            }
-            inner_builder = inner_builder.request_config(updated_config);
         }
 
         inner_builder = inner_builder
@@ -927,5 +976,89 @@ impl ClientBuilder {
 
         builder.search_index_store = Some(kind);
         Arc::new(builder)
+    }
+}
+
+/// The ways the administrator of a server can be reached, as advertised at
+/// [`/.well-known/matrix/support`].
+///
+/// [`/.well-known/matrix/support`]: https://spec.matrix.org/v1.19/client-server-api/#getwell-knownmatrixsupport
+#[derive(uniffi::Record)]
+pub struct ServerSupport {
+    /// The ways to contact the server administrator.
+    pub contacts: Vec<ServerSupportContact>,
+    /// The URL of a page giving users help specific to this server.
+    pub support_page: Option<String>,
+}
+
+/// A way to contact the administrator of a server.
+#[derive(uniffi::Record)]
+pub struct ServerSupportContact {
+    /// What this contact is used for, for instance `m.role.admin`.
+    pub role: String,
+    /// An email address to reach this contact at.
+    pub email_address: Option<String>,
+    /// A Matrix user ID to reach this contact at. It can be an account on
+    /// another server, so that the contact is reachable while this one is down.
+    pub matrix_id: Option<String>,
+}
+
+impl From<discover_support::Response> for ServerSupport {
+    fn from(response: discover_support::Response) -> Self {
+        Self {
+            contacts: response
+                .contacts
+                .into_iter()
+                .map(|contact| ServerSupportContact {
+                    role: contact.role.as_str().to_owned(),
+                    email_address: contact.email_address,
+                    matrix_id: contact.matrix_id.map(Into::into),
+                })
+                .collect(),
+            support_page: response.support_page,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk::ruma::{api::client::discovery::discover_support::ContactRole, owned_user_id};
+
+    use super::*;
+
+    #[test]
+    fn test_server_support_conversion() {
+        let mut response = discover_support::Response::with_contacts(vec![
+            discover_support::Contact::with_email_address(
+                ContactRole::Security,
+                "security@example.org".to_owned(),
+            ),
+            discover_support::Contact::with_matrix_id(
+                ContactRole::Admin,
+                owned_user_id!("@admin:example.org"),
+            ),
+        ]);
+        response.support_page = Some("https://example.org/support".to_owned());
+
+        let support = ServerSupport::from(response);
+
+        assert_eq!(support.support_page.as_deref(), Some("https://example.org/support"));
+        assert_eq!(support.contacts.len(), 2);
+
+        assert_eq!(support.contacts[0].role, "m.role.security");
+        assert_eq!(support.contacts[0].email_address.as_deref(), Some("security@example.org"));
+        assert_eq!(support.contacts[0].matrix_id, None);
+
+        assert_eq!(support.contacts[1].role, "m.role.admin");
+        assert_eq!(support.contacts[1].email_address, None);
+        assert_eq!(support.contacts[1].matrix_id.as_deref(), Some("@admin:example.org"));
+    }
+
+    #[test]
+    fn test_server_support_conversion_without_anything() {
+        let support = ServerSupport::from(discover_support::Response::with_contacts(Vec::new()));
+
+        assert!(support.contacts.is_empty());
+        assert_eq!(support.support_page, None);
     }
 }
