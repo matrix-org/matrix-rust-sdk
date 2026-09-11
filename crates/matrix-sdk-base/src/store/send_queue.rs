@@ -230,9 +230,6 @@ pub enum DependentQueuedRequestKind {
         new_content: SerializableEventContent,
     },
 
-    /// The event should be redacted/aborted/removed.
-    RedactEvent,
-
     /// The event should be redacted/aborted/removed, with a reason applied to
     /// the redaction if the event was sent by the time the abort was processed
     /// and must be redacted server-side.
@@ -509,7 +506,6 @@ impl DependentQueuedRequest {
     pub fn is_own_event(&self) -> bool {
         match self.kind {
             DependentQueuedRequestKind::EditEvent { .. }
-            | DependentQueuedRequestKind::RedactEvent
             | DependentQueuedRequestKind::RedactEventWithReason { .. }
             | DependentQueuedRequestKind::ReactEvent { .. }
             | DependentQueuedRequestKind::UploadFileOrThumbnail { .. } => {
@@ -543,19 +539,9 @@ impl fmt::Debug for QueuedRequest {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches2::{assert_let, assert_matches};
+    use assert_matches2::assert_let;
 
     use super::DependentQueuedRequestKind;
-
-    #[test]
-    fn test_deserialize_legacy_redact_event() {
-        // `RedactEvent` is a unit variant, and must stay one for as long as it exists:
-        // requests persisted before `RedactEventWithReason` are serialized as a plain
-        // string, and this is the only thing that still reads them.
-        let deserialized: DependentQueuedRequestKind =
-            serde_json::from_str("\"RedactEvent\"").unwrap();
-        assert_matches!(deserialized, DependentQueuedRequestKind::RedactEvent);
-    }
 
     #[test]
     fn test_redact_event_with_reason_round_trip() {
