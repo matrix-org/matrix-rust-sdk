@@ -19,7 +19,7 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
-use matrix_sdk_ui::timeline::{EventSendState, ReactionStatus, RoomExt as _};
+use matrix_sdk_ui::timeline::{EventSendState, RoomExt as _};
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
 use stream_assert::assert_pending;
 use tokio::time::sleep;
@@ -103,8 +103,8 @@ async fn test_abort_before_being_sent() {
         let reactions = item.as_event().unwrap().content().reactions().cloned().unwrap_or_default();
         assert_eq!(reactions.len(), 1);
         assert_matches!(
-            &reactions.get("👍").unwrap().get(user_id).unwrap().status,
-            ReactionStatus::LocalToRemote(_)
+            &reactions.get("👍").unwrap().get(user_id).unwrap().send_state,
+            Some(EventSendState::NotSentYet { .. })
         );
 
         assert_pending!(stream);
@@ -123,12 +123,12 @@ async fn test_abort_before_being_sent() {
         let reactions = item.as_event().unwrap().content().reactions().cloned().unwrap_or_default();
         assert_eq!(reactions.len(), 2);
         assert_matches!(
-            &reactions.get("👍").unwrap().get(user_id).unwrap().status,
-            ReactionStatus::LocalToRemote(_)
+            &reactions.get("👍").unwrap().get(user_id).unwrap().send_state,
+            Some(EventSendState::NotSentYet { .. })
         );
         assert_matches!(
-            &reactions.get("🥰").unwrap().get(user_id).unwrap().status,
-            ReactionStatus::LocalToRemote(_)
+            &reactions.get("🥰").unwrap().get(user_id).unwrap().send_state,
+            Some(EventSendState::NotSentYet { .. })
         );
 
         assert_pending!(stream);
@@ -147,8 +147,8 @@ async fn test_abort_before_being_sent() {
         let reactions = item.as_event().unwrap().content().reactions().cloned().unwrap_or_default();
         assert_eq!(reactions.len(), 1);
         assert_matches!(
-            &reactions.get("🥰").unwrap().get(user_id).unwrap().status,
-            ReactionStatus::LocalToRemote(_)
+            &reactions.get("🥰").unwrap().get(user_id).unwrap().send_state,
+            Some(EventSendState::NotSentYet { .. })
         );
 
         assert_pending!(stream);
@@ -337,7 +337,7 @@ async fn test_local_reaction_to_local_echo() {
         let reactions = item.content().reactions().cloned().unwrap_or_default();
         assert_eq!(reactions.len(), 1);
         let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
-        assert_matches!(&reaction_info.status, ReactionStatus::LocalToLocal(..));
+        assert_matches!(&reaction_info.send_state, Some(EventSendState::NotSentYet { .. }));
 
         assert_pending!(stream);
     }
@@ -359,7 +359,7 @@ async fn test_local_reaction_to_local_echo() {
         let reactions = item.content().reactions().cloned().unwrap_or_default();
         assert_eq!(reactions.len(), 2);
         let reaction_info = reactions.get(key2).unwrap().get(user_id).unwrap();
-        assert_matches!(&reaction_info.status, ReactionStatus::LocalToLocal(..));
+        assert_matches!(&reaction_info.send_state, Some(EventSendState::NotSentYet { .. }));
 
         assert_pending!(stream);
     }
@@ -380,7 +380,7 @@ async fn test_local_reaction_to_local_echo() {
         let reactions = item.content().reactions().cloned().unwrap_or_default();
         assert_eq!(reactions.len(), 1);
         let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
-        assert_matches!(&reaction_info.status, ReactionStatus::LocalToLocal(..));
+        assert_matches!(&reaction_info.send_state, Some(EventSendState::NotSentYet { .. }));
 
         assert_pending!(stream);
     }
@@ -400,8 +400,7 @@ async fn test_local_reaction_to_local_echo() {
         let reactions = item.content().reactions().cloned().unwrap_or_default();
         assert_eq!(reactions.len(), 1);
         let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
-        // TODO: why not LocalToRemote here?
-        assert_matches!(&reaction_info.status, ReactionStatus::LocalToLocal(..));
+        assert_matches!(&reaction_info.send_state, Some(EventSendState::NotSentYet { .. }));
 
         assert_pending!(stream);
     }
@@ -409,13 +408,13 @@ async fn test_local_reaction_to_local_echo() {
     assert_let_timeout!(Some(timeline_updates) = stream.next());
     assert!(!timeline_updates.is_empty());
 
-    // And then the remote echo for the reaction itself.
+    // And then the reaction itself is marked as sent.
     for timeline_update in timeline_updates {
         assert_let!(VectorDiff::Set { index: 1, value: item } = timeline_update);
         let reactions = item.as_event().unwrap().content().reactions().cloned().unwrap_or_default();
         assert_eq!(reactions.len(), 1);
         let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
-        assert_matches!(&reaction_info.status, ReactionStatus::RemoteToRemote(..));
+        assert_matches!(&reaction_info.send_state, Some(EventSendState::Sent { .. }));
     }
 
     // And we're done.
