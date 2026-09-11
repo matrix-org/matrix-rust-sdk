@@ -611,6 +611,15 @@ impl IdentitiesBeingVerified {
             secrets.push(ruma::events::secret::request::SecretName::RecoveryKey);
         }
 
+        // Also request the dehydrated device pickle key (MSC3814) if we don't have it,
+        // so that verifying a device hands it the dehydration key too
+        // (element-meta#2703).
+        if self.store.inner.load_dehydrated_device_pickle_key().await?.is_none() {
+            secrets.push(ruma::events::secret::request::SecretName::from(
+                crate::dehydrated_devices::DEHYDRATED_DEVICE_PICKLE_KEY_SECRET_NAME,
+            ));
+        }
+
         Ok(GossipMachine::request_missing_secrets(self.user_id(), secrets))
     }
 
