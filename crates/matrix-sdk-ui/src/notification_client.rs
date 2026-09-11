@@ -341,8 +341,10 @@ impl NotificationClient {
                 }
 
                 Some(Err(err)) => {
-                    warn!("Encryption sync error: {err:#}");
-                    return Ok(None);
+                    // The room key might have been persisted before this error was raised.
+                    // Don't exit directly so that redrycption is attempted one last time.
+                    warn!("Encryption sync error, attempting to decrypt one last time: {err:#}");
+                    true
                 }
 
                 None => {
