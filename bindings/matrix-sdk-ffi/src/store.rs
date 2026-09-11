@@ -222,10 +222,7 @@ mod sqlite {
             };
 
             if let Some(key) = self.key.as_deref() {
-                match key.try_into() {
-                    Ok(data) => sqlite_store_config = sqlite_store_config.key(Some(&data)),
-                    Err(_) => return Err(ClientBuildError::InvalidRawKey),
-                }
+                sqlite_store_config = sqlite_store_config.key(Some(key));
             } else if let Some(passphrase) = self.passphrase.as_deref() {
                 sqlite_store_config = sqlite_store_config.passphrase(Some(passphrase));
             } else if let Some(key) = self.high_entropy_passphrase.as_deref() {

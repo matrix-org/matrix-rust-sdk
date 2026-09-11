@@ -62,7 +62,7 @@ matrix_sdk_test_utils::init_tracing_for_tests!();
 #[derive(Clone, Debug, PartialEq, Zeroize, ZeroizeOnDrop)]
 pub enum Secret {
     // Cryptographic key used to open the store
-    Key(Box<[u8; 32]>),
+    Key(Zeroizing<Vec<u8>>),
     // Passphrase used to open the store, ideally human chosen
     PassPhrase(Zeroizing<String>),
     // Randomly generated passphrase, for which the store caches a
@@ -199,8 +199,12 @@ impl SqliteStoreConfig {
     /// Define the key if the store is encoded.
     ///
     /// Assumed to be high entropy so no derivation is run over it.
-    pub fn key(mut self, key: Option<&[u8; 32]>) -> Self {
-        self.secret = key.map(|key| Secret::Key(Box::new(*key)));
+    pub fn key(mut self, key: Option<&[u8]>) -> Self {
+        if let Some(key) = key {
+            let key = Zeroizing::new(key.to_vec());
+            self.secret = Some(Secret::Key(key));
+        }
+
         self
     }
 
@@ -329,6 +333,8 @@ mod tests {
         path::{Path, PathBuf},
     };
 
+    use zeroize::Zeroizing;
+
     use super::{POOL_MINIMUM_SIZE, Secret, SqliteStoreConfig};
 
     #[test]
@@ -383,7 +389,7 @@ mod tests {
         assert_eq!(store_config.path, PathBuf::from("foo"));
         assert_eq!(
             store_config.secret,
-            Some(Secret::Key(Box::new([
+            Some(Secret::Key(Zeroizing::new(vec![
                 143, 27, 202, 78, 96, 55, 13, 149, 247, 8, 33, 120, 204, 92, 171, 66, 19, 238, 61,
                 107, 132, 211, 40, 244, 71, 190, 99, 14, 173, 225, 6, 156,
             ])))
