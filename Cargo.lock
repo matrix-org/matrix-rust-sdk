@@ -3741,6 +3741,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.19",
  "tokio",
+ "tracing-core",
  "tracing-subscriber",
  "uniffi",
  "vergen-gitcl",
