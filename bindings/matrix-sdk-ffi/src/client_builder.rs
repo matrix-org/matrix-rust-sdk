@@ -95,8 +95,6 @@ pub enum ClientBuildError {
     Sdk(MatrixClientBuildError),
     #[error(transparent)]
     EventCache(#[from] EventCacheError),
-    #[error("The supplied raw key is invalid. Check it's a byte array of 32 bytes.")]
-    InvalidRawKey,
     #[error("Failed to build the client: {message}")]
     Generic { message: String },
 }

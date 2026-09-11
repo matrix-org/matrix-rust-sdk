@@ -25,7 +25,7 @@ crate-type = [
 default = ["bundled-sqlite", "unstable-msc4274", "experimental-element-recent-emojis", "experimental-push-secrets", "experimental-search", "rustls-aws-lc-rs"]
 experimental-search = ["matrix-sdk/experimental-search", "matrix-sdk-ui/experimental-search"]
 # Use SQLite for the session storage.
-sqlite = ["matrix-sdk/sqlite"]
+sqlite = ["matrix-sdk/sqlite", "dep:matrix-sdk-sqlite"]
 # Use an embedded version of SQLite.
 bundled-sqlite = ["sqlite", "matrix-sdk/bundled-sqlite"]
 # Use IndexedDB for the session storage.
@@ -68,6 +68,7 @@ matrix-sdk = { workspace = true, features = [
 matrix-sdk-base.workspace = true
 matrix-sdk-common.workspace = true
 matrix-sdk-ffi-macros.workspace = true
+matrix-sdk-sqlite = { workspace = true, optional = true, features = ["uniffi"] }
 matrix-sdk-contentscanner = { workspace = true, features = ["uniffi", "e2e-encryption"] }
 matrix-sdk-ui = { workspace = true, features = ["uniffi", "unstable-msc4426"] }
 matrix-sdk-crypto = { workspace = true, optional = true }

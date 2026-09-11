@@ -114,7 +114,7 @@ impl SqliteStateStore {
     /// key to encrypt private data.
     pub async fn open_with_key(
         path: impl AsRef<Path>,
-        key: Option<&[u8; 32]>,
+        key: Option<&[u8]>,
     ) -> Result<Self, OpenStoreError> {
         Self::open_with_config(&SqliteStoreConfig::new(path).key(key)).await
     }
@@ -2575,12 +2575,13 @@ mod encrypted_tests {
         },
     };
 
+    use base64::Engine as _;
     use matrix_sdk_base::{StateStore, StoreError, statestore_integration_tests};
     use matrix_sdk_test::async_test;
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteStateStore;
-    use crate::{SqliteStoreConfig, utils::SqliteAsyncConnExt};
+    use crate::{Base64Variant, SqliteStoreConfig, utils::SqliteAsyncConnExt};
 
     static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
@@ -2598,6 +2599,56 @@ mod encrypted_tests {
         Ok(SqliteStateStore::open(tmpdir_path.to_str().unwrap(), Some("default_test_password"))
             .await
             .unwrap())
+    }
+
+    /// The two passphrase methods are interchangeable in both directions.
+    #[async_test]
+    async fn test_high_entropy_passphrase_migrates_a_passphrase_store() {
+        const KEY: &[u8; 32] = b"a randomly generated passphrase ";
+        let tmpdir_path = new_state_store_workspace();
+
+        let passphrase = base64::prelude::BASE64_STANDARD.encode(KEY);
+
+        let config = SqliteStoreConfig::new(&tmpdir_path).passphrase(Some(&passphrase));
+        drop(SqliteStateStore::open_with_config(&config).await.unwrap());
+
+        // Migrates and caches the copy...
+        let config = SqliteStoreConfig::new(&tmpdir_path)
+            .high_entropy_passphrase(Some(KEY), Base64Variant::Padded);
+        drop(SqliteStateStore::open_with_config(&config).await.unwrap());
+
+        // ...which the next open uses.
+        drop(SqliteStateStore::open_with_config(&config).await.unwrap());
+
+        // The `cipher` entry was replaced, so the old passphrase can't work anymore.
+        let config = SqliteStoreConfig::new(&tmpdir_path).passphrase(Some(&passphrase));
+        drop(
+            SqliteStateStore::open_with_config(&config)
+                .await
+                .expect_err("The old passphrase-only method shouldn't work anymore"),
+        );
+
+        // The `cipher` entry was replaced, so now only high entropy or key work.
+        let config = SqliteStoreConfig::new(&tmpdir_path)
+            .high_entropy_passphrase(Some(KEY), Base64Variant::Padded);
+        drop(
+            SqliteStateStore::open_with_config(&config)
+                .await
+                .expect("The high-entropy method should continue to work"),
+        );
+
+        let config = SqliteStoreConfig::new(&tmpdir_path).key(Some(KEY));
+        drop(
+            SqliteStateStore::open_with_config(&config).await.expect("The key should work as well"),
+        );
+
+        let config = SqliteStoreConfig::new(&tmpdir_path).high_entropy_passphrase(
+            Some(b"wrong passphrase can't work 1234"),
+            Base64Variant::Padded,
+        );
+        assert!(SqliteStateStore::open_with_config(&config).await.is_err());
+        let config = SqliteStoreConfig::new(&tmpdir_path).passphrase(Some("wrong"));
+        assert!(SqliteStateStore::open_with_config(&config).await.is_err());
     }
 
     #[async_test]
