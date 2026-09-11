@@ -113,96 +113,104 @@ impl EncryptionSyncService {
         Ok(Self { client, sliding_sync })
     }
 
-    /// Runs an `EncryptionSyncService` loop for a fixed number of iterations.
+    /// Runs an `EncryptionSyncService` loop, yielding `Ok(())` after each
+    /// iteration so the caller can decide whether to continue or stop by
+    /// dropping the stream.
     ///
-    /// This runs for the given number of iterations, or less than that, if it
-    /// stops earlier or could not acquire a cross-process lock (if configured
-    /// with it).
+    /// Ends without yielding if the cross-process lock is configured but
+    /// can't be acquired (another process is expected to run the sync).
     ///
     /// Note: the [`EncryptionSyncPermit`] parameter ensures that there's at
     /// most one encryption sync running at any time. See its documentation
     /// for more details.
-    #[instrument(skip_all)]
-    pub async fn run_fixed_iterations(
+    pub fn run_iterations(
         self,
-        num_iterations: u8,
-        _permit: OwnedMutexGuard<EncryptionSyncPermit>,
-    ) -> Result<(), Error> {
-        let sync = self.sliding_sync.sync();
+        permit: OwnedMutexGuard<EncryptionSyncPermit>,
+    ) -> impl Stream<Item = Result<(), Error>> {
+        stream!({
+            // Move the permit into the stream, so that it's held for as long as the stream
+            // is alive.
+            let _permit = permit;
 
-        pin_mut!(sync);
+            let _lock_guard = if let CrossProcessLockConfig::MultiProcess { .. } =
+                self.client.cross_process_lock_config()
+            {
+                let mut lock_guard = match self.client.encryption().try_lock_store_once().await {
+                    Ok(lock_guard) => lock_guard,
+                    Err(err) => {
+                        yield Err(Error::LockError(err));
+                        return;
+                    }
+                };
 
-        let _lock_guard = if let CrossProcessLockConfig::MultiProcess { .. } =
-            self.client.cross_process_lock_config()
-        {
-            let mut lock_guard =
-                self.client.encryption().try_lock_store_once().await.map_err(Error::LockError)?;
-
-            // Try to take the lock at the beginning; if it's busy, that means that another
-            // process already holds onto it, and as such we won't try to run the
-            // encryption sync loop at all (because we expect the other process to
-            // do so).
-
-            if lock_guard.is_none() {
-                // If we can't acquire the cross-process lock on the first attempt,
-                // that means the main process is running, or its lease hasn't expired
-                // yet. In case it's the latter, wait a bit and retry.
-                tracing::debug!(
-                    "Lock was already taken, and we're not the main loop; retrying in {}ms...",
-                    LEASE_DURATION_MS
-                );
-
-                sleep(Duration::from_millis(LEASE_DURATION_MS.into())).await;
-
-                lock_guard = self
-                    .client
-                    .encryption()
-                    .try_lock_store_once()
-                    .await
-                    .map_err(Error::LockError)?;
+                // Try to take the lock at the beginning; if it's busy, that means that another
+                // process already holds onto it, and as such we won't try to run the
+                // encryption sync loop at all (because we expect the other process to
+                // do so).
 
                 if lock_guard.is_none() {
                     tracing::debug!(
-                        "Second attempt at locking outside the main app failed, aborting."
+                        "Lock was already taken, and we're not the main loop; retrying in {}ms...",
+                        LEASE_DURATION_MS
                     );
-                    return Ok(());
+
+                    sleep(Duration::from_millis(LEASE_DURATION_MS.into())).await;
+
+                    lock_guard = match self.client.encryption().try_lock_store_once().await {
+                        Ok(lock_guard) => lock_guard,
+                        Err(err) => {
+                            yield Err(Error::LockError(err));
+                            return;
+                        }
+                    };
+
+                    if lock_guard.is_none() {
+                        tracing::debug!(
+                            "Second attempt at locking outside the main app failed, aborting."
+                        );
+                        return;
+                    }
+                }
+
+                lock_guard
+            } else {
+                None
+            };
+
+            let sync = self.sliding_sync.sync();
+
+            pin_mut!(sync);
+
+            loop {
+                match sync.next().await {
+                    Some(Ok(update_summary)) => {
+                        // This API is only concerned with the e2ee and to-device extensions.
+                        // Warn if anything weird has been received from the homeserver.
+                        if !update_summary.lists.is_empty() {
+                            debug!(?update_summary.lists, "unexpected non-empty list of lists in encryption sync API");
+                        }
+                        if !update_summary.rooms.is_empty() {
+                            debug!(?update_summary.rooms, "unexpected non-empty list of rooms in encryption sync API");
+                        }
+
+                        // Cool cool, let's do it again.
+                        trace!("Encryption sync received an update!");
+                        yield Ok(());
+                    }
+
+                    Some(Err(err)) => {
+                        trace!("Encryption sync stopped because of an error: {err:#}");
+                        yield Err(Error::SlidingSync(err));
+                        break;
+                    }
+
+                    None => {
+                        trace!("Encryption sync properly terminated.");
+                        break;
+                    }
                 }
             }
-
-            lock_guard
-        } else {
-            None
-        };
-
-        for _ in 0..num_iterations {
-            match sync.next().await {
-                Some(Ok(update_summary)) => {
-                    // This API is only concerned with the e2ee and to-device extensions.
-                    // Warn if anything weird has been received from the homeserver.
-                    if !update_summary.lists.is_empty() {
-                        debug!(?update_summary.lists, "unexpected non-empty list of lists in encryption sync API");
-                    }
-                    if !update_summary.rooms.is_empty() {
-                        debug!(?update_summary.rooms, "unexpected non-empty list of rooms in encryption sync API");
-                    }
-
-                    // Cool cool, let's do it again.
-                    trace!("Encryption sync received an update!");
-                }
-
-                Some(Err(err)) => {
-                    trace!("Encryption sync stopped because of an error: {err:#}");
-                    return Err(Error::SlidingSync(err));
-                }
-
-                None => {
-                    trace!("Encryption sync properly terminated.");
-                    break;
-                }
-            }
-        }
-
-        Ok(())
+        })
     }
 
     /// Start synchronization.

@@ -116,15 +116,52 @@ impl NotificationClient {
     const CONNECTION_ID: &'static str = "notifications";
     const LOCK_ID: &'static str = "notifications";
 
-    /// Maximum time to wait for the main encryption sync to receive a
-    /// missing room key, in a [`NotificationProcessSetup::SingleProcess`]
-    /// setup where that sync is already running.
+    /// Maximum time spent waiting for a missing room key, when an event in a
+    /// notification can't be decrypted. Kept small, since we might be short on
+    /// time.
     ///
-    /// The value matches the time budget of the other path, where no encryption
-    /// sync is running and the notification client runs one itself, using two
-    /// sync iterations of the sync, each of which long-polls for up to
-    /// 3 seconds.
-    const RUNNING_SYNC_DECRYPTION_DEADLINE: Duration = Duration::from_secs(6);
+    /// This applies to both ways of obtaining the key, so that they give up
+    /// after the same amount of time:
+    ///
+    /// - When the notification client runs the encryption sync itself, this
+    ///   bounds the time spent running it, once at least
+    ///   [`Self::MIN_DECRYPTION_ITERATIONS`] have been run. Decryption is
+    ///   attempted after each iteration, so this only bounds the unsuccessful
+    ///   case: once the deadline has passed, no new iteration is started.
+    /// - In a [`NotificationProcessSetup::SingleProcess`] setup where the main
+    ///   encryption sync is already running, the notification client must not
+    ///   run a second one and waits for the running one to receive the key
+    ///   instead. The wait ends as soon as a key for the room is received, so
+    ///   this only bounds the case where the key doesn't arrive.
+    ///
+    /// In both cases, the event is returned undecrypted once the deadline has
+    /// passed.
+    const DECRYPTION_DEADLINE: Duration = Duration::from_secs(6);
+
+    /// Minimum number of encryption sync iterations to run when an event in a
+    /// notification can't be decrypted, before [`Self::DECRYPTION_DEADLINE`]
+    /// is considered.
+    ///
+    /// The first iteration sends the e2ee requests and receives pending
+    /// to-device messages; the second lets the homeserver forward what those
+    /// requests triggered.
+    const MIN_DECRYPTION_ITERATIONS: usize = 2;
+
+    /// Long-poll timeout of each request of the encryption sync run to obtain
+    /// a missing room key, i.e. how long the homeserver waits for a to-device
+    /// message to arrive before answering.
+    ///
+    /// Set so that [`Self::MIN_DECRYPTION_ITERATIONS`] full-length polls fit
+    /// exactly in [`Self::DECRYPTION_DEADLINE`]: when the homeserver has
+    /// nothing to return, the minimum iterations use up the whole deadline and
+    /// no further iteration is started.
+    const ENCRYPTION_SYNC_POLL_TIMEOUT: Duration =
+        Self::DECRYPTION_DEADLINE.checked_div(Self::MIN_DECRYPTION_ITERATIONS as u32).unwrap();
+
+    /// Extra time allowed for the network round trip of each request of the
+    /// encryption sync, on top of [`Self::ENCRYPTION_SYNC_POLL_TIMEOUT`].
+    /// This is an upper bound on how long a request may take.
+    const ENCRYPTION_SYNC_NETWORK_TIMEOUT: Duration = Duration::from_secs(4);
 
     /// Create a new notification client.
     pub async fn new(
@@ -245,17 +282,8 @@ impl NotificationClient {
         // Serialize calls to this function.
         let _guard = self.encryption_sync_mutex.lock().await;
 
-        // The message is still encrypted, and the client is configured to retry
-        // decryption.
-        //
-        // Spawn an `EncryptionSync` that runs two iterations of the sliding sync loop:
-        // - the first iteration allows to get SS events as well as send e2ee requests.
-        // - the second one let the SS homeserver forward events triggered by the
-        //   sending of e2ee requests.
-        //
-        // Keep timeouts small for both, since we might be short on time.
-
         let push_ctx = room.push_context().await?;
+
         let sync_permit_guard = match &self.process_setup {
             NotificationProcessSetup::MultipleProcesses => {
                 // We're running on our own process, dedicated for notifications. In that case,
@@ -279,50 +307,78 @@ impl NotificationClient {
             }
         };
 
-        let encryption_sync = EncryptionSyncService::new(
+        // Run an `EncryptionSync` loop, trying to decrypt the event after each
+        // iteration. The first one fetches SS events and sends e2ee requests; the
+        // rest let the homeserver forward events those requests triggered.
+        //
+        // Stop once the event is decrypted, or once the minimum number of
+        // iterations has run and the deadline has passed.
+
+        let encryption_sync = match EncryptionSyncService::new(
             self.client.clone(),
-            Some((Duration::from_secs(3), Duration::from_secs(4))),
+            Some((Self::ENCRYPTION_SYNC_POLL_TIMEOUT, Self::ENCRYPTION_SYNC_NETWORK_TIMEOUT)),
         )
-        .await;
-
-        // Just log out errors, but don't have them abort the notification processing:
-        // an undecrypted notification is still better than no
-        // notifications.
-
-        match encryption_sync {
-            Ok(sync) => match sync.run_fixed_iterations(2, sync_permit_guard).await {
-                // Note: We specify the cast type in case the
-                // `experimental-encrypted-state-events` feature is enabled, which provides
-                // multiple cast implementations.
-                Ok(()) => match room.decrypt_event(raw_event.cast_ref_unchecked::<OriginalSyncRoomEncryptedEvent>(), push_ctx.as_ref()).await {
-                    Ok(new_event) => match new_event.kind {
-                        matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt {
-                            utd_info, ..
-                        } => {
-                            trace!(
-                                "Encryption sync failed to decrypt the event: {:?}",
-                                utd_info.reason
-                            );
-                            Ok(None)
-                        }
-                        _ => {
-                            trace!("Encryption sync managed to decrypt the event.");
-                            Ok(Some(new_event))
-                        }
-                    },
-                    Err(err) => {
-                        trace!("Encryption sync failed to decrypt the event: {err}");
-                        Ok(None)
-                    }
-                },
-                Err(err) => {
-                    warn!("Encryption sync error: {err:#}");
-                    Ok(None)
-                }
-            },
+        .await
+        {
+            Ok(encryption_sync) => encryption_sync,
             Err(err) => {
-                warn!("Encryption sync build error: {err:#}",);
-                Ok(None)
+                warn!("Encryption sync build error: {err:#}");
+                return Ok(None);
+            }
+        };
+
+        let deadline = Instant::now() + Self::DECRYPTION_DEADLINE;
+        let iterations = encryption_sync.run_iterations(sync_permit_guard);
+        pin_mut!(iterations);
+
+        let mut num_iterations = 0;
+
+        loop {
+            let sync_ended = match iterations.next().await {
+                Some(Ok(())) => {
+                    num_iterations += 1;
+                    false
+                }
+
+                Some(Err(err)) => {
+                    // The room key might have been persisted before this error was raised.
+                    // Don't exit directly so that redrycption is attempted one last time.
+                    warn!("Encryption sync error, attempting to decrypt one last time: {err:#}");
+                    true
+                }
+
+                None => {
+                    // The sync terminated, or the cross-process lock is held by the main app,
+                    // which may well have fetched the room key itself in the meantime: attempt
+                    // to decrypt one last time.
+                    trace!("Encryption sync ended, attempting to decrypt one last time");
+                    true
+                }
+            };
+
+            match try_decrypt(room, raw_event, push_ctx.as_ref()).await {
+                Ok(DecryptionAttempt::Decrypted(new_event)) => {
+                    trace!("Encryption sync managed to decrypt the event.");
+                    return Ok(Some(new_event));
+                }
+                Ok(DecryptionAttempt::MissingRoomKey) => {
+                    if sync_ended {
+                        debug!("Encryption sync ended and the room key is still missing.");
+                        return Ok(None);
+                    }
+                    if num_iterations >= Self::MIN_DECRYPTION_ITERATIONS
+                        && Instant::now() >= deadline
+                    {
+                        debug!("Deadline reached while waiting for the room key, giving up.");
+                        return Ok(None);
+                    }
+                    trace!("Still missing the room key, running another encryption sync iteration");
+                }
+                Ok(DecryptionAttempt::Unrecoverable) => return Ok(None),
+                Err(err) => {
+                    trace!("Encryption sync failed to decrypt the event: {err}");
+                    return Ok(None);
+                }
             }
         }
     }
@@ -335,7 +391,7 @@ impl NotificationClient {
     /// must not run a second one.
     ///
     /// Returns `Ok(None)` if no key for the room has been received within
-    /// [`Self::RUNNING_SYNC_DECRYPTION_DEADLINE`], or if the event can't be
+    /// [`Self::DECRYPTION_DEADLINE`], or if the event can't be
     /// decrypted for another reason.
     async fn wait_for_room_key(
         &self,
@@ -358,7 +414,7 @@ impl NotificationClient {
         };
         pin_mut!(room_keys);
 
-        let deadline = Instant::now() + Self::RUNNING_SYNC_DECRYPTION_DEADLINE;
+        let deadline = Instant::now() + Self::DECRYPTION_DEADLINE;
 
         loop {
             match try_decrypt(room, raw_event, push_ctx).await? {
