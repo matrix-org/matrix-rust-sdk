@@ -1350,9 +1350,17 @@ impl StateStore for SqliteStateStore {
                 }
 
                 for (room_id, room_info) in room_infos {
-                    let stripped = room_info.state() == RoomState::Invited;
-                    // Remove non-stripped data for stripped rooms and vice-versa.
-                    this.remove_maybe_stripped_room_data(txn, &room_id, !stripped)?;
+                    // Invited and knocked rooms only have stripped state.
+                    let stripped = matches!(room_info.state(), RoomState::Invited | RoomState::Knocked);
+
+                    // Once the room state isn't invited or knocking, we can drop its stripped state.
+                    // If we haven't joined it but we do have real state, we can replace it
+                    // with the stripped state (only if said stripped state is available).
+                    // Otherwise, we would end up deleting the room's state events and members,
+                    // which is obviously bad and undesirable.
+                    if !stripped || stripped_state.contains_key(&room_id) {
+                        this.remove_maybe_stripped_room_data(txn, &room_id, !stripped)?;
+                    }
 
                     let room_id = this.encode_key(keys::ROOM_INFO, room_id);
                     let state = this
@@ -2560,6 +2568,68 @@ mod tests {
         tracing::info!("using store @ {}", tmpdir_path.to_str().unwrap());
 
         Ok(SqliteStateStore::open(tmpdir_path.to_str().unwrap(), None).await.unwrap())
+    }
+
+    /// Specific to this store, which keys stripped storage off the room state,
+    /// so it can't live in `statestore_integration_tests!`.
+    #[matrix_sdk_test::async_test]
+    async fn test_stripped_data_is_dropped_once_the_room_is_joined() {
+        use matrix_sdk_base::{
+            RoomInfo, RoomMemberships, RoomState, StateChanges, store::StateStoreExt,
+        };
+        use ruma::{
+            events::{
+                StateEventType,
+                room::member::{MembershipState, RoomMemberEventContent},
+            },
+            room_id,
+            serde::Raw,
+            user_id,
+        };
+
+        let store = get_store().await.unwrap();
+        let room_id = room_id!("!test_stripped_data_is_dropped:localhost");
+        let user_id = user_id!("@u:localhost");
+
+        // Invited: all we know about the room is its stripped state.
+        let member: Raw<ruma::events::room::member::StrippedRoomMemberEvent> =
+            Raw::new(&serde_json::json!({
+                "type": "m.room.member",
+                "content": RoomMemberEventContent::new(MembershipState::Invite),
+                "sender": "@inviter:localhost",
+                "state_key": user_id,
+            }))
+            .unwrap()
+            .cast_unchecked();
+
+        let mut changes = StateChanges::default();
+        changes.add_stripped_member(room_id, user_id, member);
+        changes.add_room(RoomInfo::new(room_id, RoomState::Invited));
+        store.save_changes(&changes).await.unwrap();
+
+        assert!(store.get_member_event(room_id, user_id).await.unwrap().is_some());
+
+        // Accepting the invite: `BaseClient::room_joined` saves the room info and
+        // nothing else.
+        let mut changes = StateChanges::default();
+        changes.add_room(RoomInfo::new(room_id, RoomState::Joined));
+        store.save_changes(&changes).await.unwrap();
+
+        assert!(
+            store.get_member_event(room_id, user_id).await.unwrap().is_none(),
+            "the stripped member event must be dropped once the room is joined"
+        );
+        assert!(
+            store.get_user_ids(room_id, RoomMemberships::empty()).await.unwrap().is_empty(),
+            "the stripped member must no longer be listed"
+        );
+        assert!(
+            store
+                .get_state_event(room_id, StateEventType::RoomMember, user_id.as_str())
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     statestore_integration_tests!();
