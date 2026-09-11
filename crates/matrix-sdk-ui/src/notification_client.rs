@@ -81,6 +81,76 @@ pub enum NotificationProcessSetup {
     SingleProcess { sync_service: Arc<SyncService> },
 }
 
+/// Timeouts applied by a [`NotificationClient`] while fetching the content of
+/// notifications.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NotificationTimeouts {
+    /// Long-poll timeout of the sliding sync request retrieving the notified
+    /// events, i.e. how long the homeserver waits for the events to be
+    /// available before answering.
+    pub sync_poll_timeout: Duration,
+
+    /// Extra time allowed for the network round trip of the sliding sync
+    /// request retrieving the notified events, on top of
+    /// [`Self::sync_poll_timeout`].
+    pub sync_network_timeout: Duration,
+
+    /// Maximum time spent waiting for a missing room key, when an event in a
+    /// notification can't be decrypted.
+    ///
+    /// This applies to both ways of obtaining the key, so that they give up
+    /// after the same amount of time:
+    ///
+    /// - When the notification client runs the encryption sync itself, this
+    ///   bounds the time spent running it, once a minimum number of iterations
+    ///   (currently two) have been run. Decryption is attempted after each
+    ///   iteration, so this only bounds the unsuccessful case: once the
+    ///   deadline has passed, no new iteration is started.
+    /// - In a [`NotificationProcessSetup::SingleProcess`] setup where the main
+    ///   encryption sync is already running, the notification client must not
+    ///   run a second one and waits for the running one to receive the key
+    ///   instead. The wait ends as soon as a key for the room is received, so
+    ///   this only bounds the case where the key doesn't arrive.
+    ///
+    /// In both cases, the event is returned undecrypted once the deadline has
+    /// passed.
+    pub decryption_deadline: Duration,
+
+    /// Long-poll timeout of each request of the encryption sync run to obtain
+    /// a missing room key, i.e. how long the homeserver waits for a to-device
+    /// message to arrive before answering.
+    ///
+    /// Only applies when the notification client runs the encryption sync
+    /// itself. Together with [`Self::decryption_deadline`], this determines how
+    /// many iterations are run when the homeserver has nothing to return.
+    pub encryption_sync_poll_timeout: Duration,
+
+    /// Extra time allowed for the network round trip of each request of the
+    /// encryption sync, on top of [`Self::encryption_sync_poll_timeout`]. This
+    /// is an upper bound on how long a request may take.
+    pub encryption_sync_network_timeout: Duration,
+}
+
+impl Default for NotificationTimeouts {
+    /// Conservative defaults, kept small since a push handler might be short on
+    /// time.
+    fn default() -> Self {
+        let decryption_deadline = Duration::from_secs(6);
+
+        Self {
+            sync_poll_timeout: Duration::from_secs(1),
+            sync_network_timeout: Duration::from_secs(3),
+            decryption_deadline,
+            // Set so that the minimum number of encryption sync iterations, when the
+            // homeserver has nothing to return, use up the whole deadline and no further
+            // iteration is started.
+            encryption_sync_poll_timeout: decryption_deadline
+                / NotificationClient::MIN_DECRYPTION_ITERATIONS as u32,
+            encryption_sync_network_timeout: Duration::from_secs(4),
+        }
+    }
+}
+
 /// A client specialized for handling push notifications received over the
 /// network, for an app.
 ///
@@ -110,58 +180,24 @@ pub struct NotificationClient {
     ///
     /// Same reasoning as [`Self::notification_sync_mutex`].
     encryption_sync_mutex: AsyncMutex<()>,
+
+    /// Timeouts applied while fetching notifications. See
+    /// [`Self::with_timeouts`].
+    timeouts: NotificationTimeouts,
 }
 
 impl NotificationClient {
     const CONNECTION_ID: &'static str = "notifications";
     const LOCK_ID: &'static str = "notifications";
 
-    /// Maximum time spent waiting for a missing room key, when an event in a
-    /// notification can't be decrypted. Kept small, since we might be short on
-    /// time.
-    ///
-    /// This applies to both ways of obtaining the key, so that they give up
-    /// after the same amount of time:
-    ///
-    /// - When the notification client runs the encryption sync itself, this
-    ///   bounds the time spent running it, once at least
-    ///   [`Self::MIN_DECRYPTION_ITERATIONS`] have been run. Decryption is
-    ///   attempted after each iteration, so this only bounds the unsuccessful
-    ///   case: once the deadline has passed, no new iteration is started.
-    /// - In a [`NotificationProcessSetup::SingleProcess`] setup where the main
-    ///   encryption sync is already running, the notification client must not
-    ///   run a second one and waits for the running one to receive the key
-    ///   instead. The wait ends as soon as a key for the room is received, so
-    ///   this only bounds the case where the key doesn't arrive.
-    ///
-    /// In both cases, the event is returned undecrypted once the deadline has
-    /// passed.
-    const DECRYPTION_DEADLINE: Duration = Duration::from_secs(6);
-
     /// Minimum number of encryption sync iterations to run when an event in a
-    /// notification can't be decrypted, before [`Self::DECRYPTION_DEADLINE`]
-    /// is considered.
+    /// notification can't be decrypted, before
+    /// [`NotificationTimeouts::decryption_deadline`] is considered.
     ///
     /// The first iteration sends the e2ee requests and receives pending
     /// to-device messages; the second lets the homeserver forward what those
     /// requests triggered.
     const MIN_DECRYPTION_ITERATIONS: usize = 2;
-
-    /// Long-poll timeout of each request of the encryption sync run to obtain
-    /// a missing room key, i.e. how long the homeserver waits for a to-device
-    /// message to arrive before answering.
-    ///
-    /// Set so that [`Self::MIN_DECRYPTION_ITERATIONS`] full-length polls fit
-    /// exactly in [`Self::DECRYPTION_DEADLINE`]: when the homeserver has
-    /// nothing to return, the minimum iterations use up the whole deadline and
-    /// no further iteration is started.
-    const ENCRYPTION_SYNC_POLL_TIMEOUT: Duration =
-        Self::DECRYPTION_DEADLINE.checked_div(Self::MIN_DECRYPTION_ITERATIONS as u32).unwrap();
-
-    /// Extra time allowed for the network round trip of each request of the
-    /// encryption sync, on top of [`Self::ENCRYPTION_SYNC_POLL_TIMEOUT`].
-    /// This is an upper bound on how long a request may take.
-    const ENCRYPTION_SYNC_NETWORK_TIMEOUT: Duration = Duration::from_secs(4);
 
     /// Create a new notification client.
     pub async fn new(
@@ -183,7 +219,19 @@ impl NotificationClient {
             notification_sync_mutex: AsyncMutex::new(()),
             encryption_sync_mutex: AsyncMutex::new(()),
             process_setup,
+            timeouts: NotificationTimeouts::default(),
         })
+    }
+
+    /// Overrides the timeouts applied while fetching notifications.
+    pub fn with_timeouts(mut self, timeouts: NotificationTimeouts) -> Self {
+        self.timeouts = timeouts;
+        self
+    }
+
+    /// Returns the timeouts applied while fetching notifications.
+    pub fn timeouts(&self) -> &NotificationTimeouts {
+        &self.timeouts
     }
 
     /// Fetches a room by its ID using the in-memory state store backed client.
@@ -316,7 +364,10 @@ impl NotificationClient {
 
         let encryption_sync = match EncryptionSyncService::new(
             self.client.clone(),
-            Some((Self::ENCRYPTION_SYNC_POLL_TIMEOUT, Self::ENCRYPTION_SYNC_NETWORK_TIMEOUT)),
+            Some((
+                self.timeouts.encryption_sync_poll_timeout,
+                self.timeouts.encryption_sync_network_timeout,
+            )),
         )
         .await
         {
@@ -327,7 +378,7 @@ impl NotificationClient {
             }
         };
 
-        let deadline = Instant::now() + Self::DECRYPTION_DEADLINE;
+        let deadline = Instant::now() + self.timeouts.decryption_deadline;
         let iterations = encryption_sync.run_iterations(sync_permit_guard);
         pin_mut!(iterations);
 
@@ -391,7 +442,7 @@ impl NotificationClient {
     /// must not run a second one.
     ///
     /// Returns `Ok(None)` if no key for the room has been received within
-    /// [`Self::DECRYPTION_DEADLINE`], or if the event can't be
+    /// [`NotificationTimeouts::decryption_deadline`], or if the event can't be
     /// decrypted for another reason.
     async fn wait_for_room_key(
         &self,
@@ -414,7 +465,7 @@ impl NotificationClient {
         };
         pin_mut!(room_keys);
 
-        let deadline = Instant::now() + Self::DECRYPTION_DEADLINE;
+        let deadline = Instant::now() + self.timeouts.decryption_deadline;
 
         loop {
             match try_decrypt(room, raw_event, push_ctx).await? {
@@ -625,8 +676,8 @@ impl NotificationClient {
         let sync = self
             .client
             .sliding_sync(Self::CONNECTION_ID)?
-            .poll_timeout(Duration::from_secs(1))
-            .network_timeout(Duration::from_secs(3))
+            .poll_timeout(self.timeouts.sync_poll_timeout)
+            .network_timeout(self.timeouts.sync_network_timeout)
             .with_account_data_extension(
                 assign!(http::request::AccountData::default(), { enabled: Some(true) }),
             )
