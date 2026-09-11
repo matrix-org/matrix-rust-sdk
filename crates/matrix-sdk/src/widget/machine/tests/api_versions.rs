@@ -53,6 +53,7 @@ fn test_get_supported_api_versions() {
                     "org.matrix.msc3819",
                     "org.matrix.msc4039",
                     "org.matrix.msc4515",
+                    "org.matrix.msc4533",
                 ]
             },
         }),

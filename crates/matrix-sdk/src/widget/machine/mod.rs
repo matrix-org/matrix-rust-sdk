@@ -58,7 +58,10 @@ use crate::{
     Error, Result,
     widget::{
         Filter,
-        capabilities::{DOWNLOAD_FILE, RTC_TRANSPORTS},
+        capabilities::{
+            DOWNLOAD_FILE, RTC_LIVEKIT_DELEGATE_DELAYED_LEAVE, RTC_LIVEKIT_GET_TOKEN,
+            RTC_TRANSPORTS,
+        },
         machine::driver_req::DownloadFileRequest,
     },
 };
@@ -73,8 +76,14 @@ mod tests;
 mod to_widget;
 
 pub(crate) use self::{
-    driver_req::{MatrixDriverRequestData, SendEventRequest, SendToDeviceRequest},
-    from_widget::{DownloadFileResponse, SendEventResponse, SendToDeviceEventResponse},
+    driver_req::{
+        MatrixDriverRequestData, RtcLivekitDelegateDelayedLeaveRequest, RtcLivekitGetTokenRequest,
+        SendEventRequest, SendToDeviceRequest,
+    },
+    from_widget::{
+        DownloadFileResponse, RtcLivekitDelegateDelayedLeaveResponse, RtcLivekitGetTokenResponse,
+        SendEventResponse, SendToDeviceEventResponse,
+    },
     incoming::{IncomingMessage, MatrixDriverResponse},
 };
 
@@ -395,6 +404,14 @@ impl WidgetMachine {
                 .unwrap_or_default(),
             FromWidgetRequest::GetRtcTransports {} => self
                 .process_get_rtc_transports_request(raw_request)
+                .map(|a| vec![a])
+                .unwrap_or_default(),
+            FromWidgetRequest::RtcLivekitGetToken(req) => self
+                .process_rtc_livekit_get_token_request(req, raw_request)
+                .map(|a| vec![a])
+                .unwrap_or_default(),
+            FromWidgetRequest::RtcLivekitDelegateDelayedLeave(req) => self
+                .process_rtc_livekit_delegate_delayed_leave_request(req, raw_request)
                 .map(|a| vec![a])
                 .unwrap_or_default(),
         }
@@ -957,6 +974,69 @@ impl WidgetMachine {
         }
 
         let (request, action) = self.send_matrix_driver_request(RequestRtcTransports)?;
+
+        request.add_response_handler(|result, _| {
+            vec![Self::send_from_widget_response(
+                raw_request,
+                result.map_err(FromWidgetErrorResponse::from_error),
+            )]
+        });
+        Some(action)
+    }
+
+    fn process_rtc_livekit_get_token_request(
+        &mut self,
+        req: RtcLivekitGetTokenRequest,
+        raw_request: Raw<FromWidgetRequest>,
+    ) -> Option<Action> {
+        let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
+            return Some(Self::send_from_widget_error_string_response(
+                raw_request,
+                "Received RTC LiveKit get token request before capabilities negotiation",
+            ));
+        };
+
+        if !capabilities.rtc_livekit_get_token {
+            return Some(Self::send_from_widget_error_string_response(
+                raw_request,
+                format!("Not allowed: missing the {RTC_LIVEKIT_GET_TOKEN} capability."),
+            ));
+        }
+
+        let (request, action) = self.send_matrix_driver_request(req)?;
+
+        request.add_response_handler(|result, _| {
+            vec![Self::send_from_widget_response(
+                raw_request,
+                result.map_err(FromWidgetErrorResponse::from_error),
+            )]
+        });
+        Some(action)
+    }
+
+    fn process_rtc_livekit_delegate_delayed_leave_request(
+        &mut self,
+        req: RtcLivekitDelegateDelayedLeaveRequest,
+        raw_request: Raw<FromWidgetRequest>,
+    ) -> Option<Action> {
+        let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
+            return Some(Self::send_from_widget_error_string_response(
+                raw_request,
+                "Received RTC LiveKit delegate delayed leave request before capabilities \
+                 negotiation",
+            ));
+        };
+
+        if !capabilities.rtc_livekit_delegate_delayed_leave {
+            return Some(Self::send_from_widget_error_string_response(
+                raw_request,
+                format!(
+                    "Not allowed: missing the {RTC_LIVEKIT_DELEGATE_DELAYED_LEAVE} capability."
+                ),
+            ));
+        }
+
+        let (request, action) = self.send_matrix_driver_request(req)?;
 
         request.add_response_handler(|result, _| {
             vec![Self::send_from_widget_response(

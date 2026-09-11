@@ -69,7 +69,7 @@ rcgen = { version = "0.14.8", default-features = false }
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode-perl"] }
 reqwest = { version = "0.13.1", default-features = false }
 rmp-serde = { version = "1.3.1", default-features = false }
-ruma = { git = "https://github.com/ruma/ruma", rev = "0908aaa9847093ecb32bc6edf0af525f726717fd", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "b3d44d209a1a087332945fd435201376ff48cffd", features = [
     "client-api-c",
     "compat-unset-avatar",
     "compat-upload-signatures",
@@ -254,6 +254,17 @@ async-compat = { git = "https://github.com/element-hq/async-compat", rev = "5a27
 const_panic = { git = "https://github.com/jplatte/const_panic", rev = "e0b317a9a7bde2d48a7d15b6a60d70e4a41d3b5f" }
 
 [patch."https://github.com/ruma/ruma"]
-# Needed to disable checksums since they're incorrect in 32bit devices.
-# Delete this once https://github.com/mozilla/uniffi-rs/issues/2939 is fixed.
-ruma = { git = "https://github.com/matrix-org/ruma", rev = "bf21677a8fcba04fd01e341809eb5991908441a2" }
+# Points at https://github.com/ruma/ruma/pull/2570, which adds the MSC4195
+# LiveKit endpoints the widget driver delegates to. Swap this back to
+# `ruma/ruma` once that PR has been merged.
+#
+# NOTE: this temporarily drops the JNA checksum workaround that
+# `matrix-org/ruma` carried on top of `ruma/ruma`:
+#
+#     ruma = { git = "https://github.com/matrix-org/ruma", rev = "bf21677a8fcba04fd01e341809eb5991908441a2" }
+#
+# That fork only adds `crates/ruma-events/uniffi.toml` with
+# `omit_checksums = true`, because checksums are incorrect on 32bit devices.
+# It needs to be restored (here or on top of the PR branch) before shipping
+# Kotlin bindings. See https://github.com/mozilla/uniffi-rs/issues/2939.
+ruma = { git = "https://github.com/toger5/ruma", rev = "b3d44d209a1a087332945fd435201376ff48cffd" }
