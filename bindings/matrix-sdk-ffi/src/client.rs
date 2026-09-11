@@ -139,7 +139,7 @@ use crate::{
     live_locations_observer::BeaconInfoUpdate,
     notification::{
         NotificationClient, NotificationEvent, NotificationItem, NotificationRoomInfo,
-        NotificationSenderInfo,
+        NotificationSenderInfo, NotificationTimeouts,
     },
     notification_settings::NotificationSettings,
     qr_code::{GrantLoginWithQrCodeHandler, LoginWithQrCodeHandler},
@@ -1769,6 +1769,10 @@ impl Client {
         UserProfile::fetch(&self.inner.account(), user_id).await
     }
 
+    /// Creates a client specialised in fetching the content of push
+    /// notifications, using the default `NotificationTimeouts`.
+    ///
+    /// See `Client::notification_client_with_timeouts` to override them.
     pub async fn notification_client(
         self: Arc<Self>,
         process_setup: NotificationProcessSetup,
@@ -1778,6 +1782,22 @@ impl Client {
                 .await?,
             client: self.clone(),
         }))
+    }
+
+    /// Creates a client specialised in fetching the content of push
+    /// notifications, with custom `NotificationTimeouts`.
+    ///
+    /// The timeouts are fixed for the lifetime of the returned client.
+    pub async fn notification_client_with_timeouts(
+        self: Arc<Self>,
+        process_setup: NotificationProcessSetup,
+        timeouts: NotificationTimeouts,
+    ) -> Result<Arc<NotificationClient>, ClientError> {
+        let inner = MatrixNotificationClient::new((*self.inner).clone(), process_setup.into())
+            .await?
+            .with_timeouts(timeouts.into());
+
+        Ok(Arc::new(NotificationClient { inner, client: self.clone() }))
     }
 
     pub fn sync_service(&self) -> Arc<SyncServiceBuilder> {
