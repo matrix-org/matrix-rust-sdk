@@ -141,23 +141,12 @@ pub(crate) trait SqliteAsyncConnExt {
         Res: Send + 'static,
         Query: Fn(&Transaction<'_>, ChunkFromLargeQuery<Key>) -> Result<Vec<Res>> + Send + 'static;
 
-    /// Apply the [`RuntimeConfig`].
-    ///
-    /// It will call the `Self::optimize`, `Self::cache_size` or
-    /// `Self::journal_size_limit` methods automatically based on the
-    /// `RuntimeConfig` values.
-    ///
-    /// It is possible to call these methods individually though. This
-    /// `apply_runtime_config` method allows to automate this process.
+    /// Apply the database-wide part of the [`RuntimeConfig`]; the
+    /// per-connection pragmas are applied by [`crate::connection::Manager`].
     async fn apply_runtime_config(&self, runtime_config: RuntimeConfig) -> Result<()> {
-        let RuntimeConfig { optimize, cache_size, journal_size_limit } = runtime_config;
-
-        if optimize {
+        if runtime_config.optimize {
             self.optimize().await?;
         }
-
-        self.cache_size(cache_size).await?;
-        self.journal_size_limit(journal_size_limit).await?;
 
         Ok(())
     }
@@ -173,42 +162,6 @@ pub(crate) trait SqliteAsyncConnExt {
     /// [`PRAGMA cache_size`]: https://www.sqlite.org/pragma.html#pragma_optimize
     async fn optimize(&self) -> Result<()> {
         self.execute_batch("PRAGMA optimize = 0x10002;").await?;
-        Ok(())
-    }
-
-    /// Define the maximum size in **bytes** the SQLite cache can use.
-    ///
-    /// See [`PRAGMA cache_size`] to learn more.
-    ///
-    /// [`PRAGMA cache_size`]: https://www.sqlite.org/pragma.html#pragma_cache_size
-    async fn cache_size(&self, cache_size: u32) -> Result<()> {
-        // `N` in `PRAGMA cache_size = -N` is expressed in kibibytes.
-        // `cache_size` is expressed in bytes. Let's convert.
-        let n = cache_size / 1024;
-
-        self.execute_batch(format!("PRAGMA cache_size = -{n};")).await?;
-        Ok(())
-    }
-
-    /// Limit the size of the WAL file, in **bytes**.
-    ///
-    /// By default, while the DB connections of the databases are open, [the
-    /// size of the WAL file can keep increasing][size_wal_file] depending on
-    /// the size needed for the transactions. A critical case is `VACUUM`
-    /// which basically writes the content of the DB file to the WAL file
-    /// before writing it back to the DB file, so we end up taking twice the
-    /// size of the database.
-    ///
-    /// By setting this limit, the WAL file is truncated after its content is
-    /// written to the database, if it is bigger than the limit.
-    ///
-    /// See [`PRAGMA journal_size_limit`] to learn more. The value `limit`
-    /// corresponds to `N` in `PRAGMA journal_size_limit = N`.
-    ///
-    /// [size_wal_file]: https://www.sqlite.org/wal.html#avoiding_excessively_large_wal_files
-    /// [`PRAGMA journal_size_limit`]: https://www.sqlite.org/pragma.html#pragma_journal_size_limit
-    async fn journal_size_limit(&self, limit: u32) -> Result<()> {
-        self.execute_batch(format!("PRAGMA journal_size_limit = {limit};")).await?;
         Ok(())
     }
 
