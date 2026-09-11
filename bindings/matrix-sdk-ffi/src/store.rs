@@ -113,13 +113,22 @@ mod sqlite {
             Arc::new(builder)
         }
 
-        /// Set the passphrase for the stores, declaring it randomly generated
-        /// rather than human-chosen, and removes any [`Self::key`] previously
-        /// set. Do NOT use it with human-chosen passphrases as they would lose
-        /// their brute-force protection.
+        /// Define the passphrase if the store is encoded, declaring that it was
+        /// randomly generated rather than chosen by a human.
         ///
-        /// Interchangeable with [`Self::passphrase`] so a client with a
-        /// randomly generated passphrase migrates by calling this instead.
+        /// Do NOT use this with human-chosen passphrases, as doing so would
+        /// remove their brute-force protection.
+        ///
+        /// This migrates a passphrase-based store whose passphrase was created
+        /// by base64-encoding a randomly generated key to a key-based
+        /// setup.
+        ///
+        /// Once this function has been called,
+        /// [`SqliteStoreBuilder::passphrase`] can no longer be used with
+        /// the passphrase.
+        ///
+        /// [`SqliteStoreBuilder::key`] can be used with the original key,
+        /// before it was base64-encoded.
         pub fn high_entropy_passphrase(
             self: Arc<Self>,
             passphrase: Option<Vec<u8>>,

@@ -175,14 +175,20 @@ impl SqliteStoreConfig {
         self
     }
 
-    /// Define the passphrase if the store is encoded, declaring it randomly
-    /// generated rather than human-chosen.
+    /// Define the passphrase if the store is encoded, declaring that it was
+    /// randomly generated rather than chosen by a human.
     ///
-    /// Do NOT use it with human-chosen passphrases as they would lose their
-    /// brute-force protection.
+    /// Do NOT use this with human-chosen passphrases, as doing so would remove
+    /// their brute-force protection.
     ///
-    /// interchangeable with [`SqliteStoreConfig::passphrase`] so a client with
-    /// a randomly generated passphrase migrates by calling this instead
+    /// This migrates a passphrase-based store whose passphrase was created by
+    /// base64-encoding a randomly generated key to a key-based setup.
+    ///
+    /// Once this function has been called, [`SqliteStoreConfig::passphrase`]
+    /// can no longer be used with the passphrase.
+    ///
+    /// [`SqliteStoreConfig::key`] can be used with the original key, before it
+    /// was base64-encoded.
     pub fn high_entropy_passphrase(
         mut self,
         passphrase: Option<&[u8]>,
