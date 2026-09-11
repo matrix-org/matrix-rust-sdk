@@ -110,6 +110,7 @@ tempfile = { version = "3.27.0", default-features = false }
 thiserror = { version = "2.0.19", default-features = false }
 tokio = { version = "1.53.1", default-features = false, features = ["sync"] }
 tokio-stream = { version = "0.1.19", default-features = false }
+tokio-util = "0.7.19"
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 tracing-appender = { version = "0.2.5", default-features = false }
 tracing-core = { version = "0.1.36", default-features = false }
