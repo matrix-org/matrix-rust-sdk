@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [Unreleased] - ReleaseDate
+
+### Fixed
+
+- `Client::subscribe_to_all_room_updates` no longer broadcasts empty
+  `RoomUpdates`, e.g. from a sliding sync without lists. Use `sync_once` or
+  `sync_stream` if you need to be notified of every sync.
+  ([#7024](https://github.com/matrix-org/matrix-rust-sdk/pull/7024))
+
 ## [0.18.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.18.0) - 2026-06-02
 
 ### Added

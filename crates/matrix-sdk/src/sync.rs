@@ -188,8 +188,11 @@ impl Client {
         self.handle_sync_events(HandlerKind::Presence, None, presence).await?;
         self.handle_sync_to_device_events(to_device).await?;
 
-        // Ignore errors when there are no receivers.
-        let _ = self.inner.room_updates_sender.send(rooms.clone());
+        // A sliding sync without lists lands here with no rooms, and broadcasting those
+        // evicts real updates. Ignore errors when there are no receivers.
+        if !rooms.is_empty() {
+            let _ = self.inner.room_updates_sender.send(rooms.clone());
+        }
 
         for (room_id, room_info) in &rooms.joined {
             let Some(room) = self.get_room(room_id) else {
