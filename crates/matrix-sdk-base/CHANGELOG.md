@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [Unreleased] - ReleaseDate
+
+### Fixed
+
+- Room account data that is empty for a given room no longer produces a
+  `JoinedRoomUpdate`/`LeftRoomUpdate` for that room. A server that returns an
+  account data entry for every room in a list's range would otherwise turn a
+  single-room sync response into a `RoomUpdates` covering every room, making the
+  event cache do a per-room state-lock and store write for rooms with no new
+  data. ([#7024](https://github.com/matrix-org/matrix-rust-sdk/pull/7024))
+
 ## [0.18.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.18.0) - 2026-06-02
 
 ### Added

@@ -64,6 +64,13 @@ pub fn room_account_data(
     state_store: &BaseStateStore,
 ) {
     for (room_id, raw) in &account_data.rooms {
+        // A server may send an entry for every room in a list's range, most of them
+        // empty. Creating a room update for those makes the event cache do a full
+        // per-room state-lock and store write for a room that has no new data.
+        if raw.is_empty() {
+            continue;
+        }
+
         account_data_for_room(context, room_id, raw, state_store);
 
         if let Some(room) = state_store.room(room_id) {
