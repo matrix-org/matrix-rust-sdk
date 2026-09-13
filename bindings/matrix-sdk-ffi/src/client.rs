@@ -77,8 +77,8 @@ use matrix_sdk_ui::{
 use mime::Mime;
 use oauth2::Scope;
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedMxcUri, OwnedServerName, RoomAliasId,
-    RoomOrAliasId, ServerName,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedMxcUri, OwnedServerName, RoomAliasId, RoomOrAliasId,
+    ServerName,
     api::{
         client::{
             alias::get_alias,
@@ -724,7 +724,7 @@ impl Client {
         let registration_data = oauth_configuration.registration_data()?;
         let redirect_uri = oauth_configuration.redirect_uri()?;
 
-        let device_id = device_id.map(OwnedDeviceId::from);
+        let device_id = device_id.map(DeviceId::from);
 
         let additional_scopes =
             additional_scopes.map(|scopes| scopes.into_iter().map(Scope::new).collect::<Vec<_>>());
@@ -1353,7 +1353,30 @@ impl Client {
         };
 
         Ok(if let Some(action) = &action {
-            server_metadata.account_management_url_with_action(action.into())
+            // We need to cache the device ID temporarily because the ruma type takes a
+            // reference so we need to make sure that the device ID lives until the function
+            // is called.
+            let mut device_id_cache: Option<DeviceId> = None;
+            let ruma_action = match action {
+                AccountManagementAction::Profile => AccountManagementActionData::Profile,
+                AccountManagementAction::DevicesList => AccountManagementActionData::DevicesList,
+                AccountManagementAction::DeviceView { device_id } => {
+                    let device_id = device_id_cache.get_or_insert(device_id.as_str().into());
+                    AccountManagementActionData::DeviceView(DeviceViewData::new(device_id))
+                }
+                AccountManagementAction::DeviceDelete { device_id } => {
+                    let device_id = device_id_cache.get_or_insert(device_id.as_str().into());
+                    AccountManagementActionData::DeviceDelete(DeviceDeleteData::new(device_id))
+                }
+                AccountManagementAction::AccountDeactivate => {
+                    AccountManagementActionData::AccountDeactivate
+                }
+                AccountManagementAction::CrossSigningReset => {
+                    AccountManagementActionData::CrossSigningReset
+                }
+            };
+
+            server_metadata.account_management_url_with_action(ruma_action)
         } else {
             server_metadata.account_management_uri
         }
@@ -3137,23 +3160,6 @@ pub enum AccountManagementAction {
     DeviceDelete { device_id: String },
     AccountDeactivate,
     CrossSigningReset,
-}
-
-impl<'a> From<&'a AccountManagementAction> for AccountManagementActionData<'a> {
-    fn from(value: &'a AccountManagementAction) -> Self {
-        match value {
-            AccountManagementAction::Profile => Self::Profile,
-            AccountManagementAction::DevicesList => Self::DevicesList,
-            AccountManagementAction::DeviceView { device_id } => {
-                Self::DeviceView(DeviceViewData::new(device_id.as_str().into()))
-            }
-            AccountManagementAction::DeviceDelete { device_id } => {
-                Self::DeviceDelete(DeviceDeleteData::new(device_id.as_str().into()))
-            }
-            AccountManagementAction::AccountDeactivate => Self::AccountDeactivate,
-            AccountManagementAction::CrossSigningReset => Self::CrossSigningReset,
-        }
-    }
 }
 
 #[matrix_sdk_ffi_macros::export]

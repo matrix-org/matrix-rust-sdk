@@ -44,7 +44,7 @@ use ruma::{
         },
         uiaa,
     },
-    assign,
+    assign, device_id,
     directory::Filter,
     event_id,
     events::{
@@ -56,7 +56,7 @@ use ruma::{
         },
         tag::{TagInfo, TagName, Tags},
     },
-    owned_device_id, owned_event_id, owned_mxc_uri, owned_room_id, owned_user_id,
+    owned_event_id, owned_mxc_uri, owned_room_id, owned_user_id,
     room::JoinRule,
     room_id,
     serde::Raw,
@@ -140,7 +140,7 @@ async fn test_delete_devices() {
         .mount(&server)
         .await;
 
-    let devices = &[owned_device_id!("DEVICEID")];
+    let devices = &[device_id!("DEVICEID")];
 
     if let Err(e) = client.delete_devices(devices, None).await
         && let Some(info) = e.as_uiaa_response()

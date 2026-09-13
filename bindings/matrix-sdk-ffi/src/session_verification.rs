@@ -297,7 +297,7 @@ impl SessionVerificationController {
             delegate.did_receive_verification_request(SessionVerificationRequestDetails {
                 sender_profile,
                 flow_id: request.flow_id().into(),
-                device_id: other_device_data.device_id().into(),
+                device_id: other_device_data.device_id().to_string(),
                 device_display_name: other_device_data.display_name().map(str::to_owned),
                 first_seen_timestamp: other_device_data.first_time_seen_ts().into(),
             });

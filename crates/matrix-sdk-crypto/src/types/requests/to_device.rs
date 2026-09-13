@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, iter};
 
 use ruma::{
-    OwnedDeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId,
+    DeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId,
     events::{AnyToDeviceEventContent, ToDeviceEventContent, ToDeviceEventType},
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
@@ -72,7 +72,7 @@ impl ToDeviceRequest {
 
     pub(crate) fn for_recipients(
         recipient: &UserId,
-        recipient_devices: Vec<OwnedDeviceId>,
+        recipient_devices: Vec<DeviceId>,
         content: &AnyToDeviceEventContent,
         txn_id: OwnedTransactionId,
     ) -> Self {

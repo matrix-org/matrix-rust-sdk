@@ -102,7 +102,7 @@ mod tests {
             .activate(
                 SessionMeta {
                     user_id: user_id!("@alice:example.org").into(),
-                    device_id: ruma::device_id!("AYEAYEAYE").into(),
+                    device_id: ruma::device_id!("AYEAYEAYE"),
                 },
                 RoomLoadSettings::default(),
                 #[cfg(feature = "e2e-encryption")]
@@ -201,7 +201,7 @@ mod tests {
             .activate(
                 SessionMeta {
                     user_id: user_id!("@alice:example.org").into(),
-                    device_id: ruma::device_id!("AYEAYEAYE").into(),
+                    device_id: ruma::device_id!("AYEAYEAYE"),
                 },
                 RoomLoadSettings::default(),
                 #[cfg(feature = "e2e-encryption")]

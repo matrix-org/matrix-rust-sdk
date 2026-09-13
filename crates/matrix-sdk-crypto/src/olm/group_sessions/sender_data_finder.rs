@@ -330,7 +330,7 @@ mod tests {
 
     use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
-    use ruma::{DeviceId, OwnedUserId, RoomId, UserId, device_id, room_id, user_id};
+    use ruma::{DeviceId, OwnedUserId, RoomId, UserId, device_id_ref, room_id, user_id};
     use tokio::sync::Mutex;
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, megolm::SessionKey};
 
@@ -931,7 +931,8 @@ mod tests {
         }
 
         async fn own() -> Self {
-            Self::new(user_id!("@myself:s.co"), device_id!("OWNDEVICEID"), true, true, None).await
+            Self::new(user_id!("@myself:s.co"), device_id_ref!("OWNDEVICEID"), true, true, None)
+                .await
         }
 
         async fn other(me: &TestUser, options: &TestOptions) -> Self {
@@ -940,7 +941,7 @@ mod tests {
 
             Self::new(
                 user_id,
-                device_id!("SENDERDEVICEID"),
+                device_id_ref!("SENDERDEVICEID"),
                 options.sender_is_ourself,
                 options.sender_is_verified,
                 Some(me),

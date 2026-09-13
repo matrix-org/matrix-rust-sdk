@@ -25,9 +25,9 @@ use matrix_sdk_common::deserialized_responses::{
     TimelineEvent, UnableToDecryptInfo, UnableToDecryptReason,
 };
 use ruma::{
-    EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
+    DeviceId, EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri,
     OwnedRoomAliasId, OwnedRoomId, OwnedTransactionId, OwnedUserId, OwnedVoipId, RoomId,
-    RoomVersionId, TransactionId, UInt, UserId, VoipVersionId,
+    RoomVersionId, TransactionId, UInt, UserId, VoipVersionId, device_id,
     events::{
         AnyGlobalAccountDataEvent, AnyMessageLikeEvent, AnyRoomAccountDataEvent, AnyStateEvent,
         AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
@@ -102,7 +102,6 @@ use ruma::{
         tag::{TagEventContent, Tags},
         typing::TypingEventContent,
     },
-    owned_device_id,
     presence::PresenceState,
     push::Ruleset,
     room::RoomType,
@@ -110,7 +109,7 @@ use ruma::{
     serde::Raw,
     server_name,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::json;
 
 use crate::base64_sha256_hash;
@@ -691,6 +690,7 @@ where
     E: StaticStateEventContent + RedactContent + EventContentFromType,
     E::Redacted: RedactedStateEventContent<StateKey = <E as StateEventContent>::StateKey>
         + EventContentFromType,
+    E::Unsigned: DeserializeOwned,
 {
     fn from(val: EventBuilder<E>) -> Self {
         Raw::<SyncStateEvent<E>>::from(val).deserialize().expect("expected sync state")
@@ -730,6 +730,7 @@ where
     E: StaticStateEventContent + RedactContent + EventContentFromType,
     E::Redacted: RedactedStateEventContent<StateKey = <E as StateEventContent>::StateKey>
         + EventContentFromType,
+    E::Unsigned: DeserializeOwned,
 {
     fn from(val: EventBuilder<E>) -> Self {
         Raw::<StateEvent<E>>::from(val).deserialize().expect("expected state")
@@ -935,7 +936,7 @@ impl EventFactory {
         &self,
         ciphertext: impl Into<String>,
         sender_key: impl Into<String>,
-        device_id: impl Into<OwnedDeviceId>,
+        device_id: impl Into<DeviceId>,
         session_id: impl Into<String>,
     ) -> EventBuilder<RoomEncryptedEventContent> {
         self.event(RoomEncryptedEventContent::new(
@@ -1502,7 +1503,7 @@ impl EventFactory {
     ) -> EventBuilder<CallMemberEventContent> {
         let event = self.event(CallMemberEventContent::new(
             Application::Call(CallApplicationContent::new("".to_owned(), CallScope::Room)),
-            owned_device_id!(device_id.clone()),
+            device_id!(device_id.clone()),
             ActiveFocus::Livekit(ActiveLivekitFocus::new()),
             vec![],
             Some(MilliSecondsSinceUnixEpoch::now()),

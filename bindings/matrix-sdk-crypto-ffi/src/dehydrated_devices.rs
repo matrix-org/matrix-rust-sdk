@@ -9,7 +9,7 @@ use matrix_sdk_crypto::{
     },
     store::types::DehydratedDeviceKey as InnerDehydratedDeviceKey,
 };
-use ruma::{OwnedDeviceId, api::client::dehydrated_device, events::AnyToDeviceEvent, serde::Raw};
+use ruma::{DeviceId, api::client::dehydrated_device, events::AnyToDeviceEvent, serde::Raw};
 use serde_json::json;
 
 use crate::{CryptoStoreError, DehydratedDeviceKey};
@@ -84,7 +84,7 @@ impl DehydratedDevices {
         device_data: String,
     ) -> Result<Arc<RehydratedDevice>, DehydrationError> {
         let device_data: Raw<_> = serde_json::from_str(&device_data)?;
-        let device_id: OwnedDeviceId = device_id.into();
+        let device_id: DeviceId = device_id.into();
 
         let key = InnerDehydratedDeviceKey::from_slice(&pickle_key.inner)?;
 

@@ -23,8 +23,8 @@ use std::{
 
 use matrix_sdk_common::locks::RwLock;
 use ruma::{
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
-    OwnedDeviceKeyId, UInt, UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OwnedDeviceKeyId, UInt,
+    UserId,
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{AnyToDeviceEventContent, key::verification::VerificationMethod},
     serde::Raw,
@@ -537,7 +537,7 @@ impl Device {
 /// A read only view over all devices belonging to a user.
 #[derive(Debug)]
 pub struct UserDevices {
-    pub(crate) inner: HashMap<OwnedDeviceId, DeviceData>,
+    pub(crate) inner: HashMap<DeviceId, DeviceData>,
     pub(crate) verification_machine: VerificationMachine,
     pub(crate) own_identity: Option<OwnUserIdentityData>,
     pub(crate) device_owner_identity: Option<UserIdentityData>,
@@ -589,7 +589,7 @@ impl UserDevices {
 
     /// Iterator over all the device ids of the user devices.
     pub fn keys(&self) -> impl Iterator<Item = &DeviceId> {
-        self.inner.keys().map(Deref::deref)
+        self.inner.keys()
     }
 
     /// Iterator over all the devices of the user devices.
@@ -1222,7 +1222,7 @@ pub(crate) mod tests {
     async fn test_x509_verified_owner_confers_device_trust() {
         use std::sync::Arc;
 
-        use ruma::device_id;
+        use ruma::device_id_ref;
 
         use crate::{
             machine::test_helpers::create_signed_device_of_unverified_user,
@@ -1242,7 +1242,7 @@ pub(crate) mod tests {
             RustRawX509Signer::new_from_pem_data(&certificate.pem(), &signing_key.serialize_pem())
                 .unwrap(),
         ));
-        let account = Account::with_device_id(user_id!("@alice:hs.co"), device_id!("ALICEDEV"));
+        let account = Account::with_device_id(user_id!("@alice:hs.co"), device_id_ref!("ALICEDEV"));
         let alice_private_identity =
             PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer)).await.unwrap();
 

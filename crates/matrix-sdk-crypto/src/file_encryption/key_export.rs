@@ -71,7 +71,7 @@ pub enum KeyExportError {
 /// # use ruma::{device_id, user_id};
 /// # let alice = user_id!("@alice:example.org");
 /// # async {
-/// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
+/// # let machine = OlmMachine::new(&alice, &device_id!("DEVICEID")).await;
 /// # let export = Cursor::new("".to_owned());
 /// let exported_keys = decrypt_room_key_export(export, "1234").unwrap();
 /// machine.store().import_room_keys(exported_keys, None, |_, _| {}).await.unwrap();
@@ -128,7 +128,7 @@ pub fn decrypt_room_key_export(
 /// # use ruma::{device_id, user_id, room_id};
 /// # let alice = user_id!("@alice:example.org");
 /// # async {
-/// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
+/// # let machine = OlmMachine::new(&alice, &device_id!("DEVICEID")).await;
 /// let room_id = room_id!("!test:localhost");
 /// let exported_keys = machine.store().export_room_keys(|s| s.room_id() == room_id).await.unwrap();
 /// let encrypted_export = encrypt_room_key_export(&exported_keys, "1234", 1);

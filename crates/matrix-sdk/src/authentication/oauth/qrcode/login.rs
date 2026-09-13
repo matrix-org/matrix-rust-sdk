@@ -23,7 +23,7 @@ use matrix_sdk_base::{
 };
 use oauth2::{DeviceCodeErrorResponseType, StandardDeviceAuthorizationResponse};
 use ruma::{
-    OwnedDeviceId,
+    DeviceId,
     api::client::discovery::get_authorization_server_metadata::v1::AuthorizationServerMetadata,
 };
 use tracing::trace;
@@ -146,7 +146,7 @@ async fn finish_login<Q>(
         .activate(
             SessionMeta {
                 user_id: whoami_response.user_id,
-                device_id: OwnedDeviceId::from(device_id.to_base64()),
+                device_id: DeviceId::from(device_id.to_base64()),
             },
             RoomLoadSettings::default(),
             Some(account),

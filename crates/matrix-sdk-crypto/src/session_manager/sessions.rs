@@ -20,8 +20,8 @@ use std::{
 
 use matrix_sdk_common::{failures_cache::FailuresCache, locks::RwLock as StdRwLock};
 use ruma::{
-    DeviceId, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedOneTimeKeyId, OwnedServerName,
-    OwnedTransactionId, OwnedUserId, SecondsSinceUnixEpoch, ServerName, TransactionId, UserId,
+    DeviceId, OneTimeKeyAlgorithm, OwnedOneTimeKeyId, OwnedServerName, OwnedTransactionId,
+    OwnedUserId, SecondsSinceUnixEpoch, ServerName, TransactionId, UserId,
     api::client::keys::claim_keys::v3::{
         Request as KeysClaimRequest, Response as KeysClaimResponse,
     },
@@ -61,8 +61,8 @@ pub(crate) struct SessionManager {
     /// Submodules can insert user/device pairs into this map and the
     /// user/device paris will be added to the list of users when
     /// [`get_missing_sessions`](#method.get_missing_sessions) is called.
-    users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
-    wedged_devices: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
+    users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<DeviceId>>>>,
+    wedged_devices: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<DeviceId>>>>,
     key_request_machine: GossipMachine,
     outgoing_to_device_requests: Arc<StdRwLock<BTreeMap<OwnedTransactionId, OutgoingRequest>>>,
 
@@ -72,7 +72,7 @@ pub(crate) struct SessionManager {
     /// See also [`crate::identities::IdentityManager::failures`].
     failures: FailuresCache<OwnedServerName>,
 
-    failed_devices: Arc<StdRwLock<BTreeMap<OwnedUserId, FailuresCache<OwnedDeviceId>>>>,
+    failed_devices: Arc<StdRwLock<BTreeMap<OwnedUserId, FailuresCache<DeviceId>>>>,
 }
 
 impl SessionManager {
@@ -80,7 +80,7 @@ impl SessionManager {
     const UNWEDGING_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
     pub fn new(
-        users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
+        users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<DeviceId>>>>,
         key_request_machine: GossipMachine,
         store: Store,
     ) -> Self {
@@ -124,12 +124,12 @@ impl SessionManager {
                     .write()
                     .entry(device.user_id().to_owned())
                     .or_default()
-                    .insert(device.device_id().into());
+                    .insert(device.device_id().clone());
                 self.wedged_devices
                     .write()
                     .entry(device.user_id().to_owned())
                     .or_default()
-                    .insert(device.device_id().into());
+                    .insert(device.device_id().clone());
             }
         }
 
@@ -220,8 +220,8 @@ impl SessionManager {
 
         #[derive(Debug, Default)]
         struct UserFailedDeviceInfo {
-            non_olm_devices: BTreeMap<OwnedDeviceId, Vec<EventEncryptionAlgorithm>>,
-            bad_key_devices: BTreeSet<OwnedDeviceId>,
+            non_olm_devices: BTreeMap<DeviceId, Vec<EventEncryptionAlgorithm>>,
+            bad_key_devices: BTreeSet<DeviceId>,
         }
 
         let mut failed_devices_by_user: BTreeMap<_, UserFailedDeviceInfo> = BTreeMap::new();
@@ -337,10 +337,7 @@ impl SessionManager {
         &self,
         request_id: &TransactionId,
         failed_servers: &BTreeSet<OwnedServerName>,
-        one_time_keys: &BTreeMap<
-            &OwnedUserId,
-            BTreeMap<&OwnedDeviceId, BTreeSet<&OwnedOneTimeKeyId>>,
-        >,
+        one_time_keys: &BTreeMap<&OwnedUserId, BTreeMap<&DeviceId, BTreeSet<&OwnedOneTimeKeyId>>>,
     ) {
         // First check that the response is for the request we were expecting.
         let request = {
@@ -592,7 +589,7 @@ mod tests {
     use matrix_sdk_test::{async_test, ruma_response_from_json};
     use ruma::{
         DeviceId, OwnedUserId, UserId,
-        api::client::keys::claim_keys::v3::Response as KeyClaimResponse, device_id,
+        api::client::keys::claim_keys::v3::Response as KeyClaimResponse, device_id_ref,
         owned_server_name, user_id,
     };
     use serde_json::json;
@@ -617,11 +614,11 @@ mod tests {
     }
 
     fn device_id() -> &'static DeviceId {
-        device_id!("DEVICEID")
+        device_id_ref!("DEVICEID")
     }
 
     fn bob_account() -> Account {
-        Account::with_device_id(user_id!("@bob:localhost"), device_id!("BOBDEVICE"))
+        Account::with_device_id(user_id!("@bob:localhost"), device_id_ref!("BOBDEVICE"))
     }
 
     fn keys_claim_with_failure() -> KeyClaimResponse {
@@ -766,7 +763,7 @@ mod tests {
 
         // that second request completes with info on bob's device
         let response_json = json!({ "device_keys": { bob.user_id(): {
-            bob_device.device_id(): bob_device.as_device_keys()
+            bob_device.device_id().as_str(): bob_device.as_device_keys()
         }}});
         let response = ruma_response_from_json(&response_json);
         identity_manager.receive_keys_query_response(&key_query_txn_id, &response).await.unwrap();
@@ -886,7 +883,7 @@ mod tests {
     #[async_test]
     async fn test_failure_handling() {
         let alice = user_id!("@alice:example.org");
-        let alice_account = Account::with_device_id(alice, "DEVICEID".into());
+        let alice_account = Account::with_device_id(alice, &"DEVICEID".into());
         let alice_device = DeviceData::from_account(&alice_account);
 
         let (manager, _identity_manager) = session_manager_test_helper().await;
@@ -969,7 +966,7 @@ mod tests {
         let response = ruma_response_from_json(&response_json);
 
         let alice = user_id!("@alice:example.org");
-        let mut alice_account = Account::with_device_id(alice, "DEVICEID".into());
+        let mut alice_account = Account::with_device_id(alice, &"DEVICEID".into());
         let alice_device = DeviceData::from_account(&alice_account);
 
         let (manager, _identity_manager) = session_manager_test_helper().await;

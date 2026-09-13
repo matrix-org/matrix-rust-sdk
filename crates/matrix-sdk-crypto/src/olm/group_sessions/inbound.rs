@@ -923,7 +923,7 @@ mod tests {
     use insta::{assert_json_snapshot, with_settings};
     use matrix_sdk_test::async_test;
     use ruma::{
-        DeviceId, UserId, device_id, events::room::history_visibility::HistoryVisibility,
+        DeviceId, UserId, device_id_ref, events::room::history_visibility::HistoryVisibility,
         owned_room_id, room_id, user_id,
     };
     use serde_json::json;
@@ -944,7 +944,7 @@ mod tests {
     }
 
     fn alice_device_id() -> &'static DeviceId {
-        device_id!("ALICEDEVICE")
+        device_id_ref!("ALICEDEVICE")
     }
 
     #[async_test]
@@ -1196,7 +1196,7 @@ mod tests {
 
         let sender_data = SenderData::SenderVerified(KnownSenderData {
             user_id: alice.user_id().into(),
-            device_id: Some(alice.device_id().into()),
+            device_id: Some(alice.device_id().clone()),
             master_key: alice.identity_keys().ed25519.into(),
         });
 

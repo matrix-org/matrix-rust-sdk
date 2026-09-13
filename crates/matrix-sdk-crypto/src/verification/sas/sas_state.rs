@@ -596,7 +596,7 @@ impl SasState<Created> {
         match self.verification_flow_id.as_ref() {
             FlowId::ToDevice(s) => {
                 OwnedStartContent::ToDevice(ToDeviceKeyVerificationStartEventContent::new(
-                    self.device_id().into(),
+                    self.device_id().clone(),
                     s.clone(),
                     StartMethod::SasV1(self.state.protocol_definitions.clone()),
                 ))
@@ -604,7 +604,7 @@ impl SasState<Created> {
             FlowId::InRoom(r, e) => OwnedStartContent::Room(
                 r.clone(),
                 KeyVerificationStartEventContent::new(
-                    self.device_id().into(),
+                    self.device_id().clone(),
                     StartMethod::SasV1(self.state.protocol_definitions.clone()),
                     Reference::new(e.clone()),
                 ),
@@ -792,7 +792,7 @@ impl SasState<Started> {
         match self.verification_flow_id.as_ref() {
             FlowId::ToDevice(s) => {
                 OwnedStartContent::ToDevice(ToDeviceKeyVerificationStartEventContent::new(
-                    self.device_id().into(),
+                    self.device_id().clone(),
                     s.clone(),
                     StartMethod::SasV1(self.state.protocol_definitions.to_owned()),
                 ))
@@ -800,7 +800,7 @@ impl SasState<Started> {
             FlowId::InRoom(r, e) => OwnedStartContent::Room(
                 r.clone(),
                 KeyVerificationStartEventContent::new(
-                    self.device_id().into(),
+                    self.device_id().clone(),
                     StartMethod::SasV1(self.state.protocol_definitions.to_owned()),
                     Reference::new(e.clone()),
                 ),
@@ -1502,7 +1502,7 @@ impl SasState<Cancelled> {
 mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{
-        DeviceId, TransactionId, UserId, device_id,
+        DeviceId, TransactionId, UserId, device_id_ref,
         events::key::verification::{
             HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode,
             ShortAuthenticationString,
@@ -1531,7 +1531,7 @@ mod tests {
     }
 
     fn alice_device_id() -> &'static DeviceId {
-        device_id!("JLAFKJWSCS")
+        device_id_ref!("JLAFKJWSCS")
     }
 
     fn bob_id() -> &'static UserId {
@@ -1539,7 +1539,7 @@ mod tests {
     }
 
     fn bob_device_id() -> &'static DeviceId {
-        device_id!("BOBDEVICE")
+        device_id_ref!("BOBDEVICE")
     }
 
     fn get_sas_pair(

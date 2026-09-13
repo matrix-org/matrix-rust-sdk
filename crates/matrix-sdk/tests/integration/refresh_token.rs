@@ -28,7 +28,7 @@ use ruma::{
         client::account::register,
         error::{ErrorKind, UnknownTokenErrorData},
     },
-    assign, owned_device_id, owned_user_id,
+    assign, device_id, owned_user_id,
 };
 use serde_json::json;
 use tokio::sync::{broadcast::error::TryRecvError, mpsc};
@@ -56,7 +56,7 @@ async fn test_login_username_refresh_token() {
         .ok_with(
             LoginResponseTemplate200::new(
                 "abc123",
-                owned_device_id!("GHTYAJCE"),
+                device_id!("GHTYAJCE"),
                 owned_user_id!("@cheeky_monkey:matrix.org"),
             )
             .expires_in(Duration::from_millis(432000000))

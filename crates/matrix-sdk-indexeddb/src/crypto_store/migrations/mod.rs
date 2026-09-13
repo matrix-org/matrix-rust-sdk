@@ -304,7 +304,7 @@ mod tests {
     };
     use matrix_sdk_store_encryption::StoreCipher;
     use matrix_sdk_test::async_test;
-    use ruma::{OwnedRoomId, RoomId, owned_device_id, owned_user_id, room_id};
+    use ruma::{OwnedRoomId, RoomId, device_id, owned_user_id, room_id};
     use serde::Serialize;
     use tracing_subscriber::util::SubscriberInitExt;
     use wasm_bindgen::JsValue;
@@ -891,7 +891,7 @@ mod tests {
                     room_id.to_owned(),
                     session_id.to_owned(),
                     sender_key,
-                    owned_device_id!("ABC"),
+                    device_id!("ABC"),
                 ),
             };
 

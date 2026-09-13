@@ -40,7 +40,7 @@ macro_rules! cryptostore_integration_tests {
             use assert_matches::assert_matches;
             use matrix_sdk_test::async_test;
             use ruma::{
-                device_id, events::secret::request::SecretName, room_id, serde::Raw, owned_room_id,
+                device_id_ref, events::secret::request::SecretName, room_id, serde::Raw, owned_room_id,
                 to_device::DeviceIdOrAllDevices, user_id, DeviceId, RoomId, TransactionId, UserId,
             };
             use serde_json::value::to_raw_value;
@@ -90,7 +90,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             fn alice_device_id() -> &'static DeviceId {
-                device_id!("ALICEDEVICE")
+                device_id_ref!("ALICEDEVICE")
             }
 
             fn bob_id() -> &'static UserId {
@@ -98,7 +98,7 @@ macro_rules! cryptostore_integration_tests {
             }
 
             fn bob_device_id() -> &'static DeviceId {
-                device_id!("BOBDEVICE")
+                device_id_ref!("BOBDEVICE")
             }
 
             pub async fn get_loaded_store(name: &str) -> (Account, impl CryptoStore + use<>) {
@@ -793,12 +793,12 @@ macro_rules! cryptostore_integration_tests {
 
                 let alice_device_1 = DeviceData::from_account(&Account::with_device_id(
                     "@alice:localhost".try_into().unwrap(),
-                    "FIRSTDEVICE".into(),
+                    &"FIRSTDEVICE".into(),
                 ));
 
                 let alice_device_2 = DeviceData::from_account(&Account::with_device_id(
                     "@alice:localhost".try_into().unwrap(),
-                    "SECONDDEVICE".into(),
+                    &"SECONDDEVICE".into(),
                 ));
 
                 let json = json!({
@@ -898,11 +898,11 @@ macro_rules! cryptostore_integration_tests {
                 let dir = "user_saving";
 
                 let user_id = user_id!("@example:localhost");
-                let device_id: &DeviceId = "WSKKLTJZCL".into();
+                let device_id = "WSKKLTJZCL".into();
 
                 let store = get_store(dir, None, true).await;
 
-                let account = Account::with_device_id(&user_id, device_id);
+                let account = Account::with_device_id(&user_id, &device_id);
 
                 store.save_pending_changes(PendingChanges { account: Some(account), })
                     .await

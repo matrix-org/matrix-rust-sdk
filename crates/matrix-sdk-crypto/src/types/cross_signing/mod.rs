@@ -128,7 +128,7 @@ mod tests {
                 let mut other_key: CrossSigningKey = raw.deserialize_as().unwrap();
                 other_key.signatures.add_signature(
                     user_id.to_owned(),
-                    DeviceKeyId::from_parts(ruma::DeviceKeyAlgorithm::Ed25519, "DEVICEID".into()),
+                    DeviceKeyId::from_parts(ruma::DeviceKeyAlgorithm::Ed25519, &"DEVICEID".into()),
                     signature,
                 );
                 let other_key = other_key.try_into().unwrap();

@@ -7,7 +7,7 @@ use matrix_sdk_test::async_test;
 use oauth2::{ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope};
 use ruma::{
     DeviceId, ServerName, api::client::discovery::get_authorization_server_metadata::v1::Prompt,
-    device_id, owned_device_id, user_id,
+    device_id, device_id_ref, user_id,
 };
 use tokio::sync::broadcast::error::TryRecvError;
 use url::Url;
@@ -280,7 +280,7 @@ async fn test_login_url() -> anyhow::Result<()> {
     let client = server.client_builder().registered_with_oauth().build().await;
     let oauth = client.oauth();
 
-    let device_id = owned_device_id!("D3V1C31D"); // yo this is 1999 speaking
+    let device_id = device_id!("D3V1C31D"); // yo this is 1999 speaking
 
     let redirect_uri_str = REDIRECT_URI_STRING;
     let redirect_uri = Url::parse(redirect_uri_str)?;
@@ -412,7 +412,7 @@ async fn test_finish_login() -> anyhow::Result<()> {
     let (_pkce_code_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
     let auth_validation_data = AuthorizationValidationData {
         server_metadata: server_metadata.clone(),
-        device_id: owned_device_id!("D3V1C31D"),
+        device_id: device_id!("D3V1C31D"),
         redirect_uri: RedirectUrl::new(redirect_uri.to_owned())?,
         pkce_verifier,
     };
@@ -467,7 +467,7 @@ async fn test_finish_login() -> anyhow::Result<()> {
     let (_pkce_code_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
     let auth_validation_data = AuthorizationValidationData {
         server_metadata: server_metadata.clone(),
-        device_id: owned_device_id!("D3V1C31D"),
+        device_id: device_id!("D3V1C31D"),
         redirect_uri: RedirectUrl::new(redirect_uri.to_owned())?,
         pkce_verifier,
     };
@@ -505,7 +505,7 @@ async fn test_finish_login() -> anyhow::Result<()> {
     assert!(oauth.data().unwrap().authorization_data.lock().await.get(&state2).is_none());
 
     // Try to log in again, with a different session
-    let wrong_device_id = device_id!("WR0NG");
+    let wrong_device_id = device_id_ref!("WR0NG");
     let state3 = CsrfToken::new("state3".to_owned());
     let redirect_uri = REDIRECT_URI_STRING;
     let (_pkce_code_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();

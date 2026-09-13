@@ -16,7 +16,7 @@ use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFa
 use matrix_sdk_ui::timeline::{RoomExt, TimelineBuilder, TimelineFocus};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId, UserId, assign,
-    event_id,
+    device_id, event_id,
     events::{
         AnySyncTimelineEvent, AnyTimelineEvent,
         room::{
@@ -26,7 +26,7 @@ use ruma::{
             message::RoomMessageEventContentWithoutRelation,
         },
     },
-    owned_device_id, owned_room_id, owned_user_id, room_id,
+    owned_room_id, owned_user_id, room_id,
     serde::Raw,
     user_id,
 };
@@ -1094,7 +1094,7 @@ fn create_utd(
                            iwxEs3hIkUXEiAfrobzaMEM/zY7SDrTdyffZndgJo7CZOVhoV6vuaOhmAy4X2t4UnbuV\
                            JGJjKfV57NAhp8W+9oT7ugwO",
                     ),
-                    device_id: owned_device_id!("KIUVQQSDTM"),
+                    device_id: device_id!("KIUVQQSDTM"),
                     sender_key: String::from("LvryVyoCjdONdBCi2vvoSbI34yTOx7YrCFACUEKoXnc"),
                     session_id: String::from("64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"),
                 }

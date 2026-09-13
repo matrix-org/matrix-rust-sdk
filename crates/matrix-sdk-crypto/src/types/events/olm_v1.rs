@@ -369,7 +369,7 @@ mod tests {
     use assert_matches::assert_matches;
     use insta::{assert_json_snapshot, with_settings};
     use ruma::{
-        KeyId, OwnedMxcUri, device_id,
+        KeyId, OwnedMxcUri, device_id_ref,
         events::room::{EncryptedFile, V2EncryptedFileInfo},
         owned_room_id, owned_user_id, user_id,
     };
@@ -544,8 +544,8 @@ mod tests {
         );
 
         let user_id = owned_user_id!("@u:s.co");
-        let device_id = device_id!("DEV");
-        let ssk_id = device_id!("ssk");
+        let device_id = device_id_ref!("DEV");
+        let ssk_id = device_id_ref!("ssk");
 
         let ed25519_device_key_id = KeyId::from_parts(ruma::DeviceKeyAlgorithm::Ed25519, device_id);
         let curve25519_device_key_id =

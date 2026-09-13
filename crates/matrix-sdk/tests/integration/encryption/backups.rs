@@ -41,9 +41,9 @@ use matrix_sdk_test::{JoinedRoomBuilder, SyncResponseBuilder, TestResult, async_
 use ruma::{
     EventId, RoomId, TransactionId,
     api::client::room::create_room::v3::Request as CreateRoomRequest,
-    assign, event_id,
+    assign, device_id, event_id,
     events::room::message::{RoomMessageEvent, RoomMessageEventContent},
-    owned_device_id, owned_user_id, room_id, user_id,
+    owned_user_id, room_id, user_id,
 };
 use serde_json::{Value, json};
 use tempfile::tempdir;
@@ -79,7 +79,7 @@ fn matrix_session_example() -> MatrixSession {
     MatrixSession {
         meta: SessionMeta {
             user_id: owned_user_id!("@example:morpheus.localhost"),
-            device_id: owned_device_id!("DEVICEID"),
+            device_id: device_id!("DEVICEID"),
         },
         tokens: mock_session_tokens(),
     }
@@ -89,7 +89,7 @@ fn matrix_session_example2() -> MatrixSession {
     MatrixSession {
         meta: SessionMeta {
             user_id: owned_user_id!("@example2:morpheus.localhost"),
-            device_id: owned_device_id!("DEVICEID"),
+            device_id: device_id!("DEVICEID"),
         },
         tokens: mock_session_tokens(),
     }
@@ -1473,7 +1473,7 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
         curve25519: Curve25519PublicKey::from(&Curve25519SecretKey::new()),
     };
     let outbound_group_session = OutboundGroupSession::new(
-        owned_device_id!("KIUVQQSDTM"),
+        device_id!("KIUVQQSDTM"),
         Arc::new(sender_identity_keys),
         room_id,
         matrix_sdk_base::crypto::EncryptionSettings::default(),

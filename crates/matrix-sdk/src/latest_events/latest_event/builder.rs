@@ -1353,7 +1353,7 @@ mod filter_tests {
 
     #[test]
     fn test_room_message_verification_request() {
-        use ruma::{OwnedDeviceId, events::room::message};
+        use ruma::{DeviceId, events::room::message};
 
         assert_latest_event_content!(
             event | event_factory | {
@@ -1362,7 +1362,7 @@ mod filter_tests {
                         message::KeyVerificationRequestEventContent::new(
                             "body".to_owned(),
                             vec![],
-                            OwnedDeviceId::from("device_id"),
+                            DeviceId::from("device_id"),
                             owned_user_id!("@user:server.name"),
                         ),
                     )))

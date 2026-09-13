@@ -25,14 +25,15 @@ use assert_matches2::assert_let;
 use matrix_sdk_base::crypto::types::events::room::encrypted::EncryptedToDeviceEvent;
 use matrix_sdk_test::test_json;
 use ruma::{
-    CrossSigningKeyId, DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId,
+    CrossSigningKeyId, DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm,
     OwnedOneTimeKeyId, OwnedUserId, UserId,
     api::client::{
         keys::upload_signatures::v3::SignedKeys, to_device::send_event_to_device::v3::Messages,
     },
+    device_id,
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey},
     events::AnyToDeviceEvent,
-    owned_device_id, owned_user_id,
+    owned_user_id,
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
 };
@@ -54,7 +55,7 @@ use crate::{
 /// Stores pending to-device messages for each user and device.
 /// To be used with [`MatrixMockServer::capture_put_to_device_traffic`].
 pub type PendingToDeviceMessages =
-    BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Vec<Raw<AnyToDeviceEvent>>>>;
+    BTreeMap<OwnedUserId, BTreeMap<DeviceId, Vec<Raw<AnyToDeviceEvent>>>>;
 
 /// Extends the `MatrixMockServer` with useful methods to help mocking
 /// matrix crypto API and perform integration test with encryption.
@@ -105,7 +106,7 @@ impl MatrixMockServer {
     }
 
     /// Makes the server forget about all the one-time-keys for that device.
-    pub fn exhaust_one_time_keys(&self, user_id: OwnedUserId, device_id: OwnedDeviceId) {
+    pub fn exhaust_one_time_keys(&self, user_id: OwnedUserId, device_id: DeviceId) {
         let mut keys = self.keys.lock().unwrap();
         let known_otks = &mut keys.one_time_keys;
         known_otks.entry(user_id).or_default().entry(device_id).or_default().clear();
@@ -141,7 +142,7 @@ impl MatrixMockServer {
     /// each others (alice will have downloaded bob device keys).
     pub async fn set_up_alice_and_bob_for_encryption(&self) -> (Client, Client) {
         let alice_user_id = owned_user_id!("@alice:example.org");
-        let alice_device_id = owned_device_id!("4L1C3");
+        let alice_device_id = device_id!("4L1C3");
 
         let alice = self
             .client_builder_for_crypto_end_to_end(&alice_user_id, &alice_device_id)
@@ -149,7 +150,7 @@ impl MatrixMockServer {
             .await;
 
         let bob_user_id = owned_user_id!("@bob:example.org");
-        let bob_device_id = owned_device_id!("B0B0B0B0B");
+        let bob_device_id = device_id!("B0B0B0B0B");
         let bob =
             self.client_builder_for_crypto_end_to_end(&bob_user_id, &bob_device_id).build().await;
 
@@ -161,7 +162,7 @@ impl MatrixMockServer {
     /// Creates a third client for e2e tests.
     pub async fn set_up_carl_for_encryption(&self, alice: &Client, bob: &Client) -> Client {
         let carl_user_id = owned_user_id!("@carlg:example.org");
-        let carl_device_id = owned_device_id!("CARL_DEVICE");
+        let carl_device_id = device_id!("CARL_DEVICE");
 
         let carl =
             self.client_builder_for_crypto_end_to_end(&carl_user_id, &carl_device_id).build().await;
@@ -518,7 +519,7 @@ fn mock_keys_query(keys: Arc<Mutex<Keys>>) -> impl Fn(&Request) -> ResponseTempl
     move |req| {
         #[derive(Debug, serde::Deserialize)]
         struct Parameters {
-            device_keys: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
+            device_keys: BTreeMap<OwnedUserId, Vec<DeviceId>>,
         }
 
         let params: Parameters = req.body_json().unwrap();
@@ -630,8 +631,7 @@ fn mock_keys_upload(
                             .keys()
                             .next()
                             .unwrap()
-                            .key_name()
-                            .to_owned();
+                            .owned_key_name();
 
                         keys.one_time_keys
                             .entry(user_id.clone())
@@ -726,7 +726,7 @@ fn mock_keys_signature_upload(keys: Arc<Mutex<Keys>>) -> impl Fn(&Request) -> Re
 
                     let target = CrossSigningKeyId::from_parts(
                         ruma::SigningKeyAlgorithm::Ed25519,
-                        key_id.try_into().unwrap(),
+                        &key_id.try_into().unwrap(),
                     );
 
                     if existing.keys.contains_key(&target) {
@@ -787,7 +787,7 @@ fn mock_keys_claimed_request(keys: Arc<Mutex<Keys>>) -> impl Fn(&Request) -> Res
         // Accept all cross-signing setups by default.
         #[derive(Debug, serde::Deserialize)]
         struct Parameters {
-            one_time_keys: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, OneTimeKeyAlgorithm>>,
+            one_time_keys: BTreeMap<OwnedUserId, BTreeMap<DeviceId, OneTimeKeyAlgorithm>>,
         }
 
         let params: Parameters = req.body_json().unwrap();
@@ -797,7 +797,7 @@ fn mock_keys_claimed_request(keys: Arc<Mutex<Keys>>) -> impl Fn(&Request) -> Res
 
         let mut found_one_time_keys: BTreeMap<
             OwnedUserId,
-            BTreeMap<OwnedDeviceId, BTreeMap<OwnedOneTimeKeyId, Raw<OneTimeKey>>>,
+            BTreeMap<DeviceId, BTreeMap<OwnedOneTimeKeyId, Raw<OneTimeKey>>>,
         > = BTreeMap::new();
 
         for (user, requested_one_time_keys) in params.one_time_keys {

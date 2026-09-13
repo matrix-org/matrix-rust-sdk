@@ -24,7 +24,7 @@ use std::{
 
 use rand::Rng;
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedRoomId, OwnedUserId,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedUserId,
     events::secret::request::SecretName,
 };
 use serde::{Deserialize, Serialize};
@@ -256,9 +256,9 @@ pub struct DeviceUpdates {
     /// A device being in this list does not necessarily mean that the device
     /// was just created, it just means that it's the first time we're
     /// seeing this device.
-    pub new: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Device>>,
+    pub new: BTreeMap<OwnedUserId, BTreeMap<DeviceId, Device>>,
     /// The list of changed devices.
-    pub changed: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Device>>,
+    pub changed: BTreeMap<OwnedUserId, BTreeMap<DeviceId, Device>>,
 }
 
 /// Updates about [`UserIdentity`]s which got received over the `/keys/query`

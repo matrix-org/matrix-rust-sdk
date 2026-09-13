@@ -169,7 +169,7 @@ impl Serialize for Signatures {
 #[cfg(test)]
 mod test {
     use insta::{assert_json_snapshot, with_settings};
-    use ruma::{DeviceKeyAlgorithm, device_id, owned_user_id};
+    use ruma::{DeviceKeyAlgorithm, device_id_ref, owned_user_id};
 
     use super::*;
 
@@ -182,14 +182,14 @@ mod test {
                     (
                         DeviceKeyId::from_parts(
                             DeviceKeyAlgorithm::Ed25519,
-                            device_id!("ABCDEFGH"),
+                            device_id_ref!("ABCDEFGH"),
                         ),
                         Ok(Signature::from(Ed25519Signature::from_slice(&[0u8; 64]).unwrap())),
                     ),
                     (
                         DeviceKeyId::from_parts(
                             DeviceKeyAlgorithm::Curve25519,
-                            device_id!("IJKLMNOP"),
+                            device_id_ref!("IJKLMNOP"),
                         ),
                         Ok(Signature::from(Ed25519Signature::from_slice(&[1u8; 64]).unwrap())),
                     ),
@@ -198,7 +198,10 @@ mod test {
             (
                 owned_user_id!("@bob:localhost"),
                 BTreeMap::from([(
-                    DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, device_id!("ABCDEFGH")),
+                    DeviceKeyId::from_parts(
+                        DeviceKeyAlgorithm::Ed25519,
+                        device_id_ref!("ABCDEFGH"),
+                    ),
                     Err(InvalidSignature { source: "SOME+B64+SOME+B64+SOME+B64+==".to_owned() }),
                 )]),
             ),

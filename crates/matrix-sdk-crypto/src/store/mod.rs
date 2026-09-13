@@ -33,7 +33,7 @@
 //! # let device_id = device_id!("TEST");
 //! let store = Arc::new(MemoryStore::new());
 //!
-//! let machine = OlmMachineBuilder::new(user_id, device_id)
+//! let machine = OlmMachineBuilder::new(user_id, &device_id)
 //!     .with_crypto_store(store)
 //!     .build();
 //! ```
@@ -55,8 +55,8 @@ use futures_core::Stream;
 use futures_util::StreamExt;
 use itertools::{Either, Itertools};
 use ruma::{
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId, UserId,
-    encryption::KeyUsage, events::secret::request::SecretName,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, UserId, encryption::KeyUsage,
+    events::secret::request::SecretName,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
@@ -829,7 +829,7 @@ impl Store {
     pub(crate) async fn get_device_data_for_user_filtered(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
+    ) -> Result<HashMap<DeviceId, DeviceData>> {
         self.inner.store.get_user_devices(user_id).await.map(|mut d| {
             if user_id == self.user_id() {
                 d.remove(self.device_id());
@@ -849,7 +849,7 @@ impl Store {
     pub(crate) async fn get_device_data_for_user(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
+    ) -> Result<HashMap<DeviceId, DeviceData>> {
         self.inner.store.get_user_devices(user_id).await
     }
 
@@ -1437,7 +1437,7 @@ impl Store {
     /// # use futures_util::{pin_mut, StreamExt};
     /// # let alice = owned_user_id!("@alice:example.org");
     /// # futures_executor::block_on(async {
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
+    /// # let machine = OlmMachine::new(&alice, &device_id!("DEVICEID")).await;
     ///
     /// let secret_stream = machine.store().secrets_stream();
     /// pin_mut!(secret_stream);
@@ -1473,7 +1473,7 @@ impl Store {
     /// # use futures_util::{pin_mut, StreamExt};
     /// # let alice = owned_user_id!("@alice:example.org");
     /// # async {
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
+    /// # let machine = OlmMachine::new(&alice, &device_id!("DEVICEID")).await;
     /// let bundle_stream = machine.store().historic_room_key_stream();
     /// pin_mut!(bundle_stream);
     ///
@@ -1549,7 +1549,7 @@ impl Store {
     /// # use ruma::{device_id, user_id};
     /// # let alice = user_id!("@alice:example.org");
     /// # async {
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
+    /// # let machine = OlmMachine::new(&alice, &device_id!("DEVICEID")).await;
     /// # let export = Cursor::new("".to_owned());
     /// let exported_keys = decrypt_room_key_export(export, "1234").unwrap();
     /// machine.store().import_exported_room_keys(exported_keys, |_, _| {}).await.unwrap();
@@ -1627,7 +1627,7 @@ impl Store {
     /// # use ruma::{device_id, user_id, room_id};
     /// # let alice = user_id!("@alice:example.org");
     /// # async {
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
+    /// # let machine = OlmMachine::new(&alice, &device_id!("DEVICEID")).await;
     /// let room_id = room_id!("!test:localhost");
     /// let exported_keys = machine.store().export_room_keys(|s| s.room_id() == room_id).await.unwrap();
     /// let encrypted_export = encrypt_room_key_export(&exported_keys, "1234", 1);
@@ -1670,7 +1670,7 @@ impl Store {
     /// use tokio_stream::StreamExt;
     /// # async {
     /// let alice = user_id!("@alice:example.org");
-    /// let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
+    /// let machine = OlmMachine::new(&alice, &device_id!("DEVICEID")).await;
     /// let room_id = room_id!("!test:localhost");
     /// let mut keys = pin!(
     ///     machine
@@ -1973,9 +1973,9 @@ mod tests {
     use matrix_sdk_test::async_test;
     use rand::RngExt;
     use ruma::{
-        RoomId, device_id,
+        RoomId, device_id, device_id_ref,
         events::room::{EncryptedFile, EncryptedFileHashes, V2EncryptedFileInfo},
-        owned_device_id, owned_mxc_uri, room_id, user_id,
+        owned_mxc_uri, room_id, user_id,
     };
     use serde_json::json;
     use vodozemac::{Ed25519Keypair, megolm::SessionKey};
@@ -1996,8 +1996,8 @@ mod tests {
 
     #[async_test]
     async fn test_merge_received_group_session() {
-        let alice_account = Account::with_device_id(user_id!("@a:s.co"), device_id!("ABC"));
-        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("DEF")).await;
+        let alice_account = Account::with_device_id(user_id!("@a:s.co"), device_id_ref!("ABC"));
+        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id_ref!("DEF")).await;
 
         let room_id = room_id!("!test:localhost");
 
@@ -2293,8 +2293,8 @@ mod tests {
     async fn test_build_room_key_bundle() {
         // Given: Alice has sent a number of room keys to Bob, including some in the
         // wrong room, and some that are not marked as shared...
-        let alice = OlmMachine::new(user_id!("@a:s.co"), device_id!("ALICE")).await;
-        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("BOB")).await;
+        let alice = OlmMachine::new(user_id!("@a:s.co"), device_id_ref!("ALICE")).await;
+        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id_ref!("BOB")).await;
 
         let room1_id = room_id!("!room1:localhost");
         let room2_id = room_id!("!room2:localhost");
@@ -2380,9 +2380,9 @@ mod tests {
 
     #[async_test]
     async fn test_receive_room_key_bundle() {
-        let alice = OlmMachine::new(user_id!("@a:s.co"), device_id!("ALICE")).await;
+        let alice = OlmMachine::new(user_id!("@a:s.co"), device_id_ref!("ALICE")).await;
         let alice_key = alice.identity_keys().curve25519;
-        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("BOB")).await;
+        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id_ref!("BOB")).await;
 
         let room_id = room_id!("!room1:localhost");
 
@@ -2414,7 +2414,7 @@ mod tests {
                     sender_key: alice_key,
                     sender_data: SenderData::sender_verified(
                         alice.user_id(),
-                        device_id!("ALICE"),
+                        device_id_ref!("ALICE"),
                         alice.identity_keys().ed25519,
                     ),
 
@@ -2513,7 +2513,7 @@ mod tests {
             withheld_content.sender_key.to_base64(),
             "7hIcOrEroXYdzjtCBvBjUiqvT0Me7g+ymeXqoc65RS0"
         );
-        assert_eq!(withheld_content.from_device, Some(owned_device_id!("ALICE")));
+        assert_eq!(withheld_content.from_device, Some(device_id!("ALICE")));
     }
 
     /// Create an inbound Megolm session for the given room.

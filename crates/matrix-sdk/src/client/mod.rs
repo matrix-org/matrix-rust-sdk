@@ -45,8 +45,8 @@ use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, ttl::TtlValu
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{InitialStateEvent, room::encryption::RoomEncryptionEventContent};
 use ruma::{
-    DeviceId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName,
-    RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
+    DeviceId, OwnedEventId, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName, RoomAliasId, RoomId,
+    RoomOrAliasId, ServerName, UInt, UserId,
     api::{
         FeatureFlag, MatrixVersion, Metadata, OutgoingRequest, SupportedVersions,
         client::{
@@ -821,7 +821,7 @@ impl Client {
 
     /// Get the device ID that identifies the current session.
     pub fn device_id(&self) -> Option<&DeviceId> {
-        self.session_meta().map(|s| s.device_id.as_ref())
+        self.session_meta().map(|s| &s.device_id)
     }
 
     /// Get the current access token for this session.
@@ -3002,7 +3002,7 @@ impl Client {
     ///
     /// ```no_run
     /// # use matrix_sdk::{
-    /// #    ruma::{api::client::uiaa, owned_device_id},
+    /// #    ruma::{api::client::uiaa, device_id},
     /// #    Client, Error, config::SyncSettings,
     /// # };
     /// # use serde_json::json;
@@ -3011,7 +3011,7 @@ impl Client {
     /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
-    /// let devices = &[owned_device_id!("DEVICEID")];
+    /// let devices = &[device_id!("DEVICEID")];
     ///
     /// if let Err(e) = client.delete_devices(devices, None).await {
     ///     if let Some(info) = e.as_uiaa_response() {
@@ -3029,7 +3029,7 @@ impl Client {
     /// # anyhow::Ok(()) };
     pub async fn delete_devices(
         &self,
-        devices: &[OwnedDeviceId],
+        devices: &[DeviceId],
         auth_data: Option<uiaa::AuthData>,
     ) -> HttpResult<delete_devices::v3::Response> {
         let mut request = delete_devices::v3::Request::new(devices.to_owned());
@@ -3066,7 +3066,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `device_id` - The ID of the device to query.
-    pub async fn device_exists(&self, device_id: OwnedDeviceId) -> Result<bool> {
+    pub async fn device_exists(&self, device_id: DeviceId) -> Result<bool> {
         let request = device::get_device::v3::Request::new(device_id);
         match self.send(request).await {
             Ok(_) => Ok(true),
@@ -4039,12 +4039,12 @@ pub(crate) mod tests {
             FeatureFlag, MatrixVersion,
             client::{room::create_room::v3::Request as CreateRoomRequest, rtc::RtcTransport},
         },
-        assign,
+        assign, device_id,
         events::{
             ignored_user_list::IgnoredUserListEventContent,
             media_preview_config::{InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews},
         },
-        owned_device_id, owned_room_id, owned_user_id,
+        owned_room_id, owned_user_id,
         presence::PresenceState,
         room_alias_id, room_id, user_id,
     };
@@ -5640,7 +5640,7 @@ pub(crate) mod tests {
 
         server.mock_get_device().ok().expect(1).mount().await;
 
-        assert_matches!(client.device_exists(owned_device_id!("ABCDEF")).await, Ok(true));
+        assert_matches!(client.device_exists(device_id!("ABCDEF")).await, Ok(true));
     }
 
     #[async_test]
@@ -5648,7 +5648,7 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        assert_matches!(client.device_exists(owned_device_id!("ABCDEF")).await, Ok(false));
+        assert_matches!(client.device_exists(device_id!("ABCDEF")).await, Ok(false));
     }
 
     #[async_test]
@@ -5658,7 +5658,7 @@ pub(crate) mod tests {
 
         server.mock_get_device().error500().expect(1).mount().await;
 
-        assert_matches!(client.device_exists(owned_device_id!("ABCDEF")).await, Err(_));
+        assert_matches!(client.device_exists(device_id!("ABCDEF")).await, Err(_));
     }
 
     #[async_test]
@@ -5693,7 +5693,7 @@ pub(crate) mod tests {
         let user_id =
             UserId::parse(format!("@user:{}", server.server().address())).expect("Invalid user id");
         let client = MockClientBuilder::new(None)
-            .logged_in_with_token("A_TOKEN".to_owned(), user_id, owned_device_id!("ABCDEF"))
+            .logged_in_with_token("A_TOKEN".to_owned(), user_id, device_id!("ABCDEF"))
             .build()
             .await;
 

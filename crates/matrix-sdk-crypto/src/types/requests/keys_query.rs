@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeMap, time::Duration};
 
-use ruma::{OwnedDeviceId, OwnedUserId};
+use ruma::{DeviceId, OwnedUserId};
 
 /// Customized version of `ruma_client_api::keys::get_keys::v3::Request`,
 /// without any references.
@@ -26,7 +26,7 @@ pub struct KeysQueryRequest {
 
     /// The keys to be downloaded. An empty list indicates all devices for
     /// the corresponding user.
-    pub device_keys: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
+    pub device_keys: BTreeMap<OwnedUserId, Vec<DeviceId>>,
 }
 
 impl KeysQueryRequest {

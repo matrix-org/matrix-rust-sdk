@@ -44,7 +44,7 @@ use ruma::{
         keys::{get_keys, get_keys::v3::Response as KeysQueryResponse, upload_keys},
         sync::sync_events::DeviceLists,
     },
-    device_id,
+    device_id_ref,
     events::{
         AnyMessageLikeEvent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnyTimelineEvent,
         AnyToDeviceEvent, MessageLikeEvent, OriginalMessageLikeEvent, ToDeviceEventType,
@@ -107,11 +107,11 @@ fn alice_id() -> &'static UserId {
 }
 
 fn alice_device_id() -> &'static DeviceId {
-    device_id!("JLAFKJWSCS")
+    device_id_ref!("JLAFKJWSCS")
 }
 
 fn bob_device_id() -> &'static DeviceId {
-    device_id!("NTHHPZDPRN")
+    device_id_ref!("NTHHPZDPRN")
 }
 
 fn user_id() -> &'static UserId {
@@ -380,7 +380,7 @@ async fn test_keys_query() {
     let (machine, _) = get_prepared_machine_test_helper(user_id(), false).await;
     let response = keys_query_response();
     let alice_id = user_id!("@alice:example.org");
-    let alice_device_id: &DeviceId = device_id!("JLAFKJWSCS");
+    let alice_device_id: &DeviceId = device_id_ref!("JLAFKJWSCS");
 
     let alice_devices = machine.store().get_user_devices(alice_id).await.unwrap();
     assert!(alice_devices.devices().peekable().peek().is_none());
@@ -410,7 +410,7 @@ async fn test_late_keys_query_response_updates_own_device() {
     use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
     // Given we just created a new device and all its keys
-    let device_id = device_id!("MYDEVICE");
+    let device_id = device_id_ref!("MYDEVICE");
     let machine = OlmMachine::new(DataSet::own_id(), device_id).await;
     machine.bootstrap_cross_signing(false).await.unwrap();
 
@@ -606,7 +606,7 @@ async fn test_session_encryption_info_can_be_fetched() {
 
     // Then the expected info is returned
     assert_eq!(encryption_info.sender, alice_id());
-    assert_eq!(encryption_info.sender_device.as_deref(), Some(alice_device_id()));
+    assert_eq!(encryption_info.sender_device.as_ref(), Some(alice_device_id()));
     assert_matches!(
         &encryption_info.algorithm_info,
         AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, .. }
@@ -1311,8 +1311,8 @@ pub async fn setup_cross_signing_for_machine_test_helper(alice: &OlmMachine, bob
     // devices. so we ignore the new device signatures
     let json = json!({
         "device_keys": {
-            bob.user_id() : { bob.device_id() : bob_device_keys},
-            alice.user_id() : { alice.device_id():  alice_device_keys }
+            bob.user_id() : { bob.device_id().as_str() : bob_device_keys},
+            alice.user_id() : { alice.device_id().as_str():  alice_device_keys }
         },
         "failures": {},
         "master_keys": {
@@ -1403,11 +1403,11 @@ async fn test_query_ratcheted_key() {
 
     // Need a second bob session to check gossiping
     let bob_id = user_id();
-    let bob_other_device = device_id!("OTHERBOB");
+    let bob_other_device = device_id_ref!("OTHERBOB");
     let bob_other_machine = OlmMachine::new(bob_id, bob_other_device).await;
     let bob_other_device = DeviceData::from_machine_test_helper(&bob_other_machine).await.unwrap();
     bob.store().save_device_data(&[bob_other_device]).await.unwrap();
-    bob.get_device(bob_id, device_id!("OTHERBOB"), None)
+    bob.get_device(bob_id, device_id_ref!("OTHERBOB"), None)
         .await
         .unwrap()
         .expect("should exist")
@@ -1620,7 +1620,7 @@ async fn test_room_key_with_fake_identity_keys() {
 #[async_test]
 async fn test_importing_private_cross_signing_keys_verifies_the_public_identity() {
     async fn create_additional_machine(machine: &OlmMachine) -> OlmMachine {
-        let second_machine = OlmMachine::new(machine.user_id(), "ADDITIONAL_MACHINE".into()).await;
+        let second_machine = OlmMachine::new(machine.user_id(), &"ADDITIONAL_MACHINE".into()).await;
 
         let identity = machine
             .get_identity(machine.user_id(), None)

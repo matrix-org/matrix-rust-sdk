@@ -2,13 +2,12 @@ use std::{collections::BTreeMap, default::Default};
 
 use insta::{assert_json_snapshot, with_settings};
 use ruma::{
-    CanonicalJsonValue, CrossSigningKeyId, CrossSigningOrDeviceSignatures,
-    CrossSigningOrDeviceSigningKeyId, DeviceId, OwnedBase64PublicKey,
-    OwnedBase64PublicKeyOrDeviceId, OwnedDeviceId, OwnedUserId, SigningKeyAlgorithm, UserId,
+    Base64PublicKey, Base64PublicKeyOrDeviceId, CanonicalJsonValue, CrossSigningKeyId,
+    CrossSigningOrDeviceSignatures, CrossSigningOrDeviceSigningKeyId, DeviceId, OwnedUserId,
+    SigningKeyAlgorithm, UserId,
     api::client::keys::get_keys::v3::Response as KeyQueryResponse,
-    device_id,
+    device_id, device_id_ref,
     encryption::{CrossSigningKey, DeviceKeys, KeyUsage},
-    owned_device_id,
     serde::Raw,
     user_id,
 };
@@ -39,7 +38,7 @@ use crate::{
 ///
 /// let template = KeyQueryResponseTemplate::new(owned_user_id!("@alice:localhost"))
 ///     .with_device(
-///         device_id!("TESTDEVICE"),
+///         &device_id!("TESTDEVICE"),
 ///         &Curve25519PublicKey::from(b"curvepubcurvepubcurvepubcurvepub".to_owned()),
 ///         &Ed25519SecretKey::from_slice(b"device12device12device12device12"),
 ///         KeyQueryResponseTemplateDeviceOptions::new(),
@@ -69,7 +68,7 @@ use crate::{
 ///     )
 ///     // add signed device
 ///     .with_device(
-///         device_id!("SECUREDEVICE"),
+///         &device_id!("SECUREDEVICE"),
 ///         &Curve25519PublicKey::from(b"curvepubcurvepubcurvepubcurvepub".to_owned()),
 ///         &Ed25519SecretKey::from_slice(b"device12device12device12device12"),
 ///         KeyQueryResponseTemplateDeviceOptions::new().verified(true),
@@ -104,7 +103,7 @@ pub struct KeyQueryResponseTemplate {
 
     /// The JSON object containing the public, signed, device keys, added via
     /// [`KeyQueryResponseTemplate::with_device`].
-    device_keys: BTreeMap<OwnedDeviceId, Raw<DeviceKeys>>,
+    device_keys: BTreeMap<DeviceId, Raw<DeviceKeys>>,
 }
 
 impl KeyQueryResponseTemplate {
@@ -258,7 +257,7 @@ impl KeyQueryResponseTemplate {
         public_key: &Ed25519PublicKey,
         key_usage: KeyUsage,
     ) -> CrossSigningKey {
-        let public_key_base64 = OwnedBase64PublicKey::with_bytes(public_key.as_bytes());
+        let public_key_base64 = Base64PublicKey::with_bytes(public_key.as_bytes());
         let mut key = CrossSigningKey::new(
             self.user_id.clone(),
             vec![key_usage],
@@ -581,19 +580,19 @@ impl KeyDistributionTestData {
     }
 
     pub fn me_device_id() -> &'static DeviceId {
-        device_id!("ABCDEFGH")
+        device_id_ref!("ABCDEFGH")
     }
 
     pub fn dan_unsigned_device_id() -> &'static DeviceId {
-        device_id!("FRGNMZVOKA")
+        device_id_ref!("FRGNMZVOKA")
     }
 
     pub fn dan_signed_device_id() -> &'static DeviceId {
-        device_id!("JHPUERYQUW")
+        device_id_ref!("JHPUERYQUW")
     }
 
     pub fn dave_device_id() -> &'static DeviceId {
-        device_id!("HVCXJTHMBM")
+        device_id_ref!("HVCXJTHMBM")
     }
 
     pub fn dan_id() -> &'static UserId {
@@ -609,11 +608,11 @@ impl KeyDistributionTestData {
     }
 
     pub fn good_device_1_id() -> &'static DeviceId {
-        device_id!("JAXGBVZYLA")
+        device_id_ref!("JAXGBVZYLA")
     }
 
     pub fn good_device_2_id() -> &'static DeviceId {
-        device_id!("ZGLCFWEPCY")
+        device_id_ref!("ZGLCFWEPCY")
     }
 }
 
@@ -810,7 +809,7 @@ impl VerificationViolationTestData {
     }
 
     /// Device ID of the device returned by [`Self::own_unsigned_device_keys`].
-    pub fn own_unsigned_device_id() -> OwnedDeviceId {
+    pub fn own_unsigned_device_id() -> DeviceId {
         Self::own_unsigned_device_keys().0
     }
 
@@ -820,7 +819,7 @@ impl VerificationViolationTestData {
     ///
     /// For convenience, returns a tuple `(<device id>, <device keys>)`. The
     /// device id is also returned by [`Self::own_unsigned_device_id`].
-    pub fn own_unsigned_device_keys() -> (OwnedDeviceId, Raw<DeviceKeys>) {
+    pub fn own_unsigned_device_keys() -> (DeviceId, Raw<DeviceKeys>) {
         let json = json!({
              "algorithms": [
                  "m.olm.v1.curve25519-aes-sha2",
@@ -841,11 +840,11 @@ impl VerificationViolationTestData {
                  "device_display_name": "Element - dbg Android"
              }
         });
-        (owned_device_id!("AHIVRZICJK"), serde_json::from_value(json).unwrap())
+        (device_id!("AHIVRZICJK"), serde_json::from_value(json).unwrap())
     }
 
     /// Device ID of the device returned by [`Self::own_signed_device_keys`].
-    pub fn own_signed_device_id() -> OwnedDeviceId {
+    pub fn own_signed_device_id() -> DeviceId {
         Self::own_signed_device_keys().0
     }
 
@@ -855,7 +854,7 @@ impl VerificationViolationTestData {
     ///
     /// For convenience, returns a tuple `(<device id>, <device keys>)`. The
     /// device id is also returned by [`Self::own_signed_device_id`].
-    pub fn own_signed_device_keys() -> (OwnedDeviceId, Raw<DeviceKeys>) {
+    pub fn own_signed_device_keys() -> (DeviceId, Raw<DeviceKeys>) {
         let json = json!({
             "algorithms": [
                 "m.olm.v1.curve25519-aes-sha2",
@@ -877,7 +876,7 @@ impl VerificationViolationTestData {
                 "device_display_name": "develop.element.io: Chrome on macOS"
             }
         });
-        (owned_device_id!("LCNRWQAVWK"), serde_json::from_value(json).unwrap())
+        (device_id!("LCNRWQAVWK"), serde_json::from_value(json).unwrap())
     }
 
     /// `/keys/query` response for Bob, signed by Alice's identity.
@@ -978,7 +977,7 @@ impl VerificationViolationTestData {
     /// This device is cross-signed in [`Self::bob_keys_query_response_signed`]
     /// but not in [`Self::bob_keys_query_response_rotated`].
     pub fn bob_device_1_id() -> &'static DeviceId {
-        device_id!("RLZGZIHKMP")
+        device_id_ref!("RLZGZIHKMP")
     }
 
     /// Device ID of Bob's second device.
@@ -986,7 +985,7 @@ impl VerificationViolationTestData {
     /// This device is cross-signed in [`Self::bob_keys_query_response_rotated`]
     /// but not in [`Self::bob_keys_query_response_signed`].
     pub fn bob_device_2_id() -> &'static DeviceId {
-        device_id!("XCYNVRMTER")
+        device_id_ref!("XCYNVRMTER")
     }
 
     /// `/keys/query` response for Bob, signed by Alice's identity.
@@ -1093,7 +1092,7 @@ impl VerificationViolationTestData {
     /// [`Self::carol_keys_query_response_signed`] and
     /// [`Self::carol_keys_query_response_unsigned`].
     pub fn carol_signed_device_id() -> &'static DeviceId {
-        device_id!("JBRBCHOFDZ")
+        device_id_ref!("JBRBCHOFDZ")
     }
 
     /// Device ID of Carol's unsigned device.
@@ -1102,7 +1101,7 @@ impl VerificationViolationTestData {
     /// [`Self::carol_keys_query_response_signed`] and
     /// [`Self::carol_keys_query_response_unsigned`].
     pub fn carol_unsigned_device_id() -> &'static DeviceId {
-        device_id!("BAZAPVEHGA")
+        device_id_ref!("BAZAPVEHGA")
     }
 
     /// Device-keys payload for Carol's unsigned device
@@ -1267,7 +1266,7 @@ impl MaloIdentityChangeDataSet {
     }
 
     pub fn device_id() -> &'static DeviceId {
-        device_id!("NZFSPBRLDO")
+        device_id_ref!("NZFSPBRLDO")
     }
 
     /// @malo's keys before their identity change
@@ -1484,8 +1483,8 @@ fn sign_cross_signing_key(
     let signature = calculate_json_signature(key_json, signing_key);
 
     // Poke the signature into the struct
-    let signing_key_id: OwnedBase64PublicKeyOrDeviceId =
-        OwnedBase64PublicKey::with_bytes(signing_key.public_key().as_bytes()).into();
+    let signing_key_id: Base64PublicKeyOrDeviceId =
+        Base64PublicKey::with_bytes(signing_key.public_key().as_bytes()).into();
 
     value.signatures.insert_signature(
         user_id.to_owned(),

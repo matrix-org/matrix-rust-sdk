@@ -194,7 +194,7 @@ impl MasterSigning {
             self.public_key.user_id().to_owned(),
             DeviceKeyId::from_parts(
                 DeviceKeyAlgorithm::Ed25519,
-                self.inner.public_key.to_base64().as_str().into(),
+                &self.inner.public_key.to_base64().into(),
             ),
             signature,
         );
@@ -251,7 +251,7 @@ impl UserSigning {
             self.public_key.user_id().to_owned(),
             DeviceKeyId::from_parts(
                 DeviceKeyAlgorithm::Ed25519,
-                self.inner.public_key.to_base64().as_str().into(),
+                &self.inner.public_key.to_base64().into(),
             ),
             signature,
         );
@@ -299,7 +299,7 @@ impl SelfSigning {
             self.public_key.user_id().to_owned(),
             DeviceKeyId::from_parts(
                 DeviceKeyAlgorithm::Ed25519,
-                self.inner.public_key.to_base64().as_str().into(),
+                &self.inner.public_key.to_base64().into(),
             ),
             signature,
         );
@@ -379,7 +379,7 @@ impl Signing {
         let keys = SigningKeys::from([(
             DeviceKeyId::from_parts(
                 DeviceKeyAlgorithm::Ed25519,
-                self.public_key().to_base64().as_str().into(),
+                &self.public_key().to_base64().into(),
             ),
             self.inner.public_key().into(),
         )]);

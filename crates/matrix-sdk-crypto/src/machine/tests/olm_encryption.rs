@@ -25,7 +25,7 @@ use matrix_sdk_test::async_test;
 use ruma::{
     DeviceKeyAlgorithm, DeviceKeyId, SecondsSinceUnixEpoch,
     canonical_json::to_canonical_value,
-    device_id,
+    device_id_ref,
     events::{AnyToDeviceEvent, dummy::ToDeviceDummyEventContent},
     user_id,
 };
@@ -155,9 +155,9 @@ async fn test_getting_most_recent_session() {
 #[async_test]
 async fn test_get_most_recent_session_of_device_with_no_curve_key() {
     let alice_machine =
-        OlmMachine::new(user_id!("@alice:example.org"), device_id!("ALICE_DEVICE")).await;
+        OlmMachine::new(user_id!("@alice:example.org"), device_id_ref!("ALICE_DEVICE")).await;
     let bob_user_id = user_id!("@bob:example.com");
-    let bob_device_id = device_id!("BOB_DEVICE");
+    let bob_device_id = device_id_ref!("BOB_DEVICE");
 
     let bob_device_data = {
         // Create a device with no Curve25519 key. It has to have an Ed25519 key, and be

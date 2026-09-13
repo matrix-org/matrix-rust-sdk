@@ -123,7 +123,7 @@ mod tests {
     use matrix_sdk::deserialized_responses::{AlgorithmInfo, EncryptionInfo, VerificationState};
     use matrix_sdk_base::crypto::types::events::UtdCause;
     use ruma::{
-        MilliSecondsSinceUnixEpoch, OwnedTransactionId,
+        MilliSecondsSinceUnixEpoch, OwnedTransactionId, device_id,
         events::room::{
             encrypted::{
                 EncryptedEventScheme, MegolmV1AesSha2Content, MegolmV1AesSha2ContentInit,
@@ -131,7 +131,7 @@ mod tests {
             },
             message::RoomMessageEventContent,
         },
-        owned_device_id, owned_event_id, owned_user_id,
+        owned_event_id, owned_user_id,
     };
 
     use crate::timeline::{
@@ -273,7 +273,7 @@ mod tests {
                                 MegolmV1AesSha2ContentInit {
                                     ciphertext: "cyf".to_owned(),
                                     sender_key: "sendk".to_owned(),
-                                    device_id: owned_device_id!("DEV"),
+                                    device_id: device_id!("DEV"),
                                     session_id: session_id.to_owned(),
                                 },
                             )),

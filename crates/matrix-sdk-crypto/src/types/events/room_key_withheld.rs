@@ -17,9 +17,7 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_common::deserialized_responses::WithheldCode;
-use ruma::{
-    OwnedDeviceId, OwnedRoomId, RoomId, events::AnyToDeviceEventContent, serde::JsonCastable,
-};
+use ruma::{DeviceId, OwnedRoomId, RoomId, events::AnyToDeviceEventContent, serde::JsonCastable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::Curve25519PublicKey;
@@ -105,7 +103,7 @@ impl RoomKeyWithheldContent {
         room_id: OwnedRoomId,
         session_id: String,
         sender_key: Curve25519PublicKey,
-        from_device: OwnedDeviceId,
+        from_device: DeviceId,
     ) -> Self {
         let from_device = Some(from_device);
 
@@ -227,7 +225,7 @@ pub struct CommonWithheldCodeContent {
     /// The device ID of the device sending the m.room_key.withheld message
     /// MSC3735.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub from_device: Option<OwnedDeviceId>,
+    pub from_device: Option<DeviceId>,
 
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
@@ -239,7 +237,7 @@ impl CommonWithheldCodeContent {
         room_id: OwnedRoomId,
         session_id: String,
         sender_key: Curve25519PublicKey,
-        device_id: OwnedDeviceId,
+        device_id: DeviceId,
     ) -> Self {
         Self {
             room_id,
@@ -316,7 +314,7 @@ pub struct NoOlmWithheldContent {
     /// The device ID of the device sending the m.room_key.withheld message
     /// MSC3735.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub from_device: Option<OwnedDeviceId>,
+    pub from_device: Option<DeviceId>,
 
     #[serde(flatten)]
     other: BTreeMap<String, Value>,
@@ -492,7 +490,7 @@ pub(super) mod tests {
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use matrix_sdk_common::deserialized_responses::WithheldCode;
-    use ruma::{device_id, room_id, serde::Raw, to_device::DeviceIdOrAllDevices, user_id};
+    use ruma::{device_id_ref, room_id, serde::Raw, to_device::DeviceIdOrAllDevices, user_id};
     use serde_json::{Value, json};
     use vodozemac::Curve25519PublicKey;
 
@@ -638,7 +636,7 @@ pub(super) mod tests {
 
         let room_id = room_id!("!DwLygpkclUAfQNnfva:localhost:8481");
         let user_id = user_id!("@alice:example.org");
-        let device_id = device_id!("DEV001");
+        let device_id = device_id_ref!("DEV001");
         let sender_key =
             Curve25519PublicKey::from_base64("9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA")
                 .unwrap();
@@ -679,7 +677,7 @@ pub(super) mod tests {
     #[test]
     fn no_olm_should_not_have_room_and_session() {
         let room_id = room_id!("!DwLygpkclUAfQNnfva:localhost:8481");
-        let device_id = device_id!("DEV001");
+        let device_id = device_id_ref!("DEV001");
         let sender_key =
             Curve25519PublicKey::from_base64("9n7mdWKOjr9c4NTlG6zV8dbFtNK79q9vZADoh7nMUwA")
                 .unwrap();
