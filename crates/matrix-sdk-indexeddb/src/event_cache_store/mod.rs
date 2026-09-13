@@ -375,13 +375,16 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             }
             Ok(Some(last_chunk)) => {
                 let last_chunk_identifier = ChunkIdentifier::new(last_chunk.identifier);
-                let last_raw_chunk = transaction
-                    .load_chunk_by_id(linked_chunk_id, last_chunk_identifier)
-                    .await?
-                    .ok_or(IndexeddbEventCacheStoreError::UnableToLoadChunk)?;
-                let max_chunk_id = transaction
-                    .get_max_chunk_by_id(linked_chunk_id)
-                    .await?
+
+                let (last_raw_chunk, max_chunk_id) = futures_util::future::try_join(
+                    transaction.load_chunk_by_id(linked_chunk_id, last_chunk_identifier),
+                    transaction.get_max_chunk_by_id(linked_chunk_id),
+                )
+                .await?;
+
+                let last_raw_chunk =
+                    last_raw_chunk.ok_or(IndexeddbEventCacheStoreError::UnableToLoadChunk)?;
+                let max_chunk_id = max_chunk_id
                     .map(|chunk| ChunkIdentifier::new(chunk.identifier))
                     .ok_or(IndexeddbEventCacheStoreError::NoMaxChunkId)?;
                 let generator =
