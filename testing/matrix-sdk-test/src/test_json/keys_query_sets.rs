@@ -2,9 +2,9 @@ use std::{collections::BTreeMap, default::Default};
 
 use insta::{assert_json_snapshot, with_settings};
 use ruma::{
-    CanonicalJsonValue, CrossSigningKeyId, CrossSigningOrDeviceSignatures,
-    CrossSigningOrDeviceSigningKeyId, DeviceId, OwnedBase64PublicKey,
-    OwnedBase64PublicKeyOrDeviceId, OwnedDeviceId, OwnedUserId, SigningKeyAlgorithm, UserId,
+    Base64PublicKey, CanonicalJsonValue, CrossSigningKeyId, CrossSigningOrDeviceSignatures,
+    CrossSigningOrDeviceSigningKeyId, DeviceId, OwnedBase64PublicKeyOrDeviceId, OwnedDeviceId,
+    OwnedUserId, SigningKeyAlgorithm, UserId,
     api::client::keys::get_keys::v3::Response as KeyQueryResponse,
     device_id,
     encryption::{CrossSigningKey, DeviceKeys, KeyUsage},
@@ -258,7 +258,7 @@ impl KeyQueryResponseTemplate {
         public_key: &Ed25519PublicKey,
         key_usage: KeyUsage,
     ) -> CrossSigningKey {
-        let public_key_base64 = OwnedBase64PublicKey::with_bytes(public_key.as_bytes());
+        let public_key_base64 = Base64PublicKey::with_bytes(public_key.as_bytes());
         let mut key = CrossSigningKey::new(
             self.user_id.clone(),
             vec![key_usage],
@@ -1485,7 +1485,7 @@ fn sign_cross_signing_key(
 
     // Poke the signature into the struct
     let signing_key_id: OwnedBase64PublicKeyOrDeviceId =
-        OwnedBase64PublicKey::with_bytes(signing_key.public_key().as_bytes()).into();
+        Base64PublicKey::with_bytes(signing_key.public_key().as_bytes()).into();
 
     value.signatures.insert_signature(
         user_id.to_owned(),
