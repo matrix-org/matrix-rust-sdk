@@ -33,7 +33,7 @@ use ruma::{
     room_version_rules::AuthorizationRules,
     serde::Raw,
 };
-use serde::Serialize;
+use serde::{Serialize, de::DeserializeOwned};
 use unicode_normalization::UnicodeNormalization;
 
 /// A change in ambiguity of room members that an `m.room.member` event
@@ -371,6 +371,7 @@ where
         C: StaticStateEventContent + EventContentFromType + RedactContent,
         C::Redacted: RedactedStateEventContent<StateKey = C::StateKey> + EventContentFromType,
         C::PossiblyRedacted: PossiblyRedactedStateEventContent + EventContentFromType,
+        C::Unsigned: DeserializeOwned,
     {
         match self {
             Self::Sync(ev) => Ok(SyncOrStrippedState::Sync(ev.deserialize()?)),

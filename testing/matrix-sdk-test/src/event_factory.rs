@@ -110,7 +110,7 @@ use ruma::{
     serde::Raw,
     server_name,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::json;
 
 use crate::base64_sha256_hash;
@@ -691,6 +691,7 @@ where
     E: StaticStateEventContent + RedactContent + EventContentFromType,
     E::Redacted: RedactedStateEventContent<StateKey = <E as StateEventContent>::StateKey>
         + EventContentFromType,
+    E::Unsigned: DeserializeOwned,
 {
     fn from(val: EventBuilder<E>) -> Self {
         Raw::<SyncStateEvent<E>>::from(val).deserialize().expect("expected sync state")
@@ -730,6 +731,7 @@ where
     E: StaticStateEventContent + RedactContent + EventContentFromType,
     E::Redacted: RedactedStateEventContent<StateKey = <E as StateEventContent>::StateKey>
         + EventContentFromType,
+    E::Unsigned: DeserializeOwned,
 {
     fn from(val: EventBuilder<E>) -> Self {
         Raw::<StateEvent<E>>::from(val).deserialize().expect("expected state")
