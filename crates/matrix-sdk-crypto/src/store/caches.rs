@@ -28,7 +28,7 @@ use std::{
 };
 
 use matrix_sdk_common::locks::RwLock as StdRwLock;
-use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
+use ruma::{DeviceId, OwnedUserId, UserId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, MutexGuard, OwnedRwLockReadGuard, RwLock};
 use tracing::{Span, field::display, instrument, trace};
@@ -88,7 +88,7 @@ impl SessionStore {
 /// In-memory store holding the devices of users.
 #[derive(Debug, Default)]
 pub struct DeviceStore {
-    entries: StdRwLock<BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, DeviceData>>>,
+    entries: StdRwLock<BTreeMap<OwnedUserId, BTreeMap<DeviceId, DeviceData>>>,
 }
 
 impl DeviceStore {
@@ -106,7 +106,7 @@ impl DeviceStore {
             .write()
             .entry(user_id.to_owned())
             .or_default()
-            .insert(device.device_id().into(), device)
+            .insert(device.device_id().clone(), device)
             .is_none()
     }
 
@@ -124,7 +124,7 @@ impl DeviceStore {
     }
 
     /// Get a read-only view over all devices of the given user.
-    pub fn user_devices(&self, user_id: &UserId) -> HashMap<OwnedDeviceId, DeviceData> {
+    pub fn user_devices(&self, user_id: &UserId) -> HashMap<DeviceId, DeviceData> {
         self.entries
             .write()
             .entry(user_id.to_owned())
@@ -456,7 +456,7 @@ mod tests {
 
         let user_devices = store.user_devices(device.user_id());
 
-        assert_eq!(&**user_devices.keys().next().unwrap(), device.device_id());
+        assert_eq!(user_devices.keys().next().unwrap(), device.device_id());
         assert_eq!(user_devices.values().next().unwrap(), &device);
 
         let loaded_device = user_devices.get(device.device_id()).unwrap();

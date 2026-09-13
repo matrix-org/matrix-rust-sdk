@@ -163,7 +163,7 @@ mod tests {
         let mut signatures = Signatures::new();
         signatures.add_signature(
             owned_user_id!("@alice:localhost"),
-            KeyId::from_parts(DeviceKeyAlgorithm::Ed25519, "ABCDEFG".into()),
+            KeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &"ABCDEFG".into()),
             Ed25519Signature::from_slice(&[0u8; 64]).unwrap(),
         );
 

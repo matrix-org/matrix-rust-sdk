@@ -27,8 +27,8 @@ use matrix_sdk_common::deserialized_responses::{
 };
 use ruma::{
     CanonicalJsonValue, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
-    OneTimeKeyAlgorithm, OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedOneTimeKeyId,
-    OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
+    OneTimeKeyAlgorithm, OneTimeKeyId, OwnedDeviceKeyId, OwnedOneTimeKeyId, OwnedUserId, RoomId,
+    SecondsSinceUnixEpoch, UInt, UserId,
     api::client::{
         dehydrated_device::{DehydratedDeviceData, DehydratedDeviceV2},
         keys::{upload_keys, upload_signatures::v3::Request as SignatureUploadRequest},
@@ -167,7 +167,7 @@ pub struct StaticAccountData {
     /// The user_id this account belongs to.
     pub user_id: OwnedUserId,
     /// The device_id of this entry.
-    pub device_id: OwnedDeviceId,
+    pub device_id: DeviceId,
     /// The associated identity keys.
     pub identity_keys: Arc<IdentityKeys>,
     /// Whether the account is for a dehydrated device.
@@ -379,7 +379,7 @@ pub struct PickledAccount {
     /// The user id of the account owner.
     pub user_id: OwnedUserId,
     /// The device ID of the account owner.
-    pub device_id: OwnedDeviceId,
+    pub device_id: DeviceId,
     /// The pickled version of the Olm account.
     pub pickle: AccountPickle,
     /// Was the account shared.
@@ -439,7 +439,7 @@ impl Account {
         Self {
             static_data: StaticAccountData {
                 user_id: user_id.into(),
-                device_id: device_id.into(),
+                device_id: device_id.clone(),
                 identity_keys: Arc::new(identity_keys),
                 dehydrated: false,
                 creation_local_time: MilliSecondsSinceUnixEpoch::now(),
@@ -462,7 +462,7 @@ impl Account {
     /// encoded as base64 will be used for the device ID.
     pub fn new(user_id: &UserId) -> Self {
         let account = InnerAccount::new();
-        let device_id: OwnedDeviceId =
+        let device_id: DeviceId =
             base64_encode(account.identity_keys().curve25519.as_bytes()).into();
 
         Self::new_helper(account, user_id, &device_id)
@@ -471,7 +471,7 @@ impl Account {
     /// Create a new random Olm Account for a dehydrated device
     pub fn new_dehydrated(user_id: &UserId) -> Self {
         let account = InnerAccount::new();
-        let device_id: OwnedDeviceId =
+        let device_id: DeviceId =
             base64_encode(account.identity_keys().curve25519.as_bytes()).into();
 
         let mut ret = Self::new_helper(account, user_id, &device_id);
@@ -1019,7 +1019,7 @@ impl Account {
         let first_key = keys.next().ok_or_else(|| {
             SessionCreationError::OneTimeKeyMissing(
                 device.user_id().to_owned(),
-                device.device_id().into(),
+                device.device_id().clone(),
             )
         })?;
 
@@ -1071,7 +1071,7 @@ impl Account {
                 let identity_key = device.curve25519_key().ok_or_else(|| {
                     SessionCreationError::DeviceMissingCurveKey(
                         device.user_id().to_owned(),
-                        device.device_id().into(),
+                        device.device_id().clone(),
                     )
                 })?;
 
@@ -1953,8 +1953,8 @@ mod tests {
     use anyhow::Result;
     use matrix_sdk_test::async_test;
     use ruma::{
-        DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OneTimeKeyId, UserId, device_id,
-        events::room::history_visibility::HistoryVisibility, room_id, user_id,
+        DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OneTimeKeyId, UserId,
+        device_id_ref, events::room::history_visibility::HistoryVisibility, room_id, user_id,
     };
     use serde_json::json;
 
@@ -1970,7 +1970,7 @@ mod tests {
     }
 
     fn device_id() -> &'static DeviceId {
-        device_id!("DEVICEID")
+        device_id_ref!("DEVICEID")
     }
 
     #[test]

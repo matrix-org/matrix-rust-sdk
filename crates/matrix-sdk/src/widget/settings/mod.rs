@@ -99,7 +99,7 @@ impl WidgetSettings {
             room.client().account().fetch_user_profile().await.unwrap_or_default(),
             room.own_user_id(),
             room.room_id(),
-            room.client().device_id().unwrap_or("UNKNOWN".into()),
+            room.client().device_id().unwrap_or(&"UNKNOWN".into()),
             room.client().homeserver(),
             props,
         )
@@ -131,7 +131,7 @@ impl WidgetSettings {
             language: client_props.language.to_string(),
             client_theme: client_props.theme,
             client_id: client_props.client_id,
-            device_id: device_id.into(),
+            device_id: device_id.to_string(),
             homeserver_url: homeserver_url.into(),
         };
         let mut generated_url = self.raw_url.clone();

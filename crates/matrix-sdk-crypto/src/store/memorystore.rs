@@ -27,8 +27,8 @@ use matrix_sdk_common::{
     locks::RwLock as StdRwLock,
 };
 use ruma::{
-    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
-    UserId, events::secret::request::SecretName,
+    DeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
+    events::secret::request::SecretName,
 };
 use tokio::sync::{Mutex, RwLock};
 use tracing::warn;
@@ -683,10 +683,7 @@ impl CryptoStore for MemoryStore {
         Ok(self.devices.get(user_id, device_id))
     }
 
-    async fn get_user_devices(
-        &self,
-        user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
+    async fn get_user_devices(&self, user_id: &UserId) -> Result<HashMap<DeviceId, DeviceData>> {
         Ok(self.devices.user_devices(user_id))
     }
 
@@ -1152,7 +1149,7 @@ mod tests {
 
         let user_devices = store.get_user_devices(device.user_id()).await.unwrap();
 
-        assert_eq!(&**user_devices.keys().next().unwrap(), device.device_id());
+        assert_eq!(user_devices.keys().next().unwrap(), device.device_id());
         assert_eq!(user_devices.values().next().unwrap(), &device);
 
         let loaded_device = user_devices.get(device.device_id()).unwrap();
@@ -1333,9 +1330,7 @@ mod integration_tests {
 
     use async_trait::async_trait;
     use matrix_sdk_common::cross_process_lock::CrossProcessLockGeneration;
-    use ruma::{
-        DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId, events::secret::request::SecretName,
-    };
+    use ruma::{DeviceId, RoomId, TransactionId, UserId, events::secret::request::SecretName};
     use vodozemac::Curve25519PublicKey;
     use zeroize::Zeroizing;
 
@@ -1567,7 +1562,7 @@ mod integration_tests {
         async fn get_user_devices(
             &self,
             user_id: &UserId,
-        ) -> Result<HashMap<OwnedDeviceId, DeviceData>, Self::Error> {
+        ) -> Result<HashMap<DeviceId, DeviceData>, Self::Error> {
             self.0.get_user_devices(user_id).await
         }
 

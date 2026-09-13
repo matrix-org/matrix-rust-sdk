@@ -84,7 +84,8 @@ mod tests {
     use assign::assign;
     use matrix_sdk_test::{ALICE, BOB, CAROL, event_factory::EventFactory};
     use ruma::{
-        DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId, device_id, event_id,
+        DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId, device_id_ref,
+        event_id,
         events::{
             AnySyncStateEvent,
             call::member::{
@@ -264,13 +265,13 @@ mod tests {
         let a_empty = legacy_member_state_event(Vec::new(), event_id!("$1234"), a);
 
         // make b 10min old
-        let m_init_b = legacy_membership_for_my_call(device_id!("DEVICE_0"), "0", 1);
+        let m_init_b = legacy_membership_for_my_call(device_id_ref!("DEVICE_0"), "0", 1);
         let b_one = legacy_member_state_event(vec![m_init_b], event_id!("$12345"), b);
 
         // c1 1min old
-        let m_init_c1 = legacy_membership_for_my_call(device_id!("DEVICE_0"), "0", 10);
+        let m_init_c1 = legacy_membership_for_my_call(device_id_ref!("DEVICE_0"), "0", 10);
         // c2 20min old
-        let m_init_c2 = legacy_membership_for_my_call(device_id!("DEVICE_1"), "0", 20);
+        let m_init_c2 = legacy_membership_for_my_call(device_id_ref!("DEVICE_1"), "0", 20);
         let c_two = legacy_member_state_event(vec![m_init_c1, m_init_c2], event_id!("$123456"), c);
 
         // Intentionally use a non time sorted receive order.
@@ -291,18 +292,18 @@ mod tests {
         let b_one = session_member_state_event(
             event_id!("$12345"),
             b,
-            Some(InitData { device_id: "DEVICE_0".into(), minutes_ago: 1 }),
+            Some(InitData { device_id: &"DEVICE_0".into(), minutes_ago: 1 }),
         );
 
         let m_c1 = session_member_state_event(
             event_id!("$123456_0"),
             c,
-            Some(InitData { device_id: "DEVICE_0".into(), minutes_ago: 10 }),
+            Some(InitData { device_id: &"DEVICE_0".into(), minutes_ago: 10 }),
         );
         let m_c2 = session_member_state_event(
             event_id!("$123456_1"),
             c,
-            Some(InitData { device_id: "DEVICE_1".into(), minutes_ago: 20 }),
+            Some(InitData { device_id: &"DEVICE_1".into(), minutes_ago: 20 }),
         );
         // Intentionally use a non time sorted receive order1
         receive_state_events(&room, vec![m_c1, m_c2, a_empty, b_one]);
@@ -354,19 +355,19 @@ mod tests {
         let alice_membership = session_member_state_event_with_intent(
             event_id!("$1"),
             user_id!("@alice:server.name"),
-            InitData { device_id: device_id!("AAA0"), minutes_ago: 1 }.into(),
+            InitData { device_id: device_id_ref!("AAA0"), minutes_ago: 1 }.into(),
             alice_intent,
         );
         let bob_membership = session_member_state_event_with_intent(
             event_id!("$1"),
             user_id!("@bob:server.name"),
-            InitData { device_id: device_id!("BAA0"), minutes_ago: 1 }.into(),
+            InitData { device_id: device_id_ref!("BAA0"), minutes_ago: 1 }.into(),
             bob_intent,
         );
         let carl_membership = session_member_state_event_with_intent(
             event_id!("$2"),
             user_id!("@carl:server.name"),
-            InitData { device_id: device_id!("CAA0"), minutes_ago: 1 }.into(),
+            InitData { device_id: device_id_ref!("CAA0"), minutes_ago: 1 }.into(),
             call_intent,
         );
         vec![alice_membership, bob_membership, carl_membership]
@@ -470,25 +471,25 @@ mod tests {
         let alice_a = session_member_state_event(
             event_id!("$alice_a"),
             &ALICE,
-            Some(InitData { device_id: device_id!("DEVICE_A"), minutes_ago: 1 }),
+            Some(InitData { device_id: device_id_ref!("DEVICE_A"), minutes_ago: 1 }),
         );
         let alice_b = session_member_state_event(
             event_id!("$alice_b"),
             &ALICE,
-            Some(InitData { device_id: device_id!("DEVICE_B"), minutes_ago: 1 }),
+            Some(InitData { device_id: device_id_ref!("DEVICE_B"), minutes_ago: 1 }),
         );
         let bob_a = session_member_state_event(
             event_id!("$bob_a"),
             &BOB,
-            Some(InitData { device_id: device_id!("DEVICE_A"), minutes_ago: 1 }),
+            Some(InitData { device_id: device_id_ref!("DEVICE_A"), minutes_ago: 1 }),
         );
 
         receive_state_events(&room, vec![alice_a, alice_b, bob_a]);
 
-        assert!(room.is_device_in_active_room_call(&ALICE, device_id!("DEVICE_A")));
-        assert!(room.is_device_in_active_room_call(&ALICE, device_id!("DEVICE_B")));
-        assert!(!room.is_device_in_active_room_call(&ALICE, device_id!("DEVICE_C")));
-        assert!(room.is_device_in_active_room_call(&BOB, device_id!("DEVICE_A")));
-        assert!(!room.is_device_in_active_room_call(&BOB, device_id!("DEVICE_B")));
+        assert!(room.is_device_in_active_room_call(&ALICE, device_id_ref!("DEVICE_A")));
+        assert!(room.is_device_in_active_room_call(&ALICE, device_id_ref!("DEVICE_B")));
+        assert!(!room.is_device_in_active_room_call(&ALICE, device_id_ref!("DEVICE_C")));
+        assert!(room.is_device_in_active_room_call(&BOB, device_id_ref!("DEVICE_A")));
+        assert!(!room.is_device_in_active_room_call(&BOB, device_id_ref!("DEVICE_B")));
     }
 }

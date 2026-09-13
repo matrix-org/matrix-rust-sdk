@@ -133,7 +133,7 @@ impl OneTimeKey {
 
 #[cfg(test)]
 mod tests {
-    use ruma::{DeviceKeyAlgorithm, DeviceKeyId, device_id, user_id};
+    use ruma::{DeviceKeyAlgorithm, DeviceKeyId, device_id_ref, user_id};
     use serde_json::json;
     use vodozemac::{Curve25519PublicKey, Ed25519Signature};
 
@@ -142,7 +142,7 @@ mod tests {
     #[test]
     fn serialization() {
         let user_id = user_id!("@user:example.com");
-        let device_id = device_id!("EGURVBUNJP");
+        let device_id = device_id_ref!("EGURVBUNJP");
 
         let json = json!({
           "key":"XjhWTCjW7l59pbfx9tlCBQolfnIQWARoKOzjTOPSlWM",

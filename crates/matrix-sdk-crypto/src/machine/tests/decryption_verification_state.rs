@@ -286,7 +286,7 @@ pub async fn mark_alice_identity_as_verified_test_helper(alice: &OlmMachine, bob
 
     let json = json!({
         "device_keys": {
-            alice.user_id() : { alice.device_id():  alice_device.as_device_keys().to_owned() }
+            alice.user_id() : { alice.device_id().as_str():  alice_device.as_device_keys().to_owned() }
         },
         "failures": {},
         "master_keys": {
@@ -428,7 +428,7 @@ async fn test_verification_states_multiple_device() {
     // We will use the export to create various inbounds with other claimed
     // ownership
     let id_keys = bob.identity_keys();
-    let fake_device_id = bob.device_id().into();
+    let fake_device_id = bob.device_id().clone();
     let olm = OutboundGroupSession::new(
         fake_device_id,
         Arc::new(id_keys),

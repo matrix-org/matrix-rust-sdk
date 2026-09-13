@@ -33,8 +33,7 @@ use ruma::events::key::verification::done::{
     KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent,
 };
 use ruma::{
-    DeviceId, EventId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
-    UserId,
+    DeviceId, EventId, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId, UserId,
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
         AnyMessageLikeEventContent, AnyToDeviceEventContent,
@@ -161,7 +160,7 @@ impl VerificationStore {
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, DeviceData>, CryptoStoreError> {
+    ) -> Result<HashMap<DeviceId, DeviceData>, CryptoStoreError> {
         self.inner.get_user_devices(user_id).await
     }
 
@@ -738,7 +737,7 @@ pub(crate) mod tests {
     use std::sync::Arc;
 
     use ruma::{
-        DeviceId, UserId, device_id,
+        DeviceId, UserId, device_id_ref,
         events::{AnyToDeviceEventContent, ToDeviceEvent},
         user_id,
     };
@@ -816,7 +815,7 @@ pub(crate) mod tests {
     }
 
     pub fn alice_device_id() -> &'static DeviceId {
-        device_id!("JLAFKJWSCS")
+        device_id_ref!("JLAFKJWSCS")
     }
 
     pub fn bob_id() -> &'static UserId {
@@ -824,7 +823,7 @@ pub(crate) mod tests {
     }
 
     pub fn bob_device_id() -> &'static DeviceId {
-        device_id!("BOBDEVICE")
+        device_id_ref!("BOBDEVICE")
     }
 
     pub(crate) async fn setup_stores() -> (Account, VerificationStore, Account, VerificationStore) {

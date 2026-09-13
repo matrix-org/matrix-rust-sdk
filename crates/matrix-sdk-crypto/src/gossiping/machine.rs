@@ -33,8 +33,7 @@ use std::{
 
 use matrix_sdk_common::locks::RwLock as StdRwLock;
 use ruma::{
-    DeviceId, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId,
-    TransactionId, UserId,
+    DeviceId, OneTimeKeyAlgorithm, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
     api::client::keys::claim_keys::v3::Request as KeysClaimRequest,
     events::secret::request::{
         RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
@@ -82,7 +81,7 @@ pub(crate) struct GossipMachineInner {
     outgoing_requests: StdRwLock<BTreeMap<OwnedTransactionId, OutgoingRequest>>,
     incoming_key_requests: StdRwLock<BTreeMap<RequestInfo, RequestEvent>>,
     wait_queue: WaitQueue,
-    users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
+    users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<DeviceId>>>>,
 
     /// Whether we should respond to incoming `m.room_key_request` messages.
     room_key_forwarding_enabled: AtomicBool,
@@ -98,7 +97,7 @@ impl GossipMachine {
         store: Store,
         identity_manager: IdentityManager,
         #[allow(unused)] outbound_group_sessions: GroupSessionCache,
-        users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>>>>,
+        users_for_key_claim: Arc<StdRwLock<BTreeMap<OwnedUserId, BTreeSet<DeviceId>>>>,
     ) -> Self {
         let room_key_forwarding_enabled =
             AtomicBool::new(cfg!(feature = "automatic-room-key-forwarding"));
@@ -262,7 +261,7 @@ impl GossipMachine {
             .write()
             .entry(device.user_id().to_owned())
             .or_default()
-            .insert(device.device_id().into());
+            .insert(device.device_id().clone());
         self.inner.wait_queue.insert(&device, event);
     }
 
@@ -306,7 +305,7 @@ impl GossipMachine {
     pub async fn push_secret_to_verified_devices(
         &self,
         secret_name: SecretName,
-    ) -> Result<HashMap<OwnedDeviceId, OlmError>, SecretPushError> {
+    ) -> Result<HashMap<DeviceId, OlmError>, SecretPushError> {
         let content = if let Some(secret) = self.inner.store.export_secret(&secret_name).await? {
             SecretPushContent::new(secret_name.clone(), secret)
         } else {
@@ -1219,7 +1218,7 @@ mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, message_like_event_content};
     use ruma::{
-        DeviceId, RoomId, UserId, device_id,
+        DeviceId, RoomId, UserId, device_id_ref,
         events::{
             ToDeviceEvent as RumaToDeviceEvent,
             secret::request::{
@@ -1268,7 +1267,7 @@ mod tests {
     }
 
     fn alice_device_id() -> &'static DeviceId {
-        device_id!("JLAFKJWSCS")
+        device_id_ref!("JLAFKJWSCS")
     }
 
     fn bob_id() -> &'static UserId {
@@ -1276,11 +1275,11 @@ mod tests {
     }
 
     fn bob_device_id() -> &'static DeviceId {
-        device_id!("ILMLKASTES")
+        device_id_ref!("ILMLKASTES")
     }
 
     fn alice2_device_id() -> &'static DeviceId {
-        device_id!("ILMLKASTES")
+        device_id_ref!("ILMLKASTES")
     }
 
     fn room_id() -> &'static RoomId {
@@ -2077,7 +2076,7 @@ mod tests {
             alice_id().to_owned(),
             ToDeviceSecretRequestEventContent::new(
                 RequestAction::Request(SecretRequestAction::new(SecretName::CrossSigningMasterKey)),
-                second_account.device_id().into(),
+                second_account.device_id().clone(),
                 "request_id".into(),
             ),
         );

@@ -477,10 +477,7 @@ pub(crate) mod tests {
         let secret_key = Ed25519SecretKey::new();
         let public_key = secret_key.public_key();
         let keys = SigningKeys::from([(
-            DeviceKeyId::from_parts(
-                DeviceKeyAlgorithm::Ed25519,
-                public_key.to_base64().as_str().into(),
-            ),
+            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &public_key.to_base64().into()),
             public_key.into(),
         )]);
 

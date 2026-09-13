@@ -27,7 +27,7 @@ use ruma::{
         get_keys::{self, v3::Response as KeysQueryResponse},
         upload_keys,
     },
-    device_id,
+    device_id_ref,
     encryption::OneTimeKey,
     events::dummy::ToDeviceDummyEventContent,
     serde::Raw,
@@ -56,11 +56,11 @@ use crate::{
 type OneTimeKeys = BTreeMap<OwnedOneTimeKeyId, Raw<OneTimeKey>>;
 
 fn alice_device_id() -> &'static DeviceId {
-    device_id!("JLAFKJWSCS")
+    device_id_ref!("JLAFKJWSCS")
 }
 
 fn bob_device_id() -> &'static DeviceId {
-    device_id!("NTHHPZDPRN")
+    device_id_ref!("NTHHPZDPRN")
 }
 
 fn user_id() -> &'static UserId {

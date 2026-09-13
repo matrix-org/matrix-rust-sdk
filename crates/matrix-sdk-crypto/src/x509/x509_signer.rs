@@ -202,7 +202,7 @@ mod tests {
             let keys = SigningKeys::from([(
                 DeviceKeyId::from_parts(
                     DeviceKeyAlgorithm::Ed25519,
-                    public_key.to_base64().as_str().into(),
+                    &public_key.to_base64().into(),
                 ),
                 public_key.into(),
             )]);
@@ -220,7 +220,7 @@ mod tests {
             self_sigs
                 .get(&DeviceKeyId::from_parts(
                     "io.element.x509".into(),
-                    "2F6Rmhfww1sT23VCfSE3mt8+lhE".into()
+                    &"2F6Rmhfww1sT23VCfSE3mt8+lhE".into()
                 ))
                 .unwrap(),
             Ok(Signature::X509(_))
@@ -249,7 +249,7 @@ mod tests {
                 let keys = SigningKeys::from([(
                     DeviceKeyId::from_parts(
                         DeviceKeyAlgorithm::Ed25519,
-                        public_key.to_base64().as_str().into(),
+                        &public_key.to_base64().into(),
                     ),
                     public_key.into(),
                 )]);

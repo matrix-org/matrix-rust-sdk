@@ -378,7 +378,7 @@ pub enum RoomEventDecryptionResult {
 /// let user_id = user_id!("@alice:localhost");
 /// let device_id = "DEVICEID".into();
 ///
-/// let machine = OlmMachine::new(user_id, device_id).await;
+/// let machine = OlmMachine::new(user_id, &device_id).await;
 /// # Ok(())
 /// # }
 /// ```
@@ -397,7 +397,7 @@ pub enum RoomEventDecryptionResult {
 ///
 /// let store = SqliteCryptoStore::open("/home/example/matrix-client/", None).await?;
 ///
-/// let machine = OlmMachine::with_store(user_id, device_id, store).await;
+/// let machine = OlmMachine::with_store(user_id, &device_id, store).await;
 /// # Ok(())
 /// # }
 /// ```

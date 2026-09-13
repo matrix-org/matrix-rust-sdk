@@ -37,7 +37,7 @@ use matrix_sdk_common::{
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::events::{AnyStateEventContent, StateEventContent};
 use ruma::{
-    DeviceId, DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId,
+    DeviceId, DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm,
     OwnedDeviceKeyId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
     api::client::{
         dehydrated_device::DehydratedDeviceData,
@@ -135,7 +135,7 @@ pub struct OlmMachineBuilder {
     user_id: OwnedUserId,
 
     /// The unique id of the device that owns the machine to be built.
-    device_id: OwnedDeviceId,
+    device_id: DeviceId,
 
     /// `CryptoStore` implementation. If not populated, a [`MemoryStore`] will
     /// be created.
@@ -243,7 +243,7 @@ pub struct OlmMachineInner {
     /// The unique user id that owns this account.
     user_id: OwnedUserId,
     /// The unique device ID of the device that holds this account.
-    device_id: OwnedDeviceId,
+    device_id: DeviceId,
     /// The private part of our cross signing identity.
     /// Used to sign devices and other users, might be missing if some other
     /// device bootstrapped cross signing or cross signing isn't bootstrapped at
@@ -2052,7 +2052,7 @@ impl OlmMachine {
         &self,
         session: &InboundGroupSession,
         sender: &UserId,
-    ) -> MegolmResult<(VerificationState, Option<OwnedDeviceId>)> {
+    ) -> MegolmResult<(VerificationState, Option<DeviceId>)> {
         let sender_data = self.get_or_update_sender_data(session, sender).await?;
 
         // If the user ID in the sender data doesn't match that in the event envelope,
@@ -2212,7 +2212,7 @@ impl OlmMachine {
     pub async fn push_secret_to_verified_devices(
         &self,
         secret_name: SecretName,
-    ) -> Result<HashMap<OwnedDeviceId, OlmError>, SecretPushError> {
+    ) -> Result<HashMap<DeviceId, OlmError>, SecretPushError> {
         self.inner.key_request_machine.push_secret_to_verified_devices(secret_name).await
     }
 
@@ -2862,8 +2862,8 @@ impl OlmMachine {
     /// # use ruma::{device_id, owned_user_id};
     /// # let alice = owned_user_id!("@alice:example.org");
     /// # futures_executor::block_on(async {
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
-    /// let device = machine.get_device(&alice, device_id!("DEVICEID"), None).await;
+    /// # let machine = OlmMachine::new(&alice, &device_id!("DEVICEID")).await;
+    /// let device = machine.get_device(&alice, &device_id!("DEVICEID"), None).await;
     ///
     /// println!("{:?}", device);
     /// # });
@@ -2920,7 +2920,7 @@ impl OlmMachine {
     /// # use ruma::{device_id, owned_user_id};
     /// # let alice = owned_user_id!("@alice:example.org");
     /// # futures_executor::block_on(async {
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
+    /// # let machine = OlmMachine::new(&alice, &device_id!("DEVICEID")).await;
     /// let devices = machine.get_user_devices(&alice, None).await.unwrap();
     ///
     /// for device in devices.devices() {
@@ -3267,7 +3267,7 @@ impl OlmMachine {
 fn sender_data_to_verification_state(
     sender_data: SenderData,
     session_has_been_imported: bool,
-) -> (VerificationState, Option<OwnedDeviceId>) {
+) -> (VerificationState, Option<DeviceId>) {
     match sender_data {
         SenderData::UnknownDevice { owner_check_failed: false, .. } => {
             let device_link_problem = if session_has_been_imported {

@@ -258,7 +258,7 @@ mod tests {
     use futures_util::future::join_all;
     use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings};
     use matrix_sdk_test::async_test;
-    use ruma::{owned_device_id, owned_user_id};
+    use ruma::{device_id, owned_user_id};
 
     use super::compute_session_hash;
     use crate::{
@@ -344,14 +344,14 @@ mod tests {
         client.auth_ctx().set_session_tokens(session_tokens.clone());
 
         // Now, finishing logging will get the user ID.
-        oauth.load_session(owned_device_id!("D3V1C31D")).await?;
+        oauth.load_session(device_id!("D3V1C31D")).await?;
 
         let session_meta = client.session_meta().context("should have session meta now")?;
         assert_eq!(
             *session_meta,
             SessionMeta {
                 user_id: owned_user_id!("@joe:example.org"),
-                device_id: owned_device_id!("D3V1C31D")
+                device_id: device_id!("D3V1C31D")
             }
         );
 

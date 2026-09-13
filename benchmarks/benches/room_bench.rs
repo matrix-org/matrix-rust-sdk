@@ -17,8 +17,9 @@ use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineFocus};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
     api::client::membership::get_member_events,
+    device_id,
     events::room::member::{MembershipState, RoomMemberEvent},
-    mxc_uri, owned_device_id, owned_room_id, owned_user_id,
+    mxc_uri, owned_room_id, owned_user_id,
     serde::Raw,
 };
 use tokio::runtime::Builder;
@@ -72,7 +73,7 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
         .block_on(base_client.activate(
             SessionMeta {
                 user_id: owned_user_id!("@somebody:example.com"),
-                device_id: owned_device_id!("DEVICE_ID"),
+                device_id: device_id!("DEVICE_ID"),
             },
             RoomLoadSettings::default(),
             None,

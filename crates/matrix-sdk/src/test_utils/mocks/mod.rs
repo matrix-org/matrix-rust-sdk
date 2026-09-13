@@ -33,8 +33,8 @@ use matrix_sdk_test::{
 };
 use percent_encoding::{AsciiSet, CONTROLS};
 use ruma::{
-    DeviceId, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId,
-    OwnedOneTimeKeyId, OwnedRoomId, OwnedUserId, RoomId, ServerName, UserId,
+    DeviceId, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedOneTimeKeyId,
+    OwnedRoomId, OwnedUserId, RoomId, ServerName, UserId,
     api::{
         client::{
             discovery::get_capabilities::v3::Capabilities,
@@ -48,7 +48,7 @@ use ruma::{
         },
         error::StandardErrorBody,
     },
-    device_id,
+    device_id_ref,
     directory::PublicRoomsChunk,
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey},
     events::{
@@ -88,10 +88,8 @@ struct Keys {
     master: BTreeMap<OwnedUserId, Raw<CrossSigningKey>>,
     self_signing: BTreeMap<OwnedUserId, Raw<CrossSigningKey>>,
     user_signing: BTreeMap<OwnedUserId, Raw<CrossSigningKey>>,
-    one_time_keys: BTreeMap<
-        OwnedUserId,
-        BTreeMap<OwnedDeviceId, BTreeMap<OwnedOneTimeKeyId, Raw<OneTimeKey>>>,
-    >,
+    one_time_keys:
+        BTreeMap<OwnedUserId, BTreeMap<DeviceId, BTreeMap<OwnedOneTimeKeyId, Raw<OneTimeKey>>>>,
 }
 
 /// A [`wiremock`] [`MockServer`] along with useful methods to help mocking
@@ -914,7 +912,7 @@ impl MatrixMockServer {
     ///         serde::Raw,
     ///         api::client::to_device::send_event_to_device::v3::Request as ToDeviceRequest,
     ///         to_device::DeviceIdOrAllDevices,
-    ///         owned_user_id, owned_device_id
+    ///         owned_user_id, device_id
     ///     },
     ///     test_utils::mocks::MatrixMockServer,
     /// };
@@ -3733,7 +3731,7 @@ pub struct WhoAmIEndpoint;
 impl<'a> MockEndpoint<'a, WhoAmIEndpoint> {
     /// Returns a successful response with the default device ID.
     pub fn ok(self) -> MatrixMock<'a> {
-        self.ok_with_device_id(device_id!("D3V1C31D"))
+        self.ok_with_device_id(device_id_ref!("D3V1C31D"))
     }
 
     /// Returns a successful response with the given device ID.
@@ -3961,7 +3959,7 @@ impl<'a> MockEndpoint<'a, PutDehydratedDeviceEndpoint> {
         self.respond_with(|req: &Request| {
             #[derive(serde::Deserialize)]
             struct Body {
-                device_id: OwnedDeviceId,
+                device_id: DeviceId,
             }
             let body: Body = req.body_json().expect("dehydrated device PUT body");
             ResponseTemplate::new(200).set_body_json(json!({ "device_id": body.device_id }))
@@ -4554,7 +4552,7 @@ pub struct LoginResponseTemplate200 {
 
     /// Required: ID of the logged-in device. Will be the same as the
     /// corresponding parameter in the request, if one was specified.
-    device_id: Option<OwnedDeviceId>,
+    device_id: Option<DeviceId>,
 
     /// The lifetime of the access token, in milliseconds. Once the access token
     /// has expired a new access token can be obtained by using the provided
@@ -4576,7 +4574,7 @@ pub struct LoginResponseTemplate200 {
 
 impl LoginResponseTemplate200 {
     /// Constructor for empty response
-    pub fn new<T1: Into<OwnedDeviceId>, T2: Into<OwnedUserId>>(
+    pub fn new<T1: Into<DeviceId>, T2: Into<OwnedUserId>>(
         access_token: &str,
         device_id: T1,
         user_id: T2,

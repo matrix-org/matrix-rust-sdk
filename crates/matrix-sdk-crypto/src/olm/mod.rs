@@ -45,7 +45,7 @@ pub(crate) mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, message_like_event_content};
     use ruma::{
-        DeviceId, UserId, device_id, event_id,
+        DeviceId, UserId, device_id_ref, event_id,
         events::{
             AnyMessageLikeEvent, AnyTimelineEvent, MessageLikeEvent,
             relation::Replacement,
@@ -71,7 +71,7 @@ pub(crate) mod tests {
     }
 
     fn alice_device_id() -> &'static DeviceId {
-        device_id!("ALICEDEVICE")
+        device_id_ref!("ALICEDEVICE")
     }
 
     fn bob_id() -> &'static UserId {
@@ -79,7 +79,7 @@ pub(crate) mod tests {
     }
 
     fn bob_device_id() -> &'static DeviceId {
-        device_id!("BOBDEVICE")
+        device_id_ref!("BOBDEVICE")
     }
 
     pub(crate) fn get_account_and_session_test_helper() -> (Account, Session) {

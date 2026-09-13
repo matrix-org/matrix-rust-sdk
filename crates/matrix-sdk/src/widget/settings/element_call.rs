@@ -530,7 +530,7 @@ mod tests {
                 profile,
                 "@test:user.org".try_into().unwrap(),
                 "!room_id:room.org".try_into().unwrap(),
-                "ABCDEFG".into(),
+                &"ABCDEFG".into(),
                 "https://client-matrix.server.org".try_into().unwrap(),
                 ClientProperties::new(
                     "io.my_matrix.client",

@@ -18,7 +18,7 @@ use std::{collections::BTreeMap, fmt, ops::Deref};
 
 use as_variant::as_variant;
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     TransactionId, UInt,
     events::{
         AnyMessageLikeEventContent, MessageLikeEventContent as _, RawExt as _,
@@ -185,7 +185,7 @@ pub enum QueueWedgeError {
     #[error("There are insecure devices in the room")]
     InsecureDevices {
         /// The insecure devices as a Map of userID to deviceID.
-        user_device_map: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
+        user_device_map: BTreeMap<OwnedUserId, Vec<DeviceId>>,
     },
 
     /// This error occurs when a previously verified user is not anymore, and

@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 
 use js_option::JsOption;
 use ruma::{
-    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId,
     serde::{JsonCastable, Raw},
 };
 use serde::{Deserialize, Serialize};
@@ -61,7 +61,7 @@ pub struct DeviceKeys {
     /// The ID of the device these keys belong to.
     ///
     /// Must match the device ID used when logging in.
-    pub device_id: OwnedDeviceId,
+    pub device_id: DeviceId,
 
     /// The encryption algorithms supported by this device.
     pub algorithms: Vec<EventEncryptionAlgorithm>,
@@ -90,7 +90,7 @@ impl DeviceKeys {
     /// algorithms, keys and signatures.
     pub fn new(
         user_id: OwnedUserId,
-        device_id: OwnedDeviceId,
+        device_id: DeviceId,
         algorithms: Vec<EventEncryptionAlgorithm>,
         keys: BTreeMap<OwnedDeviceKeyId, DeviceKey>,
         signatures: Signatures,
@@ -212,7 +212,7 @@ impl From<Ed25519PublicKey> for DeviceKey {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct DeviceKeyHelper {
     pub user_id: OwnedUserId,
-    pub device_id: OwnedDeviceId,
+    pub device_id: DeviceId,
     pub algorithms: Vec<EventEncryptionAlgorithm>,
     pub keys: BTreeMap<OwnedDeviceKeyId, String>,
     #[serde(default, skip_serializing_if = "JsOption::is_undefined")]
@@ -281,7 +281,7 @@ impl From<DeviceKeys> for DeviceKeyHelper {
 mod tests {
     use std::str::FromStr;
 
-    use ruma::{OwnedDeviceKeyId, device_id, user_id};
+    use ruma::{OwnedDeviceKeyId, device_id_ref, user_id};
     use serde_json::json;
     use vodozemac::{Curve25519PublicKey, Curve25519SecretKey};
 
@@ -317,7 +317,7 @@ mod tests {
             serde_json::from_value(json.clone()).expect("Can't deserialize device keys");
 
         assert_eq!(device_keys.user_id, user_id!("@example:localhost"));
-        assert_eq!(&device_keys.device_id, device_id!("BNYQQWUMXO"));
+        assert_eq!(&device_keys.device_id, device_id_ref!("BNYQQWUMXO"));
 
         let serialized = serde_json::to_value(device_keys).expect("Can't reserialize device keys");
 

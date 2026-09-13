@@ -344,7 +344,7 @@ pub struct PickledSession {
 mod tests {
     use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, user_id};
+    use ruma::{device_id_ref, user_id};
     use serde_json::{self, Value};
     use vodozemac::olm::{OlmMessage, SessionConfig};
 
@@ -363,8 +363,9 @@ mod tests {
 
         // Given users Alice and Bob
         let alice =
-            Account::with_device_id(user_id!("@alice:localhost"), device_id!("ALICEDEVICE"));
-        let mut bob = Account::with_device_id(user_id!("@bob:localhost"), device_id!("BOBDEVICE"));
+            Account::with_device_id(user_id!("@alice:localhost"), device_id_ref!("ALICEDEVICE"));
+        let mut bob =
+            Account::with_device_id(user_id!("@bob:localhost"), device_id_ref!("BOBDEVICE"));
 
         #[cfg(not(feature = "experimental-algorithms"))]
         let config = SessionConfig::version_1();

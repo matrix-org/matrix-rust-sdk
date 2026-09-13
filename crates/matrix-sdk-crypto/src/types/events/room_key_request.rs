@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 
 use ruma::{
-    OwnedDeviceId, OwnedRoomId, OwnedTransactionId, RoomId, events::AnyToDeviceEventContent,
+    DeviceId, OwnedRoomId, OwnedTransactionId, RoomId, events::AnyToDeviceEventContent,
     serde::JsonCastable,
 };
 use serde::{Deserialize, Serialize};
@@ -47,7 +47,7 @@ pub struct RoomKeyRequestContent {
     #[serde(flatten)]
     pub action: Action,
     /// The ID of the device that is requesting the room key.
-    pub requesting_device_id: OwnedDeviceId,
+    pub requesting_device_id: DeviceId,
     /// A random string uniquely identifying the request for a key. If the key
     /// is requested multiple times, it should be reused. It should also reused
     /// in order to cancel a request.
@@ -59,7 +59,7 @@ impl RoomKeyRequestContent {
     /// set to request a room key with the given `RequestedKeyInfo`.
     pub fn new_request(
         info: RequestedKeyInfo,
-        requesting_device_id: OwnedDeviceId,
+        requesting_device_id: DeviceId,
         request_id: OwnedTransactionId,
     ) -> Self {
         Self { action: Action::Request(info), requesting_device_id, request_id }

@@ -265,7 +265,7 @@ async fn test_update_unknown_device_senderdata_on_keys_query() {
 
     let alice_device = DeviceData::from_machine_test_helper(&alice).await.unwrap();
     let kq_response = json!({
-        "device_keys": { alice.user_id() : { alice.device_id():  alice_device.as_device_keys()}}
+        "device_keys": { alice.user_id() : { alice.device_id().as_str():  alice_device.as_device_keys()}}
     });
     bob.receive_keys_query_response(
         &TransactionId::new(),

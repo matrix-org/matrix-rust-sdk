@@ -19,7 +19,7 @@
 use std::{collections::HashMap, iter};
 
 use ruma::{
-    DeviceId, UserId, api::client::keys::get_keys::v3::Response as KeyQueryResponse, device_id,
+    DeviceId, UserId, api::client::keys::get_keys::v3::Response as KeyQueryResponse, device_id_ref,
     user_id,
 };
 use serde_json::json;
@@ -45,7 +45,7 @@ impl KeysQueryUser {
     pub(crate) fn bob_a() -> Self {
         Self {
             user_id: user_id!("@bob:localhost"),
-            device_id: device_id!("GYKSNAWLVK"),
+            device_id: device_id_ref!("GYKSNAWLVK"),
             device_key_curve25519: "dBcZBzQaiQYWf6rBPh2QypIOB/dxSoTeyaFaxNNbeHs",
             device_key_ed22519: "6melQNnhoI9sT2b4VzNPAwa8aB179ym45fON8Yo7kVk",
             device_signature: "Fk45zHAbrd+1j9wZXLjL2Y/+DU/Mnz9yuvlfYBOOT7qExN2Jdud+5BAuNs8nZ/caS4wTF39Kg3zQpzaGERoCBg",
@@ -70,7 +70,7 @@ impl KeysQueryUser {
     pub(crate) fn bob_b() -> Self {
         Self {
             user_id: user_id!("@bob:localhost"),
-            device_id: device_id!("ATWKQFSFRN"),
+            device_id: device_id_ref!("ATWKQFSFRN"),
             device_key_curve25519: "CY0TWVK1/Kj3ZADuBcGe3UKvpT+IKAPMUsMeJhSDqno",
             device_key_ed22519: "TyTQqd6j2JlWZh97r+kTYuCbvqnPoNwO6EGovYsjY00",
             device_signature: "BQ9Gp0p+6srF+c8OyruqKKd9R4yaub3THYAyyBB/7X/rG8BwcAqFynzl1aGyFYun4Q+087a5OSiglCXI+/kQAA",
@@ -95,7 +95,7 @@ impl KeysQueryUser {
     pub(crate) fn bob_c() -> Self {
         Self {
             user_id: user_id!("@bob:localhost"),
-            device_id: device_id!("OPABMDDXGX"),
+            device_id: device_id_ref!("OPABMDDXGX"),
             device_key_curve25519: "O6bwa9Op0E+PQPCrbTOfdYwU+j95RRPhXIHuNpe94ns",
             device_key_ed22519: "DvjkSNOM9XrR1gWrr2YSDvTnwnLIgKDMRr5v8HgMKak",
             device_signature: "o+BBnw/SIJWxSf799Adq6jEl9X3lwCg5MJkS8GlfId+pW3ReEETK0l+9bhCAgBsNSKRtB/fmZQBhjMx4FJr+BA",

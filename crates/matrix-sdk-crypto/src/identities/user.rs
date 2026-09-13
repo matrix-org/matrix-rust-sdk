@@ -24,7 +24,7 @@ use std::{
 use as_variant::as_variant;
 use matrix_sdk_common::locks::RwLock;
 use ruma::{
-    DeviceId, EventId, OwnedDeviceId, OwnedUserId, RoomId, UserId,
+    DeviceId, EventId, OwnedUserId, RoomId, UserId,
     api::client::keys::upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
     events::{key::verification::VerificationMethod, room::message::MessageType},
 };
@@ -1289,9 +1289,9 @@ impl OwnUserIdentityData {
 
     fn filter_devices_to_request(
         &self,
-        devices: HashMap<OwnedDeviceId, DeviceData>,
+        devices: HashMap<DeviceId, DeviceData>,
         own_device_id: &DeviceId,
-    ) -> Vec<OwnedDeviceId> {
+    ) -> Vec<DeviceId> {
         devices
             .into_iter()
             .filter_map(|(device_id, device)| {
@@ -1537,7 +1537,7 @@ pub(crate) mod tests {
     use matrix_sdk_test::{async_test, test_json};
     #[cfg(feature = "experimental-x509-identity-verification")]
     use rcgen::{Certificate, KeyPair};
-    use ruma::{TransactionId, device_id, user_id};
+    use ruma::{TransactionId, device_id_ref, user_id};
     use serde_json::{Value, json};
     use tokio::sync::Mutex;
 
@@ -1856,7 +1856,7 @@ pub(crate) mod tests {
         let (first, second) = device(&response);
 
         let second_device_id = second.device_id().to_owned();
-        let unknown_device_id = device_id!("UNKNOWN");
+        let unknown_device_id = device_id_ref!("UNKNOWN");
 
         let devices = HashMap::from([
             (first.device_id().to_owned(), first),
@@ -1877,7 +1877,7 @@ pub(crate) mod tests {
         use test_json::keys_query_sets::IdentityChangeDataSet as DataSet;
 
         let my_user_id = user_id!("@me:localhost");
-        let machine = OlmMachine::new(my_user_id, device_id!("ABCDEFGH")).await;
+        let machine = OlmMachine::new(my_user_id, device_id_ref!("ABCDEFGH")).await;
         machine.bootstrap_cross_signing(false).await.unwrap();
 
         let my_id = machine.get_identity(my_user_id, None).await.unwrap().unwrap().own().unwrap();
@@ -1925,7 +1925,7 @@ pub(crate) mod tests {
         use test_json::keys_query_sets::IdentityChangeDataSet as DataSet;
 
         let my_user_id = user_id!("@me:localhost");
-        let machine = OlmMachine::new(my_user_id, device_id!("ABCDEFGH")).await;
+        let machine = OlmMachine::new(my_user_id, device_id_ref!("ABCDEFGH")).await;
         machine.bootstrap_cross_signing(false).await.unwrap();
 
         let keys_query = DataSet::key_query_with_identity_a();
@@ -1963,7 +1963,7 @@ pub(crate) mod tests {
     async fn test_resolve_identity_verification_violation_with_withdraw() {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id_ref!("LOCAL")).await;
 
         let keys_query = DataSet::own_keys_query_response_1();
         let txn_id = TransactionId::new();
@@ -2003,7 +2003,7 @@ pub(crate) mod tests {
     async fn test_reset_own_keys_creates_verification_violation() {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id_ref!("LOCAL")).await;
 
         let keys_query = DataSet::own_keys_query_response_1();
         let txn_id = TransactionId::new();
@@ -2044,7 +2044,7 @@ pub(crate) mod tests {
     async fn test_own_keys_update_creates_own_identity_verification_violation() {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id_ref!("LOCAL")).await;
 
         // Start with our own identity verified
         let own_keys = DataSet::own_keys_query_response_1();
@@ -2143,7 +2143,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_sign_own_identity_with_x509() {
         let account =
-            Account::with_device_id(user_id!("@own_user:localhost"), device_id!("DEV123"));
+            Account::with_device_id(user_id!("@own_user:localhost"), device_id_ref!("DEV123"));
         // We create a store with an X.509 signer
         let (cert, signing_key) =
             cert_and_key_with_email_in_subject_distinguished_name("own_user@localhost");
@@ -2184,7 +2184,7 @@ pub(crate) mod tests {
         let alice_identity_data = signed_other_identity(&ca_cert, &ca_signing_key).await;
 
         // (And Bob exists)
-        let bob_account = Account::with_device_id(user_id!("@bob:hs.co"), device_id!("DEV123"));
+        let bob_account = Account::with_device_id(user_id!("@bob:hs.co"), device_id_ref!("DEV123"));
         let bob_verification_machine = get_verification_machine(&bob_account).await;
 
         let bob_identity_data =
@@ -2214,7 +2214,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_refresh_signature() {
         let user_id = user_id!("@own_user:localhost");
-        let account = Account::with_device_id(user_id, device_id!("DEV123"));
+        let account = Account::with_device_id(user_id, device_id_ref!("DEV123"));
 
         // We create three signers with different validity periods: an "old" signer, a
         // "current" signer, and a "new" signer
@@ -2283,7 +2283,7 @@ pub(crate) mod tests {
                 .unwrap(),
         ));
 
-        let account = Account::with_device_id(user_id!("@alice:hs.co"), device_id!("DEV123"));
+        let account = Account::with_device_id(user_id!("@alice:hs.co"), device_id_ref!("DEV123"));
 
         let private_identity =
             PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer)).await.unwrap();
@@ -2302,7 +2302,7 @@ pub(crate) mod tests {
         let other_user_identity_data = get_other_identity();
 
         let account =
-            Account::with_device_id(user_id!("@own_user:localhost"), device_id!("DEV123"));
+            Account::with_device_id(user_id!("@own_user:localhost"), device_id_ref!("DEV123"));
 
         let verification_machine = get_verification_machine(&account).await;
         let own_identity_data = verification_machine.get_own_user_identity_data().await.unwrap();

@@ -30,8 +30,7 @@ use matrix_sdk_common::{
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::events::AnyStateEventContent;
 use ruma::{
-    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
-    UserId,
+    DeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
     events::{AnyMessageLikeEventContent, AnyToDeviceEventContent, ToDeviceEventType},
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
@@ -327,10 +326,8 @@ impl GroupSessionManager {
         store: Arc<CryptoStoreWrapper>,
         group_session: OutboundGroupSession,
         devices: Vec<DeviceData>,
-    ) -> OlmResult<(
-        EncryptForDevicesResult,
-        BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>,
-    )> {
+    ) -> OlmResult<(EncryptForDevicesResult, BTreeMap<OwnedUserId, BTreeMap<DeviceId, ShareInfo>>)>
+    {
         // Use a named type instead of a tuple with rather long type name
         pub struct DeviceResult {
             device: DeviceData,
@@ -1097,9 +1094,9 @@ mod tests {
             keys::{claim_keys, get_keys, upload_keys},
             to_device::send_event_to_device::v3::Response as ToDeviceResponse,
         },
-        device_id,
+        device_id, device_id_ref,
         events::room::{EncryptedFile, V2EncryptedFileInfo, history_visibility::HistoryVisibility},
-        owned_device_id, owned_room_id, room_id,
+        owned_room_id, room_id,
         to_device::DeviceIdOrAllDevices,
         user_id,
     };
@@ -1129,7 +1126,7 @@ mod tests {
     }
 
     fn alice_device_id() -> &'static DeviceId {
-        device_id!("JLAFKJWSCS")
+        device_id_ref!("JLAFKJWSCS")
     }
 
     /// Returns a /keys/query response for user "@example:localhost"
@@ -1440,7 +1437,7 @@ mod tests {
         // The user id comes from the fact that the keys_query.json file uses
         // this one.
         let user_id = user_id!("@example:localhost");
-        let device_id = device_id!("TESTDEVICE");
+        let device_id = device_id_ref!("TESTDEVICE");
         let room_id = room_id!("!test:localhost");
 
         let machine = machine_with_user_test_helper(user_id, device_id).await;
@@ -1492,7 +1489,7 @@ mod tests {
         assert!(recipients[user_id].is_empty());
 
         let device_id = "AFGUOBTZWM".into();
-        let device = machine.get_device(user_id, device_id, None).await.unwrap().unwrap();
+        let device = machine.get_device(user_id, &device_id, None).await.unwrap().unwrap();
         device.set_local_trust(LocalTrust::Verified).await.unwrap();
         let users = [user_id].into_iter();
 
@@ -1514,7 +1511,7 @@ mod tests {
         devices
             .devices()
             // Ignore our own device
-            .filter(|d| d.device_id() != device_id!("TESTDEVICE"))
+            .filter(|d| d.device_id() != device_id_ref!("TESTDEVICE"))
             .for_each(|d| {
                 if d.is_blacklisted() {
                     assert!(withheld.iter().any(|(dev, w)| {
@@ -1546,10 +1543,10 @@ mod tests {
         // Trust only one
         let user_id = user_id!("@example:localhost");
         let device_id = "MWFXPINOAO".into();
-        let device = machine.get_device(user_id, device_id, None).await.unwrap().unwrap();
+        let device = machine.get_device(user_id, &device_id, None).await.unwrap().unwrap();
         device.set_local_trust(LocalTrust::Verified).await.unwrap();
         machine
-            .get_device(user_id, "MWVTUXDNNM".into(), None)
+            .get_device(user_id, &"MWVTUXDNNM".into(), None)
             .await
             .unwrap()
             .unwrap()
@@ -1582,7 +1579,7 @@ mod tests {
         // One should be blacklisted
         let has_blacklist =
             requests.iter().filter(|r| r.event_type == "m.room_key.withheld".into()).any(|r| {
-                let device_key = DeviceIdOrAllDevices::from(owned_device_id!("MWVTUXDNNM"));
+                let device_key = DeviceIdOrAllDevices::from(device_id!("MWVTUXDNNM"));
                 let content = &r.messages[user_id][&device_key];
                 let withheld: RoomKeyWithheldContent =
                     content.deserialize_as_unchecked::<RoomKeyWithheldContent>().unwrap();
@@ -1638,7 +1635,7 @@ mod tests {
 
         let response = ToDeviceResponse::new();
 
-        let device = machine.get_device(bob_id, "BOBDEVICE".into(), None).await.unwrap().unwrap();
+        let device = machine.get_device(bob_id, &"BOBDEVICE".into(), None).await.unwrap().unwrap();
 
         // The device should be marked as having the `m.no_olm` code received only after
         // the request has been marked as sent.
@@ -1648,7 +1645,7 @@ mod tests {
             machine.mark_request_as_sent(&request.txn_id, &response).await.unwrap();
         }
 
-        let device = machine.get_device(bob_id, "BOBDEVICE".into(), None).await.unwrap().unwrap();
+        let device = machine.get_device(bob_id, &"BOBDEVICE".into(), None).await.unwrap().unwrap();
 
         assert!(device.was_withheld_code_sent());
     }

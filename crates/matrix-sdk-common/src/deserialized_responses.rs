@@ -15,8 +15,7 @@
 use std::{collections::BTreeMap, fmt, ops::Not, sync::Arc};
 
 use ruma::{
-    DeviceKeyAlgorithm, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId,
-    OwnedUserId,
+    DeviceId, DeviceKeyAlgorithm, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent, AnyToDeviceEvent,
         MessageLikeEventType, room::encrypted::EncryptedEventScheme,
@@ -324,7 +323,7 @@ pub struct ForwarderInfo {
     /// The user ID of the forwarder.
     pub user_id: OwnedUserId,
     /// The device ID of the forwarder.
-    pub device_id: OwnedDeviceId,
+    pub device_id: DeviceId,
 }
 
 /// Struct containing information on how an event was decrypted.
@@ -335,7 +334,7 @@ pub struct EncryptionInfo {
     pub sender: OwnedUserId,
     /// The device ID of the device that sent us the event, note this is
     /// untrusted data unless `verification_state` is `Verified` as well.
-    pub sender_device: Option<OwnedDeviceId>,
+    pub sender_device: Option<DeviceId>,
     /// If the keys for this message were shared-on-invite as part of an
     /// [MSC4268] key bundle, information about the forwarder.
     ///
@@ -373,7 +372,7 @@ impl<'de> Deserialize<'de> for EncryptionInfo {
         #[derive(Deserialize)]
         struct Helper {
             pub sender: OwnedUserId,
-            pub sender_device: Option<OwnedDeviceId>,
+            pub sender_device: Option<DeviceId>,
             pub forwarder: Option<ForwarderInfo>,
             pub algorithm_info: AlgorithmInfo,
             pub verification_state: VerificationState,
@@ -1521,9 +1520,9 @@ mod tests {
     use assert_matches2::assert_let;
     use insta::{assert_json_snapshot, with_settings};
     use ruma::{
-        DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, UInt, event_id,
+        DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, UInt, device_id, event_id,
         events::{AnySyncTimelineEvent, room::message::RoomMessageEventContent},
-        owned_device_id, owned_user_id,
+        owned_user_id,
         serde::Raw,
     };
     use serde::Deserialize;
@@ -2103,7 +2102,7 @@ mod tests {
     fn snapshot_test_encryption_info() {
         let info = EncryptionInfo {
             sender: owned_user_id!("@alice:localhost"),
-            sender_device: Some(owned_device_id!("ABCDEFGH")),
+            sender_device: Some(device_id!("ABCDEFGH")),
             forwarder: None,
             algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                 curve25519_key: "curvecurvecurve".into(),
@@ -2124,7 +2123,7 @@ mod tests {
             event: Raw::new(&example_event()).unwrap().cast_unchecked(),
             encryption_info: Arc::new(EncryptionInfo {
                 sender: owned_user_id!("@sender:example.com"),
-                sender_device: Some(owned_device_id!("ABCDEFGHIJ")),
+                sender_device: Some(device_id!("ABCDEFGHIJ")),
                 forwarder: None,
                 algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                     curve25519_key: "xxx".to_owned(),

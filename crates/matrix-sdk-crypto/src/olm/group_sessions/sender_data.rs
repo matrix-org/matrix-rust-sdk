@@ -14,7 +14,7 @@
 
 use std::{cmp::Ordering, fmt};
 
-use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
+use ruma::{DeviceId, OwnedUserId, UserId};
 use serde::{Deserialize, Deserializer, Serialize, de, de::Visitor};
 use tracing::error;
 use vodozemac::Ed25519PublicKey;
@@ -34,7 +34,7 @@ pub struct KnownSenderData {
     /// The device ID of the device that send the session.
     /// This is an `Option` for backwards compatibility, but we should always
     /// populate it on creation.
-    pub device_id: Option<OwnedDeviceId>,
+    pub device_id: Option<DeviceId>,
 
     /// The cross-signing key of the user who established this session.
     #[serde(
@@ -385,7 +385,7 @@ enum SenderDataReader {
     // SenderVerified, depending on the master_key_verified flag.
     SenderKnown {
         user_id: OwnedUserId,
-        device_id: Option<OwnedDeviceId>,
+        device_id: Option<DeviceId>,
         master_key: Box<Ed25519PublicKey>,
         master_key_verified: bool,
     },
@@ -444,9 +444,7 @@ mod tests {
     use assert_matches2::assert_let;
     use insta::assert_json_snapshot;
     use matrix_sdk_test::async_test;
-    use ruma::{
-        DeviceKeyAlgorithm, DeviceKeyId, device_id, owned_device_id, owned_user_id, user_id,
-    };
+    use ruma::{DeviceKeyAlgorithm, DeviceKeyId, device_id, device_id_ref, owned_user_id, user_id};
     use serde_json::json;
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, base64_decode};
 
@@ -579,7 +577,7 @@ mod tests {
         let unknown = SenderData::unknown();
         let device_keys = SenderData::device_info(DeviceKeys::new(
             owned_user_id!("@u:s.co"),
-            owned_device_id!("DEV"),
+            device_id!("DEV"),
             Vec::new(),
             BTreeMap::new(),
             Signatures::new(),
@@ -587,9 +585,9 @@ mod tests {
         let master_key =
             Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap();
         let sender_unverified =
-            SenderData::sender_unverified(user_id!("@u:s.co"), device_id!("DEV"), master_key);
+            SenderData::sender_unverified(user_id!("@u:s.co"), device_id_ref!("DEV"), master_key);
         let sender_verified =
-            SenderData::sender_verified(user_id!("@u:s.co"), device_id!("DEV"), master_key);
+            SenderData::sender_verified(user_id!("@u:s.co"), device_id_ref!("DEV"), master_key);
 
         assert_eq!(unknown.compare_trust_level(&unknown), Ordering::Equal);
         assert_eq!(device_keys.compare_trust_level(&device_keys), Ordering::Equal);
@@ -602,7 +600,7 @@ mod tests {
         let unknown = SenderData::unknown();
         let device_keys = SenderData::device_info(DeviceKeys::new(
             owned_user_id!("@u:s.co"),
-            owned_device_id!("DEV"),
+            device_id!("DEV"),
             Vec::new(),
             BTreeMap::new(),
             Signatures::new(),
@@ -611,13 +609,13 @@ mod tests {
             Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap();
         let sender_verification_violation = SenderData::sender_verification_violation(
             user_id!("@u:s.co"),
-            device_id!("DEV"),
+            device_id_ref!("DEV"),
             master_key,
         );
         let sender_unverified =
-            SenderData::sender_unverified(user_id!("@u:s.co"), device_id!("DEV"), master_key);
+            SenderData::sender_unverified(user_id!("@u:s.co"), device_id_ref!("DEV"), master_key);
         let sender_verified =
-            SenderData::sender_verified(user_id!("@u:s.co"), device_id!("DEV"), master_key);
+            SenderData::sender_verified(user_id!("@u:s.co"), device_id_ref!("DEV"), master_key);
 
         assert_eq!(unknown.compare_trust_level(&device_keys), Ordering::Less);
         assert_eq!(unknown.compare_trust_level(&sender_verification_violation), Ordering::Less);
@@ -664,13 +662,16 @@ mod tests {
         assert_json_snapshot!(SenderData::DeviceInfo {
             device_keys: DeviceKeys::new(
                 owned_user_id!("@foo:bar.baz"),
-                owned_device_id!("DEV"),
+                device_id!("DEV"),
                 vec![
                     EventEncryptionAlgorithm::MegolmV1AesSha2,
                     EventEncryptionAlgorithm::OlmV1Curve25519AesSha2
                 ],
                 BTreeMap::from_iter(vec![(
-                    DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, device_id!("ABCDEFGH")),
+                    DeviceKeyId::from_parts(
+                        DeviceKeyAlgorithm::Ed25519,
+                        device_id_ref!("ABCDEFGH")
+                    ),
                     DeviceKey::Curve25519(Curve25519PublicKey::from_bytes([0u8; 32])),
                 )]),
                 Default::default(),
@@ -680,7 +681,7 @@ mod tests {
 
         assert_json_snapshot!(SenderData::VerificationViolation(KnownSenderData {
             user_id: owned_user_id!("@foo:bar.baz"),
-            device_id: Some(owned_device_id!("DEV")),
+            device_id: Some(device_id!("DEV")),
             master_key: Box::new(Ed25519PublicKey::from_slice(&[0u8; 32]).unwrap()),
         }));
 
@@ -753,7 +754,7 @@ mod tests {
     #[async_test]
     async fn test_from_device_for_unsigned_device() {
         let bob_account =
-            Account::with_device_id(user_id!("@bob:example.com"), device_id!("BOB_DEVICE"));
+            Account::with_device_id(user_id!("@bob:example.com"), device_id_ref!("BOB_DEVICE"));
         let bob_device = create_unsigned_device(bob_account.device_keys());
 
         let sender_data = SenderData::from_device(&bob_device);
@@ -771,7 +772,7 @@ mod tests {
     async fn test_from_device_for_unverified_user() {
         let bob_identity = PrivateCrossSigningIdentity::new(owned_user_id!("@bob:example.com"));
         let bob_account =
-            Account::with_device_id(user_id!("@bob:example.com"), device_id!("BOB_DEVICE"));
+            Account::with_device_id(user_id!("@bob:example.com"), device_id_ref!("BOB_DEVICE"));
         let bob_device = create_signed_device_of_unverified_user(
             bob_account.device_keys().clone(),
             &bob_identity,
@@ -795,7 +796,7 @@ mod tests {
     #[async_test]
     async fn test_from_device_for_verified_user() {
         let alice_account =
-            Account::with_device_id(user_id!("@alice:example.com"), device_id!("ALICE_DEVICE"));
+            Account::with_device_id(user_id!("@alice:example.com"), device_id_ref!("ALICE_DEVICE"));
         let alice_identity = PrivateCrossSigningIdentity::for_account(
             &alice_account,
             #[cfg(feature = "experimental-x509-identity-verification")]
@@ -806,7 +807,7 @@ mod tests {
 
         let bob_identity = PrivateCrossSigningIdentity::new(owned_user_id!("@bob:example.com"));
         let bob_account =
-            Account::with_device_id(user_id!("@bob:example.com"), device_id!("BOB_DEVICE"));
+            Account::with_device_id(user_id!("@bob:example.com"), device_id_ref!("BOB_DEVICE"));
         let bob_device = create_signed_device_of_verified_user(
             bob_account.device_keys().clone(),
             &bob_identity,
@@ -832,7 +833,7 @@ mod tests {
     async fn test_from_device_for_verification_violation_user() {
         let bob_identity = PrivateCrossSigningIdentity::new(owned_user_id!("@bob:example.com"));
         let bob_account =
-            Account::with_device_id(user_id!("@bob:example.com"), device_id!("BOB_DEVICE"));
+            Account::with_device_id(user_id!("@bob:example.com"), device_id_ref!("BOB_DEVICE"));
         let bob_device =
             create_signed_device_of_unverified_user(bob_account.device_keys(), &bob_identity).await;
         bob_device

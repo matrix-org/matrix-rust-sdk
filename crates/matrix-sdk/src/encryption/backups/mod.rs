@@ -1133,7 +1133,7 @@ mod test {
     };
     use matrix_sdk_test::async_test;
     #[cfg(feature = "experimental-push-secrets")]
-    use ruma::{device_id, user_id};
+    use ruma::{device_id_ref, user_id};
     use serde_json::json;
     use vodozemac::Curve25519PublicKey;
     use wiremock::{
@@ -1677,19 +1677,19 @@ mod test {
         let client = server
             .client_builder_for_crypto_end_to_end(
                 user_id!("@example:localhost"),
-                device_id!("DEVICEID"),
+                device_id_ref!("DEVICEID"),
             )
             .build()
             .await;
         let _other_client = server
-            .set_up_new_device_for_encryption(&client, device_id!("OTHERDEVICEID"), vec![])
+            .set_up_new_device_for_encryption(&client, device_id_ref!("OTHERDEVICEID"), vec![])
             .await;
 
         // both devices are cross-signed
         client.encryption().bootstrap_cross_signing(None).await.unwrap();
         let other_device = client
             .encryption()
-            .get_device(user_id!("@example:localhost"), device_id!("OTHERDEVICEID"))
+            .get_device(user_id!("@example:localhost"), device_id_ref!("OTHERDEVICEID"))
             .await
             .unwrap()
             .unwrap();

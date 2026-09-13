@@ -35,7 +35,7 @@ use matrix_sdk_ui::{
 };
 use mime::Mime;
 use ruma::{
-    EventId, Int, OwnedDeviceId, OwnedRoomOrAliasId, OwnedServerName, OwnedUserId, RoomAliasId,
+    DeviceId, EventId, Int, OwnedRoomOrAliasId, OwnedServerName, OwnedUserId, RoomAliasId,
     ServerName, UserId, assign,
     events::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
@@ -1010,7 +1010,7 @@ impl Room {
             let user_id = UserId::parse(user_id)?;
 
             for device_id in device_ids {
-                let device_id: OwnedDeviceId = device_id.as_str().into();
+                let device_id: DeviceId = device_id.as_str().into();
 
                 if let Some(device) = encryption.get_device(&user_id, &device_id).await? {
                     device.set_local_trust(LocalTrust::Ignored).await?;

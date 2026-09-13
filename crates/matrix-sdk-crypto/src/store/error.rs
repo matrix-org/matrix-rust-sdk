@@ -14,7 +14,7 @@
 
 use std::{convert::Infallible, fmt::Debug, io::Error as IoError};
 
-use ruma::{IdParseError, OwnedDeviceId, OwnedUserId};
+use ruma::{DeviceId, IdParseError, OwnedUserId};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 
@@ -39,9 +39,9 @@ pub enum CryptoStoreError {
     )]
     MismatchedAccount {
         /// The expected user/device id pair.
-        expected: (OwnedUserId, OwnedDeviceId),
+        expected: (OwnedUserId, DeviceId),
         /// The user/device id pair that was loaded from the store.
-        got: (OwnedUserId, OwnedDeviceId),
+        got: (OwnedUserId, DeviceId),
     },
 
     /// An IO error occurred.

@@ -9,7 +9,7 @@ use matrix_sdk::{
 use matrix_sdk_base::{SessionMeta, StateStore as _, store::MemoryStore};
 use matrix_sdk_sqlite::SqliteStateStore;
 use matrix_sdk_test::base64_sha256_hash;
-use ruma::{OwnedRoomId, RoomId, owned_device_id, owned_user_id};
+use ruma::{OwnedRoomId, RoomId, device_id, owned_user_id};
 use tokio::runtime::Builder;
 
 /// Number of joined rooms in the benchmark.
@@ -55,7 +55,7 @@ pub fn restore_session(c: &mut Criterion) {
     let session = MatrixSession {
         meta: SessionMeta {
             user_id: owned_user_id!("@somebody:example.com"),
-            device_id: owned_device_id!("DEVICE_ID"),
+            device_id: device_id!("DEVICE_ID"),
         },
         tokens: SessionTokens { access_token: "OHEY".to_owned(), refresh_token: None },
     };

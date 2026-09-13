@@ -206,7 +206,7 @@ impl OlmMachine {
         mut passphrase: Option<String>,
     ) -> Result<Arc<Self>, CryptoStoreError> {
         let user_id = parse_user_id(&user_id)?;
-        let device_id = device_id.as_str().into();
+        let device_id = device_id.into();
         let runtime = Runtime::new().expect("Couldn't create a tokio runtime");
 
         let store = runtime
@@ -215,7 +215,7 @@ impl OlmMachine {
         passphrase.zeroize();
 
         let inner = runtime.block_on(
-            OlmMachineBuilder::new(&user_id, device_id).with_crypto_store(Arc::new(store)).build(),
+            OlmMachineBuilder::new(&user_id, &device_id).with_crypto_store(Arc::new(store)).build(),
         )?;
 
         Ok(Arc::new(OlmMachine { inner: ManuallyDrop::new(inner), runtime }))
@@ -351,7 +351,7 @@ impl OlmMachine {
 
         Ok(self
             .runtime
-            .block_on(self.inner.get_device(&user_id, device_id.as_str().into(), timeout))?
+            .block_on(self.inner.get_device(&user_id, &device_id.into(), timeout))?
             .map(|d| d.into()))
     }
 
@@ -376,7 +376,7 @@ impl OlmMachine {
         let user_id = UserId::parse(user_id)?;
         let device = self.runtime.block_on(self.inner.get_device(
             &user_id,
-            device_id.as_str().into(),
+            &device_id.as_str().into(),
             None,
         ))?;
 
@@ -397,11 +397,8 @@ impl OlmMachine {
     ) -> Result<(), CryptoStoreError> {
         let user_id = parse_user_id(&user_id)?;
 
-        let device = self.runtime.block_on(self.inner.get_device(
-            &user_id,
-            device_id.as_str().into(),
-            None,
-        ))?;
+        let device =
+            self.runtime.block_on(self.inner.get_device(&user_id, &device_id.into(), None))?;
 
         if let Some(device) = device {
             self.runtime.block_on(device.set_local_trust(trust_state))?;
@@ -836,10 +833,10 @@ impl OlmMachine {
         share_strategy: CollectStrategy,
     ) -> Result<Option<Request>, CryptoStoreError> {
         let user_id = parse_user_id(&user_id)?;
-        let device_id = device_id.as_str().into();
+        let device_id = device_id.into();
         let content = serde_json::from_str(&content)?;
 
-        let device = self.runtime.block_on(self.inner.get_device(&user_id, device_id, None))?;
+        let device = self.runtime.block_on(self.inner.get_device(&user_id, &device_id, None))?;
 
         if let Some(device) = device {
             let encrypted_content = self.runtime.block_on(device.encrypt_event_raw(
@@ -850,7 +847,7 @@ impl OlmMachine {
 
             let request = ToDeviceRequest::new(
                 user_id.as_ref(),
-                DeviceIdOrAllDevices::DeviceId(device_id.to_owned()),
+                DeviceIdOrAllDevices::DeviceId(device_id),
                 "m.room.encrypted",
                 encrypted_content.cast(),
             );
@@ -1263,13 +1260,13 @@ impl OlmMachine {
         methods: Vec<String>,
     ) -> Result<Option<RequestVerificationResult>, CryptoStoreError> {
         let user_id = parse_user_id(&user_id)?;
-        let device_id = device_id.as_str().into();
+        let device_id = device_id.into();
 
         let methods = methods.into_iter().map(VerificationMethod::from).collect();
 
         Ok(
             if let Some(device) =
-                self.runtime.block_on(self.inner.get_device(&user_id, device_id, None))?
+                self.runtime.block_on(self.inner.get_device(&user_id, &device_id, None))?
             {
                 let (verification, request) = device.request_verification_with_methods(methods);
 
@@ -1355,11 +1352,11 @@ impl OlmMachine {
         device_id: String,
     ) -> Result<Option<StartSasResult>, CryptoStoreError> {
         let user_id = parse_user_id(&user_id)?;
-        let device_id = device_id.as_str().into();
+        let device_id = device_id.into();
 
         Ok(
             if let Some(device) =
-                self.runtime.block_on(self.inner.get_device(&user_id, device_id, None))?
+                self.runtime.block_on(self.inner.get_device(&user_id, &device_id, None))?
             {
                 let (sas, request) = self.runtime.block_on(device.start_verification())?;
 

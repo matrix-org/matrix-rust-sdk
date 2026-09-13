@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_common::deserialized_responses::{VerificationLevel, WithheldCode};
-use ruma::{CanonicalJsonError, IdParseError, OwnedDeviceId, OwnedRoomId, OwnedUserId};
+use ruma::{CanonicalJsonError, DeviceId, IdParseError, OwnedRoomId, OwnedUserId};
 use serde::{Serializer, ser::SerializeMap};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
@@ -323,14 +323,14 @@ pub enum SessionCreationError {
         "Failed to create a new Olm session for {0} {1}, the requested \
         one-time key isn't a signed curve key"
     )]
-    OneTimeKeyNotSigned(OwnedUserId, OwnedDeviceId),
+    OneTimeKeyNotSigned(OwnedUserId, DeviceId),
 
     /// The signed one-time key is missing.
     #[error(
         "Tried to create a new Olm session for {0} {1}, but the signed \
         one-time key is missing"
     )]
-    OneTimeKeyMissing(OwnedUserId, OwnedDeviceId),
+    OneTimeKeyMissing(OwnedUserId, DeviceId),
 
     /// Failed to verify the one-time key signatures.
     #[error(
@@ -351,7 +351,7 @@ pub enum SessionCreationError {
         "Tried to create an Olm session for {0} {1}, but the device is missing \
         a curve25519 key"
     )]
-    DeviceMissingCurveKey(OwnedUserId, OwnedDeviceId),
+    DeviceMissingCurveKey(OwnedUserId, DeviceId),
 
     /// Error deserializing the one-time key.
     #[error("Error deserializing the one-time key: {0}")]
@@ -411,7 +411,7 @@ pub enum SessionRecipientCollectionError {
     /// [`LocalTrust::BlackListed`] (see [`Device::set_local_trust`]), and
     /// then retry the encryption operation.
     #[error("one or more verified users have unsigned devices")]
-    VerifiedUserHasUnsignedDevice(BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>),
+    VerifiedUserHasUnsignedDevice(BTreeMap<OwnedUserId, Vec<DeviceId>>),
 
     /// One or more users was previously verified, but they have changed their
     /// identity.
