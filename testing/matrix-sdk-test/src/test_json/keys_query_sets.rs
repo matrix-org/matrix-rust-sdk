@@ -2,8 +2,8 @@ use std::{collections::BTreeMap, default::Default};
 
 use insta::{assert_json_snapshot, with_settings};
 use ruma::{
-    Base64PublicKey, CanonicalJsonValue, CrossSigningKeyId, CrossSigningOrDeviceSignatures,
-    CrossSigningOrDeviceSigningKeyId, DeviceId, OwnedBase64PublicKeyOrDeviceId, OwnedDeviceId,
+    Base64PublicKey, Base64PublicKeyOrDeviceId, CanonicalJsonValue, CrossSigningKeyId,
+    CrossSigningOrDeviceSignatures, CrossSigningOrDeviceSigningKeyId, DeviceId, OwnedDeviceId,
     OwnedUserId, SigningKeyAlgorithm, UserId,
     api::client::keys::get_keys::v3::Response as KeyQueryResponse,
     device_id,
@@ -1484,7 +1484,7 @@ fn sign_cross_signing_key(
     let signature = calculate_json_signature(key_json, signing_key);
 
     // Poke the signature into the struct
-    let signing_key_id: OwnedBase64PublicKeyOrDeviceId =
+    let signing_key_id: Base64PublicKeyOrDeviceId =
         Base64PublicKey::with_bytes(signing_key.public_key().as_bytes()).into();
 
     value.signatures.insert_signature(
