@@ -16,7 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{OwnedDeviceId, RoomId, events::AnyToDeviceEventContent, serde::JsonCastable};
+use ruma::{DeviceId, RoomId, events::AnyToDeviceEventContent, serde::JsonCastable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::{Curve25519PublicKey, megolm::MegolmMessage, olm::OlmMessage};
@@ -323,7 +323,7 @@ pub struct MegolmV1AesSha2Content {
 
     /// The ID of the sending device.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub device_id: Option<OwnedDeviceId>,
+    pub device_id: Option<DeviceId>,
 
     /// The ID of the session used to encrypt the message.
     pub session_id: String,

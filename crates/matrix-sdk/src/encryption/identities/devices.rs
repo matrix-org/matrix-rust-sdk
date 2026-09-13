@@ -18,7 +18,7 @@ use matrix_sdk_base::crypto::{
     Device as BaseDevice, DeviceData, LocalTrust, UserDevices as BaseUserDevices,
     store::CryptoStoreError,
 };
-use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, events::key::verification::VerificationMethod};
+use ruma::{DeviceId, OwnedUserId, events::key::verification::VerificationMethod};
 
 use super::ManualVerifyError;
 use crate::{
@@ -36,9 +36,9 @@ pub struct DeviceUpdates {
     /// A device being in this list does not necessarily mean that the device
     /// was just created, it just means that it's the first time we're
     /// seeing this device.
-    pub new: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Device>>,
+    pub new: BTreeMap<OwnedUserId, BTreeMap<DeviceId, Device>>,
     /// The list of changed devices.
-    pub changed: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Device>>,
+    pub changed: BTreeMap<OwnedUserId, BTreeMap<DeviceId, Device>>,
 }
 
 impl DeviceUpdates {
@@ -129,7 +129,7 @@ impl Device {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// let device =
-    ///     client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
+    ///     client.encryption().get_device(alice, &device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
     ///     let verification = device.request_verification().await?;
@@ -176,7 +176,7 @@ impl Device {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// let device =
-    ///     client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
+    ///     client.encryption().get_device(alice, &device_id!("DEVICEID")).await?;
     ///
     /// // We don't want to support showing a QR code, we only support SAS
     /// // verification
@@ -218,7 +218,7 @@ impl Device {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// let device =
-    ///     client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
+    ///     client.encryption().get_device(alice, &device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
     ///     let verification = device.start_verification().await?;
@@ -281,7 +281,7 @@ impl Device {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// let device =
-    ///     client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
+    ///     client.encryption().get_device(alice, &device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
     ///     device.verify().await?;
@@ -395,7 +395,7 @@ impl Device {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// let device =
-    ///     client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
+    ///     client.encryption().get_device(alice, &device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
     ///     if device.is_verified() {
@@ -510,7 +510,7 @@ impl Device {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// let device =
-    ///     client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
+    ///     client.encryption().get_device(alice, &device_id!("DEVICEID")).await?;
     ///
     /// if let Some(device) = device {
     ///     if device.is_verified_with_cross_signing() {

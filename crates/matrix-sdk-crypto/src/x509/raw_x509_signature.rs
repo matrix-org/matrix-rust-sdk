@@ -32,7 +32,7 @@ use cms::{
     },
 };
 use pkcs1::{RsaPssParams, der::oid::AssociatedOid};
-use ruma::OwnedDeviceId;
+use ruma::DeviceId;
 use vodozemac::base64_encode;
 
 #[cfg(doc)]
@@ -63,9 +63,7 @@ pub struct RawX509Signature {
 impl RawX509Signature {
     /// Convert this signing result into an [`X509Signature`] containing a CMS
     /// `SignedData` object.
-    pub fn into_x509_signature(
-        self,
-    ) -> Result<(OwnedDeviceId, X509Signature), IntoX509SignatureError> {
+    pub fn into_x509_signature(self) -> Result<(DeviceId, X509Signature), IntoX509SignatureError> {
         let cert_chain = Certificate::load_pem_chain(self.certificate_chain.as_bytes())
             .map_err(IntoX509SignatureError::CertificateChainParseError)?;
 
@@ -159,7 +157,7 @@ impl RawX509Signature {
 
         // Construct a device ID from the authority key identifier to guarantee a unique
         // ID per CA.
-        let device_id = OwnedDeviceId::from(base64_encode(authority_key_identifier_bytes));
+        let device_id = DeviceId::from(base64_encode(authority_key_identifier_bytes));
 
         Ok((device_id, signature))
     }

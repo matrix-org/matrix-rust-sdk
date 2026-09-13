@@ -75,7 +75,7 @@ impl ForwarderData {
         match &self {
             ForwarderData::SenderUnverified(known_sender_data)
             | ForwarderData::SenderVerified(known_sender_data) => {
-                known_sender_data.device_id.as_deref()
+                known_sender_data.device_id.as_ref()
             }
         }
     }
@@ -84,7 +84,7 @@ impl ForwarderData {
 #[cfg(test)]
 mod tests {
     use insta::assert_json_snapshot;
-    use ruma::{device_id, owned_user_id, user_id};
+    use ruma::{device_id_ref, owned_user_id, user_id};
     use vodozemac::Ed25519PublicKey;
 
     use super::ForwarderData;
@@ -114,9 +114,9 @@ mod tests {
         let master_key = Ed25519PublicKey::from_slice(&[1u8; 32]).unwrap();
 
         let sender_unverified =
-            SenderData::sender_unverified(user_id!("@u:s.co"), device_id!("DEV"), master_key);
+            SenderData::sender_unverified(user_id!("@u:s.co"), device_id_ref!("DEV"), master_key);
         let sender_verified =
-            SenderData::sender_verified(user_id!("@u:s.co"), device_id!("DEV"), master_key);
+            SenderData::sender_verified(user_id!("@u:s.co"), device_id_ref!("DEV"), master_key);
 
         let serialized_unverified = serde_json::to_string(&sender_unverified).unwrap();
         let serialized_verified = serde_json::to_string(&sender_verified).unwrap();
@@ -136,12 +136,12 @@ mod tests {
 
         let sender_unverified = SenderData::sender_unverified(
             user_id!("@test:example.org"),
-            device_id!("TEST_DEV"),
+            device_id_ref!("TEST_DEV"),
             master_key,
         );
         let sender_verified = SenderData::sender_verified(
             user_id!("@test:example.org"),
-            device_id!("TEST_DEV"),
+            device_id_ref!("TEST_DEV"),
             master_key,
         );
 

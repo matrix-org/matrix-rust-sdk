@@ -4,7 +4,7 @@ use matrix_sdk::{
     AuthSession, Client, SessionMeta, SessionTokens,
     authentication::matrix::MatrixSession,
     encryption::secret_storage::SecretStore,
-    ruma::{OwnedDeviceId, OwnedUserId, events::secret::request::SecretName},
+    ruma::{DeviceId, OwnedUserId, events::secret::request::SecretName},
 };
 use url::Url;
 
@@ -25,7 +25,7 @@ struct Cli {
 
     /// The user name that should be used for the login.
     #[clap(value_parser)]
-    device_id: OwnedDeviceId,
+    device_id: DeviceId,
 
     /// The password that should be used for the login.
     #[clap(value_parser)]

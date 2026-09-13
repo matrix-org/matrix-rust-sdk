@@ -21,9 +21,9 @@ use ruma::{
         },
         error::StandardErrorBody,
     },
-    assign,
+    assign, device_id,
     encryption::CrossSigningKey,
-    owned_device_id, owned_user_id,
+    owned_user_id,
     serde::Raw,
     user_id,
 };
@@ -332,7 +332,7 @@ fn test_serialize_session() {
     let mut session = MatrixSession {
         meta: SessionMeta {
             user_id: owned_user_id!("@user:localhost"),
-            device_id: owned_device_id!("EFGHIJ"),
+            device_id: device_id!("EFGHIJ"),
         },
         tokens: SessionTokens { access_token: "abcd".to_owned(), refresh_token: None },
     };

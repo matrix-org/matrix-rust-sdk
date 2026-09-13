@@ -27,7 +27,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::crypto::store::types::DehydratedDeviceKey;
 use matrix_sdk_test::async_test;
-use ruma::{OwnedDeviceId, owned_device_id, owned_user_id};
+use ruma::{DeviceId, device_id, owned_user_id};
 use serde_json::{Value, json};
 use wiremock::{
     Request,
@@ -39,7 +39,7 @@ use wiremock::{
 async fn alice_client(server: &MatrixMockServer) -> Client {
     server.mock_crypto_endpoints_preset().await;
     let user_id = owned_user_id!("@alice:example.org");
-    let device_id = owned_device_id!("4L1C3");
+    let device_id = device_id!("4L1C3");
     server.client_builder_for_crypto_end_to_end(&user_id, &device_id).build().await
 }
 
@@ -50,7 +50,7 @@ async fn bootstrap_cross_signing(client: &Client) {
 }
 
 /// Captured payload of a `PUT /dehydrated_device` request.
-type CapturedDevice = Arc<Mutex<Option<(OwnedDeviceId, Value)>>>;
+type CapturedDevice = Arc<Mutex<Option<(DeviceId, Value)>>>;
 
 /// Mount a `PUT /dehydrated_device` mock that captures the uploaded device
 /// data into the returned slot. The slot is later consumed to seed the GET
@@ -63,7 +63,7 @@ async fn capture_uploaded_device(server: &MatrixMockServer) -> CapturedDevice {
         .respond_with(move |req: &Request| {
             #[derive(serde::Deserialize)]
             struct Body {
-                device_id: OwnedDeviceId,
+                device_id: DeviceId,
                 device_data: Value,
             }
             let body: Body = req.body_json().expect("valid PUT body");
@@ -117,7 +117,7 @@ fn account_data_type(req: &Request) -> &str {
 /// returning the uploaded device id.
 async fn next_uploaded_device_id<E: Debug>(
     events: &mut (impl Stream<Item = Result<DehydratedDeviceEvent, E>> + Unpin),
-) -> OwnedDeviceId {
+) -> DeviceId {
     loop {
         let event = events.next().await.expect("event stream is open").expect("no skipped events");
         if let DehydratedDeviceEvent::Uploaded { device_id } = event {
@@ -133,7 +133,7 @@ async fn test_is_supported_ok() {
 
     server
         .mock_get_dehydrated_device()
-        .ok(&owned_device_id!("DEHYDRATED"), json!({}))
+        .ok(&device_id!("DEHYDRATED"), json!({}))
         .mock_once()
         .mount()
         .await;
@@ -218,7 +218,7 @@ async fn test_create_uses_default_display_name() {
         .respond_with(|req: &Request| {
             #[derive(serde::Deserialize)]
             struct Body {
-                device_id: OwnedDeviceId,
+                device_id: DeviceId,
             }
             let body: Body = req.body_json().expect("PUT body deserializes");
             wiremock::ResponseTemplate::new(200)
@@ -237,12 +237,7 @@ async fn test_delete_emits_event_on_success() {
     let server = MatrixMockServer::new().await;
     let client = alice_client(&server).await;
 
-    server
-        .mock_delete_dehydrated_device()
-        .ok(&owned_device_id!("DEHYDRATED"))
-        .mock_once()
-        .mount()
-        .await;
+    server.mock_delete_dehydrated_device().ok(&device_id!("DEHYDRATED")).mock_once().mount().await;
 
     let mut events = client.encryption().dehydrated_devices().state_stream();
     client.encryption().dehydrated_devices().delete().await.unwrap();

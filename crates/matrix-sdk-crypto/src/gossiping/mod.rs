@@ -22,7 +22,7 @@ use std::{
 pub(crate) use machine::GossipMachine;
 use matrix_sdk_common::locks::RwLock as StdRwLock;
 use ruma::{
-    DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId,
+    DeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId,
     events::{
         AnyToDeviceEventContent, ToDeviceEventType,
         room_key_request::{Action, ToDeviceRoomKeyRequestEventContent},
@@ -261,7 +261,7 @@ impl RequestEvent {
     fn to_request_info(&self) -> RequestInfo {
         RequestInfo::new(
             self.sender().to_owned(),
-            self.requesting_device_id().into(),
+            self.requesting_device_id().clone(),
             self.request_id().to_owned(),
         )
     }
@@ -291,14 +291,14 @@ impl RequestEvent {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct RequestInfo {
     sender: OwnedUserId,
-    requesting_device_id: OwnedDeviceId,
+    requesting_device_id: DeviceId,
     request_id: OwnedTransactionId,
 }
 
 impl RequestInfo {
     fn new(
         sender: OwnedUserId,
-        requesting_device_id: OwnedDeviceId,
+        requesting_device_id: DeviceId,
         request_id: OwnedTransactionId,
     ) -> Self {
         Self { sender, requesting_device_id, request_id }
@@ -315,7 +315,7 @@ struct WaitQueue {
 #[derive(Debug, Default)]
 struct WaitQueueInner {
     requests_waiting_for_session: BTreeMap<RequestInfo, RequestEvent>,
-    requests_ids_waiting: BTreeMap<(OwnedUserId, OwnedDeviceId), BTreeSet<OwnedTransactionId>>,
+    requests_ids_waiting: BTreeMap<(OwnedUserId, DeviceId), BTreeSet<OwnedTransactionId>>,
 }
 
 impl WaitQueue {
@@ -334,10 +334,10 @@ impl WaitQueue {
         let request_id = event.request_id().to_owned();
         let requests_waiting_key = RequestInfo::new(
             device.user_id().to_owned(),
-            device.device_id().into(),
+            device.device_id().clone(),
             request_id.clone(),
         );
-        let ids_waiting_key = (device.user_id().to_owned(), device.device_id().into());
+        let ids_waiting_key = (device.user_id().to_owned(), device.device_id().clone());
 
         let mut write_guard = self.inner.write();
         write_guard.requests_waiting_for_session.insert(requests_waiting_key, event);
@@ -349,13 +349,13 @@ impl WaitQueue {
 
         write_guard
             .requests_ids_waiting
-            .remove(&(user_id.to_owned(), device_id.into()))
+            .remove(&(user_id.to_owned(), device_id.clone()))
             .map(|request_ids| {
                 request_ids
                     .iter()
                     .filter_map(|id| {
                         let key =
-                            RequestInfo::new(user_id.to_owned(), device_id.into(), id.to_owned());
+                            RequestInfo::new(user_id.to_owned(), device_id.clone(), id.to_owned());
                         write_guard.requests_waiting_for_session.remove_entry(&key)
                     })
                     .collect()

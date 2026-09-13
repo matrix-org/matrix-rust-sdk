@@ -57,7 +57,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::{executor::spawn, locks::Mutex as StdMutex};
 use ruma::{
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedUserId, TransactionId, UserId,
     api::{
         client::{
             keys::{
@@ -560,7 +560,7 @@ impl Client {
     pub(crate) async fn keys_query(
         &self,
         request_id: &TransactionId,
-        device_keys: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
+        device_keys: BTreeMap<OwnedUserId, Vec<DeviceId>>,
     ) -> Result<get_keys::v3::Response> {
         let request = assign!(get_keys::v3::Request::new(), { device_keys });
 
@@ -1107,7 +1107,7 @@ impl Encryption {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// if let Some(device) =
-    ///     client.encryption().get_device(alice, device_id!("DEVICEID")).await?
+    ///     client.encryption().get_device(alice, &device_id!("DEVICEID")).await?
     /// {
     ///     println!("{:?}", device.is_verified());
     ///
@@ -2186,7 +2186,7 @@ impl Encryption {
         event_type: &str,
         content: Raw<AnyToDeviceEventContent>,
         share_strategy: CollectStrategy,
-    ) -> Result<Vec<(OwnedUserId, OwnedDeviceId)>> {
+    ) -> Result<Vec<(OwnedUserId, DeviceId)>> {
         let users = recipient_devices.iter().map(|device| device.user_id());
 
         // Will claim one-time-key for users that needs it
@@ -2208,7 +2208,7 @@ impl Encryption {
             )
             .await?;
 
-        let mut failures: Vec<(OwnedUserId, OwnedDeviceId)> = Default::default();
+        let mut failures: Vec<(OwnedUserId, DeviceId)> = Default::default();
 
         // Push the withhelds in the failures
         withhelds.iter().for_each(|(d, _)| {

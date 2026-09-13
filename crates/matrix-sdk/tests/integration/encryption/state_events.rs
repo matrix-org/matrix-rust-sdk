@@ -13,7 +13,7 @@ use serde_json::json;
 async fn test_room_encrypted_state_event_send() {
     let room_id = room_id!("!test:localhost");
     let alice_user_id = user_id!("@alice:localhost");
-    let alice_device_id = device_id!("ALICEDEVICE");
+    let alice_device_id = device_id_ref!("ALICEDEVICE");
 
     let matrix_mock_server = MatrixMockServer::new().await;
     matrix_mock_server.mock_crypto_endpoints_preset().await;

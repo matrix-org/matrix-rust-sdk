@@ -21,7 +21,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::crypto::types::events::UtdCause;
 use ruma::{
-    OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, UserId,
+    DeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, UserId,
     events::{
         AnyMessageLikeEventContent, AnyStateEventContentChange, Mentions, MessageLikeEventType,
         StateEventContentChange, StateEventType,
@@ -562,7 +562,7 @@ pub enum EncryptedMessage {
         /// The ID of the sending device.
         #[deprecated = "this field should still be sent but should not be used when received"]
         #[doc(hidden)] // Included for Debug formatting only
-        device_id: Option<OwnedDeviceId>,
+        device_id: Option<DeviceId>,
 
         /// The ID of the session used to encrypt the message.
         session_id: String,

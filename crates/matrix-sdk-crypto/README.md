@@ -25,7 +25,7 @@ use ruma::{api::client::sync::sync_events::DeviceLists, device_id, user_id};
 #[tokio::main]
 async fn main() -> Result<(), OlmError> {
     let alice = user_id!("@alice:example.org");
-    let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
+    let machine = OlmMachine::new(&alice, device_id_ref!("DEVICEID")).await;
 
     let changed_devices = DeviceLists::default();
     let one_time_key_counts = BTreeMap::default();

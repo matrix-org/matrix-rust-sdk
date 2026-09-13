@@ -19,7 +19,7 @@ use std::{
 
 use itertools::{Either, Itertools};
 use matrix_sdk_common::deserialized_responses::WithheldCode;
-use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
+use ruma::{DeviceId, OwnedUserId, UserId};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace};
 
@@ -274,7 +274,7 @@ pub(crate) async fn collect_recipients_for_share_strategy(
             }
         }
         CollectStrategy::ErrorOnVerifiedUserProblem => {
-            let mut unsigned_devices_of_verified_users: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> =
+            let mut unsigned_devices_of_verified_users: BTreeMap<OwnedUserId, Vec<DeviceId>> =
                 Default::default();
 
             for user_id in users {
@@ -544,7 +544,7 @@ pub(crate) async fn split_devices_for_share_strategy(
             // associated user has a verification violation.  If so, we add the
             // device to `unsigned_devices_of_verified_users`, which will be
             // returned with the error.
-            let mut unsigned_devices_of_verified_users: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> =
+            let mut unsigned_devices_of_verified_users: BTreeMap<OwnedUserId, Vec<DeviceId>> =
                 Default::default();
             let mut add_device_to_unsigned_devices_map = |user_id: &UserId, device: &DeviceData| {
                 let device_id = device.device_id().to_owned();
@@ -798,7 +798,7 @@ enum ErrorOnVerifiedUserProblemResult {
     /// We found devices that should cause the transmission to fail, due to
     /// being an unsigned device belonging to a verified user. Only
     /// populated when `error_on_verified_user_problem` is set.
-    UnsignedDevicesOfVerifiedUser(Vec<OwnedDeviceId>),
+    UnsignedDevicesOfVerifiedUser(Vec<DeviceId>),
 
     /// There were no unsigned devices of verified users.
     Devices(RecipientDevicesForUser),
@@ -807,7 +807,7 @@ enum ErrorOnVerifiedUserProblemResult {
 /// Partition the list of a user's devices according to whether they should
 /// receive the key, for [`CollectStrategy::AllDevices`].
 fn split_devices_for_user_for_all_devices_strategy(
-    user_devices: HashMap<OwnedDeviceId, DeviceData>,
+    user_devices: HashMap<DeviceId, DeviceData>,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
     #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
@@ -902,7 +902,7 @@ fn should_withhold_to_dehydrated_device(
 ///   the devices that should receive the room key, and those that should
 ///   receive a withheld code.
 fn split_devices_for_user_for_error_on_verified_user_problem_strategy(
-    user_devices: HashMap<OwnedDeviceId, DeviceData>,
+    user_devices: HashMap<DeviceId, DeviceData>,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
     #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
@@ -913,7 +913,7 @@ fn split_devices_for_user_for_error_on_verified_user_problem_strategy(
 
     // We construct unsigned_devices_of_verified_users lazily, because chances are
     // we won't need it.
-    let mut unsigned_devices_of_verified_users: Option<Vec<OwnedDeviceId>> = None;
+    let mut unsigned_devices_of_verified_users: Option<Vec<DeviceId>> = None;
 
     for d in user_devices.into_values() {
         match handle_device_for_user_for_error_on_verified_user_problem_strategy(
@@ -987,7 +987,7 @@ fn handle_device_for_user_for_error_on_verified_user_problem_strategy(
 }
 
 fn split_devices_for_user_for_identity_based_strategy(
-    user_devices: HashMap<OwnedDeviceId, DeviceData>,
+    user_devices: HashMap<DeviceId, DeviceData>,
     device_owner_identity: &Option<UserIdentityData>,
 ) -> RecipientDevicesForUser {
     match device_owner_identity {
@@ -1044,7 +1044,7 @@ fn withheld_code_for_device_with_owner_for_identity_based_strategy(
 /// Partition the list of a user's devices according to whether they should
 /// receive the key, for [`CollectStrategy::OnlyTrustedDevices`].
 fn split_devices_for_user_for_only_trusted_devices(
-    user_devices: HashMap<OwnedDeviceId, DeviceData>,
+    user_devices: HashMap<DeviceId, DeviceData>,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
     #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
@@ -1169,7 +1169,7 @@ mod tests {
         },
     };
     use ruma::{
-        DeviceId, TransactionId, UserId, device_id,
+        DeviceId, TransactionId, UserId, device_id_ref,
         events::{dummy::ToDeviceDummyEventContent, room::history_visibility::HistoryVisibility},
         room_id,
     };
@@ -1992,7 +1992,7 @@ mod tests {
     async fn test_should_not_error_on_unsigned_of_unverified() {
         use VerificationViolationTestData as DataSet;
 
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id_ref!("LOCAL")).await;
 
         // Tell the OlmMachine about our own public keys.
         let own_keys = DataSet::own_keys_query_response_1();
@@ -2078,7 +2078,7 @@ mod tests {
     async fn test_should_not_error_on_unsigned_of_signed_but_unverified() {
         use VerificationViolationTestData as DataSet;
 
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id_ref!("LOCAL")).await;
 
         // Tell the OlmMachine about our own public keys.
         let keys_query = DataSet::own_keys_query_response_1();
@@ -2403,7 +2403,7 @@ mod tests {
                 KeyQueryResponseTemplateDeviceOptions,
             },
         };
-        use ruma::{DeviceId, TransactionId, UserId, device_id, user_id};
+        use ruma::{DeviceId, TransactionId, UserId, device_id_ref, user_id};
         use vodozemac::{Curve25519PublicKey, Ed25519SecretKey};
 
         use super::{
@@ -2449,7 +2449,7 @@ mod tests {
             // Bob is a user with cross-signing, who has a single (verified) dehydrated
             // device.
             let bob_user_id = user_id!("@bob:localhost");
-            let bob_dehydrated_device_id = device_id!("DEHYDRATED_DEVICE");
+            let bob_dehydrated_device_id = device_id_ref!("DEHYDRATED_DEVICE");
             let keys_query = key_query_response_template_with_cross_signing(bob_user_id)
                 .with_dehydrated_device(bob_dehydrated_device_id, true)
                 .build_response();
@@ -2505,7 +2505,7 @@ mod tests {
             // Bob is a user with cross-signing, who has a single (unverified) dehydrated
             // device.
             let bob_user_id = user_id!("@bob:localhost");
-            let bob_dehydrated_device_id = device_id!("DEHYDRATED_DEVICE");
+            let bob_dehydrated_device_id = device_id_ref!("DEHYDRATED_DEVICE");
             let keys_query = key_query_response_template_with_cross_signing(bob_user_id)
                 .with_dehydrated_device(bob_dehydrated_device_id, false)
                 .build_response();
@@ -2573,7 +2573,7 @@ mod tests {
 
             // He then changes identity, and adds a dehydrated device (signed with his new
             // identity)
-            let bob_dehydrated_device_id = device_id!("DEHYDRATED_DEVICE");
+            let bob_dehydrated_device_id = device_id_ref!("DEHYDRATED_DEVICE");
             let keys_query = key_query_response_template_with_changed_cross_signing(bob_user_id)
                 .with_dehydrated_device(bob_dehydrated_device_id, true)
                 .build_response();
@@ -2611,7 +2611,7 @@ mod tests {
             encryption_settings: &EncryptionSettings,
         ) {
             let bob_user_id = user_id!("@bob:localhost");
-            let bob_dehydrated_device_id = device_id!("DEHYDRATED_DEVICE");
+            let bob_dehydrated_device_id = device_id_ref!("DEHYDRATED_DEVICE");
             let machine = prepare_machine_with_dehydrated_device_of_verification_violation_user(
                 bob_user_id,
                 bob_dehydrated_device_id,
@@ -2659,7 +2659,7 @@ mod tests {
             encryption_settings: &EncryptionSettings,
         ) {
             let bob_user_id = user_id!("@bob:localhost");
-            let bob_dehydrated_device_id = device_id!("DEHYDRATED_DEVICE");
+            let bob_dehydrated_device_id = device_id_ref!("DEHYDRATED_DEVICE");
             let machine = prepare_machine_with_dehydrated_device_of_verification_violation_user(
                 bob_user_id,
                 bob_dehydrated_device_id,
@@ -3318,7 +3318,7 @@ mod tests {
     async fn unsigned_of_verified_setup() -> OlmMachine {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id_ref!("LOCAL")).await;
 
         // Tell the OlmMachine about our own public keys.
         let own_keys = DataSet::own_keys_query_response_1();
@@ -3390,7 +3390,7 @@ mod tests {
         encryption_settings: &EncryptionSettings,
     ) -> OutboundGroupSession {
         OutboundGroupSession::new(
-            machine.device_id().into(),
+            machine.device_id().clone(),
             Arc::new(machine.identity_keys()),
             room_id!("!roomid:localhost"),
             encryption_settings.clone(),

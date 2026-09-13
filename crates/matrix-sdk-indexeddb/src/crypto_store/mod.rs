@@ -52,7 +52,7 @@ use matrix_sdk_crypto::{
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, RoomId, TransactionId, UserId,
+    DeviceId, MilliSecondsSinceUnixEpoch, RoomId, TransactionId, UserId,
     events::secret::request::SecretName,
 };
 use serde::{Deserialize, Serialize};
@@ -1343,7 +1343,7 @@ impl_crypto_store! {
     async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
+    ) -> Result<HashMap<DeviceId, DeviceData>> {
         let range = self.serializer.encode_to_range(keys::DEVICES, user_id);
         Ok(self
             .inner
@@ -2101,7 +2101,7 @@ mod unit_tests {
     };
     use matrix_sdk_store_encryption::EncryptedValueBase64;
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, room_id, user_id};
+    use ruma::{device_id_ref, room_id, user_id};
 
     use super::InboundGroupSessionIndexedDbObject;
     use crate::serializer::{MaybeEncrypted, SafeEncodeSerializer};
@@ -2145,7 +2145,7 @@ mod unit_tests {
 
         let sender_data = SenderData::sender_verified(
             user_id!("@test:user"),
-            device_id!("ABC"),
+            device_id_ref!("ABC"),
             Ed25519Keypair::new().public_key(),
         );
 
@@ -2198,7 +2198,7 @@ mod wasm_unit_tests {
         types::{DeviceKeys, Signatures},
     };
     use matrix_sdk_test::async_test;
-    use ruma::{owned_device_id, owned_user_id};
+    use ruma::{device_id, owned_user_id};
     use wasm_bindgen::JsValue;
 
     use crate::crypto_store::unit_tests::sender_data_test_session;
@@ -2235,7 +2235,7 @@ mod wasm_unit_tests {
 
         let sender_data = SenderData::device_info(DeviceKeys::new(
             owned_user_id!("@test:user"),
-            owned_device_id!("ABC"),
+            device_id!("ABC"),
             vec![],
             BTreeMap::new(),
             Signatures::new(),
@@ -2331,7 +2331,7 @@ mod encrypted_tests {
             .save_pending_changes(PendingChanges {
                 account: Some(Account::with_device_id(
                     user_id!("@alice:example.org"),
-                    device_id!("ALICEDEVICE"),
+                    device_id_ref!("ALICEDEVICE"),
                 )),
             })
             .await

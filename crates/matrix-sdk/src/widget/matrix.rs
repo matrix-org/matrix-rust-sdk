@@ -25,7 +25,7 @@ use matrix_sdk_base::{
     sync::State,
 };
 use ruma::{
-    EventId, OwnedDeviceId, OwnedMxcUri, OwnedUserId, RoomId, TransactionId,
+    DeviceId, EventId, OwnedMxcUri, OwnedUserId, RoomId, TransactionId,
     api::client::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
         delayed_events::{self, update_delayed_event::UpdateAction},
@@ -421,7 +421,7 @@ impl MatrixDriver {
 
         let client = self.room.client();
 
-        let mut failures: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> = BTreeMap::new();
+        let mut failures: BTreeMap<OwnedUserId, Vec<DeviceId>> = BTreeMap::new();
 
         let room_encrypted = self
             .room
@@ -488,7 +488,7 @@ impl MatrixDriver {
         event_type: &ToDeviceEventType,
         content: &str,
         user_to_list_of_device_id_or_all: BTreeMap<OwnedUserId, Vec<DeviceIdOrAllDevices>>,
-        failures: &mut BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
+        failures: &mut BTreeMap<OwnedUserId, Vec<DeviceId>>,
     ) -> Result<()> {
         let client = self.room.client();
         let mut recipient_devices = Vec::<_>::new();

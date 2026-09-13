@@ -21,7 +21,7 @@ use std::sync::{
 
 pub use pk_signing::{MasterSigning, PickledSignings, SelfSigning, SigningError, UserSigning};
 use ruma::{
-    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId, UserId,
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId,
     api::client::keys::upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
     events::secret::request::SecretName,
 };
@@ -145,7 +145,7 @@ impl PrivateCrossSigningIdentity {
     /// Get the key ID of the master key.
     pub async fn master_key_id(&self) -> Option<OwnedDeviceKeyId> {
         let master_key = self.master_public_key().await?.get_first_key()?.to_base64();
-        let master_key = OwnedDeviceId::from(master_key);
+        let master_key = DeviceId::from(master_key);
 
         Some(DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &master_key))
     }
@@ -684,7 +684,9 @@ mod tests {
     use std::sync::Arc;
 
     use matrix_sdk_test::async_test;
-    use ruma::{CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId, device_id, user_id};
+    use ruma::{
+        CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId, device_id_ref, user_id,
+    };
     use serde_json::json;
 
     use super::{PrivateCrossSigningIdentity, pk_signing::Signing};
@@ -702,7 +704,7 @@ mod tests {
     fn test_signature_verification() {
         let signing = Signing::new();
         let user_id = user_id();
-        let key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, "DEVICEID".into());
+        let key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &"DEVICEID".into());
 
         let json = json!({
             "hello": "world"
@@ -772,7 +774,7 @@ mod tests {
 
     #[async_test]
     async fn test_private_identity_signed_by_account() {
-        let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
+        let account = Account::with_device_id(user_id(), device_id_ref!("DEVICEID"));
         let identity = PrivateCrossSigningIdentity::for_account(
             &account,
             #[cfg(feature = "experimental-x509-identity-verification")]
@@ -804,7 +806,7 @@ mod tests {
     async fn test_private_identity_signed_by_x509() {
         use crate::x509::tests::create_rust_signer_and_verifier;
 
-        let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
+        let account = Account::with_device_id(user_id(), device_id_ref!("DEVICEID"));
         let (cert, signing_key) =
             crate::x509::tests::cert_and_key_with_email_in_subject_distinguished_name(
                 "example@localhost",
@@ -863,7 +865,7 @@ mod tests {
             }
         }
 
-        let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
+        let account = Account::with_device_id(user_id(), device_id_ref!("DEVICEID"));
         let x509_signer = X509Signer::new(Arc::new(FailingRawX509Signer));
 
         // Bootstrapping must not depend on a hardware key being present.
@@ -899,7 +901,7 @@ mod tests {
 
     #[async_test]
     async fn test_sign_device() {
-        let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
+        let account = Account::with_device_id(user_id(), device_id_ref!("DEVICEID"));
         let identity = PrivateCrossSigningIdentity::for_account(
             &account,
             #[cfg(feature = "experimental-x509-identity-verification")]
@@ -922,7 +924,7 @@ mod tests {
 
     #[async_test]
     async fn test_sign_user_identity() {
-        let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
+        let account = Account::with_device_id(user_id(), device_id_ref!("DEVICEID"));
         let identity = PrivateCrossSigningIdentity::for_account(
             &account,
             #[cfg(feature = "experimental-x509-identity-verification")]
@@ -932,7 +934,7 @@ mod tests {
         .unwrap();
 
         let bob_account =
-            Account::with_device_id(user_id!("@bob:localhost"), device_id!("DEVICEID"));
+            Account::with_device_id(user_id!("@bob:localhost"), device_id_ref!("DEVICEID"));
         let bob_private = PrivateCrossSigningIdentity::for_account(
             &bob_account,
             #[cfg(feature = "experimental-x509-identity-verification")]

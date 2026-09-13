@@ -40,7 +40,7 @@ use matrix_sdk_crypto::{
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, RoomId, TransactionId, UserId,
+    DeviceId, MilliSecondsSinceUnixEpoch, RoomId, TransactionId, UserId,
     events::secret::request::SecretName,
 };
 use rusqlite::{OptionalExtension, named_params, params_from_iter};
@@ -1608,10 +1608,7 @@ impl CryptoStore for SqliteCryptoStore {
             .transpose()?)
     }
 
-    async fn get_user_devices(
-        &self,
-        user_id: &UserId,
-    ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
+    async fn get_user_devices(&self, user_id: &UserId) -> Result<HashMap<DeviceId, DeviceData>> {
         let user_id = self.encode_key("device", user_id.as_bytes());
         self.read()
             .await?
@@ -2146,7 +2143,11 @@ mod tests {
         ];
 
         for (device_id, user_id) in known_devices {
-            database.get_device(user_id, device_id).await.expect("Should load the device").unwrap();
+            database
+                .get_device(user_id, &device_id)
+                .await
+                .expect("Should load the device")
+                .unwrap();
         }
 
         let known_sender_key_to_session_count = vec![

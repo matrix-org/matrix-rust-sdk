@@ -29,8 +29,8 @@ use std::{
 };
 
 use ruma::{
-    DeviceId, DeviceKeyAlgorithm, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, RoomId,
-    TransactionId, api::client::backup::RoomKeyBackup, serde::Raw,
+    DeviceId, DeviceKeyAlgorithm, OwnedRoomId, OwnedTransactionId, RoomId, TransactionId,
+    api::client::backup::RoomKeyBackup, serde::Raw,
 };
 use tokio::sync::RwLock;
 use tracing::{debug, info, instrument, trace, warn};
@@ -83,7 +83,7 @@ pub struct SignatureVerification {
     pub user_identity_signature: SignatureState,
     /// The result of the signature verification using public keys of other
     /// devices we own.
-    pub other_signatures: BTreeMap<OwnedDeviceId, SignatureState>,
+    pub other_signatures: BTreeMap<DeviceId, SignatureState>,
 }
 
 impl SignatureVerification {
@@ -219,27 +219,25 @@ impl BackupMachine {
         signatures: &Signatures,
         auth_data: &str,
         compute_all_signatures: bool,
-    ) -> Result<BTreeMap<OwnedDeviceId, SignatureState>, CryptoStoreError> {
+    ) -> Result<BTreeMap<DeviceId, SignatureState>, CryptoStoreError> {
         let mut result = BTreeMap::new();
 
         if let Some(user_signatures) = signatures.get(&self.store.static_account().user_id) {
             for device_key_id in user_signatures.keys() {
                 if device_key_id.algorithm() == DeviceKeyAlgorithm::Ed25519 {
+                    let device_id = device_key_id.owned_key_name();
+
                     // No need to check our own device here, we're doing that using
                     // the check_own_device_signature().
-                    if device_key_id.key_name() == self.store.static_account().device_id {
+                    if device_id == self.store.static_account().device_id {
                         continue;
                     }
 
                     let state = self
-                        .test_ed25519_device_signature(
-                            device_key_id.key_name(),
-                            signatures,
-                            auth_data,
-                        )
+                        .test_ed25519_device_signature(&device_id, signatures, auth_data)
                         .await?;
 
-                    result.insert(device_key_id.key_name().to_owned(), state);
+                    result.insert(device_id, state);
 
                     // Abort the loop if we found a trusted and valid signature,
                     // unless we should check all of them.
@@ -640,7 +638,7 @@ mod tests {
 
     use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
-    use ruma::{CanonicalJsonValue, DeviceId, RoomId, UserId, device_id, room_id, user_id};
+    use ruma::{CanonicalJsonValue, DeviceId, RoomId, UserId, device_id_ref, room_id, user_id};
     use serde_json::json;
 
     use super::BackupMachine;
@@ -675,7 +673,7 @@ mod tests {
     }
 
     fn alice_device_id() -> &'static DeviceId {
-        device_id!("JLAFKJWSCS")
+        device_id_ref!("JLAFKJWSCS")
     }
 
     fn room_id() -> &'static RoomId {

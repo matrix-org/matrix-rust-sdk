@@ -28,8 +28,8 @@ use matrix_sdk_common::{deserialized_responses::WithheldCode, locks::RwLock as S
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::events::AnyStateEventContent;
 use ruma::{
-    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId,
-    SecondsSinceUnixEpoch, TransactionId, UserId,
+    DeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, SecondsSinceUnixEpoch,
+    TransactionId, UserId,
     events::{
         AnyMessageLikeEventContent,
         room::{
@@ -201,7 +201,7 @@ pub struct OutboundGroupSessionEncryptionResult {
 #[derive(Clone)]
 pub struct OutboundGroupSession {
     inner: Arc<RwLock<GroupSession>>,
-    device_id: OwnedDeviceId,
+    device_id: DeviceId,
     account_identity_keys: Arc<IdentityKeys>,
     session_id: Arc<str>,
     room_id: OwnedRoomId,
@@ -218,7 +218,7 @@ pub struct OutboundGroupSession {
 ///
 /// Holds the `ShareInfo` for all the user/device pairs that will receive the
 /// room key.
-pub type ShareInfoSet = BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>;
+pub type ShareInfoSet = BTreeMap<OwnedUserId, BTreeMap<DeviceId, ShareInfo>>;
 
 type ToShareMap = BTreeMap<OwnedTransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>;
 
@@ -311,8 +311,7 @@ impl SharingView<'_> {
         ) -> impl Iterator<Item = (&'a UserId, &'a DeviceId, &'a ShareInfo)> + use<'a, 'b, 'c>
         {
             set.range::<UserId, _>(user_ids).flat_map(move |(uid, d)| {
-                d.range::<DeviceId, _>(device_ids)
-                    .map(|(id, info)| (uid.as_ref(), id.as_ref(), info))
+                d.range::<DeviceId, _>(device_ids).map(|(id, info)| (uid.as_ref(), id, info))
             })
         }
 
@@ -370,7 +369,7 @@ impl OutboundGroupSession {
     /// * `settings` - Settings determining the algorithm and rotation period of
     ///   the outbound group session.
     pub fn new(
-        device_id: OwnedDeviceId,
+        device_id: DeviceId,
         identity_keys: Arc<IdentityKeys>,
         room_id: &RoomId,
         settings: EncryptionSettings,
@@ -444,15 +443,13 @@ impl OutboundGroupSession {
     pub fn mark_request_as_sent(
         &self,
         request_id: &TransactionId,
-    ) -> BTreeMap<OwnedUserId, BTreeSet<OwnedDeviceId>> {
+    ) -> BTreeMap<OwnedUserId, BTreeSet<DeviceId>> {
         let mut no_olm_devices = BTreeMap::new();
 
         let removed = self.to_share_with_set.write().remove(request_id);
         if let Some((to_device, request)) = removed {
-            let recipients: BTreeMap<&UserId, BTreeSet<&DeviceId>> = request
-                .iter()
-                .map(|(u, d)| (u.as_ref(), d.keys().map(|d| d.as_ref()).collect()))
-                .collect();
+            let recipients: BTreeMap<&UserId, BTreeSet<&DeviceId>> =
+                request.iter().map(|(u, d)| (u.as_ref(), d.keys().collect())).collect();
 
             info!(
                 ?request_id,
@@ -462,7 +459,7 @@ impl OutboundGroupSession {
             );
 
             for (user_id, info) in request {
-                let no_olms: BTreeSet<OwnedDeviceId> = info
+                let no_olms: BTreeSet<DeviceId> = info
                     .iter()
                     .filter(|(_, info)| matches!(info, ShareInfo::Withheld(WithheldCode::NoOlm)))
                     .map(|(d, _)| d.to_owned())
@@ -816,7 +813,7 @@ impl OutboundGroupSession {
     /// * `pickle_mode` - The mode that was used to pickle the session, either
     ///   an unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(
-        device_id: OwnedDeviceId,
+        device_id: DeviceId,
         identity_keys: Arc<IdentityKeys>,
         pickle: PickledOutboundGroupSession,
     ) -> Result<Self, PickleError> {
@@ -897,7 +894,7 @@ pub struct PickledOutboundGroupSession {
     /// Has the session been invalidated.
     pub invalidated: bool,
     /// The set of users the session has been already shared with.
-    pub shared_with_set: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, ShareInfo>>,
+    pub shared_with_set: BTreeMap<OwnedUserId, BTreeMap<DeviceId, ShareInfo>>,
     /// Requests that need to be sent out to share the session.
     pub requests: BTreeMap<OwnedTransactionId, (Arc<ToDeviceRequest>, ShareInfoSet)>,
 }
@@ -967,7 +964,7 @@ mod tests {
 
         use matrix_sdk_test::async_test;
         use ruma::{
-            SecondsSinceUnixEpoch, device_id, events::room::message::RoomMessageEventContent,
+            SecondsSinceUnixEpoch, device_id_ref, events::room::message::RoomMessageEventContent,
             room_id, serde::Raw, uint, user_id,
         };
 
@@ -1159,7 +1156,7 @@ mod tests {
 
         async fn create_session(settings: EncryptionSettings) -> OutboundGroupSession {
             let account =
-                Account::with_device_id(user_id!("@alice:example.org"), device_id!("DEVICEID"))
+                Account::with_device_id(user_id!("@alice:example.org"), device_id_ref!("DEVICEID"))
                     .static_data;
             let (session, _) = account
                 .create_group_session_pair(

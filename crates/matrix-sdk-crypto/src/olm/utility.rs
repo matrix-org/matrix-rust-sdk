@@ -200,7 +200,7 @@ impl SignedJsonObject for crate::types::MegolmV1AuthData {
 
 #[cfg(test)]
 mod tests {
-    use ruma::{DeviceKeyAlgorithm, DeviceKeyId, device_id, user_id};
+    use ruma::{DeviceKeyAlgorithm, DeviceKeyId, device_id_ref, user_id};
     use serde_json::json;
     use vodozemac::Ed25519PublicKey;
 
@@ -240,7 +240,7 @@ mod tests {
         signing_key
             .verify_json(
                 user_id!("@example:localhost"),
-                &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, device_id!("GBEWHQOYGS")),
+                &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, device_id_ref!("GBEWHQOYGS")),
                 &device_keys,
             )
             .expect("Can't verify device keys");

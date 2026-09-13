@@ -429,7 +429,7 @@ mod test {
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
     use oauth2::{EndUserVerificationUrl, VerificationUriComplete};
-    use ruma::{owned_device_id, owned_user_id};
+    use ruma::{device_id, owned_user_id};
     use tokio::sync::oneshot;
     use tracing::debug;
 
@@ -876,7 +876,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -1031,7 +1031,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -1164,7 +1164,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = login_server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -1280,7 +1280,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -1417,7 +1417,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -1534,7 +1534,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -1671,7 +1671,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -1779,7 +1779,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -1930,7 +1930,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -2041,7 +2041,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -2123,7 +2123,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -2196,7 +2196,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -2326,7 +2326,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -2437,7 +2437,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -2593,7 +2593,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -2718,7 +2718,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -2879,7 +2879,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -2999,7 +2999,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -3129,7 +3129,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -3239,7 +3239,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()
@@ -3393,7 +3393,7 @@ mod test {
 
         // Create the existing client (Alice).
         let user_id = owned_user_id!("@alice:example.org");
-        let device_id = owned_device_id!("ALICE_DEVICE");
+        let device_id = device_id!("ALICE_DEVICE");
         let alice = server
             .client_builder_for_crypto_end_to_end(&user_id, &device_id)
             .logged_in_with_oauth()

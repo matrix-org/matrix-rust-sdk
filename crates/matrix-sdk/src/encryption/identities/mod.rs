@@ -42,7 +42,7 @@
 //! # async {
 //! # let client = Client::new(homeserver).await.unwrap();
 //! let device =
-//!     client.encryption().get_device(alice, device_id!("DEVICEID")).await?;
+//!     client.encryption().get_device(alice, &device_id!("DEVICEID")).await?;
 //!
 //! if let Some(device) = device {
 //!     // Let's request the device to be verified.

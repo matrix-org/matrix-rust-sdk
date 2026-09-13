@@ -39,7 +39,7 @@ use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::
 use ruma::{
     OwnedRoomId,
     api::client::to_device::send_event_to_device::v3::Messages,
-    device_id, event_id,
+    device_id_ref, event_id,
     events::{
         AnySyncStateEvent, AnyToDeviceEvent, MessageLikeEventType, StateEventType,
         room::{member::MembershipState, message::RoomMessageEventContent},
@@ -1487,7 +1487,7 @@ async fn test_send_encrypted_to_device_event_wildcard() {
     let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
 
     let bob_2 = mock_server
-        .set_up_new_device_for_encryption(&bob, device_id!("BOB2BOB2"), vec![&alice])
+        .set_up_new_device_for_encryption(&bob, device_id_ref!("BOB2BOB2"), vec![&alice])
         .await;
 
     mock_server
@@ -1564,7 +1564,7 @@ async fn test_send_encrypted_to_device_event_wildcard_edge_cases() {
     let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
 
     let bob_2 = mock_server
-        .set_up_new_device_for_encryption(&bob, device_id!("BOB2BOB2"), vec![&alice])
+        .set_up_new_device_for_encryption(&bob, device_id_ref!("BOB2BOB2"), vec![&alice])
         .await;
 
     mock_server

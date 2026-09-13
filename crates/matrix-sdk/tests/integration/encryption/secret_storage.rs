@@ -9,14 +9,14 @@ use matrix_sdk::{
 use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::async_test;
 use ruma::{
-    UserId,
+    UserId, device_id,
     events::{
         secret::request::SecretName,
         secret_storage::{
             default_key::SecretStorageDefaultKeyEventContent, secret::SecretEventContent,
         },
     },
-    owned_device_id, owned_user_id, user_id,
+    owned_user_id, user_id,
 };
 use serde_json::json;
 use wiremock::{
@@ -372,7 +372,7 @@ async fn test_restore_cross_signing_from_secret_store() {
     let session = MatrixSession {
         meta: SessionMeta {
             user_id: owned_user_id!("@example:morpheus.localhost"),
-            device_id: owned_device_id!("DEVICEID"),
+            device_id: device_id!("DEVICEID"),
         },
         tokens: mock_session_tokens(),
     };
@@ -573,7 +573,7 @@ async fn test_is_secret_storage_enabled() {
     let session = MatrixSession {
         meta: SessionMeta {
             user_id: owned_user_id!("@example:morpheus.localhost"),
-            device_id: owned_device_id!("DEVICEID"),
+            device_id: device_id!("DEVICEID"),
         },
         tokens: mock_session_tokens(),
     };

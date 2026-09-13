@@ -25,8 +25,8 @@ use matrix_sdk_common::{executor::spawn, failures_cache::FailuresCache};
 #[cfg(feature = "experimental-x509-identity-verification")]
 use ruma::api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest;
 use ruma::{
-    OwnedDeviceId, OwnedServerName, OwnedTransactionId, OwnedUserId, ServerName, TransactionId,
-    UserId, api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw,
+    DeviceId, OwnedServerName, OwnedTransactionId, OwnedUserId, ServerName, TransactionId, UserId,
+    api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw,
 };
 use tokio::sync::Mutex;
 use tracing::{Level, debug, enabled, info, instrument, trace, warn};
@@ -339,13 +339,13 @@ impl IdentityManager {
     async fn update_user_devices(
         store: Store,
         user_id: OwnedUserId,
-        device_map: BTreeMap<OwnedDeviceId, Raw<ruma::encryption::DeviceKeys>>,
+        device_map: BTreeMap<DeviceId, Raw<ruma::encryption::DeviceKeys>>,
     ) -> StoreResult<DeviceChanges> {
         let own_device_id = store.static_account().device_id().to_owned();
 
         let mut changes = DeviceChanges::default();
 
-        let current_devices: HashSet<OwnedDeviceId> = device_map.keys().cloned().collect();
+        let current_devices: HashSet<DeviceId> = device_map.keys().cloned().collect();
 
         let tasks = device_map.into_iter().filter_map(|(device_id, device_keys)| match device_keys
             .deserialize_as::<DeviceKeys>(
@@ -385,14 +385,14 @@ impl IdentityManager {
             }
         }
 
-        let current_devices: HashSet<&OwnedDeviceId> = current_devices.iter().collect();
+        let current_devices: HashSet<&DeviceId> = current_devices.iter().collect();
         let stored_devices = store.get_device_data_for_user(&user_id).await?;
-        let stored_devices_set: HashSet<&OwnedDeviceId> = stored_devices.keys().collect();
+        let stored_devices_set: HashSet<&DeviceId> = stored_devices.keys().collect();
         let deleted_devices_set = stored_devices_set.difference(&current_devices);
 
         let own_user_id = store.static_account().user_id();
         for device_id in deleted_devices_set {
-            if user_id == *own_user_id && *device_id == &own_device_id {
+            if user_id == *own_user_id && *device_id == own_device_id {
                 let identity_keys = store.static_account().identity_keys();
 
                 warn!(
@@ -424,7 +424,7 @@ impl IdentityManager {
         &self,
         device_keys_map: BTreeMap<
             OwnedUserId,
-            BTreeMap<OwnedDeviceId, Raw<ruma::encryption::DeviceKeys>>,
+            BTreeMap<DeviceId, Raw<ruma::encryption::DeviceKeys>>,
         >,
     ) -> StoreResult<DeviceChanges> {
         let mut changes = DeviceChanges::default();
@@ -1019,7 +1019,7 @@ impl IdentityManager {
     pub async fn get_user_devices_for_encryption(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> StoreResult<HashMap<OwnedUserId, HashMap<OwnedDeviceId, DeviceData>>> {
+    ) -> StoreResult<HashMap<OwnedUserId, HashMap<DeviceId, DeviceData>>> {
         // How long we wait for /keys/query to complete.
         const KEYS_QUERY_WAIT_TIME: Duration = Duration::from_secs(5);
 
@@ -1125,7 +1125,7 @@ impl IdentityManager {
         &self,
         timeout_duration: Duration,
         user_id: &'a UserId,
-    ) -> Result<Option<(&'a UserId, HashMap<OwnedDeviceId, DeviceData>)>, CryptoStoreError> {
+    ) -> Result<Option<(&'a UserId, HashMap<DeviceId, DeviceData>)>, CryptoStoreError> {
         let cache = self.store.cache().await?;
         match self
             .key_query_manager
@@ -1313,8 +1313,8 @@ pub(crate) mod testing {
 
     use matrix_sdk_test::ruma_response_from_json;
     use ruma::{
-        DeviceId, UserId, api::client::keys::get_keys::v3::Response as KeyQueryResponse, device_id,
-        user_id,
+        DeviceId, UserId, api::client::keys::get_keys::v3::Response as KeyQueryResponse,
+        device_id_ref, user_id,
     };
     use serde_json::json;
     use tokio::sync::Mutex;
@@ -1336,7 +1336,7 @@ pub(crate) mod testing {
     }
 
     pub fn device_id() -> &'static DeviceId {
-        device_id!("WSKKLTJZCL")
+        device_id_ref!("WSKKLTJZCL")
     }
 
     pub(crate) async fn manager_test_helper(
@@ -1620,8 +1620,8 @@ pub(crate) mod tests {
     use futures_util::pin_mut;
     use matrix_sdk_test::{async_test, ruma_response_from_json, test_json};
     use ruma::{
-        TransactionId, api::client::keys::get_keys::v3::Response as KeysQueryResponse, device_id,
-        user_id,
+        TransactionId, api::client::keys::get_keys::v3::Response as KeysQueryResponse,
+        device_id_ref, user_id,
     };
     use serde_json::json;
     use stream_assert::{assert_closed, assert_pending, assert_ready};
@@ -1704,7 +1704,7 @@ pub(crate) mod tests {
 
         let device = manager
             .store
-            .get_device_data(other_user, device_id!("SKISMLNIMH"))
+            .get_device_data(other_user, device_id_ref!("SKISMLNIMH"))
             .await
             .unwrap()
             .unwrap();
@@ -1748,8 +1748,7 @@ pub(crate) mod tests {
         let devices = manager.store.get_user_devices(our_user).await.unwrap();
         assert_eq!(devices.devices().count(), 1);
 
-        let device =
-            manager.store.get_device_data(our_user, device_id!(device_id())).await.unwrap();
+        let device = manager.store.get_device_data(our_user, device_id()).await.unwrap();
 
         assert!(device.is_some());
     }
@@ -1757,7 +1756,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_private_identity_invalidation_after_public_keys_change() {
         let user_id = user_id!("@example1:localhost");
-        let manager = manager_test_helper(user_id, "DEVICEID".into()).await;
+        let manager = manager_test_helper(user_id, &"DEVICEID".into()).await;
 
         let identity_request = {
             let private_identity = manager.store.private_identity();
@@ -2175,7 +2174,12 @@ pub(crate) mod tests {
         let devices = manager.store.get_user_devices(other_user).await.unwrap();
         assert_eq!(devices.devices().count(), 1);
 
-        manager.store.get_device_data(other_user, device_id!("OBEBOSKTBE")).await.unwrap().unwrap();
+        manager
+            .store
+            .get_device_data(other_user, device_id_ref!("OBEBOSKTBE"))
+            .await
+            .unwrap()
+            .unwrap();
     }
 
     #[async_test]
@@ -2296,7 +2300,7 @@ pub(crate) mod tests {
     async fn common_verified_identity_changes_machine_setup() -> OlmMachine {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id_ref!("LOCAL")).await;
 
         let keys_query = DataSet::own_keys_query_response_1();
         let txn_id = TransactionId::new();
@@ -2415,7 +2419,7 @@ pub(crate) mod tests {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
         // Start on a non-verified session
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id_ref!("LOCAL")).await;
 
         let keys_query = DataSet::own_keys_query_response_1();
         let txn_id = TransactionId::new();
@@ -2628,7 +2632,7 @@ pub(crate) mod tests {
         // Test that we check the X.509 signature on our identity to see if it
         // needs re-signing when it is received from a `/keys/query` response.
         let user_id = user_id!("@example1:localhost");
-        let device_id = device_id!("DEVICEID");
+        let device_id = device_id_ref!("DEVICEID");
 
         // We create three signers with different validity dates: an "old"
         // signer, a "current" signer, and a "new" signer.
@@ -2709,7 +2713,7 @@ pub(crate) mod tests {
         // Test that we check if we need to re-sign our master key with X.509
         // without having a `/keys/query` response.
         let user_id = user_id!("@example1:localhost");
-        let device_id = device_id!("DEVICEID");
+        let device_id = device_id_ref!("DEVICEID");
 
         // We create three signers with different validity dates: an "old"
         // signer, a "current" signer, and a "new" signer.

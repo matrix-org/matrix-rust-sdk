@@ -871,7 +871,7 @@ mod tests {
     use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
     use ruma::{
-        DeviceId, TransactionId, UserId, device_id,
+        DeviceId, TransactionId, UserId, device_id_ref,
         events::key::verification::{ShortAuthenticationString, accept::AcceptMethod},
         user_id,
     };
@@ -893,7 +893,7 @@ mod tests {
     }
 
     fn alice_device_id() -> &'static DeviceId {
-        device_id!("JLAFKJWSCS")
+        device_id_ref!("JLAFKJWSCS")
     }
 
     fn bob_id() -> &'static UserId {
@@ -901,7 +901,7 @@ mod tests {
     }
 
     fn bob_device_id() -> &'static DeviceId {
-        device_id!("BOBDEVICE")
+        device_id_ref!("BOBDEVICE")
     }
 
     fn machine_pair_test_helper() -> (VerificationStore, DeviceData, VerificationStore, DeviceData)

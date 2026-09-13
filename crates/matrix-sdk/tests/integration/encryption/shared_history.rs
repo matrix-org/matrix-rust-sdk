@@ -10,7 +10,7 @@ use matrix_sdk_test::{
     InvitedRoomBuilder, JoinedRoomBuilder, async_test, event_factory::EventFactory,
 };
 use ruma::{
-    OwnedEventId, RoomVersionId, device_id, event_id,
+    OwnedEventId, RoomVersionId, device_id_ref, event_id,
     events::{
         AnySyncTimelineEvent,
         room::{
@@ -58,9 +58,9 @@ async fn setup_shared_history(
     let mxid = mxc_uri!("mxc://localhost/12345");
 
     let alice_user_id = user_id!("@alice:localhost");
-    let alice_device_id = device_id!("ALICEDEVICE");
+    let alice_device_id = device_id_ref!("ALICEDEVICE");
     let bob_user_id = user_id!("@bob:localhost");
-    let bob_device_id = device_id!("BOBDEVICE");
+    let bob_device_id = device_id_ref!("BOBDEVICE");
 
     let matrix_mock_server = MatrixMockServer::new().await;
     matrix_mock_server.mock_crypto_endpoints_preset().await;
@@ -189,7 +189,7 @@ async fn setup_shared_history(
 async fn test_shared_history_out_of_order() {
     let room_id = room_id!("!test:localhost");
     let alice_user_id = user_id!("@alice:localhost");
-    let alice_device_id = device_id!("ALICEDEVICE");
+    let alice_device_id = device_id_ref!("ALICEDEVICE");
 
     let Test {
         matrix_mock_server,
@@ -283,9 +283,9 @@ async fn test_shared_history_out_of_order() {
 async fn test_shared_history_crash_before_import() {
     let room_id = room_id!("!test:localhost");
     let alice_user_id = user_id!("@alice:localhost");
-    let alice_device_id = device_id!("ALICEDEVICE");
+    let alice_device_id = device_id_ref!("ALICEDEVICE");
     let bob_user_id = user_id!("@bob:localhost");
-    let bob_device_id = device_id!("BOBDEVICE");
+    let bob_device_id = device_id_ref!("BOBDEVICE");
 
     // Use a common store path for Bob so we can persist invite acceptance details
     // over the crash.
@@ -436,7 +436,7 @@ async fn test_room_key_rotation_on_gappy_sync_v3() {
         EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
 
     let alice = matrix_mock_server
-        .client_builder_for_crypto_end_to_end(alice_id, device_id!("BOBDEVICE"))
+        .client_builder_for_crypto_end_to_end(alice_id, device_id_ref!("BOBDEVICE"))
         .on_builder(|builder| builder.with_encryption_settings(encryption_settings))
         .build()
         .await;

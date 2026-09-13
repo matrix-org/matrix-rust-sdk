@@ -330,7 +330,7 @@ mod tests {
     use matrix_sdk_common::BoxFuture;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
-        OwnedUserId, UserId, device_id, events::room::member::MembershipState, owned_user_id,
+        OwnedUserId, UserId, device_id_ref, events::room::member::MembershipState, owned_user_id,
         user_id,
     };
 
@@ -1095,7 +1095,7 @@ mod tests {
     async fn other_user_identity(user_id: &UserId) -> UserIdentity {
         use std::sync::Arc;
 
-        use ruma::owned_device_id;
+        use ruma::device_id;
         use tokio::sync::Mutex;
 
         use crate::{
@@ -1105,7 +1105,7 @@ mod tests {
             verification::VerificationMachine,
         };
 
-        let device_id = owned_device_id!("DEV123");
+        let device_id = device_id!("DEV123");
         let account = Account::with_device_id(user_id, &device_id);
 
         let private_identity = Arc::new(Mutex::new(
@@ -1144,7 +1144,7 @@ mod tests {
     async fn own_user_identity(user_id: &UserId) -> UserIdentity {
         use std::sync::Arc;
 
-        use ruma::owned_device_id;
+        use ruma::device_id;
         use tokio::sync::Mutex;
 
         use crate::{
@@ -1154,7 +1154,7 @@ mod tests {
             verification::VerificationMachine,
         };
 
-        let device_id = owned_device_id!("DEV123");
+        let device_id = device_id!("DEV123");
         let account = Account::with_device_id(user_id, &device_id);
 
         let private_identity = Arc::new(Mutex::new(
@@ -1189,7 +1189,7 @@ mod tests {
                 Arc::new(Mutex::new(cross_signing_identity)),
                 Arc::new(CryptoStoreWrapper::new(
                     user_id!("@u:s.co"),
-                    device_id!("DEV7"),
+                    device_id_ref!("DEV7"),
                     MemoryStore::new(),
                 )),
                 verification_machine,

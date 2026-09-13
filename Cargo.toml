@@ -69,7 +69,7 @@ rcgen = { version = "0.14.8", default-features = false }
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode-perl"] }
 reqwest = { version = "0.13.1", default-features = false }
 rmp-serde = { version = "1.3.1", default-features = false }
-ruma = { git = "https://github.com/ruma/ruma", rev = "d2f38068aa62cda0984fa2cd2aa986484a36bae6", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "63bd869223692afc1549e2a10207f9dd099e39f8", features = [
     "client-api-c",
     "compat-unset-avatar",
     "compat-upload-signatures",
@@ -78,6 +78,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "d2f38068aa62cda0984fa2cd2a
     "compat-encrypted-stickers",
     "compat-lax-room-create-deser",
     "compat-lax-room-topic-deser",
+    "unstable-identifier-ref-macros",
     "unstable-msc1763",
     "unstable-msc3230",
     "unstable-msc3401",

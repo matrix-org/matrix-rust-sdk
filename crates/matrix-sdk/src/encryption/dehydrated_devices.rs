@@ -68,7 +68,7 @@ use matrix_sdk_common::{
     boxed_into_future, locks::Mutex as StdMutex, sleep::sleep, task_monitor::BackgroundTaskHandle,
 };
 use ruma::{
-    OwnedDeviceId,
+    DeviceId,
     api::{
         client::dehydrated_device::{
             DehydratedDeviceData, delete_dehydrated_device, get_dehydrated_device, get_events,
@@ -177,13 +177,13 @@ pub enum DehydratedDeviceEvent {
     /// store, before the upload PUT.
     Created {
         /// Device ID assigned to the new dehydrated device.
-        device_id: OwnedDeviceId,
+        device_id: DeviceId,
     },
     /// The dehydrated device announced by the preceding
     /// [`Self::Created`] event was accepted by the homeserver.
     Uploaded {
         /// Device ID of the dehydrated device now visible on the server.
-        device_id: OwnedDeviceId,
+        device_id: DeviceId,
     },
     /// The dehydrated device currently on the server was deleted.
     Deleted,
@@ -192,7 +192,7 @@ pub enum DehydratedDeviceEvent {
     /// Rehydration of a dehydrated device began.
     RehydrationStarted {
         /// Device ID of the dehydrated device being rehydrated.
-        device_id: OwnedDeviceId,
+        device_id: DeviceId,
     },
     /// A batch of to-device events has been imported during rehydration.
     RehydrationProgress {
@@ -204,7 +204,7 @@ pub enum DehydratedDeviceEvent {
     /// Rehydration finished successfully.
     RehydrationCompleted {
         /// Device ID of the rehydrated device.
-        device_id: OwnedDeviceId,
+        device_id: DeviceId,
         /// Total number of room keys imported.
         room_keys_imported: usize,
         /// Total number of to-device events processed.
@@ -249,7 +249,7 @@ pub struct DehydratedDevices {
 
 /// The dehydrated device the server currently holds on the user's behalf.
 struct DownloadedDevice {
-    device_id: OwnedDeviceId,
+    device_id: DeviceId,
     device_data: Raw<DehydratedDeviceData>,
 }
 
@@ -359,7 +359,7 @@ impl DehydratedDevices {
         &self,
         display_name: Option<&str>,
         pickle_key: &DehydratedDeviceKey,
-    ) -> Result<OwnedDeviceId, DehydratedDeviceError> {
+    ) -> Result<DeviceId, DehydratedDeviceError> {
         let olm = self.client.olm_machine().await;
         let machine = olm.as_ref().ok_or(DehydratedDeviceError::NotLoggedIn)?;
 
@@ -502,9 +502,7 @@ impl DehydratedDevices {
     /// Return the ID of the dehydrated device this client most recently
     /// uploaded, as persisted in the crypto store, or `Ok(None)` if none has
     /// been uploaded yet.
-    async fn last_uploaded_device_id(
-        &self,
-    ) -> Result<Option<OwnedDeviceId>, DehydratedDeviceError> {
+    async fn last_uploaded_device_id(&self) -> Result<Option<DeviceId>, DehydratedDeviceError> {
         let olm = self.client.olm_machine().await;
         let machine = olm.as_ref().ok_or(DehydratedDeviceError::NotLoggedIn)?;
 
@@ -797,7 +795,7 @@ impl DehydratedDevices {
     /// [`DrainOutcome`] as truncated instead.
     async fn absorb_events(
         &self,
-        device_id: &OwnedDeviceId,
+        device_id: &DeviceId,
         rehydrated: &RehydratedDevice,
     ) -> Result<DrainOutcome, DehydratedDeviceError> {
         let settings = self.client.decryption_settings();

@@ -15,7 +15,7 @@
 //! Augmented [`ClientBuilder`] that can set up an already logged-in user.
 
 use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings};
-use ruma::{OwnedDeviceId, OwnedUserId, api::MatrixVersion, owned_device_id, owned_user_id};
+use ruma::{DeviceId, OwnedUserId, api::MatrixVersion, device_id, owned_user_id};
 
 use crate::{
     Client, ClientBuilder, SessionTokens, authentication::matrix::MatrixSession,
@@ -91,7 +91,7 @@ impl MockClientBuilder {
         mut self,
         token: String,
         user_id: OwnedUserId,
-        device_id: OwnedDeviceId,
+        device_id: DeviceId,
     ) -> Self {
         self.auth_state = AuthState::LoggedInWithMatrixAuth {
             token: Some(token),
@@ -149,7 +149,7 @@ enum AuthState {
     LoggedInWithMatrixAuth {
         token: Option<String>,
         user_id: Option<OwnedUserId>,
-        device_id: Option<OwnedDeviceId>,
+        device_id: Option<DeviceId>,
     },
     /// The client is registered with the OAuth 2.0 API.
     RegisteredWithOAuth,
@@ -170,7 +170,7 @@ impl AuthState {
                         MatrixSession {
                             meta: SessionMeta {
                                 user_id: user_id.unwrap_or(owned_user_id!("@example:localhost")),
-                                device_id: device_id.unwrap_or(owned_device_id!("DEVICEID")),
+                                device_id: device_id.unwrap_or(device_id!("DEVICEID")),
                             },
                             tokens: SessionTokens {
                                 access_token: token.unwrap_or("1234".to_owned()).to_owned(),
@@ -224,10 +224,7 @@ impl ServerVersions {
 
 /// A [`SessionMeta`], for unit or integration tests.
 pub fn mock_session_meta() -> SessionMeta {
-    SessionMeta {
-        user_id: owned_user_id!("@example:localhost"),
-        device_id: owned_device_id!("DEVICEID"),
-    }
+    SessionMeta { user_id: owned_user_id!("@example:localhost"), device_id: device_id!("DEVICEID") }
 }
 
 /// A [`SessionTokens`] including only an access token, for unit or integration

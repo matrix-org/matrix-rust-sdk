@@ -6,7 +6,7 @@ use matrix_sdk::{
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
 };
 use matrix_sdk_test::async_test;
-use ruma::{owned_device_id, owned_user_id, user_id};
+use ruma::{device_id, owned_user_id, user_id};
 use serde_json::json;
 use wiremock::{
     Mock, ResponseTemplate,
@@ -26,7 +26,7 @@ async fn test_own_verification() {
     server.mock_crypto_endpoints_preset().await;
 
     let user_id = owned_user_id!("@alice:example.org");
-    let device_id = owned_device_id!("4L1C3");
+    let device_id = device_id!("4L1C3");
     let alice = server.client_builder_for_crypto_end_to_end(&user_id, &device_id).build().await;
     // Subscribe to verification state updates
     let mut verification_state_subscriber = alice.encryption().verification_state();
@@ -89,7 +89,7 @@ async fn test_reset_cross_signing_resets_verification() {
     server.mock_crypto_endpoints_preset().await;
 
     let user_id = owned_user_id!("@alice:example.org");
-    let device_id = owned_device_id!("4L1C3");
+    let device_id = device_id!("4L1C3");
     let alice = server.client_builder_for_crypto_end_to_end(&user_id, &device_id).build().await;
 
     // Subscribe to verification state updates
@@ -121,7 +121,7 @@ async fn test_reset_cross_signing_resets_verification() {
     );
     assert_eq!(alice.encryption().verification_state().get(), VerificationState::Verified);
 
-    let device_id = owned_device_id!("AliceDevice2");
+    let device_id = device_id!("AliceDevice2");
     let alice2 = server.client_builder_for_crypto_end_to_end(&user_id, &device_id).build().await;
 
     // Have Alice bootstrap cross-signing again, this time on her second device.
@@ -148,11 +148,11 @@ async fn test_unchecked_mutual_verification() {
     server.mock_crypto_endpoints_preset().await;
 
     let user_id = owned_user_id!("@alice:example.org");
-    let device_id = owned_device_id!("4L1C3");
+    let device_id = device_id!("4L1C3");
     let alice = server.client_builder_for_crypto_end_to_end(&user_id, &device_id).build().await;
 
     let bob_user_id = owned_user_id!("@bob:example.org");
-    let bob_device_id = owned_device_id!("B0B0B0B0B");
+    let bob_device_id = device_id!("B0B0B0B0B");
 
     let bob =
         server.client_builder_for_crypto_end_to_end(&bob_user_id, &bob_device_id).build().await;

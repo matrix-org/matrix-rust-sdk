@@ -10,7 +10,7 @@ use ruma::{
         keys::{claim_keys, get_keys},
         to_device::send_event_to_device::v3::Response as ToDeviceResponse,
     },
-    device_id, room_id, user_id,
+    device_id_ref, room_id, user_id,
 };
 use serde_json::Value;
 use tokio::runtime::Builder;
@@ -20,7 +20,7 @@ fn alice_id() -> &'static UserId {
 }
 
 fn alice_device_id() -> &'static DeviceId {
-    device_id!("JLAFKJWSCS")
+    device_id_ref!("JLAFKJWSCS")
 }
 
 fn keys_query_response() -> get_keys::v3::Response {

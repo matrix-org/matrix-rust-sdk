@@ -1270,7 +1270,7 @@ mod tests {
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{
-        EventId, OwnedEventId, RoomId, RoomVersionId, device_id, event_id,
+        EventId, OwnedEventId, RoomId, RoomVersionId, device_id_ref, event_id,
         events::{AnySyncTimelineEvent, relation::RelationType},
         room_id,
         serde::Raw,
@@ -1475,9 +1475,9 @@ mod tests {
         let bob_span = tracing::info_span!("bob");
 
         let alice_user_id = user_id!("@alice:localhost");
-        let alice_device_id = device_id!("ALICEDEVICE");
+        let alice_device_id = device_id_ref!("ALICEDEVICE");
         let bob_user_id = user_id!("@bob:localhost");
-        let bob_device_id = device_id!("BOBDEVICE");
+        let bob_device_id = device_id_ref!("BOBDEVICE");
 
         let matrix_mock_server = MatrixMockServer::new().await;
         matrix_mock_server.mock_crypto_endpoints_preset().await;

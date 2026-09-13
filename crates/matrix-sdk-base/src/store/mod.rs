@@ -877,7 +877,7 @@ mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
-    use ruma::{owned_device_id, owned_user_id, room_id, user_id};
+    use ruma::{device_id, owned_user_id, room_id, user_id};
 
     use super::{BaseStateStore, MemoryStore, RoomLoadSettings};
     use crate::{RoomInfo, RoomState, SessionMeta, StateChanges, StateStore};
@@ -888,7 +888,7 @@ mod tests {
 
         let session_meta = SessionMeta {
             user_id: owned_user_id!("@mnt_io:matrix.org"),
-            device_id: owned_device_id!("HELLOYOU"),
+            device_id: device_id!("HELLOYOU"),
         };
 
         assert!(store.session_meta.get().is_none());
@@ -905,7 +905,7 @@ mod tests {
 
         let session_meta = SessionMeta {
             user_id: owned_user_id!("@mnt_io:matrix.org"),
-            device_id: owned_device_id!("HELLOYOU"),
+            device_id: device_id!("HELLOYOU"),
         };
 
         store.set_session_meta(session_meta.clone());
@@ -920,7 +920,7 @@ mod tests {
 
         let session_meta = SessionMeta {
             user_id: owned_user_id!("@mnt_io:matrix.org"),
-            device_id: owned_device_id!("HELLOYOU"),
+            device_id: device_id!("HELLOYOU"),
         };
         let room_id_0 = room_id!("!r0");
 
