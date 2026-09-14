@@ -63,10 +63,13 @@ pub fn room_account_data(
     room_updates: &mut RoomUpdates,
     state_store: &BaseStateStore,
 ) {
-    // A server may send an entry for every room in a list's range, most of them
-    // empty. Creating a room update for those makes the event cache do a full
-    // per-room state-lock and store write for a room that has no new data.
-    for (room_id, raw) in account_data.rooms.iter().filter(|(_, raw)| !raw.is_empty()) {
+    for (room_id, raw) in account_data.rooms.iter().filter(|(_, raw)|
+        // The server may send an entry for this room, even if the account data
+        // are empty. Filter them, so that it doesn't create meaningless updates
+        // (it can have an impact on, for example, the Event Cache as locks
+        // might be involved and could impact the performance).
+        !raw.is_empty())
+    {
         account_data_for_room(context, room_id, raw, state_store);
 
         if let Some(room) = state_store.room(room_id) {
