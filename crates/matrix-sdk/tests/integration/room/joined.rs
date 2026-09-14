@@ -701,7 +701,7 @@ async fn test_room_state_event_send() {
     });
     let response =
         room.send_state_event_for_key(user_id!("@foo:bar.com"), member_event).await.unwrap();
-    assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id);
+    assert_eq!("$h29iv0s8:example.com", response.event_id);
 }
 
 #[async_test]
@@ -728,7 +728,7 @@ async fn test_room_message_send() {
     let txn_id = TransactionId::new();
     let response = room.send(content).with_transaction_id(txn_id).await.unwrap().response;
 
-    assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
+    assert_eq!("$h29iv0s8:example.com", response.event_id)
 }
 
 #[async_test]
@@ -937,8 +937,8 @@ async fn test_get_users_with_power_levels() {
 
     let users_with_power_levels = room.users_with_power_levels().await;
     assert_eq!(users_with_power_levels.len(), 2);
-    assert_eq!(users_with_power_levels[user_id!("@admin:localhost")], 100);
-    assert_eq!(users_with_power_levels[user_id!("@mod:localhost")], 50);
+    assert_eq!(users_with_power_levels["@admin:localhost"], 100);
+    assert_eq!(users_with_power_levels["@mod:localhost"], 50);
 }
 
 #[async_test]

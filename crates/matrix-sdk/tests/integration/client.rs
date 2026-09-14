@@ -1486,7 +1486,7 @@ async fn test_observe_own_beacon_info_updates_emits_room_id_event_id_and_content
 
     let update: BeaconInfoUpdate = stream.next().await.expect("expected a beacon_info update");
     assert_eq!(update.room_id, *DEFAULT_TEST_ROOM_ID);
-    assert_eq!(update.event_id, event_id!("$own_beacon_info"));
+    assert_eq!(update.event_id, "$own_beacon_info");
     assert_eq!(update.content.description, Some("Live Share".to_owned()));
     assert!(update.content.live);
 }

@@ -2309,7 +2309,7 @@ async fn test_media_uploads() {
     assert_let!(MessageType::Image(new_content) = edit_msg.msgtype);
 
     assert_let!(MediaSource::Plain(new_uri) = &new_content.source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media"));
+    assert_eq!(new_uri, "mxc://sdk.rs/media");
 
     let file_media = client
         .media()
@@ -2327,7 +2327,7 @@ async fn test_media_uploads() {
     let new_thumbnail_source =
         new_content.info.as_ref().unwrap().thumbnail_source.as_ref().unwrap();
     assert_let!(MediaSource::Plain(new_uri) = new_thumbnail_source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/thumbnail"));
+    assert_eq!(new_uri, "mxc://sdk.rs/thumbnail");
 
     // The thumbnail can be retrieved as a file, using its own MXC URI:
     let thumbnail_media_as_file = client
@@ -2730,7 +2730,7 @@ async fn test_gallery_uploads() {
     assert_let!(GalleryItemType::Image(new_content) = gallery_content.itemtypes.first().unwrap());
 
     assert_let!(MediaSource::Plain(new_uri) = &new_content.source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media1"));
+    assert_eq!(new_uri, "mxc://sdk.rs/media1");
 
     let file_media = client
         .media()
@@ -2747,7 +2747,7 @@ async fn test_gallery_uploads() {
 
     let new_thumbnail_source = new_content.info.clone().unwrap().thumbnail_source.unwrap();
     assert_let!(MediaSource::Plain(new_uri) = &new_thumbnail_source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/thumbnail1"));
+    assert_eq!(new_uri, "mxc://sdk.rs/thumbnail1");
 
     let thumbnail_media = client
         .media()
@@ -2777,7 +2777,7 @@ async fn test_gallery_uploads() {
     assert_let!(GalleryItemType::Image(new_content) = gallery_content.itemtypes.get(1).unwrap());
 
     assert_let!(MediaSource::Plain(new_uri) = &new_content.source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media2"));
+    assert_eq!(new_uri, "mxc://sdk.rs/media2");
 
     let file_media = client
         .media()
@@ -2794,7 +2794,7 @@ async fn test_gallery_uploads() {
 
     let new_thumbnail_source = new_content.info.clone().unwrap().thumbnail_source.unwrap();
     assert_let!(MediaSource::Plain(new_uri) = &new_thumbnail_source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/thumbnail2"));
+    assert_eq!(new_uri, "mxc://sdk.rs/thumbnail2");
 
     let thumbnail_media = client
         .media()
@@ -2961,7 +2961,7 @@ async fn test_media_upload_retry() {
     });
     assert_let!(MessageType::Image(new_content) = edit_msg.msgtype);
     assert_let!(MediaSource::Plain(new_uri) = &new_content.source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media"));
+    assert_eq!(new_uri, "mxc://sdk.rs/media");
 
     // The event is sent, at some point.
     assert_update!((global_watch, watch) => sent {
@@ -3115,7 +3115,7 @@ async fn test_unwedging_media_upload() {
     let edit_msg = assert_update!((global_watch, watch) => edit local echo { txn = event_txn });
     assert_let!(MessageType::Image(new_content) = edit_msg.msgtype);
     assert_let!(MediaSource::Plain(new_uri) = &new_content.source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media"));
+    assert_eq!(new_uri, "mxc://sdk.rs/media");
 
     // The event is sent, at some point.
     assert_update!((global_watch, watch) => sent { txn = event_txn, event_id = event_id!("$1") });
@@ -3631,7 +3631,7 @@ async fn test_cancel_upload_while_sending_event() {
     let edit_msg = assert_update!((global_watch, watch) => edit local echo { txn = upload_txn });
     assert_let!(MessageType::Image(remote_content) = edit_msg.msgtype);
     assert_let!(MediaSource::Plain(new_uri) = &remote_content.source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media"));
+    assert_eq!(new_uri, "mxc://sdk.rs/media");
 
     // Let the upload request start.
     sleep(Duration::from_millis(250)).await;
@@ -3751,7 +3751,7 @@ async fn test_update_caption_while_sending_media() {
             assert_update!((global_watch, watch) => edit local echo { txn = upload_txn });
         assert_let!(MessageType::Image(image) = edit_msg.msgtype);
         assert_let!(MediaSource::Plain(new_uri) = &image.source);
-        assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media"));
+        assert_eq!(new_uri, "mxc://sdk.rs/media");
 
         // Still has the new caption.
         assert_eq!(image.filename(), filename);
@@ -4274,7 +4274,7 @@ async fn test_sending_event_still_saves_sync_gap() {
     assert_eq!(up.diffs.len(), 1);
     assert_let!(VectorDiff::Append { values } = &up.diffs[0]);
     assert_eq!(values.len(), 1);
-    assert_eq!(values[0].event_id().unwrap(), event_id!("$msg_now"));
+    assert_eq!(values[0].event_id().unwrap(), "$msg_now");
 
     // Now, assume that a /sync response comes with only this message as part of the
     // response, and with a previous gap.
@@ -4296,7 +4296,7 @@ async fn test_sending_event_still_saves_sync_gap() {
     assert_eq!(update.diffs.len(), 2);
     assert_let!(VectorDiff::Clear = &update.diffs[0]);
     assert_let!(VectorDiff::Append { values } = &update.diffs[1]);
-    assert_eq!(values[0].event_id().unwrap(), event_id!("$msg_now"));
+    assert_eq!(values[0].event_id().unwrap(), "$msg_now");
 
     // When paginating with this previous batch token, we should get new events from
     // this room.
@@ -4317,7 +4317,7 @@ async fn test_sending_event_still_saves_sync_gap() {
     assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(update)) = stream.recv());
     assert_eq!(update.diffs.len(), 1);
     assert_let!(VectorDiff::Insert { index: 0, value: event } = &update.diffs[0]);
-    assert_eq!(event.event_id().unwrap(), event_id!("$past_msg"));
+    assert_eq!(event.event_id().unwrap(), "$past_msg");
 
     assert!(stream.is_empty());
 }
