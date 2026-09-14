@@ -281,7 +281,7 @@ impl From<DeviceKeys> for DeviceKeyHelper {
 mod tests {
     use std::str::FromStr;
 
-    use ruma::{OwnedDeviceKeyId, device_id, user_id};
+    use ruma::OwnedDeviceKeyId;
     use serde_json::json;
     use vodozemac::{Curve25519PublicKey, Curve25519SecretKey};
 
@@ -316,8 +316,8 @@ mod tests {
         let device_keys: DeviceKeys =
             serde_json::from_value(json.clone()).expect("Can't deserialize device keys");
 
-        assert_eq!(device_keys.user_id, user_id!("@example:localhost"));
-        assert_eq!(&device_keys.device_id, device_id!("BNYQQWUMXO"));
+        assert_eq!(device_keys.user_id, "@example:localhost");
+        assert_eq!(&device_keys.device_id, "BNYQQWUMXO");
 
         let serialized = serde_json::to_value(device_keys).expect("Can't reserialize device keys");
 

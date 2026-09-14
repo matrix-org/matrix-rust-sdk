@@ -1135,7 +1135,7 @@ mod tests {
         let loaded_identity =
             store.load_identity().await.expect("failed to load private identity").unwrap();
 
-        assert_eq!(loaded_identity.user_id(), user_id!("@u:s"));
+        assert_eq!(loaded_identity.user_id(), "@u:s");
     }
 
     #[async_test]
