@@ -344,7 +344,7 @@ impl ThreadListService {
     ) -> Option<ThreadListItem> {
         // Extract thread summary info before consuming the event.
         let thread_summary = timeline_event.thread_summary.summary().cloned();
-        let bundled_latest_thread_event = timeline_event.bundled_latest_thread_event.clone();
+        let bundled_latest_thread_event = timeline_event.bundled_latest_thread_event();
 
         // Build the root event using the same logic as latest events.
         let root_event = Self::build_event(room, timeline_event).await?;
@@ -352,7 +352,7 @@ impl ThreadListService {
         // Build the latest event from the bundled thread summary, if available.
         let num_replies = thread_summary.as_ref().map(|s| s.num_replies).unwrap_or(0);
 
-        let latest_event = if let Some(ev) = bundled_latest_thread_event.map(|b| *b) {
+        let latest_event = if let Some(ev) = bundled_latest_thread_event {
             Self::build_event(room, ev).await
         } else {
             None

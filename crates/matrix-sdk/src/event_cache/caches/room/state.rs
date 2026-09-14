@@ -623,8 +623,8 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             self.maybe_apply_new_redaction(event).await?;
 
             // Save a bundled thread event, if there was one.
-            if let Some(bundled_thread) = &event.bundled_latest_thread_event {
-                self.save_events([*bundled_thread.clone()]).await?;
+            if let Some(bundled_thread) = event.bundled_latest_thread_event() {
+                self.save_events([bundled_thread]).await?;
             }
         }
 
