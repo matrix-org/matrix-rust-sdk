@@ -610,3 +610,67 @@ async fn test_errors_when_there_is_nothing_pending() {
     );
     assert_pending!(stream);
 }
+
+#[async_test]
+async fn test_abort_puts_back_the_remote_edit() {
+    let room_id = room_id!("!a:b.c");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room = server.sync_joined_room(&client, room_id).await;
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut stream) = timeline.subscribe().await;
+
+    // Our message, already edited from another device.
+    let f = EventFactory::new();
+    let own_user = client.user_id().unwrap();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello").sender(own_user).event_id(event_id!("$1")))
+                .add_timeline_event(
+                    f.text_msg("* remote").sender(own_user).event_id(event_id!("$2")).edit(
+                        event_id!("$1"),
+                        RoomMessageEventContent::text_plain("remote").into(),
+                    ),
+                ),
+        )
+        .await;
+
+    assert_let_timeout!(Some(_) = stream.next());
+    let items = timeline.items().await;
+    let item = items[1].as_event().unwrap();
+    let item_id = item.identifier();
+    assert_eq!(item.content().as_message().unwrap().body(), "remote");
+    let remote_edit_json = item.latest_edit_json().unwrap().json().get().to_owned();
+
+    server.mock_room_send().error_too_large().mock_once().mount().await;
+    timeline.edit(&item_id, text_edit("local")).await.unwrap();
+
+    assert_let_timeout!(Some(updates) = stream.next());
+    assert_eq!(updates.len(), 1);
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &updates[0]);
+    assert_eq!(item.as_event().unwrap().content().as_message().unwrap().body(), "local");
+
+    assert_let_timeout!(Some(updates) = stream.next());
+    assert_eq!(updates.len(), 1);
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &updates[0]);
+    assert_matches!(
+        item.as_event().unwrap().edit_send_state(),
+        Some(EventSendState::SendingFailed { is_recoverable: false, .. })
+    );
+
+    assert!(timeline.abort_send(&item_id, SendTarget::Edit).await.unwrap());
+
+    // Back to the remote edit, content and JSON alike.
+    assert_let_timeout!(Some(updates) = stream.next());
+    assert_eq!(updates.len(), 1);
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &updates[0]);
+    let item = item.as_event().unwrap();
+    assert_eq!(item.content().as_message().unwrap().body(), "remote");
+    assert_eq!(item.latest_edit_json().unwrap().json().get(), remote_edit_json);
+    assert_matches!(item.edit_send_state(), None);
+    assert_pending!(stream);
+}
