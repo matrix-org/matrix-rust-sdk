@@ -2108,6 +2108,46 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_empty_room_account_data_does_not_create_a_room_update() {
+        let client = logged_in_base_client(None).await;
+
+        let room_id_a = room_id!("!a:e.uk");
+        let room_id_b = room_id!("!b:e.uk");
+        let user_id = client.session_meta().unwrap().user_id.clone();
+
+        let mut response = http::Response::new("0".to_owned());
+        for room_id in [room_id_a, room_id_b] {
+            let mut room = http::response::Room::new();
+            set_room_joined(&mut room, &user_id);
+            response.rooms.insert(room_id.to_owned(), room);
+        }
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        let mut response = response_with_room(room_id_a, http::response::Room::new());
+        response.extensions.account_data.rooms.insert(room_id_b.to_owned(), vec![]);
+
+        let sync_response = client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        assert!(sync_response.rooms.joined.contains_key(room_id_a));
+        assert!(!sync_response.rooms.joined.contains_key(room_id_b));
+        assert!(sync_response.rooms.left.is_empty());
+    }
+
+    #[async_test]
     async fn test_fully_read_marker_can_trigger_a_notable_update_reason() {
         // Given a logged-in client,
         let client = logged_in_base_client(None).await;
