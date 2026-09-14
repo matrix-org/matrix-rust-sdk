@@ -22,8 +22,11 @@ use ruma::events::{
 };
 
 use crate::{
-    client::JoinRule, event::FfiTimelineEventType, ruma::AssetType,
-    timeline::msg_like::MsgLikeContent, utils::Timestamp,
+    client::JoinRule,
+    event::FfiTimelineEventType,
+    ruma::AssetType,
+    timeline::{EventSendState, msg_like::MsgLikeContent},
+    utils::Timestamp,
 };
 
 impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent {
@@ -227,6 +230,8 @@ pub struct Reaction {
 pub struct ReactionSenderData {
     pub sender_id: String,
     pub timestamp: Timestamp,
+    /// Send state of the reaction when it's ours and pending, `None` otherwise.
+    pub send_state: Option<EventSendState>,
 }
 
 #[derive(Clone, uniffi::Enum)]
