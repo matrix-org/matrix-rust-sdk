@@ -752,6 +752,31 @@ impl Timeline {
         Ok(self.inner.redact(&(event_or_transaction_id.try_into()?), reason.as_deref()).await?)
     }
 
+    /// Retry sending something on this item that failed, see [`SendTarget`].
+    ///
+    /// Only needed after an unrecoverable failure, which parks the request
+    /// until it's retried or aborted; a recoverable one goes out again when
+    /// the room's send queue is re-enabled.
+    pub async fn retry_send(
+        &self,
+        item_id: EventOrTransactionId,
+        target: SendTarget,
+    ) -> Result<(), ClientError> {
+        Ok(self.inner.retry_send(&item_id.try_into()?, target.into()).await?)
+    }
+
+    /// Abort sending something on this item that hasn't gone out yet, see
+    /// [`SendTarget`].
+    ///
+    /// Returns `false` if it went out in the meantime.
+    pub async fn abort_send(
+        &self,
+        item_id: EventOrTransactionId,
+        target: SendTarget,
+    ) -> Result<bool, ClientError> {
+        Ok(self.inner.abort_send(&item_id.try_into()?, target.into()).await?)
+    }
+
     /// Load the reply details for the given event id.
     ///
     /// This will return an `InReplyToDetails` object that contains the details
@@ -1005,6 +1030,31 @@ impl TimelineItem {
     }
 }
 
+/// Which pending send on an item [`Timeline::retry_send`] and
+/// [`Timeline::abort_send`] act on.
+#[derive(Clone, uniffi::Enum)]
+pub enum SendTarget {
+    /// The item itself, while it's a local echo.
+    Event,
+    /// Our pending edit of the item.
+    Edit,
+    /// Our pending redaction of the item.
+    Redaction,
+    /// Our pending reaction to the item with this key.
+    Reaction { key: String },
+}
+
+impl From<SendTarget> for matrix_sdk_ui::timeline::SendTarget {
+    fn from(value: SendTarget) -> Self {
+        match value {
+            SendTarget::Event => Self::Event,
+            SendTarget::Edit => Self::Edit,
+            SendTarget::Redaction => Self::Redaction,
+            SendTarget::Reaction { key } => Self::Reaction { key },
+        }
+    }
+}
+
 /// This type represents the “send state” of a local event timeline item.
 #[derive(Clone, uniffi::Enum)]
 pub enum EventSendState {
@@ -1024,8 +1074,8 @@ pub enum EventSendState {
         /// Whether the error is considered recoverable or not.
         ///
         /// An error that's recoverable will disable the room's send queue,
-        /// while an unrecoverable error will be parked, until the user
-        /// decides to cancel sending it.
+        /// while an unrecoverable error will be parked, until it's retried or
+        /// aborted.
         is_recoverable: bool,
     },
 
@@ -1094,6 +1144,10 @@ pub struct EventTimelineItem {
     event_type_raw: Option<String>,
     timestamp: Timestamp,
     local_send_state: Option<EventSendState>,
+    /// Send state of our pending edit of this event, if any.
+    edit_send_state: Option<EventSendState>,
+    /// Send state of our pending redaction of this event, if any.
+    redaction_send_state: Option<EventSendState>,
     local_created_at: Option<u64>,
     read_receipts: HashMap<String, Receipt>,
     origin: Option<EventItemOrigin>,
@@ -1120,6 +1174,8 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
             event_type_raw: item.content().event_type_str(),
             timestamp: item.timestamp().into(),
             local_send_state: item.send_state().map(|s| s.into()),
+            edit_send_state: item.edit_send_state().map(|s| s.into()),
+            redaction_send_state: item.redaction_send_state().map(|s| s.into()),
             local_created_at: item.local_created_at().map(|t| t.0.into()),
             read_receipts,
             origin: item.origin(),

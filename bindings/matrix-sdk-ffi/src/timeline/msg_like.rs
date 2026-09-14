@@ -102,6 +102,7 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
                     .map(|(sender_id, info)| ReactionSenderData {
                         sender_id: sender_id.to_string(),
                         timestamp: info.timestamp.into(),
+                        send_state: info.send_state.as_ref().map(|s| s.into()),
                     })
                     .collect(),
             })
