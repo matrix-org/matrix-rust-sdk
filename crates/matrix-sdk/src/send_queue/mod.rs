@@ -1249,6 +1249,28 @@ impl RoomSendQueue {
             .global_update_sender
             .send(SendQueueUpdate { room_id: self.inner.room.room_id().to_owned(), update });
     }
+
+    /// Clear a request's wedged status and wake the queue up so it's tried
+    /// again.
+    async fn unwedge_request(
+        &self,
+        transaction_id: &TransactionId,
+    ) -> Result<(), RoomSendQueueError> {
+        self.inner
+            .queue
+            .mark_as_unwedged(transaction_id)
+            .await
+            .map_err(RoomSendQueueError::StorageError)?;
+
+        // Wake up the queue, in case the room was asleep before unwedging the request.
+        self.inner.notifier.notify_one();
+
+        self.send_update(RoomSendQueueUpdate::RetryEvent {
+            transaction_id: transaction_id.to_owned(),
+        });
+
+        Ok(())
+    }
 }
 
 fn send_update(
@@ -2985,12 +3007,8 @@ impl SendHandle {
     /// resend it.
     pub async fn unwedge(&self) -> Result<(), RoomSendQueueError> {
         let room = &self.room.inner;
-        room.queue
-            .mark_as_unwedged(&self.transaction_id)
-            .await
-            .map_err(RoomSendQueueError::StorageError)?;
 
-        // If we have media handles, also try to unwedge them.
+        // If we have media handles, try to unwedge them.
         //
         // It's fine to always do it to *all* the transaction IDs at once, because only
         // one of the three requests will be active at the same time, i.e. only
@@ -3008,14 +3026,7 @@ impl SendHandle {
             }
         }
 
-        // Wake up the queue, in case the room was asleep before unwedging the request.
-        room.notifier.notify_one();
-
-        self.room.send_update(RoomSendQueueUpdate::RetryEvent {
-            transaction_id: self.transaction_id.clone(),
-        });
-
-        Ok(())
+        self.room.unwedge_request(&self.transaction_id).await
     }
 
     /// Send a reaction to the event as soon as it's sent.
@@ -3107,6 +3118,14 @@ impl SendReactionHandle {
         handle.abort().await
     }
 
+    /// Unwedge the reaction and try to send it again.
+    ///
+    /// A reaction still waiting on its parent to be sent can't be wedged;
+    /// unwedging it only wakes the queue.
+    pub async fn unwedge(&self) -> Result<(), RoomSendQueueError> {
+        self.room.unwedge_request(&self.transaction_id).await
+    }
+
     /// The transaction id that will be used to send this reaction later.
     pub fn transaction_id(&self) -> &TransactionId {
         &self.transaction_id
@@ -3156,6 +3175,11 @@ impl SendRedactionHandle {
             debug!("local echo of redaction didn't exist anymore, can't abort");
             Ok(false)
         }
+    }
+
+    /// Unwedge the redaction and try to send it again.
+    pub async fn unwedge(&self) -> Result<(), RoomSendQueueError> {
+        self.room.unwedge_request(&self.transaction_id).await
     }
 }
 
