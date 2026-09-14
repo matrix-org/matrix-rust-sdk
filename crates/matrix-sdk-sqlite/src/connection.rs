@@ -91,13 +91,14 @@ pub type Connection = Object;
 #[derive(Debug)]
 pub struct Manager {
     pub(crate) database_path: PathBuf,
+    runtime_config: crate::RuntimeConfig,
 }
 
 impl Manager {
     /// Creates a new [`Manager`] for a database.
     #[must_use]
-    pub fn new(database_path: PathBuf) -> Self {
-        Self { database_path }
+    pub(crate) fn new(database_path: PathBuf, runtime_config: crate::RuntimeConfig) -> Self {
+        Self { database_path, runtime_config }
     }
 }
 
@@ -107,7 +108,15 @@ impl managed::Manager for Manager {
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {
         let path = self.database_path.clone();
-        SyncWrapper::new(RUNTIME, move || rusqlite::Connection::open(path)).await
+        let pragmas = self.runtime_config.connection_pragmas();
+
+        SyncWrapper::new(RUNTIME, move || {
+            let conn = rusqlite::Connection::open(path)?;
+            conn.execute_batch(&pragmas)?;
+
+            Ok(conn)
+        })
+        .await
     }
 
     async fn recycle(
@@ -251,15 +260,15 @@ pub(crate) async fn reopen_connections(
     }
 
     // Rebuild the pool (connections are created lazily on first get()).
-    let pool =
-        Pool::builder(Manager::new(db_path)).config(pool_config).runtime(RUNTIME).build().map_err(
-            |e| crate::error::Error::InvalidData {
-                details: format!("Failed to rebuild connection pool: {e}"),
-            },
-        )?;
+    let pool = Pool::builder(Manager::new(db_path, runtime_config))
+        .config(pool_config)
+        .runtime(RUNTIME)
+        .build()
+        .map_err(|e| crate::error::Error::InvalidData {
+            details: format!("Failed to rebuild connection pool: {e}"),
+        })?;
 
     let write_conn = pool.get().await?;
-    // Re-apply runtime config (WAL mode, busy timeout, etc.)
     write_conn.apply_runtime_config(runtime_config).await?;
 
     *guard = Some(SqliteConnections { pool, write_connection: Arc::new(Mutex::new(write_conn)) });
