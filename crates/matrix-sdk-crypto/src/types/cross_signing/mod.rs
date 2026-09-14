@@ -93,7 +93,7 @@ mod tests {
         let key: CrossSigningKey =
             serde_json::from_value(json.clone()).expect("Can't deserialize cross signing key");
 
-        assert_eq!(key.user_id, user_id!("@example:localhost"));
+        assert_eq!(key.user_id, "@example:localhost");
 
         let serialized = serde_json::to_value(key).expect("Can't reserialize cross signing key");
 
