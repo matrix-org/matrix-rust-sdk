@@ -43,7 +43,10 @@ use as_variant::as_variant;
 use matrix_sdk::{
     check_validity_of_replacement_events,
     deserialized_responses::EncryptionInfo,
-    send_queue::{RoomSendQueueStorageError, SendHandle, SendReactionHandle, SendRedactionHandle},
+    send_queue::{
+        RoomSendQueueError, RoomSendQueueStorageError, SendHandle, SendReactionHandle,
+        SendRedactionHandle,
+    },
 };
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
@@ -178,6 +181,14 @@ impl AggregationSendHandle {
             Self::Event(handle) => handle.abort().await,
             Self::Reaction(handle) => handle.abort().await,
             Self::Redaction(handle) => handle.abort().await,
+        }
+    }
+
+    pub async fn unwedge(&self) -> Result<(), RoomSendQueueError> {
+        match self {
+            Self::Event(handle) => handle.unwedge().await,
+            Self::Reaction(handle) => handle.unwedge().await,
+            Self::Redaction(handle) => handle.unwedge().await,
         }
     }
 }
@@ -713,14 +724,18 @@ impl Aggregations {
                         .related_events
                         .get(found)
                         .is_some_and(|aggregations| resolve_edits(aggregations, items, &mut cowed));
-                    // Otherwise nothing is pending anymore.
-                    // TODO likely need to change the item to indicate
-                    // it's been un-edited etc.
+                    // Otherwise nothing is pending anymore: put back what our edits replaced.
                     if !resolved {
-                        if cowed.edit_send_state.is_none() {
+                        if cowed.unedited_kind.is_none() && cowed.edit_send_state.is_none() {
                             return Ok(true);
                         }
-                        cowed.to_mut().edit_send_state = None;
+                        let item = cowed.to_mut();
+                        if let Some(kind) = item.unedited_kind.take()
+                            && let TimelineItemContent::MsgLike(content) = &item.content
+                        {
+                            item.content = TimelineItemContent::MsgLike(content.with_kind(kind));
+                        }
+                        item.edit_send_state = None;
                     }
                     items.replace(
                         item_pos,
@@ -913,6 +928,21 @@ impl Aggregations {
             matches!(&agg.kind, AggregationKind::Reaction { key: k, sender: s, .. } if k == key && s == sender)
         })
     }
+
+    /// The send handle of our earliest pending aggregation of some kind on
+    /// `target`, which is also the one shown and the one that can be wedged.
+    pub fn pending_send_handle(
+        &self,
+        target: &TimelineEventItemId,
+        matches_kind: impl Fn(&AggregationKind) -> bool,
+    ) -> Option<AggregationSendHandle> {
+        self.related_events
+            .get(target)?
+            .iter()
+            .find(|agg| agg.is_local() && matches_kind(&agg.kind))?
+            .send_handle
+            .clone()
+    }
 }
 
 /// Look at all the edits of a given event, and apply the most recent one, if
@@ -988,7 +1018,13 @@ fn resolve_edits(
 
     if let Some((edit, is_local_echo)) = best_edit {
         if edit_item(event, edit, is_local_echo) {
-            event.to_mut().edit_send_state = edit_send_state(aggregations);
+            let send_state = edit_send_state(aggregations);
+            let item = event.to_mut();
+            if send_state.is_none() {
+                // No edit of ours is pending anymore, so drop the snapshot too.
+                item.unedited_kind = None;
+            }
+            item.edit_send_state = send_state;
             true
         } else {
             false
@@ -1058,10 +1094,13 @@ fn edit_item(
             let mut new_msg = msg.clone();
             new_msg.apply_edit(replacement.new_content);
 
-            let new_item = item.with_content_and_latest_edit(
+            let mut new_item = item.with_content_and_latest_edit(
                 TimelineItemContent::MsgLike(content.with_kind(MsgLikeKind::Message(new_msg))),
                 edit_json,
             );
+            if is_local_echo && item.edit_send_state.is_none() {
+                new_item.unedited_kind = Some(MsgLikeKind::Message(msg.clone()));
+            }
             *item = Cow::Owned(new_item);
         }
 

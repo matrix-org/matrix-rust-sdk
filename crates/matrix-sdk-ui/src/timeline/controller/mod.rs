@@ -80,7 +80,8 @@ use super::{
 };
 use crate::{
     timeline::{
-        MsgLikeContent, MsgLikeKind, Room, TimelineEventFilterFn, TimelineEventFocusThreadMode,
+        MsgLikeContent, MsgLikeKind, Room, SendTarget, TimelineEventFilterFn,
+        TimelineEventFocusThreadMode,
         algorithms::rfind_event_by_item_id,
         controller::decryption_retry_task::compute_redecryption_candidates,
         date_dividers::DateDividerAdjuster,
@@ -695,6 +696,38 @@ impl<P: RoomDataProvider> TimelineController<P> {
         }
 
         Ok(false)
+    }
+
+    /// The handle for a pending send on an item, see [`SendTarget`].
+    pub(super) async fn pending_send_handle(
+        &self,
+        item_id: &TimelineEventItemId,
+        target: SendTarget,
+    ) -> Result<AggregationSendHandle, Error> {
+        let state = self.state.read().await;
+
+        let Some((_, item)) = rfind_event_by_item_id(&state.items, item_id) else {
+            return Err(Error::EventNotInTimeline(item_id.clone()));
+        };
+
+        let own_user_id = self.room_data_provider.own_user_id();
+        let target_id = item.identifier();
+        let aggregations = &state.meta.aggregations;
+
+        let handle = match &target {
+            SendTarget::Event => item.local_echo_send_handle().map(AggregationSendHandle::Event),
+            SendTarget::Edit => aggregations
+                .pending_send_handle(&target_id, |kind| matches!(kind, AggregationKind::Edit(_))),
+            SendTarget::Redaction => aggregations
+                .pending_send_handle(&target_id, |kind| matches!(kind, AggregationKind::Redaction)),
+            SendTarget::Reaction { key } => {
+                aggregations.pending_send_handle(&target_id, |kind| {
+                    matches!(kind, AggregationKind::Reaction { key: k, sender, .. } if k == key && sender == own_user_id)
+                })
+            }
+        };
+
+        handle.ok_or(Error::NoPendingSend { item_id: item_id.clone(), target })
     }
 
     /// Handle updates on events as [`VectorDiff`]s.
