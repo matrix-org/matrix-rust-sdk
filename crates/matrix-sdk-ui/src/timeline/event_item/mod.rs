@@ -94,6 +94,8 @@ pub struct EventTimelineItem {
     pub(super) redaction_send_state: Option<EventSendState>,
     /// Send state of our own pending edits of this event, if any.
     pub(super) edit_send_state: Option<EventSendState>,
+    /// The message before our pending edits, put back if they're all dropped.
+    pub(super) unedited_kind: Option<MsgLikeKind>,
     /// The kind of event timeline item, local or remote.
     pub(super) kind: EventTimelineItemKind,
     /// Whether or not the event belongs to an encrypted room.
@@ -178,6 +180,7 @@ impl EventTimelineItem {
             unredacted_item: None,
             redaction_send_state: None,
             edit_send_state: None,
+            unedited_kind: None,
             kind,
             is_room_encrypted,
         }
@@ -587,6 +590,7 @@ impl EventTimelineItem {
             unredacted_item,
             redaction_send_state: None,
             edit_send_state: None,
+            unedited_kind: None,
             kind,
             is_room_encrypted: self.is_room_encrypted,
         }
@@ -617,6 +621,7 @@ impl EventTimelineItem {
             unredacted_item: None,
             redaction_send_state: None,
             edit_send_state: None,
+            unedited_kind: None,
             kind,
             is_room_encrypted: self.is_room_encrypted,
         }
