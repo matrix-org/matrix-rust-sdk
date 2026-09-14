@@ -403,7 +403,7 @@ impl Drop for UtdHookManager {
 mod tests {
     use matrix_sdk::test_utils::{logged_in_client, no_retry_test_client};
     use matrix_sdk_test::async_test;
-    use ruma::{event_id, owned_server_name, server_name, user_id};
+    use ruma::{event_id, owned_server_name, user_id};
 
     use super::*;
 
@@ -441,9 +441,9 @@ mod tests {
         {
             let utds = hook.utds.lock().unwrap();
             assert_eq!(utds.len(), 3);
-            assert_eq!(utds[0].event_id, event_id!("$1"));
-            assert_eq!(utds[1].event_id, event_id!("$2"));
-            assert_eq!(utds[2].event_id, event_id!("$3"));
+            assert_eq!(utds[0].event_id, "$1");
+            assert_eq!(utds[1].event_id, "$2");
+            assert_eq!(utds[2].event_id, "$3");
 
             // No event is a late-decryption event.
             assert!(utds[0].time_to_decrypt.is_none());
@@ -456,10 +456,10 @@ mod tests {
             assert!(utd_local_age >= 0);
             assert!(utd_local_age <= 1000);
 
-            assert_eq!(utds[0].sender_homeserver, server_name!("localhost"));
+            assert_eq!(utds[0].sender_homeserver, "localhost");
             assert_eq!(utds[0].own_homeserver, Some(owned_server_name!("localhost")));
 
-            assert_eq!(utds[1].sender_homeserver, server_name!("example.com"));
+            assert_eq!(utds[1].sender_homeserver, "example.com");
             assert_eq!(utds[1].own_homeserver, Some(owned_server_name!("localhost")));
         }
     }
@@ -497,9 +497,9 @@ mod tests {
             {
                 let utds = hook.utds.lock().unwrap();
                 assert_eq!(utds.len(), 2);
-                assert_eq!(utds[0].event_id, event_id!("$1"));
+                assert_eq!(utds[0].event_id, "$1");
                 assert!(utds[0].time_to_decrypt.is_none());
-                assert_eq!(utds[1].event_id, event_id!("$2"));
+                assert_eq!(utds[1].event_id, "$2");
                 assert!(utds[1].time_to_decrypt.is_none());
             }
         }
@@ -531,7 +531,7 @@ mod tests {
             // Only the *new* ones should be reported
             let utds = hook.utds.lock().unwrap();
             assert_eq!(utds.len(), 1);
-            assert_eq!(utds[0].event_id, event_id!("$3"));
+            assert_eq!(utds[0].event_id, "$3");
         }
     }
 
@@ -587,7 +587,7 @@ mod tests {
 
             let utds = hook.utds.lock().unwrap();
             assert_eq!(utds.len(), 1);
-            assert_eq!(utds[0].event_id, event_id!("$1"));
+            assert_eq!(utds[0].event_id, "$1");
         }
     }
 
@@ -629,7 +629,7 @@ mod tests {
         {
             let utds = hook.utds.lock().unwrap();
             assert_eq!(utds.len(), 1);
-            assert_eq!(utds[0].event_id, event_id!("$1"));
+            assert_eq!(utds[0].event_id, "$1");
             assert!(utds[0].time_to_decrypt.is_none());
         }
 
@@ -642,7 +642,7 @@ mod tests {
             assert_eq!(utds.len(), 1);
 
             // The previous report is still there. (There was no grace period.)
-            assert_eq!(utds[0].event_id, event_id!("$1"));
+            assert_eq!(utds[0].event_id, "$1");
             assert!(utds[0].time_to_decrypt.is_none());
         }
     }
@@ -684,7 +684,7 @@ mod tests {
         {
             let utds = hook.utds.lock().unwrap();
             assert_eq!(utds.len(), 1);
-            assert_eq!(utds[0].event_id, event_id!("$1"));
+            assert_eq!(utds[0].event_id, "$1");
             assert!(utds[0].time_to_decrypt.is_none());
         }
 
@@ -725,7 +725,7 @@ mod tests {
         {
             let utds = hook.utds.lock().unwrap();
             assert_eq!(utds.len(), 1);
-            assert_eq!(utds[0].event_id, event_id!("$1"));
+            assert_eq!(utds[0].event_id, "$1");
             assert!(utds[0].time_to_decrypt.is_some());
         }
 

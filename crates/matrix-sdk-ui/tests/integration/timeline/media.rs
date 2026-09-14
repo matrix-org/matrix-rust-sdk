@@ -204,7 +204,7 @@ async fn test_send_attachment_from_file() -> TestResult {
             Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next()
         );
         assert_matches!(item.send_state(), Some(EventSendState::Sent{ event_id }) => {
-            assert_eq!(event_id, event_id!("$media"));
+            assert_eq!(event_id, "$media");
         });
 
         // Since it's sent, it's inserted in the Event Cache, and becomes a
@@ -213,7 +213,7 @@ async fn test_send_attachment_from_file() -> TestResult {
         assert_let_timeout!(
             Some(VectorDiff::Insert { index: 1, value: remote_event }) = timeline_stream.next()
         );
-        assert_eq!(remote_event.event_id().unwrap(), event_id!("$media"));
+        assert_eq!(remote_event.event_id().unwrap(), "$media");
     }
 
     // That's all, folks!
@@ -346,7 +346,7 @@ async fn test_send_attachment_from_bytes() -> TestResult {
             Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next()
         );
         assert_matches!(item.send_state(), Some(EventSendState::Sent{ event_id }) => {
-            assert_eq!(event_id, event_id!("$media"));
+            assert_eq!(event_id, "$media");
         });
 
         // Since it's sent, it's inserted in the Event Cache, and becomes a
@@ -355,7 +355,7 @@ async fn test_send_attachment_from_bytes() -> TestResult {
         assert_let_timeout!(
             Some(VectorDiff::Insert { index: 1, value: remote_event }) = timeline_stream.next()
         );
-        assert_eq!(remote_event.event_id().unwrap(), event_id!("$media"));
+        assert_eq!(remote_event.event_id().unwrap(), "$media");
     }
 
     // That's all, folks!
@@ -527,7 +527,7 @@ async fn test_send_media_with_thumbnail() -> TestResult {
             Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()
         );
         assert_matches!(item.send_state(), Some(EventSendState::Sent{ event_id }) => {
-            assert_eq!(event_id, event_id!("$media"));
+            assert_eq!(event_id, "$media");
         });
 
         assert_let!(Some(msg) = item.content().as_message());
@@ -744,7 +744,7 @@ async fn test_send_gallery_from_bytes() -> TestResult {
             Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next()
         );
         assert_matches!(item.send_state(), Some(EventSendState::Sent{ event_id }) => {
-            assert_eq!(event_id, event_id!("$media"));
+            assert_eq!(event_id, "$media");
         });
 
         // Since it's sent, it's inserted in the Event Cache, and becomes a
@@ -753,7 +753,7 @@ async fn test_send_gallery_from_bytes() -> TestResult {
         assert_let_timeout!(
             Some(VectorDiff::Insert { index: 1, value: remote_event }) = timeline_stream.next()
         );
-        assert_eq!(remote_event.event_id().unwrap(), event_id!("$media"));
+        assert_eq!(remote_event.event_id().unwrap(), "$media");
     }
 
     // That's all, folks!

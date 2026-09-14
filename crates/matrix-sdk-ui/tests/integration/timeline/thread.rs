@@ -191,7 +191,7 @@ async fn test_thread_backpagination() {
         assert_eq!(event_item.content().as_message().unwrap().body(), "Threaded event 4");
         // But this one is an actual reply to another thread event, so it has the
         // replied-to event correctly set.
-        assert_eq!(event_item.content().in_reply_to().unwrap().event_id, event_id!("$2"));
+        assert_eq!(event_item.content().in_reply_to().unwrap().event_id, "$2");
     }
 
     let hit_start = timeline.paginate_backwards(100).await.unwrap();
@@ -211,12 +211,12 @@ async fn test_thread_backpagination() {
 
     assert_let!(VectorDiff::Insert { index: 2, value } = &timeline_updates[1]);
     let event_item = value.as_event().unwrap();
-    assert_eq!(event_item.event_id().unwrap(), event_id!("$1"));
+    assert_eq!(event_item.event_id().unwrap(), "$1");
     assert_matches!(event_item.content().in_reply_to(), None);
 
     assert_let!(VectorDiff::Insert { index: 3, value } = &timeline_updates[2]);
     let event_item = value.as_event().unwrap();
-    assert_eq!(event_item.event_id().unwrap(), event_id!("$2"));
+    assert_eq!(event_item.event_id().unwrap(), "$2");
     assert_matches!(event_item.content().in_reply_to(), None);
 
     // Check the final items
