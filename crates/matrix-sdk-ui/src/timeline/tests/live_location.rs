@@ -27,7 +27,7 @@ use ruma::{
 use stream_assert::{assert_next_matches, assert_pending};
 
 use crate::timeline::{
-    EventTimelineItem, ReactionStatus, TimelineEventItemId, event_item::beacon_info_matches,
+    EventSendState, EventTimelineItem, TimelineEventItemId, event_item::beacon_info_matches,
     tests::TestTimeline,
 };
 
@@ -778,7 +778,7 @@ async fn test_reaction_on_live_location_item() {
     let reactions = item.content().reactions().expect("live location should expose reactions");
     let thumbs_up = reactions.get("👍").expect("👍 reaction should be present");
     let reaction = thumbs_up.get(*BOB).expect("BOB's reaction should be present");
-    assert_matches!(&reaction.status, ReactionStatus::RemoteToRemote(_));
+    assert_matches!(&reaction.send_state, None);
 
     assert_pending!(stream);
 }
@@ -894,10 +894,7 @@ async fn test_local_reaction_on_live_location_item() {
     assert!(item.content().as_live_location_state().is_some());
     let reactions = item.content().reactions().unwrap();
     let reaction = reactions.get("👍").unwrap().get(*ALICE).unwrap();
-    assert_matches!(
-        &reaction.status,
-        (ReactionStatus::LocalToLocal(_) | ReactionStatus::LocalToRemote(_))
-    );
+    assert_matches!(&reaction.send_state, Some(EventSendState::NotSentYet { .. }));
 
     // Receive the remote echo from sync.
     timeline.handle_live_event(timeline.factory.reaction(beacon_id, "👍").sender(&ALICE)).await;
@@ -907,7 +904,7 @@ async fn test_local_reaction_on_live_location_item() {
     assert!(item.content().as_live_location_state().is_some());
     let reactions = item.content().reactions().unwrap();
     let reaction = reactions.get("👍").unwrap().get(*ALICE).unwrap();
-    assert_matches!(&reaction.status, ReactionStatus::RemoteToRemote(_));
+    assert_matches!(&reaction.send_state, None);
 
     assert_pending!(stream);
 }
