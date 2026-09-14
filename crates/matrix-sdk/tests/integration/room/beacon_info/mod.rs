@@ -53,7 +53,7 @@ async fn test_start_live_location_share_for_room() {
     let response =
         room.start_live_location_share(3000, Some("Live Share".to_owned())).await.unwrap();
 
-    assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id);
+    assert_eq!("$h29iv0s8:example.com", response.event_id);
     server.reset().await;
 
     mock_sync(
@@ -110,7 +110,7 @@ async fn test_start_live_location_share_for_room() {
 
     assert_eq!(ev.sender(), room.own_user_id());
     assert_eq!(ev.state_key(), "@example:localhost");
-    assert_eq!(ev.event_id(), event_id!("$15139375514XsgmR:localhost"));
+    assert_eq!(ev.event_id(), "$15139375514XsgmR:localhost");
     assert_eq!(ev.event_type(), StateEventType::BeaconInfo);
     assert_eq!(ev.origin_server_ts(), MilliSecondsSinceUnixEpoch(uint!(1_636_829_458)));
 
@@ -187,7 +187,7 @@ async fn test_stop_sharing_live_location() {
 
     let response = room.stop_live_location_share().await.unwrap();
 
-    assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id);
+    assert_eq!("$h29iv0s8:example.com", response.event_id);
     server.reset().await;
 
     mock_sync(
@@ -244,7 +244,7 @@ async fn test_stop_sharing_live_location() {
 
     assert_eq!(ev.sender(), room.own_user_id());
     assert_eq!(ev.state_key(), "@example:localhost");
-    assert_eq!(ev.event_id(), event_id!("$15139375514XsgmR:localhost"));
+    assert_eq!(ev.event_id(), "$15139375514XsgmR:localhost");
     assert_eq!(ev.event_type(), StateEventType::BeaconInfo);
     assert_eq!(ev.origin_server_ts(), MilliSecondsSinceUnixEpoch(uint!(1_636_829_458)));
 

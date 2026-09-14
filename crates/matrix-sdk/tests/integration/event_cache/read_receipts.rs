@@ -155,7 +155,7 @@ async fn test_unread_count_implicit_receipt_own_message() {
     // ev4 and ev5 (after our own ev3) are unread; ev1/ev2/ev3 are read via
     // implicit receipt.
     assert_eq!(room.num_unread_messages(), 2);
-    assert_eq!(room.read_receipts().latest_active.unwrap().event_id, event_id!("$3"));
+    assert_eq!(room.read_receipts().latest_active.unwrap().event_id, "$3");
 }
 
 /// Test that receiving only a new read receipt event (with no new messages)

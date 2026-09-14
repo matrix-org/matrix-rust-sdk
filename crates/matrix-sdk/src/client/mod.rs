@@ -4510,7 +4510,7 @@ pub(crate) mod tests {
         assert!(!rooms.contains(&owned_room_id!("!beta:localhost")));
 
         // And the last tracked room should be the first
-        assert_eq!(rooms.first().unwrap(), room_id!("!19:localhost"));
+        assert_eq!(rooms.first().unwrap(), "!19:localhost");
     }
 
     #[async_test]

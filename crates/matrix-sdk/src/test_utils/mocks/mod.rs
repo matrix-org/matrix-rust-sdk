@@ -654,7 +654,7 @@ impl MatrixMockServer {
     ///     .resolve_room_alias(room_alias_id!("#a:b.c"))
     ///     .await
     ///     .expect("We should be able to resolve the room alias");
-    /// assert_eq!(res.room_id, owned_room_id!("!a:b.c"));
+    /// assert_eq!(res.room_id, "!a:b.c");
     /// # anyhow::Ok(()) });
     /// ```
     pub fn mock_room_directory_resolve_alias(&self) -> MockEndpoint<'_, ResolveRoomAliasEndpoint> {

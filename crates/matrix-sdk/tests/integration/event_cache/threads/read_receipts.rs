@@ -194,7 +194,7 @@ async fn test_unread_count_implicit_receipt_own_message() {
     // implicit receipt.
     let read_receipts = thread.read_receipts().await.unwrap();
     assert_eq!(read_receipts.num_unread, 2);
-    assert_eq!(read_receipts.latest_active.unwrap().event_id, event_id!("$3"));
+    assert_eq!(read_receipts.latest_active.unwrap().event_id, "$3");
 
     // Asserting the `ThreadInfo` has received an update too.
     assert!(thread_info_updates.next().await.is_some());

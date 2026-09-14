@@ -399,7 +399,7 @@ fn ensure_server_names_is_not_empty(
 
 #[cfg(test)]
 mod tests {
-    use ruma::{RoomOrAliasId, ServerName, owned_server_name, room_alias_id, room_id, server_name};
+    use ruma::{RoomOrAliasId, ServerName, room_alias_id, room_id, server_name};
 
     use crate::room_preview::ensure_server_names_is_not_empty;
 
@@ -450,8 +450,7 @@ mod tests {
             ensure_server_names_is_not_empty(own_server_name, Vec::new(), room_or_alias_id);
 
         // The server name in the room id was added
-        assert!(!server_names.is_empty());
-        assert_eq!(server_names[0], owned_server_name!("matrix.org"));
+        assert_eq!(server_names, &["matrix.org"]);
     }
 
     #[test]
@@ -463,7 +462,6 @@ mod tests {
             ensure_server_names_is_not_empty(own_server_name, Vec::new(), room_or_alias_id);
 
         // The server name in the room alias was added
-        assert!(!server_names.is_empty());
-        assert_eq!(server_names[0], owned_server_name!("matrix.org"));
+        assert_eq!(server_names, &["matrix.org"]);
     }
 }
