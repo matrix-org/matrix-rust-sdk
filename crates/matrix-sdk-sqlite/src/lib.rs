@@ -52,6 +52,9 @@ pub use self::media_store::SqliteMediaStore;
 #[cfg(feature = "state-store")]
 pub use self::state_store::{DATABASE_NAME as STATE_STORE_DATABASE_NAME, SqliteStateStore};
 
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();
+
 #[cfg(test)]
 matrix_sdk_test_utils::init_tracing_for_tests!();
 
@@ -59,9 +62,30 @@ matrix_sdk_test_utils::init_tracing_for_tests!();
 #[derive(Clone, Debug, PartialEq, Zeroize, ZeroizeOnDrop)]
 pub enum Secret {
     // Cryptographic key used to open the store
-    Key(Box<[u8; 32]>),
-    // Passphrase used to open the store
+    Key(Zeroizing<Vec<u8>>),
+    // Passphrase used to open the store, ideally human chosen
     PassPhrase(Zeroizing<String>),
+    // Randomly generated passphrase, for which the store caches a
+    // cheaply-derivable copy of its cipher and skips derivation on later opens
+    HighEntropyPassPhrase {
+        key: Zeroizing<Vec<u8>>,
+        #[zeroize(skip)]
+        base64_variant: Base64Variant,
+    },
+}
+
+/// Enum controlling how the high-entropy passphrase used to be created on the
+/// client side.
+///
+/// This allows us to replicate how a random key was converted into a passphrase
+/// to migrate from said passphrase to the plain key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum Base64Variant {
+    /// Unpadded base64 was used to create the high-entropy passphrase.
+    Unpadded,
+    /// Standard padded base64 was used to create the high-entropy passphrase.
+    Padded,
 }
 
 /// A configuration structure used for opening a store.
@@ -141,15 +165,52 @@ impl SqliteStoreConfig {
     }
 
     /// Define the passphrase if the store is encoded.
+    ///
+    /// Assumed to be possibly human-chosen, so an expensive derivation is run
+    /// over it on every open. If it is randomly generated, use
+    /// [`SqliteStoreConfig::high_entropy_passphrase`] instead.
     pub fn passphrase(mut self, passphrase: Option<&str>) -> Self {
         self.secret =
             passphrase.map(|passphrase| Secret::PassPhrase(Zeroizing::new(passphrase.to_owned())));
         self
     }
 
+    /// Define the passphrase if the store is encoded, declaring that it was
+    /// randomly generated rather than chosen by a human.
+    ///
+    /// Do NOT use this with human-chosen passphrases, as doing so would remove
+    /// their brute-force protection.
+    ///
+    /// This migrates a passphrase-based store whose passphrase was created by
+    /// base64-encoding a randomly generated key to a key-based setup.
+    ///
+    /// Once this function has been called, [`SqliteStoreConfig::passphrase`]
+    /// can no longer be used with the passphrase.
+    ///
+    /// [`SqliteStoreConfig::key`] can be used with the original key, before it
+    /// was base64-encoded.
+    pub fn high_entropy_passphrase(
+        mut self,
+        passphrase: Option<&[u8]>,
+        base64_variant: Base64Variant,
+    ) -> Self {
+        if let Some(passphrase) = passphrase {
+            let key = Zeroizing::new(passphrase.to_vec());
+            self.secret = Some(Secret::HighEntropyPassPhrase { key, base64_variant });
+        }
+
+        self
+    }
+
     /// Define the key if the store is encoded.
-    pub fn key(mut self, key: Option<&[u8; 32]>) -> Self {
-        self.secret = key.map(|key| Secret::Key(Box::new(*key)));
+    ///
+    /// Assumed to be high entropy so no derivation is run over it.
+    pub fn key(mut self, key: Option<&[u8]>) -> Self {
+        if let Some(key) = key {
+            let key = Zeroizing::new(key.to_vec());
+            self.secret = Some(Secret::Key(key));
+        }
+
         self
     }
 
@@ -278,6 +339,8 @@ mod tests {
         path::{Path, PathBuf},
     };
 
+    use zeroize::Zeroizing;
+
     use super::{POOL_MINIMUM_SIZE, Secret, SqliteStoreConfig};
 
     #[test]
@@ -332,7 +395,7 @@ mod tests {
         assert_eq!(store_config.path, PathBuf::from("foo"));
         assert_eq!(
             store_config.secret,
-            Some(Secret::Key(Box::new([
+            Some(Secret::Key(Zeroizing::new(vec![
                 143, 27, 202, 78, 96, 55, 13, 149, 247, 8, 33, 120, 204, 92, 171, 66, 19, 238, 61,
                 107, 132, 211, 40, 244, 71, 190, 99, 14, 173, 225, 6, 156,
             ])))

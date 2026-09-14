@@ -3771,6 +3771,7 @@ dependencies = [
  "matrix-sdk-contentscanner",
  "matrix-sdk-crypto",
  "matrix-sdk-ffi-macros",
+ "matrix-sdk-sqlite",
  "matrix-sdk-ui",
  "mime",
  "oauth2",
@@ -3924,6 +3925,7 @@ dependencies = [
  "as_variant",
  "assert_matches",
  "async-trait",
+ "base64 0.23.0",
  "deadpool 0.13.0",
  "deadpool-sync",
  "glob",
@@ -3946,6 +3948,7 @@ dependencies = [
  "thiserror 2.0.19",
  "tokio",
  "tracing",
+ "uniffi",
  "vodozemac",
  "zeroize",
 ]
