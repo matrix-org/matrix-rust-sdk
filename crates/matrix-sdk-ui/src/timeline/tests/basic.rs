@@ -156,7 +156,7 @@ async fn test_sticker() {
     assert_eq!(item.content().thread_root(), Some(owned_event_id!("$thread_root")));
 
     assert_let!(Some(details) = item.content().in_reply_to());
-    assert_eq!(details.event_id, owned_event_id!("$in_reply_to"))
+    assert_eq!(details.event_id, "$in_reply_to")
 }
 
 #[async_test]

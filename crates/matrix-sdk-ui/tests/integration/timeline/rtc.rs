@@ -461,7 +461,7 @@ async fn test_only_update_notification_after_it_has_been_marked_as_last() {
     let items = timeline.items().await;
     let event_items: Vec<_> = items.iter().filter_map(|item| item.as_event()).collect();
     let notification = event_items[1];
-    assert_eq!(notification.event_id().unwrap(), event_id!("$call-notification"));
+    assert_eq!(notification.event_id().unwrap(), "$call-notification");
 
     // Assert that active_call_info is none
     assert_let!(
@@ -487,7 +487,7 @@ async fn test_only_update_notification_after_it_has_been_marked_as_last() {
     let event_items: Vec<_> = items.iter().filter_map(|item| item.as_event()).collect();
     let notification = event_items[1];
 
-    assert_eq!(notification.event_id().unwrap(), event_id!("$call-notification"));
+    assert_eq!(notification.event_id().unwrap(), "$call-notification");
     assert_let!(
         TimelineItemContent::RtcNotification { active_call_info: None, .. } =
             notification.content()
@@ -511,7 +511,7 @@ async fn test_only_update_notification_after_it_has_been_marked_as_last() {
     let event_items: Vec<_> = items.iter().filter_map(|item| item.as_event()).collect();
     let notification = event_items[1];
 
-    assert_eq!(notification.event_id().unwrap(), event_id!("$call-notification"));
+    assert_eq!(notification.event_id().unwrap(), "$call-notification");
     assert_let!(
         TimelineItemContent::RtcNotification { active_call_info: None, .. } =
             notification.content()

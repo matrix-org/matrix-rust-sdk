@@ -1132,10 +1132,10 @@ mod tests {
 
         let filters = space_service.space_filters().await;
         assert_eq!(filters.len(), 2);
-        assert_eq!(filters[0].space_room.room_id, room_id!("!1:a.b"));
+        assert_eq!(filters[0].space_room.room_id, "!1:a.b");
         assert_eq!(filters[0].level, 0);
         assert_eq!(filters[0].descendants.len(), 1); //
-        assert_eq!(filters[1].space_room.room_id, room_id!("!1.2:a.b"));
+        assert_eq!(filters[1].space_room.room_id, "!1.2:a.b");
         assert_eq!(filters[1].level, 1);
         assert_eq!(filters[1].descendants.len(), 3);
 

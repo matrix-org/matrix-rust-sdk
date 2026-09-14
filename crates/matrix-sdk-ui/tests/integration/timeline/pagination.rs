@@ -33,7 +33,7 @@ use matrix_sdk::{
 use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{AnyOtherStateEventContentChange, RoomExt, TimelineItemContent};
 use ruma::{
-    EventId, event_id,
+    EventId,
     events::{StateEventContentChange, room::message::MessageType},
     room_id, user_id,
 };
@@ -247,7 +247,7 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
         assert!(text.body.starts_with("hello world"));
 
         // Last event in the above loop has event id 28.
-        assert_eq!(event_item.event_id().unwrap(), event_id!("$ev29"));
+        assert_eq!(event_item.event_id().unwrap(), "$ev29");
 
         for i in 0..1 {
             assert_let!(VectorDiff::PushFront { value: message } = &timeline_updates[37 + i]);
