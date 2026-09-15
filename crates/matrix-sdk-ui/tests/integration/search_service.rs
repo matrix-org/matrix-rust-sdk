@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use assert_matches2::assert_let;
 use matrix_sdk::{
-    event_cache::BackPaginationStrategy,
+    event_cache::SearchBackfillStrategy,
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
 use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
@@ -69,7 +69,7 @@ async fn test_search_backfill_makes_history_searchable() {
         .mount()
         .await;
 
-    client.event_cache().run_search_backfill(BackPaginationStrategy::Foreground).await;
+    client.event_cache().run_search_backfill(SearchBackfillStrategy::Foreground).await;
 
     // Query through the public search API. Indexing runs asynchronously off the
     // linked-chunk updates, so poll until the backfilled event shows up.
