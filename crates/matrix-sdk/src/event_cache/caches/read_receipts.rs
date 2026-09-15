@@ -162,18 +162,36 @@ fn paginate_for_read_receipt(
     }
 }
 
+/// The receipt event ids the unread counts are still chasing, i.e. those whose
+/// target event hasn't been found in the linked chunk yet.
+pub(super) fn unresolved_receipt_targets(read_receipts: &ReadReceipts) -> HashSet<OwnedEventId> {
+    read_receipts
+        .pending
+        .iter()
+        .cloned()
+        .chain(read_receipts.latest_active.as_ref().map(|receipt| receipt.event_id.clone()))
+        .collect()
+}
+
+/// Whether `events` contains the target of one of `targets`.
+pub(super) fn contains_a_receipt_target(
+    events: &[TimelineEvent],
+    targets: &HashSet<OwnedEventId>,
+) -> bool {
+    events.iter().any(|event| event.event_id().is_some_and(|id| targets.contains(id)))
+}
+
 /// A stop predicate that fires as soon as a batch loads any of `targets`. With
 /// no targets it never fires, so the request runs to its batch cap.
 fn stop_on_event_ids(
     targets: HashSet<OwnedEventId>,
 ) -> impl FnMut(&BackPaginationOutcome) -> ControlFlow<()> + Send + 'static {
     move |outcome| {
-        let found = outcome
-            .events
-            .iter()
-            .any(|event| event.event_id().is_some_and(|id| targets.contains(id)));
-
-        if found { ControlFlow::Break(()) } else { ControlFlow::Continue(()) }
+        if contains_a_receipt_target(&outcome.events, &targets) {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
     }
 }
 
@@ -613,12 +631,7 @@ pub(crate) async fn compute_unread_counts<T>(
     // found the latest active receipt! Hand it the receipt event ids we're chasing
     // so the backfill can stop as soon as one of them is loaded.
     if let Some(back_pagination_queue) = back_pagination_queue {
-        let targets: HashSet<OwnedEventId> = read_receipts
-            .pending
-            .iter()
-            .cloned()
-            .chain(read_receipts.latest_active.as_ref().map(|receipt| receipt.event_id.clone()))
-            .collect();
+        let targets = unresolved_receipt_targets(read_receipts);
         paginate_for_read_receipt(back_pagination_queue, event_filter.room_id(), targets);
     }
 
