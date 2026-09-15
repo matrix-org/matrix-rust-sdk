@@ -2399,13 +2399,14 @@ impl Client {
     /// * `content` - The content of the to-device event, as a JSON string,
     ///   encrypted for and sent to every recipient.
     ///
-    /// The returned value contains details of any recipients that did not receive the message
+    /// The returned value contains details of any recipients that did not
+    /// receive the message
     pub async fn send_encrypted_to_device_message(
         &self,
         event_type: String,
         recipients: HashMap<String, Vec<String>>,
         content: String,
-    ) -> Result<SendToDeviceResult, ClientError> {
+    ) -> Result<SendToDeviceOutcome, ClientError> {
         let mut ruma_recipients = BTreeMap::new();
 
         for (user_id, device_ids) in recipients {
@@ -2436,7 +2437,7 @@ impl Client {
             )
             .await?;
 
-        Ok(SendToDeviceResult {
+        Ok(SendToDeviceOutcome {
             failures: failures
                 .into_iter()
                 .map(|(user_id, device_ids)| {
@@ -2449,7 +2450,7 @@ impl Client {
 
 /// The outcome of a [`Client::send_encrypted_to_device_message`] call.
 #[derive(Clone, Debug, uniffi::Record)]
-pub struct SendToDeviceResult {
+pub struct SendToDeviceOutcome {
     /// The devices that did not receive the message, as a `user id -> device
     /// ids` map.
     ///
