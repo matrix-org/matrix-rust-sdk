@@ -35,6 +35,7 @@ byteorder = { version = "1.5.0", default-features = false, features = ["std"] }
 cfg-if = { version = "1.0.4", default-features = false }
 clap = { version = "4.6.4", default-features = false, features = ["std", "help", "usage"] }
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std", "oldtime", "wasmbind"] }
+ctor = "1.0.12"
 dirs = { version = "6.0.0", default-features = false }
 eyeball = { version = "0.8.8", default-features = false, features = ["tracing"] }
 eyeball-im = { version = "0.9.0", default-features = false, features = ["tracing"] }

@@ -1273,16 +1273,6 @@ dependencies = [
 
 [[package]]
 name = "ctor"
-version = "0.2.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32a2785755761f3ddc1492979ce1e48d2c00d09311c39e4466429188f3dd6501"
-dependencies = [
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "ctor"
 version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d83cb7e7a873830708d6b02a78cd36a592c6fa14bf267b68725103b85c0d77f"
@@ -3486,7 +3476,7 @@ dependencies = [
  "bytes",
  "bytesize",
  "cfg-if",
- "ctor 1.0.12",
+ "ctor",
  "dirs",
  "event-listener",
  "eyeball",
@@ -3959,7 +3949,7 @@ name = "matrix-sdk-test"
 version = "0.18.0"
 dependencies = [
  "as_variant",
- "ctor 0.2.9",
+ "ctor",
  "getrandom 0.4.3",
  "http",
  "insta",
@@ -3988,7 +3978,7 @@ dependencies = [
 name = "matrix-sdk-test-utils"
 version = "0.18.0"
 dependencies = [
- "ctor 0.2.9",
+ "ctor",
  "tracing-subscriber",
 ]
 
