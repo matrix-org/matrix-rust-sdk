@@ -3627,6 +3627,30 @@ impl Room {
             .map_err(Into::into)
     }
 
+    /// Load from storage the receipts of several events in this room.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_type` - The type of receipt to get.
+    ///
+    /// * `receipt_thread` - The thread a receipt applies to.
+    ///
+    /// * `event_ids` - The IDs of the events.
+    ///
+    /// Returns, for each event with receipts, a list of IDs of users who have
+    /// sent a receipt for the event and the corresponding receipts.
+    pub async fn load_event_receipts_batch<'a>(
+        &self,
+        receipt_type: ReceiptType,
+        receipt_thread: &ReceiptThread,
+        event_ids: &'a [OwnedEventId],
+    ) -> Result<BTreeMap<&'a EventId, Vec<(OwnedUserId, Receipt)>>> {
+        self.inner
+            .load_event_receipts_batch(receipt_type, receipt_thread, event_ids)
+            .await
+            .map_err(Into::into)
+    }
+
     /// Get the push-condition context for this room.
     ///
     /// Returns `None` if some data couldn't be found. This should only happen
