@@ -256,6 +256,14 @@ fn strip_relations_from_event(ev: &mut Event) {
 ///
 /// Only replaces the present if it contained bundled relations.
 fn strip_relations_if_present<T>(event: &mut Raw<T>) {
+    // Most events carry no bundled relations. Look at the `unsigned` field alone
+    // before deserialising the whole event: `Raw::get_field` walks the JSON and
+    // only materialises that one field.
+    let unsigned = event.get_field::<serde_json::Map<String, serde_json::Value>>("unsigned");
+    if !matches!(&unsigned, Ok(Some(unsigned)) if unsigned.contains_key("m.relations")) {
+        return;
+    }
+
     // We're going to get rid of the `unsigned`/`m.relations` field, if it's
     // present.
     // Use a closure that returns an option so we can quickly short-circuit.
@@ -410,4 +418,84 @@ pub async fn find_event_relations(
     let related = related.into_iter().map(|(event, _pos)| event).collect();
 
     Ok(related)
+}
+
+#[cfg(test)]
+mod tests {
+    use ruma::{events::AnySyncTimelineEvent, serde::Raw};
+    use serde_json::json;
+
+    use super::strip_relations_if_present;
+
+    #[test]
+    fn test_strip_relations_if_present_removes_only_the_bundled_relations() {
+        let mut event = Raw::<AnySyncTimelineEvent>::from_json_string(
+            json!({
+                "type": "m.room.message",
+                "event_id": "$ev0",
+                "sender": "@alice:example.org",
+                "origin_server_ts": 42,
+                "content": { "msgtype": "m.text", "body": "hey yo" },
+                "unsigned": {
+                    "age": 3,
+                    "m.relations": {
+                        "m.replace": {
+                            "type": "m.room.message",
+                            "event_id": "$ev1",
+                            "sender": "@alice:example.org",
+                            "origin_server_ts": 43,
+                            "content": {
+                                "msgtype": "m.text",
+                                "body": "* hey you",
+                                "m.new_content": { "msgtype": "m.text", "body": "hey you" },
+                                "m.relates_to": { "rel_type": "m.replace", "event_id": "$ev0" }
+                            }
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        strip_relations_if_present(&mut event);
+
+        let unsigned = event
+            .get_field::<serde_json::Map<String, serde_json::Value>>("unsigned")
+            .unwrap()
+            .unwrap();
+        assert_eq!(unsigned.get("age"), Some(&json!(3)));
+        assert!(!unsigned.contains_key("m.relations"));
+    }
+
+    #[test]
+    fn test_strip_relations_if_present_leaves_other_events_untouched() {
+        let without_unsigned = json!({
+            "type": "m.room.message",
+            "event_id": "$ev0",
+            "sender": "@alice:example.org",
+            "origin_server_ts": 42,
+            "content": { "msgtype": "m.text", "body": "hey yo" },
+        });
+
+        let mut with_unsigned = without_unsigned.clone();
+        with_unsigned["unsigned"] = json!({ "age": 3 });
+
+        let mut not_an_object = without_unsigned.clone();
+        not_an_object["unsigned"] = json!("nope");
+
+        // The key's text can show up somewhere else than as an `unsigned` key.
+        let mut mentioned_in_body = without_unsigned.clone();
+        mentioned_in_body["content"]["body"] = json!("look for \"m.relations\" in unsigned");
+
+        for value in [without_unsigned, with_unsigned, not_an_object, mentioned_in_body] {
+            let json = value.to_string();
+            let mut event = Raw::<AnySyncTimelineEvent>::from_json_string(json.clone()).unwrap();
+
+            strip_relations_if_present(&mut event);
+
+            // The raw JSON is left as is, byte for byte.
+            assert_eq!(event.json().get(), json);
+        }
+    }
 }
