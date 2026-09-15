@@ -33,7 +33,7 @@ use matrix_sdk::{
         ClientId, OAuthAuthorizationData, OAuthError as SdkOAuthError, OAuthSession,
     },
     deserialized_responses::RawAnySyncOrStrippedTimelineEvent,
-    event_cache::BackPaginationStrategy,
+    event_cache::SearchBackfillStrategy,
     executor::AbortOnDrop,
     media::{
         DefaultMediaFetcher, MediaFormat, MediaRequestParameters, MediaRetentionPolicy,
@@ -2398,7 +2398,7 @@ impl Client {
     ///
     /// Requires `ClientBuilder::enable_automatic_back_pagination` to have been
     /// enabled, otherwise this no-ops.
-    pub fn run_search_backfill(&self, strategy: BackPaginationStrategy) -> Arc<TaskHandle> {
+    pub fn run_search_backfill(&self, strategy: SearchBackfillStrategy) -> Arc<TaskHandle> {
         let client = self.inner.clone();
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
