@@ -30,6 +30,7 @@ use ruma::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
         delayed_events::{self, update_delayed_event::UpdateAction},
         filter::RoomEventFilter,
+        rtc::livekit::{delegate_delayed_leave, get_token},
         to_device::send_event_to_device::v3::Request as RumaToDeviceRequest,
     },
     assign,
@@ -50,7 +51,13 @@ use tokio::sync::{
 };
 use tracing::{error, trace, warn};
 
-use super::{StateKeySelector, machine::SendEventResponse};
+use super::{
+    StateKeySelector,
+    machine::{
+        RtcLivekitDelegateDelayedLeaveRequest, RtcLivekitDelegateDelayedLeaveResponse,
+        RtcLivekitGetTokenRequest, RtcLivekitGetTokenResponse, SendEventResponse,
+    },
+};
 use crate::{
     Client, Error, Result, Room, event_handler::EventHandlerDropGuard, room::MessagesOptions,
     sync::RoomUpdate, widget::machine::SendToDeviceEventResponse,
@@ -104,6 +111,56 @@ impl MatrixDriver {
             .ok_or_else(|| {
                 Error::UnknownError("the homeserver does not advertise any RTC transport".into())
             })
+    }
+
+    /// Obtains a LiveKit SFU access token on behalf of the widget, via the CS
+    /// API `POST /_matrix/client/v1/rtc/livekit/get_token` endpoint
+    /// ([MSC4195]).
+    ///
+    /// The request body is forwarded verbatim, as required by [MSC4533]: the
+    /// homeserver, not the client, authorises the widget's request against the
+    /// user's actual room membership.
+    ///
+    /// [MSC4195]: https://github.com/matrix-org/matrix-spec-proposals/pull/4195
+    /// [MSC4533]: https://github.com/matrix-org/matrix-spec-proposals/pull/4533
+    pub(crate) async fn get_rtc_livekit_token(
+        &self,
+        req: RtcLivekitGetTokenRequest,
+    ) -> Result<RtcLivekitGetTokenResponse> {
+        let RtcLivekitGetTokenRequest { server_name, url, room_id, slot_id, member } = req;
+
+        let request = assign!(get_token::v1::Request::new(url, room_id, slot_id, member.into()), {
+            server_name
+        });
+
+        let response =
+            self.room.client.send(request).await.map_err(|error| Error::Http(Box::new(error)))?;
+
+        Ok(RtcLivekitGetTokenResponse { jwt: response.jwt })
+    }
+
+    /// Delegates management of a delayed leave event to the homeserver on
+    /// behalf of the widget, via the CS API `POST
+    /// /_matrix/client/v1/rtc/livekit/delegate_delayed_leave` endpoint
+    /// ([MSC4195]).
+    ///
+    /// As with [`Self::get_rtc_livekit_token`], the request body is forwarded
+    /// verbatim ([MSC4533]).
+    ///
+    /// [MSC4195]: https://github.com/matrix-org/matrix-spec-proposals/pull/4195
+    /// [MSC4533]: https://github.com/matrix-org/matrix-spec-proposals/pull/4533
+    pub(crate) async fn delegate_rtc_livekit_delayed_leave(
+        &self,
+        req: RtcLivekitDelegateDelayedLeaveRequest,
+    ) -> Result<RtcLivekitDelegateDelayedLeaveResponse> {
+        let RtcLivekitDelegateDelayedLeaveRequest { room_id, slot_id, member, delay_id } = req;
+
+        let request =
+            delegate_delayed_leave::v1::Request::new(room_id, slot_id, member.into(), delay_id);
+
+        self.room.client.send(request).await.map_err(|error| Error::Http(Box::new(error)))?;
+
+        Ok(RtcLivekitDelegateDelayedLeaveResponse {})
     }
 
     /// Reads the latest `limit` events of a given `event_type` from the room's

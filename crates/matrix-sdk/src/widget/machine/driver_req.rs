@@ -17,13 +17,13 @@
 use std::{collections::BTreeMap, marker::PhantomData};
 
 use ruma::{
-    OwnedMxcUri, OwnedUserId,
+    OwnedMxcUri, OwnedRoomId, OwnedServerName, OwnedUserId,
     api::client::{account::request_openid_token, delayed_events::update_delayed_event},
     events::{AnyStateEvent, AnyTimelineEvent, AnyToDeviceEventContent},
-    serde::Raw,
+    serde::{JsonObject, Raw},
     to_device::DeviceIdOrAllDevices,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::error;
 
@@ -33,7 +33,10 @@ use super::{
 };
 use crate::widget::{
     Capabilities, StateKeySelector,
-    machine::from_widget::{DownloadFileResponse, RtcTransportsResponse},
+    machine::from_widget::{
+        DownloadFileResponse, RtcLivekitDelegateDelayedLeaveResponse, RtcLivekitGetTokenResponse,
+        RtcTransportsResponse,
+    },
 };
 
 #[derive(Clone, Debug)]
@@ -68,6 +71,15 @@ pub(crate) enum MatrixDriverRequestData {
 
     /// Get the RTC transports advertised by the homeserver.
     GetRtcTransports,
+
+    /// Obtain a LiveKit SFU access token via the CS API `POST
+    /// /_matrix/client/v1/rtc/livekit/get_token` endpoint.
+    GetRtcLivekitToken(RtcLivekitGetTokenRequest),
+
+    /// Delegate management of a delayed leave event to the homeserver, via
+    /// the CS API `POST /_matrix/client/v1/rtc/livekit/delegate_delayed_leave`
+    /// endpoint.
+    DelegateRtcLivekitDelayedLeave(RtcLivekitDelegateDelayedLeaveRequest),
 }
 
 /// A handle to a pending `toWidget` request.
@@ -377,4 +389,81 @@ impl From<DownloadFileRequest> for MatrixDriverRequestData {
     fn from(req: DownloadFileRequest) -> Self {
         MatrixDriverRequestData::DownloadFile(req)
     }
+}
+
+/// The `member` field of an `m.rtc.member` event, as required by the LiveKit
+/// CS API endpoints. See [MSC4195](https://github.com/matrix-org/matrix-spec-proposals/pull/4195).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct RtcLivekitMember {
+    /// The `id` field of the `m.rtc.member` event's `member` object.
+    pub(crate) id: String,
+    /// The `claimed_device_id` field of the `m.rtc.member` event's `member`
+    /// object.
+    pub(crate) claimed_device_id: String,
+}
+
+impl From<RtcLivekitMember> for JsonObject {
+    fn from(RtcLivekitMember { id, claimed_device_id }: RtcLivekitMember) -> Self {
+        JsonObject::from_iter([
+            ("id".to_owned(), id.into()),
+            ("claimed_device_id".to_owned(), claimed_device_id.into()),
+        ])
+    }
+}
+
+/// Ask the client to obtain a LiveKit SFU access token on behalf of the
+/// widget. This is a 1:1 copy of the request body of `POST
+/// /_matrix/client/v1/rtc/livekit/get_token` ([MSC4195](https://github.com/matrix-org/matrix-spec-proposals/pull/4195)),
+/// as delegated to the client by the widget action defined in
+/// [MSC4533](https://github.com/matrix-org/matrix-spec-proposals/pull/4533).
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct RtcLivekitGetTokenRequest {
+    /// The server name of the `m.rtc.member` event sender.
+    pub(crate) server_name: Option<OwnedServerName>,
+    /// The WebSocket URL of the LiveKit SFU.
+    pub(crate) url: String,
+    /// The room in which the `m.rtc.member` event exists.
+    pub(crate) room_id: OwnedRoomId,
+    /// The `slot_id` from the `m.rtc.member` event.
+    pub(crate) slot_id: String,
+    /// The `member` field of the `m.rtc.member` event.
+    pub(crate) member: RtcLivekitMember,
+}
+
+impl From<RtcLivekitGetTokenRequest> for MatrixDriverRequestData {
+    fn from(value: RtcLivekitGetTokenRequest) -> Self {
+        MatrixDriverRequestData::GetRtcLivekitToken(value)
+    }
+}
+
+impl MatrixDriverRequest for RtcLivekitGetTokenRequest {
+    type Response = RtcLivekitGetTokenResponse;
+}
+
+/// Ask the client to delegate management of a delayed leave event to the
+/// homeserver on behalf of the widget. This is a 1:1 copy of the request body
+/// of `POST /_matrix/client/v1/rtc/livekit/delegate_delayed_leave`
+/// ([MSC4195](https://github.com/matrix-org/matrix-spec-proposals/pull/4195)),
+/// as delegated to the client by the widget action defined in
+/// [MSC4533](https://github.com/matrix-org/matrix-spec-proposals/pull/4533).
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct RtcLivekitDelegateDelayedLeaveRequest {
+    /// The room in which the `m.rtc.member` event exists.
+    pub(crate) room_id: OwnedRoomId,
+    /// The `slot_id` from the `m.rtc.member` event.
+    pub(crate) slot_id: String,
+    /// The `member` field of the `m.rtc.member` event.
+    pub(crate) member: RtcLivekitMember,
+    /// The delayed event ID of the leave event to delegate.
+    pub(crate) delay_id: String,
+}
+
+impl From<RtcLivekitDelegateDelayedLeaveRequest> for MatrixDriverRequestData {
+    fn from(value: RtcLivekitDelegateDelayedLeaveRequest) -> Self {
+        MatrixDriverRequestData::DelegateRtcLivekitDelayedLeave(value)
+    }
+}
+
+impl MatrixDriverRequest for RtcLivekitDelegateDelayedLeaveRequest {
+    type Response = RtcLivekitDelegateDelayedLeaveResponse;
 }

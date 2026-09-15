@@ -10,6 +10,7 @@ following MSC's:
 - [MSC4157: Delayed Events (widget api)](https://github.com/matrix-org/matrix-spec-proposals/pull/4157)
 - [MSC3819: Allowing widgets to send/receive to-device messages](https://github.com/matrix-org/matrix-spec-proposals/pull/3819)
 - [MSC4515: RTC transports discovery (widget api)](https://github.com/matrix-org/matrix-spec-proposals/pull/4515)
+- [MSC4533: MatrixRTC widget actions for authenticated LiveKit related endpoints](https://github.com/matrix-org/matrix-spec-proposals/pull/4533)
 
 It supports sending and reading events and provides some rudimentary client
 navigation features. There are some additional actions:
@@ -18,6 +19,11 @@ navigation features. There are some additional actions:
 - Ask for supported API versions.
 - Inform the client that the widget has loaded its content and is ready.
 - Discover the RTC transports advertised by the homeserver.
+- Obtain a LiveKit SFU access token on behalf of the widget, via the CS API
+  `/_matrix/client/v1/rtc/livekit/get_token` endpoint.
+- Delegate management of a delayed leave event to the homeserver on behalf of
+  the widget, via the CS API
+  `/_matrix/client/v1/rtc/livekit/delegate_delayed_leave` endpoint.
 
 ## The widget api
 
