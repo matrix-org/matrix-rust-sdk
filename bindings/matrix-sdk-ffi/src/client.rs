@@ -2399,8 +2399,7 @@ impl Client {
     /// * `content` - The content of the to-device event, as a JSON string,
     ///   encrypted for and sent to every recipient.
     ///
-    /// Returns the recipients that did *not* receive the message (partial
-    /// failures); an empty result means every recipient was served.
+    /// The returned value contains details of any recipients that did not receive the message
     pub async fn send_encrypted_to_device_message(
         &self,
         event_type: String,
