@@ -195,7 +195,7 @@ tokio-test = "0.4.5"
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
-ctor = "1.0.12"
+ctor.workspace = true
 proptest.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 wiremock.workspace = true

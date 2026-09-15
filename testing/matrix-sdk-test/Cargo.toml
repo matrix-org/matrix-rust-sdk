@@ -34,7 +34,7 @@ sha2.workspace = true
 vodozemac.workspace = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-ctor = "0.2.9"
+ctor.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 wiremock.workspace = true
