@@ -53,7 +53,7 @@ const SEARCH_MAX_BATCHES_PER_ROOM: usize = 10;
 /// How aggressively a search backfill runs.
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-pub enum BackPaginationStrategy {
+pub enum SearchBackfillStrategy {
     /// The app is in the foreground: pause between paginations so this
     /// doesn't compete with interactive traffic.
     Foreground,
@@ -62,7 +62,7 @@ pub enum BackPaginationStrategy {
     Background,
 }
 
-impl BackPaginationStrategy {
+impl SearchBackfillStrategy {
     /// How long to wait between introducing successive rooms into a search
     /// sweep (not between a single room's own pagination batches).
     fn enqueue_delay(self) -> Option<Duration> {
@@ -82,13 +82,13 @@ impl EventCache {
     /// rooms first, then the previous week, and so on, in batches of rooms.
     ///
     /// `strategy` paces how fast new rooms are introduced into the sweep:
-    /// [`BackPaginationStrategy::Foreground`] spaces them out so this doesn't
+    /// [`SearchBackfillStrategy::Foreground`] spaces them out so this doesn't
     /// compete with interactive traffic.
-    /// [`BackPaginationStrategy::Background`] introduces them as fast as the
+    /// [`SearchBackfillStrategy::Background`] introduces them as fast as the
     /// concurrency cap allows.
     ///
     /// No-ops if automatic back-pagination is disabled.
-    pub async fn run_search_backfill(&self, strategy: BackPaginationStrategy) {
+    pub async fn run_search_backfill(&self, strategy: SearchBackfillStrategy) {
         let Some(queue) = self.back_pagination_queue() else {
             return;
         };
@@ -233,7 +233,7 @@ mod tests {
     use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{MilliSecondsSinceUnixEpoch, event_id, room_id, time::SystemTime};
 
-    use super::{BackPaginationStrategy, WEEK, stop_when_older_than};
+    use super::{SearchBackfillStrategy, WEEK, stop_when_older_than};
     use crate::{
         assert_let_timeout,
         event_cache::{BackPaginationOutcome, EventsOrigin, RoomEventCacheUpdate},
@@ -315,7 +315,7 @@ mod tests {
 
         // The single room drains on the first week and is skipped afterwards, so only
         // one `/messages` call happens (guaranteed by `mock_once`).
-        event_cache.run_search_backfill(BackPaginationStrategy::Foreground).await;
+        event_cache.run_search_backfill(SearchBackfillStrategy::Foreground).await;
 
         assert_let_timeout!(
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents(update)) = room_cache_updates.recv()
