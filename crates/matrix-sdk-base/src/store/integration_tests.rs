@@ -94,6 +94,10 @@ pub trait StateStoreIntegrationTests {
     async fn test_custom_storage(&self) -> TestResult;
     /// Test stripped and non-stripped room member saving.
     async fn test_stripped_non_stripped(&self) -> TestResult;
+    /// Test that a stripped room keeps its stripped state across saves.
+    async fn test_stripped_state_is_kept_across_saves(&self) -> TestResult;
+    /// Test that a room info only save doesn't drop the room's data.
+    async fn test_room_info_only_save_keeps_room_data(&self) -> TestResult;
     /// Test room removal.
     async fn test_room_removal(&self) -> TestResult;
     /// Test profile removal.
@@ -1095,6 +1099,127 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         let members = self.get_user_ids(room_id, RoomMemberships::empty()).await?;
         assert_eq!(members, vec![user_id.to_owned()]);
+
+        Ok(())
+    }
+
+    async fn test_stripped_state_is_kept_across_saves(&self) -> TestResult {
+        // The server sends `invite_state`/`knock_state` once, so it must survive any
+        // later save.
+        for (room_id, room_state) in [
+            (room_id!("!test_stripped_state_invited:localhost"), RoomState::Invited),
+            (room_id!("!test_stripped_state_knocked:localhost"), RoomState::Knocked),
+        ] {
+            let user_id = user_id();
+
+            let mut changes = StateChanges::default();
+            changes.add_stripped_member(
+                room_id,
+                user_id,
+                custom_stripped_membership_event(user_id),
+            );
+
+            let f = EventFactory::new().sender(user_id).room(room_id);
+            let stripped_name_raw: Raw<AnyStrippedStateEvent> = f.room_name("room name").into();
+            let stripped_name_event =
+                RawStateEventWithKeys::try_from_raw_state_event(stripped_name_raw).unwrap();
+            changes
+                .stripped_state
+                .entry(room_id.to_owned())
+                .or_default()
+                .entry(stripped_name_event.event_type)
+                .or_default()
+                .insert(stripped_name_event.state_key, stripped_name_event.raw);
+
+            changes.add_room(RoomInfo::new(room_id, room_state));
+            self.save_changes(&changes).await?;
+
+            assert!(
+                self.get_state_event(room_id, StateEventType::RoomName, "").await?.is_some(),
+                "{room_state:?}: the stripped room name must be saved"
+            );
+            let member_event =
+                self.get_member_event(room_id, user_id).await?.unwrap().deserialize()?;
+            assert_matches!(member_event, MemberEvent::Stripped(_));
+
+            // A later sync only carries the room info.
+            let mut changes = StateChanges::default();
+            changes.add_room(RoomInfo::new(room_id, room_state));
+            self.save_changes(&changes).await?;
+
+            assert!(
+                self.get_state_event(room_id, StateEventType::RoomName, "").await?.is_some(),
+                "{room_state:?}: the stripped room name must survive a room info save"
+            );
+            assert!(
+                self.get_member_event(room_id, user_id).await?.is_some(),
+                "{room_state:?}: the stripped member must survive a room info save"
+            );
+            assert_eq!(
+                self.get_user_ids(room_id, RoomMemberships::empty()).await?,
+                vec![user_id.to_owned()],
+                "{room_state:?}: the stripped member must still be listed"
+            );
+        }
+
+        Ok(())
+    }
+
+    async fn test_room_info_only_save_keeps_room_data(&self) -> TestResult {
+        // A `StateChanges` carrying nothing but a `RoomInfo`, as
+        // `BaseClient::room_knocked` saves, has nothing to put in place of what it
+        // would delete, so it must delete nothing.
+        for (room_id, new_state) in [
+            (room_id!("!test_room_info_only_save_knocked:localhost"), RoomState::Knocked),
+            (room_id!("!test_room_info_only_save_invited:localhost"), RoomState::Invited),
+        ] {
+            let user_id = user_id();
+
+            let mut changes = StateChanges::default();
+            changes
+                .state
+                .entry(room_id.to_owned())
+                .or_default()
+                .entry(StateEventType::RoomMember)
+                .or_default()
+                .insert(user_id.into(), membership_event().cast());
+
+            let f = EventFactory::new().sender(user_id).room(room_id);
+            let name_raw: Raw<AnySyncStateEvent> = f.room_name("room name").into();
+            let name_event = name_raw.deserialize()?;
+            changes.add_state_event(room_id, name_event, name_raw);
+
+            changes.add_room(RoomInfo::new(room_id, RoomState::Left));
+            self.save_changes(&changes).await?;
+
+            let member_event =
+                self.get_member_event(room_id, user_id).await?.unwrap().deserialize()?;
+            assert_matches!(member_event, MemberEvent::Sync(_));
+            assert!(self.get_state_event(room_id, StateEventType::RoomName, "").await?.is_some());
+
+            // Knocking on (or being invited back to) the room.
+            let mut changes = StateChanges::default();
+            changes.add_room(RoomInfo::new(room_id, new_state));
+            self.save_changes(&changes).await?;
+
+            let member_event = self
+                .get_member_event(room_id, user_id)
+                .await?
+                .unwrap_or_else(|| {
+                    panic!("{new_state:?}: the member event must survive a room info only save")
+                })
+                .deserialize()?;
+            assert_matches!(member_event, MemberEvent::Sync(_));
+            assert!(
+                self.get_state_event(room_id, StateEventType::RoomName, "").await?.is_some(),
+                "{new_state:?}: the room name must survive a room info only save"
+            );
+            assert_eq!(
+                self.get_user_ids(room_id, RoomMemberships::empty()).await?,
+                vec![user_id.to_owned()],
+                "{new_state:?}: the member must still be listed"
+            );
+        }
 
         Ok(())
     }
@@ -2360,6 +2485,18 @@ macro_rules! statestore_integration_tests {
             async fn test_stripped_non_stripped() -> TestResult {
                 let store = get_store().await?.into_state_store();
                 store.test_stripped_non_stripped().await
+            }
+
+            #[async_test]
+            async fn test_stripped_state_is_kept_across_saves() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_stripped_state_is_kept_across_saves().await
+            }
+
+            #[async_test]
+            async fn test_room_info_only_save_keeps_room_data() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_room_info_only_save_keeps_room_data().await
             }
 
             #[async_test]
