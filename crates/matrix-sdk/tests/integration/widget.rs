@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    collections::{BTreeMap, BTreeSet},
     future,
     pin::pin,
     sync::{Arc, LazyLock},
@@ -37,7 +38,7 @@ use matrix_sdk_common::{
 };
 use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
-    OwnedRoomId,
+    OwnedRoomId, OwnedUserId,
     api::client::to_device::send_event_to_device::v3::Messages,
     device_id, event_id,
     events::{
@@ -1395,7 +1396,7 @@ async fn test_error_to_device_event_no_permission() {
 }
 
 #[async_test]
-async fn test_send_encrypted_to_device_event() {
+async fn test_alice_send_encrypted_to_device_that_and_carl_and_bob_receive() {
     let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
     let carl = mock_server.set_up_carl_for_encryption(&alice, &bob).await;
 
@@ -1482,8 +1483,55 @@ async fn test_send_encrypted_to_device_event() {
     }
 }
 
+/// Mount a `/sendToDevice` mock that records the encrypted to-device messages
+/// that are sent out, so that a test can assert on their recipients once the
+/// request has gone through.
+///
+/// Exactly one request is expected to be sent.
+async fn record_sent_encrypted_to_device(
+    mock_server: &MatrixMockServer,
+) -> Arc<Mutex<Vec<Messages>>> {
+    let sent_messages = Arc::new(Mutex::new(Vec::<Messages>::new()));
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m\.room\.encrypted/.*"))
+        .respond_with({
+            let sent_messages = sent_messages.clone();
+
+            move |req: &Request| {
+                #[derive(Debug, serde::Deserialize)]
+                struct Parameters {
+                    messages: Messages,
+                }
+
+                let params: Parameters = req.body_json().unwrap();
+                sent_messages.lock().push(params.messages);
+
+                ResponseTemplate::new(200)
+            }
+        })
+        .expect(1)
+        .mount(mock_server.server())
+        .await;
+
+    sent_messages
+}
+
+/// The recipients of the given to-device messages, as a `user id -> device ids`
+/// map.
+///
+/// The encrypted contents are dropped, we only care about who was sent to.
+fn recipients_of(messages: &Messages) -> BTreeMap<OwnedUserId, BTreeSet<DeviceIdOrAllDevices>> {
+    messages
+        .iter()
+        .map(|(user_id, devices)| (user_id.clone(), devices.keys().cloned().collect()))
+        .collect()
+}
+
+/// Test that a `*` device in the widget's recipient list is expanded to every
+/// device of that user we know about, and to nobody else.
 #[async_test]
-async fn test_send_encrypted_to_device_event_wildcard() {
+async fn test_send_encrypted_to_device_with_wildcard_expands_to_all_devices() {
     let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
 
     let bob_2 = mock_server
@@ -1516,35 +1564,7 @@ async fn test_send_encrypted_to_device_event_wildcard() {
         }
     });
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
-        .respond_with(move |req: &Request| {
-            // there should be two messages, one for bob and one for bob_2
-            #[derive(Debug, serde::Deserialize)]
-            struct Parameters {
-                messages: Messages,
-            }
-
-            let params: Parameters = req.body_json().unwrap();
-            assert_eq!(params.messages.len(), 1);
-            let for_bob = params.messages.get(bob.user_id().unwrap()).unwrap();
-            assert_eq!(for_bob.len(), 2);
-            assert!(
-                for_bob
-                    .get(&DeviceIdOrAllDevices::DeviceId(bob.device_id().unwrap().to_owned()))
-                    .is_some()
-            );
-            assert!(
-                for_bob
-                    .get(&DeviceIdOrAllDevices::DeviceId(bob_2.device_id().unwrap().to_owned()))
-                    .is_some()
-            );
-
-            ResponseTemplate::new(200)
-        })
-        .expect(1)
-        .mount(mock_server.server())
-        .await;
+    let sent_messages = record_sent_encrypted_to_device(&mock_server).await;
 
     send_request(&driver_handle, request_id, "send_to_device", data);
 
@@ -1554,13 +1574,29 @@ async fn test_send_encrypted_to_device_event_wildcard() {
     assert_eq!(msg["action"], "send_to_device");
     let response = msg["response"].clone();
     assert_eq!(serde_json::to_string(&response).unwrap(), "{}");
+
+    let sent_messages = sent_messages.lock();
+    assert_eq!(sent_messages.len(), 1, "a single to-device request should have been sent");
+
+    // The `*` must have been expanded to exactly Bob's two devices, and nothing
+    // else should have been sent to.
+    assert_eq!(
+        recipients_of(&sent_messages[0]),
+        BTreeMap::from([(
+            bob.user_id().unwrap().to_owned(),
+            BTreeSet::from([
+                DeviceIdOrAllDevices::DeviceId(bob.device_id().unwrap().to_owned()),
+                DeviceIdOrAllDevices::DeviceId(bob_2.device_id().unwrap().to_owned()),
+            ]),
+        )])
+    );
 }
 
-/// Test the wildcard edge cases, like using mixed wildcard and explicit device
-/// or when there are no devices at all. For now, we just log it and not report
-/// errors.
+/// Test the wildcard edge cases: a `*` mixed with an explicit device ID, and a
+/// `*` for a user we don't know any device of. For now, we just log those and
+/// don't report them back as errors.
 #[async_test]
-async fn test_send_encrypted_to_device_event_wildcard_edge_cases() {
+async fn test_send_encrypted_to_device_wildcard_edge_cases() {
     let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
 
     let bob_2 = mock_server
@@ -1601,35 +1637,7 @@ async fn test_send_encrypted_to_device_event_wildcard_edge_cases() {
         }
     });
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
-        .respond_with(move |req: &Request| {
-            // there should be two messages, one for bob and one for bob_2
-            #[derive(Debug, serde::Deserialize)]
-            struct Parameters {
-                messages: Messages,
-            }
-
-            let params: Parameters = req.body_json().unwrap();
-            assert_eq!(params.messages.len(), 1);
-            let for_bob = params.messages.get(bob.user_id().unwrap()).unwrap();
-            assert_eq!(for_bob.len(), 2);
-            assert!(
-                for_bob
-                    .get(&DeviceIdOrAllDevices::DeviceId(bob.device_id().unwrap().to_owned()))
-                    .is_some()
-            );
-            assert!(
-                for_bob
-                    .get(&DeviceIdOrAllDevices::DeviceId(bob_2.device_id().unwrap().to_owned()))
-                    .is_some()
-            );
-
-            ResponseTemplate::new(200)
-        })
-        .expect(1)
-        .mount(mock_server.server())
-        .await;
+    let sent_messages = record_sent_encrypted_to_device(&mock_server).await;
 
     send_request(&driver_handle, request_id, "send_to_device", data);
 
@@ -1640,6 +1648,23 @@ async fn test_send_encrypted_to_device_event_wildcard_edge_cases() {
     let response = msg["response"].clone();
     // For now we don't report unknown device when there is the wildcard
     assert_eq!(serde_json::to_string(&response).unwrap(), "{}");
+
+    let sent_messages = sent_messages.lock();
+    assert_eq!(sent_messages.len(), 1, "a single to-device request should have been sent");
+
+    // For Bob, the `*` takes precedence and the explicit `OTHER_UNKNOWN` device is
+    // ignored. Carl, of whom we know no device at all, is dropped entirely: only
+    // Bob's two known devices are sent to.
+    assert_eq!(
+        recipients_of(&sent_messages[0]),
+        BTreeMap::from([(
+            bob.user_id().unwrap().to_owned(),
+            BTreeSet::from([
+                DeviceIdOrAllDevices::DeviceId(bob.device_id().unwrap().to_owned()),
+                DeviceIdOrAllDevices::DeviceId(bob_2.device_id().unwrap().to_owned()),
+            ]),
+        )])
+    );
 }
 
 #[async_test]
