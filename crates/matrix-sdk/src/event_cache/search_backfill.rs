@@ -52,6 +52,7 @@ const SEARCH_MAX_BATCHES_PER_ROOM: usize = 10;
 
 /// How aggressively a search backfill runs.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum BackPaginationStrategy {
     /// The app is in the foreground: pause between paginations so this
     /// doesn't compete with interactive traffic.

@@ -32,6 +32,7 @@ use matrix_sdk::{
         ClientId, OAuthAuthorizationData, OAuthError as SdkOAuthError, OAuthSession,
     },
     deserialized_responses::RawAnySyncOrStrippedTimelineEvent,
+    event_cache::BackPaginationStrategy,
     executor::AbortOnDrop,
     media::{
         DefaultMediaFetcher, MediaFormat, MediaRequestParameters, MediaRetentionPolicy,
@@ -176,26 +177,6 @@ pub struct HttpPusherData {
     pub url: String,
     pub format: Option<PushFormat>,
     pub default_payload: Option<String>,
-}
-
-/// How aggressively a search backfill should run.
-#[derive(Clone, uniffi::Enum)]
-pub enum BackPaginationStrategy {
-    /// The app is in the foreground: pause between paginations so this
-    /// doesn't compete with interactive traffic sharing the same connection.
-    Foreground,
-    /// A background task that can paginate flat out since there's no
-    /// interactive traffic to protect
-    Background,
-}
-
-impl From<BackPaginationStrategy> for matrix_sdk::event_cache::BackPaginationStrategy {
-    fn from(value: BackPaginationStrategy) -> Self {
-        match value {
-            BackPaginationStrategy::Foreground => Self::Foreground,
-            BackPaginationStrategy::Background => Self::Background,
-        }
-    }
 }
 
 #[derive(Clone, uniffi::Enum)]
@@ -2418,7 +2399,7 @@ impl Client {
         let client = self.inner.clone();
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            client.event_cache().run_search_backfill(strategy.into()).await;
+            client.event_cache().run_search_backfill(strategy).await;
         })))
     }
 
