@@ -1375,14 +1375,14 @@ mod tests {
     use serde_json::{json, value::to_raw_value};
 
     use super::{BaseClient, RequestedRequiredStates};
+    #[cfg(feature = "unstable-msc4426")]
+    use crate::store::StateChanges;
     use crate::{
-        DmRoomDefinition, RoomDisplayName, RoomState, SessionMeta,
+        DmRoomDefinition, RoomDisplayName, RoomMemberships, RoomState, SessionMeta,
         client::ThreadingSupport,
         store::{RoomLoadSettings, StateStoreExt, StoreConfig},
         test_utils::logged_in_base_client,
     };
-    #[cfg(feature = "unstable-msc4426")]
-    use crate::{RoomMemberships, store::StateChanges};
 
     #[test]
     fn test_requested_required_states() {
@@ -1928,6 +1928,54 @@ mod tests {
 
         let invited = room.get_member(invited_user_id).await.expect("ok").expect("exists");
         assert!(invited.name_ambiguous());
+    }
+
+    #[async_test]
+    async fn test_a_kicked_member_is_ambiguous_under_the_name_it_is_shown_with() {
+        let admin_user_id = user_id!("@admin:example.org");
+        let kicked_user_id = user_id!("@bob:example.org");
+        let other_user_ids = [user_id!("@carol:example.org"), user_id!("@dave:example.org")];
+        let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
+
+        let client = logged_in_base_client(Some(user_id!("@alice:example.org"))).await;
+
+        // Three joined members share a display name.
+        let f = EventFactory::new().room(room_id);
+        let mut sync_builder = SyncResponseBuilder::new();
+        let mut room_builder = matrix_sdk_test::JoinedRoomBuilder::new(room_id);
+        for user_id in [kicked_user_id].into_iter().chain(other_user_ids) {
+            room_builder = room_builder.add_state_event(f.member(user_id).display_name("Amandine"));
+        }
+        let response = sync_builder.add_joined_room(room_builder).build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        // An admin kicks one of them. The kick event carries no display name,
+        // but the kicked member's own profile, and with it the name they are
+        // still shown with, is kept.
+        let response = sync_builder
+            .add_joined_room(matrix_sdk_test::JoinedRoomBuilder::new(room_id).add_state_event(
+                f.member(kicked_user_id).sender(admin_user_id).kicked(kicked_user_id),
+            ))
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        let room = client.get_room(room_id).unwrap();
+
+        // The kicked member is shown under the shared name, which the two
+        // remaining members still make ambiguous.
+        let kicked = room.get_member(kicked_user_id).await.expect("ok").expect("exists");
+        assert_eq!(kicked.name(), "Amandine");
+        assert!(kicked.name_ambiguous());
+
+        let left_members = room.members(RoomMemberships::LEAVE).await.expect("ok");
+        assert_eq!(left_members.len(), 1);
+        assert_eq!(left_members[0].user_id(), kicked_user_id);
+        assert!(left_members[0].name_ambiguous());
+
+        for user_id in other_user_ids {
+            let member = room.get_member(user_id).await.expect("ok").expect("exists");
+            assert!(member.name_ambiguous());
+        }
     }
 
     #[cfg(feature = "unstable-msc4426")]
