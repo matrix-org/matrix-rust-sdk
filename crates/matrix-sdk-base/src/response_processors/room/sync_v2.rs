@@ -63,6 +63,21 @@ pub async fn update_joined_room(
     let state = State::from_sync_v2(joined_room.state);
     let raw_state_events = state.collect(&joined_room.timeline.events);
 
+    // If the room transitions to joined here without this client having performed the
+    // join (e.g. the server auto-joined us after our knock was accepted), record the
+    // invite acceptance details so a shared-history key bundle can be accepted.
+    // NB: `room.state()` still holds the pre-response state at this point.
+    #[cfg(feature = "e2e-encryption")]
+    e2ee::record_invite_acceptance_for_server_initiated_join(
+        context,
+        e2ee.olm_machine,
+        &room,
+        room.state(),
+        RoomState::Joined,
+        &raw_state_events,
+    )
+    .await;
+
     state_events::sync::dispatch(
         context,
         raw_state_events,

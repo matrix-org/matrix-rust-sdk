@@ -1060,6 +1060,11 @@ impl Backups {
         event: Raw<OriginalSyncRoomEncryptedEvent>,
     ) {
         let tasks = self.client.inner.e2ee.tasks.lock();
+        // MSC4509: an undecryptable event is also the lazy trigger for a room
+        // key bundle whose download we deferred.
+        if let Some(task) = tasks.receive_historic_room_key_bundles.as_ref() {
+            task.claim_bundle_for_utd(&self.client, &room_id);
+        }
         if let Some(task) = tasks.download_room_keys.as_ref() {
             task.trigger_download_for_utd_event(room_id, event);
         }
@@ -1074,6 +1079,11 @@ impl Backups {
         event: Raw<T>,
     ) {
         let tasks = self.client.inner.e2ee.tasks.lock();
+        // MSC4509: an undecryptable event is also the lazy trigger for a room
+        // key bundle whose download we deferred.
+        if let Some(task) = tasks.receive_historic_room_key_bundles.as_ref() {
+            task.claim_bundle_for_utd(&self.client, &room_id);
+        }
         if let Some(task) = tasks.download_room_keys.as_ref() {
             task.trigger_download_for_utd_event(room_id, event);
         }
