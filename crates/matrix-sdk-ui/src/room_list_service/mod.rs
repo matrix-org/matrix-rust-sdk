@@ -178,6 +178,14 @@ impl RoomListService {
                 enabled: Some(true),
             }));
 
+        #[cfg(feature = "unstable-msc4354")]
+        {
+            builder = builder.with_sticky_events_extension(assign!(
+                http::request::StickyEvents::default(),
+                { enabled: Some(true) }
+            ));
+        }
+
         match client.enabled_thread_subscriptions().await {
             Ok(true) => {
                 debug!("Client requested thread subscriptions extension");
