@@ -96,7 +96,8 @@ impl EventCache {
         let enqueue_delay = strategy.enqueue_delay();
         let started = Instant::now();
 
-        let total_rooms = self.rooms_by_relevancy().len();
+        let mut rooms = self.rooms_by_relevancy();
+        let total_rooms = rooms.len();
         let target_age = MAX_BACKFILL_WEEKS * WEEK;
         info!(
             ?strategy,
@@ -112,13 +113,12 @@ impl EventCache {
         for week in 1..=MAX_BACKFILL_WEEKS {
             let max_age = week * WEEK;
 
-            let rooms = self.rooms_by_relevancy();
-            let rooms_to_process = rooms.iter().filter(|r| !drained.contains(*r)).count();
+            rooms.retain(|room_id| !drained.contains(room_id));
             debug!(
                 week,
                 of = MAX_BACKFILL_WEEKS,
                 ?max_age,
-                rooms_to_process,
+                number_of_rooms_to_process = rooms.len(),
                 "search backfill week"
             );
 
@@ -127,7 +127,7 @@ impl EventCache {
                 // the next batch / deeper week. The queue bounds actual
                 // concurrency.
                 let mut handles = Vec::new();
-                for room_id in chunk.iter().filter(|room_id| !drained.contains(*room_id)) {
+                for room_id in chunk {
                     if !handles.is_empty()
                         && let Some(delay) = enqueue_delay
                     {
