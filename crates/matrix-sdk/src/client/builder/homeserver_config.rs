@@ -14,7 +14,7 @@
 
 use ruma::{
     OwnedServerName, ServerName,
-    api::client::discovery::{discover_homeserver, get_supported_versions},
+    api::client::discovery::{discover_homeserver, discover_support, get_supported_versions},
 };
 use tracing::debug;
 use url::Url;
@@ -45,6 +45,26 @@ pub(super) enum UrlScheme {
     Https,
 }
 
+impl UrlScheme {
+    /// The scheme to reach a server name or homeserver URL with: `http` only
+    /// when it asks for it explicitly.
+    pub(super) fn from_server_name_or_url(server_name_or_url: &str) -> Self {
+        if server_name_or_url.trim_start().starts_with("http://") {
+            Self::Http
+        } else {
+            Self::Https
+        }
+    }
+
+    /// The URL of the domain that serves the well-knowns for `server_name`.
+    fn server_url(&self, server_name: &ServerName) -> Result<Url, url::ParseError> {
+        Url::parse(&match self {
+            Self::Http => format!("http://{server_name}"),
+            Self::Https => format!("https://{server_name}"),
+        })
+    }
+}
+
 /// The `Ok` result for `HomeserverConfig::discover`.
 pub(super) struct HomeserverDiscoveryResult {
     pub server: Option<Url>,
@@ -54,6 +74,24 @@ pub(super) struct HomeserverDiscoveryResult {
 }
 
 impl HomeserverConfig {
+    /// The server name whose own domain serves the well-knowns, and the
+    /// scheme to reach it with.
+    ///
+    /// [`Self::HomeserverUrl`] has none: a delegating deployment serves its
+    /// well-knowns somewhere else entirely, so reading them off the homeserver
+    /// host would answer for whoever runs that host instead.
+    pub(super) fn server_name(&self) -> Result<(OwnedServerName, UrlScheme), ClientBuildError> {
+        Ok(match self {
+            Self::HomeserverUrl(_) => return Err(ClientBuildError::InvalidServerName),
+            Self::ServerNameOrHomeserverUrl(server_name_or_url) => (
+                sanitize_server_name(server_name_or_url)
+                    .map_err(|_| ClientBuildError::InvalidServerName)?,
+                UrlScheme::from_server_name_or_url(server_name_or_url),
+            ),
+            Self::ServerName { server, protocol } => (server.clone(), *protocol),
+        })
+    }
+
     /// Resolve this configuration into a homeserver URL.
     ///
     /// If `well_known_lookup_disabled` is set, no request is ever made to the
@@ -136,16 +174,8 @@ async fn discover_homeserver_from_server_name_or_url(
     let sanitize_result = sanitize_server_name(&server_name_or_url);
 
     if let Ok(server_name) = sanitize_result.as_ref() {
-        let protocol = if server_name_or_url.starts_with("http://") {
-            UrlScheme::Http
-        } else {
-            UrlScheme::Https
-        };
-
-        let server_name_as_url = match protocol {
-            UrlScheme::Http => format!("http://{server_name}"),
-            UrlScheme::Https => format!("https://{server_name}"),
-        };
+        let protocol = UrlScheme::from_server_name_or_url(&server_name_or_url);
+        let server_name_as_url = protocol.server_url(server_name)?.to_string();
 
         if well_known_lookup_disabled {
             debug!("Well-known discovery is disabled, checking for a homeserver URL directly.");
@@ -197,10 +227,7 @@ async fn discover_homeserver(
 ) -> Result<(Url, discover_homeserver::Response), ClientBuildError> {
     debug!("Trying to discover the homeserver");
 
-    let server = Url::parse(&match protocol {
-        UrlScheme::Http => format!("http://{server_name}"),
-        UrlScheme::Https => format!("https://{server_name}"),
-    })?;
+    let server = protocol.server_url(server_name)?;
 
     let well_known = http_client
         .send(
@@ -220,6 +247,58 @@ async fn discover_homeserver(
     debug!(homeserver_url = well_known.homeserver.base_url, "Discovered the homeserver");
 
     Ok((server, well_known))
+}
+
+/// Discovers the ways the administrator of a server can be reached, by looking
+/// up the support well-known at the supplied server name.
+pub(super) async fn discover_server_support(
+    server_name: &ServerName,
+    protocol: &UrlScheme,
+    http_client: &HttpClient,
+) -> Result<discover_support::Response, ClientBuildError> {
+    debug!("Trying to discover the server's support contacts");
+
+    let server = protocol.server_url(server_name)?;
+
+    let mut support = http_client
+        .send(
+            discover_support::Request::new(),
+            Some(RequestConfig::short_retry()),
+            server.to_string(),
+            None,
+            (),
+            Default::default(),
+        )
+        .await
+        .map_err(|e| match e {
+            HttpError::Api(err) => ClientBuildError::AutoDiscovery(err),
+            err => ClientBuildError::Http(err),
+        })?;
+
+    // The support page is handed straight to a browser, so keep it only when it
+    // really is a web URL, over a scheme no weaker than the lookup's own, and
+    // keep the parsed form rather than the string that was advertised.
+    if let Some(support_page) = support.support_page.take() {
+        support.support_page = web_url(&support_page, protocol).map(String::from);
+
+        if support.support_page.is_none() {
+            debug!("Discarding an advertised support page that isn't an HTTP(S) URL");
+        }
+    }
+
+    debug!(contacts = support.contacts.len(), "Discovered the server's support contacts");
+
+    Ok(support)
+}
+
+/// `url` as one a browser can be pointed at: `https`, or `http` when the
+/// lookup it was advertised in was itself plaintext.
+fn web_url(url: &str, protocol: &UrlScheme) -> Option<Url> {
+    Url::parse(url).ok().filter(|url| match url.scheme() {
+        "https" => true,
+        "http" => matches!(protocol, UrlScheme::Http),
+        _ => false,
+    })
 }
 
 pub(super) async fn get_supported_versions(
@@ -251,6 +330,31 @@ mod tests {
 
     use super::*;
     use crate::http_client::HttpSettings;
+
+    #[test]
+    fn test_web_url() {
+        // An HTTPS page is fine either way.
+        for protocol in [UrlScheme::Http, UrlScheme::Https] {
+            assert_eq!(
+                web_url("https://example.org/support", &protocol).as_ref().map(Url::as_str),
+                Some("https://example.org/support")
+            );
+        }
+
+        // A plaintext page is only as weak as a plaintext lookup already was.
+        assert_eq!(
+            web_url("http://example.org/support", &UrlScheme::Http).as_ref().map(Url::as_str),
+            Some("http://example.org/support")
+        );
+        assert_eq!(web_url("http://example.org/support", &UrlScheme::Https), None);
+
+        // Anything a browser must not be pointed at is dropped.
+        assert_eq!(web_url("javascript:alert(1)", &UrlScheme::Http), None);
+        assert_eq!(web_url("data:text/html,<script>", &UrlScheme::Http), None);
+        assert_eq!(web_url("file:///etc/passwd", &UrlScheme::Http), None);
+        assert_eq!(web_url("example.org/support", &UrlScheme::Https), None);
+        assert_eq!(web_url("", &UrlScheme::Https), None);
+    }
 
     #[async_test]
     async fn test_url() {
