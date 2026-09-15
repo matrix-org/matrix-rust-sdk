@@ -335,7 +335,10 @@ pub struct Timeline {
     pub limited: bool,
 
     /// A token that can be supplied to to the `from` parameter of the
-    /// `/rooms/{roomId}/messages` endpoint.
+    /// `/rooms/{roomId}/messages` endpoint in order to retrieve earlier events.
+    ///
+    /// If no earlier events are available, this property may be omitted from
+    /// the response.
     pub prev_batch: Option<String>,
 
     /// A list of events.
