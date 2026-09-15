@@ -176,6 +176,17 @@ pub trait EventCacheStore: AsyncTraitDeps {
         filter: Option<&[RelationType]>,
     ) -> Result<Vec<(Event, Option<Position>)>, Self::Error>;
 
+    /// Find all events in a room whose `origin_server_ts` is strictly older
+    /// than `cutoff_ms` milliseconds since the Unix epoch.
+    ///
+    /// Returns `(Event, Position)` pairs. Events that have no position in the
+    /// room's linked chunk (e.g. saved out-of-band) are excluded.
+    async fn find_events_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        cutoff_ms: u64,
+    ) -> Result<Vec<(Event, Position)>, Self::Error>;
+
     /// Get all events in this room.
     ///
     /// This method must return events saved either in any linked chunks, *or*
@@ -328,6 +339,14 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         filter: Option<&[RelationType]>,
     ) -> Result<Vec<(Event, Option<Position>)>, Self::Error> {
         self.0.find_event_relations(room_id, event_id, filter).await.map_err(Into::into)
+    }
+
+    async fn find_events_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        cutoff_ms: u64,
+    ) -> Result<Vec<(Event, Position)>, Self::Error> {
+        self.0.find_events_before_timestamp(room_id, cutoff_ms).await.map_err(Into::into)
     }
 
     async fn get_room_events(
