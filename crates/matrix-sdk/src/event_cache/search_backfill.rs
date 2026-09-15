@@ -213,8 +213,10 @@ fn stop_when_older_than(
 }
 
 /// The oldest event timestamp in a batch, if any.
+///
+/// The batch is in reverse topological order, so the oldest event comes last.
 fn oldest_event_timestamp(outcome: &BackPaginationOutcome) -> Option<MilliSecondsSinceUnixEpoch> {
-    outcome.events.iter().filter_map(|event| event.timestamp()).min()
+    outcome.events.iter().rev().find_map(|event| event.timestamp())
 }
 
 /// How long ago an event's timestamp was. `None` when it's in the future or out
