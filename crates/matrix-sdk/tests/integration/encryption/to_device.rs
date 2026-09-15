@@ -1,6 +1,10 @@
 #![cfg(feature = "experimental-send-custom-to-device")]
 
-use std::{collections::BTreeMap, future, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    future,
+    sync::Arc,
+};
 
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
@@ -12,6 +16,8 @@ use matrix_sdk_common::{
 };
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
+    OwnedUserId,
+    api::client::to_device::send_event_to_device::v3::Messages,
     device_id,
     events::{AnyToDeviceEvent, ToDeviceEventType},
     serde::Raw,
@@ -19,9 +25,55 @@ use ruma::{
 };
 use serde_json::json;
 use wiremock::{
-    Mock, ResponseTemplate,
+    Mock, Request, ResponseTemplate,
     matchers::{method, path_regex},
 };
+
+/// Mount a `/sendToDevice` mock that records the encrypted to-device messages
+/// that are sent out, so that a test can assert on their recipients once the
+/// request has gone through.
+///
+/// Exactly one request is expected to be sent.
+async fn record_sent_encrypted_to_device(
+    matrix_mock_server: &MatrixMockServer,
+) -> Arc<Mutex<Vec<Messages>>> {
+    let sent_messages = Arc::new(Mutex::new(Vec::<Messages>::new()));
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m\.room\.encrypted/.*"))
+        .respond_with({
+            let sent_messages = sent_messages.clone();
+
+            move |req: &Request| {
+                #[derive(Debug, serde::Deserialize)]
+                struct Parameters {
+                    messages: Messages,
+                }
+
+                let params: Parameters = req.body_json().unwrap();
+                sent_messages.lock().push(params.messages);
+
+                ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY)
+            }
+        })
+        .expect(1)
+        .named("send_to_device")
+        .mount(matrix_mock_server.server())
+        .await;
+
+    sent_messages
+}
+
+/// The recipients of the given to-device messages, as a `user id -> device ids`
+/// map.
+///
+/// The encrypted contents are dropped, we only care about who was sent to.
+fn recipients_of(messages: &Messages) -> BTreeMap<OwnedUserId, BTreeSet<DeviceIdOrAllDevices>> {
+    messages
+        .iter()
+        .map(|(user_id, devices)| (user_id.clone(), devices.keys().cloned().collect()))
+        .collect()
+}
 
 #[async_test]
 async fn test_encrypt_and_send_to_device() {
@@ -58,14 +110,7 @@ async fn test_encrypt_and_send_to_device() {
     .unwrap()
     .cast_unchecked();
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        // Should be called once
-        .expect(1)
-        .named("send_to_device")
-        .mount(matrix_mock_server.server())
-        .await;
+    let sent_messages = record_sent_encrypted_to_device(&matrix_mock_server).await;
 
     alice
         .encryption()
@@ -77,6 +122,18 @@ async fn test_encrypt_and_send_to_device() {
         )
         .await
         .unwrap();
+
+    let sent_messages = sent_messages.lock();
+    assert_eq!(sent_messages.len(), 1, "a single to-device request should have been sent");
+
+    // The message must have been encrypted for Bob's device, and for nobody else.
+    assert_eq!(
+        recipients_of(&sent_messages[0]),
+        BTreeMap::from([(
+            bob_user_id.to_owned(),
+            BTreeSet::from([DeviceIdOrAllDevices::DeviceId(bob_device_id.to_owned())]),
+        )])
+    );
 }
 
 #[async_test]
@@ -292,13 +349,7 @@ async fn test_send_encrypted_to_device() {
     let bob_user_id = bob.user_id().unwrap();
     let bob_device_id = bob.device_id().unwrap();
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .expect(1)
-        .named("send_to_device")
-        .mount(matrix_mock_server.server())
-        .await;
+    let sent_messages = record_sent_encrypted_to_device(&matrix_mock_server).await;
 
     let recipients = BTreeMap::from([(
         bob_user_id.to_owned(),
@@ -315,23 +366,42 @@ async fn test_send_encrypted_to_device() {
         .unwrap();
 
     assert!(failures.is_empty(), "no failures expected, got {failures:?}");
+
+    let sent_messages = sent_messages.lock();
+    assert_eq!(sent_messages.len(), 1, "a single to-device request should have been sent");
+
+    // The message must have been sent to the requested device, and to nobody else.
+    assert_eq!(
+        recipients_of(&sent_messages[0]),
+        BTreeMap::from([(
+            bob_user_id.to_owned(),
+            BTreeSet::from([DeviceIdOrAllDevices::DeviceId(bob_device_id.to_owned())]),
+        )])
+    );
 }
 
 #[async_test]
-async fn test_send_encrypted_to_device_all_devices() {
+async fn test_send_encrypted_to_device_with_wildcard_expands_to_all_devices() {
     let matrix_mock_server = MatrixMockServer::new().await;
     matrix_mock_server.mock_crypto_endpoints_preset().await;
 
     let (alice, bob) = matrix_mock_server.set_up_alice_and_bob_for_encryption().await;
     let bob_user_id = bob.user_id().unwrap();
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .expect(1)
-        .named("send_to_device")
-        .mount(matrix_mock_server.server())
+    // Give Bob a second device, otherwise there is nothing for the wildcard to
+    // expand to.
+    let bob_2 = matrix_mock_server
+        .set_up_new_device_for_encryption(&bob, device_id!("B0B2B0B2"), vec![&alice])
         .await;
+
+    matrix_mock_server
+        .mock_sync()
+        .ok_and_run(&alice, |builder| {
+            builder.add_change_device(bob_user_id);
+        })
+        .await;
+
+    let sent_messages = record_sent_encrypted_to_device(&matrix_mock_server).await;
 
     // `*` must be expanded to all of Bob's known devices.
     let recipients =
@@ -347,10 +417,26 @@ async fn test_send_encrypted_to_device_all_devices() {
         .unwrap();
 
     assert!(failures.is_empty(), "no failures expected, got {failures:?}");
+
+    let sent_messages = sent_messages.lock();
+    assert_eq!(sent_messages.len(), 1, "a single to-device request should have been sent");
+
+    // The `*` must have been expanded to exactly Bob's two devices, and nothing
+    // else should have been sent to.
+    assert_eq!(
+        recipients_of(&sent_messages[0]),
+        BTreeMap::from([(
+            bob_user_id.to_owned(),
+            BTreeSet::from([
+                DeviceIdOrAllDevices::DeviceId(bob.device_id().unwrap().to_owned()),
+                DeviceIdOrAllDevices::DeviceId(bob_2.device_id().unwrap().to_owned()),
+            ]),
+        )])
+    );
 }
 
 #[async_test]
-async fn test_send_encrypted_to_device_unknown_device() {
+async fn test_sending_encrypted_to_device_messages_to_an_unknown_device_fails() {
     let matrix_mock_server = MatrixMockServer::new().await;
     matrix_mock_server.mock_crypto_endpoints_preset().await;
 
