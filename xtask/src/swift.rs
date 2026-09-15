@@ -164,12 +164,58 @@ impl Platform {
             Platform::WatchosSimulator => "watchos-simulator",
         }
     }
+
+    /// The platform name as `ld -platform_version` expects it.
+    fn ld_name(&self) -> &str {
+        match self {
+            Platform::Macos => "macos",
+            Platform::Ios => "ios",
+            Platform::IosSimulator => "ios-simulator",
+            Platform::Watchos => "watchos",
+            Platform::WatchosSimulator => "watchos-simulator",
+        }
+    }
+
+    /// The SDK name as `xcrun --sdk` expects it.
+    fn sdk_name(&self) -> &str {
+        match self {
+            Platform::Macos => "macosx",
+            Platform::Ios => "iphoneos",
+            Platform::IosSimulator => "iphonesimulator",
+            Platform::Watchos => "watchos",
+            Platform::WatchosSimulator => "watchsimulator",
+        }
+    }
+}
+
+impl Target {
+    /// The architecture name as `ld -arch` expects it.
+    fn arch(&self) -> &str {
+        match self.triple.split('-').next() {
+            Some("aarch64") => "arm64",
+            Some(arch) => arch,
+            None => unreachable!("target triples always start with an architecture"),
+        }
+    }
 }
 /// The base name of the FFI library.
 const FFI_LIBRARY_NAME: &str = "libmatrix_sdk_ffi.a";
 
 /// The features enabled for the FFI library.
 const FFI_FEATURES: &str = "sentry";
+
+/// Symbols the library keeps to itself, as `ld -unexported_symbols_list`
+/// patterns.
+///
+/// The bundled SQLite is compiled into the archive as ordinary global symbols.
+/// An app that also links the system `libsqlite3` (any app using SQLite.swift,
+/// GRDB, Core Data…) then lets the linker resolve rusqlite's references from
+/// whichever it sees first. With the iOS 27 SDK the system library exports
+/// newer functions such as `sqlite3_set_errmsg`, so the bundled copy is
+/// silently dropped and the app crashes at launch on older systems that lack
+/// the symbol. Binding the references inside the archive and hiding the
+/// definitions keeps SQLite private to the SDK.
+const PRIVATE_SYMBOL_PATTERNS: &[&str] = &["_sqlite3_*"];
 
 /// The list of targets supported by the SDK.
 const TARGETS: &[Target] = &[
@@ -448,11 +494,63 @@ fn build_targets(
     let mut platform_build_paths = HashMap::new();
     for target in targets {
         let path = build_path_for_target(target, profile)?;
+        localize_private_symbols(&path, target)?;
         let paths = platform_build_paths.entry(target.platform.clone()).or_insert_with(Vec::new);
         paths.push(path);
     }
 
     Ok(platform_build_paths)
+}
+
+/// Rewrites the static library so that the symbols matching
+/// [`PRIVATE_SYMBOL_PATTERNS`] are resolved inside it and no longer exported.
+///
+/// `ld -r` merges every object of the archive into one relocatable object,
+/// binding the internal references, and the unexported list turns the matching
+/// definitions into local symbols. The result is wrapped back into an archive
+/// under the original name.
+fn localize_private_symbols(library: &Utf8Path, target: &Target) -> Result<()> {
+    let sh = sh();
+    let directory = library.parent().expect("the library lives in a directory");
+    let symbols_list = directory.join("private_symbols.txt");
+    let merged_object = directory.join("libmatrix_sdk_ffi_merged.o");
+
+    std::fs::write(&symbols_list, PRIVATE_SYMBOL_PATTERNS.join("\n") + "\n")?;
+
+    let arch = target.arch();
+    let platform = target.platform.ld_name();
+    let min_version = min_os_version(library)?;
+    let sdk_name = target.platform.sdk_name();
+    let sdk_version = cmd!(sh, "xcrun --sdk {sdk_name} --show-sdk-version").read()?;
+    let sdk_version = sdk_version.trim();
+
+    println!("-- Localizing private symbols for {}", target.description);
+    cmd!(
+        sh,
+        "ld -r -arch {arch} -platform_version {platform} {min_version} {sdk_version} -force_load {library} -unexported_symbols_list {symbols_list} -o {merged_object}"
+    )
+    .run()?;
+    remove_file(library)?;
+    cmd!(sh, "libtool -static -o {library} {merged_object}").run()?;
+
+    remove_file(merged_object)?;
+    remove_file(symbols_list)?;
+    Ok(())
+}
+
+/// The minimum OS version the objects in the library were built for, read from
+/// their `LC_BUILD_VERSION` load command, so `ld -r` links for the same
+/// version.
+fn min_os_version(library: &Utf8Path) -> Result<String> {
+    let sh = sh();
+    let load_commands = cmd!(sh, "otool -l {library}").read()?;
+    let version = load_commands
+        .lines()
+        .map(str::trim)
+        .find_map(|line| line.strip_prefix("minos "))
+        .map(str::to_owned)
+        .expect("the library carries an LC_BUILD_VERSION with a minos");
+    Ok(version)
 }
 
 /// The path of the built library for a specific target and profile.
