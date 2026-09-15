@@ -42,7 +42,7 @@ matrix-sdk-ui = { workspace = true, default-features = true }
 rand.workspace = true
 rcgen = { workspace = true, features = ["aws_lc_rs", "pem", "x509-parser"] }
 reqwest.workspace = true
-rustls = { version = "0.23.42", default-features = false, features = ["aws_lc_rs"] }
+rustls = { workspace = true, default-features = false, features = ["aws_lc_rs"] }
 serde_json.workspace = true
 sha2.workspace = true
 similar-asserts.workspace = true
