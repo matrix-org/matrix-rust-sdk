@@ -46,6 +46,7 @@ use super::{
         pagination::{
             BackPaginationOutcome, LoadMoreEventsBackwardsOutcome, PaginatedCache, Pagination,
         },
+        read_receipts::{contains_a_receipt_target, unresolved_receipt_targets},
     },
     RoomEventCacheInner, RoomEventCacheUpdate,
 };
@@ -262,6 +263,22 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
 
             ChunkContent::Items(events) => {
                 trace!(?reached_start, "reloaded chunk from disk ({} items)", events.len());
+
+                // This chunk may reveal the event a read receipt points to, which the unread
+                // counts couldn't find last time. Only the counts need recomputing, and it
+                // must happen before the caller sends the timeline update, or observers see
+                // the diff with a stale count.
+                if let Some(room) = self.weak_room.get()
+                    && contains_a_receipt_target(
+                        &events,
+                        &unresolved_receipt_targets(&room.read_receipts()),
+                    )
+                    && let Err(err) = state.update_read_receipts(None).await
+                {
+                    error!(
+                        "error when recomputing the read receipts after loading a chunk from disk: {err}"
+                    );
+                }
 
                 LoadMoreEventsBackwardsOutcome::Events {
                     events,
