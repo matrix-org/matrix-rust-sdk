@@ -1721,6 +1721,84 @@ async fn test_unwedge_unrecoverable_errors() {
 }
 
 #[async_test]
+async fn test_unwedge_reaction() {
+    let mock = MatrixMockServer::new().await;
+
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // The message goes out, the reaction fails unrecoverably, then goes out.
+    mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
+    mock.mock_room_send().error_too_large().mock_once().mount().await;
+    mock.mock_room_send().ok(event_id!("$2")).mock_once().mount().await;
+
+    let msg_handle = q.send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
+    let reaction_handle =
+        msg_handle.react("👍".to_owned()).await.unwrap().expect("reaction was queued");
+
+    let (msg_txn, _) = assert_update!((global_watch, watch) => local echo { body = "1" });
+    let reaction_txn =
+        assert_update!((global_watch, watch) => local reaction { key = "👍", parent = msg_txn });
+    assert_update!((global_watch, watch) => sent { txn = msg_txn, event_id = event_id!("$1") });
+    assert_update!((global_watch, watch) => error { recoverable = false, txn = reaction_txn });
+
+    // The failure disabled the room's queue.
+    assert!(!room.send_queue().is_enabled());
+    room.send_queue().set_enabled(true);
+    assert!(watch.is_empty());
+
+    reaction_handle.unwedge().await.unwrap();
+
+    assert_update!((global_watch, watch) => retry { txn = reaction_txn });
+    assert_update!((global_watch, watch) => sent { txn = reaction_txn, event_id = event_id!("$2") });
+}
+
+#[async_test]
+async fn test_unwedge_redaction() {
+    let mock = MatrixMockServer::new().await;
+
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // The redaction fails unrecoverably, then goes out.
+    mock.mock_room_redact().error_too_large().mock_once().mount().await;
+    mock.mock_room_redact().ok(event_id!("$2")).mock_once().mount().await;
+
+    let redacts = owned_event_id!("$1");
+    let handle = q.redact(redacts.clone(), None).await.unwrap();
+
+    let txn = assert_update!((global_watch, watch) => local echo redaction { redacts = redacts, reason = None });
+    assert_update!((global_watch, watch) => error { recoverable = false, txn = txn });
+
+    assert!(!room.send_queue().is_enabled());
+    room.send_queue().set_enabled(true);
+    assert!(watch.is_empty());
+
+    handle.unwedge().await.unwrap();
+
+    assert_update!((global_watch, watch) => retry { txn = txn });
+    assert_update!((global_watch, watch) => sent { txn = txn, event_id = event_id!("$2") });
+}
+
+#[async_test]
 async fn test_no_network_access_error_is_recoverable() {
     // This is subtle, but for the `drop(server)` below to be effectful, it needs to
     // not be a pooled wiremock server (the default), which will keep the dropped

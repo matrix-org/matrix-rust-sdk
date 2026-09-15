@@ -106,6 +106,20 @@ pub use self::{
     virtual_item::VirtualTimelineItem,
 };
 
+/// Which pending send on an item [`Timeline::retry_send`] and
+/// [`Timeline::abort_send`] act on.
+#[derive(Clone, Debug)]
+pub enum SendTarget {
+    /// The item itself, while it's a local echo.
+    Event,
+    /// Our pending edit of the item.
+    Edit,
+    /// Our pending redaction of the item.
+    Redaction,
+    /// Our pending reaction to the item with this key.
+    Reaction { key: String },
+}
+
 /// A high-level view into a regular¹ room's contents.
 ///
 /// ¹ This type is meant to be used in the context of rooms without a
@@ -753,6 +767,33 @@ impl Timeline {
                 Ok(())
             }
         }
+    }
+
+    /// Retry sending something on this item that failed, see [`SendTarget`].
+    ///
+    /// Only needed after an unrecoverable failure, which parks the request
+    /// until it's retried or aborted; a recoverable one goes out again when
+    /// the room's send queue is re-enabled.
+    pub async fn retry_send(
+        &self,
+        item_id: &TimelineEventItemId,
+        target: SendTarget,
+    ) -> Result<(), Error> {
+        self.controller.pending_send_handle(item_id, target).await?.unwedge().await?;
+        Ok(())
+    }
+
+    /// Abort sending something on this item that hasn't gone out yet, see
+    /// [`SendTarget`].
+    ///
+    /// Returns `false` if it went out in the meantime.
+    pub async fn abort_send(
+        &self,
+        item_id: &TimelineEventItemId,
+        target: SendTarget,
+    ) -> Result<bool, Error> {
+        let handle = self.controller.pending_send_handle(item_id, target).await?;
+        handle.abort().await.map_err(|err| Error::SendQueueError(err.into()))
     }
 
     /// Fetch unavailable details about the event with the given ID.
