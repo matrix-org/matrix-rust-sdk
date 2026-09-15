@@ -548,9 +548,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         // previous-batch token would only result in fetching other events we
         // knew about. This is slightly incorrect in the presence of
         // network splits, but this has shown to be Good Enough™.
-        if !timeline.limited && self.state.room_linked_chunk.events().next().is_some()
-            || all_duplicates
-        {
+        if !timeline.limited && self.state.room_linked_chunk.events().next().is_some() {
             prev_batch_token = None;
         }
 
