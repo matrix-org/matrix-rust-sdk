@@ -32,6 +32,7 @@ use matrix_sdk::{
         ClientId, OAuthAuthorizationData, OAuthError as SdkOAuthError, OAuthSession,
     },
     deserialized_responses::RawAnySyncOrStrippedTimelineEvent,
+    event_cache::SearchBackfillStrategy,
     executor::AbortOnDrop,
     media::{
         DefaultMediaFetcher, MediaFormat, MediaRequestParameters, MediaRetentionPolicy,
@@ -2384,6 +2385,22 @@ impl Client {
                 }
             }
         }))))
+    }
+
+    /// Start a search backfill sweep in the background.
+    ///
+    /// Back-paginates message history for every room, down to a ~3-month floor,
+    /// front-loaded by recency (the last week for all rooms first, then the
+    /// previous week, and so on), to populate the search index.
+    ///
+    /// Requires `ClientBuilder::enable_automatic_back_pagination` to have been
+    /// enabled, otherwise this no-ops.
+    pub fn run_search_backfill(&self, strategy: SearchBackfillStrategy) -> Arc<TaskHandle> {
+        let client = self.inner.clone();
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            client.event_cache().run_search_backfill(strategy).await;
+        })))
     }
 
     pub fn homeserver_capabilities(&self) -> HomeserverCapabilities {
