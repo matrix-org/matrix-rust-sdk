@@ -73,6 +73,34 @@ pub fn make_encrypted_test_event(room_id: &RoomId, session_id: &str) -> Timeline
     TimelineEvent::from_utd(event, utd_info)
 }
 
+/// Create a test event with a specific `origin_server_ts`, for testing
+/// timestamp-based queries.
+pub fn make_test_event_with_ts(room_id: &RoomId, content: &str, ts_ms: u64) -> TimelineEvent {
+    let encryption_info = Arc::new(EncryptionInfo {
+        sender: (*ALICE).into(),
+        sender_device: None,
+        forwarder: None,
+        algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
+            curve25519_key: "1337".to_owned(),
+            sender_claimed_keys: Default::default(),
+            session_id: Some("mysessionid9".to_owned()),
+        },
+        verification_state: VerificationState::Verified,
+    });
+
+    let event = EventFactory::new()
+        .text_msg(content)
+        .room(room_id)
+        .sender(*ALICE)
+        .server_ts(ts_ms)
+        .into_raw();
+
+    TimelineEvent::from_decrypted(
+        DecryptedRoomEvent { event, encryption_info, unsigned_encryption_info: None },
+        Some(vec![Action::Notify]),
+    )
+}
+
 /// Same as [`make_test_event`], with an extra event id.
 pub fn make_test_event_with_event_id(
     room_id: &RoomId,
@@ -225,6 +253,10 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test that find event relations works as expected when an event is both a
     /// room and a thread in that room.
     async fn test_find_event_relations_when_event_in_room_and_thread(&self);
+
+    /// Test that querying events older than a timestamp cutoff works as
+    /// expected.
+    async fn test_find_events_before_timestamp(&self);
 
     /// Test that getting all events in a room works as expected.
     async fn test_get_room_events(&self);
@@ -2178,6 +2210,83 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         });
     }
 
+    async fn test_find_events_before_timestamp(&self) {
+        let room_id = room_id!("!r0:matrix.org");
+        let another_room_id = room_id!("!r1:matrix.org");
+        let cutoff_ms: u64 = 2000;
+
+        // Events older than the cutoff -- should be returned.
+        let event_old_1 = make_test_event_with_ts(room_id, "old1", 500);
+        let event_old_2 = make_test_event_with_ts(room_id, "old2", 1500);
+        // Event exactly at the cutoff -- should NOT be returned (strictly less than).
+        let event_at_cutoff = make_test_event_with_ts(room_id, "at_cutoff", 2000);
+        // Event newer than the cutoff -- should NOT be returned.
+        let event_new = make_test_event_with_ts(room_id, "new", 3000);
+        // Event in another room with an old timestamp -- should NOT be returned.
+        let event_other_room = make_test_event_with_ts(another_room_id, "other_room", 500);
+
+        self.handle_linked_chunk_updates(
+            LinkedChunkId::Room(room_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![
+                        event_old_1.clone(),
+                        event_old_2.clone(),
+                        event_at_cutoff.clone(),
+                        event_new.clone(),
+                    ],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        self.handle_linked_chunk_updates(
+            LinkedChunkId::Room(another_room_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![event_other_room.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Save an event out-of-band (no chunk position) -- should NOT be returned.
+        let event_no_position = make_test_event_with_ts(room_id, "no_position", 100);
+        self.save_event(room_id, event_no_position.clone()).await.unwrap();
+
+        let results = self
+            .find_events_before_timestamp(room_id, cutoff_ms)
+            .await
+            .expect("failed to query events before timestamp");
+
+        // Only the two expired in-chunk events should be returned.
+        assert_eq!(results.len(), 2);
+
+        let result_ids: Vec<_> =
+            results.iter().map(|(e, _)| e.event_id().unwrap().to_owned()).collect();
+        assert!(result_ids.contains(&event_old_1.event_id().unwrap().to_owned()));
+        assert!(result_ids.contains(&event_old_2.event_id().unwrap().to_owned()));
+
+        // Verify positions.
+        assert!(results.iter().any(|(e, pos)| {
+            e.event_id() == event_old_1.event_id() && *pos == Position::new(CId::new(0), 0)
+        }));
+        assert!(results.iter().any(|(e, pos)| {
+            e.event_id() == event_old_2.event_id() && *pos == Position::new(CId::new(0), 1)
+        }));
+
+        // Verify ordering: results should be sorted oldest-first.
+        let timestamps: Vec<u64> =
+            results.iter().map(|(e, _)| u64::from(e.timestamp().unwrap().get())).collect();
+        assert!(timestamps.windows(2).all(|w| w[0] <= w[1]));
+    }
+
     async fn test_get_room_events(&self) {
         let room_id = room_id!("!r0:matrix.org");
         let another_room_id = room_id!("!r1:matrix.org");
@@ -2835,6 +2944,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_find_event_relations_when_event_in_room_and_thread().await;
+            }
+
+            #[async_test]
+            async fn test_find_events_before_timestamp() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_find_events_before_timestamp().await;
             }
 
             #[async_test]

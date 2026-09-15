@@ -1739,6 +1739,53 @@ impl EventCacheStore for SqliteEventCacheStore {
     }
 
     #[instrument(skip(self))]
+    async fn find_events_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        cutoff_ms: u64,
+    ) -> Result<Vec<(Event, Position)>, Self::Error> {
+        let _timer = timer!("method");
+
+        let encryption = self.encryption.clone();
+        let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
+        let hashed_linked_chunk_id =
+            self.encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &LinkedChunkId::Room(room_id));
+
+        self.read()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                let mut results = Vec::new();
+
+                for row in txn
+                    .prepare(
+                        "SELECT e.content, ec.chunk_id, ec.position \
+                        FROM events e \
+                        JOIN event_chunks ec \
+                            ON ec.event_id = e.event_id \
+                            AND ec.linked_chunk_id = ? \
+                        WHERE e.room_id = ? AND e.origin_server_ts < ? \
+                        ORDER BY e.origin_server_ts ASC",
+                    )?
+                    .query_map((&hashed_linked_chunk_id, &hashed_room_id, cutoff_ms), |row| {
+                        Ok((
+                            row.get::<_, Vec<u8>>(0)?,
+                            row.get::<_, u64>(1)?,
+                            row.get::<_, usize>(2)?,
+                        ))
+                    })?
+                {
+                    let (content, chunk_id, index) = row?;
+                    let event = encryption.decode_event(&content)?;
+                    let position = Position::new(ChunkIdentifier::new(chunk_id), index);
+                    results.push((event, position));
+                }
+
+                Ok(results)
+            })
+            .await
+    }
+
+    #[instrument(skip(self))]
     async fn get_room_events(
         &self,
         room_id: &RoomId,
