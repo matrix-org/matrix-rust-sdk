@@ -30,16 +30,22 @@ use matrix_sdk_common::{
         ChunkContent, ChunkIdentifier as CId, LinkedChunkId, Position, Update, lazy_loader,
     },
 };
-use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, event_factory::EventFactory};
+use matrix_sdk_test::{
+    ALICE, DEFAULT_TEST_ROOM_ID,
+    event_factory::{EventBuilder, EventFactory},
+};
 use ruma::{
     EventId, RoomId, event_id,
     events::{
-        AnyMessageLikeEvent, AnyTimelineEvent, relation::RelationType,
-        room::message::RoomMessageEventContentWithoutRelation,
+        AnyMessageLikeEvent, AnyTimelineEvent,
+        relation::RelationType,
+        room::message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
     },
     push::Action,
     room_id,
+    serde::Raw,
 };
+use serde_json::{Map, Value};
 
 use super::{
     super::{Gap, thread::ThreadInfo},
@@ -79,7 +85,70 @@ pub fn make_test_event_with_event_id(
     content: &str,
     event_id: Option<&EventId>,
 ) -> TimelineEvent {
-    let encryption_info = Arc::new(EncryptionInfo {
+    let encryption_info = Arc::new(make_encryption_info());
+    let event = make_test_event_builder_with_event_id(room_id, content, event_id).into_raw();
+
+    TimelineEvent::from_decrypted(
+        DecryptedRoomEvent { event, encryption_info, unsigned_encryption_info: None },
+        Some(vec![Action::Notify]),
+    )
+}
+
+/// Same as [`make_test_event`], but does not generate an event id.
+pub fn make_test_event_without_event_id(room_id: &RoomId, content: &str) -> TimelineEvent {
+    let encryption_info = Arc::new(make_encryption_info());
+    let event =
+        make_test_event_builder_with_event_id(room_id, content, None).no_event_id().into_raw();
+
+    TimelineEvent::from_decrypted(
+        DecryptedRoomEvent { event, encryption_info, unsigned_encryption_info: None },
+        Some(vec![Action::Notify]),
+    )
+}
+
+/// Same as [`make_test_event`], but clears the event type from the final event.
+pub fn make_test_event_without_event_type(room_id: &RoomId, content: &str) -> TimelineEvent {
+    let encryption_info = Arc::new(make_encryption_info());
+    let raw = make_test_event_builder_with_event_id(room_id, content, None)
+        .into_raw::<AnyTimelineEvent>();
+
+    // Clear the event type from the underlying content and then rebuild the raw
+    // event
+    let mut map = serde_json::from_str::<Map<String, Value>>(raw.into_json().get())
+        .expect("should deserialize raw event");
+    map.remove("type").expect("should have key 'type'");
+    let string = serde_json::to_string(&map).expect("should serialize map");
+    let event = Raw::<AnyTimelineEvent>::from_json_string(string)
+        .expect("should create raw from json string");
+
+    TimelineEvent::from_decrypted(
+        DecryptedRoomEvent { event, encryption_info, unsigned_encryption_info: None },
+        Some(vec![Action::Notify]),
+    )
+}
+
+/// Create a test [`EventBuilder`] with all data filled, for testing that linked
+/// chunk correctly stores event data.
+///
+/// Keep in sync with [`check_test_event`].
+pub fn make_test_event_builder_with_event_id(
+    room_id: &RoomId,
+    content: &str,
+    event_id: Option<&EventId>,
+) -> EventBuilder<RoomMessageEventContent> {
+    let mut builder = EventFactory::new().text_msg(content).room(room_id).sender(*ALICE);
+    if let Some(event_id) = event_id {
+        builder = builder.event_id(event_id);
+    }
+    builder
+}
+
+/// Create a test [`EncryptionInfo`] structure with all data filled, for testing
+/// that linked chunk correctly stores event data.
+///
+/// Keep in sync with [`check_test_event`].
+pub fn make_encryption_info() -> EncryptionInfo {
+    EncryptionInfo {
         sender: (*ALICE).into(),
         sender_device: None,
         forwarder: None,
@@ -89,18 +158,7 @@ pub fn make_test_event_with_event_id(
             session_id: Some("mysessionid9".to_owned()),
         },
         verification_state: VerificationState::Verified,
-    });
-
-    let mut builder = EventFactory::new().text_msg(content).room(room_id).sender(*ALICE);
-    if let Some(event_id) = event_id {
-        builder = builder.event_id(event_id);
     }
-    let event = builder.into_raw();
-
-    TimelineEvent::from_decrypted(
-        DecryptedRoomEvent { event, encryption_info, unsigned_encryption_info: None },
-        Some(vec![Action::Notify]),
-    )
 }
 
 /// Check that an event created with [`make_test_event`] contains the expected
@@ -170,6 +228,10 @@ pub trait EventCacheStoreIntegrationTests {
 
     /// Test replacing an item in a linked chunk.
     async fn test_linked_chunk_replace_item(&self);
+
+    /// Test filtering incomplete events - e.g., without an id - when
+    /// pushing or replacing an item in a linked chunk
+    async fn test_linked_chunk_filter_incomplete_events(&self);
 
     /// Test remove an item from a linked chunk.
     async fn test_linked_chunk_remove_item(&self);
@@ -1223,6 +1285,68 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                 assert_eq!(events.len(), 2);
                 check_test_event(&events[0], "hello");
                 check_test_event(&events[1], "yolo");
+            });
+        }
+    }
+
+    async fn test_linked_chunk_filter_incomplete_events(&self) {
+        let room_id = &DEFAULT_TEST_ROOM_ID;
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+
+        let event = make_test_event(room_id, "event");
+        assert_matches!(event.event_id(), Some(_));
+        assert_matches!(event.kind.event_type(), Some(_));
+
+        let event_without_id = make_test_event_without_event_id(room_id, "event-without-id");
+        assert_eq!(event_without_id.event_id(), None);
+        assert_matches!(event.kind.event_type(), Some(_));
+
+        let event_without_event_type =
+            make_test_event_without_event_type(room_id, "event-without-event-type");
+        assert_matches!(event_without_event_type.event_id(), Some(_));
+        assert_eq!(event_without_event_type.kind.event_type(), None);
+
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![event, event_without_id.clone(), event_without_event_type.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        let mut chunks = self.load_all_chunks(linked_chunk_id).await.unwrap();
+        assert_eq!(chunks.len(), 1);
+        let c = chunks.remove(0);
+        assert_eq!(c.identifier, CId::new(0));
+        assert_eq!(c.previous, None);
+        assert_eq!(c.next, None);
+        assert_matches!(c.content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+            check_test_event(&events[0], "event");
+        });
+
+        for event in [event_without_id, event_without_event_type] {
+            self.handle_linked_chunk_updates(
+                linked_chunk_id,
+                vec![Update::ReplaceItem { at: Position::new(CId::new(0), 0), item: event }],
+            )
+            .await
+            .unwrap();
+
+            let mut chunks = self.load_all_chunks(linked_chunk_id).await.unwrap();
+            assert_eq!(chunks.len(), 1);
+            let c = chunks.remove(0);
+            assert_eq!(c.identifier, CId::new(0));
+            assert_eq!(c.previous, None);
+            assert_eq!(c.next, None);
+            assert_matches!(c.content, ChunkContent::Items(events) => {
+                assert_eq!(events.len(), 1);
+                check_test_event(&events[0], "event");
             });
         }
     }
@@ -2716,6 +2840,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_linked_chunk_replace_item().await;
+            }
+
+            #[async_test]
+            async fn test_linked_chunk_filter_incomplete_events() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_linked_chunk_filter_incomplete_events().await;
             }
 
             #[async_test]
