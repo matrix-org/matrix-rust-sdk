@@ -534,7 +534,7 @@ mod v9 {
     use super::*;
 
     /// Adds an index on the events object store tracking each event's
-    /// `origin_server_ts`, so that events older than a given cutoff can be
+    /// timestamp, so that events older than a given cutoff can be
     /// queried and deleted efficiently (e.g. for MSC1763 retention policy
     /// enforcement).
     ///
@@ -565,9 +565,11 @@ mod v9 {
     ///   chunks
     /// * Index - `relation` - tracks any event to which the given event is
     ///   related
-    /// * Index - `timestamp` - tracks the `origin_server_ts` of an event, if
-    ///   known. Events with no known timestamp are not entered into this index
-    ///   at all.
+    /// * Index - `event_id` - tracks the event id of an event across linked
+    ///   chunks. Carried forward from v8.
+    /// * Index - `timestamp` - tracks the timestamp of an event (from
+    ///   `TimelineEvent::timestamp()`), if known. Events with no known
+    ///   timestamp are not entered into this index at all.
     fn create_events_object_store(db: &Database) -> Result<(), Error> {
         let events = db
             .create_object_store(keys::EVENTS)
@@ -581,6 +583,9 @@ mod v9 {
             .build()?;
         let _ = events
             .create_index(keys::EVENTS_RELATION, keys::EVENTS_RELATION_KEY_PATH.into())
+            .build()?;
+        let _ = events
+            .create_index(keys::EVENTS_EVENT_ID, keys::EVENTS_EVENT_ID_KEY_PATH.into())
             .build()?;
         let _ = events
             .create_index(keys::EVENTS_TIMESTAMP, keys::EVENTS_TIMESTAMP_KEY_PATH.into())

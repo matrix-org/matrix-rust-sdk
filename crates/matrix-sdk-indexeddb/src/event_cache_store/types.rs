@@ -117,7 +117,7 @@ impl Event {
         }
     }
 
-    /// The `origin_server_ts` of the underlying event, if known.
+    /// The timestamp of the underlying event, if known.
     pub fn timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         match self {
             Event::InBand(e) => e.timestamp(),
@@ -198,7 +198,7 @@ impl<P> GenericEvent<P> {
         extract_event_relation(self.content.raw())
     }
 
-    /// The `origin_server_ts` of the underlying event, if known.
+    /// The timestamp of the underlying event, if known.
     pub fn timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         self.content.timestamp
     }

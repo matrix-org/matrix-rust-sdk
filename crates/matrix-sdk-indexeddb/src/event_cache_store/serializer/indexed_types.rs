@@ -89,9 +89,9 @@ pub type IndexedEventPositionIndex = usize;
 /// suitable for use in an IndexedDB key
 pub type IndexedRelationType = String;
 
-/// A representation of the `origin_server_ts` of an [`Event`], in
-/// milliseconds since the Unix epoch, which is suitable for use in an
-/// IndexedDB key
+/// A representation of the timestamp of an [`Event`] (from
+/// `TimelineEvent::timestamp()`), in milliseconds since the Unix epoch,
+/// which is suitable for use in an IndexedDB key
 pub type IndexedEventTimestamp = u64;
 
 /// A (possibly) encrypted representation of an [`Event`]
@@ -337,7 +337,7 @@ pub struct IndexedEvent {
     /// between this event and another event, if one exists.
     pub relation: Option<IndexedEventRelationKey>,
     /// An indexed key on the object store, which represents the
-    /// `origin_server_ts` of the event, if known.
+    /// timestamp of the event (from `TimelineEvent::timestamp()`), if known.
     pub timestamp: Option<IndexedEventTimestampKey>,
     /// The (possibly) encrypted content of the event.
     pub content: IndexedEventContent,
@@ -631,7 +631,8 @@ impl IndexedPrefixKeyBounds<Event, (&RoomId, &EventId)> for IndexedEventRelation
 /// of the [`EVENTS`][1] object store, which is constructed from:
 ///
 /// - The (possibly) hashed Room ID
-/// - The `origin_server_ts` of the event, in milliseconds since the Unix epoch
+/// - The timestamp of the event (from `TimelineEvent::timestamp()`), in
+///   milliseconds since the Unix epoch
 ///
 /// Events with no known timestamp are not entered into this index at all (see
 /// [`IndexedEvent::timestamp`]), so a range query over this index naturally
