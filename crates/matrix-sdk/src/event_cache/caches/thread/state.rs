@@ -458,10 +458,10 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
     pub async fn handle_sync(
         &mut self,
-        timeline: Timeline,
+        mut timeline: Timeline,
         read_receipts: &MaybeReceiptEventContent,
     ) -> Result<(bool, Vec<VectorDiff<Event>>)> {
-        let prev_batch_token = &timeline.prev_batch;
+        let mut prev_batch_token = timeline.prev_batch.take();
 
         let DeduplicationOutcome {
             all_events: events,
@@ -476,6 +476,45 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             timeline.events,
         )
         .await?;
+
+        // If the timeline is not limited, it means the timeline contains all
+        // requested events. (Note: `limited` is unrelated to the `prev_batch`
+        // token.)
+        //
+        // The `prev_batch` token is returned if and only if there are “older”
+        // events before the newly synced events — in a non-topological order.
+        // It means it is set to `None` if and only if we have reached the start
+        // of the timeline. However, do we need to insert the `prev_batch` token
+        // as a gap every time? Doing so can create unnecessary back-pagination
+        // if we know there is no gap. How can know that?
+        //
+        // If the timeline is not limited and if we already have events in the
+        // `LinkedChunk`, it means we don't need to insert a gap. Let's dig it
+        // to convince ourselves this is correct:
+        //
+        // - if the timeline is limited, we are sure events are missing, so we must
+        //   store the `prev_batch` token as a gap (if it is `None`, this is suspicious
+        //   but not our current problem).
+        // - if the timeline is not limited and we have zero events in the
+        //   `LinkedChunk`, we can't know if we have events missing from a prior sync;
+        //   from this sync point of view, no event is missing, but we don't know if we
+        //   have reached the start of the timeline. The `prev_batch` token can help
+        //   here: if it is `Some(_)`, it means we have a gap, otherwise it means we
+        //   reached the start of the timeline.
+        // - if the timeline is not limited and we have events in the `LinkedCHunk`:
+        //   - if the `prev_batch` token is `None`, it is suspicious (locally, we have
+        //     older events, but the server seems to say we have reached the start of
+        //     the timeline), but no gap will be inserted, so all good.
+        //   - if the `prev_batch` token is `Some(_)`, this is NOT necessary to insert a
+        //     gap because we know no events are missing: we already have the older
+        //     events! In that specific case, we can “erase” the `prev_batch` token to
+        //     say: “please do not insert a gap”.
+        //
+        // This is an optimisation to avoid unnecessary contiguous gaps, and
+        // thus unnecessary back-pagination requests.
+        if !timeline.limited && self.state.thread_linked_chunk.events().next().is_some() {
+            prev_batch_token = None;
+        }
 
         if all_duplicates {
             // If all events are duplicates, we don't need to do anything; ignore
@@ -505,7 +544,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids).await?;
 
         self.state.thread_linked_chunk.push_live_events(
-            prev_batch_token.as_ref().map(|prev_token| Gap { token: prev_token.clone() }),
+            prev_batch_token.map(|prev_token| Gap { token: prev_token }),
             &events,
         );
 
