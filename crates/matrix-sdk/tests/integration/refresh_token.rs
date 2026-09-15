@@ -389,6 +389,48 @@ async fn test_refresh_token_handled_failure() {
 }
 
 #[async_test]
+async fn test_refresh_token_transient_failure_is_not_a_logout() {
+    let (builder, server) = test_client_builder_with_server().await;
+    let client = builder
+        .request_config(RequestConfig::new().disable_retry())
+        .server_versions([MatrixVersion::V1_3])
+        .handle_refresh_tokens()
+        .build()
+        .await
+        .unwrap();
+    let auth = client.matrix_auth();
+
+    let session = session();
+    auth.restore_session(session, RoomLoadSettings::default()).await.unwrap();
+
+    let mut session_changes = client.subscribe_to_session_changes();
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/v3/refresh"))
+        .respond_with(ResponseTemplate::new(502))
+        .expect(1)
+        .named("`POST /refresh` bad gateway")
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/v3/account/whoami"))
+        .respond_with(
+            ResponseTemplate::new(401).set_body_json(&*test_json::UNKNOWN_TOKEN_SOFT_LOGOUT),
+        )
+        .expect(1)
+        .named("`GET /whoami`")
+        .mount(&server)
+        .await;
+
+    let res = client.whoami().await;
+    assert_let!(Err(HttpError::RefreshToken(RefreshTokenError::MatrixAuth(_))) = res);
+
+    // The refresh never reached a verdict, so the session is not over.
+    assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
+}
+
+#[async_test]
 async fn test_refresh_token_handled_multi_success() {
     let (builder, server) = test_client_builder_with_server().await;
     let client = builder
