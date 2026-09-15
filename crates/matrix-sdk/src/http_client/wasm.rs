@@ -16,18 +16,17 @@ use std::fmt::Debug;
 
 use bytes::Bytes;
 use bytesize::ByteSize;
-use eyeball::SharedObservable;
 use ruma::api::{IncomingResponseExt as _, OutgoingRequest, error::FromHttpResponseError};
 
-use super::{HttpClient, TransmissionProgress, response_to_http_response};
-use crate::{config::RequestConfig, error::HttpError};
+use super::{HttpClient, response_to_http_response};
+use crate::{client::futures::RequestProgress, config::RequestConfig, error::HttpError};
 
 impl HttpClient {
     pub(super) async fn send_request<R>(
         &self,
         request: http::Request<Bytes>,
         _config: RequestConfig,
-        _send_progress: SharedObservable<TransmissionProgress>,
+        _progress: RequestProgress,
     ) -> Result<R::IncomingResponse, HttpError>
     where
         R: OutgoingRequest + Debug,
