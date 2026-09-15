@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
-
 use assert_matches2::assert_let;
 use matrix_sdk::{
     event_cache::SearchBackfillStrategy,
@@ -69,20 +67,16 @@ async fn test_search_backfill_makes_history_searchable() {
         .mount()
         .await;
 
+    let mut generic_updates = client.event_cache().subscribe_to_room_generic_updates();
     client.event_cache().run_search_backfill(SearchBackfillStrategy::Foreground).await;
 
-    // Query through the public search API. Indexing runs asynchronously off the
-    // linked-chunk updates, so poll until the backfilled event shows up.
+    // The backfilled event is in the room cache.
+    assert_eq!(generic_updates.recv().await.unwrap().room_id, room_id);
+
+    // Query through the public search API.
     let search = SearchService::new(client.clone());
-    let mut results = Vec::new();
-    for _ in 0..40 {
-        search.set_query("beaufort".to_owned()).await.unwrap();
-        results = search.results().await;
-        if !results.is_empty() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
+    search.set_query("beaufort".to_owned()).await.unwrap();
+    let results = search.results().await;
 
     assert_eq!(results.len(), 1);
     assert_let!(ResultType::Message(message) = &results[0]);
