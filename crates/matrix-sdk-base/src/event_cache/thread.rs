@@ -14,6 +14,7 @@
 
 //! Threads types related to the Event Cache.
 
+use ruma::OwnedEventId;
 use serde::{Deserialize, Serialize};
 
 use crate::read_receipts::ReadReceipts;
@@ -21,6 +22,21 @@ use crate::read_receipts::ReadReceipts;
 /// All the information about a thread.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThreadInfo {
+    /// The number of events in the thread.
+    ///
+    /// This doesn't include:
+    /// - the thread root event itself
+    /// - events sent by ignored users
+    /// - redacted events.
+    ///
+    /// Thus, it can zero!
+    #[serde(default)] // For backwards compatibility.
+    pub number_of_replies: u32,
+
+    /// The ID of the latest event in the thread, if any.
+    #[serde(default)] // For backwards compatibility.
+    pub latest_event: Option<OwnedEventId>,
+
     /// Read receipts for the current thread.
     pub read_receipts: ReadReceipts,
 }
@@ -28,7 +44,7 @@ pub struct ThreadInfo {
 impl ThreadInfo {
     /// Create a new [`ThreadInfo`].
     pub fn new() -> Self {
-        Self { read_receipts: ReadReceipts::default() }
+        Self { number_of_replies: 0, latest_event: None, read_receipts: ReadReceipts::default() }
     }
 }
 
