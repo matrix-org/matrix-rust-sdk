@@ -1088,7 +1088,7 @@ impl IdentityResetHandle {
 #[derive(uniffi::Enum)]
 pub enum CrossSigningResetAuthType {
     /// The homeserver requires user-interactive authentication.
-    Uiaa,
+    Uiaa { session: Option<String> },
     /// OAuth is used for authentication and the user needs to open a URL to
     /// approve the upload of cross-signing keys.
     OAuth { info: OAuthCrossSigningResetInfo },
@@ -1097,7 +1097,9 @@ pub enum CrossSigningResetAuthType {
 impl From<&matrix_sdk::encryption::CrossSigningResetAuthType> for CrossSigningResetAuthType {
     fn from(value: &matrix_sdk::encryption::CrossSigningResetAuthType) -> Self {
         match value {
-            encryption::CrossSigningResetAuthType::Uiaa(_) => Self::Uiaa,
+            encryption::CrossSigningResetAuthType::Uiaa(info) => {
+                Self::Uiaa { session: info.session.clone() }
+            }
             encryption::CrossSigningResetAuthType::OAuth(info) => Self::OAuth { info: info.into() },
         }
     }
