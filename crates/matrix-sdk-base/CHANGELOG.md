@@ -4,6 +4,158 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.19.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.0) - 2026-09-16
+
+### Added
+
+- Add support for storing global user profiles received through the sliding sync
+  profiles extension
+  ([MSC4262](https://github.com/matrix-org/matrix-spec-proposals/pull/4262)).
+  Profile updates are carried on the new `StateChanges::global_profiles` field
+  so they are persisted in the same transaction as the rest of a sync, and can
+  be read back with `StateStore::get_global_profile`.
+  ([#6685](https://github.com/matrix-org/matrix-rust-sdk/pulls/6685))
+- Surface the
+  [MSC4426](https://github.com/matrix-org/matrix-spec-proposals/pull/4426) user
+  status and call indicator on `RoomMember`, sourced from the user's global
+  profile. Read them with `RoomMember::status()` and `RoomMember::call()`.
+  ([#6704](https://github.com/matrix-org/matrix-rust-sdk/pulls/6704))
+- Introduces `Client::set_x509_signer` and `Client::set_x509_verifier`, which
+  are passed to the client's `OlmMachine` to enable experimental support for
+  X.509-based cross-signing identity verification.
+
+  Gated behind the `experimental-x509-identity-verification` feature.
+  ([#6727](https://github.com/matrix-org/matrix-rust-sdk/pulls/6727))
+- `DependentQueuedRequestKind::FinishUpload` gained an optional
+  `extra_content` field, carrying additional top-level fields to merge into the
+  final media event content before sending. Old serialized values deserialize
+  unchanged. ([#6812](https://github.com/matrix-org/matrix-rust-sdk/pulls/6812))
+- We welcome the new `ThreadInfo` type! It is similar to `RoomInfo`, but
+  tailored to threads!
+
+  This type is managed by the Event Cache (`matrix_sdk::event_cache`).
+  Consequently, the `EventCacheStore` trait gains 2 new methods:
+
+  1. `load_thread_info` to load a `ThreadInfo`,
+  2. `update_thread_info` to update a `ThreadInfo`.
+     ([#6893](https://github.com/matrix-org/matrix-rust-sdk/pulls/6893))
+- RoomInfo gained `m.room.retention` state event and provided room retention
+  values on `RoomInfo::retention()`. If it's absent, that means no policy.
+  ([#6905](https://github.com/matrix-org/matrix-rust-sdk/pulls/6905))
+- Add `Room::human_member_ids`, which returns the user IDs of the room members
+  with the given memberships, without the service members declared by the
+  `io.element.functional_members` state event.
+  ([#6925](https://github.com/matrix-org/matrix-rust-sdk/pulls/6925))
+- Add `DependentQueuedRequestKind::RedactEventWithReason`, which carries the
+  reason for send queue led redaction. The old variant is kept unchanged so
+  existing request can drain and will be simply deleted later.
+  ([#6931](https://github.com/matrix-org/matrix-rust-sdk/pulls/6931))
+- Add `BaseClient::own_profile_updated`, to manually merge a change to the
+  user's own global profile into the store and notify subscribers.
+  ([#6984](https://github.com/matrix-org/matrix-rust-sdk/pulls/6984))
+
+### Changed
+
+- [**breaking**] `Room::heroes()` is now `async` and returns
+  `Vec<RoomHeroWithProfile>` instead of `Vec<RoomHero>`. The new
+  `RoomHeroWithProfile` augments `RoomHero` with the user's
+  [MSC4426](https://github.com/matrix-org/matrix-spec-proposals/pull/4426)
+  status and call fields, read fresh from the store on access and never
+  persisted. These fields are only populated when syncing via sliding sync with
+  the profiles extension enabled. `RoomHero` is unchanged and remains the type
+  persisted in the room summary.
+  ([#6733](https://github.com/matrix-org/matrix-rust-sdk/pulls/6733))
+- The `EventCacheStore::remove_room` method has been removed: it is replaced by
+  `EventCacheStore::clear_all_events` which gains a new argument:
+  `Option<&RoomId>`.
+
+  Before:
+
+  ```rust
+  event_cache_store.remove_room(room_id).await?;
+  ```
+
+  After:
+
+  ```rust
+  event_cache_store.clear_all_events(Some(room_id)).await?;
+  ```
+
+  Note that `clear_all_events(None)` will remove events for all the rooms. By
+  room, one must understand all events for a particular room, which includes all
+  possible caches, like `RoomEventCache`, `ThreadEventCache` and
+  `PinnedEventsCache`.
+  ([#6749](https://github.com/matrix-org/matrix-rust-sdk/pulls/6749))
+- The following methods `StateStore::get_user_room_receipt_event`,
+  `StateStore::get_event_room_receipt_events`, `Room::load_user_receipt` and
+  `Room::load_event_receipts` take a `ReceiptThread` by reference. No known
+  implementation needs an owned value.
+
+  `RoomReadReceipts` has also been renamed to `ReadReceipts`, reusing it for
+  threads as an objective.
+  ([#6879](https://github.com/matrix-org/matrix-rust-sdk/pulls/6879))
+- The `EventCacheStore::remember_thread` method has been removed.
+  ([#6893](https://github.com/matrix-org/matrix-rust-sdk/pulls/6893))
+- The `MediaStore::get_media_content_for_uri` method has been removed. This is
+  no longer useful and was error-prone as the URI is not unique in the database:
+  the tuple (uri, format) is unique though; without the format, it was not
+  possible to know which content from which media to return.
+  ([#6896](https://github.com/matrix-org/matrix-rust-sdk/pulls/6896))
+
+### Fixed
+
+- Ensure any `SaveLockedStateStore` functions which may interfere with its
+  implementation of `StateStore::save_changes` are synchronized using the
+  underlying lock.
+  ([#6547](https://github.com/matrix-org/matrix-rust-sdk/pulls/6547))
+- The `unicode-perl` feature flag is always enabled on the `regex` crate,
+  ensuring the `RoomDisplayName` works as expected.
+  ([#6718](https://github.com/matrix-org/matrix-rust-sdk/pulls/6718))
+- The `Client::forget_room` contained two bugs:
+
+  1. It was removing events for the `RoomEventCache` associated to the given
+     `room_id` only, missing the `ThreadEventCache`s and the
+     `PinnedEventsCache`.
+  2. It was removing in-store data only, missing the in-memory data!
+
+  The patch adds an `EventCache::forget_room` methods, called by
+  `Client::forget_room`, to properly clears all events.
+  ([#6749](https://github.com/matrix-org/matrix-rust-sdk/pulls/6749))
+- The `OrderTracker` inside the Event Cache no longer gets out of sync, removing
+  a panic. It was getting out of sync when the `RoomEventCache` or the
+  `ThreadEventCache` was reloaded because the Event Cache cross-process lock was
+  dirty. The caches were reloaded but not the `OrderTracker` which needs the
+  `LinkedChunk` metadata to be re-initialised.
+  ([#6757](https://github.com/matrix-org/matrix-rust-sdk/pulls/6757))
+- `DynEventCacheStore::test_linked_chunk_remove_item` has been updated so that
+  it ensures that removing an item from a chunk shifts the indices of subsequent
+  items in that chunk.
+  ([#6782](https://github.com/matrix-org/matrix-rust-sdk/pulls/6782))
+- `EventCacheStoreIntegrationTests` were updated to ensure that implementations
+  of `EventCacheStore` adhere to the following three properties.
+
+  1. An `Event` should not exist within a `LinkedChunk` more than once - i.e.,
+     it should occupy only a single `Position`.
+  2. Each `Position` within a `LinkedChunk` should only be occupied by a single
+     `Event`.
+  3. When changes are made to the content of an `Event` in one `LinkedChunk`,
+     these changes should be reflected in all `LinkedChunk`s which contain an
+     instance of that `Event`.
+     ([#6872](https://github.com/matrix-org/matrix-rust-sdk/pulls/6872))
+- Make sure `Room::subscribe_info` subscribers are notified when a room hero's
+  global profile changes.
+  ([#6880](https://github.com/matrix-org/matrix-rust-sdk/pulls/6880))
+- Only count members who joined, were invited or knocked when the ambiguity of a
+  display name is computed from a `/members` response. Members who left or were
+  banned kept their display name in the ambiguity map, so
+  `RoomMember::name_ambiguous()` reported `true` for a name that only one active
+  member used. The sync path already ignored those members, so the two paths now
+  agree. ([#6903](https://github.com/matrix-org/matrix-rust-sdk/pulls/6903))
+- Empty room account data entries in a sliding sync response no longer produce a
+  `JoinedRoomUpdate`/`LeftRoomUpdate` for their room, so a response with a
+  single room update no longer triggers an event cache write for every room in
+  the list. ([#7024](https://github.com/matrix-org/matrix-rust-sdk/pulls/7024))
+
 ## [0.18.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.18.0) - 2026-06-02
 
 ### Added
