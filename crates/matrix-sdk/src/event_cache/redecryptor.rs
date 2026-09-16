@@ -570,7 +570,7 @@ impl EventCache {
             .flatten()
             {
                 let new_thread_summary =
-                    thread_cache.state().read().await?.compute_thread_summary().await?;
+                    thread_cache.state().write().await?.update_thread_summary().await?;
 
                 all_caches.room.update_thread_summary(&thread_id, new_thread_summary).await?;
             }
