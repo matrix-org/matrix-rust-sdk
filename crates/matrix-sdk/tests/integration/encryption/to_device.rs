@@ -1,6 +1,10 @@
 #![cfg(feature = "experimental-send-custom-to-device")]
 
-use std::{future, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    future,
+    sync::Arc,
+};
 
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
@@ -11,12 +15,14 @@ use matrix_sdk_common::{
     locks::Mutex,
 };
 use matrix_sdk_test::{async_test, test_json};
-use ruma::{events::AnyToDeviceEvent, serde::Raw};
+use ruma::{events::AnyToDeviceEvent, serde::Raw, to_device::DeviceIdOrAllDevices};
 use serde_json::json;
 use wiremock::{
     Mock, ResponseTemplate,
     matchers::{method, path_regex},
 };
+
+use crate::{recipients_of, record_sent_encrypted_to_device};
 
 #[async_test]
 async fn test_encrypt_and_send_to_device() {
@@ -53,14 +59,7 @@ async fn test_encrypt_and_send_to_device() {
     .unwrap()
     .cast_unchecked();
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        // Should be called once
-        .expect(1)
-        .named("send_to_device")
-        .mount(matrix_mock_server.server())
-        .await;
+    let sent_messages = record_sent_encrypted_to_device(&matrix_mock_server).await;
 
     alice
         .encryption()
@@ -72,6 +71,18 @@ async fn test_encrypt_and_send_to_device() {
         )
         .await
         .unwrap();
+
+    let sent_messages = sent_messages.lock();
+    assert_eq!(sent_messages.len(), 1, "a single to-device request should have been sent");
+
+    // The message must have been encrypted for Bob's device, and for nobody else.
+    assert_eq!(
+        recipients_of(&sent_messages[0]),
+        BTreeMap::from([(
+            bob_user_id.to_owned(),
+            BTreeSet::from([DeviceIdOrAllDevices::DeviceId(bob_device_id.to_owned())]),
+        )])
+    );
 }
 
 #[async_test]
