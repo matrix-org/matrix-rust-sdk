@@ -268,16 +268,21 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
                 // counts couldn't find last time. Only the counts need recomputing, and it
                 // must happen before the caller sends the timeline update, or observers see
                 // the diff with a stale count.
-                if let Some(room) = self.weak_room.get()
-                    && contains_a_receipt_target(
-                        &events,
-                        &unresolved_receipt_targets(&room.read_receipts()),
-                    )
-                    && let Err(err) = state.update_read_receipts(None).await
-                {
-                    error!(
-                        "error when recomputing the read receipts after loading a chunk from disk: {err}"
-                    );
+                let reveals_a_receipt_target = self.weak_room.get().is_some_and(|room| {
+                    let read_receipts = room.read_receipts();
+
+                    contains_a_receipt_target(&events, &unresolved_receipt_targets(&read_receipts))
+                });
+
+                if reveals_a_receipt_target {
+                    let result = state.update_read_receipts(None).await;
+
+                    if let Err(err) = result {
+                        error!(
+                            ?err,
+                            "error when recomputing the read receipts after loading a chunk from disk"
+                        );
+                    }
                 }
 
                 LoadMoreEventsBackwardsOutcome::Events {
