@@ -168,10 +168,7 @@ impl RecoveringView {
                             .expect("The sender should not have been closed");
 
                         handle
-                            .reset(Some(AuthData::Password(Password::new(
-                                user_id.into(),
-                                password,
-                            ))))
+                            .reset(AuthData::Password(Password::new(user_id.into(), password)))
                             .await
                     }
                     CrossSigningResetAuthType::OAuth(oauth_cross_signing_reset_info) => {
@@ -180,7 +177,7 @@ impl RecoveringView {
                                 approval_url: oauth_cross_signing_reset_info.approval_url.clone(),
                             })
                             .expect("");
-                        handle.reset(None).await
+                        handle.reset(oauth_cross_signing_reset_info.as_auth_data()).await
                     }
                 }
             } else {

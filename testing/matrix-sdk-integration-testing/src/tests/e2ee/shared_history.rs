@@ -312,12 +312,12 @@ async fn test_history_share_on_invite_pin_violation() -> Result<()> {
             .expect("Resetting the identity should work")
         {
             handle
-                .reset(Some(uiaa::AuthData::Password(uiaa::Password::new(
+                .reset(uiaa::AuthData::Password(uiaa::Password::new(
                     uiaa::UserIdentifier::Matrix(uiaa::MatrixUserIdentifier::new(
                         alice_user_id.localpart().to_owned(),
                     )),
                     alice_user_id.localpart().to_owned(),
-                ))))
+                )))
                 .instrument(alice_span.clone())
                 .await
                 .expect("Providing the password to finalize the identity reset should work");

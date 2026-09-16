@@ -100,6 +100,8 @@ use crate::{
 pub enum AuthData {
     /// Password-based authentication (`m.login.password`).
     Password { password_details: AuthDataPasswordDetails },
+    /// OAuth authentication (`m.oauth`).
+    OAuth { session: String },
 }
 
 #[derive(uniffi::Record)]
@@ -122,6 +124,9 @@ impl From<AuthData> for ruma::api::client::uiaa::AuthData {
                     password_details.password,
                 ))
             }
+            AuthData::OAuth { session } => ruma::api::client::uiaa::AuthData::OAuth(
+                assign!(ruma::api::client::uiaa::OAuth::new(), { session: Some(session) }),
+            ),
         }
     }
 }
