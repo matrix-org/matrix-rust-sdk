@@ -172,6 +172,20 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             IdbTransactionMode::Readwrite,
         )?;
 
+        // Test whether necessary components of an event are present
+        // in the underlying structure
+        let is_complete_event = |event: &Event| {
+            let Some(event_id) = event.event_id() else {
+                error!("Found event with no ID");
+                return false;
+            };
+            if event.kind.event_type().is_none() {
+                error!(%event_id, "Found an event with no event type");
+                return false;
+            }
+            true
+        };
+
         for update in updates {
             match update {
                 Update::NewItemsChunk { previous, new, next } => {
@@ -212,7 +226,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     trace!(%linked_chunk_id, "pushing {} items @ {chunk_identifier}", items.len());
 
-                    for (i, item) in items.into_iter().enumerate() {
+                    for (i, item) in items.into_iter().filter(is_complete_event).enumerate() {
                         transaction
                             .add_event(&types::Event::InBand(InBandEvent {
                                 linked_chunk_id: linked_chunk_id.to_owned(),
@@ -230,6 +244,10 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     let index = at.index();
 
                     trace!(%linked_chunk_id, "replacing item @ {chunk_id}:{index}");
+
+                    if !is_complete_event(&item) {
+                        continue;
+                    }
 
                     transaction
                         .put_event(&types::Event::InBand(InBandEvent {
