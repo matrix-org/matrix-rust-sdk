@@ -4,6 +4,105 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.19.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.0) - 2026-09-16
+
+### Removed
+
+- [**breaking**] Removed `OwnUserIdentityData::is_identity_verified()`.
+
+  This method asked whether we had verified another user's identity from the
+  perspective of our own identity, and so only ever considered cross-signing.
+
+  Use `UserIdentity::is_verified()` or `OtherUserIdentity::is_verified()`
+  instead, which account for every root of trust we have in that identity,
+  including an X.509 signature on its master key.
+  ([#6962](https://github.com/matrix-org/matrix-rust-sdk/pulls/6962))
+
+### Added
+
+- Introduces a new `x509` module that provides the `RawX509Signer` and
+  `RawX509Verifier` traits, and an `X509Signature` type in the signature system.
+  A signer and verifier can be injected via
+  `OlmMachineBuilder::with_x509_signer` and
+  `OlmMachineBuilder::with_x509_verifier`.
+
+  When configured, the master key is additionally signed with the X.509 signer
+  during `OwnUserIdentity::verify`, and other users' master keys can be verified
+  against their X.509 signatures.
+
+  Gated behind the `experimental-x509-identity-verification` feature.
+  ([#6727](https://github.com/matrix-org/matrix-rust-sdk/pulls/6727))
+
+### Changed
+
+- Only keep the latest gossip request for each secret.
+  ([#6631](https://github.com/matrix-org/matrix-rust-sdk/pulls/6631))
+- [**breaking**] Add `OlmMachineBuilder` to help with construction of
+  `OlmMachine`. `OlmMachine::with_store` is removed, and callers should use the
+  builder instead.
+  ([#6658](https://github.com/matrix-org/matrix-rust-sdk/pulls/6658))
+- Accept `impl Into<Signature>` in `Signatures::add_signature`.
+
+  [**breaking**] Make `OlmMachine::bootstrap_cross_signing` fallible to allow
+  future signing implementations to produce errors. Further introduces
+  `CrossSigningBootstrapError` to enumerate possible failure cases.
+
+  [**breaking**] Removed `Account::sign_master_key`, as the master key is signed
+  automatically when calling `OwnUserIdentity::verify`
+  ([#6715](https://github.com/matrix-org/matrix-rust-sdk/pulls/6715))
+- Make X.509 signing an async operation, meaning that the experimental
+  `RawX509Signer::sign` now returns a Future.
+  ([#6867](https://github.com/matrix-org/matrix-rust-sdk/pulls/6867))
+- Change the return type of X509Signer::validity_not_after to Duration to make
+  it easier for downstream crates to implement.
+  ([#6904](https://github.com/matrix-org/matrix-rust-sdk/pulls/6904))
+- A user identity whose master key carries a valid X.509 signature chaining to
+  one of the configured trust anchors now confers trust on that user's devices.
+
+  Previously, such an identity was reported as verified by
+  `UserIdentity::is_verified()`, but its devices would still be reported as
+  unverified by `Device::is_verified()`, and the room key sharing strategies
+  withheld room keys from them.
+
+  Requires the `experimental-x509-identity-verification` feature and a
+  configured X.509 verifier.
+  ([#6962](https://github.com/matrix-org/matrix-rust-sdk/pulls/6962))
+- Move `types::Signature` and `types::Signatures` into submodules of `types`.
+  ([#6660](https://github.com/matrix-org/matrix-rust-sdk/pulls/6660))
+- Move logic for parsing base64-encoded signatures into `Signature`.
+  ([#6673](https://github.com/matrix-org/matrix-rust-sdk/pulls/6673))
+
+### Fixed
+
+- [**breaking**] The `OlmMachine::receive_sync_changes()` method now correctly
+  treats a missing one-time key count to mean that zero one-time keys exist on
+  the homeserver.
+
+  A new method `OlmMachine::receive_sync_changes_msc4186()` was added if the
+  MSC4816 semantics for one-time key counts should be used.
+  ([#6780](https://github.com/matrix-org/matrix-rust-sdk/pulls/6780))
+- [**breaking**] `Sas::emoji()` and `Sas::emoji_index()` now return `None` when
+  the emoji method was not part of the negotiated short authentication string
+  methods, instead of returning an emoji representation the remote side never
+  agreed to display. Previously a client that offered only the (mandatory)
+  `decimal` method would negotiate `["decimal"]` in the
+  `m.key.verification.accept` event, yet a peer built on this crate would still
+  be handed emoji and could show them to its user — leaving the two users
+  comparing a decimal string against emoji, two incomparable projections of the
+  same SAS bytes.
+  ([#6945](https://github.com/matrix-org/matrix-rust-sdk/pulls/6945))
+- Any failures that occur while signing the cross-signing identity with X.509
+  no longer break bootstrapping entirely.
+
+  Previously, if signing was unavailable, for example because the hardware key
+  holding was not present or the user dismissed its PIN prompt, etc., creating
+  the cross-signing identity failed outright and left the user with no
+  cross-signing keys at all. Instead, the identity is left unsigned, although
+  may be signed later by a call to `OwnUserIdentity::refresh_x509_signature`.
+
+  Only impactful when the `experimental-x509-identity-verification` feature is
+  enabled. ([#6990](https://github.com/matrix-org/matrix-rust-sdk/pulls/6990))
+
 ## [0.18.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.18.0) - 2026-06-02
 
 ### Fixed
@@ -20,7 +119,9 @@ All notable changes to this project will be documented in this file.
 to-device events to prevent sender spoofing by homeserver owners.
 ([#6553](https://github.com/matrix-org/matrix-rust-sdk/pull/6553))
 
-  Resolves: [GHSA-wfq4-36m3-9g42](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-wfq4-36m3-9g42) / [CVE-2026-45056](https://www.cve.org/CVERecord?id=CVE-2026-45056).
+  Resolves:
+  [GHSA-wfq4-36m3-9g42](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-wfq4-36m3-9g42)
+  / [CVE-2026-45056](https://www.cve.org/CVERecord?id=CVE-2026-45056).
 
 ### Features
 

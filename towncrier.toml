@@ -28,3 +28,15 @@ name = "Changed"
 
 [[tool.towncrier.type]]
 name = "Fixed"
+
+[[tool.towncrier.type]]
+name = "Added"
+directory = "feature"
+
+[[tool.towncrier.type]]
+name = "Changed"
+directory = "internal"
+
+[[tool.towncrier.type]]
+name = "Fixed"
+directory = "bugfix"

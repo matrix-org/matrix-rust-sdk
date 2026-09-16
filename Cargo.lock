@@ -3601,7 +3601,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "anyhow",
  "anymap2",
@@ -3680,7 +3680,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-base"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "anyhow",
  "as_variant",
@@ -3721,7 +3721,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-common"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "assert_matches",
  "assert_matches2",
@@ -3754,7 +3754,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-contentscanner"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "assert_matches2",
  "matrix-sdk",
@@ -3770,7 +3770,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-crypto"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "aes",
  "anyhow",
@@ -3859,7 +3859,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-ffi"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "anyhow",
  "async-compat",
@@ -3919,7 +3919,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-indexeddb"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "assert_matches",
  "assert_matches2",
@@ -3995,7 +3995,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-qrcode"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "byteorder",
  "image",
@@ -4007,7 +4007,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-search"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "aes",
  "byteorder",
@@ -4029,7 +4029,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-sqlite"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "as_variant",
  "assert_matches",
@@ -4064,7 +4064,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-store-encryption"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -4086,7 +4086,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-test"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "as_variant",
  "ctor",
@@ -4108,7 +4108,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-test-macros"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "quote",
  "syn 3.0.5",
@@ -4116,7 +4116,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-test-utils"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "ctor",
  "tracing-subscriber",
@@ -4124,7 +4124,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-ui"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "anyhow",
  "as_variant",
@@ -8482,18 +8482,18 @@ dependencies = [
 
 [[package]]
 name = "xshell"
-version = "0.2.7"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e7290c623014758632efe00737145b6867b66292c42167f2ec381eb566a373d"
+checksum = "6d47097dc5c85234b1e41851b3422dd6d19b3befdd35b4ae5ce386724aeca981"
 dependencies = [
  "xshell-macros",
 ]
 
 [[package]]
 name = "xshell-macros"
-version = "0.2.7"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32ac00cd3f8ec9c1d33fb3e7958a82df6989c42d747bd326c822b1d625283547"
+checksum = "88301b56c26dd9bf5c43d858538f82d6f3f7764767defbc5d34e59459901c41a"
 
 [[package]]
 name = "xtask"

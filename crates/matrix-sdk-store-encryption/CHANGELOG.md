@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.19.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.0) - 2026-09-16
+
+### Changed
+
+- **breaking** The `StoreCipher::export_with_key` and
+  `StoreCipher::import_with_key` now accept a variable sized key. The functions
+  derive a 32-byte sub-key to encrypt and decrypt the `StoreCipher`. Importing
+  existing exports which didn't use the sub-key mechanism will continue working.
+  ([#6929](https://github.com/matrix-org/matrix-rust-sdk/pulls/6929))
+
 ## [0.18.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.18.0) - 2026-06-02
 
 No significant changes.
