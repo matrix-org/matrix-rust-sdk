@@ -47,6 +47,9 @@ All notable changes to this project will be documented in this file.
   (`m.status` and `m.call`). All four are gated behind the new
   `unstable-msc4426` feature.
   ([#6616](https://github.com/matrix-org/matrix-rust-sdk/pulls/6616))
+- Create a `MediaFetcher` trait that allows us to replace the existing
+  `DefaultMediaFetcher` with any other implementation when building a `Client`.
+  ([#6625](https://github.com/matrix-org/matrix-rust-sdk/pulls/6625))
 - R2D2 (aka `event_cache::Redecryptor`) no longer decrypts an already decrypted
   event. It was taking its job too seriously. Can't blame it, but it was
   creating unnecessary update in the Event Cache and to all the listeners
@@ -126,6 +129,15 @@ All notable changes to this project will be documented in this file.
   Also adds `Room::is_device_in_active_room_call(user_id, device_id)` for
   device-scoped participation checks.
   ([#6825](https://github.com/matrix-org/matrix-rust-sdk/pulls/6825))
+- Propagate the current tracing `Span` into the E2EE setup task.
+  ([#6833](https://github.com/matrix-org/matrix-rust-sdk/pulls/6833))
+- The event cache gained a shared `BackPaginationQueue`
+  (`EventCache::back_pagination_queue`): a single background executor that runs
+  back-pagination requests from every use case by `Priority`, with a bounded
+  in-flight number (`EventCacheConfig::max_concurrent_back_paginations`) and one
+  run per room at a time. Enable it with
+  `ClientBuilder::with_enable_automatic_back_pagination(true)`.
+  ([#6838](https://github.com/matrix-org/matrix-rust-sdk/pulls/6838))
 - Add `Client::disable_well_known_lookup`, which disables every
   `/.well-known/matrix/client` request performed by the client, for users that
   must not emit any request to the well-known URI of their domain. When
@@ -383,6 +395,13 @@ All notable changes to this project will be documented in this file.
 - `Account` automatically updates the local copy of the user's global profile
   after updating (to act as a local echo). Requires support for global profile
   syncing. ([#6984](https://github.com/matrix-org/matrix-rust-sdk/pulls/6984))
+- Fix flakiness in the cross-process store lock tests. Dropping a guard does not
+  release the lock at once: the lease-renewal task publishes the release on its
+  next tick. The tests now acquire with `spin_lock_store`, which retries with a
+  backoff, instead of a single attempt after a fixed sleep. Each run also gets
+  its own temporary directory for the sqlite database, instead of a predictable
+  shared path under the system temporary directory that carried state into the
+  next run. ([#6899](https://github.com/matrix-org/matrix-rust-sdk/pulls/6899))
 
 ### Fixed
 
@@ -525,31 +544,6 @@ All notable changes to this project will be documented in this file.
   computed first for some 32bit ARM devices and then for some 64bit ones. That
   issue is now fixed so we should restore the checksums.
   ([#7046](https://github.com/matrix-org/matrix-rust-sdk/pulls/7046))
-
-### Added
-
-- Create a `MediaFetcher` trait that allows us to replace the existing
-  `DefaultMediaFetcher` with any other implementation when building a `Client`.
-  ([#6625](https://github.com/matrix-org/matrix-rust-sdk/pulls/6625))
-- Propagate the current tracing `Span` into the E2EE setup task.
-  ([#6833](https://github.com/matrix-org/matrix-rust-sdk/pulls/6833))
-- The event cache gained a shared `BackPaginationQueue`
-  (`EventCache::back_pagination_queue`): a single background executor that runs
-  back-pagination requests from every use case by `Priority`, with a bounded
-  in-flight number (`EventCacheConfig::max_concurrent_back_paginations`) and one
-  run per room at a time. Enable it with
-  `ClientBuilder::with_enable_automatic_back_pagination(true)`.
-  ([#6838](https://github.com/matrix-org/matrix-rust-sdk/pulls/6838))
-
-### Changed
-
-- Fix flakiness in the cross-process store lock tests. Dropping a guard does not
-  release the lock at once: the lease-renewal task publishes the release on its
-  next tick. The tests now acquire with `spin_lock_store`, which retries with a
-  backoff, instead of a single attempt after a fixed sleep. Each run also gets
-  its own temporary directory for the sqlite database, instead of a predictable
-  shared path under the system temporary directory that carried state into the
-  next run. ([#6899](https://github.com/matrix-org/matrix-rust-sdk/pulls/6899))
 
 ## [0.18.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.18.0) - 2026-06-02
 
