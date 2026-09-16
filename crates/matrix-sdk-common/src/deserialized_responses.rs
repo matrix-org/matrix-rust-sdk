@@ -430,6 +430,18 @@ pub struct ThreadSummary {
     pub num_replies: u32,
 }
 
+impl ThreadSummary {
+    /// Create a new [`ThreadSummary`].
+    ///
+    /// `num_replies` is set to [`u32::MAX`] if it fails to convert.
+    pub fn new<N>(latest_reply: Option<OwnedEventId>, num_replies: N) -> Self
+    where
+        N: TryInto<u32>,
+    {
+        Self { latest_reply, num_replies: num_replies.try_into().unwrap_or(u32::MAX) }
+    }
+}
+
 /// The status of a thread summary.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub enum ThreadSummaryStatus {
@@ -618,14 +630,14 @@ impl TimelineEvent {
             push_actions,
             timestamp,
             thread_summary: match bundled_thread {
-                Some(bundled_thread) => ThreadSummaryStatus::Some(ThreadSummary {
-                    latest_reply: bundled_thread
+                Some(bundled_thread) => ThreadSummaryStatus::Some(ThreadSummary::new(
+                    bundled_thread
                         .latest_event
                         .get_field::<OwnedEventId>("event_id")
                         .ok()
                         .flatten(),
-                    num_replies: bundled_thread.count.try_into().unwrap_or(u32::MAX),
-                }),
+                    bundled_thread.count,
+                )),
                 None => ThreadSummaryStatus::None,
             },
         }

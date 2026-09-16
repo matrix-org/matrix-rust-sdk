@@ -361,16 +361,14 @@ impl<'a> StateLockReadGuard<'a, ThreadEventCacheState> {
         // that field can only be present on room messages, we don't have to
         // worry about filtering out aggregation events (like reactions/edits/etc.).
         // Pretty neat, huh?
-        let num_replies = {
-            let thread_replies = self
-                .store
-                .find_event_relations(&self.room_id, &self.thread_id, Some(&[RelationType::Thread]))
-                .await?;
-            thread_replies.len().try_into().unwrap_or(u32::MAX)
-        };
+        let num_replies = self
+            .store
+            .find_event_relations(&self.room_id, &self.thread_id, Some(&[RelationType::Thread]))
+            .await?
+            .len();
 
         let summary = if num_replies > 0 {
-            Some(ThreadSummary { num_replies, latest_reply: latest_event_id })
+            Some(ThreadSummary::new(latest_event_id, num_replies))
         } else {
             None
         };
