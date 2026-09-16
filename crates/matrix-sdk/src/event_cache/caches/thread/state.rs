@@ -579,25 +579,35 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         .await;
 
         if prev_read_receipts != read_receipts {
-            // The read receipt has changed! Do a little dance to update the
-            // `ThreadInfo` in the store.
-            let mut thread_info = self.state.thread_info.write().await;
-
-            ObservableWriteGuard::update(&mut thread_info, |thread_info| {
-                thread_info.read_receipts = read_receipts;
-            });
-
-            let room_id = &self.state.room_id;
-            let thread_id = &self.state.thread_id;
-
-            if let Err(error) =
-                self.store.update_thread_info(room_id, thread_id, &thread_info).await
+            // The read receipt has changed!
+            if let Err(error) = self
+                .update_thread_info(|thread_info| {
+                    thread_info.read_receipts = read_receipts;
+                })
+                .await
             {
-                error!(?room_id, ?thread_id, ?error, "Failed to update the `ThreadInfo`");
+                error!(?self.state.room_id, ?self.state.thread_id, ?error, "Failed to update the `ThreadInfo`");
             }
         }
 
         Ok(())
+    }
+
+    /// Update the [`ThreadInfo`].
+    ///
+    /// No updates is emitted.
+    async fn update_thread_info<F>(&mut self, update: F) -> Result<()>
+    where
+        F: FnOnce(&mut ThreadInfo),
+    {
+        let mut thread_info = self.state.thread_info.write().await;
+
+        ObservableWriteGuard::update(&mut thread_info, update);
+
+        Ok(self
+            .store
+            .update_thread_info(&self.state.room_id, &self.state.thread_id, &thread_info)
+            .await?)
     }
 
     /// If the given event is a redaction, try to retrieve the
