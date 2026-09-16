@@ -12,7 +12,7 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, fs, path::PathBuf, pin::pin, sync::Arc};
+use std::{collections::HashMap, fs, path::PathBuf, pin::pin, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use futures_util::{StreamExt, pin_mut};
@@ -36,7 +36,9 @@ use matrix_sdk_ui::{
 use mime::Mime;
 use ruma::{
     EventId, Int, OwnedDeviceId, OwnedRoomOrAliasId, OwnedServerName, OwnedUserId, RoomAliasId,
-    ServerName, UserId, assign,
+    ServerName, UserId,
+    api::client::delayed_events::{DelayParameters, update_delayed_event::UpdateAction},
+    assign,
     events::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
         receipt::ReceiptThread as RumaReceiptThread,
@@ -497,6 +499,115 @@ impl Room {
             self.inner.send_state_event_raw(&event_type, &state_key, content_json).await?;
 
         Ok(response.event_id.to_string())
+    }
+
+    /// Send a delayed message-like event to the room ([MSC4140]).
+    ///
+    /// The homeserver holds on to the event and only distributes it to the room
+    /// once `delay_ms` has elapsed, unless the delayed event is updated
+    /// beforehand with [`Room::update_delayed_event`].
+    ///
+    /// If the room is encrypted, the content is encrypted when the event is
+    /// scheduled, like [`Room::send_raw`] does. A member joining the room
+    /// before the delay elapses won't be able to decrypt it.
+    ///
+    /// # Arguments
+    ///
+    /// * `delay_ms` - How long, in milliseconds, the homeserver should hold on
+    ///   to the event.
+    ///
+    /// * `event_type` - The type of the event to send.
+    ///
+    /// * `content` - The content of the event to send encoded as a JSON string.
+    ///
+    /// Returns the `delay_id` identifying the scheduled event.
+    ///
+    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+    pub async fn send_delayed_event(
+        &self,
+        delay_ms: u64,
+        event_type: String,
+        content: String,
+    ) -> Result<String, ClientError> {
+        let content_json: serde_json::Value =
+            serde_json::from_str(&content).map_err(|e| ClientError::Generic {
+                msg: format!("Failed to parse JSON: {e}"),
+                details: Some(format!("{e:?}")),
+            })?;
+
+        let response = self
+            .inner
+            .send_raw(&event_type, content_json)
+            .with_delay(DelayParameters::Timeout { timeout: Duration::from_millis(delay_ms) })
+            .await?;
+
+        Ok(response.delay_id)
+    }
+
+    /// Send a delayed state event to the room ([MSC4140]).
+    ///
+    /// See [`Room::send_delayed_event`] for the semantics of delayed events.
+    ///
+    /// # Arguments
+    ///
+    /// * `delay_ms` - How long, in milliseconds, the homeserver should hold on
+    ///   to the event.
+    ///
+    /// * `event_type` - The type of the state event to send.
+    ///
+    /// * `state_key` - A unique key which defines the overwriting semantics for
+    ///   this piece of room state. This is often an empty string.
+    ///
+    /// * `content` - The content of the event to send encoded as a JSON string.
+    ///
+    /// Returns the `delay_id` identifying the scheduled event.
+    ///
+    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+    pub async fn send_delayed_state_event(
+        &self,
+        delay_ms: u64,
+        event_type: String,
+        state_key: String,
+        content: String,
+    ) -> Result<String, ClientError> {
+        let content_json: serde_json::Value =
+            serde_json::from_str(&content).map_err(|e| ClientError::Generic {
+                msg: format!("Failed to parse JSON: {e}"),
+                details: Some(format!("{e:?}")),
+            })?;
+
+        let response = self
+            .inner
+            .send_delayed_state_event_raw(
+                &event_type,
+                &state_key,
+                content_json,
+                DelayParameters::Timeout { timeout: Duration::from_millis(delay_ms) },
+            )
+            .await?;
+
+        Ok(response.delay_id)
+    }
+
+    /// Cancel, restart or immediately send a previously scheduled delayed
+    /// event ([MSC4140]).
+    ///
+    /// # Arguments
+    ///
+    /// * `delay_id` - The identifier returned by [`Room::send_delayed_event`]
+    ///   or [`Room::send_delayed_state_event`].
+    ///
+    /// * `action` - What should happen to the delayed event.
+    ///
+    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+    pub async fn update_delayed_event(
+        &self,
+        delay_id: String,
+        action: DelayedEventUpdateAction,
+    ) -> Result<(), ClientError> {
+        self.inner.update_delayed_event(delay_id, action.into()).await?;
+
+        Ok(())
     }
 
     /// Redacts an event from the room.
@@ -1415,6 +1526,30 @@ pub struct EventWithRelations {
     /// The events related to it, directly or (recursively) through other
     /// related events.
     pub related_events: Vec<Arc<TimelineEvent>>,
+}
+
+/// What to do with a delayed event that hasn't been distributed to the room
+/// yet ([MSC4140]).
+///
+/// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum DelayedEventUpdateAction {
+    /// Cancel the delayed event: it will never be sent to the room.
+    Cancel,
+    /// Restart the delay timeout, keeping the event scheduled.
+    Restart,
+    /// Send the event to the room right away.
+    Send,
+}
+
+impl From<DelayedEventUpdateAction> for UpdateAction {
+    fn from(value: DelayedEventUpdateAction) -> Self {
+        match value {
+            DelayedEventUpdateAction::Cancel => Self::Cancel,
+            DelayedEventUpdateAction::Restart => Self::Restart,
+            DelayedEventUpdateAction::Send => Self::Send,
+        }
+    }
 }
 
 /// A listener for receiving call decline events in a room.
