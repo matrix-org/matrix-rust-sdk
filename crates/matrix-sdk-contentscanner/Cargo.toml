@@ -5,6 +5,7 @@ name = "matrix-sdk-contentscanner"
 version = "0.19.0"
 edition = "2024"
 license = "Apache-2.0"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version.workspace = true
 
 [features]
