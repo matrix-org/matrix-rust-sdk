@@ -153,19 +153,8 @@ impl Platform {
         }
     }
 
-    /// The name of the subfolder in which to place the library for the platform
-    /// once all architectures are lipo'd together.
-    fn lib_folder_name(&self) -> &str {
-        match self {
-            Platform::Macos => "macos",
-            Platform::Ios => "ios",
-            Platform::IosSimulator => "ios-simulator",
-            Platform::Watchos => "watchos",
-            Platform::WatchosSimulator => "watchos-simulator",
-        }
-    }
-
-    /// The platform name as `ld -platform_version` expects it.
+    /// The platform name as `ld -platform_version` expects it, also used for
+    /// the subfolder holding the lipo'd library.
     fn ld_name(&self) -> &str {
         match self {
             Platform::Macos => "macos",
@@ -547,7 +536,10 @@ fn min_os_version(library: &Utf8Path) -> Result<String> {
     let version = load_commands
         .lines()
         .map(str::trim)
-        .find_map(|line| line.strip_prefix("minos "))
+        .filter_map(|line| line.strip_prefix("minos "))
+        .max_by_key(|version| {
+            version.split('.').map(|part| part.parse::<u32>().unwrap_or(0)).collect::<Vec<_>>()
+        })
         .map(str::to_owned)
         .expect("the library carries an LC_BUILD_VERSION with a minos");
     Ok(version)
@@ -576,7 +568,7 @@ fn lipo_platform_libraries(
             continue;
         }
 
-        let output_folder = generated_dir.join("lipo").join(platform.lib_folder_name());
+        let output_folder = generated_dir.join("lipo").join(platform.ld_name());
         create_dir_all(&output_folder)?;
 
         let output_path = output_folder.join(FFI_LIBRARY_NAME);
