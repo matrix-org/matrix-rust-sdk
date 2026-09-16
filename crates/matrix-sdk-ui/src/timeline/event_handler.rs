@@ -348,7 +348,6 @@ impl TimelineAction {
                                     kind: MsgLikeKind::LiveLocation(LiveLocationState::new(
                                         ev.content,
                                     )),
-                                    reactions: Default::default(),
                                     thread_root: None,
                                     in_reply_to: None,
                                     thread_summary: None,
@@ -473,7 +472,6 @@ impl TimelineAction {
             AnyMessageLikeEventContent::Sticker(content) => {
                 Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent {
                     kind: MsgLikeKind::Sticker(Sticker { content }),
-                    reactions: Default::default(),
                     thread_root,
                     in_reply_to,
                     thread_summary,
@@ -488,7 +486,6 @@ impl TimelineAction {
                 Self::AddItem {
                     content: TimelineItemContent::MsgLike(MsgLikeContent {
                         kind: MsgLikeKind::Poll(poll_state),
-                        reactions: Default::default(),
                         thread_root,
                         in_reply_to,
                         thread_summary,
@@ -500,7 +497,6 @@ impl TimelineAction {
                 content: TimelineItemContent::message(
                     msg.msgtype,
                     msg.mentions,
-                    Default::default(),
                     thread_root,
                     in_reply_to,
                     thread_summary,
@@ -525,7 +521,6 @@ impl TimelineAction {
                 Self::AddItem {
                     content: TimelineItemContent::MsgLike(MsgLikeContent {
                         kind: MsgLikeKind::Other(other),
-                        reactions: Default::default(),
                         thread_root,
                         in_reply_to,
                         thread_summary,

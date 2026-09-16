@@ -1024,7 +1024,7 @@ async fn test_thread_timeline_gets_related_events_from_sync() {
     assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id(), Some(threaded_event_id));
-    assert!(event_item.content().reactions().unwrap().is_empty());
+    assert!(event_item.reactions().is_empty());
 
     assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
     assert!(value.is_date_divider());
@@ -1046,7 +1046,7 @@ async fn test_thread_timeline_gets_related_events_from_sync() {
     assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id().unwrap(), threaded_event_id);
-    assert!(event_item.content().reactions().unwrap().is_empty().not());
+    assert!(event_item.reactions().is_empty().not());
 
     // If I open another timeline on the same thread, I still see the related event.
     let other_timeline = room
@@ -1066,7 +1066,7 @@ async fn test_thread_timeline_gets_related_events_from_sync() {
     // The threaded event with the reaction.
     let event_item = initial_items[1].as_event().unwrap();
     assert_eq!(event_item.event_id(), Some(threaded_event_id));
-    assert!(event_item.content().reactions().unwrap().is_empty().not());
+    assert!(event_item.reactions().is_empty().not());
 }
 
 #[async_test]
@@ -1152,7 +1152,7 @@ async fn test_thread_timeline_gets_local_echoes() {
     assert!(event_item.is_local_echo());
     assert_let!(Some(EventSendState::Sent { event_id }) = event_item.send_state());
     assert_eq!(event_id, sent_event_id);
-    assert!(event_item.content().reactions().unwrap().is_empty());
+    assert!(event_item.reactions().is_empty());
 
     // Then nothing else.
     assert_pending!(stream);
@@ -1186,7 +1186,7 @@ async fn test_thread_timeline_gets_local_echoes() {
     assert_let!(VectorDiff::Set { index: 2, value } = &timeline_updates[0]);
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id().unwrap(), sent_event_id);
-    assert!(event_item.content().reactions().unwrap().is_empty().not());
+    assert!(event_item.reactions().is_empty().not());
 
     // Then as a remote echo.
     assert_let_timeout!(Some(timeline_updates) = stream.next());
@@ -1198,7 +1198,7 @@ async fn test_thread_timeline_gets_local_echoes() {
         assert_let!(VectorDiff::Set { index: 2, value } = timeline_update);
         let event_item = value.as_event().unwrap();
         assert_eq!(event_item.event_id().unwrap(), sent_event_id);
-        assert!(event_item.content().reactions().unwrap().is_empty().not());
+        assert!(event_item.reactions().is_empty().not());
     }
 
     // Then we're done.

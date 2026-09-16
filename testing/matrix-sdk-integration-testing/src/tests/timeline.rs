@@ -201,7 +201,7 @@ async fn test_toggling_reaction() -> Result<()> {
         // Local echo is added.
         {
             let event = assert_event_is_updated!(timeline_updates[0], event_id, message_position);
-            let reactions = event.content().reactions().cloned().unwrap_or_default();
+            let reactions = event.reactions().clone();
             let reactions = reactions.get(&reaction_key).unwrap();
             let reaction = reactions.get(&user_id).unwrap();
             assert_matches!(reaction.send_state, Some(EventSendState::NotSentYet { .. }));
@@ -212,7 +212,7 @@ async fn test_toggling_reaction() -> Result<()> {
         for (i, timeline_update) in timeline_updates.iter().enumerate().skip(1) {
             let event = assert_event_is_updated!(timeline_update, event_id, message_position);
 
-            let reactions = event.content().reactions().cloned().unwrap_or_default();
+            let reactions = event.reactions().clone();
             let reactions = reactions.get(&reaction_key).unwrap();
             assert_eq!(reactions.keys().count(), 1);
 
@@ -244,7 +244,7 @@ async fn test_toggling_reaction() -> Result<()> {
 
         // The reaction is removed.
         let event = assert_event_is_updated!(timeline_updates[0], event_id, message_position);
-        assert!(event.content().reactions().cloned().unwrap_or_default().is_empty());
+        assert!(event.reactions().is_empty());
 
         assert_pending!(stream);
     }

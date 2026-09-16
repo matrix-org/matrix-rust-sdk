@@ -579,9 +579,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
         let target = item.identifier();
 
         // The item says whether we reacted; the registry has the handle and event id.
-        let has_reaction = item.content().reactions().is_some_and(|reactions| {
-            reactions.get(key).is_some_and(|by_user| by_user.contains_key(user_id))
-        });
+        let has_reaction =
+            item.reactions().get(key).is_some_and(|by_user| by_user.contains_key(user_id));
         let previous = has_reaction
             .then(|| state.meta.aggregations.find_reaction(&target, key, user_id).cloned())
             .flatten();
@@ -652,7 +651,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             return Ok(false);
         };
 
-        let mut reactions = item.content().reactions().cloned().unwrap_or_default();
+        let mut reactions = item.reactions().clone();
         let reaction_info = reactions.remove_reaction(user_id, key);
 
         if reaction_info.is_some() {
@@ -677,7 +676,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 if let Some((item_pos, item)) = rfind_event_by_id(&state.items, &annotated_event_id)
                 {
                     // Re-add the reaction to the mapping.
-                    let mut reactions = item.content().reactions().cloned().unwrap_or_default();
+                    let mut reactions = item.reactions().clone();
                     reactions
                         .entry(key.to_owned())
                         .or_default()
@@ -1057,7 +1056,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
             prev_item.with_kind(ti_kind).with_content(TimelineItemContent::message(
                 content.msgtype,
                 content.mentions,
-                prev_item.content().reactions().cloned().unwrap_or_default(),
                 prev_item.content().thread_root(),
                 prev_item.content().in_reply_to(),
                 prev_item.content().thread_summary(),
@@ -1659,7 +1657,6 @@ impl TimelineController {
         // the request was in-flight.
         let TimelineItemContent::MsgLike(MsgLikeContent {
             kind: MsgLikeKind::Message(message),
-            reactions,
             thread_root,
             in_reply_to,
             thread_summary,
@@ -1680,7 +1677,6 @@ impl TimelineController {
         let mut item = item.clone();
         item.set_content(TimelineItemContent::MsgLike(MsgLikeContent {
             kind: MsgLikeKind::Message(message),
-            reactions,
             thread_root,
             in_reply_to: Some(InReplyToDetails { event_id: in_reply_to.event_id, event }),
             thread_summary,

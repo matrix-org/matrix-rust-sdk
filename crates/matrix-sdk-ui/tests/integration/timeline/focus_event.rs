@@ -217,7 +217,7 @@ async fn test_live_aggregations_are_reflected_on_focused_timelines() {
 
     let event_item = items[1].as_event().unwrap();
     assert_eq!(event_item.content().as_message().unwrap().body(), "yolo");
-    assert_eq!(event_item.content().reactions().cloned().unwrap_or_default().len(), 0);
+    assert_eq!(event_item.reactions().len(), 0);
 
     assert_pending!(timeline_stream);
 
@@ -242,7 +242,7 @@ async fn test_live_aggregations_are_reflected_on_focused_timelines() {
 
     let event_item = item.as_event().unwrap();
     assert_eq!(event_item.content().as_message().unwrap().body(), "yolo");
-    let reactions = event_item.content().reactions().cloned().unwrap_or_default();
+    let reactions = event_item.reactions().clone();
     assert_eq!(reactions.len(), 1);
     let _ = reactions["👍"][*BOB];
 }
@@ -287,7 +287,7 @@ async fn test_focused_timeline_local_echoes() {
 
     let event_item = items[1].as_event().unwrap();
     assert_eq!(event_item.content().as_message().unwrap().body(), "yolo");
-    assert_eq!(event_item.content().reactions().cloned().unwrap_or_default().len(), 0);
+    assert_eq!(event_item.reactions().len(), 0);
 
     sleep(Duration::from_millis(100)).await;
     assert_pending!(timeline_stream);
@@ -305,7 +305,7 @@ async fn test_focused_timeline_local_echoes() {
     // Text hasn't changed.
     assert_eq!(event_item.content().as_message().unwrap().body(), "yolo");
     // But now there's one reaction to the event.
-    let reactions = event_item.content().reactions().cloned().unwrap_or_default();
+    let reactions = event_item.reactions().clone();
     assert_eq!(reactions.len(), 1);
     assert!(reactions.get("✨").unwrap().get(client.user_id().unwrap()).is_some());
 
@@ -313,7 +313,7 @@ async fn test_focused_timeline_local_echoes() {
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
     assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
-    let reactions = item.as_event().unwrap().content().reactions().cloned().unwrap_or_default();
+    let reactions = item.as_event().unwrap().reactions().clone();
     let reaction = reactions.get("✨").unwrap().get(client.user_id().unwrap()).unwrap();
     assert_matches!(reaction.send_state, Some(EventSendState::SendingFailed { .. }));
 
@@ -362,7 +362,7 @@ async fn test_focused_timeline_doesnt_show_local_echoes() {
 
     let event_item = items[1].as_event().unwrap();
     assert_eq!(event_item.content().as_message().unwrap().body(), "yolo");
-    assert_eq!(event_item.content().reactions().cloned().unwrap_or_default().len(), 0);
+    assert_eq!(event_item.reactions().len(), 0);
 
     assert_pending!(timeline_stream);
 

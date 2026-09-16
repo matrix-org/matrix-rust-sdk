@@ -31,8 +31,8 @@ use stream_assert::{assert_next_matches, assert_pending};
 use tokio::time::timeout;
 
 use crate::timeline::{
-    EventSendState, TimelineEventItemId, TimelineItem, event_item::RemoteEventOrigin,
-    tests::TestTimeline,
+    EventSendState, TimelineEventItemId, TimelineItem, TimelineItemContent,
+    event_item::RemoteEventOrigin, tests::TestTimeline,
 };
 
 const REACTION_KEY: &str = "👍";
@@ -69,7 +69,7 @@ macro_rules! assert_item_update {
 macro_rules! assert_reaction_is_updated {
     ($stream:expr, $event_id:expr, $index:expr, $is_remote_echo:literal) => {{
         let event = assert_item_update!($stream, $event_id, $index);
-        let reactions = event.content().reactions().cloned().unwrap_or_default();
+        let reactions = event.reactions().clone();
         let reactions = reactions.get(&REACTION_KEY.to_owned()).unwrap();
         let reaction = reactions.get(*ALICE).unwrap();
         match &reaction.send_state {
@@ -167,15 +167,7 @@ async fn test_redact_reaction_success() {
 
     // Will immediately redact it on the item.
     let event = assert_item_update!(stream, &event_id, item_pos);
-    assert!(
-        event
-            .content()
-            .reactions()
-            .cloned()
-            .unwrap_or_default()
-            .get(&REACTION_KEY.to_owned())
-            .is_none()
-    );
+    assert!(event.reactions().clone().get(&REACTION_KEY.to_owned()).is_none());
 
     // And send a redaction request for that reaction.
     {
@@ -205,7 +197,7 @@ async fn test_reactions_store_timestamp() {
     timeline.toggle_reaction_local(&item_id, REACTION_KEY).await.unwrap();
 
     let event = assert_reaction_is_updated!(stream, &event_id, msg_pos, false);
-    let reactions = event.content().reactions().cloned().unwrap_or_default();
+    let reactions = event.reactions().clone();
     let reactions = reactions.get(&REACTION_KEY.to_owned()).unwrap();
     let timestamp = reactions.values().next().unwrap().timestamp;
 
@@ -240,18 +232,31 @@ async fn test_initial_reaction_timestamp_is_stored() {
         .await;
 
     let items = timeline.controller.items().await;
-    let reactions = items
-        .last()
-        .unwrap()
-        .as_event()
-        .unwrap()
-        .content()
-        .reactions()
-        .cloned()
-        .unwrap_or_default();
+    let reactions = items.last().unwrap().as_event().unwrap().reactions().clone();
     let entry = reactions.get(&REACTION_KEY.to_owned()).unwrap();
 
     assert_eq!(entry.values().next().unwrap().timestamp, reaction_timestamp);
+}
+
+#[async_test]
+async fn test_reaction_on_a_state_event() {
+    let timeline = TestTimeline::new().await;
+
+    let f = &timeline.factory;
+    let state_event_id = EventId::new_v1(server_name!("dummy.server"));
+
+    timeline
+        .handle_live_event(f.room_name("Alice's room").sender(&ALICE).event_id(&state_event_id))
+        .await;
+    timeline.handle_live_event(f.reaction(&state_event_id, REACTION_KEY).sender(&BOB)).await;
+
+    let items = timeline.controller.items().await;
+    let item = items.last().unwrap().as_event().unwrap();
+    assert_let!(TimelineItemContent::OtherState(_) = item.content());
+
+    let reactions = item.reactions().clone();
+    let by_sender = reactions.get(&REACTION_KEY.to_owned()).unwrap();
+    assert!(by_sender.contains_key(*BOB));
 }
 
 /// Returns the unique item id, the event id, and position of the message.
@@ -301,13 +306,13 @@ async fn test_reinserted_item_keeps_reactions() {
     // Get the event.
     assert_next_matches_with_timeout!(stream, VectorDiff::PushBack { value: item } => {
         assert_eq!(item.content().as_message().unwrap().body(), "hey");
-        assert!(item.content().reactions().cloned().unwrap_or_default().is_empty());
+        assert!(item.reactions().is_empty());
     });
 
     // Get the reaction.
     assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 0, value: item } => {
         assert_eq!(item.content().as_message().unwrap().body(), "hey");
-        let reactions = item.content().reactions().cloned().unwrap_or_default();
+        let reactions = item.reactions().clone();
         assert_eq!(reactions.len(), 1);
         reactions.get(REACTION_KEY).unwrap().get(*ALICE).unwrap();
     });
@@ -334,7 +339,7 @@ async fn test_reinserted_item_keeps_reactions() {
     assert_next_matches_with_timeout!(stream, VectorDiff::Insert { index: 0, value: item } => {
         assert_eq!(item.content().as_message().unwrap().body(), "hey");
         // And it still includes the reaction from Alice.
-        let reactions = item.content().reactions().cloned().unwrap_or_default();
+        let reactions = item.reactions().clone();
         assert_eq!(reactions.len(), 1);
         reactions.get(REACTION_KEY).unwrap().get(*ALICE).unwrap();
     });
@@ -359,7 +364,7 @@ async fn test_local_reaction_send_state_failed_then_sent() {
         )
         .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    let info = item.content().reactions().unwrap().get("👍").unwrap().get(*ALICE).unwrap();
+    let info = item.reactions().get("👍").unwrap().get(*ALICE).unwrap();
     assert_matches!(&info.send_state, Some(EventSendState::NotSentYet { .. }));
 
     let error = Arc::new(matrix_sdk::Error::SendQueueWedgeError(Box::new(
@@ -373,7 +378,7 @@ async fn test_local_reaction_send_state_failed_then_sent() {
         )
         .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    let info = item.content().reactions().unwrap().get("👍").unwrap().get(*ALICE).unwrap();
+    let info = item.reactions().get("👍").unwrap().get(*ALICE).unwrap();
     assert_matches!(&info.send_state, Some(EventSendState::SendingFailed { .. }));
 
     let reaction_id = owned_event_id!("$r");
@@ -382,7 +387,7 @@ async fn test_local_reaction_send_state_failed_then_sent() {
         .update_event_send_state(&txn_id, EventSendState::Sent { event_id: reaction_id.clone() })
         .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    let info = item.content().reactions().unwrap().get("👍").unwrap().get(*ALICE).unwrap();
+    let info = item.reactions().get("👍").unwrap().get(*ALICE).unwrap();
     assert_matches!(&info.send_state, Some(EventSendState::Sent { .. }));
 
     // Remote echo: nothing pending anymore.
@@ -390,7 +395,7 @@ async fn test_local_reaction_send_state_failed_then_sent() {
         .handle_live_event(f.reaction(&event_id, "👍").sender(*ALICE).event_id(&reaction_id))
         .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    let info = item.content().reactions().unwrap().get("👍").unwrap().get(*ALICE).unwrap();
+    let info = item.reactions().get("👍").unwrap().get(*ALICE).unwrap();
     assert!(info.send_state.is_none());
 
     assert_pending!(stream);
@@ -419,7 +424,7 @@ async fn test_reaction_remote_echo_before_sent_leaves_no_pending_state() {
         .handle_live_event(f.reaction(&event_id, "👍").sender(*ALICE).event_id(&reaction_id))
         .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    let info = item.content().reactions().unwrap().get("👍").unwrap().get(*ALICE).unwrap();
+    let info = item.reactions().get("👍").unwrap().get(*ALICE).unwrap();
     assert!(info.send_state.is_none());
 
     // The late `Sent` must not bring a pending state back.
@@ -457,12 +462,12 @@ async fn test_toggle_reaction_again_after_removing_a_sent_one() {
     // Toggling removes it from the item, before any redaction echo comes back.
     timeline.toggle_reaction_local(&item_id, "👍").await.unwrap();
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    assert!(item.content().reactions().unwrap().is_empty());
+    assert!(item.reactions().is_empty());
 
     // Toggling again must add a new reaction, not try to remove the old one.
     timeline.toggle_reaction_local(&item_id, "👍").await.unwrap();
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    let info = item.content().reactions().unwrap().get("👍").unwrap().get(*ALICE).unwrap();
+    let info = item.reactions().get("👍").unwrap().get(*ALICE).unwrap();
     assert_matches!(&info.send_state, Some(EventSendState::NotSentYet { .. }));
 
     assert_pending!(stream);

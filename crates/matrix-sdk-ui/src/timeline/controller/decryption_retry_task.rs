@@ -135,9 +135,8 @@ mod tests {
     };
 
     use crate::timeline::{
-        EncryptedMessage, EventSendState, EventTimelineItem, MsgLikeContent,
-        ReactionsByKeyBySender, TimelineDetails, TimelineItem, TimelineItemContent,
-        TimelineItemKind, TimelineUniqueId, VirtualTimelineItem,
+        EncryptedMessage, EventSendState, EventTimelineItem, MsgLikeContent, TimelineDetails,
+        TimelineItem, TimelineItemContent, TimelineItemKind, TimelineUniqueId, VirtualTimelineItem,
         controller::decryption_retry_task::compute_redecryption_candidates,
         event_item::{
             EventTimelineItemKind, LocalEventTimelineItem, RemoteEventOrigin,
@@ -321,14 +320,7 @@ mod tests {
                 None,
                 None,
                 timestamp(),
-                TimelineItemContent::message(
-                    content.msgtype,
-                    content.mentions,
-                    ReactionsByKeyBySender::default(),
-                    None,
-                    None,
-                    None,
-                ),
+                TimelineItemContent::message(content.msgtype, content.mentions, None, None, None),
                 event_kind,
                 true,
             )),
