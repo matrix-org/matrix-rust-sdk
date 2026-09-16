@@ -147,7 +147,6 @@ impl EmbeddedEvent {
                 // For an embedded event, we don't need to fill a few fields; it's in an
                 // embedded view context, so there's no strong need to show all detailed
                 // information about it.
-                let reactions = Default::default();
                 let thread_root = None;
                 let in_reply_to = None;
                 let thread_summary = None;
@@ -158,7 +157,6 @@ impl EmbeddedEvent {
                         Some(TimelineItemContent::message(
                             msg.msgtype.clone(),
                             msg.mentions.clone(),
-                            reactions,
                             thread_root,
                             in_reply_to,
                             thread_summary,
@@ -170,7 +168,6 @@ impl EmbeddedEvent {
                         let poll_state = PollState::new(msg.poll_start.clone(), msg.text.clone());
                         Some(TimelineItemContent::MsgLike(MsgLikeContent {
                             kind: MsgLikeKind::Poll(poll_state),
-                            reactions: Default::default(),
                             thread_root,
                             in_reply_to,
                             thread_summary,

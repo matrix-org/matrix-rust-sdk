@@ -100,7 +100,7 @@ async fn test_abort_before_being_sent() {
 
         assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
 
-        let reactions = item.as_event().unwrap().content().reactions().cloned().unwrap_or_default();
+        let reactions = item.as_event().unwrap().reactions().clone();
         assert_eq!(reactions.len(), 1);
         assert_matches!(
             &reactions.get("👍").unwrap().get(user_id).unwrap().send_state,
@@ -120,7 +120,7 @@ async fn test_abort_before_being_sent() {
 
         assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
 
-        let reactions = item.as_event().unwrap().content().reactions().cloned().unwrap_or_default();
+        let reactions = item.as_event().unwrap().reactions().clone();
         assert_eq!(reactions.len(), 2);
         assert_matches!(
             &reactions.get("👍").unwrap().get(user_id).unwrap().send_state,
@@ -144,7 +144,7 @@ async fn test_abort_before_being_sent() {
 
         assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
 
-        let reactions = item.as_event().unwrap().content().reactions().cloned().unwrap_or_default();
+        let reactions = item.as_event().unwrap().reactions().clone();
         assert_eq!(reactions.len(), 1);
         assert_matches!(
             &reactions.get("🥰").unwrap().get(user_id).unwrap().send_state,
@@ -164,7 +164,7 @@ async fn test_abort_before_being_sent() {
 
         assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
 
-        let reactions = item.as_event().unwrap().content().reactions().cloned().unwrap_or_default();
+        let reactions = item.as_event().unwrap().reactions().clone();
         assert!(reactions.is_empty());
 
         assert_pending!(stream);
@@ -180,7 +180,7 @@ async fn test_abort_before_being_sent() {
     assert_matches!(&timeline_updates[0], VectorDiff::Set { index: 1, value: remote_event });
     let remote_event = remote_event.as_event().unwrap();
     assert_eq!(remote_event.event_id(), Some(event_id));
-    assert_eq!(remote_event.content().reactions().unwrap().len(), 1);
+    assert_eq!(remote_event.reactions().len(), 1);
 
     assert_pending!(stream);
 }
@@ -224,16 +224,13 @@ async fn test_redact_failed() {
 
         let item = item.as_event().unwrap();
         assert_eq!(item.content().as_message().unwrap().body(), "hello");
-        assert!(item.content().reactions().cloned().unwrap_or_default().is_empty());
+        assert!(item.reactions().is_empty());
 
         item.identifier()
     };
 
     assert_let!(VectorDiff::Set { index: 0, value: item } = &timeline_updates[1]);
-    assert_eq!(
-        item.as_event().unwrap().content().reactions().cloned().unwrap_or_default().len(),
-        1
-    );
+    assert_eq!(item.as_event().unwrap().reactions().len(), 1);
 
     assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[2]);
     assert!(date_divider.is_date_divider());
@@ -249,14 +246,11 @@ async fn test_redact_failed() {
 
     // The local echo is removed (assuming the redaction works)…
     assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
-    assert!(item.as_event().unwrap().content().reactions().cloned().unwrap_or_default().is_empty());
+    assert!(item.as_event().unwrap().reactions().is_empty());
 
     // …then added back, after redaction failed.
     assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[1]);
-    assert_eq!(
-        item.as_event().unwrap().content().reactions().cloned().unwrap_or_default().len(),
-        1
-    );
+    assert_eq!(item.as_event().unwrap().reactions().len(), 1);
 
     sleep(Duration::from_millis(150)).await;
     assert_pending!(stream);
@@ -309,7 +303,7 @@ async fn test_local_reaction_to_local_echo() {
         assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { progress: None }));
 
         assert_eq!(item.content().as_message().unwrap().body(), "lol");
-        assert!(item.content().reactions().cloned().unwrap_or_default().is_empty());
+        assert!(item.reactions().is_empty());
 
         // Good ol' date divider.
         assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
@@ -334,7 +328,7 @@ async fn test_local_reaction_to_local_echo() {
         assert!(item.is_local_echo());
         assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { progress: None }));
 
-        let reactions = item.content().reactions().cloned().unwrap_or_default();
+        let reactions = item.reactions().clone();
         assert_eq!(reactions.len(), 1);
         let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
         assert_matches!(&reaction_info.send_state, Some(EventSendState::NotSentYet { .. }));
@@ -356,7 +350,7 @@ async fn test_local_reaction_to_local_echo() {
         assert!(item.is_local_echo());
         assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { progress: None }));
 
-        let reactions = item.content().reactions().cloned().unwrap_or_default();
+        let reactions = item.reactions().clone();
         assert_eq!(reactions.len(), 2);
         let reaction_info = reactions.get(key2).unwrap().get(user_id).unwrap();
         assert_matches!(&reaction_info.send_state, Some(EventSendState::NotSentYet { .. }));
@@ -377,7 +371,7 @@ async fn test_local_reaction_to_local_echo() {
         assert!(item.is_local_echo());
         assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { progress: None }));
 
-        let reactions = item.content().reactions().cloned().unwrap_or_default();
+        let reactions = item.reactions().clone();
         assert_eq!(reactions.len(), 1);
         let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
         assert_matches!(&reaction_info.send_state, Some(EventSendState::NotSentYet { .. }));
@@ -397,7 +391,7 @@ async fn test_local_reaction_to_local_echo() {
         assert!(item.is_local_echo());
         assert_matches!(item.send_state(), Some(EventSendState::Sent { .. }));
 
-        let reactions = item.content().reactions().cloned().unwrap_or_default();
+        let reactions = item.reactions().clone();
         assert_eq!(reactions.len(), 1);
         let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
         assert_matches!(&reaction_info.send_state, Some(EventSendState::NotSentYet { .. }));
@@ -411,7 +405,7 @@ async fn test_local_reaction_to_local_echo() {
     // And then the reaction itself is marked as sent.
     for timeline_update in timeline_updates {
         assert_let!(VectorDiff::Set { index: 1, value: item } = timeline_update);
-        let reactions = item.as_event().unwrap().content().reactions().cloned().unwrap_or_default();
+        let reactions = item.as_event().unwrap().reactions().clone();
         assert_eq!(reactions.len(), 1);
         let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
         assert_matches!(&reaction_info.send_state, Some(EventSendState::Sent { .. }));

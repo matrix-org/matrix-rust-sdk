@@ -19,9 +19,7 @@ use super::{
     EmbeddedEvent, EncryptedMessage, InReplyToDetails, LiveLocationState, Message, PollState,
     Sticker,
 };
-use crate::timeline::{
-    ReactionsByKeyBySender, TimelineDetails, event_item::content::other::OtherMessageLike,
-};
+use crate::timeline::{TimelineDetails, event_item::content::other::OtherMessageLike};
 
 #[derive(Clone, Debug)]
 pub enum MsgLikeKind {
@@ -62,12 +60,10 @@ pub struct ThreadSummary {
 }
 
 /// A special kind of [`super::TimelineItemContent`] that groups together
-/// different room message types with their respective reactions and thread
-/// information.
+/// different room message types with their thread information.
 #[derive(Clone, Debug)]
 pub struct MsgLikeContent {
     pub kind: MsgLikeKind,
-    pub reactions: ReactionsByKeyBySender,
     /// The event this message is replying to, if any.
     pub in_reply_to: Option<InReplyToDetails>,
     /// Event ID of the thread root, if this is a message in a thread.
@@ -93,7 +89,6 @@ impl MsgLikeContent {
     pub fn redacted() -> Self {
         Self {
             kind: MsgLikeKind::Redacted,
-            reactions: Default::default(),
             thread_root: None,
             in_reply_to: None,
             thread_summary: None,
@@ -103,7 +98,6 @@ impl MsgLikeContent {
     pub fn unable_to_decrypt(encrypted_message: EncryptedMessage) -> Self {
         Self {
             kind: MsgLikeKind::UnableToDecrypt(encrypted_message),
-            reactions: Default::default(),
             thread_root: None,
             in_reply_to: None,
             thread_summary: None,

@@ -167,12 +167,7 @@ async fn test_pinned_event_with_reaction() {
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
     assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
-    let reactions = items[1]
-        .as_event()
-        .unwrap()
-        .content()
-        .reactions()
-        .expect("pinned event should have reactions");
+    let reactions = items[1].as_event().unwrap().reactions();
     assert_eq!(reactions.len(), 1);
     assert!(reactions.get("👀").is_some());
     assert_pending!(timeline_stream);
@@ -246,12 +241,7 @@ async fn test_pinned_event_with_paginated_reactions() {
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
     assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
-    let reactions = items[1]
-        .as_event()
-        .unwrap()
-        .content()
-        .reactions()
-        .expect("pinned event should have reactions");
+    let reactions = items[1].as_event().unwrap().reactions();
     assert_eq!(reactions.len(), 2);
     assert!(reactions.get("👀").is_some());
     assert!(reactions.get("🤔").is_some());

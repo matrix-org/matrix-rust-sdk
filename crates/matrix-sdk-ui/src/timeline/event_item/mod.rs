@@ -94,6 +94,8 @@ pub struct EventTimelineItem {
     pub(super) redaction_send_state: Option<EventSendState>,
     /// Send state of our own pending edits of this event, if any.
     pub(super) edit_send_state: Option<EventSendState>,
+    /// The reactions of the event, grouped by key and then by sender.
+    pub(super) reactions: ReactionsByKeyBySender,
     /// The kind of event timeline item, local or remote.
     pub(super) kind: EventTimelineItemKind,
     /// Whether or not the event belongs to an encrypted room.
@@ -149,6 +151,9 @@ pub(super) struct UnredactedEventTimelineItem {
     /// The original content before redaction.
     content: TimelineItemContent,
 
+    /// The reactions before redaction.
+    reactions: ReactionsByKeyBySender,
+
     /// JSON of the original event.
     pub(crate) original_json: Option<Raw<AnySyncTimelineEvent>>,
 
@@ -178,9 +183,25 @@ impl EventTimelineItem {
             unredacted_item: None,
             redaction_send_state: None,
             edit_send_state: None,
+            reactions: Default::default(),
             kind,
             is_room_encrypted,
         }
+    }
+
+    /// The reactions of this event, grouped by key and then by sender.
+    pub fn reactions(&self) -> &ReactionsByKeyBySender {
+        &self.reactions
+    }
+
+    /// A mutable handle to the reactions of this event.
+    pub(crate) fn reactions_mut(&mut self) -> &mut ReactionsByKeyBySender {
+        &mut self.reactions
+    }
+
+    /// Clone this item with a different set of reactions.
+    pub fn with_reactions(&self, reactions: ReactionsByKeyBySender) -> Self {
+        Self { reactions, ..self.clone() }
     }
 
     /// Check whether this item is a local echo.
@@ -569,6 +590,7 @@ impl EventTimelineItem {
     pub(super) fn redact(&self, rules: &RedactionRules, is_local: bool) -> Self {
         let unredacted_item = is_local.then(|| UnredactedEventTimelineItem {
             content: self.content.clone(),
+            reactions: self.reactions.clone(),
             original_json: self.original_json().cloned(),
             latest_edit_json: self.latest_edit_json().cloned(),
         });
@@ -587,6 +609,7 @@ impl EventTimelineItem {
             unredacted_item,
             redaction_send_state: None,
             edit_send_state: None,
+            reactions: Default::default(),
             kind,
             is_room_encrypted: self.is_room_encrypted,
         }
@@ -617,6 +640,7 @@ impl EventTimelineItem {
             unredacted_item: None,
             redaction_send_state: None,
             edit_send_state: None,
+            reactions: unredacted_item.reactions.clone(),
             kind,
             is_room_encrypted: self.is_room_encrypted,
         }
@@ -977,7 +1001,6 @@ mod tests {
                 edited: false,
                 mentions: None,
             }),
-            reactions: Default::default(),
             thread_root: None,
             in_reply_to: None,
             thread_summary: None,
@@ -992,7 +1015,6 @@ mod tests {
                 true,
                 Some(MilliSecondsSinceUnixEpoch(uint!(1))),
             ))),
-            reactions: Default::default(),
             thread_root: None,
             in_reply_to: None,
             thread_summary: None,

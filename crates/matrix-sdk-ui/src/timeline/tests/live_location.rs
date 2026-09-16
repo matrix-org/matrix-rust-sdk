@@ -766,7 +766,7 @@ async fn test_reaction_on_live_location_item() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(item.content().as_live_location_state().is_some());
-    assert!(item.content().reactions().unwrap().is_empty());
+    assert!(item.reactions().is_empty());
 
     // BOB reacts to the live location item.
     timeline.handle_live_event(timeline.factory.reaction(beacon_id, "👍").sender(&BOB)).await;
@@ -775,7 +775,7 @@ async fn test_reaction_on_live_location_item() {
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().as_live_location_state().is_some(), "still a live location item");
 
-    let reactions = item.content().reactions().expect("live location should expose reactions");
+    let reactions = item.reactions();
     let thumbs_up = reactions.get("👍").expect("👍 reaction should be present");
     let reaction = thumbs_up.get(*BOB).expect("BOB's reaction should be present");
     assert_matches!(&reaction.send_state, None);
@@ -808,14 +808,14 @@ async fn test_multiple_reactions_on_live_location_item() {
     // ALICE and BOB both react, with different keys.
     timeline.handle_live_event(timeline.factory.reaction(beacon_id, "👍").sender(&ALICE)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    let reactions = item.content().reactions().unwrap();
+    let reactions = item.reactions();
     assert_eq!(reactions.len(), 1);
     assert!(reactions.get("👍").unwrap().get(*ALICE).is_some());
 
     timeline.handle_live_event(timeline.factory.reaction(beacon_id, "❤️").sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
 
-    let reactions = item.content().reactions().unwrap();
+    let reactions = item.reactions();
     assert_eq!(reactions.len(), 2, "two distinct reaction keys");
     assert!(reactions.get("👍").unwrap().get(*ALICE).is_some());
     assert!(reactions.get("❤️").unwrap().get(*BOB).is_some());
@@ -855,7 +855,7 @@ async fn test_reaction_before_live_location_item_is_applied_when_parent_arrives(
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(item.content().as_live_location_state().is_some());
 
-    let reactions = item.content().reactions().expect("live location should expose reactions");
+    let reactions = item.reactions();
     let thumbs_up = reactions.get("👍").expect("👍 reaction should be present");
     assert!(thumbs_up.get(*BOB).is_some(), "BOB's reaction should be pre-applied");
 
@@ -892,7 +892,7 @@ async fn test_local_reaction_on_live_location_item() {
     // The item is updated with a local-echo reaction.
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().as_live_location_state().is_some());
-    let reactions = item.content().reactions().unwrap();
+    let reactions = item.reactions();
     let reaction = reactions.get("👍").unwrap().get(*ALICE).unwrap();
     assert_matches!(&reaction.send_state, Some(EventSendState::NotSentYet { .. }));
 
@@ -902,7 +902,7 @@ async fn test_local_reaction_on_live_location_item() {
     // The item is updated once more — now the reaction is a confirmed remote echo.
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().as_live_location_state().is_some());
-    let reactions = item.content().reactions().unwrap();
+    let reactions = item.reactions();
     let reaction = reactions.get("👍").unwrap().get(*ALICE).unwrap();
     assert_matches!(&reaction.send_state, None);
 

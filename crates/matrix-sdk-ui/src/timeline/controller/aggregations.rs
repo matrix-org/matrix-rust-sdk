@@ -342,12 +342,8 @@ impl Aggregation {
             },
 
             AggregationKind::Reaction { key, sender, timestamp } => {
-                let Some(reactions) = event.content().reactions() else {
-                    // An item that can't hold any reactions.
-                    return ApplyAggregationResult::LeftItemIntact;
-                };
-
-                let previous_reaction = reactions.get(key).and_then(|by_user| by_user.get(sender));
+                let previous_reaction =
+                    event.reactions().get(key).and_then(|by_user| by_user.get(sender));
 
                 // Same reaction, same origin: already applied.
                 let is_same = previous_reaction.is_some_and(|prev| {
@@ -358,13 +354,7 @@ impl Aggregation {
                 if is_same {
                     ApplyAggregationResult::LeftItemIntact
                 } else {
-                    let reactions = event
-                        .to_mut()
-                        .content_mut()
-                        .reactions_mut()
-                        .expect("reactions was Some above");
-
-                    reactions.entry(key.clone()).or_default().insert(
+                    event.to_mut().reactions_mut().entry(key.clone()).or_default().insert(
                         sender.clone(),
                         ReactionInfo { timestamp: *timestamp, send_state: self.send_state.clone() },
                     );
@@ -453,24 +443,15 @@ impl Aggregation {
             }
 
             AggregationKind::Reaction { key, sender, .. } => {
-                let Some(reactions) = event.content().reactions() else {
-                    // An item that can't hold any reactions.
-                    return ApplyAggregationResult::LeftItemIntact;
-                };
-
                 // We only need to remove the previous reaction if it was there.
                 //
                 // Search for it.
 
                 let had_entry =
-                    reactions.get(key).and_then(|by_user| by_user.get(sender)).is_some();
+                    event.reactions().get(key).and_then(|by_user| by_user.get(sender)).is_some();
 
                 if had_entry {
-                    let reactions = event
-                        .to_mut()
-                        .content_mut()
-                        .reactions_mut()
-                        .expect("reactions was some above");
+                    let reactions = event.to_mut().reactions_mut();
                     let by_user = reactions.get_mut(key);
                     if let Some(by_user) = by_user {
                         by_user.swap_remove(sender);
@@ -521,16 +502,12 @@ impl Aggregation {
     ) -> bool {
         match &self.kind {
             AggregationKind::Reaction { key, sender, .. } => {
-                let has_entry = event
-                    .content()
-                    .reactions()
-                    .and_then(|reactions| reactions.get(key)?.get(sender))
-                    .is_some();
+                let has_entry =
+                    event.reactions().get(key).and_then(|by_user| by_user.get(sender)).is_some();
                 if !has_entry {
                     return false;
                 }
-                let reactions =
-                    event.to_mut().content_mut().reactions_mut().expect("reactions was Some above");
+                let reactions = event.to_mut().reactions_mut();
                 if let Some(info) =
                     reactions.get_mut(key).and_then(|by_user| by_user.get_mut(sender))
                 {
