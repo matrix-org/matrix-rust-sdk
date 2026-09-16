@@ -25,7 +25,9 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 uniffi_bindgen.workspace = true
 url.workspace = true
-xshell = "0.2.7"
+# Please keep this at 0.2.2 as updates break stdin inheritance which the release
+# subcommand needs.
+xshell = "0.2.2"
 
 [lints]
 workspace = true
