@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::{copy, create_dir_all, remove_dir_all, remove_file, rename},
 };
 
@@ -153,9 +153,9 @@ impl Platform {
         }
     }
 
-    /// The platform name as `ld -platform_version` expects it, also used for
-    /// the subfolder holding the lipo'd library.
-    fn ld_name(&self) -> &str {
+    /// The name of the subfolder in which to place the library for the platform
+    /// once all architectures are lipo'd together.
+    fn lib_folder_name(&self) -> &str {
         match self {
             Platform::Macos => "macos",
             Platform::Ios => "ios",
@@ -164,29 +164,8 @@ impl Platform {
             Platform::WatchosSimulator => "watchos-simulator",
         }
     }
-
-    /// The SDK name as `xcrun --sdk` expects it.
-    fn sdk_name(&self) -> &str {
-        match self {
-            Platform::Macos => "macosx",
-            Platform::Ios => "iphoneos",
-            Platform::IosSimulator => "iphonesimulator",
-            Platform::Watchos => "watchos",
-            Platform::WatchosSimulator => "watchsimulator",
-        }
-    }
 }
 
-impl Target {
-    /// The architecture name as `ld -arch` expects it.
-    fn arch(&self) -> &str {
-        match self.triple.split('-').next() {
-            Some("aarch64") => "arm64",
-            Some(arch) => arch,
-            None => unreachable!("target triples always start with an architecture"),
-        }
-    }
-}
 /// The base name of the FFI library.
 const FFI_LIBRARY_NAME: &str = "libmatrix_sdk_ffi.a";
 
@@ -197,8 +176,8 @@ const FFI_FEATURES: &str = "sentry";
 /// patterns.
 ///
 /// The bundled SQLite is compiled into the archive as ordinary global symbols.
-/// An app that also links the system `libsqlite3` (any app using SQLite.swift,
-/// GRDB, Core Data…) then lets the linker resolve rusqlite's references from
+/// An app that also links the system `libsqlite3` (Firebase Analytics, GRDB,
+/// SQLite.swift, FMDB…) then lets the linker resolve rusqlite's references from
 /// whichever it sees first. With the iOS 27 SDK the system library exports
 /// newer functions such as `sqlite3_set_errmsg`, so the bundled copy is
 /// silently dropped and the app crashes at launch on older systems that lack
@@ -494,55 +473,102 @@ fn build_targets(
 /// Rewrites the static library so that the symbols matching
 /// [`PRIVATE_SYMBOL_PATTERNS`] are resolved inside it and no longer exported.
 ///
-/// `ld -r` merges every object of the archive into one relocatable object,
-/// binding the internal references, and the unexported list turns the matching
-/// definitions into local symbols. The result is wrapped back into an archive
-/// under the original name.
+/// `ld -r` merges the objects that use those symbols into one relocatable
+/// object, binding their references, and the unexported list turns the matching
+/// definitions into local symbols. That object and the untouched rest of the
+/// archive are wrapped back up under the original name.
 fn localize_private_symbols(library: &Utf8Path, target: &Target) -> Result<()> {
     let sh = sh();
     let directory = library.parent().expect("the library lives in a directory");
     let symbols_list = directory.join("private_symbols.txt");
     let merged_object = directory.join("libmatrix_sdk_ffi_merged.o");
+    let objects_directory = directory.join("objects");
+    let remainder = directory.join("libmatrix_sdk_ffi_remainder.a");
 
     std::fs::write(&symbols_list, PRIVATE_SYMBOL_PATTERNS.join("\n") + "\n")?;
 
-    let arch = target.arch();
-    let platform = target.platform.ld_name();
-    let min_version = min_os_version(library)?;
-    let sdk_name = target.platform.sdk_name();
-    let sdk_version = cmd!(sh, "xcrun --sdk {sdk_name} --show-sdk-version").read()?;
-    let sdk_version = sdk_version.trim();
+    // Everything belonging to a crate that touches the private symbols has to be
+    // merged: a crate's codegen units share hidden symbols, which can't bind
+    // across the merge. Every other object is left alone, keeping the
+    // subsections that let consumers dead strip the library function by
+    // function when they link it statically.
+    let crates = private_symbol_crates(library)?;
+    let all_members = cmd!(sh, "ar t {library}").read()?;
+    let members: Vec<String> = all_members
+        .lines()
+        .filter(|member| crates.contains(crate_of(member)))
+        .map(ToOwned::to_owned)
+        .collect();
 
-    println!("-- Localizing private symbols for {}", target.description);
-    cmd!(
-        sh,
-        "ld -r -arch {arch} -platform_version {platform} {min_version} {sdk_version} -force_load {library} -unexported_symbols_list {symbols_list} -o {merged_object}"
-    )
-    .run()?;
+    let _ = remove_dir_all(&objects_directory);
+    create_dir_all(&objects_directory)?;
+    {
+        let _directory = sh.push_dir(&objects_directory);
+        cmd!(sh, "ar x {library}").args(&members).run()?;
+    }
+    let objects: Vec<Utf8PathBuf> =
+        members.iter().map(|member| objects_directory.join(member)).collect();
+    if let Some(missing) = objects.iter().find(|object| !object.exists()) {
+        // `ar` skips members that share a name with an earlier one.
+        return Err(format!("{missing} was not extracted from {library}").into());
+    }
+
+    copy(library, &remainder)?;
+    cmd!(sh, "ar d {remainder}").args(&members).run()?;
+
+    println!(
+        "-- Localizing private symbols for {} ({} of {} objects)",
+        target.description,
+        members.len(),
+        all_members.lines().count()
+    );
+    cmd!(sh, "ld -r -unexported_symbols_list {symbols_list} -o {merged_object}")
+        .args(&objects)
+        .run()?;
     remove_file(library)?;
-    cmd!(sh, "libtool -static -o {library} {merged_object}").run()?;
+    cmd!(sh, "libtool -static -o {library} {merged_object} {remainder}").run()?;
 
+    remove_dir_all(&objects_directory)?;
     remove_file(merged_object)?;
+    remove_file(remainder)?;
     remove_file(symbols_list)?;
     Ok(())
 }
 
-/// The minimum OS version the objects in the library were built for, read from
-/// their `LC_BUILD_VERSION` load command, so `ld -r` links for the same
-/// version.
-fn min_os_version(library: &Utf8Path) -> Result<String> {
+/// The crates owning an object that defines or references one of the private
+/// symbols.
+fn private_symbol_crates(library: &Utf8Path) -> Result<HashSet<String>> {
     let sh = sh();
-    let load_commands = cmd!(sh, "otool -l {library}").read()?;
-    let version = load_commands
+    let prefix = format!("{library}:");
+    // `nm` warns and exits non-zero for the objects that carry no symbols.
+    let symbols = cmd!(sh, "nm -A -g {library}").ignore_status().read()?;
+
+    Ok(symbols
         .lines()
-        .map(str::trim)
-        .filter_map(|line| line.strip_prefix("minos "))
-        .max_by_key(|version| {
-            version.split('.').map(|part| part.parse::<u32>().unwrap_or(0)).collect::<Vec<_>>()
+        .filter(|line| {
+            line.split_whitespace().next_back().is_some_and(|symbol| {
+                PRIVATE_SYMBOL_PATTERNS
+                    .iter()
+                    .any(|pattern| symbol.starts_with(pattern.trim_end_matches('*')))
+            })
         })
-        .map(str::to_owned)
-        .expect("the library carries an LC_BUILD_VERSION with a minos");
-    Ok(version)
+        .filter_map(|line| line.strip_prefix(&prefix))
+        .filter_map(|line| line.split(':').next())
+        .map(|member| crate_of(member).to_owned())
+        .collect())
+}
+
+/// The crate an object file belongs to, or its own name for the objects that
+/// don't come from one, such as the bundled SQLite.
+fn crate_of(member: &str) -> &str {
+    member
+        .split_once('-')
+        .filter(|(_, rest)| {
+            rest.len() > 16
+                && rest.as_bytes()[16] == b'.'
+                && rest[..16].bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
+        .map_or(member, |(name, _)| name)
 }
 
 /// The path of the built library for a specific target and profile.
@@ -568,7 +594,7 @@ fn lipo_platform_libraries(
             continue;
         }
 
-        let output_folder = generated_dir.join("lipo").join(platform.ld_name());
+        let output_folder = generated_dir.join("lipo").join(platform.lib_folder_name());
         create_dir_all(&output_folder)?;
 
         let output_path = output_folder.join(FFI_LIBRARY_NAME);
