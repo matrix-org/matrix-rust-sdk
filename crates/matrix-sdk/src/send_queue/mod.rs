@@ -1015,10 +1015,12 @@ impl RoomSendQueue {
                         _ => false,
                     };
 
-                    // Disable the queue for this room after any kind of error happened.
-                    locally_enabled.store(false, Ordering::SeqCst);
-
                     if is_recoverable {
+                        // Disable the queue for this room; there's nothing else blocking it,
+                        // and whatever caused the failure is likely to affect the next
+                        // requests too.
+                        locally_enabled.store(false, Ordering::SeqCst);
+
                         warn!(txn_id = %txn_id, error = ?err, "Recoverable error when sending request: {err}, disabling send queue");
 
                         // In this case, we intentionally keep the request in the queue, but mark it
