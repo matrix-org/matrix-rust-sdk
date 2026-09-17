@@ -699,11 +699,14 @@ impl<P: RoomDataProvider> TimelineController<P> {
     }
 
     /// The handle for a pending send on an item, see [`SendTarget`].
+    ///
+    /// `None` if there's nothing of that kind left to act on, which a caller
+    /// racing the remote echo can legitimately run into.
     pub(super) async fn pending_send_handle(
         &self,
         item_id: &TimelineEventItemId,
         target: SendTarget,
-    ) -> Result<AggregationSendHandle, Error> {
+    ) -> Result<Option<AggregationSendHandle>, Error> {
         let state = self.state.read().await;
 
         let Some((_, item)) = rfind_event_by_item_id(&state.items, item_id) else {
@@ -727,7 +730,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             }
         };
 
-        handle.ok_or(Error::NoPendingSend { item_id: item_id.clone(), target })
+        Ok(handle)
     }
 
     /// Handle updates on events as [`VectorDiff`]s.

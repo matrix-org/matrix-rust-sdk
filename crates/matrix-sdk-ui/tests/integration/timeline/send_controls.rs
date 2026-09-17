@@ -79,10 +79,7 @@ async fn test_abort_failed_edit_reverts_content() {
     assert_matches!(item.edit_send_state(), None);
 
     // Nothing left to act on.
-    assert_matches!(
-        timeline.abort_send(&item_id, SendTarget::Edit).await,
-        Err(Error::NoPendingSend { .. })
-    );
+    assert!(!timeline.abort_send(&item_id, SendTarget::Edit).await.unwrap());
     assert_pending!(stream);
 }
 
@@ -252,10 +249,7 @@ async fn test_retry_failed_edit() {
     assert_matches!(item.edit_send_state(), None);
 
     // Once sent, there's nothing local left to abort.
-    assert_matches!(
-        timeline.abort_send(&item_id, SendTarget::Edit).await,
-        Err(Error::NoPendingSend { .. })
-    );
+    assert!(!timeline.abort_send(&item_id, SendTarget::Edit).await.unwrap());
     assert_pending!(stream);
 }
 
@@ -546,7 +540,7 @@ async fn test_event_target_acts_on_the_local_echo() {
 }
 
 #[async_test]
-async fn test_errors_when_there_is_nothing_pending() {
+async fn test_no_op_when_there_is_nothing_pending() {
     let room_id = room_id!("!a:b.c");
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
@@ -578,14 +572,8 @@ async fn test_errors_when_there_is_nothing_pending() {
         SendTarget::Redaction,
         SendTarget::Reaction { key: "👍".to_owned() },
     ] {
-        assert_matches!(
-            timeline.retry_send(&item_id, target.clone()).await,
-            Err(Error::NoPendingSend { .. })
-        );
-        assert_matches!(
-            timeline.abort_send(&item_id, target).await,
-            Err(Error::NoPendingSend { .. })
-        );
+        assert!(!timeline.retry_send(&item_id, target.clone()).await.unwrap());
+        assert!(!timeline.abort_send(&item_id, target).await.unwrap());
     }
 
     let unknown = TimelineEventItemId::EventId(event_id!("$nope").to_owned());
