@@ -654,6 +654,19 @@ impl MatrixAuth {
     /// Alternatively, if the whole session isn't stored the [`login`] method
     /// can be used with a device ID.
     ///
+    /// # Persisting the store
+    ///
+    /// Restoring only reattaches the client to its stored state; it does
+    /// not recreate that state. The same persistent store used during the
+    /// original login (for example via
+    /// [`ClientBuilder::sqlite_store()`]) must be configured on the
+    /// [`ClientBuilder`] when the session is restored, otherwise the
+    /// encryption keys and room state will not be available. When the
+    /// `e2e-encryption` feature is enabled, restoring on top of an
+    /// in-memory store will leave the client unable to send or receive
+    /// encrypted messages. See the [`persist_session`] example for a full
+    /// walk-through.
+    ///
     /// # Arguments
     ///
     /// * `session` - A session that the user already has from a previous login
@@ -718,6 +731,9 @@ impl MatrixAuth {
     ///
     /// [`login`]: #method.login
     /// [`LoginBuilder::send()`]: crate::authentication::matrix::LoginBuilder::send
+    /// [`ClientBuilder`]: crate::ClientBuilder
+    /// [`ClientBuilder::sqlite_store()`]: crate::ClientBuilder::sqlite_store
+    /// [`persist_session`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples/persist_session
     #[instrument(skip_all)]
     pub async fn restore_session(
         &self,
