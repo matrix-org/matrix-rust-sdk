@@ -293,7 +293,7 @@ pub struct TracingFileConfiguration {
     /// This is useful to prevent log files from consuming too much disk space
     /// over time, even with multiple rotated files.
     ///
-    /// Default: 10MB (10 _1024_ 1024 bytes) if not specified.
+    /// Default: 10MB (10 * 1024 * 1024 bytes) if not specified.
     max_total_size_bytes: Option<u64>,
 
     /// Maximum age of log files in seconds.
@@ -302,7 +302,7 @@ pub struct TracingFileConfiguration {
     /// cleanup. This is checked when the writer is created and during rotation
     /// operations.
     ///
-    /// Default: 1 week (7 _24_ 60 * 60 seconds) if not specified.
+    /// Default: 1 week (7 * 24 * 60 * 60 seconds) if not specified.
     max_age_seconds: Option<u64>,
 }
 
