@@ -2498,7 +2498,8 @@ impl StateStoreDataKey<'_> {
 
     /// Key to use for the [`SupportedVersions`][Self::SupportedVersions]
     /// variant.
-    pub const SUPPORTED_VERSIONS: &'static str = "server_capabilities"; // Note: this is the old name, kept for backwards compatibility.
+    // Note: this is the old name, kept for backwards compatibility.
+    pub const SUPPORTED_VERSIONS: &'static str = "server_capabilities";
 
     /// Key to use for the [`WellKnown`][Self::WellKnown]
     /// variant.
