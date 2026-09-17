@@ -938,7 +938,8 @@ impl Aggregations {
     }
 
     /// The send handle of our earliest pending aggregation of some kind on
-    /// `target`, which is also the one shown and the one that can be wedged.
+    /// `target`, i.e. the only one that can be wedged, since the ones behind it
+    /// are waiting on it to go out.
     pub fn pending_send_handle(
         &self,
         target: &TimelineEventItemId,

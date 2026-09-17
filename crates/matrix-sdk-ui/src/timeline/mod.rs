@@ -111,6 +111,12 @@ pub use self::{
 #[derive(Clone, Debug)]
 pub enum SendTarget {
     /// The item itself, while it's a local echo.
+    ///
+    /// Note that aborting one that's already in flight queues a redaction for
+    /// it, without a reason; use [`SendHandle::abort_with_reason`] if one is
+    /// needed.
+    ///
+    /// [`SendHandle::abort_with_reason`]: matrix_sdk::send_queue::SendHandle::abort_with_reason
     Event,
     /// Our pending edit of the item.
     Edit,
