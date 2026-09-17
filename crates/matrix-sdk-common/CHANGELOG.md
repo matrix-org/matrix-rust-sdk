@@ -22,9 +22,9 @@ All notable changes to this project will be documented in this file.
   while let Some(next_update) = updates_subscriber.next().await {
       // Do something!
   }
-  ``` ([#6752](https://github.com/matrix-org/matrix-rust-sdk/pulls/6752))
+  ``` ([#6752](https://github.com/matrix-org/matrix-rust-sdk/pull/6752))
 - Propagate the tracing `Span` into tasks spawned via `TaskMonitor`.
-  ([#6833](https://github.com/matrix-org/matrix-rust-sdk/pulls/6833))
+  ([#6833](https://github.com/matrix-org/matrix-rust-sdk/pull/6833))
 
 ### Changed
 
@@ -38,13 +38,13 @@ All notable changes to this project will be documented in this file.
 
   If one needs an `OwnedEventId` from an `&EventId`, let's just use
   `EventId::to_owned`.
-  ([#6626](https://github.com/matrix-org/matrix-rust-sdk/pulls/6626))
+  ([#6626](https://github.com/matrix-org/matrix-rust-sdk/pull/6626))
 - `LinkedChunk` creates its first chunk lazily. If one expects an
   `Update::NewItemsChunk` to be sent immediately after the `LinkedChunk` is
   created (with `new_with_update_history`), now they need to wait until a method
   on `LinkedChunk` is called. Consequently, another change is
   `LinkedChunk::clear` that no longer recreates an empty chunk immediately too.
-  ([#6752](https://github.com/matrix-org/matrix-rust-sdk/pulls/6752))
+  ([#6752](https://github.com/matrix-org/matrix-rust-sdk/pull/6752))
 
 ### Fixed
 
@@ -58,7 +58,7 @@ All notable changes to this project will be documented in this file.
 
   Another bug existed where the `num_holders` was off by 1 with
   `CrossProcessLockConfig::SingleProcess`, and is now fixed.
-  ([#6629](https://github.com/matrix-org/matrix-rust-sdk/pulls/6629))
+  ([#6629](https://github.com/matrix-org/matrix-rust-sdk/pull/6629))
 - Dropping `CrossProcessLock` no longer releases the lock if a
   `CrossProcessGuard` is still alive.
 
@@ -69,11 +69,11 @@ All notable changes to this project will be documented in this file.
   the lock, but dropping the `CrossProcessLock` —which is not the lock in
   itself— must not drop the acquired lock. There is no public changes, but the
   incorrect behaviour is now fixed.
-  ([#6674](https://github.com/matrix-org/matrix-rust-sdk/pulls/6674))
+  ([#6674](https://github.com/matrix-org/matrix-rust-sdk/pull/6674))
 - `RingBuffer` now preserves its logical capacity when serializing and
   deserializing. Older serialized sequence-form buffers remain readable and use
   a legacy fallback capacity.
-  ([#6815](https://github.com/matrix-org/matrix-rust-sdk/pulls/6815))
+  ([#6815](https://github.com/matrix-org/matrix-rust-sdk/pull/6815))
 - Update `RelationalLinkedChunk` to ensure it adheres to the following three
   properties.
 
@@ -84,7 +84,7 @@ All notable changes to this project will be documented in this file.
   3. When changes are made to the content of an `Event` in one `LinkedChunk`,
      these changes should be reflected in all `LinkedChunk`s which contain an
      instance of that `Event`.
-     ([#6872](https://github.com/matrix-org/matrix-rust-sdk/pulls/6872))
+     ([#6872](https://github.com/matrix-org/matrix-rust-sdk/pull/6872))
 - The `TimelineEvent::bundled_latest_thread_event` _field_ is replaced by the
   `TimelineEvent::bundled_latest_thread_event()` _method_.
 
@@ -93,7 +93,7 @@ All notable changes to this project will be documented in this file.
      used, it was unset when the value was deserialised, which was error-prone,
   3. The field value was boxed, which forced to clone it in some cases. Now, the
      returned value is owned.
-     ([#7033](https://github.com/matrix-org/matrix-rust-sdk/pulls/7033))
+     ([#7033](https://github.com/matrix-org/matrix-rust-sdk/pull/7033))
 
 ## [0.18.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.18.0) - 2026-06-02
 

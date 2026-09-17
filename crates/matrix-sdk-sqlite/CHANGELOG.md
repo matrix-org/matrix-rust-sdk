@@ -17,12 +17,12 @@ All notable changes to this project will be documented in this file.
 
   Do **NOT** use it with human-chosen passphrases, as migrating those to a
   key-based setup would remove their brute-force protection.
-  ([#6878](https://github.com/matrix-org/matrix-rust-sdk/pulls/6878))
+  ([#6878](https://github.com/matrix-org/matrix-rust-sdk/pull/6878))
 
 ### Changed
 
 - Only keep the latest gossip request for each secret.
-  ([#6631](https://github.com/matrix-org/matrix-rust-sdk/pulls/6631))
+  ([#6631](https://github.com/matrix-org/matrix-rust-sdk/pull/6631))
 - The `EventId`s stored in the Event Cache database are now encrypted as hashes,
   they cannot be decrypted.
 
@@ -31,20 +31,20 @@ All notable changes to this project will be documented in this file.
   space.
 
   The Event Cache database is reset.
-  ([#6739](https://github.com/matrix-org/matrix-rust-sdk/pulls/6739))
+  ([#6739](https://github.com/matrix-org/matrix-rust-sdk/pull/6739))
 - [**breaking**] The `open_with_key()` method for the various store
   implementations now accepts a key with any length instead of a 32-byte long
-  array. ([#6878](https://github.com/matrix-org/matrix-rust-sdk/pulls/6878))
+  array. ([#6878](https://github.com/matrix-org/matrix-rust-sdk/pull/6878))
 - The `event-cache` feature flag has been split into `event-cache-store` and
   `media-store`. Both are enabled by default.
-  ([#6896](https://github.com/matrix-org/matrix-rust-sdk/pulls/6896))
+  ([#6896](https://github.com/matrix-org/matrix-rust-sdk/pull/6896))
 - Cleared the Sliding Sync `pos` value from the crypto store after
   [this PR](https://github.com/matrix-org/matrix-rust-sdk/pull/6872) emptied the
   event cache. With this, the initial sync should at least return the most
   recent events for the rooms in the room list, which would be missing with he
   previous `pos` value and would force the clients to paginate to load _any_
   events for _any_ timeline, not even the room's latest event would be present.
-  ([#7016](https://github.com/matrix-org/matrix-rust-sdk/pulls/7016))
+  ([#7016](https://github.com/matrix-org/matrix-rust-sdk/pull/7016))
 
 ### Fixed
 
@@ -57,10 +57,10 @@ All notable changes to this project will be documented in this file.
 
   [sqlite-quirks-string-literals]:
   [<https://sqlite.org/quirks.html#double_quoted_string_literals_are_>][https-sqlite-org-quirks-html-double-quoted-string-literals-are]
-  accepted ([#6653](https://github.com/matrix-org/matrix-rust-sdk/pulls/6653))
+  accepted ([#6653](https://github.com/matrix-org/matrix-rust-sdk/pull/6653))
 - Add a uniqueness constraint on `event_chunks` table that ensures an `Event`
   cannot be in a `LinkedChunk` more than once.
-  ([#6872](https://github.com/matrix-org/matrix-rust-sdk/pulls/6872))
+  ([#6872](https://github.com/matrix-org/matrix-rust-sdk/pull/6872))
 - Fix a bug in `SqliteCryptoStore::mark_inbound_group_sessions_as_backed_up`,
   `SqliteStateStore::get_profiles` and `SqliteStateStore::get_global_profiles`,
   where passing a large number of sessions or users were erroring to “too many
@@ -69,7 +69,7 @@ All notable changes to this project will be documented in this file.
   make misuses impossible by introducing the new `ChunkFromLargeQuery` type,
   replacing the `Vec<Key>` in `chunk_large_query_over`, removing the need to
   manually use `repeat_vars`.
-  ([#6946](https://github.com/matrix-org/matrix-rust-sdk/pulls/6946))
+  ([#6946](https://github.com/matrix-org/matrix-rust-sdk/pull/6946))
 
 ## [0.18.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.18.0) - 2026-06-02
 

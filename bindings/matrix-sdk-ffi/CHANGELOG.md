@@ -22,7 +22,7 @@ All notable changes to this project will be documented in this file.
       <!-- Let's Encrypt disabled OCSP for certificate revocation and switched to CRL, which needs clear-text access. -->
       <domain includeSubdomains="true">lencr.org</domain>
   </domain-config>
-  ``` ([#6645](https://github.com/matrix-org/matrix-rust-sdk/pulls/6645))
+  ``` ([#6645](https://github.com/matrix-org/matrix-rust-sdk/pull/6645))
 - [**breaking**] Removed the `TimelineEventFilter` wrapper, as well as
   `FilterTimelineEventType` and `FilterTimelineEventCondition`. Equivalent types
   are now exposed in the FFI layer from the `matrix_sdk_ui` crate:
@@ -35,7 +35,7 @@ All notable changes to this project will be documented in this file.
     `TimelineEventType`.
   - `TimelineEventCondition` instead of `FilterTimelineEventCondition`.
 
-  ([#6985](https://github.com/matrix-org/matrix-rust-sdk/pulls/6985))
+  ([#6985](https://github.com/matrix-org/matrix-rust-sdk/pull/6985))
 
 ### Added
 
@@ -45,60 +45,60 @@ All notable changes to this project will be documented in this file.
   `start_dehydrated_devices`, `stop_dehydrated_devices`, and a
   `dehydrated_device_event_listener` callback for lifecycle observability.
 
-  [MSC3814]: [https://github.com/matrix-org/matrix-spec-proposals/pull/3814][https-github-com-matrix-org-matrix-spec-proposals-pull-3814] ([#6606](https://github.com/matrix-org/matrix-rust-sdk/pulls/6606))
+  [MSC3814]: [https://github.com/matrix-org/matrix-spec-proposals/pull/3814][https-github-com-matrix-org-matrix-spec-proposals-pull-3814] ([#6606](https://github.com/matrix-org/matrix-rust-sdk/pull/6606))
 - Expose [MSC4426] user-status profile fields through the FFI.
-  ([#6616](https://github.com/matrix-org/matrix-rust-sdk/pulls/6616))
+  ([#6616](https://github.com/matrix-org/matrix-rust-sdk/pull/6616))
 - Added a new `edit_revisions` method on `Timeline` that returns the edit
   history of an event.
-  ([#6630](https://github.com/matrix-org/matrix-rust-sdk/pulls/6630))
+  ([#6630](https://github.com/matrix-org/matrix-rust-sdk/pull/6630))
 - Expose client-level presence configuration with optional immediate updates.
-  ([#6672](https://github.com/matrix-org/matrix-rust-sdk/pulls/6672))
+  ([#6672](https://github.com/matrix-org/matrix-rust-sdk/pull/6672))
 - Add `status` and `call` fields to the FFI `RoomMember` and `ProfileDetails`,
   exposing the user's
   [MSC4426](https://github.com/matrix-org/matrix-spec-proposals/pull/4426) user
   status and call indicator from their global profile.
-  ([#6704](https://github.com/matrix-org/matrix-rust-sdk/pulls/6704))
+  ([#6704](https://github.com/matrix-org/matrix-rust-sdk/pull/6704))
 - Adds the `RawX509Signer` and `RawX509Verifier` foreign traits and the
   `ClientBuilder::with_raw_x509_signer` / `with_raw_x509_verifier` methods,
   allowing consumers to implement platform-specific signing and verification
   implementations.
 
   Gated behind the `experimental-x509-identity-verification` feature.
-  ([#6727](https://github.com/matrix-org/matrix-rust-sdk/pulls/6727))
+  ([#6727](https://github.com/matrix-org/matrix-rust-sdk/pull/6727))
 - Add `thresholds()` accessor and `normal_score` field to
   `PasswordStrengthEstimator` and `PasswordStrengthEstimate`.
-  ([#6728](https://github.com/matrix-org/matrix-rust-sdk/pulls/6728))
+  ([#6728](https://github.com/matrix-org/matrix-rust-sdk/pull/6728))
 - Add `Client::subscribe_to_own_profile`, which reports the current user's
   profile to a `ProfileListener` and notifies it of any subsequent changes.
   **Note:** Without the Profiles sliding sync extension enabled only an empty
   profile will be emitted and no updates will be published.
-  ([#6760](https://github.com/matrix-org/matrix-rust-sdk/pulls/6760))
+  ([#6760](https://github.com/matrix-org/matrix-rust-sdk/pull/6760))
 - Add `Client::is_user_status_supported()`, which returns whether the homeserver
   supports user status. This is the case when the server supports MSC4262
   (Profiles Sliding Sync Extension) and allows setting the `m.status` extended
   profile field.
-  ([#6778](https://github.com/matrix-org/matrix-rust-sdk/pulls/6778))
+  ([#6778](https://github.com/matrix-org/matrix-rust-sdk/pull/6778))
 - `Room` gained a `load_user_receipt()` method, exposing the existing SDK API of
   the same name: it returns a user's receipt of the given type in the room,
   optionally scoped to a thread (`ReceiptThread`), read from the local store.
   This allows e.g. computing per-thread read state from threaded receipts
   without instantiating a thread-focused timeline per thread.
-  ([#6787](https://github.com/matrix-org/matrix-rust-sdk/pulls/6787))
+  ([#6787](https://github.com/matrix-org/matrix-rust-sdk/pull/6787))
 - `Room` gained a `send_single_receipt()` method, exposing the existing SDK API
   of the same name: it sends a receipt of the given type for the given event id,
   optionally scoped to a thread (`ReceiptThread`). This allows e.g. sending
   threaded read receipts without instantiating a thread-focused timeline per
-  thread. ([#6810](https://github.com/matrix-org/matrix-rust-sdk/pulls/6810))
+  thread. ([#6810](https://github.com/matrix-org/matrix-rust-sdk/pull/6810))
 - `UploadParameters` gained an optional `extra_content_json` field, and
   `Timeline` a `send_with_extra_content()` method (leaving `send()` unchanged),
   allowing additional top-level fields (a serialized JSON object) to be included
   in an event's content, e.g. vendor-prefixed keys matched by server-side push
   rules. Fields of the event itself take precedence.
-  ([#6812](https://github.com/matrix-org/matrix-rust-sdk/pulls/6812))
+  ([#6812](https://github.com/matrix-org/matrix-rust-sdk/pull/6812))
 - Added `Client::enable_automatic_call_status(bool)` on the FFI. Opts in to
   auto-syncing this device's MatrixRTC participation into the [MSC4426] `m.call`
   profile field.
-  ([#6825](https://github.com/matrix-org/matrix-rust-sdk/pulls/6825))
+  ([#6825](https://github.com/matrix-org/matrix-rust-sdk/pull/6825))
 - Add `Client::disable_well_known_lookup`, which disables every
   `/.well-known/matrix/client` request performed by the client, for users that
   must not emit any request to the well-known URI of their domain. When
@@ -114,41 +114,41 @@ All notable changes to this project will be documented in this file.
   `ClientBuilder::username` can only be resolved through the well-known, so
   `ClientBuilder::build` fails with the new
   `ClientBuildError::WellKnownLookupDisabled` variant if they are called.
-  ([#6845](https://github.com/matrix-org/matrix-rust-sdk/pulls/6845))
+  ([#6845](https://github.com/matrix-org/matrix-rust-sdk/pull/6845))
 - `Timeline` gained a `toggle_reaction_with_extra_content()` method (leaving
   `toggle_reaction()` unchanged), allowing additional top-level fields (a
   serialized JSON object) to be included in a reaction's content, e.g.
   vendor-prefixed keys matched by server-side push rules. Fields of the event
   itself take precedence, and the extra fields only apply when a reaction is
   added, since removing one is a redaction.
-  ([#6848](https://github.com/matrix-org/matrix-rust-sdk/pulls/6848))
+  ([#6848](https://github.com/matrix-org/matrix-rust-sdk/pull/6848))
 - Added `Client::is_profiles_sliding_sync_extension_supported()` on the FFI,
   exposing a standalone check for server support of the Profiles sliding sync
   extension ([MSC4262]), separately from `is_user_status_supported()`.
-  ([#6863](https://github.com/matrix-org/matrix-rust-sdk/pulls/6863))
+  ([#6863](https://github.com/matrix-org/matrix-rust-sdk/pull/6863))
 - Add `Room::load_or_fetch_event_with_relations`, exposing the existing
   Rust-side API over FFI. Returns the event together with its related events
   (optionally filtered by `RelationType`).
-  ([#6875](https://github.com/matrix-org/matrix-rust-sdk/pulls/6875))
+  ([#6875](https://github.com/matrix-org/matrix-rust-sdk/pull/6875))
 - Added a `server_name_from_user_id` function that returns the server name of a
   user ID, including the port when there is one. Clients that let people type a
   user ID where a server name is expected, such as when picking an account
   provider, no longer need to parse the ID themselves.
-  ([#6922](https://github.com/matrix-org/matrix-rust-sdk/pulls/6922))
+  ([#6922](https://github.com/matrix-org/matrix-rust-sdk/pull/6922))
 - Add `Room::active_human_member_ids` and
   `Room::active_human_member_ids_no_sync`, which return the user IDs of the
   joined and invited room members, without the service members declared by the
   `io.element.functional_members` state event. This is a convenient way to find
   the other party of a direct message.
-  ([#6930](https://github.com/matrix-org/matrix-rust-sdk/pulls/6930))
+  ([#6930](https://github.com/matrix-org/matrix-rust-sdk/pull/6930))
 - Expose `RoomListService::remove_room_subscriptions` and
   `RoomListService::reset_and_add_room_subscriptions`, so consumers can release
   room subscriptions they no longer need, or replace the whole subscription set.
-  ([#6932](https://github.com/matrix-org/matrix-rust-sdk/pulls/6932))
+  ([#6932](https://github.com/matrix-org/matrix-rust-sdk/pull/6932))
 - Expose `Client::get_url_preview(url, ts)`, returning the homeserver-generated
   URL preview as OpenGraph JSON. The response is handed back as a raw JSON
   string because its field set is open-ended.
-  ([#6949](https://github.com/matrix-org/matrix-rust-sdk/pulls/6949))
+  ([#6949](https://github.com/matrix-org/matrix-rust-sdk/pull/6949))
 - `SpaceService` has two new cheap accessor functions for asking about the
   ancestors of a given room or space:
   - `joined_parent_ids_of_child()`: returns the room IDs of a room or space's
@@ -157,36 +157,36 @@ All notable changes to this project will be documented in this file.
   - `top_level_ancestors_of()`: returns the IDs of the top-level joined space(s)
   a room descends from.
 
-  ([#6967](https://github.com/matrix-org/matrix-rust-sdk/pulls/6967))
+  ([#6967](https://github.com/matrix-org/matrix-rust-sdk/pull/6967))
 - Expose `Client::total_unread_notifications`, the sum of the client-side
   computed unread notification counts across all joined rooms, counting rooms
   marked as unread by hand as one each.
-  ([#7002](https://github.com/matrix-org/matrix-rust-sdk/pulls/7002))
+  ([#7002](https://github.com/matrix-org/matrix-rust-sdk/pull/7002))
 - Add `Client::notification_client_with_timeouts`, which takes a
   `NotificationClientTimeouts` record, so that clients with a larger time budget
   can raise the timeouts applied while fetching notifications.
   `Client::notification_client` is unchanged and keeps using the defaults.
-  ([#7023](https://github.com/matrix-org/matrix-rust-sdk/pulls/7023))
+  ([#7023](https://github.com/matrix-org/matrix-rust-sdk/pull/7023))
 
 ### Changed
 
 - [**breaking**] Enable `unstable-uniffi` feature in ruma, rename
   `TimelineEventType` to `FfiTimelineEventType` and replace `StateEventType`,
   `MessageLikeEventType` and `RoomAccountDataEventType` with the ruma types.
-  ([#6161](https://github.com/matrix-org/matrix-rust-sdk/pulls/6161))
+  ([#6161](https://github.com/matrix-org/matrix-rust-sdk/pull/6161))
 - [**breaking**] Send redactions issued via `Timeline::redact_event` through the
   send queue.
-  ([#6428](https://github.com/matrix-org/matrix-rust-sdk/pulls/6428))
+  ([#6428](https://github.com/matrix-org/matrix-rust-sdk/pull/6428))
 - [**breaking**] `Room::search_messages` and `Client::search_messages` no longer
   take a `num_results_per_batch` parameter. The returned
   `RoomSearchIterator`/`GlobalSearchIterator`'s `next_events()` now yields one
   page of results per call.
-  ([#6645](https://github.com/matrix-org/matrix-rust-sdk/pulls/6645))
+  ([#6645](https://github.com/matrix-org/matrix-rust-sdk/pull/6645))
 - [**Breaking**]: instead of setting up a `ContentScanner` in `ClientBuilder`,
   using `ClientBuilder::set_content_scanner`, it can now be enabled and disabled
   at any time using `Client::set_content_scanner` and you can check if content
   scanning is enabled using `Client::content_scanner`.
-  ([#6689](https://github.com/matrix-org/matrix-rust-sdk/pulls/6689))
+  ([#6689](https://github.com/matrix-org/matrix-rust-sdk/pull/6689))
 - [**breaking**] The message search FFI is now reactive.
   `Client::search_messages` (and its `GlobalSearchIterator`) and
   `Room::search_messages` (and its `RoomSearchIterator`) are removed, replaced
@@ -194,7 +194,7 @@ All notable changes to this project will be documented in this file.
   object. Call `SearchService::subscribe_to_results` with a
   `SearchServiceResultsListener` to receive `SearchServiceResultsUpdate`s
   (`VectorDiff`-style) over a single list of typed `SearchResult`s.
-  ([#6695](https://github.com/matrix-org/matrix-rust-sdk/pulls/6695))
+  ([#6695](https://github.com/matrix-org/matrix-rust-sdk/pull/6695))
 - [**breaking**] `GrantQrLoginProgress::WaitingForAuth` and
   `GrantGeneratedQrLoginProgress::WaitingForAuth` now have a
   `continuation_sender: ContinuationMessageSender` field. Applications must call
@@ -209,65 +209,65 @@ All notable changes to this project will be documented in this file.
   `ContinuationCannotBeSent`, which `ContinuationMessageSender.confirm()` and
   `.cancel()` return instead of the check-code-specific `CheckCodeAlreadySent` /
   `CheckCodeCannotBeSent` variants.
-  ([#6711](https://github.com/matrix-org/matrix-rust-sdk/pulls/6711))
+  ([#6711](https://github.com/matrix-org/matrix-rust-sdk/pull/6711))
 - [**breaking**] Adjust `OlmMachine::bootstrap_cross_signing` to return a new
   `BootstrapCrossSigningError` enum covering both crypto store and signing
   failures. This replaces the previous `CryptoStoreError` return type.
-  ([#6715](https://github.com/matrix-org/matrix-rust-sdk/pulls/6715))
+  ([#6715](https://github.com/matrix-org/matrix-rust-sdk/pull/6715))
 - [**breaking**] The FFI `Room::heroes()` is now `async`, and the returned
   `RoomHero` now exposes the user's
   [MSC4426](https://github.com/matrix-org/matrix-spec-proposals/pull/4426)
   status and call fields (`status` and `call`), taken from their global profile.
   These fields are only populated when syncing via sliding sync with the
   profiles extension enabled.
-  ([#6733](https://github.com/matrix-org/matrix-rust-sdk/pulls/6733))
+  ([#6733](https://github.com/matrix-org/matrix-rust-sdk/pull/6733))
 - [**breaking**] `ClientBuildError::WellKnownLookupFailed` inner type is now
   `Box`ed to reduce the error enum's size.
-  ([#6763](https://github.com/matrix-org/matrix-rust-sdk/pulls/6763))
+  ([#6763](https://github.com/matrix-org/matrix-rust-sdk/pull/6763))
 - The dedicated `unstable-msc4426` Cargo feature has been removed. This feature
   was previously enabled by default and there is no change in functionality.
-  ([#6778](https://github.com/matrix-org/matrix-rust-sdk/pulls/6778))
+  ([#6778](https://github.com/matrix-org/matrix-rust-sdk/pull/6778))
 - `Client::is_livekit_rtc_supported` that checks if the server supports
   livekit-based RTC calls is now **by default** only checking the new rtc
   discovery endpoint (MSC4143) and not falling back to the old well-known
   discovery method. If needed, for backwards compatibility, use the
   `fallback_to_well_known` parameter to also check the old method.
-  ([#6791](https://github.com/matrix-org/matrix-rust-sdk/pulls/6791))
+  ([#6791](https://github.com/matrix-org/matrix-rust-sdk/pull/6791))
 - Added `matrix_sdk_search` log target and trace log pack to the available ones.
-  ([#6823](https://github.com/matrix-org/matrix-rust-sdk/pulls/6823))
+  ([#6823](https://github.com/matrix-org/matrix-rust-sdk/pull/6823))
 - [**breaking**] `Client::enable_automatic_backpagination` has been removed.
   Automatic back-pagination is now enabled via
   `ClientBuilder::enable_automatic_back_pagination(bool)`, set before the client
-  is built. ([#6838](https://github.com/matrix-org/matrix-rust-sdk/pulls/6838))
+  is built. ([#6838](https://github.com/matrix-org/matrix-rust-sdk/pull/6838))
 - `Client::is_livekit_rtc_supported` does not accept a `fallback_to_well_known`
   parameter anymore. Its fallback behavior is now controlled by the new
   `Client::disable_well_known_lookup` flag instead.
-  ([#6845](https://github.com/matrix-org/matrix-rust-sdk/pulls/6845))
+  ([#6845](https://github.com/matrix-org/matrix-rust-sdk/pull/6845))
 - [**breaking**] `Timeline::send_reply` now returns the `SendHandle` of the
   queued reply, instead of nothing. This matches `Timeline::send` and lets
   consumers abort or retry a reply that has not been sent yet.
-  ([#6881](https://github.com/matrix-org/matrix-rust-sdk/pulls/6881))
+  ([#6881](https://github.com/matrix-org/matrix-rust-sdk/pull/6881))
 - `Timeline::send_location` is now a thin wrapper around the new
   `matrix_sdk_ui::Timeline::send_location`. Its signature is unchanged, but
   invalid input now returns an error instead of the old silent behavior: an
   out-of-range `zoom_level` (above 20) and `AssetType::Unknown` are rejected,
   where before the zoom level was silently dropped and the unknown asset type
   caused a panic.
-  ([#6891](https://github.com/matrix-org/matrix-rust-sdk/pulls/6891))
+  ([#6891](https://github.com/matrix-org/matrix-rust-sdk/pull/6891))
 - [**breaking**] Converged on a single subscription behavior all through the FFI
   layer in which the initial value is published immediately and outside of the
   update task.
-  ([#6895](https://github.com/matrix-org/matrix-rust-sdk/pulls/6895))
+  ([#6895](https://github.com/matrix-org/matrix-rust-sdk/pull/6895))
 - [**breaking**] `ClientBuilder::username` has been renamed to
   `ClientBuilder::server_name_from_user_id`. Make sure to only build a `Client`
   with one of `homeserver_url`, `server_name`, `server_name_or_homeserver_url`
   or `server_name_from_user_id`. There's no need to use this method when the
   built `Client` will be restored from a `Session` (and there never was).
-  ([#6900](https://github.com/matrix-org/matrix-rust-sdk/pulls/6900))
+  ([#6900](https://github.com/matrix-org/matrix-rust-sdk/pull/6900))
 - `RoomListService::subscribe_to_rooms` is renamed to
   `RoomListService::set_room_subscriptions`, to match the room subscription
   methods of `SlidingSync`.
-  ([#6927](https://github.com/matrix-org/matrix-rust-sdk/pulls/6927))
+  ([#6927](https://github.com/matrix-org/matrix-rust-sdk/pull/6927))
 - This patch changes the `RoomListEntriesDynamicFilterKind::Unread` filter to
   `ReadReceipts { expect: RoomListFilterReadReceipts }`. Before it was looking
   at the `ReadReceipts::num_notifications` field only, now it can look at the
@@ -291,67 +291,67 @@ All notable changes to this project will be documented in this file.
   RoomListEntriesDynamicFilterKind::ReadReceipts {
       expect: RoomListFilterReadReceipts::Notifications,
   }
-  ``` ([#6928](https://github.com/matrix-org/matrix-rust-sdk/pulls/6928))
+  ``` ([#6928](https://github.com/matrix-org/matrix-rust-sdk/pull/6928))
 - Change the return value of `RawX509Signer::validity_not_after` to be in
   milliseconds rather than seconds, to match other interfaces.
-  ([#6933](https://github.com/matrix-org/matrix-rust-sdk/pulls/6933))
+  ([#6933](https://github.com/matrix-org/matrix-rust-sdk/pull/6933))
 - The `ThreadSummary::public_read_receipt_event_id` and
   `ThreadSummary::private_read_receipt_event_id` fields have been removed. They
   were a hack introduced in the past and no longer make sense.
-  ([#6938](https://github.com/matrix-org/matrix-rust-sdk/pulls/6938))
+  ([#6938](https://github.com/matrix-org/matrix-rust-sdk/pull/6938))
 - `SendHandle::abort()` now takes an optional `reason` (defaulting to none),
   applied to the redaction that materializes the abort when the event had
   already been sent by the time the abort was processed.
-  ([#6957](https://github.com/matrix-org/matrix-rust-sdk/pulls/6957))
+  ([#6957](https://github.com/matrix-org/matrix-rust-sdk/pull/6957))
 - `SessionVerificationController` no longer surfaces an incoming verification
   request this session can't complete. A verified session that is missing the
   private self-signing key can neither sign the other device nor be signed by
   it, so the request is dropped instead of being offered to the user only to
   fail after the emojis have been compared. Requests received while this session
   is still unverified are unaffected: the other side is then the one signing us.
-  ([#6971](https://github.com/matrix-org/matrix-rust-sdk/pulls/6971))
+  ([#6971](https://github.com/matrix-org/matrix-rust-sdk/pull/6971))
 - [**breaking**] The Profiles sliding sync extension (MSC4262) is now always
   enabled like the other extensions.
   `SyncServiceBuilder::with_profiles_extension` has been removed.
-  ([#6984](https://github.com/matrix-org/matrix-rust-sdk/pulls/6984))
+  ([#6984](https://github.com/matrix-org/matrix-rust-sdk/pull/6984))
 - [**breaking**] `WidgetCapabilitiesProvider::acquire_capabilities` is now an
   async callback (`suspend fun` in Kotlin, `async` in Swift). The SDK awaits it
   directly instead of running it on a tokio blocking thread.
-  ([#7017](https://github.com/matrix-org/matrix-rust-sdk/pulls/7017))
+  ([#7017](https://github.com/matrix-org/matrix-rust-sdk/pull/7017))
 
 ### Fixed
 
 - Fixed attachment upload failing when blurhash isn't present.
-  ([#6662](https://github.com/matrix-org/matrix-rust-sdk/pulls/6662))
+  ([#6662](https://github.com/matrix-org/matrix-rust-sdk/pull/6662))
 - Fixed a potential deadlock in `SessionVerificationController` where delegate
   callbacks were invoked while the delegate `RwLock` read guard was held, so a
   delegate that detached itself via `set_delegate` would deadlock.
-  ([#6669](https://github.com/matrix-org/matrix-rust-sdk/pulls/6669))
+  ([#6669](https://github.com/matrix-org/matrix-rust-sdk/pull/6669))
 - Fixed upload failures for attachments when `height`, `width`, `size`,
   `duration`, or `blurhash` fields are not present.
-  ([#6683](https://github.com/matrix-org/matrix-rust-sdk/pulls/6683))
+  ([#6683](https://github.com/matrix-org/matrix-rust-sdk/pull/6683))
 
 ### Added
 
 - Add `ClientBuilder::enable_content_scanner(String)` to be able to replace the
   default `MediaFetcher` with one backed by the content scanner server in the
   provided URL.
-  ([#6625](https://github.com/matrix-org/matrix-rust-sdk/pulls/6625))
+  ([#6625](https://github.com/matrix-org/matrix-rust-sdk/pull/6625))
 - The `TimelineItemContent::RtcNotification` now contains additional fields for
   when the notification is related to and active call. The new fields are
   `active_members` (if not empty then the call is active),
   `call_start_ts_millis`, `is_joined`.
-  ([#6668](https://github.com/matrix-org/matrix-rust-sdk/pulls/6668))
+  ([#6668](https://github.com/matrix-org/matrix-rust-sdk/pull/6668))
 - Add `PasswordStrengthEstimator` to the FFI layer, exposing password strength
   estimation via the zxcvbn algorithm with caller-configurable ranking
   thresholds.
-  ([#6708](https://github.com/matrix-org/matrix-rust-sdk/pulls/6708))
+  ([#6708](https://github.com/matrix-org/matrix-rust-sdk/pull/6708))
 - Add `SyncServiceBuilder::with_profiles_extension` to enable the Profiles
   sliding sync extension, which syncs global profile fields such as `m.status`
   and `m.call`.
-  ([#6726](https://github.com/matrix-org/matrix-rust-sdk/pulls/6726))
+  ([#6726](https://github.com/matrix-org/matrix-rust-sdk/pull/6726))
 - Add `SyncServiceBuilder::with_parent_span`.
-  ([#6833](https://github.com/matrix-org/matrix-rust-sdk/pulls/6833))
+  ([#6833](https://github.com/matrix-org/matrix-rust-sdk/pull/6833))
 - Add `SqliteStoreBuilder::high_entropy_passphrase`, a faster alternative to
   `SqliteStoreBuilder::passphrase` for randomly generated, high-entropy
   passphrases. Using this setting once migrates the database from a
@@ -361,14 +361,14 @@ All notable changes to this project will be documented in this file.
 
   Do **NOT** use it with human-chosen passphrases, as migrating those to a
   key-based setup would remove their brute-force protection.
-  ([#6878](https://github.com/matrix-org/matrix-rust-sdk/pulls/6878))
+  ([#6878](https://github.com/matrix-org/matrix-rust-sdk/pull/6878))
 
 ### Changed
 
 - Use a forked Ruma version with a workaround to avoid verifying the JNA
   checksums on the generated Kotlin bindings: these checksums consistently fail
   on 32bit devices and leave any implementing client unable to use any bindings.
-  ([#6764](https://github.com/matrix-org/matrix-rust-sdk/pulls/6764))
+  ([#6764](https://github.com/matrix-org/matrix-rust-sdk/pull/6764))
 
 ### Fixed
 
@@ -378,21 +378,21 @@ All notable changes to this project will be documented in this file.
   rebuilt client then opened a fresh, empty state store next to the previous
   database's journal, which could fail with "disk I/O error" (reproducible when
   clearing caches while sync is active).
-  ([#6811](https://github.com/matrix-org/matrix-rust-sdk/pulls/6811))
+  ([#6811](https://github.com/matrix-org/matrix-rust-sdk/pull/6811))
 
 ## [0.18.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.18.0) - 2026-06-02
 
 ### Added
 
 - Add `RoomInfo::fully_read_event_id` to expose the user's `m.fully_read` event
-  ID. ([#6569](https://github.com/matrix-org/matrix-rust-sdk/pulls/6569))
+  ID. ([#6569](https://github.com/matrix-org/matrix-rust-sdk/pull/6569))
 - Expose `Client::tile_server` on the FFI, returning a `TileServerInfo` record
   when the homeserver advertises a map tile server through its matrix client
   well-known
   ([MSC3488](https://github.com/matrix-org/matrix-spec-proposals/pull/3488)).
   The record carries a single `map_style_url` field pointing at a MapLibre
   `style.json`.
-  ([#6610](https://github.com/matrix-org/matrix-rust-sdk/pulls/6610))
+  ([#6610](https://github.com/matrix-org/matrix-rust-sdk/pull/6610))
 - Expose `SqliteStoreBuilder::key` to allow clients to specify a key as a
   32-bytes array that will be used as is, skipping the key derivation process
   and speeding up opening DB connections. Note this should only be used for
@@ -414,18 +414,18 @@ All notable changes to this project will be documented in this file.
   var bytes = [UInt8](repeating: 0, count: 32)
   SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
   return Data(bytes: bytes) // this now contains the key
-  ``` ([#6805](https://github.com/matrix-org/matrix-rust-sdk/pulls/6805))
+  ``` ([#6805](https://github.com/matrix-org/matrix-rust-sdk/pull/6805))
 
 ### Changed
 
 - [**breaking**] `SpaceRoomList::rooms` and
   `SpaceRoomList::subscribe_to_room_updates` are now asynchronous.
-  ([#6561](https://github.com/matrix-org/matrix-rust-sdk/pulls/6561))
+  ([#6561](https://github.com/matrix-org/matrix-rust-sdk/pull/6561))
 - [**breaking**] `Client::set_pusher` now takes an `append: bool` parameter,
   forwarded to the homeserver. Pass `true` to keep an existing pusher with the
   same `app_id` and `pushkey` registered for other users (e.g. multi-profile
   clients on a single device); pass `false` to preserve the previous default
-  behaviour. ([#6600](https://github.com/matrix-org/matrix-rust-sdk/pulls/6600))
+  behaviour. ([#6600](https://github.com/matrix-org/matrix-rust-sdk/pull/6600))
 
 ## [0.17.0] - 2026-05-08
 

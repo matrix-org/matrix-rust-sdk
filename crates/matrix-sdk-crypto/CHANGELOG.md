@@ -16,7 +16,7 @@ All notable changes to this project will be documented in this file.
   Use `UserIdentity::is_verified()` or `OtherUserIdentity::is_verified()`
   instead, which account for every root of trust we have in that identity,
   including an X.509 signature on its master key.
-  ([#6962](https://github.com/matrix-org/matrix-rust-sdk/pulls/6962))
+  ([#6962](https://github.com/matrix-org/matrix-rust-sdk/pull/6962))
 
 ### Added
 
@@ -31,16 +31,16 @@ All notable changes to this project will be documented in this file.
   against their X.509 signatures.
 
   Gated behind the `experimental-x509-identity-verification` feature.
-  ([#6727](https://github.com/matrix-org/matrix-rust-sdk/pulls/6727))
+  ([#6727](https://github.com/matrix-org/matrix-rust-sdk/pull/6727))
 
 ### Changed
 
 - Only keep the latest gossip request for each secret.
-  ([#6631](https://github.com/matrix-org/matrix-rust-sdk/pulls/6631))
+  ([#6631](https://github.com/matrix-org/matrix-rust-sdk/pull/6631))
 - [**breaking**] Add `OlmMachineBuilder` to help with construction of
   `OlmMachine`. `OlmMachine::with_store` is removed, and callers should use the
   builder instead.
-  ([#6658](https://github.com/matrix-org/matrix-rust-sdk/pulls/6658))
+  ([#6658](https://github.com/matrix-org/matrix-rust-sdk/pull/6658))
 - Accept `impl Into<Signature>` in `Signatures::add_signature`.
 
   [**breaking**] Make `OlmMachine::bootstrap_cross_signing` fallible to allow
@@ -49,13 +49,13 @@ All notable changes to this project will be documented in this file.
 
   [**breaking**] Removed `Account::sign_master_key`, as the master key is signed
   automatically when calling `OwnUserIdentity::verify`
-  ([#6715](https://github.com/matrix-org/matrix-rust-sdk/pulls/6715))
+  ([#6715](https://github.com/matrix-org/matrix-rust-sdk/pull/6715))
 - Make X.509 signing an async operation, meaning that the experimental
   `RawX509Signer::sign` now returns a Future.
-  ([#6867](https://github.com/matrix-org/matrix-rust-sdk/pulls/6867))
+  ([#6867](https://github.com/matrix-org/matrix-rust-sdk/pull/6867))
 - Change the return type of X509Signer::validity_not_after to Duration to make
   it easier for downstream crates to implement.
-  ([#6904](https://github.com/matrix-org/matrix-rust-sdk/pulls/6904))
+  ([#6904](https://github.com/matrix-org/matrix-rust-sdk/pull/6904))
 - A user identity whose master key carries a valid X.509 signature chaining to
   one of the configured trust anchors now confers trust on that user's devices.
 
@@ -66,11 +66,11 @@ All notable changes to this project will be documented in this file.
 
   Requires the `experimental-x509-identity-verification` feature and a
   configured X.509 verifier.
-  ([#6962](https://github.com/matrix-org/matrix-rust-sdk/pulls/6962))
+  ([#6962](https://github.com/matrix-org/matrix-rust-sdk/pull/6962))
 - Move `types::Signature` and `types::Signatures` into submodules of `types`.
-  ([#6660](https://github.com/matrix-org/matrix-rust-sdk/pulls/6660))
+  ([#6660](https://github.com/matrix-org/matrix-rust-sdk/pull/6660))
 - Move logic for parsing base64-encoded signatures into `Signature`.
-  ([#6673](https://github.com/matrix-org/matrix-rust-sdk/pulls/6673))
+  ([#6673](https://github.com/matrix-org/matrix-rust-sdk/pull/6673))
 
 ### Fixed
 
@@ -80,7 +80,7 @@ All notable changes to this project will be documented in this file.
 
   A new method `OlmMachine::receive_sync_changes_msc4186()` was added if the
   MSC4816 semantics for one-time key counts should be used.
-  ([#6780](https://github.com/matrix-org/matrix-rust-sdk/pulls/6780))
+  ([#6780](https://github.com/matrix-org/matrix-rust-sdk/pull/6780))
 - [**breaking**] `Sas::emoji()` and `Sas::emoji_index()` now return `None` when
   the emoji method was not part of the negotiated short authentication string
   methods, instead of returning an emoji representation the remote side never
@@ -90,7 +90,7 @@ All notable changes to this project will be documented in this file.
   be handed emoji and could show them to its user — leaving the two users
   comparing a decimal string against emoji, two incomparable projections of the
   same SAS bytes.
-  ([#6945](https://github.com/matrix-org/matrix-rust-sdk/pulls/6945))
+  ([#6945](https://github.com/matrix-org/matrix-rust-sdk/pull/6945))
 - Any failures that occur while signing the cross-signing identity with X.509
   no longer break bootstrapping entirely.
 
@@ -101,7 +101,7 @@ All notable changes to this project will be documented in this file.
   may be signed later by a call to `OwnUserIdentity::refresh_x509_signature`.
 
   Only impactful when the `experimental-x509-identity-verification` feature is
-  enabled. ([#6990](https://github.com/matrix-org/matrix-rust-sdk/pulls/6990))
+  enabled. ([#6990](https://github.com/matrix-org/matrix-rust-sdk/pull/6990))
 
 ## [0.18.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.18.0) - 2026-06-02
 
@@ -109,7 +109,7 @@ All notable changes to this project will be documented in this file.
 
 - Upgrade Ruma to 0.16.0, fixing a deserialization issue for
   `m.key.verification.accept` events.
-  ([#6628](https://github.com/matrix-org/matrix-rust-sdk/pulls/6628))
+  ([#6628](https://github.com/matrix-org/matrix-rust-sdk/pull/6628))
 
 ## [0.17.0] - 2026-05-08
 
