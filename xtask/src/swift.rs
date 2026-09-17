@@ -500,6 +500,12 @@ fn localize_private_symbols(library: &Utf8Path, target: &Target) -> Result<()> {
         .map(ToOwned::to_owned)
         .collect();
 
+    if members.is_empty() {
+        return Err(
+            format!("found no object using {PRIVATE_SYMBOL_PATTERNS:?} in {library}").into()
+        );
+    }
+
     let _ = remove_dir_all(&objects_directory);
     create_dir_all(&objects_directory)?;
     {
@@ -526,7 +532,9 @@ fn localize_private_symbols(library: &Utf8Path, target: &Target) -> Result<()> {
         .args(&objects)
         .run()?;
     remove_file(library)?;
-    cmd!(sh, "libtool -static -o {library} {merged_object} {remainder}").run()?;
+    // Plenty of the objects carry no symbols; that's not worth a warning each.
+    cmd!(sh, "libtool -static -no_warning_for_no_symbols -o {library} {merged_object} {remainder}")
+        .run()?;
 
     remove_dir_all(&objects_directory)?;
     remove_file(merged_object)?;
@@ -540,8 +548,11 @@ fn localize_private_symbols(library: &Utf8Path, target: &Target) -> Result<()> {
 fn private_symbol_crates(library: &Utf8Path) -> Result<HashSet<String>> {
     let sh = sh();
     let prefix = format!("{library}:");
-    // `nm` warns and exits non-zero for the objects that carry no symbols.
-    let symbols = cmd!(sh, "nm -A -g {library}").ignore_status().read()?;
+    // `nm` is noisy about the objects it has nothing to say about: it warns and
+    // exits non-zero for those carrying no symbols, and errors on the ones built
+    // by a newer LLVM than Xcode's, all of them runtime crates that can't be
+    // using the private symbols anyway.
+    let symbols = cmd!(sh, "nm -A -g {library}").ignore_status().ignore_stderr().read()?;
 
     Ok(symbols
         .lines()
