@@ -139,7 +139,7 @@ impl UtdHookManager {
             // Some slightly arbitrarily-chosen parameters here. We specify that, after 1000
             // UTDs, we want to have a false-positive rate of 1%.
             //
-            // The GrowableBloomFilter is based on a series of (partitioned) Bloom filters;
+            // The `GrowableBloomFilter is based on a series of (partitioned) Bloom filters;
             // once the first starts getting full (the expected false-positive
             // rate gets too high), it adds another Bloom filter. Each new entry
             // is recorded in the most recent Bloom filter; when querying, if
@@ -151,22 +151,30 @@ impl UtdHookManager {
             // target false-positive rate `P` after `n` insertions requires a
             // number of slices `k` given by:
             //
+            // ```latex
             // k = log2(1/P) = -ln(P) / ln(2)
+            // ```
             //
             // ... where each slice has a number of bits `m` given by
             //
+            // ```latex
             // m = n / ln(2)
+            // ```
             //
             // We have to have a whole number of slices and bits, so the total number of
             // bits M is:
             //
+            // ```latex
             // M = ceil(k) * ceil(m)
             //   = ceil(-ln(P) / ln(2)) * ceil(n / ln(2))
+            // ```
             //
             // In other words, our FP rate of 1% after 1000 insertions requires:
             //
+            // ```latex
             // M = ceil(-ln(0.01) / ln(2)) * ceil(1000 / ln(2))
             //   = 7 * 1443 = 10101 bits
+            // ```
             //
             // So our filter starts off with 1263 bytes of data (plus a little overhead).
             // Once we hit 1000 UTDs, we add a second component filter with a capacity
