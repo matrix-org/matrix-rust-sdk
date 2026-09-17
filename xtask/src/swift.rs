@@ -530,6 +530,7 @@ fn localize_private_symbols(library: &Utf8Path, target: &Target) -> Result<()> {
     );
     cmd!(sh, "ld -r -unexported_symbols_list {symbols_list} -o {merged_object}")
         .args(&objects)
+        .quiet()
         .run()?;
     remove_file(library)?;
     // Plenty of the objects carry no symbols; that's not worth a warning each.
