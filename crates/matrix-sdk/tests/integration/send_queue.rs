@@ -1628,9 +1628,9 @@ async fn test_unrecoverable_errors() {
     // too.
     assert_update!((global_watch, watch) => error { recoverable=false, txn=txn1 });
 
-    // The permanent error disables the room send queue.
-    assert!(!room.send_queue().is_enabled());
-    room.send_queue().set_enabled(true);
+    // The queue stays enabled: the wedged request alone blocks it, which preserves
+    // ordering without stopping the room from ever sending again.
+    assert!(room.send_queue().is_enabled());
 
     // The second message is NOT sent: the wedged first message blocks the queue, so
     // messages aren't sent out of order. Its success mock is only mounted below, so
@@ -1701,13 +1701,9 @@ async fn test_unwedge_unrecoverable_errors() {
     // too.
     assert_update!((global_watch, watch) => error { recoverable=false, txn=txn1 });
 
-    // The queue is disabled, because it ran into an error.
-    assert!(!room.send_queue().is_enabled());
-    // Not *all* rooms' queues are disabled, though.
+    // The queue stays enabled; only the wedged request blocks it.
+    assert!(room.send_queue().is_enabled());
     assert!(client.send_queue().is_enabled());
-
-    // Re-enable the room queue.
-    room.send_queue().set_enabled(true);
     assert!(watch.is_empty());
 
     // Unwedge the previously failed message and try sending it again
@@ -1751,9 +1747,8 @@ async fn test_unwedge_reaction() {
     assert_update!((global_watch, watch) => sent { txn = msg_txn, event_id = event_id!("$1") });
     assert_update!((global_watch, watch) => error { recoverable = false, txn = reaction_txn });
 
-    // The failure disabled the room's queue.
-    assert!(!room.send_queue().is_enabled());
-    room.send_queue().set_enabled(true);
+    // The queue stays enabled; only the wedged reaction blocks it.
+    assert!(room.send_queue().is_enabled());
     assert!(watch.is_empty());
 
     reaction_handle.unwedge().await.unwrap();
@@ -1788,8 +1783,8 @@ async fn test_unwedge_redaction() {
     let txn = assert_update!((global_watch, watch) => local echo redaction { redacts = redacts, reason = None });
     assert_update!((global_watch, watch) => error { recoverable = false, txn = txn });
 
-    assert!(!room.send_queue().is_enabled());
-    room.send_queue().set_enabled(true);
+    // The queue stays enabled; only the wedged redaction blocks it.
+    assert!(room.send_queue().is_enabled());
     assert!(watch.is_empty());
 
     handle.unwedge().await.unwrap();
@@ -3165,7 +3160,7 @@ async fn test_unwedging_media_upload() {
     let error = assert_update!((global_watch, watch) => error { recoverable=false, txn=event_txn });
     let error = error.as_client_api_error().unwrap();
     assert_eq!(error.status_code, 413);
-    assert!(!q.is_enabled());
+    assert!(q.is_enabled());
 
     // The wedged upload is reflected on the media event's local echo: a client
     // restarting here must see the media as failed, not as still being sent.
@@ -3177,9 +3172,6 @@ async fn test_unwedging_media_upload() {
     // Mount the mock for the upload and sending the event.
     mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/media")).mock_once().mount().await;
     mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
-
-    // Re-enable the room queue.
-    q.set_enabled(true);
 
     // Unwedge the upload.
     send_handle.unwedge().await.unwrap();
@@ -3245,7 +3237,7 @@ async fn test_wedged_gallery_upload_error_is_reflected_on_local_echo() {
     // be reported with the *event* transaction id.
     let error = assert_update!((global_watch, watch) => error { recoverable=false, txn=event_txn });
     assert_eq!(error.as_client_api_error().unwrap().status_code, 413);
-    assert!(!q.is_enabled());
+    assert!(q.is_enabled());
 
     // The wedged upload is reflected on the gallery event's local echo: a client
     // restarting here must see the gallery as failed, not as still being sent.

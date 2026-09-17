@@ -15,7 +15,6 @@ use ruma::{
     room_id,
 };
 use stream_assert::assert_pending;
-use tokio::task::yield_now;
 
 fn text_edit(body: &str) -> EditedContent {
     EditedContent::RoomMessage(RoomMessageEventContentWithoutRelation::text_plain(body))
@@ -151,7 +150,6 @@ async fn test_abort_acts_on_the_shown_edit() {
     );
 
     // Dropping it lets the second one through.
-    room.send_queue().set_enabled(true);
     assert!(timeline.abort_send(&item_id, SendTarget::Edit).await.unwrap());
 
     assert_let_timeout!(Some(updates) = stream.next());
@@ -228,10 +226,6 @@ async fn test_retry_failed_edit() {
         Some(EventSendState::SendingFailed { is_recoverable: false, .. })
     );
 
-    // The failure disabled the room's queue. Let the queue task park on the
-    // wedged request first, so only the unwedge can wake it.
-    room.send_queue().set_enabled(true);
-    yield_now().await;
     timeline.retry_send(&item_id, SendTarget::Edit).await.unwrap();
 
     // Pending again, then sent.
@@ -370,8 +364,6 @@ async fn test_retry_failed_redaction() {
         Some(EventSendState::SendingFailed { is_recoverable: false, .. })
     );
 
-    room.send_queue().set_enabled(true);
-    yield_now().await;
     timeline.retry_send(&item_id, SendTarget::Redaction).await.unwrap();
 
     assert_let_timeout!(Some(updates) = stream.next());
@@ -464,7 +456,6 @@ async fn test_abort_and_retry_failed_reaction() {
     assert!(item.as_event().unwrap().reactions().get(key).is_none());
 
     // Again, this time retrying.
-    room.send_queue().set_enabled(true);
     timeline.toggle_reaction(&item_id, key).await.unwrap();
 
     assert_let_timeout!(Some(updates) = stream.next());
@@ -485,8 +476,6 @@ async fn test_abort_and_retry_failed_reaction() {
         Some(EventSendState::SendingFailed { is_recoverable: false, .. })
     );
 
-    room.send_queue().set_enabled(true);
-    yield_now().await;
     timeline.retry_send(&item_id, SendTarget::Reaction { key: key.to_owned() }).await.unwrap();
 
     assert_let_timeout!(Some(updates) = stream.next());
@@ -673,4 +662,108 @@ async fn test_abort_puts_back_the_remote_edit() {
     assert_eq!(item.latest_edit_json().unwrap().json().get(), remote_edit_json);
     assert_matches!(item.edit_send_state(), None);
     assert_pending!(stream);
+}
+
+
+#[async_test]
+async fn test_retry_resends_without_touching_the_room_queue() {
+    let room_id = room_id!("!a:b.c");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room = server.sync_joined_room(&client, room_id).await;
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut stream) = timeline.subscribe().await;
+
+    let f = EventFactory::new();
+    let own_user = client.user_id().unwrap();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello").sender(own_user).event_id(event_id!("$1"))),
+        )
+        .await;
+
+    assert_let_timeout!(Some(updates) = stream.next());
+    assert_let!(VectorDiff::PushBack { value: item } = &updates[0]);
+    let item_id = item.as_event().unwrap().identifier();
+
+    // Fails once, then goes out.
+    server.mock_room_send().error_too_large().mock_once().mount().await;
+    server.mock_room_send().ok(event_id!("$edit")).mock_once().mount().await;
+
+    timeline.edit(&item_id, text_edit("edited")).await.unwrap();
+
+    assert_let_timeout!(Some(_) = stream.next()); // NotSentYet
+    assert_let_timeout!(Some(updates) = stream.next()); // SendingFailed
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &updates[0]);
+    assert_matches!(
+        item.as_event().unwrap().edit_send_state(),
+        Some(EventSendState::SendingFailed { is_recoverable: false, .. })
+    );
+
+    // Retrying is all a client has to do: the wedge blocked the queue, it never
+    // disabled it.
+    assert!(room.send_queue().is_enabled());
+    timeline.retry_send(&item_id, SendTarget::Edit).await.unwrap();
+
+    assert_let_timeout!(Some(_) = stream.next()); // NotSentYet again
+
+    assert_let_timeout!(Some(updates) = stream.next());
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &updates[0]);
+    let item = item.as_event().unwrap();
+    assert_eq!(item.content().as_message().unwrap().body(), "edited");
+    assert_matches!(item.edit_send_state(), Some(EventSendState::Sent { .. }));
+}
+
+#[async_test]
+async fn test_abort_unblocks_the_rest_of_the_queue() {
+    let room_id = room_id!("!a:b.c");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room = server.sync_joined_room(&client, room_id).await;
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut stream) = timeline.subscribe().await;
+
+    // The first message wedges. The success mock is only mounted further down, so a
+    // request sneaking past the wedge fails loudly.
+    server.mock_room_send().error_too_large().mock_once().mount().await;
+
+    timeline.send(RoomMessageEventContent::text_plain("first").into()).await.unwrap();
+
+    assert_let_timeout!(Some(updates) = stream.next());
+    assert_let!(VectorDiff::PushBack { value: item } = &updates[0]);
+    let first_id = item.as_event().unwrap().identifier();
+
+    assert_let_timeout!(Some(updates) = stream.next());
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &updates[0]);
+    assert_matches!(
+        item.as_event().unwrap().send_state(),
+        Some(EventSendState::SendingFailed { is_recoverable: false, .. })
+    );
+
+    // A second message piles up behind the wedged one, and stays there.
+    timeline.send(RoomMessageEventContent::text_plain("second").into()).await.unwrap();
+    assert_let_timeout!(Some(updates) = stream.next());
+    assert_let!(VectorDiff::PushBack { value: item } = &updates[0]);
+    assert_matches!(
+        item.as_event().unwrap().send_state(),
+        Some(EventSendState::NotSentYet { .. })
+    );
+    assert_pending!(stream);
+
+    // Dropping the failed one lets the rest of the queue flow again.
+    server.mock_room_send().ok(event_id!("$second")).mock_once().mount().await;
+    assert!(timeline.abort_send(&first_id, SendTarget::Event).await.unwrap());
+
+    assert_let_timeout!(Some(updates) = stream.next());
+    assert_matches!(&updates[0], VectorDiff::Remove { index: 1 });
+
+    assert_let_timeout!(Some(updates) = stream.next());
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &updates[0]);
+    assert_matches!(item.as_event().unwrap().send_state(), Some(EventSendState::Sent { .. }));
 }
