@@ -172,6 +172,16 @@ pub trait MediaFetcher: SendOutsideWasm + SyncOutsideWasm + fmt::Debug {
         client: &'a Client,
         request: &'a MediaRequestParameters,
     ) -> BoxFuture<'a, Result<Vec<u8>, Error>>;
+
+    /// Fetches the media content for the given [`MediaRequestParameters`],
+    /// using the provided [RequestConfig]. Returns either a byte array or
+    /// an [`crate::Error`].
+    fn fetch_media_content_with_config<'a>(
+        &'a self,
+        client: &'a Client,
+        request: &'a MediaRequestParameters,
+        request_config: RequestConfig,
+    ) -> BoxFuture<'a, Result<Vec<u8>, Error>>;
 }
 
 impl Media {
@@ -810,13 +820,22 @@ impl MediaFetcher for DefaultMediaFetcher {
         client: &'a Client,
         request: &'a MediaRequestParameters,
     ) -> BoxFuture<'a, Result<Vec<u8>, Error>> {
-        Box::pin(async move {
-            let request_config = client
-                .request_config()
-                // Downloading a file should have no timeout as we don't know the network
-                // connectivity available for the user or the file size
-                .timeout(Some(Duration::MAX));
+        let request_config = client
+            .request_config()
+            // Downloading a file should have no timeout as we don't know the network
+            // connectivity available for the user or the file size
+            .timeout(Some(Duration::MAX));
 
+        self.fetch_media_content_with_config(client, request, request_config)
+    }
+
+    fn fetch_media_content_with_config<'a>(
+        &'a self,
+        client: &'a Client,
+        request: &'a MediaRequestParameters,
+        request_config: RequestConfig,
+    ) -> BoxFuture<'a, Result<Vec<u8>, Error>> {
+        Box::pin(async move {
             // Use the authenticated endpoints when the server supports it.
             let supported_versions = client.supported_versions().await?;
 
