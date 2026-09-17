@@ -510,7 +510,7 @@ fn localize_private_symbols(library: &Utf8Path, target: &Target) -> Result<()> {
     create_dir_all(&objects_directory)?;
     {
         let _directory = sh.push_dir(&objects_directory);
-        cmd!(sh, "ar x {library}").args(&members).run()?;
+        cmd!(sh, "ar x {library}").args(&members).quiet().run()?;
     }
     let objects: Vec<Utf8PathBuf> =
         members.iter().map(|member| objects_directory.join(member)).collect();
