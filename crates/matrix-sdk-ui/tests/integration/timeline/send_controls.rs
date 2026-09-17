@@ -767,3 +767,92 @@ async fn test_abort_unblocks_the_rest_of_the_queue() {
     assert_let!(VectorDiff::Set { index: 1, value: item } = &updates[0]);
     assert_matches!(item.as_event().unwrap().send_state(), Some(EventSendState::Sent { .. }));
 }
+
+#[async_test]
+async fn test_abort_reverts_a_poll_edit_but_keeps_its_votes() {
+    use ruma::events::poll::unstable_start::{UnstablePollAnswer, UnstablePollStartContentBlock};
+
+    let room_id = room_id!("!a:b.c");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room = server.sync_joined_room(&client, room_id).await;
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut stream) = timeline.subscribe().await;
+
+    let f = EventFactory::new();
+    let own_user = client.user_id().unwrap();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.poll_start("q\n1. a\n2. b", "original question", vec!["a", "b"])
+                    .sender(own_user)
+                    .event_id(event_id!("$1")),
+            ),
+        )
+        .await;
+
+    assert_let_timeout!(Some(updates) = stream.next());
+    assert_let!(VectorDiff::PushBack { value: item } = &updates[0]);
+    let item_id = item.as_event().unwrap().identifier();
+    assert_eq!(item.as_event().unwrap().content().as_poll().unwrap().results().question, "original question");
+
+    server.mock_room_send().error_too_large().mock_once().mount().await;
+    let answers: Vec<UnstablePollAnswer> =
+        vec![UnstablePollAnswer::new("0", "a"), UnstablePollAnswer::new("1", "b")];
+    timeline
+        .edit(
+            &item_id,
+            EditedContent::PollStart {
+                fallback_text: "edited".to_owned(),
+                new_content: UnstablePollStartContentBlock::new(
+                    "edited question",
+                    answers.try_into().unwrap(),
+                ),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_let_timeout!(Some(_) = stream.next()); // NotSentYet
+    assert_let_timeout!(Some(updates) = stream.next()); // SendingFailed
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &updates[0]);
+    let item = item.as_event().unwrap();
+    assert_matches!(
+        item.edit_send_state(),
+        Some(EventSendState::SendingFailed { is_recoverable: false, .. })
+    );
+    assert_eq!(item.content().as_poll().unwrap().results().question, "edited question");
+
+    // A vote comes in while our edit is stuck.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.poll_response(vec!["0"], event_id!("$1"))
+                    .sender(&ALICE)
+                    .event_id(event_id!("$vote")),
+            ),
+        )
+        .await;
+
+    assert_let_timeout!(Some(_) = stream.next());
+    let items = timeline.items().await;
+    let results = items[1].as_event().unwrap().content().as_poll().unwrap().results();
+    assert_eq!(results.votes["0"], vec![ALICE.to_string()]);
+
+    assert!(timeline.abort_send(&item_id, SendTarget::Edit).await.unwrap());
+
+    // The question is back to what it was, and the vote cast meanwhile is still there.
+    assert_let_timeout!(Some(updates) = stream.next());
+    assert_let!(VectorDiff::Set { index: 1, value: item } = updates.last().unwrap());
+    let item = item.as_event().unwrap();
+    let results = item.content().as_poll().unwrap().results();
+    assert_eq!(results.question, "original question");
+    assert!(!results.has_been_edited);
+    assert_eq!(results.votes["0"], vec![ALICE.to_string()]);
+    assert_matches!(item.edit_send_state(), None);
+    assert_pending!(stream);
+}
