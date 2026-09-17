@@ -1678,6 +1678,26 @@ impl Client {
     /// See the documentation of the corresponding authentication API's
     /// `restore_session` method for more information.
     ///
+    /// # Persisting the store
+    ///
+    /// Restoring a session only reattaches the [`Client`] to its stored
+    /// state; it does not recreate that state. If the [`ClientBuilder`]
+    /// was configured with a persistent store (for example via
+    /// [`ClientBuilder::sqlite_store()`]), the same store must be
+    /// configured when the session is restored, otherwise the encryption
+    /// keys and room state will not be available. In particular, when the
+    /// `e2e-encryption` feature is enabled, restoring on top of an
+    /// in-memory store will leave the client unable to send or receive
+    /// encrypted messages, since the Olm and outbound group session state
+    /// cannot be recovered.
+    ///
+    /// See the [`persist_session`] example for an end-to-end sample of how
+    /// to persist a session and its store across runs.
+    ///
+    /// [`ClientBuilder`]: crate::ClientBuilder
+    /// [`ClientBuilder::sqlite_store()`]: crate::ClientBuilder::sqlite_store
+    /// [`persist_session`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples/persist_session
+    ///
     /// # Panics
     ///
     /// Panics if a session was already restored or logged in.
