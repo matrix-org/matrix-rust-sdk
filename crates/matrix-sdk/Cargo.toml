@@ -8,6 +8,7 @@ name = "matrix-sdk"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version.workspace = true
 version = "0.19.0"
+include = [".cargo/mermaid.html", "**/*.rs", "**/*.md"]
 
 [package.metadata.docs.rs]
 features = ["docsrs"]
