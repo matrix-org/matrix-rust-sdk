@@ -366,7 +366,7 @@ struct QueueThumbnailInfo {
     file_size: usize,
 }
 
-/// A specific room's send queue ran into an error, and it has disabled itself.
+/// A specific room's send queue ran into an error.
 #[derive(Clone, Debug)]
 pub struct SendQueueRoomError {
     /// For which room is the send queue failing?
@@ -378,8 +378,7 @@ pub struct SendQueueRoomError {
     /// Whether the error is considered recoverable or not.
     ///
     /// An error that's recoverable will disable the room's send queue, while an
-    /// unrecoverable error will be parked, until the user decides to do
-    /// something about it.
+    /// unrecoverable error will be parked, until it's retried or aborted.
     pub is_recoverable: bool,
 }
 
@@ -2630,8 +2629,10 @@ pub enum RoomSendQueueUpdate {
 
     /// An error happened when an event was being sent.
     ///
-    /// The event has not been removed from the queue. All the send queues
-    /// will be disabled after this happens, and must be manually re-enabled.
+    /// The event has not been removed from the queue. A recoverable error
+    /// disables the room's send queue, which must then be manually re-enabled;
+    /// an unrecoverable one wedges the request, which blocks its room's queue
+    /// until the request is unwedged or aborted.
     SendError {
         /// Transaction id used to identify this event.
         transaction_id: OwnedTransactionId,
@@ -2640,8 +2641,8 @@ pub enum RoomSendQueueUpdate {
         /// Whether the error is considered recoverable or not.
         ///
         /// An error that's recoverable will disable the room's send queue,
-        /// while an unrecoverable error will be parked, until the user
-        /// decides to cancel sending it.
+        /// while an unrecoverable error will be parked, until it's retried or
+        /// aborted.
         is_recoverable: bool,
     },
 

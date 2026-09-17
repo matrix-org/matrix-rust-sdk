@@ -652,7 +652,6 @@ async fn test_abort_puts_back_the_remote_edit() {
     assert_pending!(stream);
 }
 
-
 #[async_test]
 async fn test_retry_resends_without_touching_the_room_queue() {
     let room_id = room_id!("!a:b.c");
@@ -738,10 +737,7 @@ async fn test_abort_unblocks_the_rest_of_the_queue() {
     timeline.send(RoomMessageEventContent::text_plain("second").into()).await.unwrap();
     assert_let_timeout!(Some(updates) = stream.next());
     assert_let!(VectorDiff::PushBack { value: item } = &updates[0]);
-    assert_matches!(
-        item.as_event().unwrap().send_state(),
-        Some(EventSendState::NotSentYet { .. })
-    );
+    assert_matches!(item.as_event().unwrap().send_state(), Some(EventSendState::NotSentYet { .. }));
     assert_pending!(stream);
 
     // Dropping the failed one lets the rest of the queue flow again.
@@ -785,7 +781,10 @@ async fn test_abort_reverts_a_poll_edit_but_keeps_its_votes() {
     assert_let_timeout!(Some(updates) = stream.next());
     assert_let!(VectorDiff::PushBack { value: item } = &updates[0]);
     let item_id = item.as_event().unwrap().identifier();
-    assert_eq!(item.as_event().unwrap().content().as_poll().unwrap().results().question, "original question");
+    assert_eq!(
+        item.as_event().unwrap().content().as_poll().unwrap().results().question,
+        "original question"
+    );
 
     server.mock_room_send().error_too_large().mock_once().mount().await;
     let answers: Vec<UnstablePollAnswer> =
@@ -833,7 +832,8 @@ async fn test_abort_reverts_a_poll_edit_but_keeps_its_votes() {
 
     assert!(timeline.abort_send(&item_id, SendTarget::Edit).await.unwrap());
 
-    // The question is back to what it was, and the vote cast meanwhile is still there.
+    // The question is back to what it was, and the vote cast meanwhile is still
+    // there.
     assert_let_timeout!(Some(updates) = stream.next());
     assert_let!(VectorDiff::Set { index: 1, value: item } = updates.last().unwrap());
     let item = item.as_event().unwrap();

@@ -1040,6 +1040,9 @@ impl TimelineItem {
 #[derive(Clone, uniffi::Enum)]
 pub enum SendTarget {
     /// The item itself, while it's a local echo.
+    ///
+    /// Note that aborting one that's already in flight queues a redaction for
+    /// it, without a reason; use `SendHandle::abort` if one is needed.
     Event,
     /// Our pending edit of the item.
     Edit,
