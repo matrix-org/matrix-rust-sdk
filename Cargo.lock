@@ -3839,6 +3839,7 @@ dependencies = [
  "serde",
  "serde_json",
  "similar-asserts",
+ "strass",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",

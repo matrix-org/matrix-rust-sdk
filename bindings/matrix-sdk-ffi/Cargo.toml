@@ -145,6 +145,7 @@ once_cell = "1.21.4"
 jvm-getter = "0.1.0"
 
 [dev-dependencies]
+strass.workspace = true
 matrix-sdk = { workspace = true, features = ["testing", "rustls-aws-lc-rs"] }
 similar-asserts.workspace = true
 tempfile.workspace = true

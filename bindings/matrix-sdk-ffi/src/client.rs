@@ -89,7 +89,7 @@ use ruma::{
             },
             profile::{AvatarUrl, Call, DisplayName, ProfileFieldName, StaticProfileField, Status},
             room::create_room::{RoomPowerLevelsContentOverride, v3::CreationContent},
-            rtc::RtcTransport,
+            rtc::RtcTransport as RumaRtcTransport,
             uiaa::{EmailUserIdentifier, UserIdentifier},
         },
         error::ErrorKind,
@@ -2234,7 +2234,27 @@ impl Client {
     /// [`Client::disable_well_known_lookup`].
     pub async fn is_livekit_rtc_supported(&self) -> Result<bool, ClientError> {
         let transports = self.inner.discover_rtc_transports().await?.unwrap_or_default();
-        Ok(transports.iter().any(|focus| matches!(focus, RtcTransport::LiveKit { .. })))
+        Ok(transports.iter().any(|focus| matches!(focus, RumaRtcTransport::LiveKit { .. })))
+    }
+
+    /// Discover the RTC transports advertised by the homeserver.
+    ///
+    /// The transports are first looked up through the authenticated
+    /// `GET /_matrix/client/v1/rtc/transports` endpoint (MSC4143). If the
+    /// homeserver doesn't implement that endpoint, this falls back to the
+    /// `m.rtc_foci` field of the well-known, unless well-known discovery was
+    /// disabled with [`ClientBuilder::disable_well_known_lookup`] or
+    /// [`Client::disable_well_known_lookup`].
+    ///
+    /// Returns `None` if neither source could provide transports, which is kept
+    /// distinct from an empty list, i.e. a homeserver that advertises no
+    /// transports at all.
+    pub async fn discover_rtc_transports(&self) -> Result<Option<Vec<RtcTransport>>, ClientError> {
+        Ok(self
+            .inner
+            .discover_rtc_transports()
+            .await?
+            .map(|transports| transports.iter().map(Into::into).collect()))
     }
 
     /// Checks if the server supports the Profiles sliding sync extension.
@@ -3645,6 +3665,42 @@ impl TryFrom<RumaAllowRule> for AllowRule {
     }
 }
 
+/// Information about a MatrixRTC transport advertised by the homeserver.
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum RtcTransport {
+    /// A LiveKit RTC transport.
+    LiveKit {
+        /// The URL of the LiveKit service.
+        service_url: String,
+    },
+
+    /// A transport type the SDK doesn't know about, up for interpretation by
+    /// the consumer.
+    Custom {
+        /// The value of the `type` field of the transport.
+        transport_type: String,
+
+        /// The remaining transport data, as a serialized JSON object. It
+        /// doesn't contain the `type` field.
+        data: String,
+    },
+}
+
+impl From<&RumaRtcTransport> for RtcTransport {
+    fn from(value: &RumaRtcTransport) -> Self {
+        match value {
+            RumaRtcTransport::LiveKit(info) => {
+                Self::LiveKit { service_url: info.service_url.clone() }
+            }
+            _ => Self::Custom {
+                transport_type: value.transport_type().to_owned(),
+                // A `JsonObject` always serializes successfully.
+                data: serde_json::to_string(&value.data()).unwrap_or_else(|_| "{}".to_owned()),
+            },
+        }
+    }
+}
+
 /// Contains the disk size of the different stores, if known. It won't be
 /// available for in-memory stores.
 #[derive(Debug, Clone, uniffi::Record)]
@@ -3928,5 +3984,26 @@ mod tests {
         assert!(converted.avatar_url.is_none());
         assert!(converted.status.is_none());
         assert!(converted.call.is_none());
+    }
+
+    #[test]
+    fn test_rtc_transport_conversion() {
+        use ruma::api::client::rtc::RtcTransport as RumaRtcTransport;
+        use strass::assert_let;
+
+        use super::RtcTransport;
+
+        let livekit = RumaRtcTransport::livekit("https://livekit.example.com".to_owned());
+        assert_let!(RtcTransport::LiveKit { service_url } = RtcTransport::from(&livekit));
+        assert_eq!(service_url, "https://livekit.example.com");
+
+        let custom = RumaRtcTransport::new(
+            "com.example.custom",
+            serde_json::json!({ "endpoint": "https://example.com" }).as_object().unwrap().clone(),
+        )
+        .unwrap();
+        assert_let!(RtcTransport::Custom { transport_type, data } = RtcTransport::from(&custom));
+        assert_eq!(transport_type, "com.example.custom");
+        assert_eq!(data, r#"{"endpoint":"https://example.com"}"#);
     }
 }
