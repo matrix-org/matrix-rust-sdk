@@ -733,6 +733,14 @@ impl Aggregations {
                         if let Some(kind) = item.unedited_kind.take()
                             && let TimelineItemContent::MsgLike(content) = &item.content
                         {
+                            // A poll's votes live in the state an edit carries over, so
+                            // only put back the fields the edit replaced.
+                            let kind = match (kind, &content.kind) {
+                                (MsgLikeKind::Poll(unedited), MsgLikeKind::Poll(current)) => {
+                                    MsgLikeKind::Poll(current.unedit(&unedited))
+                                }
+                                (kind, _) => kind,
+                            };
                             item.content = TimelineItemContent::MsgLike(content.with_kind(kind));
                         }
                         item.edit_send_state = None;
@@ -1110,12 +1118,15 @@ fn edit_item(
         ) => {
             // Second combination: it's a poll edit for a poll. Good.
             if let Some(new_poll_state) = poll_state.edit(replacement.new_content) {
-                let new_item = item.with_content_and_latest_edit(
+                let mut new_item = item.with_content_and_latest_edit(
                     TimelineItemContent::MsgLike(
                         content.with_kind(MsgLikeKind::Poll(new_poll_state)),
                     ),
                     edit_json,
                 );
+                if is_local_echo && item.edit_send_state.is_none() {
+                    new_item.unedited_kind = Some(MsgLikeKind::Poll(poll_state.clone()));
+                }
                 *item = Cow::Owned(new_item);
             } else {
                 // The poll has ended, so we can't edit it anymore.
