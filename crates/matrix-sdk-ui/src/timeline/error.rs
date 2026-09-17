@@ -18,7 +18,7 @@ use matrix_sdk::{
 };
 use thiserror::Error;
 
-use crate::timeline::{SendTarget, TimelineEventItemId};
+use crate::timeline::TimelineEventItemId;
 
 /// Errors specific to the timeline.
 #[derive(Error, Debug)]
@@ -27,10 +27,6 @@ pub enum Error {
     /// The requested event is not in the timeline.
     #[error("Event not found in timeline: {0:?}")]
     EventNotInTimeline(TimelineEventItemId),
-
-    /// There is no pending send of this kind on the item.
-    #[error("No pending send ({target:?}) on item {item_id:?}")]
-    NoPendingSend { item_id: TimelineEventItemId, target: SendTarget },
 
     /// The event is currently unsupported for this use case..
     #[error("Unsupported event")]

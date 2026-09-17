@@ -758,18 +758,22 @@ impl Timeline {
     /// Only needed after an unrecoverable failure, which parks the request
     /// until it's retried or aborted; a recoverable one goes out again when
     /// the room's send queue is re-enabled.
+    ///
+    /// Returns `false` if there was nothing of that kind left to retry, e.g.
+    /// because it went out in the meantime.
     pub async fn retry_send(
         &self,
         item_id: EventOrTransactionId,
         target: SendTarget,
-    ) -> Result<(), ClientError> {
+    ) -> Result<bool, ClientError> {
         Ok(self.inner.retry_send(&item_id.try_into()?, target.into()).await?)
     }
 
     /// Abort sending something on this item that hasn't gone out yet, see
     /// [`SendTarget`].
     ///
-    /// Returns `false` if it went out in the meantime.
+    /// Returns `false` if there was nothing of that kind left to abort, e.g.
+    /// because it went out in the meantime.
     pub async fn abort_send(
         &self,
         item_id: EventOrTransactionId,
