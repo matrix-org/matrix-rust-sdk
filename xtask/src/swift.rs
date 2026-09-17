@@ -520,7 +520,7 @@ fn localize_private_symbols(library: &Utf8Path, target: &Target) -> Result<()> {
     }
 
     copy(library, &remainder)?;
-    cmd!(sh, "ar d {remainder}").args(&members).run()?;
+    cmd!(sh, "ar d {remainder}").args(&members).quiet().run()?;
 
     println!(
         "-- Localizing private symbols for {} ({} of {} objects)",
