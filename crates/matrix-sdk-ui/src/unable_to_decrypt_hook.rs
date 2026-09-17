@@ -139,7 +139,7 @@ impl UtdHookManager {
             // Some slightly arbitrarily-chosen parameters here. We specify that, after 1000
             // UTDs, we want to have a false-positive rate of 1%.
             //
-            // The `GrowableBloomFilter is based on a series of (partitioned) Bloom filters;
+            // The `GrowableBloomFilter` is based on a series of (partitioned) Bloom filters;
             // once the first starts getting full (the expected false-positive
             // rate gets too high), it adds another Bloom filter. Each new entry
             // is recorded in the most recent Bloom filter; when querying, if
