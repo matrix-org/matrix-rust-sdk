@@ -874,9 +874,9 @@ async fn test_supported_versions_handle_refresh_token() {
     //
     // 1. Call the GET /versions endpoint with the expired access token.
     // 2. Try to refresh the token:
-    //   a. Call the GET /versions endpoint without an access token to get the
+    //   1. Call the GET /versions endpoint without an access token to get the
     //      server metadata.
-    //   b. Call the refresh token endpoint.
+    //   2. Call the refresh token endpoint.
     // 3. Call the GET /versions endpoint again with the new access token.
     assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
 
