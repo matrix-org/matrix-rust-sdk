@@ -505,17 +505,18 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `event_type` - The type of the state events to read (e.g.
-    ///   `"m.room.name"` or a custom type).
+    /// * `event_type` - The type of the state events to read. For a type that
+    ///   has no variant of its own, build one from its string representation
+    ///   with `stateEventTypeFromString("com.example.custom")`.
     ///
     /// Only the state the sync asked for is stored locally, so for a custom
     /// event type this is empty unless that type is part of the sliding sync
     /// `required_state`.
     pub async fn state_events(
         &self,
-        event_type: String,
+        event_type: StateEventType,
     ) -> Result<Vec<RoomStateEvent>, ClientError> {
-        let events = self.inner.get_state_events(StateEventType::from(event_type)).await?;
+        let events = self.inner.get_state_events(event_type).await?;
 
         Ok(to_state_events(events))
     }
@@ -528,13 +529,17 @@ impl Room {
     /// single snapshot.
     ///
     /// Use the returned [`TaskHandle`] to cancel the subscription.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_type` - The type of the state events to listen to. For a type
+    ///   that has no variant of its own, build one from its string
+    ///   representation with `stateEventTypeFromString("com.example.custom")`.
     pub fn subscribe_to_state_events(
         self: Arc<Self>,
-        event_type: String,
+        event_type: StateEventType,
         listener: Box<dyn RoomStateEventsListener>,
     ) -> Arc<TaskHandle> {
-        let event_type = StateEventType::from(event_type);
-
         let snapshots = self.inner.subscribe_to_state_events(event_type);
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
@@ -1471,7 +1476,7 @@ pub struct EventWithRelations {
 #[derive(uniffi::Record)]
 pub struct RoomStateEvent {
     /// The event type, e.g. `m.room.name`.
-    pub event_type: String,
+    pub event_type: StateEventType,
     /// The state key this event is stored under.
     pub state_key: String,
     /// The event sender.
@@ -1493,7 +1498,7 @@ impl RoomStateEvent {
         #[derive(Deserialize)]
         struct RoomStateEventHelper<'a> {
             #[serde(rename = "type")]
-            event_type: String,
+            event_type: StateEventType,
             state_key: String,
             sender: String,
             #[serde(borrow)]
