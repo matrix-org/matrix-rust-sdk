@@ -421,6 +421,10 @@ impl OlmMachine {
             x509_signer,
         } = builder;
 
+        Span::current()
+            .record("user_id", display(&user_id))
+            .record("device_id", display(&device_id));
+
         let store = store.unwrap_or_else(|| MemoryStore::new().into_crypto_store());
 
         let static_account = match store.load_account().await? {
