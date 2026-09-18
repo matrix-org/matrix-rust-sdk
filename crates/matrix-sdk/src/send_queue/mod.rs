@@ -1040,7 +1040,13 @@ impl RoomSendQueue {
                         if let Err(storage_error) =
                             queue.mark_as_wedged(&txn_id, QueueWedgeError::from(&err)).await
                         {
-                            warn!("unable to mark request as wedged: {storage_error}");
+                            // Nothing recorded the wedge, so the request would be picked
+                            // up and sent again right away, over and over; disabling the
+                            // queue is the only brake left.
+                            error!(
+                                "unable to mark request as wedged, disabling the queue: {storage_error}"
+                            );
+                            locally_enabled.store(false, Ordering::SeqCst);
                         }
                     }
 
