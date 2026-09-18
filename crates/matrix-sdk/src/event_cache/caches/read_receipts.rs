@@ -157,8 +157,8 @@ fn paginate_for_read_receipt(
     };
 
     match queue.enqueue(request) {
-        // Fire-and-forget: nobody awaits the result, so detach the handle to let the
-        // request run to completion instead of cancelling it on drop.
+        // Fire-and-forget: nobody awaits the result, so detach the handle to
+        // let the request run to completion instead of cancelling it on drop.
         Ok(handle) => handle.detach(),
         Err(err) => warn!(%room_id, "couldn't enqueue a read-receipt backfill request: {err}"),
     }
@@ -198,8 +198,7 @@ fn stop_on_event_ids(
 }
 
 trait ReadReceiptsExt {
-    /// Update the [`ReadReceipts`] unread counts according to the new
-    /// event.
+    /// Update the [`ReadReceipts`] unread counts according to the new event.
     ///
     /// Returns whether a new event triggered a new unread/notification/mention.
     fn process_event(&mut self, event: &TimelineEvent, user_id: &UserId);
@@ -217,8 +216,7 @@ trait ReadReceiptsExt {
 }
 
 impl ReadReceiptsExt for ReadReceipts {
-    /// Update the [`ReadReceipts`] unread counts according to the new
-    /// event.
+    /// Update the [`ReadReceipts`] unread counts according to the new event.
     ///
     /// Returns whether a new event triggered a new unread/notification/mention.
     #[inline(always)]
@@ -266,9 +264,9 @@ impl ReadReceiptsExt for ReadReceipts {
 
         for event in events {
             // Sliding sync sometimes sends the same event multiple times, so it
-            // can be at the beginning and end of a batch, for
-            // instance. In that case, just reset every time we see
-            // the event matching the receipt.
+            // can be at the beginning and end of a batch, for instance. In that
+            // case, just reset every time we see the event matching the
+            // receipt.
             if event.event_id() == Some(receipt_event_id) {
                 // Bingo! Switch over to the counting state, after resetting the
                 // previous counts.
@@ -407,8 +405,8 @@ impl<'cache> EventFilter for ThreadReadReceiptEventFilter<'cache> {
 
     fn filter(&self, _event: &TimelineEvent) -> bool {
         // This type is built from a `ThreadEventCacheState`. The thread event
-        // cache contains all in-thread events for this particular
-        // thread. No need to filter them.
+        // cache contains all in-thread events for this particular thread. No
+        // need to filter them.
         true
     }
 
@@ -481,13 +479,14 @@ where
     }
 
     // This loop folds two actions at once:
+    //
     // - try to find the most recent receipt, by looking at the events in
     //   reverse order (i.e. from the most recent to the least recent),
     // - try to match stashed receipts against known events in the linked chunk,
     //   so as to shrink the stash of pending receipts.
     //
     // We can early exit out of this loop, as soon as there's no more work to
-    // do, i.e., we've found a better receipt, *and* there's no more pending
+    // do, i.e., we've found a better receipt, _and_ there's no more pending
     // receipt to try to match against events in the linked chunk.
 
     let mut receipt = None;
@@ -504,8 +503,8 @@ where
                 trace!(active = %event_id, "the latest active receipt is still the most recent; stopping search");
                 receipt = Some(event_id.to_owned());
             }
-            // Try to find an implicit read receipt (i.e. an event sent by the current
-            // user).
+            // Try to find an implicit read receipt (i.e. an event sent by the
+            // current user).
             else if event.sender().as_deref() == Some(user_id) {
                 trace!(implicit = %event_id, "found an implicit receipt; stopping search");
                 receipt = Some(event_id.to_owned());
@@ -513,16 +512,16 @@ where
         }
 
         // Early exit condition (see the comment above): we've already found a
-        // most recent receipt, and there's no other pending receipts to
-        // match against known events.
+        // most recent receipt, and there's no other pending receipts to match
+        // against known events.
         if receipt.is_some() && pending_receipts.is_empty() {
             trace!("exiting loop; found a better receipt, and no more pending receipt to match");
             break;
         }
 
         // Try to match pending receipts to events known in the linked chunk. If
-        // we haven't found any receipt yet, the first matched pending
-        // receipt is a better one!
+        // we haven't found any receipt yet, the first matched pending receipt
+        // is a better one!
         pending_receipts.retain(|pending| {
             if *pending == event_id {
                 if receipt.is_none() {
@@ -533,8 +532,8 @@ where
                 }
 
                 // Don't keep the pending receipt in the pending list: we've
-                // already identified a better, more recent
-                // receipt at this point (found == Some).
+                // already identified a better, more recent receipt at this
+                // point (found == Some).
                 false
             } else {
                 // Keep the receipt, in case the associated event shows up
@@ -570,9 +569,9 @@ async fn try_find_stored_receipts<T>(
                 read_receipts.latest_active = Some(LatestReadReceipt { event_id });
             } else {
                 // This loop has already flagged a read receipt as the new
-                // `latest_active`. Extra read receipts can go
-                // to the pending receipts list, as they're lower
-                // priority, by the implementation notes above.
+                // `latest_active`. Extra read receipts can go to the pending
+                // receipts list, as they're lower priority, by the
+                // implementation notes above.
                 read_receipts.pending.push(event_id);
             }
         }
@@ -580,8 +579,8 @@ async fn try_find_stored_receipts<T>(
 }
 
 /// Given a set of events coming from sync, for a _timeline_, update the
-/// [`ReadReceipts`]'s counts of unread messages, notifications and
-/// highlights' in place.
+/// [`ReadReceipts`]'s counts of unread messages, notifications and highlights'
+/// in place.
 ///
 /// See this module's documentation for more information.
 #[instrument(skip_all, fields(room_id = %event_filter.room_id()))]
@@ -615,8 +614,8 @@ pub(crate) async fn compute_unread_counts<T>(
     if let Some(event_id) = better_receipt {
         // We've found the id of an event to which the receipt attaches. The
         // associated event may either come from the new batch of events
-        // associated to this sync, or it may live in the past timeline
-        // events we know about.
+        // associated to this sync, or it may live in the past timeline events
+        // we know about.
 
         // First, save the event id as the latest one that has a read receipt.
         trace!(%event_id, "Saving a new active read receipt");
@@ -637,9 +636,8 @@ pub(crate) async fn compute_unread_counts<T>(
     }
 
     // Request a pagination: we haven't found a better receipt, but we haven't
-    // even found the latest active receipt! Hand it the receipt event ids
-    // we're chasing so the backfill can stop as soon as one of them is
-    // loaded.
+    // even found the latest active receipt! Hand it the receipt event ids we're
+    // chasing so the backfill can stop as soon as one of them is loaded.
     if let Some(back_pagination_queue) = back_pagination_queue {
         let targets =
             unresolved_receipt_targets(read_receipts).into_iter().map(ToOwned::to_owned).collect();
@@ -647,10 +645,10 @@ pub(crate) async fn compute_unread_counts<T>(
     }
 
     // If we haven't returned at this point, it means we don't have any new
-    // "active" read receipt. So either there was a previous one further in
-    // the past, or none.
+    // "active" read receipt. So either there was a previous one further in the
+    // past, or none.
     //
-    // In that case, the number of unreads is *at most* the number of processed
+    // In that case, the number of unreads is _at most_ the number of processed
     // events. Reset the number of unreads, and recount them all.
     read_receipts.reset();
 
@@ -1007,8 +1005,8 @@ mod tests {
         assert_eq!(receipts.num_mentions, 37);
 
         // When provided with one event that's the receipt target, we find it,
-        // reset the count, and since there's nothing else, we stop
-        // there and end up with zero counts.
+        // reset the count, and since there's nothing else, we stop there and
+        // end up with zero counts.
         let mut receipts = ReadReceipts {
             num_unread: 42,
             num_notifications: 13,

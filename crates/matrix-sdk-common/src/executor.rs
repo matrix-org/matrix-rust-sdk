@@ -47,8 +47,8 @@ mod sys {
         future::{Abortable, RemoteHandle},
     };
 
-    /// A Wasm specific version of `tokio::task::JoinError` designed to work
-    /// in the single-threaded environment available in Wasm environments.
+    /// A Wasm specific version of `tokio::task::JoinError` designed to work in
+    /// the single-threaded environment available in Wasm environments.
     #[derive(Debug)]
     pub enum JoinError {
         Cancelled,
@@ -75,8 +75,8 @@ mod sys {
         }
     }
 
-    /// A Wasm specific version of `tokio::task::JoinHandle` that
-    /// holds handles to locally executing futures.
+    /// A Wasm specific version of `tokio::task::JoinHandle` that holds handles
+    /// to locally executing futures.
     #[derive(Debug)]
     pub struct JoinHandle<T> {
         remote_handle: Option<RemoteHandle<T>>,
@@ -89,8 +89,8 @@ mod sys {
             self.abort_handle.abort();
         }
 
-        /// Returns the handle to the `AbortHandle` that can be used to
-        /// abort the spawned future.
+        /// Returns the handle to the `AbortHandle` that can be used to abort
+        /// the spawned future.
         pub fn abort_handle(&self) -> AbortHandle {
             self.abort_handle.clone()
         }

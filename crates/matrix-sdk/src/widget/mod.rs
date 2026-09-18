@@ -149,18 +149,18 @@ impl WidgetDriver {
         // Create a channel so that we can conveniently send all messages to it.
         //
         // It will receive:
+        //
         // - all incoming messages from the widget
         // - all responses from the Matrix driver
         // - all events from the Matrix driver, if subscribed
         let (incoming_msg_tx, incoming_msg_rx) = unbounded_channel();
 
-        // Forward all of the incoming messages from the widget.
-        // TODO: This spawns a detached task, it would be nice to have an owner
-        // for this task. One way to achieve this if
-        // `WidgetDriver::run()` returns a handle that we can drop which
-        // will clean up the task and the channels. It's not too bad,
-        // since canelling `run()` will drop the sender this task listens which
-        // finishes the task.
+        // Forward all of the incoming messages from the widget. TODO: This
+        // spawns a detached task, it would be nice to have an owner for this
+        // task. One way to achieve this if `WidgetDriver::run()` returns a
+        // handle that we can drop which will clean up the task and the
+        // channels. It's not too bad, since canelling `run()` will drop the
+        // sender this task listens which finishes the task.
         spawn({
             let incoming_msg_tx = incoming_msg_tx.clone();
             let mut from_widget_rx = self.from_widget_rx;
@@ -173,8 +173,8 @@ impl WidgetDriver {
         });
 
         // Create the widget API machine. The widget machine will process
-        // messages it receives from the widget and convert it into
-        // actions the `MatrixDriver` will then execute on.
+        // messages it receives from the widget and convert it into actions the
+        // `MatrixDriver` will then execute on.
         let (mut widget_machine, initial_actions) = WidgetMachine::new(
             self.settings.widget_id().to_owned(),
             room.room_id().to_owned(),
@@ -250,9 +250,8 @@ impl WidgetDriver {
                     MatrixDriverRequestData::SendEvent(req) => {
                         let SendEventRequest { event_type, state_key, content, delay } = req;
                         // The widget api action does not use the unstable
-                        // prefix: `org.matrix.msc4140.
-                        // delay` so we cannot use the
-                        // `DelayParameters` here and need to convert
+                        // prefix: `org.matrix.msc4140. delay` so we cannot use
+                        // the `DelayParameters` here and need to convert
                         // manually.
                         let delay_event_parameter = delay.map(|d| DelayParameters::Timeout {
                             timeout: Duration::from_millis(d),

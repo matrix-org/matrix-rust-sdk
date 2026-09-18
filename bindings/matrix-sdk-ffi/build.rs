@@ -22,8 +22,9 @@ use std::{
 use vergen_gitcl::{Emitter, Gitcl};
 
 /// Adds a temporary workaround for an issue with the Rust compiler and Android
-/// in x86_64 devices: https://github.com/rust-lang/rust/issues/109717.
-/// The workaround is based on: https://github.com/mozilla/application-services/pull/5442
+/// in x86_64 devices: https://github.com/rust-lang/rust/issues/109717. The
+/// workaround is based on:
+/// https://github.com/mozilla/application-services/pull/5442
 ///
 /// TODO: I think this is obsolete with cargo-ndk 4.0.0:
 /// https://github.com/bbqsrc/cargo-ndk/commit/03c738653f935416580803b82fc6ad72c10dbebc
@@ -44,9 +45,8 @@ fn setup_x86_64_android_workaround() {
         );
 
         // clang_path should now look something like
-        // `.../sdk/ndk/28.0.12674087/toolchains/llvm/prebuilt/linux-x86_64/bin/
-        // clang`. We strip `/bin/clang` from the end to get the
-        // toolchain path.
+        // `.../sdk/ndk/28.0.12674087/toolchains/llvm/prebuilt/linux-x86_64/bin/ clang`.
+        // We strip `/bin/clang` from the end to get the toolchain path.
         let toolchain_path = clang_path
             .ancestors()
             .nth(2)
@@ -69,11 +69,9 @@ fn setup_x86_64_android_workaround() {
 /// CoreFoundation framework in order to avoid linker errors. Otherwise, errors
 /// like the following may occur:
 ///
-///   = note: Undefined symbols for architecture arm64:
-///             "_CFArrayCreate", referenced from:
-///             "_CFDataCreate", referenced from:
-///             "_CFRelease", referenced from:
-///             etc.
+/// = note: Undefined symbols for architecture arm64: "_CFArrayCreate",
+/// referenced from: "_CFDataCreate", referenced from: "_CFRelease", referenced
+/// from: etc.
 fn setup_watchos_simulator_workaround() {
     let target = env::var("TARGET").expect("TARGET not set");
     if target.ends_with("watchos-sim") {

@@ -36,8 +36,8 @@ pub enum State {
     /// At this state, the system is recovering from `Error` or `Terminated`, or
     /// the time between the last sync was too long (see
     /// `StateMachine::state_lifespan` to learn more). It's similar to
-    /// `SettingUp` but some lists may already exist, actions
-    /// are then slightly different.
+    /// `SettingUp` but some lists may already exist, actions are then slightly
+    /// different.
     Recovering,
 
     /// At this state, all rooms are syncing.
@@ -65,8 +65,8 @@ pub struct StateMachine {
     /// the [`State::Recovering`] state. Why do we need to do that? Because in
     /// some cases, the user might have received many updates between two
     /// distant syncs. If the sliding sync list range was too large, like
-    /// 0..=499, the next sync is likely to be heavy and potentially slow.
-    /// In this case, it's preferable to jump back onto `Recovering`, which will
+    /// 0..=499, the next sync is likely to be heavy and potentially slow. In
+    /// this case, it's preferable to jump back onto `Recovering`, which will
     /// reset the range, so that the next sync will be fast for the client.
     ///
     /// To be used in coordination with `Self::state_lifespan`.
@@ -129,9 +129,8 @@ impl StateMachine {
 
             Running => {
                 // We haven't changed the state for a while, we go back to
-                // `Recovering` to avoid requesting potentially
-                // large data. See `Self::last_state_update` to learn
-                // the details.
+                // `Recovering` to avoid requesting potentially large data. See
+                // `Self::last_state_update` to learn the details.
                 if self.last_state_update_time.lock().unwrap().elapsed() > self.state_lifespan {
                     set_all_rooms_to_selective_sync_mode(sliding_sync).await?;
 

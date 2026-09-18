@@ -281,8 +281,8 @@ impl ThreadEventCache {
                     diffs: timeline_event_diffs,
                     origin: EventsOrigin::Sync,
                 }),
-                // This function is part of the `RoomEventCache` flow. The generic update is
-                // handled by it.
+                // This function is part of the `RoomEventCache` flow. The
+                // generic update is handled by it.
                 None,
             );
         }
@@ -311,8 +311,8 @@ impl ThreadEventCache {
     /// Try to find an event by ID in this thread, along with its related
     /// events.
     ///
-    /// You can filter which types of related events to retrieve using
-    /// `filter`. `None` will retrieve related events of any type.
+    /// You can filter which types of related events to retrieve using `filter`.
+    /// `None` will retrieve related events of any type.
     ///
     /// The related events are sorted like this:
     ///
@@ -357,13 +357,14 @@ impl ThreadEventCache {
         state
             .post_process_upserted_events(
                 resolved_events.iter().filter_map(|resolved_event| resolved_event.as_resolved()),
-                // Read receipt events aren't encrypted, so we can't have decrypted a new
-                // one here. As a result, we don't have any new receipt events to
-                // post-process, so we can just pass `None` here.
+                // Read receipt events aren't encrypted, so we can't have
+                // decrypted a new one here. As a result, we don't have any new
+                // receipt events to post-process, so we can just pass `None`
+                // here.
                 //
-                // Note: read receipts may be updated anyhow in the post-processing step,
-                // as the redecryption may have decrypted some events that don't count as
-                // unreads.
+                // Note: read receipts may be updated anyhow in the
+                // post-processing step, as the redecryption may have decrypted
+                // some events that don't count as unreads.
                 None,
             )
             .await?;
@@ -751,8 +752,7 @@ mod timed_tests {
             }
         );
 
-        // … same with a generic update.
-        // (update for the clearing of the room)
+        // … same with a generic update. (update for the clearing of the room)
         assert_matches!(
             generic_stream.recv().await,
             Ok(RoomEventCacheGenericUpdate { room_id: received_room_id }) => {
@@ -810,8 +810,8 @@ mod timed_tests {
             .into_event();
 
         // Prefill the store with some data. The room usually has all events
-        // duplicated from the threads. It's important to make the test
-        // pass when checking the generic update.
+        // duplicated from the threads. It's important to make the test pass
+        // when checking the generic update.
         let updates = vec![
             // An empty items chunk.
             Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(0), next: None },
@@ -935,11 +935,10 @@ mod timed_tests {
         // event, so no generic changes whatsoever!
         assert!(generic_stream.recv().now_or_never().is_none());
 
-        // The stream doesn't report these changes *yet*. Use the events vector
-        // given when subscribing, to check that the events correspond
-        // to their new positions. The duplicated item is removed (so
-        // it's not the first element anymore), and it's added to the
-        // back of the list.
+        // The stream doesn't report these changes _yet_. Use the events vector
+        // given when subscribing, to check that the events correspond to their
+        // new positions. The duplicated item is removed (so it's not the first
+        // element anymore), and it's added to the back of the list.
         let (thread_events, _) = thread_event_cache.subscribe().await.unwrap();
         assert_eq!(thread_events.len(), 2);
         assert_eq!(thread_events[0].event_id(), Some(thread_event_id_0));
@@ -1127,8 +1126,8 @@ mod timed_tests {
         // Okay. We are ready for the test!
         //
         // First off, let's check `thread_event_cache_p0` has access to the
-        // first event loaded in-memory, then do a pagination, and see
-        // more events.
+        // first event loaded in-memory, then do a pagination, and see more
+        // events.
         let mut updates_stream_p0 = {
             let thread_event_cache = &thread_event_cache_p0;
 
@@ -1194,16 +1193,16 @@ mod timed_tests {
         // Do this a couple times, for the fun.
         for _ in 0..3 {
             // Third, because `thread_event_cache_p1` has locked the store, the
-            // lock is dirty for `thread_event_cache_p0`, so it will
-            // shrink to its last chunk for the thread!
+            // lock is dirty for `thread_event_cache_p0`, so it will shrink to
+            // its last chunk for the thread!
             {
                 let thread_event_cache = &thread_event_cache_p0;
                 let updates_stream = &mut updates_stream_p0;
 
                 // `thread_event_id_1` must be loaded in memory, just like
-                // before. However, `thread_event_id_0` must NOT
-                // be loaded in memory. It WAS loaded, but
-                // the state has been reloaded to its last chunk.
+                // before. However, `thread_event_id_0` must NOT be loaded in
+                // memory. It WAS loaded, but the state has been reloaded to its
+                // last chunk.
                 let (initial_updates, _) = thread_event_cache.subscribe().await.unwrap();
 
                 assert_eq!(initial_updates.len(), 1);
@@ -1228,8 +1227,8 @@ mod timed_tests {
                 // Load one more event with a backpagination.
                 thread_event_cache.pagination().run_backwards_once(1).await.unwrap();
 
-                // `thread_event_id_0` must now be loaded in memory.
-                // The pagination can be observed via the updates.
+                // `thread_event_id_0` must now be loaded in memory. The
+                // pagination can be observed via the updates.
                 assert_matches!(
                     updates_stream.recv().await.unwrap(),
                     ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. }) => {
@@ -1245,17 +1244,16 @@ mod timed_tests {
             }
 
             // Fourth, because `thread_event_cache_p0` has locked the store
-            // again, the lock is dirty for `thread_event_cache_p1`
-            // too!, so it will shrink to its last chunk for the
-            // thread!
+            // again, the lock is dirty for `thread_event_cache_p1` too!, so it
+            // will shrink to its last chunk for the thread!
             {
                 let thread_event_cache = &thread_event_cache_p1;
                 let updates_stream = &mut updates_stream_p1;
 
                 // `thread_event_id_1` must be loaded in memory, just like
-                // before. However, `thread_event_id_0` must NOT
-                // be loaded in memory. It WAS loaded, but
-                // the state has shrunk to its last chunk.
+                // before. However, `thread_event_id_0` must NOT be loaded in
+                // memory. It WAS loaded, but the state has shrunk to its last
+                // chunk.
                 let (initial_updates, _) = thread_event_cache.subscribe().await.unwrap();
 
                 assert_eq!(initial_updates.len(), 1);
@@ -1280,8 +1278,8 @@ mod timed_tests {
                 // Load one more event with a backpagination.
                 thread_event_cache.pagination().run_backwards_once(1).await.unwrap();
 
-                // `thread_event_id_0` must now be loaded in memory.
-                // The pagination can be observed via the updates.
+                // `thread_event_id_0` must now be loaded in memory. The
+                // pagination can be observed via the updates.
                 assert_matches!(
                     updates_stream.recv().await.unwrap(),
                     ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. }) => {
@@ -1399,9 +1397,9 @@ mod timed_tests {
         assert_eq!(expected_room_id, room_id);
         assert!(generic_stream.is_empty());
 
-        // Have another subscriber.
-        // Since it's not the first one, and the previous one loaded some more
-        // events, the second subscribers sees them all.
+        // Have another subscriber. Since it's not the first one, and the
+        // previous one loaded some more events, the second subscribers sees
+        // them all.
         let (events2, stream2) = thread_event_cache.subscribe().await.unwrap();
         assert_eq!(events2.len(), 3);
         assert_eq!(events2[0].event_id(), Some(thread_id));

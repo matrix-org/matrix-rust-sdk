@@ -93,8 +93,8 @@ pub struct DeviceData {
         deserialize_with = "atomic_bool_deserializer"
     )]
     withheld_code_sent: Arc<AtomicBool>,
-    /// First time this device was seen in milliseconds since epoch.
-    /// Default to epoch for migration purpose.
+    /// First time this device was seen in milliseconds since epoch. Default to
+    /// epoch for migration purpose.
     #[serde(default = "default_timestamp")]
     first_time_seen_ts: MilliSecondsSinceUnixEpoch,
     /// The number of times the device has tried to unwedge Olm sessions with
@@ -190,8 +190,8 @@ impl Device {
     ) -> Result<bool, MismatchedIdentityKeysError> {
         if session.has_been_imported() {
             // An imported room key means that we did not receive the room key
-            // as a `m.room_key` event when the room key was
-            // initially exchanged.
+            // as a `m.room_key` event when the room key was initially
+            // exchanged.
             //
             // This could mean a couple of things:
             //      1. We received the room key as a `m.forwarded_room_key`.
@@ -199,37 +199,34 @@ impl Device {
             //      3. We imported the room key through a backup.
             //
             // To be certain that a `Device` is the owner of a room key we need
-            // to have a proof that the `Curve25519` key of this
-            // `Device` was used to initially exchange the room key.
-            // This proof is provided by the Olm decryption
-            // step, see below for further clarification.
+            // to have a proof that the `Curve25519` key of this `Device` was
+            // used to initially exchange the room key. This proof is provided
+            // by the Olm decryption step, see below for further clarification.
             //
             // Each of the above room key methods that receive room keys do not
-            // contain this proof and we received only a claim that
-            // the room key is tied to a `Curve25519` key.
+            // contain this proof and we received only a claim that the room key
+            // is tied to a `Curve25519` key.
             //
             // Since there's no way to verify that the claim is true, we say
-            // that we don't know that the room key belongs to this
-            // device.
+            // that we don't know that the room key belongs to this device.
             Ok(false)
         } else if let Some(key) =
             session.signing_keys().get(&DeviceKeyAlgorithm::Ed25519).and_then(|k| k.ed25519())
         {
             // Room keys are received as an `m.room.encrypted` to-device message
             // using the `m.olm` algorithm. Upon decryption of the
-            // `m.room.encrypted` to-device message, the decrypted
-            // content will contain also an `Ed25519` public key[1].
+            // `m.room.encrypted` to-device message, the decrypted content will
+            // contain also an `Ed25519` public key[1].
             //
             // The inclusion of this key means that the `Curve25519` key of the
             // `Device` and Olm `Session`, established using the DH
-            // authentication of the double ratchet, "binds" the
-            // `Ed25519` key of the `Device`. In other words, it
-            // prevents an attack in which Mallory publishes Bob's public
-            // `Curve25519` key as her own, and subsequently
-            // forwards an Olm message she received from Bob to
+            // authentication of the double ratchet, "binds" the `Ed25519` key
+            // of the `Device`. In other words, it prevents an attack in which
+            // Mallory publishes Bob's public `Curve25519` key as her own, and
+            // subsequently forwards an Olm message she received from Bob to
             // Alice, claiming that she, Mallory, originated the Olm message
-            // (leading Alice to believe that Mallory also sent the
-            // messages in the subsequent Megolm session).
+            // (leading Alice to believe that Mallory also sent the messages in
+            // the subsequent Megolm session).
             //
             // On the other hand, the `Ed25519` key binds the `Curve25519` key
             // using a signature which is uploaded to the server as
@@ -245,13 +242,13 @@ impl Device {
             //        from step 1.
             //
             // We don't need to check the signature of the `Device` here, since
-            // we don't accept a `Device` unless it has a valid
-            // `Ed25519` signature.
+            // we don't accept a `Device` unless it has a valid `Ed25519`
+            // signature.
             //
             // We do check that the `Curve25519` that was used to decrypt the
-            // event carrying the `m.room_key` and the `Ed25519` key
-            // that was part of the decrypted content matches the
-            // keys found in this `Device`.
+            // event carrying the `m.room_key` and the `Ed25519` key that was
+            // part of the decrypted content matches the keys found in this
+            // `Device`.
             //
             // ```text
             //                                              ┌───────────────────────┐
@@ -284,8 +281,8 @@ impl Device {
             let curve25519_comparison = self.curve25519_key().map(|k| k == session.sender_key());
 
             match (ed25519_comparison, curve25519_comparison) {
-                // If we have any of the keys but they don't turn out to match, refuse to decrypt
-                // instead.
+                // If we have any of the keys but they don't turn out to match,
+                // refuse to decrypt instead.
                 (_, Some(false)) | (Some(false), _) => Err(MismatchedIdentityKeysError {
                     key_ed25519: key.into(),
                     device_ed25519: self.ed25519_key().map(Into::into),
@@ -294,8 +291,9 @@ impl Device {
                 }),
                 // If both keys match, we have ourselves an owner.
                 (Some(true), Some(true)) => Ok(true),
-                // In the remaining cases, the device is missing at least one of the required
-                // identity keys, so we default to a negative answer.
+                // In the remaining cases, the device is missing at least one of
+                // the required identity keys, so we default to a negative
+                // answer.
                 _ => Ok(false),
             }
         } else {
@@ -337,7 +335,7 @@ impl Device {
     ///
     /// # Arguments
     ///
-    /// * `methods` - The verification methods that we want to support.
+    /// - `methods` - The verification methods that we want to support.
     pub fn request_verification_with_methods(
         &self,
         methods: Vec<VerificationMethod>,
@@ -422,7 +420,7 @@ impl Device {
     ///
     /// # Arguments
     ///
-    /// * `trust_state` - The new trust state that should be set for the device.
+    /// - `trust_state` - The new trust state that should be set for the device.
     pub async fn set_local_trust(&self, trust_state: LocalTrust) -> StoreResult<()> {
         self.inner.set_trust_state(trust_state);
 
@@ -438,15 +436,15 @@ impl Device {
     ///
     /// # Arguments
     ///
-    /// * `event_type` - The type of the event that should be encrypted.
-    /// * `content` - The content of the event that should be encrypted.
+    /// - `event_type` - The type of the event that should be encrypted.
+    /// - `content` - The content of the event that should be encrypted.
     ///
     /// # Returns
     ///
     /// On success, a tuple `(session, content, message_id)`, where `session` is
-    /// the Olm [`Session`] that was used to encrypt the content, `content`
-    /// is the content for the `m.room.encrypted` to-device event, and
-    /// `message_id` is the newly-minted message ID stored within the content.
+    /// the Olm [`Session`] that was used to encrypt the content, `content` is
+    /// the content for the `m.room.encrypted` to-device event, and `message_id`
+    /// is the newly-minted message ID stored within the content.
     ///
     /// If an Olm session has not already been established with this device,
     /// returns `Err(OlmError::MissingSession)`.
@@ -484,8 +482,8 @@ impl Device {
 
     /// Encrypt an event for this device.
     ///
-    /// Beware that the 1-to-1 session must be established prior to this
-    /// call by using the [`OlmMachine::get_missing_sessions`] method.
+    /// Beware that the 1-to-1 session must be established prior to this call by
+    /// using the [`OlmMachine::get_missing_sessions`] method.
     ///
     /// Notable limitation: The caller is responsible for sending the encrypted
     /// event to the target device, this encryption method supports out-of-order
@@ -493,21 +491,22 @@ impl Device {
     /// encrypted using this method they should be sent in the same order as
     /// they are encrypted.
     ///
-    /// *Note*: To instead encrypt an event meant for a room use the
+    /// _Note_: To instead encrypt an event meant for a room use the
     /// [`OlmMachine::encrypt_room_event()`] method instead.
     ///
     /// # Arguments
-    /// * `event_type` - The type of the event to be sent.
-    /// * `content` - The content of the event to be sent. This should be a type
+    ///
+    /// - `event_type` - The type of the event to be sent.
+    /// - `content` - The content of the event to be sent. This should be a type
     ///   that implements the `Serialize` trait.
-    /// * `share_strategy` - The share strategy to use to determine whether we
+    /// - `share_strategy` - The share strategy to use to determine whether we
     ///   should encrypt to the device.
     ///
     /// # Returns
     ///
     /// The encrypted raw content to be shared with your preferred transport
-    /// layer (usually to-device), [`OlmError::MissingSession`] if there is
-    /// no established session with the device.
+    /// layer (usually to-device), [`OlmError::MissingSession`] if there is no
+    /// established session with the device.
     pub async fn encrypt_event_raw(
         &self,
         event_type: &str,
@@ -825,10 +824,10 @@ impl DeviceData {
                 own_identity.is_verified() && own_identity.is_device_signed(self)
             }),
 
-            // If it's a device from someone else, first check that our user
-            // has verified the other user (either by cross-signing their
-            // identity, or via a valid X.509 signature on their master key)
-            // and then check if the other user has signed this device.
+            // If it's a device from someone else, first check that our user has
+            // verified the other user (either by cross-signing their identity,
+            // or via a valid X.509 signature on their master key) and then
+            // check if the other user has signed this device.
             UserIdentityData::Other(device_identity) => {
                 device_identity.is_verified(
                     own_identity.as_ref(),
@@ -844,11 +843,11 @@ impl DeviceData {
         device_owner_identity: &UserIdentityData,
     ) -> bool {
         match device_owner_identity {
-            // If it's one of our own devices, just check that
-            // we signed the device.
+            // If it's one of our own devices, just check that we signed the
+            // device.
             UserIdentityData::Own(identity) => identity.is_device_signed(self),
-            // If it's a device from someone else, check
-            // if the other user has signed this device.
+            // If it's a device from someone else, check if the other user has
+            // signed this device.
             UserIdentityData::Other(device_identity) => device_identity.is_device_signed(self),
         }
     }
@@ -857,17 +856,17 @@ impl DeviceData {
     ///
     /// # Arguments
     ///
-    /// * `store` - The crypto store. Used to find an established Olm session
+    /// - `store` - The crypto store. Used to find an established Olm session
     ///   for this device.
-    /// * `event_type` - The type of the event that should be encrypted.
-    /// * `content` - The content of the event that should be encrypted.
+    /// - `event_type` - The type of the event that should be encrypted.
+    /// - `content` - The content of the event that should be encrypted.
     ///
     /// # Returns
     ///
     /// On success, a tuple `(session, content, message_id)`, where `session` is
-    /// the Olm [`Session`] that was used to encrypt the content, `content`
-    /// is the content for the `m.room.encrypted` to-device event, and
-    /// `message_id` is the newly-minted message ID stored within the content.
+    /// the Olm [`Session`] that was used to encrypt the content, `content` is
+    /// the content for the `m.room.encrypted` to-device event, and `message_id`
+    /// is the newly-minted message ID stored within the content.
     ///
     /// If an Olm session has not already been established with this device,
     /// returns `Err(OlmError::MissingSession)`.
@@ -1021,7 +1020,7 @@ impl DeviceData {
     /// It also makes it easier to check that the server doesn't lie about our
     /// own device.
     ///
-    /// *Don't* use this after we received a `/keys/query` response, other
+    /// _Don't_ use this after we received a `/keys/query` response, other
     /// users/devices might add signatures to our own device, which can't be
     /// replicated locally.
     pub fn from_account(account: &Account) -> DeviceData {
@@ -1225,8 +1224,8 @@ pub(crate) mod tests {
         );
     }
 
-    /// A device signed by its owner's self-signing key becomes trusted when
-    /// the owner's identity is verified via X.509, even though we never
+    /// A device signed by its owner's self-signing key becomes trusted when the
+    /// owner's identity is verified via X.509, even though we never
     /// cross-signed the identity ourselves.
     #[cfg(feature = "experimental-x509-identity-verification")]
     #[matrix_sdk_test::async_test]

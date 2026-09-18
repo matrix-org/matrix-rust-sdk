@@ -43,8 +43,8 @@ async fn alice_client(server: &MatrixMockServer) -> Client {
     server.client_builder_for_crypto_end_to_end(&user_id, &device_id).build().await
 }
 
-/// Bootstrap cross-signing on the client; required before `create` can sign
-/// the dehydrated-device payload it uploads.
+/// Bootstrap cross-signing on the client; required before `create` can sign the
+/// dehydrated-device payload it uploads.
 async fn bootstrap_cross_signing(client: &Client) {
     client.encryption().bootstrap_cross_signing(None).await.unwrap();
 }
@@ -52,9 +52,9 @@ async fn bootstrap_cross_signing(client: &Client) {
 /// Captured payload of a `PUT /dehydrated_device` request.
 type CapturedDevice = Arc<Mutex<Option<(OwnedDeviceId, Value)>>>;
 
-/// Mount a `PUT /dehydrated_device` mock that captures the uploaded device
-/// data into the returned slot. The slot is later consumed to seed the GET
-/// mock during rehydration tests.
+/// Mount a `PUT /dehydrated_device` mock that captures the uploaded device data
+/// into the returned slot. The slot is later consumed to seed the GET mock
+/// during rehydration tests.
 async fn capture_uploaded_device(server: &MatrixMockServer) -> CapturedDevice {
     let captured: CapturedDevice = Arc::new(Mutex::new(None));
     let sink = captured.clone();
@@ -76,9 +76,9 @@ async fn capture_uploaded_device(server: &MatrixMockServer) -> CapturedDevice {
     captured
 }
 
-/// Mount a stateful account-data mock: PUT bodies are stored per event type
-/// and served back by later GETs, with `M_NOT_FOUND` for anything not yet
-/// stored. Enough of a backend for the Secret Storage machinery.
+/// Mount a stateful account-data mock: PUT bodies are stored per event type and
+/// served back by later GETs, with `M_NOT_FOUND` for anything not yet stored.
+/// Enough of a backend for the Secret Storage machinery.
 async fn mock_stateful_account_data(server: &MatrixMockServer) {
     let store: Arc<Mutex<BTreeMap<String, Value>>> = Arc::new(Mutex::new(BTreeMap::new()));
 
@@ -113,8 +113,8 @@ fn account_data_type(req: &Request) -> &str {
     req.url.path_segments().and_then(Iterator::last).expect("account-data URL has path segments")
 }
 
-/// Drain `events` until the next [`DehydratedDeviceEvent::Uploaded`],
-/// returning the uploaded device id.
+/// Drain `events` until the next [`DehydratedDeviceEvent::Uploaded`], returning
+/// the uploaded device id.
 async fn next_uploaded_device_id<E: Debug>(
     events: &mut (impl Stream<Item = Result<DehydratedDeviceEvent, E>> + Unpin),
 ) -> OwnedDeviceId {
@@ -422,8 +422,8 @@ async fn test_rehydrate_repeated_cursor_keeps_the_device() {
         .mock_once()
         .mount()
         .await;
-    // The server hands back the same cursor again; the drain must stop
-    // without deleting the device so a retry can resume the queue.
+    // The server hands back the same cursor again; the drain must stop without
+    // deleting the device so a retry can resume the queue.
     server
         .mock_dehydrated_device_events()
         .match_next_batch("repeated-cursor")
@@ -506,8 +506,8 @@ async fn test_start_round_trips_the_pickle_key_through_secret_storage() {
     dehydrated.start(&secret_store).await.unwrap();
     let first_id = next_uploaded_device_id(&mut events).await;
 
-    // The generated pickle key must have landed in Secret Storage, not only
-    // in the local cache.
+    // The generated pickle key must have landed in Secret Storage, not only in
+    // the local cache.
     assert!(dehydrated.is_key_stored(&secret_store).await.unwrap());
 
     // The second start rehydrates the first device and uploads a fresh one.

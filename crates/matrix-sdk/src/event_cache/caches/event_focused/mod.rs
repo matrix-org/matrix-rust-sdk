@@ -68,9 +68,9 @@ pub enum EventFocusThreadMode {
     /// threaded events.
     ///
     /// When the focused event is part of a thread, the linked chunk will be
-    /// focused on that thread's root. Otherwise, the linked chunk will
-    /// treat the target event itself as the thread root. Threaded events
-    /// will never be hidden.
+    /// focused on that thread's root. Otherwise, the linked chunk will treat
+    /// the target event itself as the thread root. Threaded events will never
+    /// be hidden.
     ForceThread,
 
     /// Automatically determine if the target event is part of a thread or not.
@@ -131,6 +131,7 @@ impl EventFocusedCacheState {
     /// appropriate pagination mode.
     ///
     /// Pagination tokens are stored as gaps in the linked chunk:
+    ///
     /// - Backward token (start): Gap at the front of the linked chunk.
     /// - Forward token (end): Gap at the back of the linked chunk.
     #[instrument(skip(self), fields(room_id = %self.room.room_id(), event_id = %self.focused_event_id))]
@@ -145,12 +146,12 @@ impl EventFocusedCacheState {
         let result = self.reload_impl().await?;
 
         // Empty the updates_as_vector_diffs(), since it's impossible for an
-        // observer to have subscribed to this cache yet, since this
-        // code is part of the constructor flow.
+        // observer to have subscribed to this cache yet, since this code is
+        // part of the constructor flow.
         //
         // If we didn't empty those, such initial updates would be duplicated,
-        // since the subscriber would get the full initial list of
-        // events as diffs and as a set of initial events.
+        // since the subscriber would get the full initial list of events as
+        // diffs and as a set of initial events.
         let _ = self.chunk.updates_as_vector_diffs();
 
         Ok(result)
@@ -227,8 +228,8 @@ impl EventFocusedCacheState {
             trace!(thread_root = %root_id, "focused event is part of a thread, setting up thread pagination");
 
             // Check if the thread root is included in the response. Start from
-            // the beginning, since it's more likely to be around
-            // there, in that case.
+            // the beginning, since it's more likely to be around there, in that
+            // case.
             let includes_root =
                 result.events.iter().any(|event| event.event_id() == Some(&root_id));
 
@@ -345,8 +346,8 @@ impl EventFocusedCacheState {
     /// Paginate backwards in this event-focused linked chunk.
     ///
     /// This finds the gap at the front of the linked chunk, fetches older
-    /// events, replaces the gap with the events, and inserts a new gap if
-    /// there are more events to fetch.
+    /// events, replaces the gap with the events, and inserts a new gap if there
+    /// are more events to fetch.
     #[instrument(skip(self), fields(room_id = %self.room.room_id()))]
     async fn paginate_backwards(&mut self, num_events: u16) -> Result<PaginationResult> {
         let room = self.room.get().ok_or(EventCacheError::ClientDropped)?;
@@ -458,8 +459,8 @@ impl EventFocusedCacheState {
     /// Paginate forwards in this event-focused timeline.
     ///
     /// This finds the gap at the back of the linked chunk, fetches newer
-    /// events, replaces the gap with the events, and inserts a new gap if
-    /// there are more events to fetch.
+    /// events, replaces the gap with the events, and inserts a new gap if there
+    /// are more events to fetch.
     #[instrument(skip(self), fields(room_id = %self.room.room_id()))]
     async fn paginate_forwards(&mut self, num_events: u16) -> Result<PaginationResult> {
         let room = self.room.get().ok_or(EventCacheError::ClientDropped)?;
@@ -557,6 +558,7 @@ impl EventFocusedCacheState {
 /// `/relations` API instead of `/messages`.
 ///
 /// Pagination tokens are stored as Gap items in the linked chunk itself:
+///
 /// - A gap at the **front** (first position) contains the backward pagination
 ///   token.
 /// - A gap at the **back** (last position) contains the forward pagination
@@ -670,10 +672,10 @@ impl EventFocusedCache {
         let mut state = self.inner.write().await?;
 
         // `Redecryptor` tried to resolve the events partly based on in-store
-        // events. Because this cache doesn't persist anything in the
-        // store, `Redecryptor` is unable to resolve some events present
-        // here. To address that, let's try to resolve events here with
-        // the current `EventLinkedChunk`.
+        // events. Because this cache doesn't persist anything in the store,
+        // `Redecryptor` is unable to resolve some events present here. To
+        // address that, let's try to resolve events here with the current
+        // `EventLinkedChunk`.
         let new_resolved_events = resolved_events.try_resolve_events(&state.chunk);
 
         if state.chunk.replace_utds(&new_resolved_events) {

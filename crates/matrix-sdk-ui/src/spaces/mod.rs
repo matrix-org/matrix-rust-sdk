@@ -222,8 +222,8 @@ impl SpaceService {
     }
 
     /// Returns a list of all the top-level joined spaces. It will eagerly
-    /// compute the latest version and also notify subscribers if there were
-    /// any changes.
+    /// compute the latest version and also notify subscribers if there were any
+    /// changes.
     pub async fn top_level_joined_spaces(&self) -> Vec<SpaceRoom> {
         let (top_level_joined_spaces, filters, graph) = Self::build_space_state(&self.client).await;
 
@@ -239,12 +239,12 @@ impl SpaceService {
     }
 
     /// Space filters provide access to a custom subset of the space graph that
-    /// can be used in tandem with the [`crate::RoomListService`] to narrow
-    /// down the presented rooms. A [`crate::room_list_service::RoomList`]'s
+    /// can be used in tandem with the [`crate::RoomListService`] to narrow down
+    /// the presented rooms. A [`crate::room_list_service::RoomList`]'s
     /// [`crate::room_list_service::RoomListDynamicEntriesController`] can take
     /// a filter, which in this case can be a
-    /// [`crate::room_list_service::filters::new_filter_identifiers`]
-    /// pointing to the space descendants retrieved from the filters.
+    /// [`crate::room_list_service::filters::new_filter_identifiers`] pointing
+    /// to the space descendants retrieved from the filters.
     ///
     /// They are limited to the first 2 levels of the graph, with the first
     /// level only containing direct descendants while the second holds the rest
@@ -360,10 +360,9 @@ impl SpaceService {
     ///
     /// The returned IDs are always joined spaces, as that's all the space graph
     /// includes. Note that an empty result either means that the child is a
-    /// top-level space (which has no direct parents) or the child isn't
-    /// part of the space graph at all.
-    /// See [`Self::top_level_ancestors_of()`] if you need that particular level
-    /// of detail.
+    /// top-level space (which has no direct parents) or the child isn't part of
+    /// the space graph at all. See [`Self::top_level_ancestors_of()`] if you
+    /// need that particular level of detail.
     ///
     /// Note: Unlike [`Self::top_level_joined_spaces()`], this method does not
     /// recompute the space graph nor notify subscribers about changes.
@@ -490,8 +489,8 @@ impl SpaceService {
             // https://github.com/matrix-org/matrix-spec/issues/2252
             //
             // Specifically, "The redaction of the state doesn't participate in
-            // state resolution so behaves quite differently from
-            // e.g. sending an empty form of that state events".
+            // state resolution so behaves quite differently from e.g. sending
+            // an empty form of that state events".
             space_room
                 .send_state_event_raw("m.space.child", child_id.as_str(), serde_json::json!({}))
                 .await
@@ -687,9 +686,9 @@ impl SpaceService {
         (top_level_spaces, space_filters, graph)
     }
 
-    /// Build the 2 levels required for space filters.
-    /// As per product requirements, the first level space filters only include
-    /// direct descendants while second level ones contain *all* descendants.
+    /// Build the 2 levels required for space filters. As per product
+    /// requirements, the first level space filters only include direct
+    /// descendants while second level ones contain _all_ descendants.
     ///
     /// The sorting mechanism is different between first level spaces/filters
     /// and second level ones so while the former are already sorted at this
@@ -775,13 +774,13 @@ pub struct SpaceFilter {
     /// The underlying [`SpaceRoom`]
     pub space_room: SpaceRoom,
 
-    /// The level of the space filter in the tree/hierarchy.
-    /// At this point in time the filters are limited to the first 2 levels.
+    /// The level of the space filter in the tree/hierarchy. At this point in
+    /// time the filters are limited to the first 2 levels.
     pub level: u8,
 
-    /// The room identifiers of the descendants of this space.
-    /// For top level spaces (level 0) these will be direct descendants while
-    /// for first level spaces they will be all other descendants, recursively.
+    /// The room identifiers of the descendants of this space. For top level
+    /// spaces (level 0) these will be direct descendants while for first level
+    /// spaces they will be all other descendants, recursively.
     pub descendants: Vec<OwnedRoomId>,
 }
 
@@ -949,8 +948,8 @@ mod tests {
             vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0).await]
         );
 
-        // And the stream is still pending as the initial values were
-        // already set.
+        // And the stream is still pending as the initial values were already
+        // set.
         assert_pending!(joined_spaces_subscriber);
 
         // Join the second space
@@ -1355,8 +1354,8 @@ mod tests {
 
     #[async_test]
     async fn test_joined_parent_ids_of_child() {
-        // Given a space with three parent spaces, two of which are joined,
-        // and a plain room.
+        // Given a space with three parent spaces, two of which are joined, and
+        // a plain room.
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
@@ -1407,9 +1406,9 @@ mod tests {
         let parent_ids = space_service.joined_parent_ids_of_child(child_space_id).await;
 
         // Then only the two joined parent spaces are returned, ordered by room
-        // ID. The unjoined one never made it into the graph in the
-        // first place, since `m.space.parent` events pointing at a room
-        // that isn't a joined space are dropped while building it.
+        // ID. The unjoined one never made it into the graph in the first place,
+        // since `m.space.parent` events pointing at a room that isn't a joined
+        // space are dropped while building it.
         assert_eq!(parent_ids, vec![parent_space_id_1.to_owned(), parent_space_id_2.to_owned()]);
 
         // And the result matches the one of the more expensive
@@ -1562,9 +1561,9 @@ mod tests {
 
         // Then the walk terminates, on the cycle-free graph the service builds:
         // one of the two back edges has been removed, leaving a single root
-        // that both spaces resolve to. Which of the two it is depends
-        // on the order the de-cycling happens to visit them in, which
-        // isn't part of the contract, so it isn't asserted here.
+        // that both spaces resolve to. Which of the two it is depends on the
+        // order the de-cycling happens to visit them in, which isn't part of
+        // the contract, so it isn't asserted here.
         let ancestors_of_1 = space_service.top_level_ancestors_of(space_id_1).await;
         let ancestors_of_2 = space_service.top_level_ancestors_of(space_id_2).await;
 
@@ -1971,8 +1970,8 @@ mod tests {
             .await;
 
         // Then the operation succeeds: the child event is removed from the
-        // space, and the parent event removal is skipped since the
-        // child room is unknown.
+        // space, and the parent event removal is skipped since the child room
+        // is unknown.
         assert!(result.is_ok());
     }
 

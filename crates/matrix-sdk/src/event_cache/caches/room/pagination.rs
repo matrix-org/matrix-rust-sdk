@@ -55,8 +55,8 @@ use crate::{event_cache::caches::pagination::SharedPaginationStatus, room::Messa
 pin_project! {
     /// A subscriber to a [`PaginationStatus`].
     ///
-    /// This is a manual implementation of a map function on top of an internal type
-    /// representing a [`PaginationStatus`].
+    /// This is a manual implementation of a map function on top of an internal
+    /// type representing a [`PaginationStatus`].
     pub struct PaginationStatusSubscriber {
         #[pin]
         subscriber: Subscriber<SharedPaginationStatus>,
@@ -124,6 +124,7 @@ impl RoomPagination {
     ///
     /// It will run multiple back-paginations until one of these two conditions
     /// is met:
+    ///
     /// - either we've reached the start of the timeline,
     /// - or we've obtained enough events to fulfill the requested number of
     ///   events.
@@ -188,14 +189,14 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
 
             Ok(None) => {
                 // If we never received events for this room, this means we've
-                // never received a sync for that room, because
-                // every room must have *at least* a room creation
-                // event. Otherwise, we have reached the start of the timeline.
+                // never received a sync for that room, because every room must
+                // have _at least_ a room creation event. Otherwise, we have
+                // reached the start of the timeline.
 
                 if state.room_linked_chunk().events().next().is_some() {
                     // If there's at least one event, this means we've reached
-                    // the start of the timeline, since the
-                    // chunk is fully loaded.
+                    // the start of the timeline, since the chunk is fully
+                    // loaded.
                     trace!("chunk is fully loaded and non-empty: reached_start=true");
                     return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
                 }
@@ -267,10 +268,10 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
                 trace!(?reached_start, "reloaded chunk from disk ({} items)", events.len());
 
                 // This chunk may reveal the event a read receipt points to,
-                // which the unread counts couldn't find last
-                // time. Only the counts need recomputing, and it
-                // must happen before the caller sends the timeline update, or
-                // observers see the diff with a stale count.
+                // which the unread counts couldn't find last time. Only the
+                // counts need recomputing, and it must happen before the caller
+                // sends the timeline update, or observers see the diff with a
+                // stale count.
                 let reveals_a_receipt_target = self.weak_room.get().is_some_and(|room| {
                     let read_receipts = room.read_receipts();
 
@@ -346,8 +347,8 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
 
         BackPaginationOutcome {
             reached_start,
-            // This is a backwards pagination. `BackPaginationOutcome` expects events to
-            // be in “reverse order”.
+            // This is a backwards pagination. `BackPaginationOutcome` expects
+            // events to be in “reverse order”.
             events: events.into_iter().rev().collect(),
         }
     }
@@ -369,9 +370,9 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
                 });
 
             if gap_chunk_id.is_none() {
-                // We got a previous-batch token from the linked chunk *before*
-                // running the request, but it is missing
-                // *after* completing the request.
+                // We got a previous-batch token from the linked chunk _before_
+                // running the request, but it is missing _after_ completing the
+                // request.
                 //
                 // It may be a sign the linked chunk has been reset, but it's
                 // fine!
@@ -401,15 +402,15 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         // previous ones, otherwise we can end up with misordered events.
         //
         // Consider the following scenario:
+        //
         // - sync returns [D, E, F]
         // - then sync returns [] with a previous batch token PB1, so the
         //   internal linked chunk state is [D, E, F, PB1].
         // - back-paginating with PB1 may return [A, B, C, D, E, F].
         //
         // Only inserting the new events when replacing PB1 would result in a
-        // timeline ordering of [D, E, F, A, B, C], which is incorrect.
-        // So we do have to remove all the events, in case this happens
-        // (see also #4746).
+        // timeline ordering of [D, E, F, A, B, C], which is incorrect. So we do
+        // have to remove all the events, in case this happens (see also #4746).
 
         if !all_duplicates {
             // Let's forget all the previous events.
@@ -443,8 +444,8 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         // safely set the receipt event to None here.
         //
         // Note: read receipts may be updated anyhow in the post-processing
-        // step, as the back-pagination may have revealed the event
-        // pointed to by the latest read receipt.
+        // step, as the back-pagination may have revealed the event pointed to
+        // by the latest read receipt.
         let receipt_event = None;
 
         // Post-process newly inserted events.

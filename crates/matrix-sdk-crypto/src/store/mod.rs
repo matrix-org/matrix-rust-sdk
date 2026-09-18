@@ -126,8 +126,8 @@ pub use crate::{
 ///
 /// This is needed because we want to have a generic interface so we can
 /// store/restore objects that we can serialize. Since trait objects and
-/// generics don't mix let the CryptoStore store strings and this wrapper
-/// adds the generic interface on top.
+/// generics don't mix let the CryptoStore store strings and this wrapper adds
+/// the generic interface on top.
 #[derive(Debug, Clone)]
 pub struct Store {
     inner: Arc<StoreInner>,
@@ -152,8 +152,8 @@ impl KeyQueryManager {
     /// fill out our caches.
     ///
     /// This method ensures that we're only going to load the users from the
-    /// actual [`CryptoStore`] once, it will also make sure that any
-    /// concurrent calls to this method get deduplicated.
+    /// actual [`CryptoStore`] once, it will also make sure that any concurrent
+    /// calls to this method get deduplicated.
     async fn ensure_sync_tracked_users(&self, cache: &StoreCache) -> Result<()> {
         // Check if the users are loaded, and in that case do nothing.
         let loaded = cache.loaded_tracked_users.read().await;
@@ -166,9 +166,8 @@ impl KeyQueryManager {
         let mut loaded = cache.loaded_tracked_users.write().await;
 
         // Check again if the users have been loaded, in case another call to
-        // this method loaded the tracked users between the time we
-        // tried to acquire the lock and the time we actually acquired
-        // the lock.
+        // this method loaded the tracked users between the time we tried to
+        // acquire the lock and the time we actually acquired the lock.
         if *loaded {
             return Ok(());
         }
@@ -197,8 +196,8 @@ impl KeyQueryManager {
     /// [`UserKeyQueryResult::TimeoutExpired`].
     ///
     /// Requires a [`StoreCacheGuard`] to make sure the users for which a key
-    /// query is pending are up to date, but doesn't hold on to it
-    /// thereafter: the lock is short-lived in this case.
+    /// query is pending are up to date, but doesn't hold on to it thereafter:
+    /// the lock is short-lived in this case.
     pub async fn wait_if_user_key_query_pending(
         &self,
         cache: StoreCacheGuard,
@@ -207,8 +206,8 @@ impl KeyQueryManager {
     ) -> Result<UserKeyQueryResult> {
         {
             // Drop the cache early, so we don't keep it while waiting (since
-            // writing the results requires to write in the cache,
-            // thus take another lock).
+            // writing the results requires to write in the cache, thus take
+            // another lock).
             self.ensure_sync_tracked_users(&cache).await?;
             drop(cache);
         }
@@ -230,8 +229,8 @@ impl KeyQueryManager {
                 // Wait for a notification
                 notified.await;
 
-                // Reclaim the lock before checking the flag to avoid races
-                // when two notifications happen right after each other and the
+                // Reclaim the lock before checking the flag to avoid races when
+                // two notifications happen right after each other and the
                 // second one sets the flag we want to wait for.
                 users_for_key_query = self.users_for_key_query.lock().await;
             }
@@ -282,9 +281,9 @@ impl SyncedKeyQueryManager<'_> {
     /// Process notifications that users have changed devices.
     ///
     /// This is used to handle the list of device-list updates that is received
-    /// from the `/sync` response. Any users *whose device lists we are
-    /// tracking* are flagged as needing a key query. Users whose devices we
-    /// are not tracking are ignored.
+    /// from the `/sync` response. Any users
+    /// _whose device lists we are tracking_ are flagged as needing a key query.
+    /// Users whose devices we are not tracking are ignored.
     pub async fn mark_tracked_users_as_changed(
         &self,
         users: impl Iterator<Item = &UserId>,
@@ -308,8 +307,8 @@ impl SyncedKeyQueryManager<'_> {
     /// Flag that the given users devices are now up-to-date.
     ///
     /// This is called after processing the response to a /keys/query request.
-    /// Any users whose device lists we are tracking are removed from the
-    /// list of those pending a /keys/query.
+    /// Any users whose device lists we are tracking are removed from the list
+    /// of those pending a /keys/query.
     pub async fn mark_tracked_users_as_up_to_date(
         &self,
         users: impl Iterator<Item = &UserId>,
@@ -344,8 +343,8 @@ impl SyncedKeyQueryManager<'_> {
     /// # Returns
     ///
     /// A pair `(users, sequence_number)`, where `users` is the list of users to
-    /// be queried, and `sequence_number` is the current sequence number,
-    /// which should be returned in `mark_tracked_users_as_up_to_date`.
+    /// be queried, and `sequence_number` is the current sequence number, which
+    /// should be returned in `mark_tracked_users_as_up_to_date`.
     pub async fn users_for_key_query(&self) -> (HashSet<OwnedUserId>, SequenceNumber) {
         self.manager.users_for_key_query.lock().await.users_for_key_query()
     }
@@ -368,11 +367,11 @@ impl SyncedKeyQueryManager<'_> {
     }
 }
 
-/// Convert the devices and vectors contained in the [`DeviceChanges`] into
-/// a [`DeviceUpdates`] struct.
+/// Convert the devices and vectors contained in the [`DeviceChanges`] into a
+/// [`DeviceUpdates`] struct.
 ///
-/// The [`DeviceChanges`] will contain vectors of [`DeviceData`]s which
-/// we want to convert to a [`Device`].
+/// The [`DeviceChanges`] will contain vectors of [`DeviceData`]s which we want
+/// to convert to a [`Device`].
 fn collect_device_updates(
     verification_machine: VerificationMachine,
     own_identity: Option<OwnUserIdentityData>,
@@ -523,8 +522,8 @@ pub enum SecretImportError {
         /// The key error that occurred.
         error: vodozemac::KeyError,
     },
-    /// The public key of the imported private key doesn't match the public
-    /// key that was uploaded to the server.
+    /// The public key of the imported private key doesn't match the public key
+    /// that was uploaded to the server.
     #[error(
         "Error while importing {name}: The public key of the imported private \
             key doesn't match the public key that was uploaded to the server"
@@ -716,9 +715,9 @@ impl Store {
         let result = match (index_comparison, trust_level_comparison) {
             (SessionOrdering::Unconnected, _) => {
                 // If this happens, it means that we have two sessions
-                // purporting to have the same session id, but
-                // where the ratchets do not match up.
-                // In other words, someone is playing silly buggers.
+                // purporting to have the same session id, but where the
+                // ratchets do not match up. In other words, someone is playing
+                // silly buggers.
                 warn!(
                     "Received a group session with an ratchet that does not connect to the one in the store, discarding"
                 );
@@ -814,7 +813,7 @@ impl Store {
 
     /// Get the device data for the given [`UserId`] and [`DeviceId`].
     ///
-    /// *Note*: This method will include our own device which is always present
+    /// _Note_: This method will include our own device which is always present
     /// in the store.
     pub(crate) async fn get_device_data(
         &self,
@@ -826,7 +825,7 @@ impl Store {
 
     /// Get the device data for the given [`UserId`] and [`DeviceId`].
     ///
-    /// *Note*: This method will **not** include our own device.
+    /// _Note_: This method will **not** include our own device.
     ///
     /// Use this method if you need a list of recipients for a given user, since
     /// we don't want to encrypt for our own device, otherwise take a look at
@@ -845,7 +844,7 @@ impl Store {
 
     /// Get the [`DeviceData`] for all the devices a user has.
     ///
-    /// *Note*: This method will include our own device which is always present
+    /// _Note_: This method will include our own device which is always present
     /// in the store.
     ///
     /// Use this method if you need to operate on or update all devices of a
@@ -861,7 +860,7 @@ impl Store {
     /// Get a [`Device`] for the given user with the given
     /// [`Curve25519PublicKey`] key.
     ///
-    /// *Note*: This method will include our own device which is always present
+    /// _Note_: This method will include our own device which is always present
     /// in the store.
     pub(crate) async fn get_device_from_curve_key(
         &self,
@@ -876,11 +875,11 @@ impl Store {
     /// Get all devices associated with the given [`UserId`].
     ///
     /// This method is more expensive than the
-    /// [`Store::get_device_data_for_user`] method, since a [`Device`]
-    /// requires the [`OwnUserIdentityData`] and the [`UserIdentityData`] of the
-    /// device owner to be fetched from the store as well.
+    /// [`Store::get_device_data_for_user`] method, since a [`Device`] requires
+    /// the [`OwnUserIdentityData`] and the [`UserIdentityData`] of the device
+    /// owner to be fetched from the store as well.
     ///
-    /// *Note*: This method will include our own device which is always present
+    /// _Note_: This method will include our own device which is always present
     /// in the store.
     pub(crate) async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
         let devices = self.get_device_data_for_user(user_id).await?;
@@ -907,10 +906,10 @@ impl Store {
     ///
     /// This method is more expensive than the [`Store::get_device_data`] method
     /// since a [`Device`] requires the [`OwnUserIdentityData`] and the
-    /// [`UserIdentityData`] of the device owner to be fetched from the
-    /// store as well.
+    /// [`UserIdentityData`] of the device owner to be fetched from the store as
+    /// well.
     ///
-    /// *Note*: This method will include our own device which is always present
+    /// _Note_: This method will include our own device which is always present
     /// in the store.
     pub(crate) async fn get_device(
         &self,
@@ -925,9 +924,9 @@ impl Store {
     }
 
     /// Create a new device using the supplied [`DeviceData`]. Normally we would
-    /// call [`Self::get_device`] to find an existing device inside this
-    /// store. Only call this if you have some existing DeviceData and want
-    /// to wrap it with the extra information provided by a [`Device`].
+    /// call [`Self::get_device`] to find an existing device inside this store.
+    /// Only call this if you have some existing DeviceData and want to wrap it
+    /// with the extra information provided by a [`Device`].
     pub(crate) async fn wrap_device_data(&self, device_data: DeviceData) -> Result<Device> {
         let own_identity = self
             .inner
@@ -975,7 +974,7 @@ impl Store {
     ///
     /// # Arguments
     ///
-    /// * `secret_name` - The name of the secret that should be exported.
+    /// - `secret_name` - The name of the secret that should be exported.
     pub async fn export_secret(
         &self,
         secret_name: &SecretName,
@@ -1120,8 +1119,8 @@ impl Store {
     /// Import and persists secrets from a [`SecretsBundle`].
     ///
     /// This method will import all the private cross-signing keys and, if
-    /// available, the private part of a backup key and its accompanying
-    /// version into the store.
+    /// available, the private part of a backup key and its accompanying version
+    /// into the store.
     ///
     /// **Warning**: Only import this from a trusted source, i.e. if an existing
     /// device is sharing this with a new device. The imported cross-signing
@@ -1198,8 +1197,8 @@ impl Store {
                 // We don't import the decryption key here since we'll want to
                 // check if the public key matches to the latest version on the
                 // server. We instead put the secret into a secret inbox where
-                // it will stay until it either gets overwritten
-                // or the user accepts the secret.
+                // it will stay until it either gets overwritten or the user
+                // accepts the secret.
             }
             name => {
                 warn!(secret = ?name, "Tried to import an unknown secret");
@@ -1418,15 +1417,15 @@ impl Store {
     /// the secret inbox as a [`Stream`].
     ///
     /// The gossipped secrets are received using the `m.secret.send` event type
-    /// and are guaranteed to have been received over a 1-to-1 Olm
-    /// [`Session`] from a verified [`Device`].
+    /// and are guaranteed to have been received over a 1-to-1 Olm [`Session`]
+    /// from a verified [`Device`].
     ///
     /// The [`GossippedSecret`] can also be later found in the secret inbox and
     /// retrieved using the [`CryptoStore::get_secrets_from_inbox()`] method.
     ///
     /// After a suitable secret of a certain type has been found it can be
-    /// removed from the store
-    /// using the [`CryptoStore::delete_secrets_from_inbox()`] method.
+    /// removed from the store using the
+    /// [`CryptoStore::delete_secrets_from_inbox()`] method.
     ///
     /// The only secret this will currently broadcast is the
     /// `m.megolm_backup.v1`.
@@ -1459,12 +1458,13 @@ impl Store {
 
     /// Receive notifications of historic room key bundles as a [`Stream`].
     ///
-    /// Historic room key bundles are defined in [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
+    /// Historic room key bundles are defined in
+    /// [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
     ///
     /// Each time a historic room key bundle was received, an update will be
     /// sent to the stream. This stream can be used to accept historic room key
-    /// bundles that arrive out of order, i.e. the bundle arrives after the
-    /// user has already accepted a room invitation.
+    /// bundles that arrive out of order, i.e. the bundle arrives after the user
+    /// has already accepted a room invitation.
     ///
     /// # Examples
     ///
@@ -1504,11 +1504,11 @@ impl Store {
     ///
     /// # Arguments
     ///
-    /// * `exported_keys` - The keys to be imported.
-    /// * `from_backup_version` - If the keys came from key backup, the key
+    /// - `exported_keys` - The keys to be imported.
+    /// - `from_backup_version` - If the keys came from key backup, the key
     ///   backup version. This will cause the keys to be marked as already
     ///   backed up, and therefore not requiring another backup.
-    /// * `progress_listener` - Callback which will be called after each key is
+    /// - `progress_listener` - Callback which will be called after each key is
     ///   processed. Called with arguments `(processed, total)` where
     ///   `processed` is the number of keys processed so far, and `total` is the
     ///   total number of keys (i.e., `exported_keys.len()`).
@@ -1538,9 +1538,9 @@ impl Store {
     ///
     /// # Arguments
     ///
-    /// * `exported_keys` - A list of previously exported keys that should be
+    /// - `exported_keys` - A list of previously exported keys that should be
     ///   imported into our store. If we already have a better version of a key
-    ///   the key will *not* be imported.
+    ///   the key will _not_ be imported.
     ///
     /// Returns a tuple of numbers that represent the number of sessions that
     /// were imported and the total number of sessions that were found in the
@@ -1581,8 +1581,8 @@ impl Store {
         let mut keys = BTreeMap::new();
 
         for (i, session) in sessions.into_iter().enumerate() {
-            // Only import the session if we didn't have this session or
-            // if it's a better version of the same session.
+            // Only import the session if we didn't have this session or if it's
+            // a better version of the same session.
             if let Some(merged) = self.merge_received_group_session(session).await? {
                 if from_backup_version.is_some() {
                     merged.mark_as_backed_up();
@@ -1620,7 +1620,7 @@ impl Store {
     ///
     /// # Arguments
     ///
-    /// * `predicate` - A closure that will be called for every known
+    /// - `predicate` - A closure that will be called for every known
     ///   `InboundGroupSession`, which represents a room key. If the closure
     ///   returns `true` the `InboundGroupSession` will be included in the
     ///   export, if the closure returns `false` it will not be included.
@@ -1660,7 +1660,7 @@ impl Store {
     ///
     /// # Arguments
     ///
-    /// * `predicate` - A closure that will be called for every known
+    /// - `predicate` - A closure that will be called for every known
     ///   `InboundGroupSession`, which represents a room key. If the closure
     ///   returns `true` the `InboundGroupSession` will be included in the
     ///   export, if the closure returns `false` it will not be included.
@@ -1727,8 +1727,7 @@ impl Store {
         }
 
         // If we received a key bundle ourselves, in which one or more sessions
-        // was marked as "history not shared", pass that on to the new
-        // user.
+        // was marked as "history not shared", pass that on to the new user.
         let withhelds = self.get_withheld_sessions_by_room_id(room_id).await?;
         for withheld in withhelds {
             if withheld.content.withheld_code() == WithheldCode::HistoryNotShared {
@@ -1743,9 +1742,9 @@ impl Store {
     ///
     /// # Arguments
     ///
-    /// * `bundle_info` - The [`StoredRoomKeyBundleData`] of the bundle that is
+    /// - `bundle_info` - The [`StoredRoomKeyBundleData`] of the bundle that is
     ///   being received.
-    /// * `bundle` - The decrypted and deserialized bundle itself.
+    /// - `bundle` - The decrypted and deserialized bundle itself.
     ///
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
     #[instrument(skip(self, bundle, progress_listener), fields(bundle_size = bundle.room_keys.len(), sender_data))]
@@ -1771,8 +1770,8 @@ impl Store {
         tracing::Span::current().record("sender_data", tracing::field::debug(&sender_data));
 
         // The sender's device must be either `SenderData::SenderUnverified`
-        // (i.e., TOFU-trusted) or `SenderData::SenderVerified` (i.e.,
-        // fully verified via user verification and cross-signing).
+        // (i.e., TOFU-trusted) or `SenderData::SenderVerified` (i.e., fully
+        // verified via user verification and cross-signing).
         let Ok(forwarder_data) = (&sender_data).try_into() else {
             warn!(
                 "Not accepting a historic room key bundle due to insufficient trust in the sender"
@@ -1907,8 +1906,7 @@ impl Store {
     }
 
     /// Store the fact that we have accepted an invite for a given room on this
-    /// client, so should accept an [MSC4268] key bundle if one arrives
-    /// soon.
+    /// client, so should accept an [MSC4268] key bundle if one arrives soon.
     ///
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
     pub async fn store_room_pending_key_bundle(
@@ -2119,14 +2117,13 @@ mod tests {
     /// key/session ID.
     fn make_session_key(signing_key: &Ed25519Keypair) -> SessionKey {
         // `SessionKey::new` is not public, so the easiest way to construct a
-        // Megolm session using a known Ed25519 key is to build a byte
-        // array in the export format.
+        // Megolm session using a known Ed25519 key is to build a byte array in
+        // the export format.
 
         let mut session_key_bytes = vec![0u8; 229];
         // 0: version
         session_key_bytes[0] = 2;
-        // 1..5: index
-        // 5..133: ratchet key
+        // 1..5: index 5..133: ratchet key
         rand::rng().fill(&mut session_key_bytes[5..133]);
         // 133..165: public ed25519 key
         session_key_bytes[133..165].copy_from_slice(signing_key.public_key().as_bytes());
@@ -2430,8 +2427,8 @@ mod tests {
 
                     bundle_data: RoomKeyBundleContent {
                         room_id: room_id.to_owned(),
-                        // This isn't used at all in the method call, so we can fill it with
-                        // garbage.
+                        // This isn't used at all in the method call, so we can
+                        // fill it with garbage.
                         file: EncryptedFile::new(
                             owned_mxc_uri!("mxc://example.com/0"),
                             V2EncryptedFileInfo::encode([0; 32], [0; 16]).into(),
@@ -2528,8 +2525,8 @@ mod tests {
 
     /// Create an inbound Megolm session for the given room.
     ///
-    /// `olm_machine` is used to set the `sender_key` and `signing_key`
-    /// fields of the resultant session.
+    /// `olm_machine` is used to set the `sender_key` and `signing_key` fields
+    /// of the resultant session.
     ///
     /// The encryption algorithm used for the session depends on the
     /// `experimental-algorithms` feature flag:

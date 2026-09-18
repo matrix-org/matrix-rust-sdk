@@ -110,8 +110,8 @@ async fn test_retry_order() {
     // interpreted as a transient error.
     let scoped_faulty_send = server.mock_room_send().error500().expect(3).mount_as_scoped().await;
 
-    // Send two messages without mocking the server response.
-    // It will respond with a 500, resulting in a failed-to-send state.
+    // Send two messages without mocking the server response. It will respond
+    // with a 500, resulting in a failed-to-send state.
     timeline.send(RoomMessageEventContent::text_plain("First!").into()).await.unwrap();
     timeline.send(RoomMessageEventContent::text_plain("Second.").into()).await.unwrap();
 
@@ -126,10 +126,10 @@ async fn test_retry_order() {
         assert_eq!(value.content().as_message().unwrap().body(), "Second.");
     });
 
-    // Local echoes are updated with the failed send state as soon as
-    // the 404 response is received. The send queue uses `short_retry()`
-    // (3 retries) with 500ms minimum exponential backoff, so this can take
-    // up to ~1.5s before the failure is surfaced.
+    // Local echoes are updated with the failed send state as soon as the 404
+    // response is received. The send queue uses `short_retry()` (3 retries)
+    // with 500ms minimum exponential backoff, so this can take up to ~1.5s
+    // before the failure is surfaced.
     assert_let_timeout!(
         Duration::from_secs(5),
         Some(VectorDiff::Set { index: 0, value: first }) = timeline_stream.next()
@@ -263,8 +263,7 @@ async fn test_clear_with_echoes() {
         timeline.send(RoomMessageEventContent::text_plain("Send failure").into()).await.unwrap();
 
         // Wait for the first message to fail. Don't use time, but listen for
-        // the first timeline item diff to get back signalling the
-        // error.
+        // the first timeline item diff to get back signalling the error.
 
         assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         // 2 updates: date divider and local echo.

@@ -54,8 +54,8 @@ impl SpaceService {
 #[matrix_sdk_ffi_macros::export]
 impl SpaceService {
     /// Returns a list of all the top-level joined spaces. It will eagerly
-    /// compute the latest version and also notify subscribers if there were
-    /// any changes.
+    /// compute the latest version and also notify subscribers if there were any
+    /// changes.
     pub async fn top_level_joined_spaces(&self) -> Vec<SpaceRoom> {
         self.inner.top_level_joined_spaces().await.into_iter().map(Into::into).collect()
     }
@@ -80,8 +80,8 @@ impl SpaceService {
     }
 
     /// Space filters provide access to a custom subset of the space graph that
-    /// can be used in tandem with the [`crate::RoomListService`] to narrow
-    /// down the presented rooms.
+    /// can be used in tandem with the [`crate::RoomListService`] to narrow down
+    /// the presented rooms.
     ///
     /// They are limited to the first 2 levels of the graph, with the first
     /// level only containing direct descendants while the second holds the rest
@@ -142,15 +142,14 @@ impl SpaceService {
     /// space or room.
     ///
     /// This is a much cheaper version of [`Self::joined_parents_of_child()`]
-    /// that doesn't build any `SpaceRoom` instances, it only reads the
-    /// existing space graph.
+    /// that doesn't build any `SpaceRoom` instances, it only reads the existing
+    /// space graph.
     ///
     /// The returned IDs are always joined spaces, as that's all the space graph
     /// includes. Note that an empty result either means that the child is a
     /// top-level space (which has no direct parents) or the child isn't part of
-    /// the space graph at all.
-    /// See [`Self::top_level_ancestors_of()`] if you need that particular level
-    /// of detail.
+    /// the space graph at all. See [`Self::top_level_ancestors_of()`] if you
+    /// need that particular level of detail.
     ///
     /// Note: Unlike [`Self::top_level_joined_spaces()`], this method does not
     /// recompute the space graph nor notify subscribers about changes.
@@ -239,15 +238,15 @@ impl SpaceService {
     }
 }
 
-/// The `SpaceRoomList` represents a paginated list of direct rooms
-/// that belong to a particular space.
+/// The `SpaceRoomList` represents a paginated list of direct rooms that belong
+/// to a particular space.
 ///
 /// It can be used to paginate through the list (and have live updates on the
 /// pagination state) as well as subscribe to changes as rooms are joined or
 /// left.
 ///
-/// The `SpaceRoomList` also automatically subscribes to client room changes
-/// and updates the list accordingly as rooms are joined or left.
+/// The `SpaceRoomList` also automatically subscribes to client room changes and
+/// updates the list accordingly as rooms are joined or left.
 #[derive(uniffi::Object)]
 pub struct SpaceRoomList {
     inner: UISpaceRoomList,
@@ -338,9 +337,9 @@ impl SpaceRoomList {
     /// called.
     ///
     /// This is useful when you've added or removed children from the space as
-    /// the list is based on a cached state that lives server-side, meaning
-    /// the /hierarchy request needs to be restarted from scratch to pick up
-    /// the changes.
+    /// the list is based on a cached state that lives server-side, meaning the
+    /// /hierarchy request needs to be restarted from scratch to pick up the
+    /// changes.
     pub async fn reset(&self) {
         self.inner.reset().await;
     }
@@ -371,8 +370,8 @@ pub trait SpaceServiceSpaceFiltersListener: SendOutsideWasm + SyncOutsideWasm + 
     fn on_update(&self, filter_updates: Vec<SpaceFilterUpdate>);
 }
 
-/// Structure representing a room in a space and aggregated information
-/// relevant to the UI layer.
+/// Structure representing a room in a space and aggregated information relevant
+/// to the UI layer.
 #[derive(uniffi::Record)]
 pub struct SpaceRoom {
     /// The ID of the room.
@@ -401,8 +400,8 @@ pub struct SpaceRoom {
 
     /// Whether this room is a direct room.
     ///
-    /// Only set if the room is known to the client otherwise we
-    /// assume DMs shouldn't be exposed publicly in spaces.
+    /// Only set if the room is known to the client otherwise we assume DMs
+    /// shouldn't be exposed publicly in spaces.
     pub is_direct: Option<bool>,
     /// The number of children room this has, if a space.
     pub children_count: u64,
@@ -412,9 +411,8 @@ pub struct SpaceRoom {
     pub heroes: Option<Vec<RoomHero>>,
     /// The via parameters of the room.
     pub via: Vec<String>,
-    /// Whether this room is a DM, if known.
-    /// Note this value can be calculated following some assumptions and is not
-    /// guaranteed to be accurate.
+    /// Whether this room is a DM, if known. Note this value can be calculated
+    /// following some assumptions and is not guaranteed to be accurate.
     pub is_dm: Option<bool>,
 }
 
@@ -588,12 +586,12 @@ impl From<UILeaveSpaceRoom> for LeaveSpaceRoom {
 pub struct SpaceFilter {
     /// The underlying [`SpaceRoom`]
     space_room: SpaceRoom,
-    /// The level of the space filter in the tree/hierarchy.
-    /// At this point in time the filters are limited to the first 2 levels.
+    /// The level of the space filter in the tree/hierarchy. At this point in
+    /// time the filters are limited to the first 2 levels.
     level: u8,
-    /// The room identifiers of the descendants of this space.
-    /// For top level spaces (level 0) these will be direct descendants while
-    /// for first level spaces they will be all other descendants, recursively.
+    /// The room identifiers of the descendants of this space. For top level
+    /// spaces (level 0) these will be direct descendants while for first level
+    /// spaces they will be all other descendants, recursively.
     descendants: Vec<String>,
 }
 

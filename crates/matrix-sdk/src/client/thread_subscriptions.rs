@@ -222,8 +222,8 @@ impl ThreadSubscriptionCatchup {
 
         if let Some(token) = token {
             // Gappy syncs on a busy account can cause the same catchup token to
-            // be sent repeatedly. We dedupe the tokens here to
-            // prevent duplicate catchup requests.
+            // be sent repeatedly. We dedupe the tokens here to prevent
+            // duplicate catchup requests.
             if tokens.contains(&token) {
                 trace!(?token, "Skipping duplicate catchup token");
             } else {
@@ -243,18 +243,16 @@ impl ThreadSubscriptionCatchup {
     }
 
     /// The background task listening to new catchup tokens, and using them to
-    /// catch up the thread subscriptions via the [MSC4308] companion
-    /// endpoint.
+    /// catch up the thread subscriptions via the [MSC4308] companion endpoint.
     ///
     /// It will continue to process catchup tokens until there are none, and
-    /// then wait for a new one to be available and inserted in the
-    /// database.
+    /// then wait for a new one to be available and inserted in the database.
     ///
     /// It always processes catch up tokens from the newest to the oldest, since
-    /// newest tokens are more interesting than older ones. Indeed, they're
-    /// more likely to include entries with higher bump-stamps, i.e. to include
-    /// more recent thread subscriptions statuses for each thread, so more
-    /// relevant information.
+    /// newest tokens are more interesting than older ones. Indeed, they're more
+    /// likely to include entries with higher bump-stamps, i.e. to include more
+    /// recent thread subscriptions statuses for each thread, so more relevant
+    /// information.
     ///
     /// [MSC4308]: https://github.com/matrix-org/matrix-spec-proposals/pull/4308
     #[instrument(skip_all)]
@@ -341,8 +339,8 @@ impl ThreadSubscriptionCatchup {
 
                     if let Some(next_batch) = resp.end {
                         // If the response contained a next batch token, reuse
-                        // the same catchup token entry,
-                        // so the `to` value remains the same.
+                        // the same catchup token entry, so the `to` value
+                        // remains the same.
                         tokens[index] =
                             ThreadSubscriptionCatchupToken { from: next_batch, to: last.to };
                     } else {

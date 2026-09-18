@@ -179,8 +179,7 @@ async fn test_most_recent_event_in_stream() {
     assert_let_timeout!(Ok(_) = event_cache_updates_stream.recv());
 
     // Create the stream after syncing all beacon events — the initial snapshot
-    // is loaded from the event cache and already reflects the latest
-    // beacon.
+    // is loaded from the event cache and already reflects the latest beacon.
     let live_locations_observer = room.live_locations_observer().await;
     let (mut shares, _stream) = live_locations_observer.subscribe();
 

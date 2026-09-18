@@ -114,6 +114,7 @@ async fn test_interactive_verification_started_from_request() {
     .await;
 
     // ----------------------------------------------------------------------------
+    //
     // On Alice's device:
     let bob_device = alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
 
@@ -124,6 +125,7 @@ async fn test_interactive_verification_started_from_request() {
         bob_device.request_verification_with_methods(vec![VerificationMethod::SasV1]);
 
     // ----------------------------------------------------------------------------
+    //
     // On Bobs's device:
     let event = request_to_event(alice.user_id(), &request);
     bob.handle_verification_event(&event).await;
@@ -138,6 +140,7 @@ async fn test_interactive_verification_started_from_request() {
     let (_, start_request_from_bob) = verification_request.start_sas().await.unwrap().unwrap();
 
     // ----------------------------------------------------------------------------
+    //
     // On Alice's device:
 
     // Alice receives the Ready
@@ -159,6 +162,7 @@ async fn test_interactive_verification_started_from_request() {
     assert!(alice.user_id() < bob.user_id());
 
     // ----------------------------------------------------------------------------
+    //
     // On Bob's device:
 
     // Bob receives Alice's start:
@@ -178,6 +182,7 @@ async fn test_interactive_verification_started_from_request() {
     let event = bob_sas.accept().map(|r| request_to_event(bob.user_id(), &r)).unwrap();
 
     // ----------------------------------------------------------------------------
+    //
     // On Alice's device:
 
     // Alice receives the Accept request:
@@ -191,6 +196,7 @@ async fn test_interactive_verification_started_from_request() {
     alice.inner.verification_machine.mark_request_as_sent(&msg.request_id);
 
     // ----------------------------------------------------------------------------
+    //
     // On Bob's device:
 
     // And bob receive's it:
@@ -204,6 +210,7 @@ async fn test_interactive_verification_started_from_request() {
     bob.inner.verification_machine.mark_request_as_sent(&msg.request_id);
 
     // ----------------------------------------------------------------------------
+    //
     // On Alice's device:
 
     // And alice receives it
@@ -214,6 +221,7 @@ async fn test_interactive_verification_started_from_request() {
     assert!(bob_sas.emoji().is_some());
 
     // ----------------------------------------------------------------------------
+    //
     // On Bob's device:
 
     assert_eq!(alice_sas.emoji(), bob_sas.emoji());
@@ -225,6 +233,7 @@ async fn test_interactive_verification_started_from_request() {
     let event = request_to_event(bob.user_id(), &contents[0]);
 
     // ----------------------------------------------------------------------------
+    //
     // On Alice's device:
 
     // ...which alice receives
@@ -242,6 +251,7 @@ async fn test_interactive_verification_started_from_request() {
     let event_done = request_to_event(alice.user_id(), &contents[1]);
 
     // ----------------------------------------------------------------------------
+    //
     // On Bob's device:
 
     // Bob receives the MAC message
@@ -265,6 +275,7 @@ async fn test_interactive_verification_started_from_request() {
     assert!(alice_device.is_verified());
 
     // ----------------------------------------------------------------------------
+    //
     // On Alice's device:
 
     assert!(!alice_sas.is_done());

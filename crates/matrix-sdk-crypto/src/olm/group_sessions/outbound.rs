@@ -109,8 +109,8 @@ pub struct EncryptionSettings {
     pub rotation_period_msgs: u64,
     /// The history visibility of the room when the session was created.
     pub history_visibility: HistoryVisibility,
-    /// The strategy used to distribute the room keys to participant.
-    /// Default will send to all devices.
+    /// The strategy used to distribute the room keys to participant. Default
+    /// will send to all devices.
     #[serde(default)]
     pub sharing_strategy: CollectStrategy,
 }
@@ -130,8 +130,8 @@ impl Default for EncryptionSettings {
 }
 
 impl EncryptionSettings {
-    /// Create new encryption settings using an `RoomEncryptionEventContent`,
-    /// a history visibility, and key sharing strategy.
+    /// Create new encryption settings using an `RoomEncryptionEventContent`, a
+    /// history visibility, and key sharing strategy.
     pub fn new(
         content: RoomEncryptionEventContent,
         history_visibility: HistoryVisibility,
@@ -154,8 +154,8 @@ impl EncryptionSettings {
     }
 
     /// Create new encryption settings using a
-    /// `PossiblyRedactedRoomEncryptionEventContent`, a history visibility,
-    /// and key sharing strategy.
+    /// `PossiblyRedactedRoomEncryptionEventContent`, a history visibility, and
+    /// key sharing strategy.
     ///
     /// Returns `None` if the `content` was redacted.
     pub fn from_possibly_redacted(
@@ -283,8 +283,8 @@ impl SharingView<'_> {
                 }
                 ShareInfo::Withheld(_) => ShareState::NotShared,
             })
-            // Return the most "definitive" ShareState found (in case there
-            // are multiple entries for the same device).
+            // Return the most "definitive" ShareState found (in case there are
+            // multiple entries for the same device).
             .max()
             .unwrap_or(ShareState::NotShared)
     }
@@ -297,7 +297,7 @@ impl SharingView<'_> {
     }
 
     /// Enumerate all sent or pending sharing requests for the given device (or
-    /// for all devices if not specified).  This can yield the same device
+    /// for all devices if not specified). This can yield the same device
     /// multiple times.
     pub(crate) fn iter_shares<'b, 'c>(
         &self,
@@ -332,8 +332,8 @@ impl SharingView<'_> {
     }
 
     /// Enumerate all users that have received the session, or have pending
-    /// requests to receive it.  This can yield the same user multiple times,
-    /// so you may want to `collect()` the result into a `BTreeSet`.
+    /// requests to receive it. This can yield the same user multiple times, so
+    /// you may want to `collect()` the result into a `BTreeSet`.
     pub(crate) fn shared_with_users(&self) -> impl Iterator<Item = &UserId> {
         self.iter_shares(None, None).filter_map(|(u, _, info)| match info {
             ShareInfo::Shared(_) => Some(u),
@@ -360,14 +360,12 @@ impl OutboundGroupSession {
     ///
     /// # Arguments
     ///
-    /// * `device_id` - The id of the device that created this session.
-    ///
-    /// * `identity_keys` - The identity keys of the account that created this
+    /// - `device_id` - The id of the device that created this session.
+    /// - `identity_keys` - The identity keys of the account that created this
     ///   session.
     ///
-    /// * `room_id` - The id of the room that the session is used in.
-    ///
-    /// * `settings` - Settings determining the algorithm and rotation period of
+    /// - `room_id` - The id of the room that the session is used in.
+    /// - `settings` - Settings determining the algorithm and rotation period of
     ///   the outbound group session.
     pub fn new(
         device_id: OwnedDeviceId,
@@ -512,12 +510,12 @@ impl OutboundGroupSession {
 
     /// Encrypt an arbitrary event for the given room.
     ///
-    /// Beware that a room key needs to be shared before this method
-    /// can be called using the `share_room_key()` method.
+    /// Beware that a room key needs to be shared before this method can be
+    /// called using the `share_room_key()` method.
     ///
     /// # Arguments
     ///
-    /// * `payload` - The plaintext content of the event that should be
+    /// - `payload` - The plaintext content of the event that should be
     ///   serialized to JSON and encrypted.
     ///
     /// # Panics
@@ -562,15 +560,15 @@ impl OutboundGroupSession {
 
     /// Encrypt a room message for the given room.
     ///
-    /// Beware that a room key needs to be shared before this method
-    /// can be called using the `share_room_key()` method.
+    /// Beware that a room key needs to be shared before this method can be
+    /// called using the `share_room_key()` method.
     ///
     /// # Arguments
     ///
-    /// * `event_type` - The plaintext type of the event, the outer type of the
+    /// - `event_type` - The plaintext type of the event, the outer type of the
     ///   event will become `m.room.encrypted`.
     ///
-    /// * `content` - The plaintext content of the message that should be
+    /// - `content` - The plaintext content of the message that should be
     ///   encrypted in raw JSON form.
     ///
     /// # Panics
@@ -600,18 +598,18 @@ impl OutboundGroupSession {
 
     /// Encrypt a room state event for the given room.
     ///
-    /// Beware that a room key needs to be shared before this method
-    /// can be called using the `share_room_key()` method.
+    /// Beware that a room key needs to be shared before this method can be
+    /// called using the `share_room_key()` method.
     ///
     /// # Arguments
     ///
-    /// * `event_type` - The plaintext type of the event, the outer type of the
+    /// - `event_type` - The plaintext type of the event, the outer type of the
     ///   event will become `m.room.encrypted`.
     ///
-    /// * `state_key` - The plaintext state key of the event, the outer state
+    /// - `state_key` - The plaintext state key of the event, the outer state
     ///   key will be derived from this and the event type.
     ///
-    /// * `content` - The plaintext content of the message that should be
+    /// - `content` - The plaintext content of the message that should be
     ///   encrypted in raw JSON form.
     ///
     /// # Panics
@@ -645,14 +643,14 @@ impl OutboundGroupSession {
             .unwrap_or(true)
     }
 
-    /// Returns the rotation_period_ms that was set for this session, clamped
-    /// to be no less than one hour.
+    /// Returns the rotation_period_ms that was set for this session, clamped to
+    /// be no less than one hour.
     ///
     /// This is to prevent a malicious or careless user causing sessions to be
     /// rotated very frequently.
     ///
-    /// The feature flag `_disable-minimum-rotation-period-ms` can
-    /// be used to prevent this behaviour (which can be useful for tests).
+    /// The feature flag `_disable-minimum-rotation-period-ms` can be used to
+    /// prevent this behaviour (which can be useful for tests).
     fn safe_rotation_period(&self) -> Duration {
         if cfg!(feature = "_disable-minimum-rotation-period-ms") {
             self.settings.rotation_period
@@ -720,8 +718,8 @@ impl OutboundGroupSession {
 
     /// Get the current message index for this session.
     ///
-    /// Each message is sent with an increasing index. This returns the
-    /// message index that will be used for the next encrypted message.
+    /// Each message is sent with an increasing index. This returns the message
+    /// index that will be used for the next encrypted message.
     pub async fn message_index(&self) -> u32 {
         let session = self.inner.read().await;
         session.message_index()
@@ -805,15 +803,14 @@ impl OutboundGroupSession {
     ///
     /// # Arguments
     ///
-    /// * `device_id` - The device ID of the device that created this session.
+    /// - `device_id` - The device ID of the device that created this session.
     ///   Put differently, our own device ID.
     ///
-    /// * `identity_keys` - The identity keys of the device that created this
+    /// - `identity_keys` - The identity keys of the device that created this
     ///   session, our own identity keys.
     ///
-    /// * `pickle` - The pickled version of the `OutboundGroupSession`.
-    ///
-    /// * `pickle_mode` - The mode that was used to pickle the session, either
+    /// - `pickle` - The pickled version of the `OutboundGroupSession`.
+    /// - `pickle_mode` - The mode that was used to pickle the session, either
     ///   an unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(
         device_id: OwnedDeviceId,
@@ -844,7 +841,7 @@ impl OutboundGroupSession {
     ///
     /// # Arguments
     ///
-    /// * `pickle_mode` - The mode that should be used to pickle the group
+    /// - `pickle_mode` - The mode that should be used to pickle the group
     ///   session, either an unencrypted mode or an encrypted using passphrase.
     pub async fn pickle(&self) -> PickledOutboundGroupSession {
         let pickle = self.inner.read().await.pickle();

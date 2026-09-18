@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-// Allow dead code here, as this module is still in the process
-// of being developed, so some functions will be used later on.
-// Once development is complete, we can remove this line and
-// clean up any unused code.
+// Allow dead code here, as this module is still in the process of being
+// developed, so some functions will be used later on. Once development is
+// complete, we can remove this line and clean up any unused code.
 #![allow(dead_code)]
 
 mod builder;
@@ -57,9 +56,8 @@ use crate::{
     transaction::TransactionError,
 };
 
-/// A type for providing an IndexedDB implementation of [`MediaStore`][1].
-/// This is meant to be used as a backend to [`MediaStore`][1] in browser
-/// contexts.
+/// A type for providing an IndexedDB implementation of [`MediaStore`][1]. This
+/// is meant to be used as a backend to [`MediaStore`][1] in browser contexts.
 ///
 /// [1]: matrix_sdk_base::media::store::MediaStore
 #[derive(Debug, Clone)]
@@ -68,8 +66,8 @@ pub struct IndexeddbMediaStore {
     inner: Rc<Database>,
     // A serializer with functionality tailored to `IndexeddbMediaStore`
     serializer: IndexedTypeSerializer,
-    // A service for conveniently delegating media-related queries to an `MediaStoreInner`
-    // implementation
+    // A service for conveniently delegating media-related queries to an
+    // `MediaStoreInner` implementation
     media_service: MediaService,
 }
 
@@ -81,8 +79,8 @@ impl IndexeddbMediaStore {
     }
 
     /// Initializes a new transaction on the underlying IndexedDB database and
-    /// returns a handle which can be used to combine database operations
-    /// into an atomic unit.
+    /// returns a handle which can be used to combine database operations into
+    /// an atomic unit.
     pub fn transaction<'a>(
         &'a self,
         stores: &[&str],

@@ -171,9 +171,8 @@ where
             );
 
             // Update the last chunk. If it's `Some(_)`, no need to update the
-            // last chunk pointer. If it's `None`, it means we had
-            // only one chunk; now we have two, the last chunk is
-            // the `old_first_chunk`.
+            // last chunk pointer. If it's `None`, it means we had only one
+            // chunk; now we have two, the last chunk is the `old_first_chunk`.
             if links.last.is_none() {
                 links.last = Some(old_first_chunk);
             }
@@ -215,8 +214,8 @@ fn emit_new_first_chunk_updates<const CAP: usize, Item, Gap>(
 
 /// Replace the items with the given last chunk of items and generator.
 ///
-/// This clears all the chunks in memory before resetting to the new chunk,
-/// if provided.
+/// This clears all the chunks in memory before resetting to the new chunk, if
+/// provided.
 pub fn replace_with<const CAP: usize, Item, Gap>(
     linked_chunk: &mut LinkedChunk<CAP, Item, Gap>,
     chunk: Option<RawChunk<Item, Gap>>,
@@ -228,15 +227,15 @@ where
 {
     let Some(mut chunk) = chunk else {
         // This is equivalent to clearing the linked chunk, and overriding the
-        // chunk ID generator afterwards. But, if there was no chunks in
-        // the DB, the generator should be reset too, so it's entirely
-        // equivalent to a clear.
+        // chunk ID generator afterwards. But, if there was no chunks in the DB,
+        // the generator should be reset too, so it's entirely equivalent to a
+        // clear.
         linked_chunk.clear();
         return Ok(());
     };
 
-    // Check consistency before replacing the `LinkedChunk`.
-    // The number of items is not too large.
+    // Check consistency before replacing the `LinkedChunk`. The number of items
+    // is not too large.
     if let ChunkContent::Items(items) = &chunk.content
         && items.len() > CAP
     {
@@ -327,9 +326,9 @@ where
     let first_chunk = linked_chunk.links.first_chunk();
 
     // It is expected that **all chunks** are passed to this function. If there
-    // was a previous chunk, `insert_new_first_chunk` has erased it and
-    // moved it to `lazy_previous`. Hence, let's check both (the former
-    // condition isn't necessary, but better be robust).
+    // was a previous chunk, `insert_new_first_chunk` has erased it and moved it
+    // to `lazy_previous`. Hence, let's check both (the former condition isn't
+    // necessary, but better be robust).
     if first_chunk.previous().is_some() || first_chunk.lazy_previous.is_some() {
         return Err(LazyLoaderError::ChunkIsNotFirst { id: first_chunk.identifier() });
     }
@@ -941,7 +940,8 @@ mod tests {
 
         // Now, if we add a new chunk, its identifier should be the previous one
         // we used
-        // + 1.
+        //
+        // - 1.
         lc.push_gap_back('h');
 
         let last_chunk = lc.chunks().last().unwrap();

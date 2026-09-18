@@ -155,8 +155,8 @@ async fn test_room_attachment_send_wrong_info() {
     mock.mock_authenticated_media_config().ok_default().mount().await;
 
     // Note: this mock is NOT called because the height and width are lost,
-    // because we're trying to send the attachment as an image, while we
-    // provide a `VideoInfo`.
+    // because we're trying to send the attachment as an image, while we provide
+    // a `VideoInfo`.
     //
     // So long for static typing.
 
@@ -678,8 +678,8 @@ async fn test_room_attachment_send_extra_content() {
 
     let expected_event_id = event_id!("$h29iv0s8:example.com");
 
-    // The custom field must be present on the sent event, while the extra
-    // field colliding with a real event field must have been ignored.
+    // The custom field must be present on the sent event, while the extra field
+    // colliding with a real event field must have been ignored.
     mock.mock_room_send()
         .body_matches_partial_json(json!({
             "msgtype": "m.image",

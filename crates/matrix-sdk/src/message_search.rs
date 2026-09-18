@@ -250,8 +250,8 @@ impl GlobalSearchBuilder {
         let rooms = self.room_set;
 
         try_stream! {
-            // One score-descending result stream per room, each primed with its next
-            // result so we can merge across rooms by score.
+            // One score-descending result stream per room, each primed with its
+            // next result so we can merge across rooms by score.
             let mut cursors: Vec<RoomStreamCursor> = Vec::with_capacity(rooms.len());
             for room in rooms {
                 let room_id = room.room_id().to_owned();
@@ -518,14 +518,14 @@ mod tests {
         let f = EventFactory::new().sender(user_id!("@user_id:localhost"));
 
         // Both rooms get two documents of identical length (padded with filler
-        // so document-length normalization and the per-corpus IDF of
-        // "world" match across rooms). The score then depends only on
-        // how many times "world" appears.
+        // so document-length normalization and the per-corpus IDF of "world"
+        // match across rooms). The score then depends only on how many times
+        // "world" appears.
         //
         // Term frequencies are 4, 3, 2, 1, split so the rooms alternate by
-        // rank: room1 holds the 4x and 2x events, room2 the 3x and 1x
-        // events. A correct cross-room sort therefore interleaves the
-        // rooms: r1, r2, r1, r2.
+        // rank: room1 holds the 4x and 2x events, room2 the 3x and 1x events. A
+        // correct cross-room sort therefore interleaves the rooms: r1, r2, r1,
+        // r2.
         let r1_rank1 = event_id!("$r1_rank1:localhost"); // room1, "world" x4
         let r2_rank2 = event_id!("$r2_rank2:localhost"); // room2, "world" x3
         let r1_rank3 = event_id!("$r1_rank3:localhost"); // room1, "world" x2

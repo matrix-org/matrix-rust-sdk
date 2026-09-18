@@ -43,8 +43,7 @@ impl Room {
         let mut event_to_user_ids = Vec::with_capacity(member_raw_events.len());
 
         // Map the list of events ids to their user ids, if they are event ids
-        // for knock membership events. Log an error and continue
-        // otherwise.
+        // for knock membership events. Log an error and continue otherwise.
         for raw_event in member_raw_events {
             let event = raw_event.cast::<RoomMemberEventContent>().deserialize()?;
             match event {

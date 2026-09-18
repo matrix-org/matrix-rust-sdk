@@ -368,11 +368,10 @@ where
         if self.format.has_event_id() && !self.no_event_id {
             let event_id = self.event_id.unwrap_or_else(|| {
                 // Compute a hash of the event to use it as the event ID,
-                // similar to how a server would. This is a
-                // little bit different since a server would redact the
-                // event before hashing, but at least the event ID construction
-                // will be deterministic and have the same
-                // format as in recent room versions.
+                // similar to how a server would. This is a little bit different
+                // since a server would redact the event before hashing, but at
+                // least the event ID construction will be deterministic and
+                // have the same format as in recent room versions.
                 let bytes = serde_json::to_vec(&map).unwrap();
                 EventId::new_v2_or_v3(&base64_sha256_hash(&bytes)).unwrap()
             });
@@ -428,8 +427,8 @@ where
 
     /// Returns just the event content as a JSON value.
     ///
-    /// This is useful when you need only the content portion of an event,
-    /// for example when mocking HTTP responses that return event content.
+    /// This is useful when you need only the content portion of an event, for
+    /// example when mocking HTTP responses that return event content.
     pub fn into_content(self) -> serde_json::Value {
         json!(self.content)
     }
@@ -535,8 +534,8 @@ impl EventBuilder<UnstablePollStartEventContent> {
         self
     }
 
-    /// Adds a thread relation to the root event, setting the reply to
-    /// event id as well.
+    /// Adds a thread relation to the root event, setting the reply to event id
+    /// as well.
     pub fn in_thread(mut self, root: &EventId, reply_to_event_id: &EventId) -> Self {
         let thread = Thread::reply(root.to_owned(), reply_to_event_id.to_owned());
 
@@ -958,8 +957,8 @@ impl EventFactory {
     ///
     /// The given member will be used as the `sender` as well as the `state_key`
     /// of the `m.room.member` event, unless the `sender` was already using
-    /// [`EventFactory::sender()`], in that case only the state key will be
-    /// set to the given `member`.
+    /// [`EventFactory::sender()`], in that case only the state key will be set
+    /// to the given `member`.
     ///
     /// The `membership` field of the content is set to
     /// [`MembershipState::Join`].
@@ -1407,12 +1406,12 @@ impl EventFactory {
     ///
     /// # Arguments
     ///
-    /// * `description` - An optional human-readable label for the sharing
+    /// - `description` - An optional human-readable label for the sharing
     ///   session.
-    /// * `duration` - How long the location share is active.
-    /// * `live` - Whether the sharing session is active. Pass `true` to start
+    /// - `duration` - How long the location share is active.
+    /// - `live` - Whether the sharing session is active. Pass `true` to start
     ///   and `false` to stop.
-    /// * `ts` - The start timestamp; if `None` the current time is used.
+    /// - `ts` - The start timestamp; if `None` the current time is used.
     ///
     /// # Example
     ///

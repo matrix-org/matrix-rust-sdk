@@ -94,8 +94,8 @@ impl TimelineBuilder {
         self
     }
 
-    /// Choose when to insert the date separators, either in between each day
-    /// or each month.
+    /// Choose when to insert the date separators, either in between each day or
+    /// each month.
     pub fn with_date_divider_mode(mut self, mode: DateDividerMode) -> Self {
         self.settings.date_divider_mode = mode;
         self
@@ -112,20 +112,18 @@ impl TimelineBuilder {
     ///
     /// # Arguments
     ///
-    /// * `filter` - A function that takes a deserialized event, and should
+    /// - `filter` - A function that takes a deserialized event, and should
     ///   return `true` if the event should be added to the `Timeline`.
     ///
     /// If this is not overridden, the timeline uses the default filter that
     /// only allows events that are materialized into a `Timeline` item. For
-    /// instance, reactions and edits don't get their own timeline item (as
-    /// they affect another existing one), so they're "filtered out" to
-    /// reflect that.
+    /// instance, reactions and edits don't get their own timeline item (as they
+    /// affect another existing one), so they're "filtered out" to reflect that.
     ///
     /// You can use the default event filter with
-    /// [`crate::timeline::default_event_filter`] so as to chain it with
-    /// your own event filter, if you want to avoid situations where a read
-    /// receipt would be attached to an event that doesn't get its own
-    /// timeline item.
+    /// [`crate::timeline::default_event_filter`] so as to chain it with your
+    /// own event filter, if you want to avoid situations where a read receipt
+    /// would be attached to an event that doesn't get its own timeline item.
     ///
     /// Note that currently:
     ///
@@ -304,9 +302,8 @@ impl TimelineBuilder {
 
         if has_events {
             // The events we're injecting might be encrypted events, but we
-            // might have received the room key to decrypt them
-            // while nobody was listening to the `m.room_key` event,
-            // let's retry now.
+            // might have received the room key to decrypt them while nobody was
+            // listening to the `m.room_key` event, let's retry now.
             timeline.retry_decryption_for_all_events().await;
         }
 

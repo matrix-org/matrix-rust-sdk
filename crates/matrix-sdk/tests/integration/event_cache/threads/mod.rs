@@ -759,6 +759,7 @@ async fn test_redact_touches_threads() {
         .await;
 
     // The redaction affects the thread cache:
+    //
     // - the redaction event is added to the “timeline”,
     // - the redaction's target is, well, redacted.
     {
@@ -784,6 +785,7 @@ async fn test_redact_touches_threads() {
     }
 
     // The redaction affects the room cache too:
+    //
     // - the redaction event is added to the “timeline”,
     // - the redaction's target is, well, redacted,
     // - the thread summary is updated correctly.
@@ -836,6 +838,7 @@ async fn test_redact_touches_threads() {
         .await;
 
     // The redaction affects the thread cache:
+    //
     // - the redaction event is added to the “timeline”,
     // - the redaction's target is, well, redacted.
     {
@@ -861,6 +864,7 @@ async fn test_redact_touches_threads() {
     }
 
     // The redaction affects the room cache too:
+    //
     // - the redaction event is added to the “timeline”,
     // - the redaction's target is, well, redacted,
     // - the thread summary is removed from the thread root.
@@ -1052,8 +1056,8 @@ async fn test_edits_touches_threads() {
             );
             assert_eq!(diffs.len(), 1);
 
-            // The thread summary is updated but… to the same value!
-            // It is always updated as soon as an update happens in the cache.
+            // The thread summary is updated but… to the same value! It is
+            // always updated as soon as an update happens in the cache.
             {
                 assert_let!(VectorDiff::Set { index: 0, value: new_root } = &diffs[0]);
                 assert_eq!(new_root.event_id(), Some(thread_root_id.as_ref()));

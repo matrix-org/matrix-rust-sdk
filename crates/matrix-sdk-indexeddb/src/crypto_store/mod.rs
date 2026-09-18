@@ -274,10 +274,9 @@ enum PendingOperation {
 }
 
 /// A struct that represents all the operations that need to be done to the
-/// database when calls to the store `save_changes` are made.
-/// The idea is to do all the serialization and encryption before the
-/// transaction, and then just do the actual Indexeddb operations in the
-/// transaction.
+/// database when calls to the store `save_changes` are made. The idea is to do
+/// all the serialization and encryption before the transaction, and then just
+/// do the actual Indexeddb operations in the transaction.
 struct PendingIndexeddbChanges {
     /// A map of the object store names to the operations to perform on that
     /// store.
@@ -314,9 +313,9 @@ impl PendingIndexeddbChanges {
         Self { store_to_key_values: BTreeMap::new() }
     }
 
-    /// Returns the list of stores that have pending operations.
-    /// Should be used as the list of store names when starting the indexeddb
-    /// transaction (`transaction_on_multi_with_mode`).
+    /// Returns the list of stores that have pending operations. Should be used
+    /// as the list of store names when starting the indexeddb transaction
+    /// (`transaction_on_multi_with_mode`).
     fn touched_stores(&self) -> Vec<&str> {
         self.store_to_key_values
             .iter()
@@ -390,16 +389,16 @@ impl IndexeddbCryptoStore {
     ///
     /// If the store previously existed, the encryption cipher is initialised
     /// using the given passphrase and the details from the meta store. If the
-    /// store did not previously exist, a new encryption cipher is derived
-    /// from the passphrase, and the details are stored to the metastore.
+    /// store did not previously exist, a new encryption cipher is derived from
+    /// the passphrase, and the details are stored to the metastore.
     ///
     /// The store is then opened, or a new one created, using the encryption
     /// cipher.
     ///
     /// # Arguments
     ///
-    /// * `prefix` - Common prefix for the names of the two IndexedDB stores.
-    /// * `passphrase` - Passphrase which is used to derive a key to encrypt the
+    /// - `prefix` - Common prefix for the names of the two IndexedDB stores.
+    /// - `passphrase` - Passphrase which is used to derive a key to encrypt the
     ///   key which is used to encrypt the store. Must be the same each time the
     ///   store is opened.
     pub async fn open_with_passphrase(prefix: &str, passphrase: &str) -> Result<Self> {
@@ -438,21 +437,20 @@ impl IndexeddbCryptoStore {
     ///
     /// If the store previously existed, the encryption cipher is initialised
     /// using the given key and the details from the meta store. If the store
-    /// did not previously exist, a new encryption cipher is derived from
-    /// the passphrase, and the details are stored to the metastore.
+    /// did not previously exist, a new encryption cipher is derived from the
+    /// passphrase, and the details are stored to the metastore.
     ///
     /// The store is then opened, or a new one created, using the encryption
     /// cipher.
     ///
     /// # Arguments
     ///
-    /// * `prefix` - Common prefix for the names of the two IndexedDB stores.
-    /// * `key` - Key with which to encrypt the key which is used to encrypt the
+    /// - `prefix` - Common prefix for the names of the two IndexedDB stores.
+    /// - `key` - Key with which to encrypt the key which is used to encrypt the
     ///   store. Must be the same each time the store is opened.
     pub async fn open_with_key(prefix: &str, key: &[u8; 32]) -> Result<Self> {
         // The application might also use the provided key for something else,
-        // so to avoid key reuse, we pass the provided key through an
-        // HKDF
+        // so to avoid key reuse, we pass the provided key through an HKDF
         let mut chacha_key = zeroize::Zeroizing::new([0u8; 32]);
         const HKDF_INFO: &[u8] = b"CRYPTOSTORE_CIPHER";
         let hkdf = Hkdf::<Sha256>::new(None, key);
@@ -527,9 +525,9 @@ impl IndexeddbCryptoStore {
             .map_err(|e| IndexeddbCryptoStoreError::CryptoStoreError(e.into()))?;
 
         // Although a "backed up" flag is stored inside
-        // `idb_object.pickled_session`, it is not maintained when
-        // backups are reset. Overwrite the flag with the needs_backup
-        // value from the IDB object.
+        // `idb_object.pickled_session`, it is not maintained when backups are
+        // reset. Overwrite the flag with the needs_backup value from the IDB
+        // object.
         if idb_object.needs_backup {
             session.reset_backup_state();
         } else {
@@ -747,10 +745,9 @@ impl IndexeddbCryptoStore {
             for secret in &changes.secrets {
                 use std::ops::Deref;
                 // The (hashed) secret value is included in the key to allow us
-                // to receive multiple secrets of the same name
-                // (indexeddb store entries must have a unique
-                // key), and allow the client to determine which one is the
-                // current secret.
+                // to receive multiple secrets of the same name (indexeddb store
+                // entries must have a unique key), and allow the client to
+                // determine which one is the current secret.
                 let key = self.serializer.encode_key(
                     keys::SECRETS_INBOX_V2,
                     (secret.secret_name.as_str(), secret.secret.as_str()),
@@ -801,13 +798,13 @@ impl IndexeddbCryptoStore {
 }
 
 // Small hack to have the following macro invocation act as the appropriate
-// trait impl block on wasm, but still be compiled on non-wasm as a regular
-// impl block otherwise.
+// trait impl block on wasm, but still be compiled on non-wasm as a regular impl
+// block otherwise.
 //
 // The trait impl doesn't compile on non-wasm due to unfulfilled trait bounds,
 // this hack allows us to still have most of rust-analyzer's IDE functionality
-// within the impl block without having to set it up to check things against
-// the wasm target (which would disable many other parts of the codebase).
+// within the impl block without having to set it up to check things against the
+// wasm target (which would disable many other parts of the codebase).
 #[cfg(target_family = "wasm")]
 macro_rules! impl_crypto_store {
     ( $($body:tt)* ) => {
@@ -831,8 +828,8 @@ macro_rules! impl_crypto_store {
 
 impl_crypto_store! {
     async fn save_pending_changes(&self, changes: PendingChanges) -> Result<()> {
-        // Serialize calls to `save_pending_changes`; there are multiple await points
-        // below, and we're pickling data as we go, so we don't want to
+        // Serialize calls to `save_pending_changes`; there are multiple await
+        // points below, and we're pickling data as we go, so we don't want to
         // invalidate data we've previously read and overwrite it in the store.
         // TODO: #2000 should make this lock go away, or change its shape.
         let _guard = self.save_changes_lock.lock().await;
@@ -869,9 +866,9 @@ impl_crypto_store! {
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
-        // Serialize calls to `save_changes`; there are multiple await points below, and
-        // we're pickling data as we go, so we don't want to invalidate data
-        // we've previously read and overwrite it in the store.
+        // Serialize calls to `save_changes`; there are multiple await points
+        // below, and we're pickling data as we go, so we don't want to
+        // invalidate data we've previously read and overwrite it in the store.
         // TODO: #2000 should make this lock go away, or change its shape.
         let _guard = self.save_changes_lock.lock().await;
 
@@ -910,8 +907,8 @@ impl_crypto_store! {
             }
         });
 
-        // Currently, this store doesn't save the backup version separately, so this
-        // just delegates to save_changes.
+        // Currently, this store doesn't save the backup version separately, so
+        // this just delegates to save_changes.
         self.save_changes(Changes { inbound_group_sessions: sessions, ..Changes::default() }).await
     }
 
@@ -1219,9 +1216,10 @@ impl_crypto_store! {
         let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
         let idx = store.index(keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX)?;
 
-        // XXX ideally we would use `get_all_with_key_and_limit`, but that doesn't
-        // appear to be   exposed (https://github.com/Alorel/rust-indexed-db/issues/31). Instead we replicate
-        //   the behaviour with a cursor.
+        // XXX ideally we would use `get_all_with_key_and_limit`, but that
+        // doesn't appear to be exposed
+        // (https://github.com/Alorel/rust-indexed-db/issues/31). Instead we
+        // replicate the behaviour with a cursor.
         let Some(mut cursor) = idx.open_cursor().await? else {
             return Ok(vec![]);
         };
@@ -1298,9 +1296,11 @@ impl_crypto_store! {
                     serde_wasm_bindgen::from_value(value)?;
                 if !idb_object.needs_backup {
                     idb_object.needs_backup = true;
-                    // We don't bother to update the encrypted `InboundGroupSession` object stored
-                    // inside `idb_object.data`, since that would require decryption and encryption.
-                    // Instead, it will be patched up by `deserialize_inbound_group_session`.
+                    // We don't bother to update the encrypted
+                    // `InboundGroupSession` object stored inside
+                    // `idb_object.data`, since that would require decryption
+                    // and encryption. Instead, it will be patched up by
+                    // `deserialize_inbound_group_session`.
                     let idb_object = serde_wasm_bindgen::to_value(&idb_object)?;
                     cursor.update(&idb_object).await?;
                 }
@@ -1831,10 +1831,10 @@ async fn load_store_cipher(
 
 /// Save the serialised store cipher to the meta store.
 ///
-/// # Arguments:
+/// # Arguments
 ///
-/// * `meta_db`: Connection to the meta store, as returned by [`open_meta_db`].
-/// * `store_cipher`: The serialised `StoreCipher` object.
+/// - `meta_db`: Connection to the meta store, as returned by [`open_meta_db`].
+/// - `store_cipher`: The serialised `StoreCipher` object.
 async fn save_store_cipher(
     db: &Database,
     export: &Vec<u8>,
@@ -1856,13 +1856,13 @@ async fn save_store_cipher(
 ///
 /// # Arguments
 ///
-/// * `chacha_key`: The key to use with [`StoreCipher::import_with_key`].
+/// - `chacha_key`: The key to use with [`StoreCipher::import_with_key`].
 ///   Derived from `original_key` via an HKDF.
-/// * `original_key`: The key provided by the application. Used to provide a
+/// - `original_key`: The key provided by the application. Used to provide a
 ///   migration path from an older key derivation system.
-/// * `serialised_cipher`: The serialized `EncryptedStoreCipher`, retrieved from
+/// - `serialised_cipher`: The serialized `EncryptedStoreCipher`, retrieved from
 ///   the database.
-/// * `db`: Connection to the database.
+/// - `db`: Connection to the database.
 async fn import_store_cipher_with_key(
     chacha_key: &[u8; 32],
     original_key: &[u8],
@@ -1874,16 +1874,16 @@ async fn import_store_cipher_with_key(
         Err(matrix_sdk_store_encryption::Error::KdfMismatch) => {
             // Old versions of the matrix-js-sdk used to base64-encode their
             // encryption key, and pass it into
-            // [`IndexeddbCryptoStore::open_with_passphrase`]. For
-            // backwards compatibility, we fall back to that if we discover we
-            // have a cipher encrypted with a KDF when we expected
-            // it to be encrypted directly with a key.
+            // [`IndexeddbCryptoStore::open_with_passphrase`]. For backwards
+            // compatibility, we fall back to that if we discover we have a
+            // cipher encrypted with a KDF when we expected it to be encrypted
+            // directly with a key.
             let cipher = StoreCipher::import(&base64_encode(original_key), serialised_cipher)
                 .map_err(|_| CryptoStoreError::UnpicklingError)?;
 
             // Loading the cipher with the passphrase was successful. Let's
-            // update the stored version of the cipher so that it is
-            // encrypted with a key, to save doing this again.
+            // update the stored version of the cipher so that it is encrypted
+            // with a key, to save doing this again.
             debug!(
                 "IndexedDbCryptoStore: Migrating passphrase-encrypted store cipher to key-encryption"
             );
@@ -1897,9 +1897,9 @@ async fn import_store_cipher_with_key(
     Ok(cipher)
 }
 
-/// Fetch items from an object store in batches, transform each item using
-/// the supplied function, and stuff the transformed items into a single
-/// vector to return.
+/// Fetch items from an object store in batches, transform each item using the
+/// supplied function, and stuff the transformed items into a single vector to
+/// return.
 async fn fetch_from_object_store_batched<R, F>(
     object_store: ObjectStore<'_>,
     f: F,
@@ -1918,13 +1918,13 @@ where
     loop {
         debug!("Fetching Indexed DB records starting from {}", batch_n * batch_size);
 
-        // See https://github.com/Alorel/rust-indexed-db/issues/31 - we
-        // would like to use `get_all_with_key_and_limit` if it ever exists
-        // but for now we use a cursor and manually limit batch size.
+        // See https://github.com/Alorel/rust-indexed-db/issues/31 - we would
+        // like to use `get_all_with_key_and_limit` if it ever exists but for
+        // now we use a cursor and manually limit batch size.
 
         // Get hold of a cursor for this batch. (This should not panic in
-        // expect() because we always use "", or the result of
-        // cursor.key(), both of which are valid keys.)
+        // expect() because we always use "", or the result of cursor.key(),
+        // both of which are valid keys.)
         let after_latest_key = KeyRange::LowerBound(&latest_key, true);
         let cursor = object_store.open_cursor().with_query(&after_latest_key).await?;
 
@@ -1942,9 +1942,8 @@ where
     Ok(result)
 }
 
-/// Fetch batch_size records from the supplied cursor,
-/// and return the last key we processed, or None if
-/// we reached the end of the cursor.
+/// Fetch batch_size records from the supplied cursor, and return the last key
+/// we processed, or None if we reached the end of the cursor.
 async fn fetch_batch<R, F, Q>(
     cursor: Option<Cursor<'_, Q>>,
     batch_size: usize,
@@ -1974,15 +1973,15 @@ where
         }
         // else processing failed: don't return this record at all
 
-        // Remember that we have processed this record, so if we hit
-        // the end of the batch, the next batch can start after this one
+        // Remember that we have processed this record, so if we hit the end of
+        // the batch, the next batch can start after this one
         if let Some(key) = cursor.key()? {
             latest_key = Some(key);
         }
     }
 
-    // We finished the batch but there are more records -
-    // return the key of the last one we processed
+    // We finished the batch but there are more records - return the key of the
+    // last one we processed
     Ok(latest_key)
 }
 
@@ -1998,8 +1997,8 @@ struct GossipRequestIndexedDbObject {
     /// Whether the request has yet to be sent out.
     ///
     /// Since we only need to be able to find requests where this is `true`, we
-    /// skip serialization in cases where it is `false`. That has the effect
-    /// of omitting it from the indexeddb index.
+    /// skip serialization in cases where it is `false`. That has the effect of
+    /// omitting it from the indexeddb index.
     ///
     /// We also use a custom serializer because bools can't be used as keys in
     /// indexeddb.
@@ -2031,8 +2030,8 @@ struct InboundGroupSessionIndexedDbObject {
     /// Whether the session data has yet to be backed up.
     ///
     /// Since we only need to be able to find entries where this is `true`, we
-    /// skip serialization in cases where it is `false`. That has the effect
-    /// of omitting it from the indexeddb index.
+    /// skip serialization in cases where it is `false`. That has the effect of
+    /// omitting it from the indexeddb index.
     ///
     /// We also use a custom serializer because bools can't be used as keys in
     /// indexeddb.
@@ -2044,13 +2043,11 @@ struct InboundGroupSessionIndexedDbObject {
     needs_backup: bool,
 
     /// Unused: for future compatibility. In future, will contain the order
-    /// number (not the ID!) of the backup for which this key has been
-    /// backed up. This will replace `needs_backup`, fixing the performance
-    /// problem identified in
-    /// https://github.com/element-hq/element-web/issues/26892
+    /// number (not the ID!) of the backup for which this key has been backed
+    /// up. This will replace `needs_backup`, fixing the performance problem
+    /// identified in https://github.com/element-hq/element-web/issues/26892
     /// because we won't need to update all records when we spot a new backup
-    /// version.
-    /// In this version of the code, this is always set to -1, meaning:
+    /// version. In this version of the code, this is always set to -1, meaning:
     /// "refer to the `needs_backup` property". See:
     /// https://github.com/element-hq/element-web/issues/26892#issuecomment-1906336076
     backed_up_to: i32,

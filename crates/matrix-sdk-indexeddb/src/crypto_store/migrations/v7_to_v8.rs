@@ -74,8 +74,7 @@ pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) 
                 debug!("Migrating session {idx} of {row_count}");
             }
 
-            // Work out what the key should be.
-            // (This is much the same as in
+            // Work out what the key should be. (This is much the same as in
             // `IndexeddbCryptoStore::get_inbound_group_session`)
             let new_key = serializer.encode_key(
                 old_keys::INBOUND_GROUP_SESSIONS_V2,

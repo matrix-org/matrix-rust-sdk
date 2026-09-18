@@ -37,16 +37,17 @@ fn client_metadata() -> Raw<ClientMetadata> {
     );
 
     let metadata = ClientMetadata {
-        // The following fields should be displayed in the OAuth 2.0 authorization server's web UI
-        // as part of the process to get the user's consent. It means that these should
-        // contain real data so the user can make sure that they allow the proper
-        // application. We are cheating here because this is an example.
+        // The following fields should be displayed in the OAuth 2.0
+        // authorization server's web UI as part of the process to get the
+        // user's consent. It means that these should contain real data so the
+        // user can make sure that they allow the proper application. We are
+        // cheating here because this is an example.
         client_name: Some(Localized::new("matrix-rust-sdk-qrlogin".to_owned(), [])),
         policy_uri: Some(client_uri.clone()),
         tos_uri: Some(client_uri.clone()),
         ..ClientMetadata::new(
-            // This is a native application (in contrast to a web application, that runs in a
-            // browser).
+            // This is a native application (in contrast to a web application,
+            // that runs in a browser).
             ApplicationType::Native,
             // We are going to use the Device Authorization flow.
             vec![OAuthGrantType::DeviceCode],

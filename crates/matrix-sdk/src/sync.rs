@@ -173,8 +173,8 @@ impl Client {
     /// been processed.
     ///
     /// At this point, the sync response's data has been taken into account and
-    /// persisted in the store, if needs be. This function is only calling
-    /// the event, room update and notification handlers.
+    /// persisted in the store, if needs be. This function is only calling the
+    /// event, room update and notification handlers.
     #[tracing::instrument(skip(self, response))]
     pub(crate) async fn call_sync_response_handlers(
         &self,
@@ -339,9 +339,9 @@ impl Client {
     pub(crate) async fn delay_sync(last_sync_time: &mut Option<Instant>) {
         let now = Instant::now();
 
-        // If the last sync happened less than a second ago, sleep for a
-        // while to not hammer out requests if the server doesn't respect
-        // the sync timeout.
+        // If the last sync happened less than a second ago, sleep for a while
+        // to not hammer out requests if the server doesn't respect the sync
+        // timeout.
         if let Some(t) = last_sync_time
             && now - *t <= Duration::from_secs(1)
         {

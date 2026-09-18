@@ -69,8 +69,7 @@ impl<R> SendRequest<R> {
         self
     }
 
-    /// Get a subscriber to observe the progress of sending the request
-    /// body.
+    /// Get a subscriber to observe the progress of sending the request body.
     pub fn subscribe_to_send_progress(&self) -> Subscriber<TransmissionProgress> {
         self.send_progress.subscribe()
     }
@@ -94,8 +93,8 @@ where
             No,
         }
 
-        // split out so this only get compiled once,
-        // not monomorphized per request type
+        // split out so this only get compiled once, not monomorphized per
+        // request type
         async fn handle_unknown_token_error(
             e: &HttpError,
             client: &Client,
@@ -145,8 +144,8 @@ where
                             }
                             _ => {
                                 trace!("Token refresh: OAuth 2.0 refresh encountered a problem.");
-                                // The refresh failed for other reasons, no
-                                // need to sign out.
+                                // The refresh failed for other reasons, no need
+                                // to sign out.
                             }
                         }
                         Err(HttpError::RefreshToken(refresh_error))
@@ -155,8 +154,7 @@ where
                     _ => {
                         trace!("Token refresh: Token refresh failed.");
                         // This isn't necessarily correct, but matches the
-                        // behaviour when implementing
-                        // OAuth 2.0.
+                        // behaviour when implementing OAuth 2.0.
                         client.broadcast_unknown_token(unknown_token_data);
                         Err(HttpError::RefreshToken(refresh_error))
                     }
@@ -211,8 +209,7 @@ impl SendMediaUploadRequest {
         self
     }
 
-    /// Get a subscriber to observe the progress of sending the request
-    /// body.
+    /// Get a subscriber to observe the progress of sending the request body.
     pub fn subscribe_to_send_progress(&self) -> Subscriber<TransmissionProgress> {
         self.send_request.send_progress.subscribe()
     }

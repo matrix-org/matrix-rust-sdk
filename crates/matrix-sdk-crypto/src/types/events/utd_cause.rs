@@ -52,9 +52,9 @@ pub enum UtdCause {
     /// signed by its owner, and we were unable to securely find the device.
     ///
     /// This could be because the device has since been deleted, because we
-    /// haven't yet downloaded it from the server, or because the session
-    /// data was obtained from an insecure source (imported from a file,
-    /// obtained from a legacy (asymmetric) backup, unsafe key forward, etc.)
+    /// haven't yet downloaded it from the server, or because the session data
+    /// was obtained from an insecure source (imported from a file, obtained
+    /// from a legacy (asymmetric) backup, unsafe key forward, etc.)
     UnknownDevice = 4,
 
     /// We are missing the keys for this event, but it is a "device-historical"
@@ -63,9 +63,8 @@ pub enum UtdCause {
     ///
     /// Device-historical means that the message was sent before the current
     /// device existed (but the current user was probably a member of the room
-    /// at the time the message was sent). Not to
-    /// be confused with pre-join or pre-invite messages (see
-    /// [`UtdCause::SentBeforeWeJoined`] for that).
+    /// at the time the message was sent). Not to be confused with pre-join or
+    /// pre-invite messages (see [`UtdCause::SentBeforeWeJoined`] for that).
     ///
     /// Expected message to user: "History is not available on this device".
     HistoricalMessageAndBackupIsDisabled = 5,
@@ -77,10 +76,10 @@ pub enum UtdCause {
     WithheldForUnverifiedOrInsecureDevice = 6,
 
     /// The keys for this event are missing, likely because the sender was
-    /// unable to share them (e.g., failure to establish an Olm 1:1
-    /// channel). Alternatively, the sender may have deliberately excluded
-    /// this device by cherry-picking and blocking it, in which case, no action
-    /// can be taken on our side.
+    /// unable to share them (e.g., failure to establish an Olm 1:1 channel).
+    /// Alternatively, the sender may have deliberately excluded this device by
+    /// cherry-picking and blocking it, in which case, no action can be taken on
+    /// our side.
     WithheldBySender = 7,
 
     /// We are missing the keys for this event, but it is a "device-historical"
@@ -89,9 +88,8 @@ pub enum UtdCause {
     ///
     /// Device-historical means that the message was sent before the current
     /// device existed (but the current user was probably a member of the room
-    /// at the time the message was sent). Not to
-    /// be confused with pre-join or pre-invite messages (see
-    /// [`UtdCause::SentBeforeWeJoined`] for that).
+    /// at the time the message was sent). Not to be confused with pre-join or
+    /// pre-invite messages (see [`UtdCause::SentBeforeWeJoined`] for that).
     ///
     /// Expected message to user: "You need to verify this device".
     HistoricalMessageAndDeviceIsUnverified = 8,
@@ -226,8 +224,8 @@ impl UtdCause {
             // We didn't get the key from key storage backup, but we think we
             // should have, because either:
             //
-            // * backup is working (so why didn't we get it?), or
-            // * backup is not working for an unknown reason (because the device
+            // - backup is working (so why didn't we get it?), or
+            // - backup is not working for an unknown reason (because the device
             //   is verified, and that is the only reason we check).
             //
             // In either case, we shrug and give an `Unknown` cause.
@@ -442,8 +440,8 @@ mod tests {
         context.backup_exists_on_server = false;
 
         // So this could be expected historical like the previous test, but
-        // because the encrypted event is malformed, that takes
-        // precedence, and it's unexpected.
+        // because the encrypted event is malformed, that takes precedence, and
+        // it's unexpected.
         assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Unknown);
 
         // Same for decryption failures
@@ -465,8 +463,7 @@ mod tests {
         // The key storage backup is not working,
         context.is_backup_configured = false;
 
-        // probably because...
-        // Our device is not verified.
+        // probably because... Our device is not verified.
         context.this_device_is_verified = false;
 
         // So this UTD is expected, and the solution is (hopefully) to verify.
@@ -520,17 +517,15 @@ mod tests {
         // The key storage backup is working.
         context.is_backup_configured = false;
 
-        // even though...
-        // Our device is verified.
+        // even though... Our device is verified.
         context.this_device_is_verified = true;
 
         // So this UTD is unexpected since we can't explain why our backup is
         // not working.
         //
         // TODO: it might be nice to tell the user that our backup is not
-        // working! Currently we don't distinguish between Unknown
-        // cases, since we want to make sure they are all reported as
-        // unexpected UTDs.
+        // working! Currently we don't distinguish between Unknown cases, since
+        // we want to make sure they are all reported as unexpected UTDs.
         assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Unknown);
 
         // Same for unknown megolm message index

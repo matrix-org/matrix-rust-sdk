@@ -31,10 +31,10 @@ pub(crate) async fn schema_add(name: &str) -> Result<(), OpenDbError> {
     do_schema_upgrade(name, 5, |tx, old_version| {
         let db = tx.db();
         // An old_version of 1 could either mean actually the first version of
-        // the schema, or a completely empty schema that has been
-        // created with a call to `Database::open` with no explicit
-        // "version". So, to determine if we need to create the V1
-        // stores, we actually check if the schema is empty.
+        // the schema, or a completely empty schema that has been created with a
+        // call to `Database::open` with no explicit "version". So, to determine
+        // if we need to create the V1 stores, we actually check if the schema
+        // is empty.
         if db.object_store_names().next().is_none() {
             schema_add_v1(db)?;
         }
@@ -77,9 +77,9 @@ fn schema_add_v1(db: &Database) -> Result<(), Error> {
 }
 
 fn schema_add_v2(db: &Database) -> Result<(), Error> {
-    // We changed how we store inbound group sessions, the key used to
-    // be a tuple of `(room_id, sender_key, session_id)` now it's a
-    // tuple of `(room_id, session_id)`
+    // We changed how we store inbound group sessions, the key used to be a
+    // tuple of `(room_id, sender_key, session_id)` now it's a tuple of
+    // `(room_id, session_id)`
     //
     // Let's just drop the whole object store.
     db.delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)?;
@@ -91,9 +91,9 @@ fn schema_add_v2(db: &Database) -> Result<(), Error> {
 }
 
 fn schema_add_v3(db: &Database) -> Result<(), Error> {
-    // We changed the way we store outbound session.
-    // ShareInfo changed from a struct to an enum with struct variant.
-    // Let's just discard the existing outbounds
+    // We changed the way we store outbound session. ShareInfo changed from a
+    // struct to an enum with struct variant. Let's just discard the existing
+    // outbounds
     db.delete_object_store(keys::OUTBOUND_GROUP_SESSIONS)?;
     db.create_object_store(keys::OUTBOUND_GROUP_SESSIONS).build()?;
 

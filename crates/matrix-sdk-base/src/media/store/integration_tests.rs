@@ -678,8 +678,8 @@ where
         };
 
         // A policy that will result in only one media content in the cache,
-        // which is the average or small content, depending on the last
-        // access time.
+        // which is the average or small content, depending on the last access
+        // time.
         let policy = MediaRetentionPolicy::empty().with_max_cache_size(Some(150));
 
         // Try to add all the big content without ignoring the policy, it should
@@ -971,20 +971,21 @@ where
     }
 }
 
-/// Macro building to allow your [`MediaStoreInner`] implementation to run
-/// the entire tests suite locally.
+/// Macro building to allow your [`MediaStoreInner`] implementation to run the
+/// entire tests suite locally.
 ///
 /// Can be run with the `with_media_size_tests` argument to include more tests
 /// about the media cache retention policy based on content size. It is not
 /// recommended to run those in encrypted stores because the size of the
 /// encrypted content may vary compared to what the tests expect.
 ///
-/// You need to provide an `async fn get_media_store() ->
-/// media::store::Result<Store>` that provides a fresh media store
-/// that implements `MediaStoreInner` on the same level you invoke the
-/// macro.
+/// You need to provide an
+/// `async fn get_media_store() -> media::store::Result<Store>` that provides a
+/// fresh media store that implements `MediaStoreInner` on the same level you
+/// invoke the macro.
 ///
-/// ## Usage Example:
+/// ## Usage example
+///
 /// ```no_run
 /// # use matrix_sdk_base::media::store::{
 /// #    MediaStore,
@@ -1242,15 +1243,16 @@ where
     }
 }
 
-/// Macro building to allow your [`MediaStore`] implementation to run
-/// the entire tests suite locally.
+/// Macro building to allow your [`MediaStore`] implementation to run the entire
+/// tests suite locally.
 ///
-/// You need to provide an `async fn get_media_store() ->
-/// media::store::Result<Store>` that provides a fresh media store
-/// that implements `MediaStoreInner` on the same level you invoke the
-/// macro.
+/// You need to provide an
+/// `async fn get_media_store() -> media::store::Result<Store>` that provides a
+/// fresh media store that implements `MediaStoreInner` on the same level you
+/// invoke the macro.
 ///
-/// ## Usage Example:
+/// ## Usage example
+///
 /// ```no_run
 /// # use matrix_sdk_base::media::store::{
 /// #    MediaStore,
@@ -1294,8 +1296,8 @@ macro_rules! media_store_integration_tests {
     };
 }
 
-/// Macro generating tests for the media store, related to time (mostly
-/// for the cross-process lock).
+/// Macro generating tests for the media store, related to time (mostly for the
+/// cross-process lock).
 #[allow(unused_macros)]
 #[macro_export]
 macro_rules! media_store_integration_tests_time {
@@ -1317,30 +1319,32 @@ macro_rules! media_store_integration_tests_time {
                 let store = get_media_store().await.unwrap();
 
                 let acquired0 = store.try_take_leased_lock(0, "key", "alice").await.unwrap();
-                assert_eq!(acquired0, Some(1)); // first lock generation
+                 assert_eq!(acquired0, Some(1)); // first lock generation
 
                 // Should extend the lease automatically (same holder).
                 let acquired2 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
-                assert_eq!(acquired2, Some(1)); // same lock generation
+                 assert_eq!(acquired2, Some(1)); // same lock generation
 
-                // Should extend the lease automatically (same holder + time is ok).
+                // Should extend the lease automatically (same holder + time is
+                // ok).
                 let acquired3 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
-                assert_eq!(acquired3, Some(1)); // same lock generation
+                 assert_eq!(acquired3, Some(1)); // same lock generation
 
-                // Another attempt at taking the lock should fail, because it's taken.
+                // Another attempt at taking the lock should fail, because it's
+                // taken.
                 let acquired4 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
-                assert!(acquired4.is_none()); // not acquired
+                 assert!(acquired4.is_none()); // not acquired
 
                 // Even if we insist.
                 let acquired5 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
-                assert!(acquired5.is_none()); // not acquired
+                 assert!(acquired5.is_none()); // not acquired
 
                 // That's a nice test we got here, go take a little nap.
                 sleep(Duration::from_millis(50)).await;
 
                 // Still too early.
                 let acquired55 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
-                assert!(acquired55.is_none()); // not acquired
+                 assert!(acquired55.is_none()); // not acquired
 
                 // Ok you can take another nap then.
                 sleep(Duration::from_millis(250)).await;
@@ -1359,11 +1363,11 @@ macro_rules! media_store_integration_tests_time {
 
                 // But when we take a longer lease…
                 let acquired8 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
-                assert_eq!(acquired8, Some(4)); // new lock generation!
+                 assert_eq!(acquired8, Some(4)); // new lock generation!
 
                 // It blocks the other user.
                 let acquired9 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
-                assert!(acquired9.is_none()); // not acquired
+                 assert!(acquired9.is_none()); // not acquired
 
                 // We can hold onto our lease.
                 let acquired10 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();

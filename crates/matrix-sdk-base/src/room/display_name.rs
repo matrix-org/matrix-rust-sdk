@@ -40,8 +40,7 @@ impl Room {
     ///
     /// While the underlying computation can be slow, the result is cached and
     /// returned on the following calls. The cache is also filled on every
-    /// successful sync, since a sync may cause a change in the display
-    /// name.
+    /// successful sync, since a sync may cause a change in the display name.
     ///
     /// If you need a variant that's sync (but with the drawback that it returns
     /// an `Option`), consider using [`Room::cached_display_name`].
@@ -72,8 +71,8 @@ impl Room {
         heroes: Vec<RoomHero>,
         num_joined_members: u64,
     ) -> RoomDisplayName {
-        // Handle empty string names. The `Room` level implementation relies
-        // on `RoomInfo` doing the same thing.
+        // Handle empty string names. The `Room` level implementation relies on
+        // `RoomInfo` doing the same thing.
         let name = name.and_then(|name| (!name.is_empty()).then_some(name));
 
         match (name, canonical_alias) {
@@ -120,10 +119,11 @@ impl Room {
                     let name = RoomDisplayName::Aliased(alias.alias().trim().to_owned());
                     DisplayNameOrSummary::DisplayName(name)
                 }
-                // We can't directly compute the display name from the summary here because Rust
-                // thinks that the `inner` lock is still held even if we explicitly call `drop()`
-                // on it. So we introduced the DisplayNameOrSummary type and do the computation in
-                // two steps.
+                // We can't directly compute the display name from the summary
+                // here because Rust thinks that the `inner` lock is still held
+                // even if we explicitly call `drop()` on it. So we introduced
+                // the DisplayNameOrSummary type and do the computation in two
+                // steps.
                 (None, None) => DisplayNameOrSummary::Summary(inner.summary.clone()),
             }
         };
@@ -203,9 +203,8 @@ impl Room {
     /// Extracts and enhances the [`RoomSummary`] provided by the homeserver.
     ///
     /// This method extracts the relevant data from the [`RoomSummary`] and
-    /// augments it with additional information that may not be included in
-    /// the initial response, such as details about service members in the
-    /// room.
+    /// augments it with additional information that may not be included in the
+    /// initial response, such as details about service members in the room.
     ///
     /// Returns a [`ComputedSummary`].
     async fn extract_and_augment_summary(
@@ -219,10 +218,9 @@ impl Room {
         let member_hints = self.get_member_hints().await?;
 
         // If we have some service members in the heroes, that means that they
-        // are also part of the joined member counts. They shouldn't be
-        // so, otherwise we'll wrongly assume that there are more
-        // members in the room than they are for the "Bob and 2 others"
-        // case.
+        // are also part of the joined member counts. They shouldn't be so,
+        // otherwise we'll wrongly assume that there are more members in the
+        // room than they are for the "Bob and 2 others" case.
         let num_service_members = heroes
             .iter()
             .filter(|hero| member_hints.service_members.contains(&hero.user_id))
@@ -288,17 +286,17 @@ impl Room {
         let mut members = self.members(RoomMemberships::JOIN | RoomMemberships::INVITE).await?;
 
         // If we have some service members, they shouldn't count to the number
-        // of joined/invited members, otherwise we'll wrongly assume
-        // that there are more members in the room than they are for the
-        // "Bob and 2 others" case.
+        // of joined/invited members, otherwise we'll wrongly assume that there
+        // are more members in the room than they are for the "Bob and 2 others"
+        // case.
         let num_service_members = members
             .iter()
             .filter(|member| member_hints.service_members.contains(member.user_id()))
             .count();
 
         // We can make a good prediction of the total number of joined and
-        // invited members here. This might be incorrect if the database
-        // info is outdated.
+        // invited members here. This might be incorrect if the database info is
+        // outdated.
         //
         // Note: Subtracting here is fine because `num_service_members` is a
         // subset of `members.len()` due to the above filter operation.
@@ -454,23 +452,22 @@ impl From<&RoomHeroWithProfile> for RoomHero {
 /// have a name set by the users themselves.
 ///
 /// A server must return at most 5 heroes, according to the paragraph below
-/// https://spec.matrix.org/v1.10/client-server-api/#get_matrixclientv3sync (grep for "heroes"). We
-/// try to behave similarly here.
+/// https://spec.matrix.org/v1.10/client-server-api/#get_matrixclientv3sync
+/// (grep for "heroes"). We try to behave similarly here.
 const NUM_HEROES: usize = 5;
 
-/// The name of the room, either from the metadata or calculated
-/// according to [matrix specification](https://spec.matrix.org/latest/client-server-api/#calculating-the-display-name-for-a-room)
+/// The name of the room, either from the metadata or calculated according to
+/// [matrix specification](https://spec.matrix.org/latest/client-server-api/#calculating-the-display-name-for-a-room)
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum RoomDisplayName {
     /// The room has been named explicitly as
     Named(String),
     /// The room has a canonical alias that should be used
     Aliased(String),
-    /// The room has not given an explicit name but a name could be
-    /// calculated
+    /// The room has not given an explicit name but a name could be calculated
     Calculated(String),
-    /// The room doesn't have a name right now, but used to have one
-    /// e.g. because it was a DM and everyone has left the room
+    /// The room doesn't have a name right now, but used to have one e.g.
+    /// because it was a DM and everyone has left the room
     EmptyWas(String),
     /// No useful name could be calculated or ever found
     Empty,
@@ -557,8 +554,8 @@ fn compute_display_name_from_heroes(
     } else if num_heroes >= num_joined_invited_except_self {
         heroes.join(", ")
     } else if num_heroes < num_joined_invited_except_self && num_joined_invited > 1 {
-        // TODO: What length does the spec want us to use here and in
-        // the `else`?
+        // TODO: What length does the spec want us to use here and in the
+        // `else`?
         format!("{}, and {} others", heroes.join(", "), (num_joined_invited - num_heroes))
     } else {
         "".to_owned()

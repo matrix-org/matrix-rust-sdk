@@ -132,9 +132,9 @@ impl SearchService {
         }
     }
 
-    /// Set (or update) the search query.
-    /// Clears the current results, restarts pagination from scratch and loads
-    /// the first page. Call [`Self::paginate`] to load any further pages.
+    /// Set (or update) the search query. Clears the current results, restarts
+    /// pagination from scratch and loads the first page. Call
+    /// [`Self::paginate`] to load any further pages.
     pub async fn set_query(&self, query: String) -> Result<(), SearchError> {
         let stream = self.client.search_messages(query).build_events();
         *self.stream.lock().await = Some(Box::pin(stream));

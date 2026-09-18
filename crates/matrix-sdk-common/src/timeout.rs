@@ -34,11 +34,10 @@ impl fmt::Display for ElapsedError {
 
 impl Error for ElapsedError {}
 
-/// Wait for `future` to be completed. `future` needs to return
-/// a `Result`.
+/// Wait for `future` to be completed. `future` needs to return a `Result`.
 ///
-/// If the given timeout has elapsed the method will stop waiting and return
-/// an error.
+/// If the given timeout has elapsed the method will stop waiting and return an
+/// error.
 pub async fn timeout<F, T>(future: F, duration: Duration) -> Result<T, ElapsedError>
 where
     F: Future<Output = T>,

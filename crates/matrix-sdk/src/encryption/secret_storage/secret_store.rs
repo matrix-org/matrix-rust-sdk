@@ -51,6 +51,7 @@ use crate::{Client, encryption::backups::EnableBackupError};
 /// Matrix user's data.
 ///
 /// **Data Flow Overview:**
+///
 /// ```mermaid
 /// flowchart LR
 ///    subgraph Client
@@ -101,7 +102,7 @@ impl SecretStore {
     /// Export the [`SecretStorageKey`] of this [`SecretStore`] as a
     /// base58-encoded string as defined in the [spec].
     ///
-    /// *Note*: This returns a copy of the private key material of the
+    /// _Note_: This returns a copy of the private key material of the
     /// [`SecretStorageKey`] as a string. The caller needs to ensure that this
     /// string is zeroized.
     ///
@@ -163,8 +164,8 @@ impl SecretStore {
                 .map_err(|e| SecretStorageError::into_import_error(secret_name.clone(), e))?;
 
             // The `SecretEventContent` contains a map from the secret storage
-            // key ID to the ciphertext. Let's try to find a secret
-            // which was encrypted using our [`SecretStorageKey`].
+            // key ID to the ciphertext. Let's try to find a secret which was
+            // encrypted using our [`SecretStorageKey`].
             if let Some(secret_content) = secret_content.encrypted.remove(self.key.key_id()) {
                 // We found a secret we should be able to decrypt, let's try to
                 // do so.
@@ -186,8 +187,7 @@ impl SecretStore {
                 Ok(Some(secret))
             } else {
                 // We did not find a secret which was encrypted using our
-                // [`SecretStorageKey`], no need to try to
-                // decrypt.
+                // [`SecretStorageKey`], no need to try to decrypt.
                 Ok(None)
             }
         } else {
@@ -234,18 +234,18 @@ impl SecretStore {
     /// ```
     pub async fn put_secret(&self, secret_name: impl Into<SecretName>, secret: &str) -> Result<()> {
         // This function does a read/update/store of an account data event
-        // stored on the homeserver. We first fetch the existing account
-        // data event, the event contains a map which gets updated by
-        // this method, finally we upload the modified event.
+        // stored on the homeserver. We first fetch the existing account data
+        // event, the event contains a map which gets updated by this method,
+        // finally we upload the modified event.
         //
         // To prevent multiple calls to this method trying to update a secret at
-        // the same time, and thus trampling on each other we introduce
-        // a lock which acts as a semaphore.
+        // the same time, and thus trampling on each other we introduce a lock
+        // which acts as a semaphore.
         //
         // Technically there's a low chance of this happening since we're not
-        // storing many secrets and the bigger problem is that another
-        // client might be doing this as well and the server doesn't
-        // have a mechanism to protect against this.
+        // storing many secrets and the bigger problem is that another client
+        // might be doing this as well and the server doesn't have a mechanism
+        // to protect against this.
         //
         // We could make this lock be per `secret_name` but this is not a
         // performance critical method.
@@ -368,8 +368,8 @@ impl SecretStore {
     /// is used to sign our own [`Device`], marking it as verified. This step is
     /// establishes trust in your own device's identity.
     ///
-    /// By invoking this method, you ensure that your device has access to
-    /// the necessary secrets for device and identity verification.
+    /// By invoking this method, you ensure that your device has access to the
+    /// necessary secrets for device and identity verification.
     ///
     /// # Examples
     ///
@@ -418,12 +418,12 @@ impl SecretStore {
         info!(cross_signing_keys = ?export, "Received the cross signing keys from the server");
 
         // We need to ensure that we have the public parts of the cross-signing
-        // keys, those are represented as the `OwnUserIdentity` struct.
-        // The public parts from the server are compared to the public
-        // parts re-derived from the private parts. We will only import
-        // the private parts of the cross-signing keys if they match to
-        // the public parts, otherwise we would risk importing some
-        // stale cross-signing keys leftover in the secret store.
+        // keys, those are represented as the `OwnUserIdentity` struct. The
+        // public parts from the server are compared to the public parts
+        // re-derived from the private parts. We will only import the private
+        // parts of the cross-signing keys if they match to the public parts,
+        // otherwise we would risk importing some stale cross-signing keys
+        // leftover in the secret store.
         let (request_id, request) = olm_machine.query_keys_for_users([olm_machine.user_id()]);
         self.client.keys_query(&request_id, request.device_keys).await?;
 
@@ -441,15 +441,14 @@ impl SecretStore {
             info!("Successfully imported the self-signing key, attempting to sign our own device");
 
             // Now that we successfully imported them, the self-signing key can
-            // be used to verify our own device so other devices and
-            // user identities trust it if the trust our user
-            // identity.
+            // be used to verify our own device so other devices and user
+            // identities trust it if the trust our user identity.
             if let Some(own_device) = self.client.encryption().get_own_device().await? {
                 own_device.verify().await?;
 
                 // Another /keys/query request to ensure that the signatures we
-                // uploaded using `own_device.verify()` are
-                // attached to the `Device` we have in storage.
+                // uploaded using `own_device.verify()` are attached to the
+                // `Device` we have in storage.
                 let (request_id, request) =
                     olm_machine.query_keys_for_users([olm_machine.user_id()]);
                 self.client.keys_query(&request_id, request.device_keys).await?;

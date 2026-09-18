@@ -125,7 +125,7 @@ impl Drop for OlmMachine {
         // blocking threadpool to avoid blocking async worker threads.
         let _guard = self.runtime.enter();
         // SAFETY: self.inner is never used again, which is the only requirement
-        //         for ManuallyDrop::drop to be used safely.
+        // for ManuallyDrop::drop to be used safely.
         unsafe {
             ManuallyDrop::drop(&mut self.inner);
         }
@@ -160,9 +160,9 @@ pub struct SignatureVerification {
     /// This flag tells us if the result has a valid signature from any of the
     /// following:
     ///
-    /// * Our own device
-    /// * Our own user identity, provided the identity is trusted as well
-    /// * Any of our own devices, provided the device is trusted as well
+    /// - Our own device
+    /// - Our own user identity, provided the identity is trusted as well
+    /// - Any of our own devices, provided the device is trusted as well
     pub trusted: bool,
 }
 
@@ -189,13 +189,10 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The unique ID of the user that owns this machine.
-    ///
-    /// * `device_id` - The unique ID of the device that owns this machine.
-    ///
-    /// * `path` - The path where the state of the machine should be persisted.
-    ///
-    /// * `passphrase` - The passphrase that should be used to encrypt the data
+    /// - `user_id` - The unique ID of the user that owns this machine.
+    /// - `device_id` - The unique ID of the device that owns this machine.
+    /// - `path` - The path where the state of the machine should be persisted.
+    /// - `passphrase` - The passphrase that should be used to encrypt the data
     ///   at rest in the crypto store. **Warning**, if no passphrase is given,
     ///   the store and all its data will remain unencrypted.
     #[uniffi::constructor]
@@ -252,9 +249,8 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The unique id of the user that the identity belongs to
-    ///
-    /// * `timeout` - The time in seconds we should wait before returning if the
+    /// - `user_id` - The unique id of the user that the identity belongs to
+    /// - `timeout` - The time in seconds we should wait before returning if the
     ///   user's device list has been marked as stale. Passing a 0 as the
     ///   timeout means that we won't wait at all. **Note**, this assumes that
     ///   the requests from [`OlmMachine::outgoing_requests`] are being
@@ -329,11 +325,9 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The id of the device owner.
-    ///
-    /// * `device_id` - The id of the device itself.
-    ///
-    /// * `timeout` - The time in seconds we should wait before returning if the
+    /// - `user_id` - The id of the device owner.
+    /// - `device_id` - The id of the device itself.
+    /// - `timeout` - The time in seconds we should wait before returning if the
     ///   user's device list has been marked as stale. Passing a 0 as the
     ///   timeout means that we won't wait at all. **Note**, this assumes that
     ///   the requests from [`OlmMachine::outgoing_requests`] are being
@@ -414,9 +408,8 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The id of the device owner.
-    ///
-    /// * `timeout` - The time in seconds we should wait before returning if the
+    /// - `user_id` - The id of the device owner.
+    /// - `timeout` - The time in seconds we should wait before returning if the
     ///   user's device list has been marked as stale. Passing a 0 as the
     ///   timeout means that we won't wait at all. **Note**, this assumes that
     ///   the requests from [`OlmMachine::outgoing_requests`] are being
@@ -459,12 +452,11 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `request_id` - The unique ID of the request that was sent out. This
+    /// - `request_id` - The unique ID of the request that was sent out. This
     ///   needs to be an UUID.
     ///
-    /// * `request_type` - The type of the request that was sent out.
-    ///
-    /// * `response_body` - The body of the response that was received.
+    /// - `request_type` - The type of the request that was sent out.
+    /// - `response_body` - The body of the response that was received.
     pub fn mark_request_as_sent(
         &self,
         request_id: String,
@@ -508,18 +500,18 @@ impl OlmMachine {
     /// Let the state machine know about E2EE related sync changes that we
     /// received from the server.
     ///
-    /// This needs to be called after every sync, ideally before processing
-    /// any other sync changes.
+    /// This needs to be called after every sync, ideally before processing any
+    /// other sync changes.
     ///
     /// # Arguments
     ///
-    /// * `events` - A serialized array of to-device events we received in the
+    /// - `events` - A serialized array of to-device events we received in the
     ///   current sync response.
     ///
-    /// * `device_changes` - The list of devices that have changed in some way
+    /// - `device_changes` - The list of devices that have changed in some way
     ///   since the previous sync.
     ///
-    /// * `key_counts` - The map of uploaded one-time key types and counts.
+    /// - `key_counts` - The map of uploaded one-time key types and counts.
     pub fn receive_sync_changes(
         &self,
         events: String,
@@ -571,11 +563,11 @@ impl OlmMachine {
     /// request for them.
     ///
     /// The OlmMachine maintains a list of users whose devices we are keeping
-    /// track of: these are known as "tracked users". These must be users
-    /// that we share a room with, so that the server sends us updates for
-    /// their device lists.
+    /// track of: these are known as "tracked users". These must be users that
+    /// we share a room with, so that the server sends us updates for their
+    /// device lists.
     ///
-    /// *Note*: Only users that aren't already tracked will be considered for an
+    /// _Note_: Only users that aren't already tracked will be considered for an
     /// update. It's safe to call this with already tracked users, it won't
     /// result in excessive `/keys/query` requests.
     ///
@@ -612,7 +604,7 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `users` - The list of users for which we would like to establish 1:1
+    /// - `users` - The list of users for which we would like to establish 1:1
     ///   Olm sessions for.
     pub fn get_missing_sessions(
         &self,
@@ -733,14 +725,14 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The unique id of the room, note that this doesn't strictly
+    /// - `room_id` - The unique id of the room, note that this doesn't strictly
     ///   need to be a Matrix room, it just needs to be an unique identifier for
     ///   the group that will participate in the conversation.
     ///
-    /// * `users` - The list of users which are considered to be members of the
+    /// - `users` - The list of users which are considered to be members of the
     ///   room and should receive the room key.
     ///
-    /// * `settings` - The settings that should be used for the room key.
+    /// - `settings` - The settings that should be used for the room key.
     pub fn share_room_key(
         &self,
         room_id: String,
@@ -779,7 +771,6 @@ impl OlmMachine {
     ///    be locked per room.
     ///
     /// 3. Encrypt the event using this method.
-    ///
     /// 4. Send the encrypted event to the server.
     ///
     /// After the room key is shared steps 1 and 2 will become noops, unless
@@ -788,11 +779,9 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The unique id of the room where the event will be sent to.
-    ///
-    /// * `even_type` - The type of the event.
-    ///
-    /// * `content` - The serialized content of the event.
+    /// - `room_id` - The unique id of the room where the event will be sent to.
+    /// - `even_type` - The type of the event.
+    /// - `content` - The serialized content of the event.
     pub fn encrypt(
         &self,
         room_id: String,
@@ -815,12 +804,13 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user who owns the target device.
-    /// * `device_id` - The ID of the device to which the message will be sent.
-    /// * `event_type` - The event type.
-    /// * `content` - The serialized content of the event.
+    /// - `user_id` - The ID of the user who owns the target device.
+    /// - `device_id` - The ID of the device to which the message will be sent.
+    /// - `event_type` - The event type.
+    /// - `content` - The serialized content of the event.
     ///
     /// # Returns
+    ///
     /// A `Result` containing the request to be sent out if the encryption was
     /// successful. If the device is not found, the result will be `Ok(None)`.
     ///
@@ -865,11 +855,9 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `event` - The serialized encrypted version of the event.
-    ///
-    /// * `room_id` - The unique id of the room where the event was sent to.
-    ///
-    /// * `handle_verification_events` - if the supplied event is a verification
+    /// - `event` - The serialized encrypted version of the event.
+    /// - `room_id` - The unique id of the room where the event was sent to.
+    /// - `handle_verification_events` - if the supplied event is a verification
     ///   event, use it to update the verification state. **Note**: it is
     ///   recommended to avoid setting this flag to true and use the explicit
     ///   [`OlmMachine::receive_verification_event`] method instead:
@@ -877,11 +865,11 @@ impl OlmMachine {
     ///   them: see the documentation for
     ///   [`OlmMachine::receive_verification_event`].
     ///
-    /// * `strict_shields` - If `true`, messages will be decorated with strict
+    /// - `strict_shields` - If `true`, messages will be decorated with strict
     ///   warnings (use `false` to match legacy behaviour where unsafe keys have
     ///   lower severity warnings and unverified identities are not decorated).
     ///
-    /// * `decryption_settings` - The setting for decrypting messages.
+    /// - `decryption_settings` - The setting for decrypting messages.
     pub fn decrypt_room_event(
         &self,
         event: String,
@@ -948,8 +936,7 @@ impl OlmMachine {
             },
             AlgorithmInfo::OlmV1Curve25519AesSha2 { .. } => {
                 // cannot happen because `decrypt_room_event` would have fail to
-                // decrypt olm for
-                // a room (EventError::UnsupportedAlgorithm)
+                // decrypt olm for a room (EventError::UnsupportedAlgorithm)
                 panic!("Unsupported olm algorithm in room")
             }
         })
@@ -960,10 +947,10 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `event` - The undecryptable event that we would wish to request a room
+    /// - `event` - The undecryptable event that we would wish to request a room
     ///   key for.
     ///
-    /// * `room_id` - The id of the room the event was sent to.
+    /// - `room_id` - The id of the room the event was sent to.
     pub fn request_room_key(
         &self,
         event: String,
@@ -985,10 +972,10 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `passphrase` - The passphrase that should be used to encrypt the key
+    /// - `passphrase` - The passphrase that should be used to encrypt the key
     ///   export.
     ///
-    /// * `rounds` - The number of rounds that should be used when expanding the
+    /// - `rounds` - The number of rounds that should be used when expanding the
     ///   passphrase into an key.
     pub fn export_room_keys(
         &self,
@@ -1007,11 +994,9 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `keys` - The serialized version of the key export.
-    ///
-    /// * `passphrase` - The passphrase that was used to encrypt the key export.
-    ///
-    /// * `progress_listener` - A callback that can be used to introspect the
+    /// - `keys` - The serialized version of the key export.
+    /// - `passphrase` - The passphrase that was used to encrypt the key export.
+    /// - `progress_listener` - A callback that can be used to introspect the
     ///   progress of the key import.
     pub fn import_room_keys(
         &self,
@@ -1036,9 +1021,8 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `keys` - The serialized version of the unencrypted key export.
-    ///
-    /// * `progress_listener` - A callback that can be used to introspect the
+    /// - `keys` - The serialized version of the unencrypted key export.
+    /// - `progress_listener` - A callback that can be used to introspect the
     ///   progress of the key import.
     pub fn import_decrypted_room_keys(
         &self,
@@ -1061,12 +1045,11 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `keys` - The serialized version of the unencrypted key export.
-    ///
-    /// * `backup_version` - The version of the backup that these keys came
+    /// - `keys` - The serialized version of the unencrypted key export.
+    /// - `backup_version` - The version of the backup that these keys came
     ///   from.
     ///
-    /// * `progress_listener` - A callback that can be used to introspect the
+    /// - `progress_listener` - A callback that can be used to introspect the
     ///   progress of the key import.
     pub fn import_room_keys_from_backup(
         &self,
@@ -1134,7 +1117,7 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user for which we would like to fetch the
+    /// - `user_id` - The ID of the user for which we would like to fetch the
     ///   verification requests.
     pub fn get_verification_requests(&self, user_id: String) -> Vec<Arc<VerificationRequest>> {
         let Ok(user_id) = UserId::parse(user_id) else {
@@ -1155,10 +1138,10 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user for which we would like to fetch the
+    /// - `user_id` - The ID of the user for which we would like to fetch the
     ///   verification requests.
     ///
-    /// * `flow_id` - The ID that uniquely identifies the verification flow.
+    /// - `flow_id` - The ID that uniquely identifies the verification flow.
     pub fn get_verification_request(
         &self,
         user_id: String,
@@ -1175,10 +1158,10 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user which we would like to request to
+    /// - `user_id` - The ID of the user which we would like to request to
     ///   verify.
     ///
-    /// * `methods` - The list of verification methods we want to advertise to
+    /// - `methods` - The list of verification methods we want to advertise to
     ///   support.
     pub fn verification_request_content(
         &self,
@@ -1204,18 +1187,18 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user which we would like to request to
+    /// - `user_id` - The ID of the user which we would like to request to
     ///   verify.
     ///
-    /// * `room_id` - The ID of the room that represents a DM with the given
+    /// - `room_id` - The ID of the room that represents a DM with the given
     ///   user.
     ///
-    /// * `event_id` - The event ID of the `m.key.verification.request` event
+    /// - `event_id` - The event ID of the `m.key.verification.request` event
     ///   that we sent out to request the verification to begin. The content for
     ///   this request can be created using the [verification_request_content()]
     ///   method.
     ///
-    /// * `methods` - The list of verification methods we advertised as
+    /// - `methods` - The list of verification methods we advertised as
     ///   supported in the `m.key.verification.request` event.
     ///
     /// [verification_request_content()]: Self::verification_request_content
@@ -1250,12 +1233,11 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user which we would like to request to
+    /// - `user_id` - The ID of the user which we would like to request to
     ///   verify.
     ///
-    /// * `device_id` - The ID of the device that we wish to verify.
-    ///
-    /// * `methods` - The list of verification methods we advertised as
+    /// - `device_id` - The ID of the device that we wish to verify.
+    /// - `methods` - The list of verification methods we advertised as
     ///   supported in the `m.key.verification.request` event.
     pub fn request_verification_with_device(
         &self,
@@ -1324,10 +1306,10 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user for which we would like to fetch the
+    /// - `user_id` - The ID of the user for which we would like to fetch the
     ///   verification.
     ///
-    /// * `flow_id` - The ID that uniquely identifies the verification flow.
+    /// - `flow_id` - The ID that uniquely identifies the verification flow.
     pub fn get_verification(&self, user_id: String, flow_id: String) -> Option<Arc<Verification>> {
         let user_id = UserId::parse(user_id).ok()?;
 
@@ -1336,18 +1318,18 @@ impl OlmMachine {
             .map(|v| Verification { inner: v, runtime: self.runtime.handle().to_owned() }.into())
     }
 
-    /// Start short auth string verification with a device without going
-    /// through a verification request first.
+    /// Start short auth string verification with a device without going through
+    /// a verification request first.
     ///
     /// **Note**: This has been largely deprecated and the
     /// [request_verification_with_device()] method should be used instead.
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user for which we would like to start the
+    /// - `user_id` - The ID of the user for which we would like to start the
     ///   SAS verification.
     ///
-    /// * `device_id` - The ID of device we would like to verify.
+    /// - `device_id` - The ID of device we would like to verify.
     ///
     /// [request_verification_with_device()]: Self::request_verification_with_device
     pub fn start_sas_with_device(
@@ -1428,8 +1410,8 @@ impl OlmMachine {
     }
 
     /// Request missing local secrets from our devices (cross signing private
-    /// keys, megolm backup). This will ask the sdk to create outgoing
-    /// request to get the missing secrets.
+    /// keys, megolm backup). This will ask the sdk to create outgoing request
+    /// to get the missing secrets.
     ///
     /// The requests will be processed as soon as `outgoing_requests()` is
     /// called to process them.

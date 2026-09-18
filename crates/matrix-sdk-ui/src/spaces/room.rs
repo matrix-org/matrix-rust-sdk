@@ -25,8 +25,8 @@ use ruma::{
     room::{JoinRuleSummary, RoomSummary, RoomType},
 };
 
-/// Structure representing a room in a space and aggregated information
-/// relevant to the UI layer.
+/// Structure representing a room in a space and aggregated information relevant
+/// to the UI layer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpaceRoom {
     /// The ID of the room.
@@ -54,8 +54,8 @@ pub struct SpaceRoom {
 
     /// Whether this room is a direct room.
     ///
-    /// Only set if the room is known to the client otherwise we
-    /// assume DMs shouldn't be exposed publicly in spaces.
+    /// Only set if the room is known to the client otherwise we assume DMs
+    /// shouldn't be exposed publicly in spaces.
     pub is_direct: Option<bool>,
     /// The number of children room this has, if a space.
     pub children_count: u64,
@@ -69,9 +69,8 @@ pub struct SpaceRoom {
     ///
     /// Defaults to `false` if not specified in the `m.space.child` event.
     pub suggested: bool,
-    /// Whether this room is a DM, if known.
-    /// Note this value can be calculated following some assumptions and is not
-    /// guaranteed to be accurate.
+    /// Whether this room is a DM, if known. Note this value can be calculated
+    /// following some assumptions and is not guaranteed to be accurate.
     pub is_dm: Option<bool>,
 }
 
@@ -213,8 +212,8 @@ impl From<&HierarchySpaceChildEvent> for SpaceRoomChildState {
 async fn num_joined_service_members_or_default(room: &Room) -> u64 {
     match room.compute_joined_service_members().await {
         Ok(Some(service_members)) => service_members.len() as u64,
-        // If we can't compute the joined service members count, assume all of them joined
-        // the room
+        // If we can't compute the joined service members count, assume all of
+        // them joined the room
         _ => room.service_members().map(|members| members.len() as u64).unwrap_or_default(),
     }
 }
@@ -377,8 +376,8 @@ mod tests {
     /// wasn't adhering to a total order.
     ///
     /// More precisely it wasn't transitive. This was because as soon as the
-    /// [SpaceRoomChildState] for one room was set to `None` we would fall
-    /// back to comparing only room IDs.
+    /// [SpaceRoomChildState] for one room was set to `None` we would fall back
+    /// to comparing only room IDs.
     ///
     /// The correct way to preserve transitivity was to only fall back to room
     /// IDs if both rooms don't have a state.

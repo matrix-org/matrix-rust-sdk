@@ -196,9 +196,8 @@ impl StaticAccountData {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The ID of the room where the group session will be used.
-    ///
-    /// * `settings` - Settings determining the algorithm and rotation period of
+    /// - `room_id` - The ID of the room where the group session will be used.
+    /// - `settings` - Settings determining the algorithm and rotation period of
     ///   the outbound group session.
     pub async fn create_group_session_pair(
         &self,
@@ -356,8 +355,7 @@ pub struct Account {
     /// either generated our first fallback key or rotated one.
     ///
     /// Will be `None` if we never created a fallback key, or if we're migrating
-    /// from a `AccountPickle` that didn't use time-based fallback key
-    /// rotation.
+    /// from a `AccountPickle` that didn't use time-based fallback key rotation.
     fallback_creation_timestamp: Option<MilliSecondsSinceUnixEpoch>,
 }
 
@@ -424,16 +422,16 @@ impl Account {
         let identity_keys = account.identity_keys();
 
         // Let's generate some initial one-time keys while we're here. Since we
-        // know that this is a completely new [`Account`] we're certain
-        // that the server does not yet have any one-time keys of ours.
+        // know that this is a completely new [`Account`] we're certain that the
+        // server does not yet have any one-time keys of ours.
         //
         // This ensures we upload one-time keys along with our device keys right
         // away, rather than waiting for the key counts to be echoed back to us
         // from the server.
         //
         // It would be nice to do this for the fallback key as well but we can't
-        // assume that the server supports fallback keys. Maybe one of
-        // these days we will be able to do so.
+        // assume that the server supports fallback keys. Maybe one of these
+        // days we will be able to do so.
         account.generate_one_time_keys(account.max_number_of_one_time_keys());
 
         Self {
@@ -533,12 +531,12 @@ impl Account {
     ///
     /// # Arguments
     ///
-    /// * `one_time_key_counts` - The number of one-time keys the homeserver
+    /// - `one_time_key_counts` - The number of one-time keys the homeserver
     ///   told us we have available.
-    /// * `unused_fallback_keys` - The list of unused fallback keys we have on
+    /// - `unused_fallback_keys` - The list of unused fallback keys we have on
     ///   the homeserver. `None` means that the homeserver doesn't support
     ///   fallback keys.
-    /// * `is_missing_count_zero` - A boolean telling us how to interpret the
+    /// - `is_missing_count_zero` - A boolean telling us how to interpret the
     ///   `one_time_key_counts` argument. Namely the semantics for the one-time
     ///   key counts differs between sync v2 and sliding sync as defined in
     ///   [MSC4186]. For classic sync a missing count should be interpreted as
@@ -579,9 +577,8 @@ impl Account {
         }
 
         // If the server supports fallback keys or if it did so in the past,
-        // shown by the existence of a fallback creation timestamp,
-        // generate a new one if we don't have one, or if the current
-        // fallback key expired.
+        // shown by the existence of a fallback creation timestamp, generate a
+        // new one if we don't have one, or if the current fallback key expired.
         if unused_fallback_keys.is_some() || self.fallback_creation_timestamp.is_some() {
             self.generate_fallback_key_if_needed();
         }
@@ -656,31 +653,29 @@ impl Account {
 
         if let Some(time) = self.fallback_creation_timestamp {
             // `to_system_time()` returns `None` if the the UNIX_EPOCH + `time`
-            // doesn't fit into a i64. This will likely never
-            // happen, but let's rotate the key in case the values
-            // are messed up for some other reason.
+            // doesn't fit into a i64. This will likely never happen, but let's
+            // rotate the key in case the values are messed up for some other
+            // reason.
             let Some(system_time) = time.to_system_time() else {
                 return true;
             };
 
             // `elapsed()` errors if the `system_time` is in the future, this
-            // should mean that our clock has changed to the past,
-            // let's rotate just in case and then we'll get to a
-            // normal time.
+            // should mean that our clock has changed to the past, let's rotate
+            // just in case and then we'll get to a normal time.
             let Ok(elapsed) = system_time.elapsed() else {
                 return true;
             };
 
             // Alright, our times are normal and we know how much time elapsed
-            // since the last time we created/rotated a fallback
-            // key.
+            // since the last time we created/rotated a fallback key.
             //
             // If the key is older than a week, then we rotate it.
             elapsed > FALLBACK_KEY_MAX_AGE
         } else {
             // We never created a fallback key, or we're migrating to the
-            // time-based fallback key rotation, so let's generate a
-            // new fallback key.
+            // time-based fallback key rotation, so let's generate a new
+            // fallback key.
             true
         }
     }
@@ -791,9 +786,8 @@ impl Account {
     ///
     /// # Arguments
     ///
-    /// * `pickle` - The pickled version of the Account.
-    ///
-    /// * `pickle_mode` - The mode that was used to pickle the account, either
+    /// - `pickle` - The pickled version of the Account.
+    /// - `pickle_mode` - The mode that was used to pickle the account, either
     ///   an unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(pickle: PickledAccount) -> Result<Self, PickleError> {
         let account: vodozemac::olm::Account = pickle.pickle.into();
@@ -819,8 +813,8 @@ impl Account {
     pub fn device_keys(&self) -> DeviceKeys {
         let mut device_keys = self.unsigned_device_keys();
 
-        // Create a copy of the device keys containing only fields that will
-        // get signed.
+        // Create a copy of the device keys containing only fields that will get
+        // signed.
         let json_device_keys =
             to_canonical_value(&device_keys).expect("device key is always safe to serialize");
         let signature = self
@@ -840,7 +834,9 @@ impl Account {
     /// the necessary upload and signature requests.
     ///
     /// # Returns
+    ///
     /// A tuple containing:
+    ///
     /// - [`PrivateCrossSigningIdentity`]: The newly-generated cross-signing
     ///   identity (including a signature from this device).
     /// - [`UploadSigningKeysRequest`]: The request to upload the
@@ -894,7 +890,7 @@ impl Account {
     ///
     /// # Arguments
     ///
-    /// * `json` - The value that should be converted into a canonical JSON
+    /// - `json` - The value that should be converted into a canonical JSON
     ///   string.
     pub fn sign_json(&self, json: CanonicalJsonValue) -> Result<Ed25519Signature, SignatureError> {
         self.inner.sign_json(json)
@@ -971,17 +967,15 @@ impl Account {
     ///
     /// # Arguments
     ///
-    /// * `config` - The session config that should be used when creating the
+    /// - `config` - The session config that should be used when creating the
     ///   Session.
     ///
-    /// * `identity_key` - The other account's identity/curve25519 key.
-    ///
-    /// * `one_time_key` - A signed one-time key that the other account created
+    /// - `identity_key` - The other account's identity/curve25519 key.
+    /// - `one_time_key` - A signed one-time key that the other account created
     ///   and shared with us.
     ///
-    /// * `fallback_used` - Was the one-time key a fallback key.
-    ///
-    /// * `our_device_keys` - Our own `DeviceKeys`, including cross-signing
+    /// - `fallback_used` - Was the one-time key a fallback key.
+    /// - `our_device_keys` - Our own `DeviceKeys`, including cross-signing
     ///   signatures if applicable, for embedding in encrypted messages.
     pub fn create_outbound_session_helper(
         &self,
@@ -1047,12 +1041,12 @@ impl Account {
     /// session failed.
     ///
     /// # Arguments
-    /// * `device` - The other account's device.
     ///
-    /// * `key_map` - A map from the algorithm and device ID to the one-time key
+    /// - `device` - The other account's device.
+    /// - `key_map` - A map from the algorithm and device ID to the one-time key
     ///   that the other account created and shared with us.
     ///
-    /// * `our_device_keys` - Our own `DeviceKeys`, including cross-signing
+    /// - `our_device_keys` - Our own `DeviceKeys`, including cross-signing
     ///   signatures if applicable, for embedding in encrypted messages.
     #[allow(clippy::result_large_err)]
     pub fn create_outbound_session(
@@ -1102,12 +1096,11 @@ impl Account {
     ///
     /// # Arguments
     ///
-    /// * `their_identity_key` - The other account's identity/curve25519 key.
-    ///
-    /// * `our_device_keys` - Our own `DeviceKeys`, including cross-signing
+    /// - `their_identity_key` - The other account's identity/curve25519 key.
+    /// - `our_device_keys` - Our own `DeviceKeys`, including cross-signing
     ///   signatures if applicable, for embedding in encrypted messages.
     ///
-    /// * `message` - A pre-key Olm message that was sent to us by the other
+    /// - `message` - A pre-key Olm message that was sent to us by the other
     ///   account.
     pub fn create_inbound_session(
         &mut self,
@@ -1348,11 +1341,10 @@ impl Account {
 
                             Err(e) => {
                                 // An error here is completely normal, after all
-                                // we don't know
-                                // which session was used to encrypt a message.
-                                // We keep hold of the error, so that if *all*
-                                // sessions fail to
-                                // decrypt, we can log something useful.
+                                // we don't know which session was used to
+                                // encrypt a message. We keep hold of the error,
+                                // so that if _all_ sessions fail to decrypt, we
+                                // can log something useful.
                                 errors_by_olm_session.push((session.session_id().to_owned(), e));
                             }
                         }
@@ -1384,18 +1376,16 @@ impl Account {
                         // weren't able to decrypt it.
                         //
                         // There's no point trying any other sessions, nor
-                        // should we try to create a new
-                        // one since we have already previously created a
-                        // `Session` with the same keys.
+                        // should we try to create a new one since we have
+                        // already previously created a `Session` with the same
+                        // keys.
                         //
                         // (Attempts to create a new session would likely fail
-                        // anyway since the
-                        // corresponding one-time key would've been already used
-                        // up in the previous session
-                        // creation operation. The one exception where this
-                        // would not be so is if the fallback key was used for
-                        // creating the session in lieu
-                        // of an OTK.)
+                        // anyway since the corresponding one-time key would've
+                        // been already used up in the previous session creation
+                        // operation. The one exception where this would not be
+                        // so is if the fallback key was used for creating the
+                        // session in lieu of an OTK.)
 
                         warn!(
                             session_id = session.session_id(),
@@ -1422,17 +1412,16 @@ impl Account {
                     };
 
                 // We need to add the new session to the session cache,
-                // otherwise we might try to create the same
-                // session again. TODO: separate the session
-                // cache from the storage so we only add
-                // it to the cache but don't store it.
+                // otherwise we might try to create the same session again.
+                // TODO: separate the session cache from the storage so we only
+                // add it to the cache but don't store it.
                 let mut changes =
                     Changes { sessions: vec![result.session.clone()], ..Default::default() };
 
                 // Any new Olm session will bump the Olm wedging index for the
                 // sender's device, if we have their device, which will cause us
                 // to re-send existing Megolm sessions to them the next time we
-                // use the session.  If we don't have their device, this means
+                // use the session. If we don't have their device, this means
                 // that we haven't tried to send them any Megolm sessions yet,
                 // so we don't need to worry about it.
                 if let Some(device) = store.get_device_from_curve_key(sender, sender_key).await? {
@@ -1479,9 +1468,8 @@ impl Account {
             Ok(result) => Ok((session, result)),
             Err(e) => {
                 // We might have created a new session but decryption might
-                // still have failed, store it for the error
-                // case here, this is fine since we don't expect
-                // this to happen often or at all.
+                // still have failed, store it for the error case here, this is
+                // fine since we don't expect this to happen often or at all.
                 match session {
                     SessionType::New(s) | SessionType::Existing(s) => {
                         store.save_sessions(&[s]).await?;
@@ -1506,19 +1494,19 @@ impl Account {
     ///
     /// > Other properties are included in order to prevent an attacker from
     /// > publishing someone else's Curve25519 keys as their own and
-    /// > subsequently claiming to have sent messages which they didn't.
-    /// > sender must correspond to the user who sent the event, recipient to
-    /// > the local user, and recipient_keys to the local Ed25519 key.
+    /// > subsequently claiming to have sent messages which they didn't. sender
+    /// > must correspond to the user who sent the event, recipient to the local
+    /// > user, and recipient_keys to the local Ed25519 key.
     ///
     /// # Arguments
     ///
-    /// * `sender` -  The `sender` field from the top level of the received
+    /// - `sender` - The `sender` field from the top level of the received
     ///   event.
-    /// * `sender_key` - The `sender_key` from the cleartext `content` of the
+    /// - `sender_key` - The `sender_key` from the cleartext `content` of the
     ///   received event (which should also have been used to find or establish
     ///   the Olm session that was used to decrypt the event -- so it is
     ///   guaranteed to be correct).
-    /// * `plaintext` - The decrypted content of the event.
+    /// - `plaintext` - The decrypted content of the event.
     async fn parse_decrypted_to_device_event(
         &self,
         store: &Store,
@@ -1537,8 +1525,8 @@ impl Account {
             )
             .into())
         }
-        // Check that the `sender` in the decrypted to-device event matches that at the
-        // top level of the encrypted event.
+        // Check that the `sender` in the decrypted to-device event matches that
+        // at the top level of the encrypted event.
         else if event.sender() != sender {
             Err(EventError::MismatchedSender(event.sender().to_owned(), sender.to_owned()).into())
         } else if identity_keys.ed25519 != event.recipient_keys().ed25519 {
@@ -1571,10 +1559,10 @@ impl Account {
     /// Look up the [`Device`] that sent us a successfully-decrypted event.
     ///
     /// We first look for the sender device in our store; if it is found then we
-    /// return that (having checked that the keys match). If the device is
-    /// not found in the store, we return the details
-    /// from `sender_device_keys`, if present. If the device is not in the
-    /// store, and the event lacks `sender_device_keys`, an error is returned.
+    /// return that (having checked that the keys match). If the device is not
+    /// found in the store, we return the details from `sender_device_keys`, if
+    /// present. If the device is not in the store, and the event lacks
+    /// `sender_device_keys`, an error is returned.
     ///
     /// Also validates the `sender_device_keys` field, if present, regardless of
     /// whether it is used.
@@ -1586,16 +1574,16 @@ impl Account {
         sender_key: Curve25519PublicKey,
         event: &AnyDecryptedOlmEvent,
     ) -> OlmResult<Option<Device>> {
-        // If the event contained sender_device_keys, check them now.
-        // WARN: If you move or modify this check, ensure that the code below is
-        // still valid. The processing of the historic room key bundle
-        // depends on this being here.
+        // If the event contained sender_device_keys, check them now. WARN: If
+        // you move or modify this check, ensure that the code below is still
+        // valid. The processing of the historic room key bundle depends on this
+        // being here.
         let sender_device_keys = Self::check_sender_device_keys(event, sender_key)?;
         if let AnyDecryptedOlmEvent::RoomKey(_) = event {
-            // If this event is an `m.room_key` event, defer the check for
-            // the Ed25519 key of the sender until we decrypt room events.
-            // This ensures that we receive the room key even if we don't
-            // have access to the device.
+            // If this event is an `m.room_key` event, defer the check for the
+            // Ed25519 key of the sender until we decrypt room events. This
+            // ensures that we receive the room key even if we don't have access
+            // to the device.
             return Ok(None);
         }
 
@@ -1609,13 +1597,13 @@ impl Account {
 
         // For event types other than `m.room_key`, we need to look up the
         // device in the database irrespective of whether the
-        // `sender_device_keys` field is present in the event, because
-        // it may have been marked as "locally trusted" in the database.
+        // `sender_device_keys` field is present in the event, because it may
+        // have been marked as "locally trusted" in the database.
         let store_device = store.get_device_from_curve_key(event.sender(), sender_key).await?;
 
         match (store_device, sender_device_keys) {
-            // If the device is in the database, it had better have an Ed25519 key which
-            // matches that in the event.
+            // If the device is in the database, it had better have an Ed25519
+            // key which matches that in the event.
             (Some(device), _) => {
                 let key = device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
                 if key != event.keys().ed25519 {
@@ -1630,8 +1618,7 @@ impl Account {
 
             (None, Some(sender_device_keys)) => {
                 // We have already validated the signature on
-                // `sender_device_keys`, so this try_into cannot
-                // fail.
+                // `sender_device_keys`, so this try_into cannot fail.
                 let sender_device_data = sender_device_keys.try_into().expect("Conversion of DeviceKeys to DeviceData failed despite the signature already having been checked");
                 Ok(Some(store.wrap_device_data(sender_device_data).await?))
             }
@@ -1642,15 +1629,15 @@ impl Account {
 
     /// Return true if:
     ///
-    /// * the sending device is verified, or
-    /// * the event type is one of those we allow to be sent from unverified
+    /// - the sending device is verified, or
+    /// - the event type is one of those we allow to be sent from unverified
     ///   devices, or
-    /// * we are not in "exclude_insecure_devices" mode, so everything is
+    /// - we are not in "exclude_insecure_devices" mode, so everything is
     ///   allowed.
     ///
     /// Return false if:
     ///
-    /// * we are in "exclude_insecure_devices" mode AND the sending device is
+    /// - we are in "exclude_insecure_devices" mode AND the sending device is
     ///   unverified.
     fn is_from_verified_device_or_allowed_type(
         &self,
@@ -1660,13 +1647,13 @@ impl Account {
         let event_type = result.event.event_type();
 
         // If we're in "exclude insecure devices" mode, we prevent most
-        // to-device events with unverified senders from being allowed
-        // through here, but there are some exceptions:
+        // to-device events with unverified senders from being allowed through
+        // here, but there are some exceptions:
         //
-        // * m.room_key - we hold on to these until later, so if the sender
+        // - m.room_key - we hold on to these until later, so if the sender
         //   becomes verified later we can still use the key.
         //
-        // * m.room_key_request, m.room_key.withheld, m.key.verification.*,
+        // - m.room_key_request, m.room_key.withheld, m.key.verification.*,
         //   m.secret.request - these are allowed as plaintext events, so we
         //   also allow them encrypted from insecure devices. Note: the list of
         //   allowed types here should match with what is allowed in
@@ -1690,8 +1677,7 @@ impl Account {
             }
             _ => {
                 // This is not an exception type - check for "exclude insecure
-                // devices" mode, and whether the sender is
-                // verified.
+                // devices" mode, and whether the sender is verified.
                 satisfies_sender_trust_requirement(
                     &result.encryption_info,
                     &decryption_settings.sender_device_trust_requirement,
@@ -1704,8 +1690,8 @@ impl Account {
     /// that have passed the mismatched sender_key/user_id validation.
     ///
     /// `sender_device` is optional because for some to-device messages we defer
-    /// the check for the ed25519 key, in that case the
-    /// `verification_state` will have a `MissingDevice` link problem.
+    /// the check for the ed25519 key, in that case the `verification_state`
+    /// will have a `MissingDevice` link problem.
     fn get_olm_encryption_info(
         sender_key: Curve25519PublicKey,
         sender_id: &UserId,
@@ -1755,40 +1741,40 @@ impl Account {
     ///
     /// In particular, we check that:
     ///
-    ///  * The Curve25519 key in the `sender_device_keys` matches that used to
-    ///    establish the Olm session that was used to decrypt the event.
+    /// - The Curve25519 key in the `sender_device_keys` matches that used to
+    ///   establish the Olm session that was used to decrypt the event.
     ///
-    ///  * The `sender_device_keys` contains a valid self-signature by the
-    ///    Ed25519 key in the device data.
+    /// - The `sender_device_keys` contains a valid self-signature by the
+    ///   Ed25519 key in the device data.
     ///
-    ///  * The Ed25519 key in the device data matches that in the `keys` field
-    ///    in the event, for consistency and sanity.
+    /// - The Ed25519 key in the device data matches that in the `keys` field in
+    ///   the event, for consistency and sanity.
     ///
-    ///  * The `user_id` property in the `sender_device_keys` matches the event
-    ///    sender.
+    /// - The `user_id` property in the `sender_device_keys` matches the event
+    ///   sender.
     ///
     /// The first two checks are sufficient to bind together the Ed25519 and
     /// Curve25519 keys:
     ///
-    ///  * Only the holder of the secret part of the Curve25519 key that was
-    ///    used to construct the Olm session (the 'owner' of that key) can
-    ///    encrypt the device data in that Olm session. By including the Ed25519
-    ///    key in the device data, the owner of the Curve25519 key is claiming
-    ///    ownership of the Ed25519 key.
+    /// - Only the holder of the secret part of the Curve25519 key that was used
+    ///   to construct the Olm session (the 'owner' of that key) can encrypt the
+    ///   device data in that Olm session. By including the Ed25519 key in the
+    ///   device data, the owner of the Curve25519 key is claiming ownership of
+    ///   the Ed25519 key.
     ///
-    ///  * Only the owner of the Ed25519 key can construct the self-signature on
-    ///    the device data. By including the Curve25519 key in the device data
-    ///    and then signing it, the owner of the Ed25519 key is claiming
-    ///    ownership of the Curve25519 key.
+    /// - Only the owner of the Ed25519 key can construct the self-signature on
+    ///   the device data. By including the Curve25519 key in the device data
+    ///   and then signing it, the owner of the Ed25519 key is claiming
+    ///   ownership of the Curve25519 key.
     ///
-    ///  * Since we now have claims in both directions, the two key owners must
-    ///    either be the same entity, or working in sufficiently close
-    ///    collaboration that they can be treated as such.
+    /// - Since we now have claims in both directions, the two key owners must
+    ///   either be the same entity, or working in sufficiently close
+    ///   collaboration that they can be treated as such.
     ///
     /// # Arguments
     ///
-    /// * `event` - The decrypted and deserialized plaintext of the event.
-    /// * `sender_key` - The Curve25519 key that the sender used to establish
+    /// - `event` - The decrypted and deserialized plaintext of the event.
+    /// - `sender_key` - The Curve25519 key that the sender used to establish
     ///   the Olm session that was used to decrypt the event.
     ///
     /// # Returns
@@ -1874,8 +1860,8 @@ impl PartialEq for Account {
 /// history visibility setting is set to `shared` or `world_readable`:
 ///
 /// > A room key is flagged as having been used for shared history when it was
-/// > used to encrypt a message while the room's history visibility setting
-/// > was set to world_readable or shared.
+/// > used to encrypt a message while the room's history visibility setting was
+/// > set to world_readable or shared.
 ///
 /// In all other cases, even if we encounter a custom history visibility, we
 /// should return false:
@@ -1941,8 +1927,9 @@ fn satisfies_sender_trust_requirement(
         // Verified is OK whatever our requirements are.
         (VerificationState::Verified, _) => true,
 
-        // We do care, and we are not fully verified: check more deeply.
-        // (Note that for to-device messages the legacy trust requirement is not relevant.)
+        // We do care, and we are not fully verified: check more deeply. (Note
+        // that for to-device messages the legacy trust requirement is not
+        // relevant.)
         (
             VerificationState::Unverified(verification_level),
             TrustRequirement::CrossSignedOrLegacy | TrustRequirement::CrossSigned,
@@ -1950,8 +1937,8 @@ fn satisfies_sender_trust_requirement(
             // The device is signed but the identity is only pinned - this is fine.
             VerificationLevel::UnverifiedIdentity => true,
 
-            // The device is unsigned or missing, or the user is in verification violation,
-            // or the sender is mismatched: this is not fine.
+            // The device is unsigned or missing, or the user is in verification
+            // violation, or the sender is mismatched: this is not fine.
             VerificationLevel::UnsignedDevice
             | VerificationLevel::None(_)
             | VerificationLevel::VerificationViolation

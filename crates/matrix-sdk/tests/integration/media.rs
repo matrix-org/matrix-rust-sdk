@@ -228,8 +228,7 @@ async fn test_get_media_file_with_auth_matrix_1_11() {
 #[async_test]
 async fn test_get_media_file_with_auth_matrix_stable_feature() {
     // The server must advertise support for the stable feature for
-    // authenticated media support, so we make the request instead of
-    // assuming.
+    // authenticated media support, so we make the request instead of assuming.
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().no_server_versions().build().await;
 

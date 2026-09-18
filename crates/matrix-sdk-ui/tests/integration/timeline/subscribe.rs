@@ -47,8 +47,8 @@ async fn test_batched() {
 
     let hdl = spawn(async move {
         let next_batch = timeline_stream.next().await.unwrap();
-        // There can be more than three updates because we add things like
-        // date dividers and implicit read receipts
+        // There can be more than three updates because we add things like date
+        // dividers and implicit read receipts
         assert!(next_batch.len() >= 3);
     });
 

@@ -78,7 +78,7 @@ impl Backups {
     /// After the backup has been created, all room keys will be uploaded to the
     /// homeserver.
     ///
-    /// *Warning*: This will overwrite any existing backup.
+    /// _Warning_: This will overwrite any existing backup.
     ///
     /// # Examples
     ///
@@ -113,22 +113,21 @@ impl Backups {
             // to the homeserver[1].
             //
             // We need to sign the `RoomKeyBackupInfo` so other clients which
-            // might want to start using the backup without having
-            // access to the `BackupDecryptionKey` can do so, as per
+            // might want to start using the backup without having access to the
+            // `BackupDecryptionKey` can do so, as per
             // [spec]:
             //
             // Clients must only store keys in backups after they have ensured
-            // that the `auth_data` has not been tampered with. This
-            // can be done either by:
+            // that the `auth_data` has not been tampered with. This can be done
+            // either by:
             //
-            //  * checking that it is signed by the user's master cross-signing
-            //    key or by a verified device belonging to the same user, or
-            //  * by deriving the public key from a private key that it obtained
-            //    from a trusted source. Trusted sources for the private key
-            //    include the user entering the key, retrieving the key stored
-            //    in secret storage, or obtaining the key via secret sharing
-            //    from a verified device belonging to the same user.
-            //
+            // - checking that it is signed by the user's master cross-signing
+            //   key or by a verified device belonging to the same user, or
+            // - by deriving the public key from a private key that it obtained
+            //   from a trusted source. Trusted sources for the private key
+            //   include the user entering the key, retrieving the key stored in
+            //   secret storage, or obtaining the key via secret sharing from a
+            //   verified device belonging to the same user.
             //
             // [1]: https://spec.matrix.org/v1.8/client-server-api/#post_matrixclientv3room_keysversion
             // [spec]: https://spec.matrix.org/v1.8/client-server-api/#server-side-key-backups
@@ -144,8 +143,7 @@ impl Backups {
             let version = response.version;
 
             // Reset any state we might have had before the new backup was
-            // created. TODO: This should remove the old stored key
-            // and version.
+            // created. TODO: This should remove the old stored key and version.
             olm_machine.backup_machine().disable_backup().await?;
 
             let backup_key = decryption_key.megolm_v1_public_key();
@@ -176,9 +174,8 @@ impl Backups {
                 }
 
                 // We can ignore errors here because the only way this function
-                // fails is if the secret is not found.  But we saved the
-                // decryption key above, so this will never
-                // happen.
+                // fails is if the secret is not found. But we saved the
+                // decryption key above, so this will never happen.
                 let _ = olm_machine.push_secret_to_verified_devices(SecretName::RecoveryKey).await;
             }
 
@@ -253,17 +250,16 @@ impl Backups {
         result
     }
 
-    /// Completely disable and delete all backup versions, both locally
-    /// and from the server, no matter if they were previously setup locally
-    /// or not.
+    /// Completely disable and delete all backup versions, both locally and from
+    /// the server, no matter if they were previously setup locally or not.
     ///
-    /// ⚠️ This method is mainly used when resetting the crypto identity
-    /// and for most other use cases its safer [`Backups::disable`] counterpart
-    /// should be used.
+    /// ⚠️ This method is mainly used when resetting the crypto identity and for
+    /// most other use cases its safer [`Backups::disable`] counterpart should
+    /// be used.
     ///
     /// It will fetch the current backup version from the server, delete it,
-    /// then repeat this until no backups remain, before proceeding to
-    /// disabling local backups as well
+    /// then repeat this until no backups remain, before proceeding to disabling
+    /// local backups as well
     ///
     /// # Examples
     ///
@@ -503,9 +499,8 @@ impl Backups {
     /// Download a single room key from the server-side key backup.
     ///
     /// Returns `true` if we managed to download a room key, `false` or an error
-    /// if we failed to download it. `false` indicates that there was no
-    /// error, we just don't have backups enabled so we can't download a
-    /// room key.
+    /// if we failed to download it. `false` indicates that there was no error,
+    /// we just don't have backups enabled so we can't download a room key.
     pub async fn download_room_key(
         &self,
         room_id: &RoomId,
@@ -684,8 +679,8 @@ impl Backups {
         };
 
         // If the request succeeded, the backup is gone. If it failed, we are
-        // not really sure what the backup state is. Either way, clear
-        // the cache so we check next time we need to know.
+        // not really sure what the backup state is. Either way, clear the cache
+        // so we check next time we need to know.
         self.client.inner.e2ee.backup_state.clear_backup_exists_on_server();
 
         ret
@@ -739,8 +734,8 @@ impl Backups {
                             );
 
                             // TODO: If we're verified and there are other
-                            // devices besides us,
-                            // request the new backup key over `m.secret.send`.
+                            // devices besides us, request the new backup key
+                            // over `m.secret.send`.
 
                             self.handle_deleted_backup_version(olm_machine).await?;
                         }
@@ -799,8 +794,8 @@ impl Backups {
     ///
     /// This should be called if we receive a backup recovery, either:
     ///
-    /// * As an `m.secret.send` to-device message from a trusted device.
-    /// * From 4S (i.e. from the `m.megolm_backup.v1` event global account
+    /// - As an `m.secret.send` to-device message from a trusted device.
+    /// - From 4S (i.e. from the `m.megolm_backup.v1` event global account
     ///   data).
     ///
     /// In both cases the method will compare the currently active backup
@@ -818,8 +813,7 @@ impl Backups {
         let _guard = self.client.locks().backup_modify_lock.lock().await;
 
         // Create a future here which allows us to catch any failure that might
-        // happen so we can later on fall back to the correct
-        // `BackupState`.
+        // happen so we can later on fall back to the correct `BackupState`.
         let future = async {
             self.set_state(BackupState::Enabling);
 
@@ -851,9 +845,8 @@ impl Backups {
                 && self.are_enabled().await
             {
                 // If we already have a backup enabled which is using the
-                // currently active backup version, do nothing
-                // but tell the caller using the return value that
-                // backups are enabled.
+                // currently active backup version, do nothing but tell the
+                // caller using the return value that backups are enabled.
                 Ok(true)
             } else if decryption_key.backup_key_matches(&backup_info) {
                 info!(
@@ -862,8 +855,7 @@ impl Backups {
                 );
 
                 // We're enabling a new backup, reset the `backed_up` flags on
-                // the room keys and remove any key/version we
-                // might have.
+                // the room keys and remove any key/version we might have.
                 backup_machine.disable_backup().await?;
 
                 let backup_key = decryption_key.megolm_v1_public_key();
@@ -879,13 +871,12 @@ impl Backups {
                 backup_machine.enable_backup_v1(backup_key).await?;
 
                 // If the user has set up the client to download any room keys,
-                // do so now. This is not really useful in a
-                // real scenario since the API to download room
-                // keys is not paginated.
+                // do so now. This is not really useful in a real scenario since
+                // the API to download room keys is not paginated.
                 //
                 // You need to download all room keys at once, parse a
-                // potentially huge JSON response and decrypt
-                // all the room keys found in the backup.
+                // potentially huge JSON response and decrypt all the room keys
+                // found in the backup.
                 //
                 // This doesn't work for any sizeable account.
                 if self.client.inner.e2ee.encryption_settings.backup_download_strategy
@@ -997,8 +988,8 @@ impl Backups {
         // backup version.
         if !self.resume_backup_from_stored_backup_key(olm_machine).await? {
             // We didn't manage to enable backups from a stored backup recovery
-            // key, let us check our secret inbox. Perhaps we can
-            // find a valid key there.
+            // key, let us check our secret inbox. Perhaps we can find a valid
+            // key there.
             self.maybe_resume_from_secret_inbox(olm_machine).await?;
         }
 
@@ -1012,9 +1003,9 @@ impl Backups {
         let olm_machine = client.olm_machine().await;
 
         // TODO: Because of our crude multi-process support, which reloads the
-        // whole [`OlmMachine`] the `secrets_stream` might stop giving
-        // you updates. Once that's fixed, stop listening to individual
-        // secret send events and listen to the secrets stream.
+        // whole [`OlmMachine`] the `secrets_stream` might stop giving you
+        // updates. Once that's fixed, stop listening to individual secret send
+        // events and listen to the secrets stream.
         if let Some(olm_machine) = olm_machine.as_ref() {
             if let Err(e) =
                 client.encryption().backups().maybe_resume_from_secret_inbox(olm_machine).await
@@ -1053,11 +1044,11 @@ impl Backups {
 
     /// Handle UTD events by triggering download from key backup.
     ///
-    /// This function is registered as an event handler; it exists to deal
-    /// with cases where [`Room::decrypt_event`] is not called and instead the
-    /// event should be decrypted by the time this crate sees the event, such as
-    /// for events received via `/sync` (as opposed to via `/messages`,
-    /// `/context`, etc.)
+    /// This function is registered as an event handler; it exists to deal with
+    /// cases where [`Room::decrypt_event`] is not called and instead the event
+    /// should be decrypted by the time this crate sees the event, such as for
+    /// events received via `/sync` (as opposed to via `/messages`, `/context`,
+    /// etc.)
     #[allow(clippy::unused_async)] // Because it's used as an event handler, which must be async.
     pub(crate) async fn utd_event_handler(
         event: Raw<OriginalSyncRoomEncryptedEvent>,

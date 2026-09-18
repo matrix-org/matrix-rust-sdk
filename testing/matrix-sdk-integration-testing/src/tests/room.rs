@@ -251,8 +251,8 @@ async fn test_event_with_context() -> Result<()> {
     }
 
     {
-        // Next query: target event with a context of 3 events. There
-        // should be some previous and next tokens.
+        // Next query: target event with a context of 3 events. There should be
+        // some previous and next tokens.
         let response = room.event_with_context(&event_id, false, uint!(3), None).await?;
 
         let target = response
@@ -545,8 +545,8 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
 
     // The unread counts should be incorrect.
 
-    // Only 1 message: the edit has clear info that it's an edit.
-    // TODO: we should probably *not* trust it?
+    // Only 1 message: the edit has clear info that it's an edit. TODO: we
+    // should probably _not_ trust it?
     assert_eq!(room2.num_unread_messages(), 1);
     assert_eq!(room2.num_unread_mentions(), 0); // This should be 1 (after decryption).
     // By default, all 1:1 messages are notifications.
@@ -579,9 +579,9 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
     assert_eq!(room2.num_unread_messages(), 1);
     // 1 intentional mention \o/
     assert_eq!(room2.num_unread_mentions(), 1);
-    // Both events count for notifications.
-    // TODO: Either the original or the edit should count, but not both, as they
-    // will often result in a single consolidated item in the UI (#6282).
+    // Both events count for notifications. TODO: Either the original or the
+    // edit should count, but not both, as they will often result in a single
+    // consolidated item in the UI (#6282).
     assert_eq!(room2.num_unread_notifications(), 2);
 
     Ok(())
@@ -590,10 +590,11 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
 #[tokio::test]
 async fn test_latest_event_few_rooms() -> Result<()> {
     // Test plan:
+    //
     // - Create a user
     // - Create two rooms
-    //  - one room with a message;
-    //  - one room with a message and a reaction to it.
+    // - one room with a message;
+    // - one room with a message and a reaction to it.
     // - Create another client for that same user, and sync.
     // - Check that each room has their own latest event.
 
@@ -775,6 +776,7 @@ async fn test_latest_event_few_rooms() -> Result<()> {
 #[tokio::test]
 async fn test_invite_declined_and_later_accepted() -> Result<()> {
     // Test plan:
+    //
     // 1. Alice creates a room
     // 2. Alice invites Bob
     // 3. Bob declines the invite

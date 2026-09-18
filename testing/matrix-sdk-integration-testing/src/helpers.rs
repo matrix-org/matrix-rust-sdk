@@ -82,9 +82,9 @@ impl TestClientBuilder {
     }
 
     /// Create or re-use a Sqlite store (with no passphrase) in the supplied
-    /// directory. Note: this path must remain valid throughout the use of
-    /// the constructed Client, so if you created a TempDir you must hang on
-    /// to a reference to it throughout the test.
+    /// directory. Note: this path must remain valid throughout the use of the
+    /// constructed Client, so if you created a TempDir you must hang on to a
+    /// reference to it throughout the test.
     pub fn use_sqlite_dir(mut self, path: &Path) -> Self {
         self.use_sqlite_dir = Some(SqlitePath::Path(path.to_owned()));
         self

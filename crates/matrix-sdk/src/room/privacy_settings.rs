@@ -36,6 +36,7 @@ impl<'a> RoomPrivacySettings<'a> {
     /// Publish a new room alias for this room in the room directory.
     ///
     /// Returns:
+    ///
     /// - `true` if the room alias didn't exist and it's now published.
     /// - `false` if the room alias was already present so it couldn't be
     ///   published.
@@ -54,6 +55,7 @@ impl<'a> RoomPrivacySettings<'a> {
     /// Remove an existing room alias for this room in the room directory.
     ///
     /// Returns:
+    ///
     /// - `true` if the room alias was present and it's now removed from the
     ///   room directory.
     /// - `false` if the room alias didn't exist so it couldn't be removed.
@@ -71,16 +73,21 @@ impl<'a> RoomPrivacySettings<'a> {
 
     /// Update the canonical alias of the room.
     ///
-    /// # Arguments:
-    /// * `alias` - The new main alias to use for the room. A `None` value
-    ///   removes the existing main canonical alias.
-    /// * `alt_aliases` - The list of alternative aliases for this room.
+    /// # Arguments
     ///
-    /// See <https://spec.matrix.org/v1.12/client-server-api/#mroomcanonical_alias> for more info about the canonical alias.
+    /// - `alias` - The new main alias to use for the room. A `None` value
+    ///   removes the existing main canonical alias.
+    /// - `alt_aliases` - The list of alternative aliases for this room.
+    ///
+    /// See
+    /// [https://spec.matrix.org/v1.12/client-server-api/#mroomcanonical_alias][https-spec-matrix-org-v1-12-client-server-api-mroomcanonical-alias]
+    /// for more info about the canonical alias.
     ///
     /// Note that publishing the alias in the room directory is done separately,
     /// and a room alias must have already been published before it can be set
     /// as the canonical alias.
+    ///
+    /// [https-spec-matrix-org-v1-12-client-server-api-mroomcanonical-alias]: https://spec.matrix.org/v1.12/client-server-api/#mroomcanonical_alias
     pub async fn update_canonical_alias(
         &'a self,
         alias: Option<OwnedRoomAliasId>,
@@ -108,7 +115,11 @@ impl<'a> RoomPrivacySettings<'a> {
     /// The history visibility controls whether a user can see the events that
     /// happened in a room before they joined.
     ///
-    /// See <https://spec.matrix.org/v1.12/client-server-api/#mroomcanonical_alias> for more info.
+    /// See
+    /// [https://spec.matrix.org/v1.12/client-server-api/#mroomcanonical_alias][https-spec-matrix-org-v1-12-client-server-api-mroomcanonical-alias]
+    /// for more info.
+    ///
+    /// [https-spec-matrix-org-v1-12-client-server-api-mroomcanonical-alias]: https://spec.matrix.org/v1.12/client-server-api/#mroomcanonical_alias
     pub async fn update_room_history_visibility(
         &'a self,
         new_value: HistoryVisibility,
@@ -127,7 +138,11 @@ impl<'a> RoomPrivacySettings<'a> {
     /// The join rules controls if and how a new user can get access to the
     /// room.
     ///
-    /// See <https://spec.matrix.org/v1.12/client-server-api/#mroomjoin_rules> for more info.
+    /// See
+    /// [https://spec.matrix.org/v1.12/client-server-api/#mroomjoin_rules][https-spec-matrix-org-v1-12-client-server-api-mroomjoin-rules]
+    /// for more info.
+    ///
+    /// [https-spec-matrix-org-v1-12-client-server-api-mroomjoin-rules]: https://spec.matrix.org/v1.12/client-server-api/#mroomjoin_rules
     pub async fn update_join_rule(&'a self, new_rule: JoinRule) -> Result<()> {
         let request = send_state_event::v3::Request::new(
             self.room.room_id().to_owned(),
@@ -141,14 +156,16 @@ impl<'a> RoomPrivacySettings<'a> {
     /// Update the message retention policy for this room.
     ///
     /// The caller must have a power level sufficient to send the
-    /// `m.room.retention` state event (typically power level 50). The
-    /// server will reject the request if the power level is insufficient.
+    /// `m.room.retention` state event (typically power level 50). The server
+    /// will reject the request if the power level is insufficient.
     ///
     /// The `content` must satisfy `max_lifetime >= min_lifetime`; use
     /// [`RoomRetentionEventContent`]'s builder methods to construct a valid
     /// value.
     ///
-    /// See [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763) for more info.
+    /// See
+    /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+    /// for more info.
     pub async fn update_room_retention(&'a self, content: RoomRetentionEventContent) -> Result<()> {
         let request = send_state_event::v3::Request::new(
             self.room.room_id().to_owned(),

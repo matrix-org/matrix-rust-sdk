@@ -16,8 +16,8 @@ use ruma::{
 use crate::Result;
 
 /// A set of common power levels required for various operations within a room,
-/// that can be applied as a single operation. When updating these
-/// settings, any levels that are `None` will remain unchanged.
+/// that can be applied as a single operation. When updating these settings, any
+/// levels that are `None` will remain unchanged.
 #[derive(Debug)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct RoomPowerLevelChanges {
@@ -140,8 +140,8 @@ pub(crate) trait RoomPowerLevelsExt {
     /// Applies the updated settings to the power levels. Any levels that are
     /// `None` will remain unchanged. Unlike with members, we don't remove the
     /// event if the new level matches the default as this could result in
-    /// unintended privileges when updating the default power level in
-    /// isolation of the others.
+    /// unintended privileges when updating the default power level in isolation
+    /// of the others.
     fn apply(&mut self, settings: RoomPowerLevelChanges) -> Result<()>;
 }
 
@@ -478,8 +478,8 @@ mod tests {
     #[test]
     fn test_user_power_level_changes_new_default() {
         // Given a set of power levels and a new set of power levels that
-        // changes the default user power level to moderator and removes
-        // the only moderator.
+        // changes the default user power level to moderator and removes the
+        // only moderator.
         let prev_content = default_power_levels_event_content();
         let mut content = prev_content.clone();
         content.users_default = int!(50);

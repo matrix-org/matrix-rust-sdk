@@ -113,6 +113,7 @@ impl QrCodeData {
     /// The slice of bytes would generally be returned by a QR code decoder.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, LoginQrCodeDecodeError> {
         // The QR data consists of the following values:
+        //
         // 1. The ASCII string MATRIX.
         // 2. One byte version, only 0x02 is supported.
         // 3. One byte intent, either 0x03 or 0x04.

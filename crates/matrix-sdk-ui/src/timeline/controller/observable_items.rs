@@ -92,8 +92,8 @@ impl ObservableItems {
     pub fn new() -> Self {
         Self {
             // Upstream default capacity is currently 16, which is making
-            // sliding-sync tests with 20 events lag. This should still be
-            // small enough.
+            // sliding-sync tests with 20 events lag. This should still be small
+            // enough.
             items: ObservableVector::with_capacity(32),
             all_remote_events: AllRemoteEvents::default(),
         }
@@ -148,8 +148,8 @@ impl ObservableItems {
         ObservableItemsEntries(self.items.entries())
     }
 
-    /// Call the given closure for every element in this `ObservableItems`,
-    /// with an entry struct that allows updating that element.
+    /// Call the given closure for every element in this `ObservableItems`, with
+    /// an entry struct that allows updating that element.
     pub fn for_each<F>(&mut self, mut f: F)
     where
         F: FnMut(ObservableItemsEntry<'_>),
@@ -429,8 +429,8 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
         self.all_remote_events.clear();
     }
 
-    /// Call the given closure for every element in this `ObservableItems`,
-    /// with an entry struct that allows updating that element.
+    /// Call the given closure for every element in this `ObservableItems`, with
+    /// an entry struct that allows updating that element.
     pub fn for_each<F>(&mut self, mut f: F)
     where
         F: FnMut(ObservableItemsTransactionEntry<'_, 'observable_items>),
@@ -447,8 +447,7 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
         matches!(self.items.last(), Some(timeline_item) if timeline_item.is_local_echo())
     }
 
-    /// Return the index where to insert the first remote timeline
-    /// item.
+    /// Return the index where to insert the first remote timeline item.
     pub fn first_remotes_region_index(&self) -> usize {
         if self.items.get(0).is_some_and(|item| item.is_timeline_start()) { 1 } else { 0 }
     }
@@ -605,8 +604,9 @@ impl<'e> ObservableItemsTransactionIterBuilder<'e> {
 
             // The start region and the locals regions.
             //
-            // This combination isn't implemented yet (because it contains a hole), but it's also
-            // not necessary in our current code base; it's fine to ignore it.
+            // This combination isn't implemented yet (because it contains a
+            // hole), but it's also not necessary in our current code base; it's
+            // fine to ignore it.
             (true, false, true) => unimplemented!(
                 "Iterating over the start and the locals regions is not implemented yet"
             ),
@@ -1145,9 +1145,8 @@ mod observable_items_tests {
             | "$ev3"   | 3           | 3                   | // new
         }
 
-        // Timeline item with a remote event, but late.
-        // I don't know if this case is possible in reality, but let's be
-        // robust.
+        // Timeline item with a remote event, but late. I don't know if this
+        // case is possible in reality, but let's be robust.
         transaction.insert(3, item("$ev2"), Some(2));
 
         assert_mapping! {
@@ -1961,8 +1960,8 @@ impl AllRemoteEvents {
     /// Get the position of an event in the events array by its ID.
     pub fn position_by_event_id(&self, event_id: &EventId) -> Option<usize> {
         // Reverse the iterator to start looking at the end. Since this will
-        // give us the "reverse" position, reverse the index after
-        // finding the event.
+        // give us the "reverse" position, reverse the index after finding the
+        // event.
         self.0
             .iter()
             .enumerate()
@@ -1974,6 +1973,7 @@ impl AllRemoteEvents {
     /// greater than `new_timeline_item_index`.
     fn increment_all_timeline_item_index_after(&mut self, new_timeline_item_index: usize) {
         // Traverse items from back to front because:
+        //
         // - if `new_timeline_item_index` is 0, we need to shift all items
         //   anyways, so all items must be traversed,
         // - otherwise, it's unlikely we want to traverse all items: the item
@@ -1997,6 +1997,7 @@ impl AllRemoteEvents {
     /// `removed_timeline_item_index`.
     fn decrement_all_timeline_item_index_after(&mut self, removed_timeline_item_index: usize) {
         // Traverse items from back to front because:
+        //
         // - if `new_timeline_item_index` is 0, we need to shift all items
         //   anyways, so all items must be traversed,
         // - otherwise, it's unlikely we want to traverse all items: the item
@@ -2052,8 +2053,8 @@ impl AllRemoteEvents {
                 match (*timeline_item_index).cmp(&timeline_item_index_to_remove) {
                     Ordering::Equal => {
                         // This is the `event_meta` that holds the
-                        // `timeline_item_index` that is being
-                        // removed. So let's clean it.
+                        // `timeline_item_index` that is being removed. So let's
+                        // clean it.
                         event_meta.timeline_item_index = None;
                         found_event_index = Some(event_index);
                     }
@@ -2200,8 +2201,8 @@ mod all_remote_events_tests {
         events.push_back(event_meta("$ev2", Some(1)));
 
         // Push back with a `timeline_item_index` pointing to a timeline item
-        // that is not the last one. Is it possible in practise?
-        // Normally not, but let's test it anyway.
+        // that is not the last one. Is it possible in practise? Normally not,
+        // but let's test it anyway.
         events.push_back(event_meta("$ev3", Some(1)));
 
         assert_events!(

@@ -39,8 +39,10 @@ metadata! {
     },
 }
 
-/// A request to scan an encrypted media file using the content scanner.
-/// Spec: <https://github.com/element-hq/matrix-content-scanner-python/blob/main/docs/api.md#post-_matrixmedia_proxyunstablescan_encrypted>
+/// A request to scan an encrypted media file using the content scanner. Spec:
+/// [https://github.com/element-hq/matrix-content-scanner-python/blob/main/docs/api.md#post-_matrixmedia_proxyunstablescan_encrypted][https-github-com-element-hq-matrix-content-scanner-python-blob-main-docs-api-md-post-matrixmedia-proxyunstablescan-encrypted]
+///
+/// [https-github-com-element-hq-matrix-content-scanner-python-blob-main-docs-api-md-post-matrixmedia-proxyunstablescan-encrypted]: https://github.com/element-hq/matrix-content-scanner-python/blob/main/docs/api.md#post-_matrixmedia_proxyunstablescan_encrypted
 #[derive(Debug, Clone)]
 pub struct EncryptedMediaScanRequest {
     scanner_url: String,

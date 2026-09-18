@@ -70,13 +70,13 @@ async fn test_rtc_members_update_last_only() {
     let some_timestamp = SystemTime::now();
 
     // ===========
-    // ACT: Simulate active members in the call
-    // ===========
+    //
+    // # ACT: simulate active members in the call
     set_active_call_members(&timeline, &[BOB.to_owned()]).await;
 
     // ===========
-    // ACT: Insert a first notification event
-    // ===========
+    //
+    // # ACT: insert a first notification event
     timeline
         .handle_live_event(
             f.rtc_notification(NotificationType::Ring)
@@ -90,8 +90,8 @@ async fn test_rtc_members_update_last_only() {
     assert_next_matches!(stream, VectorDiff::PushBack { .. });
 
     // ===========
-    // ASSERT: The notification item should be updated with the active members
-    // ===========
+    //
+    // # ASSERT: the notification item should be updated with the active members
 
     let notification_item = assert_next_matches!(stream, VectorDiff::Set { value, .. } => value);
     let info = assert_rtc_notification_active_members(notification_item, vec![BOB.to_owned()]);
@@ -101,8 +101,8 @@ async fn test_rtc_members_update_last_only() {
     );
 
     // ===========
-    // ACT: Insert a new notification event with a newer timestamp.
-    // ===========
+    //
+    // # ACT: insert a new notification event with a newer timestamp
     let new_notification_ts = some_timestamp.add(Duration::from_secs(60));
 
     timeline
@@ -117,9 +117,8 @@ async fn test_rtc_members_update_last_only() {
         )
         .await;
 
-    // ===========
-    // ASSERT: As per requirement only the latest notification item in the
-    // timeline should have the active call info. So ensure the oldest
+    // =========== ASSERT: As per requirement only the latest notification item
+    // in the timeline should have the active call info. So ensure the oldest
     // notification item is cleared and that the new one has the previously
     // known info ===========
 
@@ -152,14 +151,14 @@ async fn test_rtc_members_update_last_only() {
     );
 
     // ===========
-    // ACT: Simulate new active members in the call
-    // ===========
+    //
+    // # ACT: simulate new active members in the call
 
     set_active_call_members(&timeline, &[BOB.to_owned(), CAROL.to_owned()]).await;
 
     // ===========
-    // ASSERT: Should only update the latest notification item.
-    // ===========
+    //
+    // # ASSERT: should only update the latest notification item
 
     let notification_item = assert_next_matches!(stream, VectorDiff::Set { value, .. } => value);
     assert_eq!(

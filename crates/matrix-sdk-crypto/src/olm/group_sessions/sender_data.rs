@@ -31,9 +31,9 @@ pub struct KnownSenderData {
     /// The user ID of the user who established this session.
     pub user_id: OwnedUserId,
 
-    /// The device ID of the device that send the session.
-    /// This is an `Option` for backwards compatibility, but we should always
-    /// populate it on creation.
+    /// The device ID of the device that send the session. This is an `Option`
+    /// for backwards compatibility, but we should always populate it on
+    /// creation.
     pub device_id: Option<OwnedDeviceId>,
 
     /// The cross-signing key of the user who established this session.
@@ -109,9 +109,9 @@ where
 /// Sessions start off in `UnknownDevice` state, and progress into `DeviceInfo`
 /// state when we get the device info. Finally, if we can look up the sender
 /// using the device info, the session can be moved into
-/// `VerificationViolation`, `SenderUnverified`, or
-/// `SenderVerified` state, depending on the verification status of the user.
-/// If the user's verification state changes, the state may change accordingly.
+/// `VerificationViolation`, `SenderUnverified`, or `SenderVerified` state,
+/// depending on the verification status of the user. If the user's verification
+/// state changes, the state may change accordingly.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(from = "SenderDataReader")]
 pub enum SenderData {
@@ -162,9 +162,9 @@ pub enum SenderData {
 
 impl SenderData {
     /// Whether we should recalculate the Megolm sender's data, given the
-    /// current sender data. We only want to recalculate if it might
-    /// increase trust and allow us to decrypt messages that we
-    /// otherwise might refuse to decrypt.
+    /// current sender data. We only want to recalculate if it might increase
+    /// trust and allow us to decrypt messages that we otherwise might refuse to
+    /// decrypt.
     ///
     /// We recalculate for all states except:
     ///
@@ -231,8 +231,8 @@ impl SenderData {
     }
 
     /// Create a [`SenderData`] which has the legacy flag set. Caution: messages
-    /// within sessions with this flag will be displayed in some contexts,
-    /// even when we are unable to verify the sender.
+    /// within sessions with this flag will be displayed in some contexts, even
+    /// when we are unable to verify the sender.
     ///
     /// The returned struct contains no device info.
     pub fn legacy() -> Self {
@@ -247,9 +247,8 @@ impl SenderData {
     /// [`SenderData::DeviceInfo`], [`SenderData::VerificationViolation`],
     /// [`SenderData::SenderUnverified`] or [`SenderData::SenderVerified`]
     pub fn from_device(sender_device: &Device) -> Self {
-        // Is the device cross-signed?
-        // Does the cross-signing key match that used to sign the device?
-        // And is the signature in the device valid?
+        // Is the device cross-signed? Does the cross-signing key match that
+        // used to sign the device? And is the signature in the device valid?
         let cross_signed = sender_device.is_cross_signed_by_owner();
 
         if cross_signed {
@@ -284,9 +283,8 @@ impl SenderData {
 
             (_, _) => {
                 // Surprisingly, there was no key in the MasterPubkey. We did
-                // not expect this: treat it as if the device
-                // was not signed by this master key.
-                //
+                // not expect this: treat it as if the device was not signed by
+                // this master key.
                 error!("MasterPubkey for user {user_id} does not contain any keys!");
                 Self::device_info(sender_device.as_device_keys().clone())
             }
@@ -298,10 +296,9 @@ impl SenderData {
     /// `Less` if the supplied one has a greater level of trust.
     ///
     /// So calling this method on a `SenderKnown` or `DeviceInfo` `SenderData`
-    /// would return `Greater` if passed an `UnknownDevice` as its
-    /// argument, and a `SenderKnown` with `master_key_verified == true`
-    /// would return `Greater` if passed a `SenderKnown` with
-    /// `master_key_verified == false`.
+    /// would return `Greater` if passed an `UnknownDevice` as its argument, and
+    /// a `SenderKnown` with `master_key_verified == true` would return
+    /// `Greater` if passed a `SenderKnown` with `master_key_verified == false`.
     pub(crate) fn compare_trust_level(&self, other: &Self) -> Ordering {
         self.trust_number().cmp(&other.trust_number())
     }
@@ -351,11 +348,11 @@ impl SenderData {
     }
 }
 
-/// Used when deserialising and the sender_data property is missing.
-/// If we are deserialising an InboundGroupSession session with missing
-/// sender_data, this must be a legacy session (i.e. it was created before we
-/// started tracking sender data). We set its legacy flag to true, so we can
-/// populate it with trust information if it is available later.
+/// Used when deserialising and the sender_data property is missing. If we are
+/// deserialising an InboundGroupSession session with missing sender_data, this
+/// must be a legacy session (i.e. it was created before we started tracking
+/// sender data). We set its legacy flag to true, so we can populate it with
+/// trust information if it is available later.
 impl Default for SenderData {
     fn default() -> Self {
         Self::legacy()
@@ -499,8 +496,8 @@ mod tests {
     #[test]
     fn deserializing_unknown_device_with_extra_retry_info_ignores_it() {
         // Previously, SenderData contained `retry_details` but it is no longer
-        // needed - just check that we are able to deserialize even if
-        // it is present.
+        // needed - just check that we are able to deserialize even if it is
+        // present.
         let json = r#"
             {
                 "UnknownDevice":{
@@ -728,8 +725,7 @@ mod tests {
         //
         // This export usse a more efficient serialization format for bytes.
         // This was exported when the `KnownSenderData` master_key was
-        // serialized as an byte array instead of a base64 encoded
-        // string.
+        // serialized as an byte array instead of a base64 encoded string.
         const SERIALIZED_B64: &str = "\
             iaZwaWNrbGWEr2luaXRpYWxfcmF0Y2hldIKlaW5uZXLcAIABYMzfSnBRzMlPKF1uKjYbzLtkzNJ4RcylzN0HzP\
             9DzON1Tm05zO7M2MzFQsy9Acz9zPnMqDvM4syQzNrMzxF5KzbM4sy9zPUbBWfM7m4/zJzM18zDzMESKgfMkE7M\

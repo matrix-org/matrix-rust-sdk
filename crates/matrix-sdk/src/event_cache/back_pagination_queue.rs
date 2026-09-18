@@ -137,8 +137,8 @@ pub(crate) struct BackPaginationRunResult {
 /// Identifies a coalescable run i.e. a room back-paginated at a given priority.
 type RequestCoalescingKey = (OwnedRoomId, Priority);
 
-/// A handle to an enqueued [`BackPaginationRequest`].
-/// Dropping the last handle for a request cancels it.
+/// A handle to an enqueued [`BackPaginationRequest`]. Dropping the last handle
+/// for a request cancels it.
 pub(crate) struct BackPaginationHandle {
     /// Cancels the request once every handle sharing it is dropped, unless
     /// disarmed by [`BackPaginationHandle::detach`].
@@ -240,9 +240,9 @@ impl BackPaginationQueue {
         }
     }
 
-    /// Enqueue a new request returning a handle to await it.
-    /// A request for a room already queued or running at the same priority is
-    /// coalesced onto that run rather than starting a second one.
+    /// Enqueue a new request returning a handle to await it. A request for a
+    /// room already queued or running at the same priority is coalesced onto
+    /// that run rather than starting a second one.
     pub(crate) fn enqueue(
         &self,
         request: BackPaginationRequest,
@@ -360,8 +360,8 @@ async fn scheduler(
 
     let mut pending_requests: BinaryHeap<PendingRequest> = BinaryHeap::new();
     // The tasks of the currently running requests, keyed by room: also the set
-    // of rooms that can't take another run right now. Dropping the
-    // scheduler aborts all of them.
+    // of rooms that can't take another run right now. Dropping the scheduler
+    // aborts all of them.
     let mut active_requests: HashMap<OwnedRoomId, AbortOnDrop<()>> = HashMap::new();
     let mut next_seq: u64 = 0;
 
@@ -379,8 +379,7 @@ async fn scheduler(
 
     loop {
         // Schedule as many pending requests as the concurrency budget allows,
-        // never starting a second run for a room that's already running
-        // one.
+        // never starting a second run for a room that's already running one.
         schedule(
             &event_cache,
             &mut pending_requests,
@@ -483,8 +482,7 @@ fn schedule(
         let task = spawn(async move {
             let result = run_request(&event_cache, request.request, &request.token).await;
             // The scheduler owns the completion senders (for coalescing), so
-            // hand it the result to fan out to every waiter for
-            // this key.
+            // hand it the result to fan out to every waiter for this key.
             let _ = sender.send(SchedulerEvent::Finished(key, result));
         });
 
@@ -573,8 +571,7 @@ async fn run_request(
         };
 
         // Reaching the start of the timeline can still come with a last batch
-        // of events, so let the stop condition see it before ending the
-        // run.
+        // of events, so let the stop condition see it before ending the run.
         if (request.stop)(&outcome).is_break() {
             break BackPaginationStopReason::StopConditionMet;
         }

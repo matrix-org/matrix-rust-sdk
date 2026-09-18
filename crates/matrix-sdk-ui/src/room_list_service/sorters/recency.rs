@@ -51,8 +51,8 @@ type Score = u64;
 /// Extract the recency _scores_ from either the
 /// [`RoomInfo::latest_event_value`] or from [`RoomInfo::recency_stamp`].
 ///
-/// We must be very careful to return data of the same nature: either a
-/// _score_ from the [`LatestEventValue`]'s timestamp, or from the
+/// We must be very careful to return data of the same nature: either a _score_
+/// from the [`LatestEventValue`]'s timestamp, or from the
 /// [`RoomInfo::recency_stamp`], but we **must never** mix both. The
 /// `RoomInfo::recency_stamp` is not a timestamp, while `LatestEventValue` uses
 /// a timestamp.
@@ -63,16 +63,16 @@ fn extract_scores(left: &RoomListItem, right: &RoomListItem) -> (Option<Score>, 
     // Warning 1.
     //
     // Be careful. This method is called **a lot** in the context of a sorter.
-    // Using `Room::latest_event` would be dramatic as it returns a clone of
-    // the `LatestEventValue`. It's better to use the more specific method
+    // Using `Room::latest_event` would be dramatic as it returns a clone of the
+    // `LatestEventValue`. It's better to use the more specific method
     // `Room::latest_event_timestamp`, where the value is cached in
     // `RoomListItem::cached_latest_event_timestamp`.
 
     // Warning 2.
     //
-    // A `RoomListItem` must have a unique score when sorting. Its `Score`
-    // must always be the same while sorting the rooms. Thus, the following
-    // rules must apply:
+    // A `RoomListItem` must have a unique score when sorting. Its `Score` must
+    // always be the same while sorting the rooms. Thus, the following rules
+    // must apply:
     //
     // - Nominal case: Two rooms with a latest event can be compared together
     //   based on their latest event's timestamp,
@@ -82,9 +82,9 @@ fn extract_scores(left: &RoomListItem, right: &RoomListItem) -> (Option<Score>, 
     //   recency stamp for both rooms.
     //
     // The most important aspect is: if room returns its latest event's
-    // timestamp or its recency stamp, _once_, it must return it every time
-    // it's compared to another room, if possible, whatever the room is,
-    // otherwise it must return `None`.
+    // timestamp or its recency stamp, _once_, it must return it every time it's
+    // compared to another room, if possible, whatever the room is, otherwise it
+    // must return `None`.
 
     // Nominal case and case #1.
     if left.cached_latest_event_timestamp.is_some() || right.cached_latest_event_timestamp.is_some()
@@ -325,8 +325,8 @@ mod tests {
     //
     // [1]: https://en.wikipedia.org/wiki/Total_order
     proptest! {
-        // Test that the ordering is reflexive, that is, each `Score` needs to be equal to itself.
-        // a <= a.
+        // Test that the ordering is reflexive, that is, each `Score` needs to
+        // be equal to itself. a <= a.
         #![proptest_config(ProptestConfig::with_cases(10_000))]
         #[test]
         fn test_cmp_reflexive(score in arb_score()) {

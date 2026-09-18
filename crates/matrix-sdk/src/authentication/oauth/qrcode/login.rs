@@ -74,7 +74,8 @@ async fn finish_login<Q>(
     let device_id = public_key;
 
     // Let's tell the OAuth 2.0 authorization server that we want to log in
-    // using the device authorization grant described in [RFC8628](https://datatracker.ietf.org/doc/html/rfc8628).
+    // using the device authorization grant described in
+    // [RFC8628](https://datatracker.ietf.org/doc/html/rfc8628).
     trace!("Requesting device authorization.");
     let auth_grant_response =
         request_device_authorization(&oauth, &server_metadata, device_id).await?;
@@ -135,10 +136,10 @@ async fn finish_login<Q>(
     }
 
     // We only received an access token from the OAuth 2.0 authorization server,
-    // we have no clue who we are, so we need to figure out our user ID
-    // now. TODO: This snippet is almost the same as the
-    // OAuth::finish_login_method(), why is that method even a public
-    // method and not called as part of the set session tokens method.
+    // we have no clue who we are, so we need to figure out our user ID now.
+    // TODO: This snippet is almost the same as the
+    // OAuth::finish_login_method(), why is that method even a public method and
+    // not called as part of the set session tokens method.
     trace!("Discovering our own user id.");
     let whoami_response = client.whoami().await.map_err(QRCodeLoginError::UserIdDiscovery)?;
     client
@@ -194,9 +195,9 @@ async fn finish_login<Q>(
         .map_err(QRCodeLoginError::DeviceKeyUpload)?;
 
     // Run and wait for the E2EE initialization tasks, this will ensure that we
-    // ourselves see us as verified and the recovery/backup states will
-    // be known. If we did receive all the secrets in the secrets
-    // bundle, then backups will be enabled after this step as well.
+    // ourselves see us as verified and the recovery/backup states will be
+    // known. If we did receive all the secrets in the secrets bundle, then
+    // backups will be enabled after this step as well.
     client.encryption().spawn_initialization_task(None).await;
     client.encryption().wait_for_e2ee_initialization_tasks().await;
 
@@ -252,12 +253,12 @@ pub enum LoginProgress<Q> {
     /// [`CheckCode`] so the channel can be verified to indeed be secure.
     EstablishingSecureChannel(Q),
     /// We're waiting for the OAuth 2.0 authorization server to give us the
-    /// access token. This will only happen if the other device allows the
-    /// OAuth 2.0 authorization server to do so.
+    /// access token. This will only happen if the other device allows the OAuth
+    /// 2.0 authorization server to do so.
     WaitingForToken {
         /// The user code the OAuth 2.0 authorization server has given us, the
-        /// OAuth 2.0 authorization server might ask the other device to
-        /// enter this code.
+        /// OAuth 2.0 authorization server might ask the other device to enter
+        /// this code.
         user_code: String,
     },
     /// We are syncing secrets.
@@ -294,30 +295,29 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
             // Before we get here, the other device has created a new rendezvous
-            // session and presented a QR code which this device has
-            // scanned. -- MSC4108 Secure channel setup steps 1-3
+            // session and presented a QR code which this device has scanned. --
+            // MSC4108 Secure channel setup steps 1-3
 
             // First things first, establish the secure channel. Since we're the
-            // one that scanned the QR code, we're certain that the
-            // secure channel is secure, under the assumption that
-            // we didn't scan the wrong QR code. -- MSC4108 Secure
-            // channel setup steps 3-5
+            // one that scanned the QR code, we're certain that the secure
+            // channel is secure, under the assumption that we didn't scan the
+            // wrong QR code. -- MSC4108 Secure channel setup steps 3-5
             let channel = self.establish_secure_channel().await?;
 
             trace!("Established the secure channel.");
 
             // The other side isn't yet sure that it's talking to the right
-            // device, show a check code so they can confirm.
-            // -- MSC4108 Secure channel setup step 6
+            // device, show a check code so they can confirm. -- MSC4108 Secure
+            // channel setup step 6
             let check_code = channel.check_code().to_owned();
             self.state.set(LoginProgress::EstablishingSecureChannel(QrProgress { check_code }));
 
             // The user now enters the checkcode on the other device which
-            // verifies it and will only facilitate the login if the
-            // code matches. -- MSC4108 Secure channel setup step 7
+            // verifies it and will only facilitate the login if the code
+            // matches. -- MSC4108 Secure channel setup step 7
 
-            // Now attempt to finish the login.
-            // -- MSC4108 OAuth 2.0 login all steps
+            // Now attempt to finish the login. -- MSC4108 OAuth 2.0 login all
+            // steps
             finish_login(self.client, channel, self.registration_data, self.state).await
         })
     }
@@ -375,15 +375,15 @@ impl<'a> IntoFuture for LoginWithGeneratedQrCode<'a> {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            // Establish and verify the secure channel.
-            // -- MSC4108 Secure channel setup all steps
+            // Establish and verify the secure channel. -- MSC4108 Secure
+            // channel setup all steps
             let mut channel = self.establish_secure_channel().await?;
 
             trace!("Established the secure channel.");
 
             // Wait for the other device to send us the m.login.protocols
-            // message so that we can discover the homeserver to use
-            // for logging in. -- MSC4108 OAuth 2.0 login step 1
+            // message so that we can discover the homeserver to use for logging
+            // in. -- MSC4108 OAuth 2.0 login step 1
             let message = channel.receive_json().await?;
 
             // Verify that the device authorization grant is supported and
@@ -425,8 +425,8 @@ impl<'a> IntoFuture for LoginWithGeneratedQrCode<'a> {
                     .map_err(QRCodeLoginError::ServerReset)?;
             }
 
-            // Proceed with logging in.
-            // -- MSC4108 OAuth 2.0 login remaining steps
+            // Proceed with logging in. -- MSC4108 OAuth 2.0 login remaining
+            // steps
             finish_login(self.client, channel, self.registration_data, self.state).await
         })
     }
@@ -446,13 +446,12 @@ impl<'a> LoginWithGeneratedQrCode<'a> {
         let http_client = self.client.inner.http_client.clone();
 
         // Create a new ephemeral key pair and a rendezvous session to request a
-        // login with.
-        // -- MSC4108 Secure channel setup steps 1 & 2
+        // login with. -- MSC4108 Secure channel setup steps 1 & 2
         let secure_channel = SecureChannel::login(http_client, &self.client.homeserver()).await?;
 
         // Extract the QR code data and emit a progress update so that the
-        // caller can present the QR code for scanning by the other
-        // device. -- MSC4108 Secure channel setup step 3
+        // caller can present the QR code for scanning by the other device. --
+        // MSC4108 Secure channel setup step 3
         let qr_code_data = secure_channel.qr_code_data().clone();
         trace!("Generated QR code.");
         self.state.set(LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrReady(
@@ -460,14 +459,14 @@ impl<'a> LoginWithGeneratedQrCode<'a> {
         )));
 
         // Wait for the secure channel to connect. The other device now needs to
-        // scan the QR code and send us the LoginInitiateMessage which
-        // we respond to with the LoginOkMessage. -- MSC4108 step 4 & 5
+        // scan the QR code and send us the LoginInitiateMessage which we
+        // respond to with the LoginOkMessage. -- MSC4108 step 4 & 5
         let channel = secure_channel.connect().await?;
 
         // The other device now verifies our message, computes the checkcode and
         // displays it. We emit a progress update to let the caller prompt the
-        // user to enter the checkcode and feed it back to us.
-        // -- MSC4108 Secure channel setup step 6
+        // user to enter the checkcode and feed it back to us. -- MSC4108 Secure
+        // channel setup step 6
         trace!("Waiting for checkcode.");
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.state.set(LoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrScanned(
@@ -475,8 +474,7 @@ impl<'a> LoginWithGeneratedQrCode<'a> {
         )));
 
         // Retrieve the entered checkcode and verify it to confirm that the
-        // channel is actually secure.
-        // -- MSC4108 Secure channel setup step 7
+        // channel is actually secure. -- MSC4108 Secure channel setup step 7
         let check_code = rx.await.map_err(|_| SecureChannelError::CannotReceiveCheckCode)?;
         trace!("Received check code.");
         channel.confirm(check_code)

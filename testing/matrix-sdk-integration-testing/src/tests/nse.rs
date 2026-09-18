@@ -41,13 +41,14 @@ use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "Flakes by timing out sometimes"]
 async fn test_multiple_clients_share_crypto_state() -> Result<()> {
-    // This failed before https://github.com/matrix-org/matrix-rust-sdk/pull/3338
-    // because, even though the cross-process lock was working, the SessionStore
-    // inside the crypto store was caching the Olm sessions, meaning we didn't
-    // actually get the new one even when we called regenerate_olm.
+    // This failed before
+    // https://github.com/matrix-org/matrix-rust-sdk/pull/3338 because, even
+    // though the cross-process lock was working, the SessionStore inside the
+    // crypto store was caching the Olm sessions, meaning we didn't actually get
+    // the new one even when we called regenerate_olm.
 
-    // Given two alice clients with the same DB and user ID:
-    // alice_main is a normal client, and alice_nse is a NotificationClient
+    // Given two alice clients with the same DB and user ID: alice_main is a
+    // normal client, and alice_nse is a NotificationClient
     let alice_sqlite_dir = tempdir()?;
     let alice_main =
         ClientWrapper::new("alice", Some(alice_sqlite_dir.path()), Some("alice_main".to_owned()))
@@ -89,9 +90,9 @@ async fn test_multiple_clients_share_crypto_state() -> Result<()> {
         info!("bob received msg2 from alice_main");
     }
 
-    // Then the NSE process can still receive messages from bob.
-    // (This means that the NSE process must have notice that its Olm machine
-    // was out-of-date and refreshed it from the DB.)
+    // Then the NSE process can still receive messages from bob. (This means
+    // that the NSE process must have notice that its Olm machine was
+    // out-of-date and refreshed it from the DB.)
     {
         let _span = span!(Level::INFO, "msg3_from_bob").entered();
 
@@ -189,8 +190,8 @@ impl ClientWrapper {
         let events_clone2 = events.clone();
         client.add_event_handler(|_ev: ToDeviceRoomKeyEvent, client: Client| async move {
             // Whenever we received any room key, attempt to decrypt all
-            // existing encrypted events. This could be more
-            // efficient, but it does the job.
+            // existing encrypted events. This could be more efficient, but it
+            // does the job.
             let evts = encrypted_events_clone2.lock().unwrap().clone();
             for (event, room_id) in evts.iter() {
                 if let Some((event_id, content)) = decrypt_event(&client, room_id, event).await {
@@ -353,8 +354,8 @@ struct NotificationClientWrapper {
 
 impl NotificationClientWrapper {
     /// Create a NotificationClientWrapper whose Client is a duplicate of
-    /// `other`'s. This means it has the same user ID and device ID because
-    /// it is created using [`Client::restore_session`].
+    /// `other`'s. This means it has the same user ID and device ID because it
+    /// is created using [`Client::restore_session`].
     async fn notification_duplicate_of(other: &ClientWrapper, sqlite_dir: &Path) -> Self {
         let events = Arc::new(Mutex::new(Vec::new()));
 

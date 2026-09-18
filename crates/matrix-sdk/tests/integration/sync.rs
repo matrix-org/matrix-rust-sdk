@@ -101,8 +101,8 @@ async fn test_receive_room_encryption_event_via_sync() {
         EventEncryptionAlgorithm::MegolmV1AesSha2
     );
 
-    // Now we receive an event with an invalid content but a valid type
-    // and state key.
+    // Now we receive an event with an invalid content but a valid type and
+    // state key.
     let raw_event_with_invalid_content = Raw::new(&json!({
         "content": {
             // It's a boolean!
@@ -136,8 +136,8 @@ async fn test_receive_room_encryption_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event but not the deserialized one since it fails
-    // to deserialize.
+    // We receive the raw event but not the deserialized one since it fails to
+    // deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_pending!(event_subscriber);
@@ -240,8 +240,8 @@ async fn test_receive_room_avatar_event_via_sync() {
     let (event, _) = assert_ready!(event_subscriber);
     assert_eq!(event.as_original().unwrap().content.url.as_deref(), Some(avatar_url));
 
-    // Now we receive an event with an invalid content but a valid type
-    // and state key.
+    // Now we receive an event with an invalid content but a valid type and
+    // state key.
     let raw_event_with_invalid_content = Raw::new(&json!({
         "content": {
             // It's a boolean!
@@ -272,8 +272,8 @@ async fn test_receive_room_avatar_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event but not the deserialized one since it fails
-    // to deserialize.
+    // We receive the raw event but not the deserialized one since it fails to
+    // deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_pending!(event_subscriber);
@@ -373,8 +373,8 @@ async fn test_receive_room_name_event_via_sync() {
     let (event, _) = assert_ready!(event_subscriber);
     assert_eq!(event.as_original().unwrap().content.name, "My room");
 
-    // Now we receive an event with an invalid content but a valid type
-    // and state key.
+    // Now we receive an event with an invalid content but a valid type and
+    // state key.
     let raw_event_with_invalid_content = Raw::new(&json!({
         "content": {
             // It's a boolean!
@@ -405,8 +405,8 @@ async fn test_receive_room_name_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event but not the deserialized one since it fails
-    // to deserialize.
+    // We receive the raw event but not the deserialized one since it fails to
+    // deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_pending!(event_subscriber);
@@ -505,8 +505,8 @@ async fn test_receive_room_create_event_via_sync() {
     let (event, _) = assert_ready!(event_subscriber);
     assert_eq!(event.as_original().unwrap().content.room_version, RoomVersionId::V12);
 
-    // Now we receive an event with an invalid content but a valid type
-    // and state key.
+    // Now we receive an event with an invalid content but a valid type and
+    // state key.
     let raw_event_with_invalid_content = Raw::new(&json!({
         "content": {
             // It's a boolean!
@@ -538,8 +538,8 @@ async fn test_receive_room_create_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event but not the deserialized one since it fails
-    // to deserialize.
+    // We receive the raw event but not the deserialized one since it fails to
+    // deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_pending!(event_subscriber);
@@ -570,8 +570,8 @@ async fn test_receive_room_create_event_via_sync() {
         )
         .await;
 
-    // The room info didn't change because the event is invalid, but the
-    // invalid state event is in the store.
+    // The room info didn't change because the event is invalid, but the invalid
+    // state event is in the store.
     assert_matches!(room.create_content(), None);
     assert_matches!(
         room.get_state_event_static::<RoomCreateEventContent>().await,
@@ -580,8 +580,8 @@ async fn test_receive_room_create_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event but not the deserialized one since it fails
-    // to deserialize.
+    // We receive the raw event but not the deserialized one since it fails to
+    // deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_pending!(event_subscriber);
@@ -683,8 +683,8 @@ async fn test_receive_room_history_visibility_event_via_sync() {
     let (event, _) = assert_ready!(event_subscriber);
     assert_eq!(event.as_original().unwrap().content.history_visibility, HistoryVisibility::Shared);
 
-    // Now we receive an event with an invalid content but a valid type
-    // and state key.
+    // Now we receive an event with an invalid content but a valid type and
+    // state key.
     let raw_event_with_invalid_content = Raw::new(&json!({
         "content": {
             // It's a boolean!
@@ -715,8 +715,8 @@ async fn test_receive_room_history_visibility_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event but not the deserialized one since it fails
-    // to deserialize.
+    // We receive the raw event but not the deserialized one since it fails to
+    // deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_pending!(event_subscriber);
@@ -815,8 +815,8 @@ async fn test_receive_room_guest_access_event_via_sync() {
     let (event, _) = assert_ready!(event_subscriber);
     assert_eq!(event.as_original().unwrap().content.guest_access, GuestAccess::CanJoin);
 
-    // Now we receive an event with an invalid content but a valid type
-    // and state key.
+    // Now we receive an event with an invalid content but a valid type and
+    // state key.
     let raw_event_with_invalid_content = Raw::new(&json!({
         "content": {
             // It's a boolean!
@@ -848,8 +848,8 @@ async fn test_receive_room_guest_access_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event but not the deserialized one since it fails
-    // to deserialize.
+    // We receive the raw event but not the deserialized one since it fails to
+    // deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_pending!(event_subscriber);
@@ -948,8 +948,8 @@ async fn test_receive_room_join_rules_event_via_sync() {
     let (event, _) = assert_ready!(event_subscriber);
     assert_eq!(event.as_original().unwrap().content.join_rule, JoinRule::Public);
 
-    // Now we receive an event with an invalid content but a valid type
-    // and state key.
+    // Now we receive an event with an invalid content but a valid type and
+    // state key.
     let raw_event_with_invalid_content = Raw::new(&json!({
         "content": {
             // It's a boolean!
@@ -971,8 +971,7 @@ async fn test_receive_room_join_rules_event_via_sync() {
         )
         .await;
 
-    // The room info is unset and the invalid state event is in the
-    // store.
+    // The room info is unset and the invalid state event is in the store.
     assert_eq!(room.join_rule(), None);
     assert_matches!(
         room.get_state_event_static::<RoomJoinRulesEventContent>().await,
@@ -981,8 +980,8 @@ async fn test_receive_room_join_rules_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event but not the deserialized one since it fails
-    // to deserialize.
+    // We receive the raw event but not the deserialized one since it fails to
+    // deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_pending!(event_subscriber);
@@ -1085,8 +1084,8 @@ async fn test_receive_room_canonical_alias_event_via_sync() {
     let (event, _) = assert_ready!(event_subscriber);
     assert_eq!(event.as_original().unwrap().content.alias.as_deref(), Some(room_alias));
 
-    // Now we receive an event with an invalid content but a valid type
-    // and state key.
+    // Now we receive an event with an invalid content but a valid type and
+    // state key.
     let raw_event_with_invalid_content = Raw::new(&json!({
         "content": {
             // It's a boolean!
@@ -1108,8 +1107,7 @@ async fn test_receive_room_canonical_alias_event_via_sync() {
         )
         .await;
 
-    // The room info is unset and the invalid state event is in the
-    // store.
+    // The room info is unset and the invalid state event is in the store.
     assert_eq!(room.canonical_alias(), None);
     assert_matches!(
         room.get_state_event_static::<RoomCanonicalAliasEventContent>().await,
@@ -1118,8 +1116,8 @@ async fn test_receive_room_canonical_alias_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event but not the deserialized one since it fails
-    // to deserialize.
+    // We receive the raw event but not the deserialized one since it fails to
+    // deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_pending!(event_subscriber);
@@ -1219,8 +1217,8 @@ async fn test_receive_room_topic_event_via_sync() {
     let (event, _) = assert_ready!(event_subscriber);
     assert_eq!(event.as_original().unwrap().content.topic, room_topic);
 
-    // Now we receive an event with an invalid content but a valid type
-    // and state key.
+    // Now we receive an event with an invalid content but a valid type and
+    // state key.
     let raw_event_with_invalid_content = Raw::new(&json!({
         "content": {
             // It's a boolean!
@@ -1242,8 +1240,7 @@ async fn test_receive_room_topic_event_via_sync() {
         )
         .await;
 
-    // The room info is unset and the invalid state event is in the
-    // store.
+    // The room info is unset and the invalid state event is in the store.
     assert_eq!(room.topic(), None);
     assert_matches!(
         room.get_state_event_static::<RoomTopicEventContent>().await,
@@ -1252,8 +1249,8 @@ async fn test_receive_room_topic_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event but not the deserialized one since it fails
-    // to deserialize.
+    // We receive the raw event but not the deserialized one since it fails to
+    // deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_pending!(event_subscriber);
@@ -1357,8 +1354,8 @@ async fn test_receive_room_tombstone_event_via_sync() {
     let (event, _) = assert_ready!(event_subscriber);
     assert_eq!(event.as_original().unwrap().content.replacement_room, tombstone_replacement);
 
-    // Now we receive an event with an invalid content but a valid type
-    // and state key.
+    // Now we receive an event with an invalid content but a valid type and
+    // state key.
     let raw_event_with_invalid_content = Raw::new(&json!({
         "content": {
             "body": "!",
@@ -1381,8 +1378,7 @@ async fn test_receive_room_tombstone_event_via_sync() {
         )
         .await;
 
-    // The room info is unset and the invalid state event is in the
-    // store.
+    // The room info is unset and the invalid state event is in the store.
     assert_matches!(room.tombstone_content(), None);
     assert_matches!(
         room.get_state_event_static::<RoomTombstoneEventContent>().await,
@@ -1391,8 +1387,8 @@ async fn test_receive_room_tombstone_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event but not the deserialized one since it fails
-    // to deserialize.
+    // We receive the raw event but not the deserialized one since it fails to
+    // deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_pending!(event_subscriber);
@@ -1492,8 +1488,8 @@ async fn test_receive_room_power_levels_event_via_sync() {
     let (event, _) = assert_ready!(event_subscriber);
     assert_eq!(i64::from(event.as_original().unwrap().content.users_default), -10);
 
-    // Now we receive an event with an invalid content but a valid type
-    // and state key.
+    // Now we receive an event with an invalid content but a valid type and
+    // state key.
     let raw_event_with_invalid_content = Raw::new(&json!({
         "content": {
             // It's a boolean!
@@ -1515,8 +1511,7 @@ async fn test_receive_room_power_levels_event_via_sync() {
         )
         .await;
 
-    // The room info is reset and the invalid state event is in the
-    // store.
+    // The room info is reset and the invalid state event is in the store.
     assert_eq!(room.max_power_level(), 100);
     assert_matches!(
         room.get_state_event_static::<RoomPowerLevelsEventContent>().await,
@@ -1525,8 +1520,8 @@ async fn test_receive_room_power_levels_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event but not the deserialized one since it fails
-    // to deserialize.
+    // We receive the raw event but not the deserialized one since it fails to
+    // deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_pending!(event_subscriber);
@@ -1626,8 +1621,8 @@ async fn test_receive_room_pinned_events_event_via_sync() {
     let (event, _) = assert_ready!(event_subscriber);
     assert_eq!(event.as_original().unwrap().content.pinned, &[pinned_event]);
 
-    // Now we receive an event with an invalid content but a valid type
-    // and state key.
+    // Now we receive an event with an invalid content but a valid type and
+    // state key.
     let raw_event_with_invalid_content = Raw::new(&json!({
         "content": {
             // It's a boolean!
@@ -1649,8 +1644,7 @@ async fn test_receive_room_pinned_events_event_via_sync() {
         )
         .await;
 
-    // The room info is unset and the invalid state event is in the
-    // store.
+    // The room info is unset and the invalid state event is in the store.
     assert_eq!(room.pinned_event_ids(), None);
     assert_matches!(
         room.get_state_event_static::<RoomPinnedEventsEventContent>().await,
@@ -1659,8 +1653,8 @@ async fn test_receive_room_pinned_events_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event but not the deserialized one since it fails
-    // to deserialize.
+    // We receive the raw event but not the deserialized one since it fails to
+    // deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_pending!(event_subscriber);
@@ -1768,8 +1762,8 @@ async fn test_receive_stripped_room_encryption_event_via_sync() {
     assert_eq!(raw_event.json().get(), redacted_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
 
-    // Now we receive an event with an invalid content but a valid type
-    // and state key.
+    // Now we receive an event with an invalid content but a valid type and
+    // state key.
     let raw_event_with_invalid_content = Raw::new(&json!({
         "content": {
             // It's a boolean!
@@ -1861,8 +1855,8 @@ async fn test_receive_stripped_room_avatar_event_via_sync() {
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
 
-    // Now we receive an event with an invalid content but a valid type
-    // and state key.
+    // Now we receive an event with an invalid content but a valid type and
+    // state key.
     let raw_event_with_invalid_content = Raw::new(&json!({
         "content": {
             // It's a boolean!
@@ -1954,8 +1948,8 @@ async fn test_receive_stripped_room_name_event_via_sync() {
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
 
-    // Now we receive an event with an invalid content but a valid type
-    // and state key.
+    // Now we receive an event with an invalid content but a valid type and
+    // state key.
     let raw_event_with_invalid_content = Raw::new(&json!({
         "content": {
             // It's a boolean!
@@ -2046,8 +2040,8 @@ async fn test_receive_stripped_room_create_event_via_sync() {
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
 
-    // Now we receive an event with an invalid content but a valid type
-    // and state key.
+    // Now we receive an event with an invalid content but a valid type and
+    // state key.
     let raw_event_with_invalid_content = Raw::new(&json!({
         "content": {
             // It's a boolean!
@@ -2138,8 +2132,8 @@ async fn test_receive_stripped_room_join_rules_event_via_sync() {
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
 
-    // Now we receive an event with an invalid content but a valid type
-    // and state key.
+    // Now we receive an event with an invalid content but a valid type and
+    // state key.
     let raw_event_with_invalid_content = Raw::new(&json!({
         "content": {
             // It's a boolean!
@@ -2231,8 +2225,8 @@ async fn test_receive_stripped_room_canonical_alias_event_via_sync() {
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
 
-    // Now we receive an event with an invalid content but a valid type
-    // and state key.
+    // Now we receive an event with an invalid content but a valid type and
+    // state key.
     let raw_event_with_invalid_content = Raw::new(&json!({
         "content": {
             // It's a boolean!
@@ -2327,8 +2321,8 @@ async fn test_receive_stripped_room_topic_event_via_sync() {
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
 
-    // Now we receive an event with an invalid content but a valid type
-    // and state key.
+    // Now we receive an event with an invalid content but a valid type and
+    // state key.
     let raw_event_with_invalid_content = Raw::new(&json!({
         "content": {
             // It's a boolean!

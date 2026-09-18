@@ -802,10 +802,10 @@ async fn test_failed_members_response() -> Result<()> {
     bob.sync_once().await?;
 
     // Although we haven't joined the room yet, logic in `sync_members` looks at
-    // the room's visibility first; since it may be unknown for this room,
-    // from the point of view of Bob, it'll be assumed to be the default,
-    // aka shared. As a result, `sync_members()` doesn't even spawn a
-    // network request, and silently ignores the request.
+    // the room's visibility first; since it may be unknown for this room, from
+    // the point of view of Bob, it'll be assumed to be the default, aka shared.
+    // As a result, `sync_members()` doesn't even spawn a network request, and
+    // silently ignores the request.
 
     let result = bob.get_room(alice_room.room_id()).unwrap().sync_members().await;
     assert!(result.is_ok());
@@ -1070,8 +1070,8 @@ pub(super) async fn assert_can_perform_interactive_verification(
     );
 
     // We still need to gossip the secrets from one device to the other, the
-    // first device syncs to receive the gossip requests, then the second
-    // device syncs to receive the secrets.
+    // first device syncs to receive the gossip requests, then the second device
+    // syncs to receive the secrets.
     first_client.sync_once().await?;
     warn!("The second client is doing its final sync");
     second_client.sync_once().await?;

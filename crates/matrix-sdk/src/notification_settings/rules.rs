@@ -72,7 +72,8 @@ impl Rules {
             // enabled
             x.enabled &&
             // with a condition of type `EventMatch` for this `room_id`
-            // (checking on x.rule_id is not sufficient here as more than one override rule may have a condition matching on `room_id`)
+            // (checking on x.rule_id is not sufficient here as more than one
+            // override rule may have a condition matching on `room_id`)
             x.conditions.iter().any(|x| matches!(
                 x,
                 PushCondition::EventMatch(data) if data.key == "room_id" && data.pattern == *room_id
@@ -100,8 +101,8 @@ impl Rules {
     ///
     /// # Arguments
     ///
-    /// * `is_encrypted` - `Yes` if the room is encrypted
-    /// * `is_one_to_one` - `Yes` if the room is a direct chat involving two
+    /// - `is_encrypted` - `Yes` if the room is encrypted
+    /// - `is_one_to_one` - `Yes` if the room is a direct chat involving two
     ///   people
     pub(crate) fn get_default_room_notification_mode(
         &self,
@@ -162,8 +163,8 @@ impl Rules {
 
     /// Get whether the `IsUserMention` rule is enabled.
     fn is_user_mention_enabled(&self) -> bool {
-        // Search for an `Override` rule `IsUserMention` (MSC3952).
-        // This is a new push rule that may not yet be present.
+        // Search for an `Override` rule `IsUserMention` (MSC3952). This is a
+        // new push rule that may not yet be present.
         if let Some(rule) =
             self.ruleset.get(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention)
         {
@@ -194,8 +195,8 @@ impl Rules {
 
     /// Get whether the `IsRoomMention` rule is enabled.
     fn is_room_mention_enabled(&self) -> bool {
-        // Search for an `Override` rule `IsRoomMention` (MSC3952).
-        // This is a new push rule that may not yet be present.
+        // Search for an `Override` rule `IsRoomMention` (MSC3952). This is a
+        // new push rule that may not yet be present.
         if let Some(rule) =
             self.ruleset.get(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention)
         {
@@ -283,8 +284,8 @@ impl Rules {
 ///
 /// # Arguments
 ///
-/// * `is_encrypted` - `Yes` if the room is encrypted
-/// * `is_one_to_one` - `Yes` if the room is a direct chat involving two people
+/// - `is_encrypted` - `Yes` if the room is encrypted
+/// - `is_one_to_one` - `Yes` if the room is a direct chat involving two people
 pub(crate) fn get_predefined_underride_room_rule_id(
     is_encrypted: IsEncrypted,
     is_one_to_one: IsOneToOne,
@@ -302,7 +303,7 @@ pub(crate) fn get_predefined_underride_room_rule_id(
 ///
 /// # Arguments
 ///
-/// * `is_one_to_one` - `Yes` if the room is a direct chat involving two people
+/// - `is_one_to_one` - `Yes` if the room is a direct chat involving two people
 pub(crate) fn get_predefined_underride_poll_start_rule_id(
     is_one_to_one: IsOneToOne,
 ) -> PredefinedUnderrideRuleId {
@@ -555,8 +556,8 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_is_room_mention_enabled() {
         // If `IsRoomMention` is present and enabled then
-        // is_room_mention_enabled() should return `true` even if the
-        // deprecated rule is disabled
+        // is_room_mention_enabled() should return `true` even if the deprecated
+        // rule is disabled
         let mut ruleset = server_default_ruleset_with_legacy_mentions();
         ruleset
             .set_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention, true)

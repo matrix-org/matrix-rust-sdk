@@ -427,9 +427,9 @@ async fn test_redaction_does_not_increment_unread() {
 ///
 /// `update_read_receipts()` runs before `shrink_to_last_chunk()` inside
 /// `handle_sync()`, so the unread count is recomputed against the pre-gap
-/// events and stays unchanged immediately after the gappy sync. The shrink
-/// then clears those events from memory, so the *subsequent* normal sync only
-/// sees the newly-arrived event when recomputing, yielding a count of 1.
+/// events and stays unchanged immediately after the gappy sync. The shrink then
+/// clears those events from memory, so the _subsequent_ normal sync only sees
+/// the newly-arrived event when recomputing, yielding a count of 1.
 #[async_test]
 async fn test_gappy_sync_keeps_then_next_sync_resets_unread_count() {
     let server = MatrixMockServer::new().await;
@@ -490,7 +490,7 @@ async fn test_gappy_sync_keeps_then_next_sync_resets_unread_count() {
     // The gappy sync cleared "$1" and "$2" from the linked chunk, so this sync
     // only sees "$3" when recomputing the unread count, yielding 1.
     //
-    // But this is incorrect, as the number should be *at least* 2, and the SDK
+    // But this is incorrect, as the number should be _at least_ 2, and the SDK
     // should keep on showing this number in this case.
     //
     // TODO: fix it :-)
@@ -811,9 +811,9 @@ async fn test_read_receipt_from_store_used_as_latest_active() {
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
-    // Important test note: the read receipt must be in the state store *before*
-    // the event cache is subscribed to, so that it's not marked as active
-    // at start.
+    // Important test note: the read receipt must be in the state store _before_
+    // the event cache is subscribed to, so that it's not marked as active at
+    // start.
     let room = server
         .sync_room(
             &client,
@@ -848,7 +848,7 @@ async fn test_read_receipt_from_store_used_as_latest_active() {
     assert_eq!(room.num_unread_messages(), 1);
 }
 
-/// Test that *all* the read receipts saved in the state store but not marked as
+/// Test that _all_ the read receipts saved in the state store but not marked as
 /// active may be selected for the unread count computation.
 #[async_test]
 async fn test_all_read_receipts_from_store_used_as_latest_active() {
@@ -859,9 +859,9 @@ async fn test_all_read_receipts_from_store_used_as_latest_active() {
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
-    // Important test note: the read receipt must be in the state store *before*
-    // the event cache is subscribed to, so that it's not marked as active
-    // at start.
+    // Important test note: the read receipt must be in the state store _before_
+    // the event cache is subscribed to, so that it's not marked as active at
+    // start.
     let room = server
         .sync_room(
             &client,
@@ -919,8 +919,8 @@ async fn test_compute_unread_counts_after_backfill_from_disk() {
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     // Set up the event cache store with two item chunks, and no gap: only the
-    // last one will be loaded in memory, the first one has to be paginated
-    // in from the store.
+    // last one will be loaded in memory, the first one has to be paginated in
+    // from the store.
     {
         let event_cache_store = client.event_cache_store().lock().await.unwrap();
 
@@ -985,10 +985,8 @@ async fn test_compute_unread_counts_after_backfill_from_disk() {
 
     assert_let_timeout!(Ok(_) = room_cache_updates.recv());
 
-    // $2 isn't loaded, so the read-receipt backfill runs and loads the first
-    // chunk from the store, which contains it. The counts must then be
-    // recomputed against the newly loaded events: $3, $4 and $5 come after
-    // $2.
+    // $2 isn't loaded, so the read-receipt backfill runs and loads the first chunk from the store, which contains it. The counts must then be recomputed against the newly loaded events: $3,
+    // $4 and $5 come after $2.
     assert_let_timeout!(Duration::from_secs(2), Ok(_) = room_cache_updates.recv());
 
     assert_eq!(room.num_unread_messages(), 3);

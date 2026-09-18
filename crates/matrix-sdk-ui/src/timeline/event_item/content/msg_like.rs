@@ -55,7 +55,7 @@ pub struct ThreadSummary {
     ///
     /// Note: this doesn't interact with the timeline filter; so opening a
     /// thread-focused timeline with the same timeline filter may result in
-    /// *fewer* events than this number.
+    /// _fewer_ events than this number.
     pub num_replies: u32,
 }
 

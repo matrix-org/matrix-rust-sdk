@@ -96,8 +96,7 @@ pub enum VerificationRequestState {
         other_device_data: DeviceData,
     },
     /// The verification request has transitioned into a concrete verification
-    /// flow. For example it transitioned into the emoji based SAS
-    /// verification.
+    /// flow. For example it transitioned into the emoji based SAS verification.
     Transitioned {
         /// The concrete [`Verification`] object the verification request
         /// transitioned into.
@@ -450,8 +449,8 @@ impl VerificationRequest {
         };
 
         // We may have previously started our own QR verification (e.g. two
-        // devices displaying QR code at the same time), so we need to
-        // replace it with the newly scanned code.
+        // devices displaying QR code at the same time), so we need to replace
+        // it with the newly scanned code.
         if self
             .verification_cache
             .get_qr(qr_verification.other_user_id(), qr_verification.flow_id().as_str())
@@ -504,7 +503,7 @@ impl VerificationRequest {
     ///
     /// # Arguments
     ///
-    /// * `methods` - The methods that we should advertise as supported by us.
+    /// - `methods` - The methods that we should advertise as supported by us.
     pub fn accept_with_methods(
         &self,
         methods: Vec<VerificationMethod>,
@@ -538,8 +537,7 @@ impl VerificationRequest {
     /// `m.qr_code.show.v1` will only be signaled if the `qrcode` feature is
     /// enabled. This feature is disabled by default. If it's enabled and QR
     /// code scanning should be supported or QR code showing shouldn't be
-    /// supported the [`accept_with_methods()`] method should be used
-    /// instead.
+    /// supported the [`accept_with_methods()`] method should be used instead.
     ///
     /// [`accept_with_methods()`]: #method.accept_with_methods
     pub fn accept(&self) -> Option<OutgoingVerificationRequest> {
@@ -630,13 +628,12 @@ impl VerificationRequest {
     /// request but either shouldn't continue in the verification or didn't get
     /// notified that the other side cancelled.
     ///
-    /// The spec states the following[1]:
-    /// When Bob accepts or declines the verification on one of his devices
-    /// (sending either an m.key.verification.ready or m.key.verification.cancel
-    /// event), Alice will send an m.key.verification.cancel event to Bob’s
-    /// other devices with a code of m.accepted in the case where Bob accepted
-    /// the verification, or m.user in the case where Bob rejected the
-    /// verification.
+    /// The spec states the following[1]: When Bob accepts or declines the
+    /// verification on one of his devices (sending either an
+    /// m.key.verification.ready or m.key.verification.cancel event), Alice will
+    /// send an m.key.verification.cancel event to Bob’s other devices with a
+    /// code of m.accepted in the case where Bob accepted the verification, or
+    /// m.user in the case where Bob rejected the verification.
     ///
     /// Realistically sending the cancellation to Bob's other devices is only
     /// possible if Bob accepted the verification since we don't know the device
@@ -743,10 +740,10 @@ impl VerificationRequest {
             }
             InnerRequest::Transitioned(s) => {
                 // This is the same as the `Ready` state. We need to support
-                // this in the case someone tries QR code
-                // verification and notices that they can't scan the QR
-                // code for one reason or the other, in that case they are able
-                // to transition into the emoji based SAS verification.
+                // this in the case someone tries QR code verification and
+                // notices that they can't scan the QR code for one reason or
+                // the other, in that case they are able to transition into the
+                // emoji based SAS verification.
                 //
                 // In this case we're going to from one `Transitioned` state
                 // into another.
@@ -811,8 +808,8 @@ impl VerificationRequest {
         other_device_id: DeviceIdOrAllDevices,
     ) -> Option<(Sas, OutgoingVerificationRequest)> {
         // We may have previously started QR verification and generated a QR
-        // code. If we now switch to SAS flow, the previous verification
-        // has to be replaced
+        // code. If we now switch to SAS flow, the previous verification has to
+        // be replaced
         cfg_if::cfg_if! {
             if #[cfg(feature = "qrcode")] {
                 if self.verification_cache.get_qr(sas.other_user_id(), sas.flow_id().as_str()).is_some() {
@@ -1222,8 +1219,8 @@ async fn generate_qr_code<T: Clone>(
 ) -> Result<Option<(RequestState<Transitioned>, QrVerification)>, CryptoStoreError> {
     use crate::UserIdentityData;
 
-    // If we didn't state that we support showing QR codes or if the other
-    // side doesn't support scanning QR codes bail early.
+    // If we didn't state that we support showing QR codes or if the other side
+    // doesn't support scanning QR codes bail early.
     if !state.our_methods.contains(&VerificationMethod::QrCodeShowV1)
         || !state.their_methods.contains(&VerificationMethod::QrCodeScanV1)
     {
@@ -1277,9 +1274,9 @@ async fn generate_qr_code<T: Clone>(
             }
             UserIdentityData::Other(i) => {
                 if let Some(other_master) = i.master_key().get_first_key() {
-                    // TODO we can get the master key from the public
-                    // identity if we don't have the private one and we
-                    // trust the public one.
+                    // TODO we can get the master key from the public identity
+                    // if we don't have the private one and we trust the public
+                    // one.
                     if let Some(own_master) = identities
                         .private_identity
                         .master_public_key()
@@ -1382,11 +1379,10 @@ async fn receive_start<T: Clone>(
                     match old_verification {
                         Some(Verification::SasV1(_old)) => {
                             // If there is already a SAS verification, i.e. we
-                            // already started one
-                            // before the other side tried to do the same;
-                            // ignore it if we did and
-                            // we're the lexicographically smaller user ID (or
-                            // device ID if equal).
+                            // already started one before the other side tried
+                            // to do the same; ignore it if we did and we're the
+                            // lexicographically smaller user ID (or device ID
+                            // if equal).
                             use std::cmp::Ordering;
                             if !matches!(
                                 (
@@ -1410,9 +1406,8 @@ async fn receive_start<T: Clone>(
                         #[cfg(feature = "qrcode")]
                         Some(Verification::QrV1(old)) => {
                             // If there is already a QR verification, our
-                            // ability to transition to
-                            // SAS depends on how far we got through the QR
-                            // flow.
+                            // ability to transition to SAS depends on how far
+                            // we got through the QR flow.
                             if let QrVerificationState::Started = old.state() {
                                 // it is legit to transition from QR display to
                                 // SAS
@@ -1421,12 +1416,11 @@ async fn receive_start<T: Clone>(
                                 Ok(Some(state.to_transitioned(request_state, new.into())))
                             } else {
                                 // otherwise, we've either scanned their QR
-                                // code, or they have
-                                // scanned ours -- i.e., an
+                                // code, or they have scanned ours -- i.e., an
                                 // `m.key.verification.start` with method
                                 // `m.reciprocate.v1` has already been
-                                // sent/received and, per the
-                                // spec, it is too late to switch to SAS.
+                                // sent/received and, per the spec, it is too
+                                // late to switch to SAS.
                                 warn!(qr_state = ?old.state(), "Invalid transition from QR to SAS");
                                 request_state.verification_cache.insert_sas(new.to_owned());
                                 Ok(Some(state.to_transitioned(request_state, new.into())))
@@ -2084,10 +2078,10 @@ mod tests {
     ///
     /// # Arguments
     ///
-    /// * `verification_store` - The `VerificationStore` for the user making the
+    /// - `verification_store` - The `VerificationStore` for the user making the
     ///   request.
-    /// * `other_user_id` - The ID of the user we want to verify
-    /// * `methods` - A list of `VerificationMethods` to say we support. If
+    /// - `other_user_id` - The ID of the user we want to verify
+    /// - `methods` - A list of `VerificationMethods` to say we support. If
     ///   `None`, will use the default list.
     fn build_test_request(
         verification_store: &VerificationStore,
@@ -2139,10 +2133,10 @@ mod tests {
     ///
     /// # Arguments
     ///
-    /// * `accepting_request` - The request which should send the acceptance.
-    /// * `initiating_request` - The request which initiated the flow -- i.e.,
-    ///   the one that should *receive* the acceptance.
-    /// * `methods` - The list of methods to say we support. If `None`, the
+    /// - `accepting_request` - The request which should send the acceptance.
+    /// - `initiating_request` - The request which initiated the flow -- i.e.,
+    ///   the one that should _receive_ the acceptance.
+    /// - `methods` - The list of methods to say we support. If `None`, the
     ///   default list of methods will be used.
     fn do_accept_request(
         accepting_request: &VerificationRequest,

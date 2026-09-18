@@ -132,10 +132,9 @@ impl<T> Drop for Subscriber<T> {
             // auto-shrinker know by notifying it.
 
             // Try to send without waiting for channel capacity, and restart in
-            // a loop if it failed (until a maximum number of
-            // attempts is reached, or the send was successful). The
-            // channel shouldn't be super busy in general, so this should
-            // resolve quickly enough.
+            // a loop if it failed (until a maximum number of attempts is
+            // reached, or the send was successful). The channel shouldn't be
+            // super busy in general, so this should resolve quickly enough.
 
             let mut message = self
                 .auto_shrink_message
@@ -148,8 +147,7 @@ impl<T> Drop for Subscriber<T> {
 
                 if num_attempts > 1024 {
                     // If we've tried too many times, just give up with a
-                    // warning; after all, this is only an
-                    // optimization.
+                    // warning; after all, this is only an optimization.
                     warn!(
                         "couldn't send notification to the auto-shrink channel \
                          after 1024 attempts; giving up"
@@ -250,9 +248,9 @@ mod tests {
         // We can even drop the `SubscribersHandle`!
         drop(subscribers_handle);
         assert_eq!(handle2.count(), 0);
-        // ZERO, yes, not 1.
-        // If the state containing the `SubscribersHandle` drops, there is no
-        // more update, and no auto-shrink, so it's fine to get a zero here.
+        // ZERO, yes, not 1. If the state containing the `SubscribersHandle`
+        // drops, there is no more update, and no auto-shrink, so it's fine to
+        // get a zero here.
     }
 
     #[test]
@@ -335,8 +333,8 @@ mod tests {
         );
 
         // Drop the last subscriber. Side-effect should… take effect, but (!)
-        // the channel is full, so it's going to retry many times and
-        // will fail, resulting in no side-effect.
+        // the channel is full, so it's going to retry many times and will fail,
+        // resulting in no side-effect.
         drop(subscriber);
 
         // We receive the noisy message: **not** the message from the subscriber
@@ -372,8 +370,8 @@ mod tests {
         drop(auto_shrink_receiver);
 
         // Drop the last subscriber. Side-effect should… take effect, but (!)
-        // the channel is closed, so it's going to stop immediately,
-        // resulting in no side-effect.
+        // the channel is closed, so it's going to stop immediately, resulting
+        // in no side-effect.
         drop(subscriber);
 
         // Sadly, nothing to assert because we are now blind, but at least the

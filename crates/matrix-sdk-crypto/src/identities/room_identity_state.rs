@@ -39,12 +39,11 @@ pub trait RoomIdentityProvider: core::fmt::Debug {
     fn member_identities(&self) -> BoxFuture<'_, Vec<UserIdentity>>;
 
     /// Return the [`UserIdentity`] of the user with the supplied ID (even if
-    /// they are not a member of this room) or None if this user does not
-    /// exist.
+    /// they are not a member of this room) or None if this user does not exist.
     fn user_identity<'a>(&'a self, user_id: &'a UserId) -> BoxFuture<'a, Option<UserIdentity>>;
 
-    /// Return the [`IdentityState`] of the supplied user identity.
-    /// Normally only overridden in tests.
+    /// Return the [`IdentityState`] of the supplied user identity. Normally
+    /// only overridden in tests.
     fn state_of(&self, user_identity: &UserIdentity) -> IdentityState {
         if user_identity.is_verified() {
             IdentityState::Verified
@@ -64,11 +63,11 @@ pub trait RoomIdentityProvider: core::fmt::Debug {
 
 /// The state of the identities in a given room - whether they are:
 ///
-/// * in pin violation (the identity changed after we accepted their identity),
-/// * verified (we manually did the emoji dance),
-/// * previously verified (we did the emoji dance and then their identity
+/// - in pin violation (the identity changed after we accepted their identity),
+/// - verified (we manually did the emoji dance),
+/// - previously verified (we did the emoji dance and then their identity
 ///   changed),
-/// * otherwise, they are pinned.
+/// - otherwise, they are pinned.
 #[derive(Debug)]
 pub struct RoomIdentityState<R: RoomIdentityProvider> {
     room: R,
@@ -163,9 +162,8 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
                     }
                     MembershipState::Leave | MembershipState::Ban => {
                         // They are leaving the room - treat that as if they are
-                        // becoming Pinned, which means
-                        // the UI will remove any banner it was displaying
-                        // for them.
+                        // becoming Pinned, which means the UI will remove any
+                        // banner it was displaying for them.
 
                         if let Some(update) =
                             self.update_user_state_to(user_id, IdentityState::Pinned)
@@ -229,10 +227,12 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
 /// changed in this room and we should either show or hide a warning.
 ///
 /// Examples of "significant" changes:
+///
 /// - pinned->unpinned
 /// - verification violation->verified
 ///
 /// Examples of "insignificant" changes:
+///
 /// - pinned->verified
 /// - verified->pinned
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -252,14 +252,14 @@ pub enum IdentityState {
     Verified,
 
     /// Either this is the first identity we have seen for this user, or the
-    /// user has acknowledged a change of identity explicitly e.g. by
-    /// clicking OK on a notification.
+    /// user has acknowledged a change of identity explicitly e.g. by clicking
+    /// OK on a notification.
     Pinned,
 
     /// The user's identity has changed since it was pinned. The user should be
-    /// notified about this and given the opportunity to acknowledge the
-    /// change, which will make the new identity pinned.
-    /// When the user acknowledges the change, the app should call
+    /// notified about this and given the opportunity to acknowledge the change,
+    /// which will make the new identity pinned. When the user acknowledges the
+    /// change, the app should call
     /// [`crate::OtherUserIdentity::pin_current_master_key`].
     PinViolation,
 
@@ -283,8 +283,8 @@ pub enum RoomIdentityChange {
     SyncRoomMemberEvent(Box<SyncRoomMemberEvent>),
 }
 
-/// What we know about the states of users in this room.
-/// Only stores users who _not_ in the Pinned stated.
+/// What we know about the states of users in this room. Only stores users who
+/// _not_ in the Pinned stated.
 #[derive(Debug)]
 struct KnownStates {
     known_states: HashMap<OwnedUserId, IdentityState>,

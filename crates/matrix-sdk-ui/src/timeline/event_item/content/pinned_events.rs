@@ -43,8 +43,7 @@ impl From<&StateEventContentChange<RoomPinnedEventsEventContent>> for RoomPinned
                             HashSet::from_iter(old_pinned);
 
                         // Newly added elements will be kept in new_pinned,
-                        // previous ones in still_pinned
-                        // instead
+                        // previous ones in still_pinned instead
                         still_pinned.retain(|item| new_pinned.remove(item));
 
                         let added = !new_pinned.is_empty();
@@ -164,8 +163,8 @@ mod tests {
     #[test]
     fn pinned_events_content_with_no_changes_returns_changed() {
         // Returning Changed is counter-intuitive, but it makes no sense to
-        // display in the timeline 'UserFoo didn't change anything in
-        // the pinned events'
+        // display in the timeline 'UserFoo didn't change anything in the pinned
+        // events'
 
         let content = StateEventContentChange::Original {
             content: RoomPinnedEventsEventContent::new(vec![

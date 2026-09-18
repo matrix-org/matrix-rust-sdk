@@ -82,8 +82,8 @@ pub enum State {
     /// [`SyncServiceBuilder::with_offline_mode`] setting.
     ///
     /// The [`SyncService`] will enter the offline mode if syncing with the
-    /// server fails, it will then periodically check if the server is
-    /// available using the `/_matrix/client/versions` endpoint.
+    /// server fails, it will then periodically check if the server is available
+    /// using the `/_matrix/client/versions` endpoint.
     ///
     /// Once the [`SyncService`] receives a 200 response from the
     /// `/_matrix/client/versions` endpoint, it will go back into the
@@ -164,20 +164,20 @@ impl SyncTaskSupervisor {
         let wait_for_termination_report = async {
             loop {
                 // Since we didn't empty the channel when entering the offline
-                // mode in fear that we might miss a report with
-                // the `TerminationOrigin::Supervisor` origin
-                // and the channel might contain stale
-                // reports from one of the sync services, in case both of them
-                // have sent a report, let's ignore all reports
-                // we receive from the sync services.
+                // mode in fear that we might miss a report with the
+                // `TerminationOrigin::Supervisor` origin and the channel might
+                // contain stale reports from one of the sync services, in case
+                // both of them have sent a report, let's ignore all reports we
+                // receive from the sync services.
                 let report =
                     receiver.recv().await.unwrap_or_else(TerminationReport::supervisor_error);
 
                 match report.origin {
                     TerminationOrigin::EncryptionSync | TerminationOrigin::RoomList => {}
-                    // Since the sync service aren't running anymore, we can only receive a report
-                    // from the supervisor. It would have probably made sense to have separate
-                    // channels for reports the sync services send and the user can send using the
+                    // Since the sync service aren't running anymore, we can
+                    // only receive a report from the supervisor. It would have
+                    // probably made sense to have separate channels for reports
+                    // the sync services send and the user can send using the
                     // `SyncService::stop()` method.
                     TerminationOrigin::Supervisor => break report,
                 }
@@ -187,20 +187,20 @@ impl SyncTaskSupervisor {
         let wait_to_be_online = async move {
             loop {
                 // Encountering network failures when sending a request which
-                // has with no retry limit set in the
-                // `RequestConfig` are treated as permanent failures and our
-                // exponential backoff doesn't kick in.
+                // has with no retry limit set in the `RequestConfig` are
+                // treated as permanent failures and our exponential backoff
+                // doesn't kick in.
                 //
                 // Let's set a retry limit so network failures are retried as
                 // well.
                 let request_config = RequestConfig::default().retry_limit(5);
 
                 // We're in an infinite loop, but our request sending already
-                // has an exponential backoff set up. This will
-                // kick in for any request errors that we consider to
-                // be transient. Common network errors (timeouts, DNS failures)
-                // or any server error in the 5xx range of HTTP
-                // errors are considered to be transient.
+                // has an exponential backoff set up. This will kick in for any
+                // request errors that we consider to be transient. Common
+                // network errors (timeouts, DNS failures) or any server error
+                // in the 5xx range of HTTP errors are considered to be
+                // transient.
                 //
                 // Still, as a precaution, we're going to sleep here for a while
                 // in the Error case.
@@ -242,10 +242,10 @@ impl SyncTaskSupervisor {
         let termination_sender = sender.clone();
 
         // When we first start, and don't use offline mode, we want to acquire
-        // the sync permit before we enter a future that might be polled
-        // at a later time, this means that the permit will be acquired
-        // as soon as this future, the one the `spawn_supervisor_task`
-        // function creates, is awaited.
+        // the sync permit before we enter a future that might be polled at a
+        // later time, this means that the permit will be acquired as soon as
+        // this future, the one the `spawn_supervisor_task` function creates, is
+        // awaited.
         //
         // In other words, once `sync_service.start().await` is finished, the
         // permit will be in the acquired state.
@@ -286,9 +286,9 @@ impl SyncTaskSupervisor {
                 };
 
                 // Stop both services, and wait for the streams to properly
-                // finish: at some point they'll return `None`
-                // and will exit their infinite loops, and their
-                // tasks will gracefully terminate.
+                // finish: at some point they'll return `None` and will exit
+                // their infinite loops, and their tasks will gracefully
+                // terminate.
 
                 if stop_room_list {
                     if let Err(err) = room_list_service.stop_sync() {
@@ -458,10 +458,9 @@ impl SyncTaskSupervisor {
             Ok(_) => {
                 let _ = self.task.await.inspect_err(|err| {
                     // A `JoinError` indicates that the task was already dead,
-                    // either because it got cancelled or
-                    // because it panicked. We only cancel the task in the Err
-                    // branch below and the task shouldn't
-                    // be able to panic.
+                    // either because it got cancelled or because it panicked.
+                    // We only cancel the task in the Err branch below and the
+                    // task shouldn't be able to panic.
                     //
                     // So let's log an error and return.
                     error!("The supervisor task has stopped unexpectedly: {err:?}");
@@ -470,8 +469,7 @@ impl SyncTaskSupervisor {
             Err(err) => {
                 error!("Couldn't send the termination report to the supervisor task: {err}");
                 // Let's abort the task if it won't shut down properly,
-                // otherwise we would have left it as a detached
-                // task.
+                // otherwise we would have left it as a detached task.
                 self.task.abort();
             }
         }
@@ -492,16 +490,14 @@ struct SyncServiceInner {
     /// The parent tracing span to use for the tasks within this service.
     ///
     /// Normally this will be [`Span::none`], but it may be useful to assign a
-    /// defined span, for example if there is more than one active sync
-    /// service.
+    /// defined span, for example if there is more than one active sync service.
     parent_span: Span,
 
     /// Supervisor task ensuring proper termination.
     ///
     /// This task is waiting for a [`TerminationReport`] from any of the other
-    /// two tasks, or from a user request via [`SyncService::stop()`]. It
-    /// makes sure that the two services are properly shut up and just
-    /// interrupted.
+    /// two tasks, or from a user request via [`SyncService::stop()`]. It makes
+    /// sure that the two services are properly shut up and just interrupted.
     ///
     /// This is set at the same time as the other two tasks.
     supervisor: Option<SyncTaskSupervisor>,
@@ -633,6 +629,7 @@ impl SyncService {
     /// Start (or restart) the underlying sliding syncs.
     ///
     /// This can be called multiple times safely:
+    ///
     /// - if the stream is still properly running, it won't be restarted.
     /// - if the [`SyncService`] is in the offline mode we will exit the offline
     ///   mode and immediately attempt to sync again.
@@ -684,8 +681,8 @@ impl SyncService {
     /// Force expiring both sessions.
     ///
     /// This ensures that the sync service is stopped before expiring both
-    /// sessions. It should be used sparingly, as it will cause a restart of
-    /// the sessions on the server as well.
+    /// sessions. It should be used sparingly, as it will cause a restart of the
+    /// sessions on the server as well.
     #[instrument(skip_all)]
     pub async fn expire_sessions(&self) {
         // First, stop the sync service if it was running; it's a no-op if it
@@ -788,10 +785,10 @@ pub struct SyncServiceBuilder {
     /// [`SlidingSyncBuilder::share_pos`]: matrix_sdk::sliding_sync::SlidingSyncBuilder::share_pos
     with_share_pos: bool,
 
-    /// Custom connection ID for the room list service.
-    /// Defaults to [`room_list_service::DEFAULT_CONNECTION_ID`]. Use a
-    /// different value for secondary processes such as iOS share extensions
-    /// that are not meant to reuse the main app's connection.
+    /// Custom connection ID for the room list service. Defaults to
+    /// [`room_list_service::DEFAULT_CONNECTION_ID`]. Use a different value for
+    /// secondary processes such as iOS share extensions that are not meant to
+    /// reuse the main app's connection.
     room_list_conn_id: String,
 
     /// Custom timeline limit for the room list service. Defaults to
@@ -801,8 +798,7 @@ pub struct SyncServiceBuilder {
     /// The parent tracing span to use for the tasks within this service.
     ///
     /// Normally this will be [`Span::none`], but it may be useful to assign a
-    /// defined span, for example if there is more than one active sync
-    /// service.
+    /// defined span, for example if there is more than one active sync service.
     parent_span: Span,
 }
 
@@ -856,7 +852,7 @@ impl SyncServiceBuilder {
 
     /// Finish setting up the [`SyncService`].
     ///
-    /// This creates the underlying sliding syncs, and will *not* start them in
+    /// This creates the underlying sliding syncs, and will _not_ start them in
     /// the background. The resulting [`SyncService`] must be kept alive as long
     /// as the sliding syncs are supposed to run.
     pub async fn build(self) -> Result<SyncService, Error> {

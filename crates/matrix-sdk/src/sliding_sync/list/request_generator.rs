@@ -140,9 +140,8 @@ impl SlidingSyncListRequestGenerator {
             | SlidingSyncListRequestGeneratorKind::Growing { fully_loaded: true, .. }
             | SlidingSyncListRequestGeneratorKind::Selective => {
                 // Nothing to do: we already have the full ranges, return the
-                // existing ranges. For the growing and paging
-                // modes, keep the current value of `requested_end`,
-                // which is still valid.
+                // existing ranges. For the growing and paging modes, keep the
+                // current value of `requested_end`, which is still valid.
                 Ok(self.ranges.clone())
             }
 
@@ -154,9 +153,8 @@ impl SlidingSyncListRequestGenerator {
                 ..
             } => {
                 // In paging-mode, range starts at the number of fetched rooms.
-                // Since ranges are inclusive, and since the
-                // number of fetched rooms starts at 1,
-                // not at 0, there is no need to add 1 here.
+                // Since ranges are inclusive, and since the number of fetched
+                // rooms starts at 1, not at 0, there is no need to add 1 here.
                 let range_start = number_of_fetched_rooms;
                 let range_desired_size = batch_size;
 
@@ -181,8 +179,8 @@ impl SlidingSyncListRequestGenerator {
                 ..
             } => {
                 // In growing-mode, range always starts from 0. However, the end
-                // is growing by adding `batch_size` to the
-                // previous number of fetched rooms.
+                // is growing by adding `batch_size` to the previous number of
+                // fetched rooms.
                 let range_start = 0;
                 let range_desired_size = number_of_fetched_rooms.saturating_add(*batch_size);
 
@@ -226,15 +224,13 @@ impl SlidingSyncListRequestGenerator {
                     Error::RequestGeneratorHasNotBeenInitialized(list_name.to_owned())
                 })?;
 
-                // Calculate the maximum bound for the range.
-                // At this step, the server has given us a maximum number of
-                // rooms for this list. That's our
-                // `range_maximum`.
+                // Calculate the maximum bound for the range. At this step, the
+                // server has given us a maximum number of rooms for this list.
+                // That's our `range_maximum`.
                 let mut range_maximum = maximum_number_of_rooms;
 
                 // But maybe the user has defined a maximum number of rooms to
-                // fetch? In this case, let's take the minimum
-                // of the two.
+                // fetch? In this case, let's take the minimum of the two.
                 if let Some(maximum_number_of_rooms_to_fetch) = maximum_number_of_rooms_to_fetch {
                     range_maximum = min(range_maximum, *maximum_number_of_rooms_to_fetch);
                 }
@@ -247,8 +243,7 @@ impl SlidingSyncListRequestGenerator {
                 // The current range hasn't reached its maximum, let's continue.
                 if range_end < range_maximum {
                     // Update the number of fetched rooms forward. Do not forget
-                    // that ranges are inclusive, so let's
-                    // add 1.
+                    // that ranges are inclusive, so let's add 1.
                     *number_of_fetched_rooms = range_end.saturating_add(1);
 
                     // The list is still not fully loaded.
@@ -260,8 +255,8 @@ impl SlidingSyncListRequestGenerator {
                     // Finally, return the new state.
                     Ok(SlidingSyncListLoadingState::PartiallyLoaded)
                 }
-                // Otherwise the current range has reached its maximum, we switched to `FullyLoaded`
-                // mode.
+                // Otherwise the current range has reached its maximum, we
+                // switched to `FullyLoaded` mode.
                 else {
                     // The number of fetched rooms is set to the maximum too.
                     *number_of_fetched_rooms = range_maximum;
@@ -308,8 +303,8 @@ fn create_range(
     maximum_number_of_rooms_to_fetch: Option<u32>,
     maximum_number_of_rooms: Option<u32>,
 ) -> Result<Range, Error> {
-    // Calculate the range.
-    // The `start` bound is given. Let's calculate the `end` bound.
+    // Calculate the range. The `start` bound is given. Let's calculate the
+    // `end` bound.
 
     // The `end`, by default, is `start` + `desired_size`.
     let mut end = start + desired_size;
@@ -321,8 +316,8 @@ fn create_range(
     }
 
     // But there is more! The server can tell us what is the maximum number of
-    // rooms fulfilling a particular list. For example, if the server says
-    // there is 42 rooms for a particular list, with a `start` of 40 and a
+    // rooms fulfilling a particular list. For example, if the server says there
+    // is 42 rooms for a particular list, with a `start` of 40 and a
     // `batch_size` of 20, the range must be capped to `[40; 42]`; the range
     // `[40; 60]` would be invalid and could be rejected by the server.
     if let Some(maximum_number_of_rooms) = maximum_number_of_rooms {
@@ -393,13 +388,11 @@ mod tests {
         );
 
         // From 0, we want 100 items, but there is a maximum number of rooms to
-        // fetch defined at 75, and a maximum number of rooms defined at
-        // 50.
+        // fetch defined at 75, and a maximum number of rooms defined at 50.
         assert_matches!(create_range(0, 100, Some(75), Some(50)), Ok(range) if range == RangeInclusive::new(0, 49));
 
         // From 0, we want 100 items, but there is a maximum number of rooms to
-        // fetch defined at 50, and a maximum number of rooms defined at
-        // 75.
+        // fetch defined at 50, and a maximum number of rooms defined at 75.
         assert_matches!(create_range(0, 100, Some(50), Some(75)), Ok(range) if range == RangeInclusive::new(0, 49));
     }
 

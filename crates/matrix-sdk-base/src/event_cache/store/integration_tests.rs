@@ -229,8 +229,8 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test replacing an item in a linked chunk.
     async fn test_linked_chunk_replace_item(&self);
 
-    /// Test filtering incomplete events - e.g., without an id - when
-    /// pushing or replacing an item in a linked chunk
+    /// Test filtering incomplete events - e.g., without an id - when pushing or
+    /// replacing an item in a linked chunk
     async fn test_linked_chunk_filter_incomplete_events(&self);
 
     /// Test remove an item from a linked chunk.
@@ -448,9 +448,9 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
     async fn test_linked_chunk_allows_same_event_in_room_and_thread(&self) {
         // This test verifies that the same event can appear in both a room's
-        // linked chunk and a thread's linked chunk. This is the
-        // real-world use case: a thread reply appears in both the main
-        // room timeline and the thread.
+        // linked chunk and a thread's linked chunk. This is the real-world use
+        // case: a thread reply appears in both the main room timeline and the
+        // thread.
 
         let room_id = *DEFAULT_TEST_ROOM_ID;
         let thread_root = event_id!("$thread_root");
@@ -663,9 +663,10 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             vec![
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 Update::NewItemsChunk {
-                    // Because `previous` connects to chunk #0, it will create a cycle.
-                    // Chunk #0 will have a `next` set to chunk #1! Consequently, the last chunk
-                    // **does not exist**. We have to detect this cycle.
+                    // Because `previous` connects to chunk #0, it will create a
+                    // cycle. Chunk #0 will have a `next` set to chunk #1!
+                    // Consequently, the last chunk **does not exist**. We have
+                    // to detect this cycle.
                     previous: Some(CId::new(0)),
                     new: CId::new(1),
                     next: Some(CId::new(0)),
@@ -1181,8 +1182,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .unwrap();
 
         // Pushing an updated version of event a to an unoccupied position in
-        // the new linked chunk should succeed and also update the event
-        // content across all linked chunks in all rooms.
+        // the new linked chunk should succeed and also update the event content
+        // across all linked chunks in all rooms.
         self.handle_linked_chunk_updates(
             other_linked_chunk_id,
             vec![Update::PushItems {
@@ -1216,8 +1217,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
     async fn test_linked_chunk_replace_item(&self) {
         let room_id = &DEFAULT_TEST_ROOM_ID;
 
-        // Create every kind of linked chunk id in the room, as well
-        // as one in a different room.
+        // Create every kind of linked chunk id in the room, as well as one in a
+        // different room.
         let linked_chunk_ids = [
             LinkedChunkId::Room(room_id),
             LinkedChunkId::Thread(room_id, event_id!("$thread_root")),
@@ -1374,14 +1375,16 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                     ],
                 },
                 Update::RemoveItem { at: Position::new(CId::new(42), 2) /* "three" */ },
-                // After removing an item, we need to ensure that the indices of all subsequent
-                // items in the chunk have shifted down by one. We can ensure this by pushing
-                // an item at the smallest index we expect to be unoccupied, and checking to see
-                // whether the last item in the chunk was overwritten.
+                // After removing an item, we need to ensure that the indices of
+                // all subsequent items in the chunk have shifted down by one.
+                // We can ensure this by pushing an item at the smallest index
+                // we expect to be unoccupied, and checking to see whether the
+                // last item in the chunk was overwritten.
                 //
-                // For example, after removing the item at index 2, we should have 5 elements and
-                // the smallest unoccupied index should be index 5. If we push an item to index 5,
-                // it should not overwrite any existing elements - i.e., "six" - but should be
+                // For example, after removing the item at index 2, we should
+                // have 5 elements and the smallest unoccupied index should be
+                // index 5. If we push an item to index 5, it should not
+                // overwrite any existing elements - i.e., "six" - but should be
                 // appended to the end of the chunk.
                 Update::PushItems {
                     at: Position::new(CId::new(42), 5),
@@ -1457,8 +1460,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let linked_chunk_id = LinkedChunkId::Room(room_id);
 
         // Same updates and checks as test_linked_chunk_push_items, but with
-        // extra `StartReattachItems` and `EndReattachItems` updates,
-        // which must have no effects.
+        // extra `StartReattachItems` and `EndReattachItems` updates, which must
+        // have no effects.
         self.handle_linked_chunk_updates(
             linked_chunk_id,
             vec![
@@ -2201,8 +2204,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let event = make_test_event_with_event_id(room_id, "event", Some(event_id));
 
         // Create an event that will only be inserted into the thread in order
-        // to help distinguish between the room and thread linked
-        // chunks.
+        // to help distinguish between the room and thread linked chunks.
         let extra_thread_event_id = event_id!("$extra_thread_event");
         let extra_thread_event = make_test_event_with_event_id(
             room_id,
@@ -2287,16 +2289,18 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                 assert_eq!(*position, Position::new(CId::new(1), 1));
             });
 
-            // Verify that thread reaction is in the list and not associated with a
-            // position, as all positions are provided for the room linked chunk.
+            // Verify that thread reaction is in the list and not associated
+            // with a position, as all positions are provided for the room
+            // linked chunk.
             let thread_relation = relations
                 .iter()
                 .find(|relation| relation.0.event_id().unwrap() == thread_reaction_id)
                 .unwrap();
             assert_matches!(thread_relation, (_, None));
 
-            // Verify that room and thread reaction is in the list and associated
-            // with its position in the room linked chunk, not the thread linked chunk.
+            // Verify that room and thread reaction is in the list and
+            // associated with its position in the room linked chunk, not the
+            // thread linked chunk.
             let room_and_thread_relation = relations
                 .iter()
                 .find(|relation| relation.0.event_id().unwrap() == room_and_thread_reaction_id)
@@ -2448,8 +2452,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let room_event = make_test_event_with_event_id(room_id, "room event", Some(room_event_id));
 
         // Create an event that will only be inserted into the thread. This may
-        // not be a sensible operation in practice, as threads seem to
-        // always exist in a room, but let's test it anyway.
+        // not be a sensible operation in practice, as threads seem to always
+        // exist in a room, but let's test it anyway.
         let thread_event_id = event_id!("$thread_event");
         let thread_event =
             make_test_event_with_event_id(room_id, "thread event", Some(thread_event_id));
@@ -2741,11 +2745,12 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 /// Macro building to allow your `EventCacheStore` implementation to run the
 /// entire tests suite locally.
 ///
-/// You need to provide a `async fn get_event_cache_store() ->
-/// EventCacheStoreResult<impl EventCacheStore>` providing a fresh event cache
-/// store on the same level you invoke the macro.
+/// You need to provide a
+/// `async fn get_event_cache_store() -> EventCacheStoreResult<impl EventCacheStore>`
+/// providing a fresh event cache store on the same level you invoke the macro.
 ///
-/// ## Usage Example:
+/// ## Usage example
+///
 /// ```no_run
 /// # use matrix_sdk_base::event_cache::store::{
 /// #    EventCacheStore,
@@ -3041,30 +3046,32 @@ macro_rules! event_cache_store_integration_tests_time {
                 let store = get_event_cache_store().await.unwrap().into_event_cache_store();
 
                 let acquired0 = store.try_take_leased_lock(0, "key", "alice").await.unwrap();
-                assert_eq!(acquired0, Some(1)); // first lock generation
+                 assert_eq!(acquired0, Some(1)); // first lock generation
 
                 // Should extend the lease automatically (same holder).
                 let acquired2 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
-                assert_eq!(acquired2, Some(1)); // same lock generation
+                 assert_eq!(acquired2, Some(1)); // same lock generation
 
-                // Should extend the lease automatically (same holder + time is ok).
+                // Should extend the lease automatically (same holder + time is
+                // ok).
                 let acquired3 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
-                assert_eq!(acquired3, Some(1)); // same lock generation
+                 assert_eq!(acquired3, Some(1)); // same lock generation
 
-                // Another attempt at taking the lock should fail, because it's taken.
+                // Another attempt at taking the lock should fail, because it's
+                // taken.
                 let acquired4 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
-                assert!(acquired4.is_none()); // not acquired
+                 assert!(acquired4.is_none()); // not acquired
 
                 // Even if we insist.
                 let acquired5 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
-                assert!(acquired5.is_none()); // not acquired
+                 assert!(acquired5.is_none()); // not acquired
 
                 // That's a nice test we got here, go take a little nap.
                 sleep(Duration::from_millis(50)).await;
 
                 // Still too early.
                 let acquired55 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
-                assert!(acquired55.is_none()); // not acquired
+                 assert!(acquired55.is_none()); // not acquired
 
                 // Ok you can take another nap then.
                 sleep(Duration::from_millis(250)).await;
@@ -3083,11 +3090,11 @@ macro_rules! event_cache_store_integration_tests_time {
 
                 // But when we take a longer lease…
                 let acquired8 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
-                assert_eq!(acquired8, Some(4)); // new lock generation!
+                 assert_eq!(acquired8, Some(4)); // new lock generation!
 
                 // It blocks the other user.
                 let acquired9 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
-                assert!(acquired9.is_none()); // not acquired
+                 assert!(acquired9.is_none()); // not acquired
 
                 // We can hold onto our lease.
                 let acquired10 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();

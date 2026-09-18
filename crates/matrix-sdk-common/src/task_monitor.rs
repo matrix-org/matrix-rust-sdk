@@ -169,9 +169,9 @@ const FAILURE_CHANNEL_CAPACITY: usize = 8;
 /// A monitor for spawning and monitoring background tasks.
 ///
 /// The [`TaskMonitor`] allows you to spawn background tasks that are
-/// automatically monitored for panics, errors, and unexpected termination.
-/// In such cases, a [`BackgroundTaskFailure`] is sent through a broadcast
-/// channel that subscribers can listen to.
+/// automatically monitored for panics, errors, and unexpected termination. In
+/// such cases, a [`BackgroundTaskFailure`] is sent through a broadcast channel
+/// that subscribers can listen to.
 ///
 /// # Example
 ///
@@ -234,13 +234,12 @@ impl TaskMonitor {
     /// channel.
     ///
     /// Use this for long-running tasks like event loops, sync tasks, or
-    /// background workers that should never complete under normal
-    /// operation.
+    /// background workers that should never complete under normal operation.
     ///
     /// # Arguments
     ///
-    /// * `name` - A human-readable name for the task (for debugging purposes).
-    /// * `future` - The async task to run.
+    /// - `name` - A human-readable name for the task (for debugging purposes).
+    /// - `future` - The async task to run.
     ///
     /// # Returns
     ///
@@ -267,8 +266,8 @@ impl TaskMonitor {
     ///
     /// # Arguments
     ///
-    /// * `name` - A human-readable name for the task (for debugging purposes).
-    /// * `future` - The async task to run.
+    /// - `name` - A human-readable name for the task (for debugging purposes).
+    /// - `future` - The async task to run.
     ///
     /// # Returns
     ///
@@ -358,8 +357,8 @@ impl TaskMonitor {
     ///
     /// # Arguments
     ///
-    /// * `name` - A human-readable name for the task (for debugging purposes).
-    /// * `future` - The async task to run.
+    /// - `name` - A human-readable name for the task (for debugging purposes).
+    /// - `future` - The async task to run.
     ///
     /// # Returns
     ///
@@ -428,9 +427,8 @@ impl TaskMonitor {
 
 /// A handle to a spawned background task.
 ///
-/// This handle can be used to abort the task or check if it has finished.
-/// When aborted through this handle, the task will NOT be reported as a
-/// failure.
+/// This handle can be used to abort the task or check if it has finished. When
+/// aborted through this handle, the task will NOT be reported as a failure.
 #[derive(Debug)]
 pub struct BackgroundTaskHandle {
     /// The underlying tokio's [`AbortHandle`].
@@ -457,8 +455,8 @@ impl Drop for BackgroundTaskHandle {
 impl BackgroundTaskHandle {
     /// Configure the handle to abort the task when dropped.
     ///
-    /// The task will be stopped and will NOT be reported as a failure
-    /// (this is considered intentional termination).
+    /// The task will be stopped and will NOT be reported as a failure (this is
+    /// considered intentional termination).
     pub fn abort_on_drop(mut self) -> Self {
         self.abort_on_drop = true;
         self
@@ -466,13 +464,13 @@ impl BackgroundTaskHandle {
 
     /// Abort the task.
     ///
-    /// The task will be stopped and will NOT be reported as a failure
-    /// (this is considered intentional termination).
+    /// The task will be stopped and will NOT be reported as a failure (this is
+    /// considered intentional termination).
     pub fn abort(&self) {
         // Note: ordering matters here, we set the flag before aborting
-        // otherwise there's a possible race condition where the abort()
-        // is observed before the flag is set, and the task monitor
-        // would consider this an unexpected termination.
+        // otherwise there's a possible race condition where the abort() is
+        // observed before the flag is set, and the task monitor would consider
+        // this an unexpected termination.
         self.intentionally_aborted.store(true, Ordering::Release);
         self.abort_handle.abort();
     }
@@ -480,8 +478,8 @@ impl BackgroundTaskHandle {
     /// Check if the task has finished.
     ///
     /// Returns `true` if the task completed, panicked, or was aborted on
-    /// non-wasm; on wasm, returns whether the task has been aborted only
-    /// (due to lack of better APIs).
+    /// non-wasm; on wasm, returns whether the task has been aborted only (due
+    /// to lack of better APIs).
     pub fn is_finished(&self) -> bool {
         #[cfg(not(target_family = "wasm"))]
         {

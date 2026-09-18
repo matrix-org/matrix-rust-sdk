@@ -70,9 +70,9 @@ enum SwiftCommand {
         #[clap(long)]
         watchos_deployment_target: Option<String>,
 
-        /// Build the targets one by one instead of passing all of them
-        /// to cargo in one go, which makes it hang on lesser devices like plain
-        /// Apple Silicon M1s
+        /// Build the targets one by one instead of passing all of them to cargo
+        /// in one go, which makes it hang on lesser devices like plain Apple
+        /// Silicon M1s
         #[clap(long)]
         sequentially: bool,
     },
@@ -97,7 +97,8 @@ impl SwiftArgs {
                 sequentially,
             } => {
                 // The dev profile seems to cause crashes on some platforms so
-                // we default to reldbg (https://github.com/matrix-org/matrix-rust-sdk/issues/4009)
+                // we default to reldbg
+                // (https://github.com/matrix-org/matrix-rust-sdk/issues/4009)
                 let profile =
                     profile.as_deref().unwrap_or(if release { "small-release" } else { "reldbg" });
                 build_xcframework(
@@ -489,8 +490,8 @@ fn localize_private_symbols(library: &Utf8Path, target: &Target) -> Result<()> {
     std::fs::write(&symbols_list, PRIVATE_SYMBOL_PATTERNS.join("\n") + "\n")?;
 
     // Everything belonging to a crate that touches the private symbols has to
-    // be merged: a crate's codegen units share hidden symbols, which can't
-    // bind across the merge. Every other object is left alone, keeping the
+    // be merged: a crate's codegen units share hidden symbols, which can't bind
+    // across the merge. Every other object is left alone, keeping the
     // subsections that let consumers dead strip the library function by
     // function when they link it statically.
     let crates = private_symbol_crates(library)?;
@@ -552,8 +553,8 @@ fn private_symbol_crates(library: &Utf8Path) -> Result<HashSet<String>> {
     let prefix = format!("{library}:");
     // `nm` is noisy about the objects it has nothing to say about: it warns and
     // exits non-zero for those carrying no symbols, and errors on the ones
-    // built by a newer LLVM than Xcode's, all of them runtime crates that
-    // can't be using the private symbols anyway.
+    // built by a newer LLVM than Xcode's, all of them runtime crates that can't
+    // be using the private symbols anyway.
     let symbols = cmd!(sh, "nm -A -g {library}").ignore_status().ignore_stderr().read()?;
 
     Ok(symbols

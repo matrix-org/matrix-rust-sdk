@@ -79,8 +79,8 @@ pub enum DehydrationError {
     #[error("The pickle key has an invalid length, expected 32 bytes, got {0}")]
     PickleKeyLength(usize),
 
-    /// The dehydrated device could not be signed by our user identity,
-    /// we're missing the self-signing key.
+    /// The dehydrated device could not be signed by our user identity, we're
+    /// missing the self-signing key.
     #[error("The self-signing key is missing, can't create a dehydrated device")]
     MissingSigningKey(#[from] SignatureError),
 
@@ -127,20 +127,18 @@ impl DehydratedDevices {
     /// Rehydrate the dehydrated device.
     ///
     /// Once rehydrated, to-device events can be pushed into the
-    /// [`RehydratedDevice`] to collect the room keys the device has
-    /// received.
+    /// [`RehydratedDevice`] to collect the room keys the device has received.
     ///
     /// For more info see the example for the
     /// [`RehydratedDevice::receive_events()`] method.
     ///
     /// # Arguments
     ///
-    /// * `pickle_key` - The encryption key that was used to encrypt the private
+    /// - `pickle_key` - The encryption key that was used to encrypt the private
     ///   parts of the identity keys, and one-time keys of the device.
     ///
-    /// * `device_id` - The unique identifier of the device.
-    ///
-    /// * `device_data` - The encrypted data of the device, containing the
+    /// - `device_id` - The unique identifier of the device.
+    /// - `device_data` - The encrypted data of the device, containing the
     ///   private keys of the device.
     pub async fn rehydrate(
         &self,
@@ -204,10 +202,9 @@ impl RehydratedDevice {
     /// [`RehydratedDevice`].
     ///
     /// Most to-device events we feed into the [`RehydratedDevice`] will contain
-    /// room keys, the rehydrated device will pass these room keys into our
-    /// own [`OlmMachine`] which will persist them and make the room keys
-    /// available for use using the usual
-    /// [`OlmMachine::decrypt_room_event()`] method.
+    /// room keys, the rehydrated device will pass these room keys into our own
+    /// [`OlmMachine`] which will persist them and make the room keys available
+    /// for use using the usual [`OlmMachine::decrypt_room_event()`] method.
     ///
     /// Once the homeserver returns a response without any to-device events, we
     /// can safely delete the current dehydrated device and create a new one.
@@ -292,8 +289,7 @@ impl RehydratedDevice {
         };
 
         // Let us first give the events to the rehydrated device, this will
-        // decrypt any encrypted to-device events and fetch out the room
-        // keys.
+        // decrypt any encrypted to-device events and fetch out the room keys.
         let mut rehydrated_transaction = self.rehydrated.store().transaction().await;
 
         let (_, changes) = self
@@ -330,9 +326,9 @@ impl DehydratedDevice {
     ///
     /// # Arguments
     ///
-    /// * `initial_device_display_name` - The human-readable name this device
+    /// - `initial_device_display_name` - The human-readable name this device
     ///   should have.
-    /// * `pickle_key` - The encryption key that should be used to encrypt the
+    /// - `pickle_key` - The encryption key that should be used to encrypt the
     ///   private parts of the identity keys, and one-time keys of the device.
     ///
     /// # Examples

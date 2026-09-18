@@ -30,11 +30,12 @@ impl WidgetRef for Hyperlink<'_> {
     fn render_ref(&self, area: Rect, buffer: &mut Buffer) {
         (&self.text).render_ref(area, buffer);
 
-        // this is a hacky workaround for https://github.com/ratatui-org/ratatui/issues/902, a bug
-        // in the terminal code that incorrectly calculates the width of ANSI
-        // escape sequences. It works by rendering the hyperlink as a
-        // series of 2-character chunks, which is the calculated width
-        // of the hyperlink text.
+        // this is a hacky workaround for
+        // https://github.com/ratatui-org/ratatui/issues/902, a bug in the
+        // terminal code that incorrectly calculates the width of ANSI escape
+        // sequences. It works by rendering the hyperlink as a series of
+        // 2-character chunks, which is the calculated width of the hyperlink
+        // text.
         for (i, two_chars) in self.text.to_string().chars().chunks(2).into_iter().enumerate() {
             let text = two_chars.collect::<String>();
             let hyperlink = format!("\x1B]8;;{}\x07{}\x1B]8;;\x07", self.url, text);

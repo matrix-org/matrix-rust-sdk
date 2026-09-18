@@ -26,8 +26,8 @@ use tracing::error;
 use super::{MediaRetentionPolicy, MediaStoreInner};
 use crate::media::MediaRequestParameters;
 
-/// API for implementors of [`MediaStore`] to manage their media through
-/// their implementation of [`MediaStoreInner`].
+/// API for implementors of [`MediaStore`] to manage their media through their
+/// implementation of [`MediaStoreInner`].
 ///
 /// [`MediaStore`]: crate::media::store::MediaStore
 #[derive(Debug)]
@@ -97,7 +97,7 @@ where
     ///
     /// # Arguments
     ///
-    /// * `policy` - The `MediaRetentionPolicy` that was persisted in the store.
+    /// - `policy` - The `MediaRetentionPolicy` that was persisted in the store.
     pub fn restore(
         &self,
         policy: Option<MediaRetentionPolicy>,
@@ -147,13 +147,10 @@ where
     ///
     /// # Arguments
     ///
-    /// * `store` - The `MediaStoreInner`.
-    ///
-    /// * `request` - The `MediaRequestParameters` of the file.
-    ///
-    /// * `content` - The content of the file.
-    ///
-    /// * `ignore_policy` - Whether the current `MediaRetentionPolicy` should be
+    /// - `store` - The `MediaStoreInner`.
+    /// - `request` - The `MediaRequestParameters` of the file.
+    /// - `content` - The content of the file.
+    /// - `ignore_policy` - Whether the current `MediaRetentionPolicy` should be
     ///   ignored.
     pub async fn add_media_content<Store: MediaStoreInner + 'static>(
         &self,
@@ -188,11 +185,9 @@ where
     ///
     /// # Arguments
     ///
-    /// * `store` - The `MediaStoreInner`.
-    ///
-    /// * `request` - The `MediaRequestParameters` of the file.
-    ///
-    /// * `ignore_policy` - Whether the current `MediaRetentionPolicy` should be
+    /// - `store` - The `MediaStoreInner`.
+    /// - `request` - The `MediaRequestParameters` of the file.
+    /// - `ignore_policy` - Whether the current `MediaRetentionPolicy` should be
     ///   ignored.
     pub async fn set_ignore_media_retention_policy<Store: MediaStoreInner>(
         &self,
@@ -262,9 +257,10 @@ where
     /// policy.
     ///
     /// A cleanup will be spawned if:
-    /// * The media retention policy's `cleanup_frequency` is set and enough
+    ///
+    /// - The media retention policy's `cleanup_frequency` is set and enough
     ///   time has passed since the last cleanup.
-    /// * No other cleanup is running,
+    /// - No other cleanup is running,
     fn maybe_spawn_automatic_media_cache_cleanup<Store: MediaStoreInner + 'static>(
         &self,
         store: &Store,
@@ -573,8 +569,8 @@ mod tests {
             current_time: SystemTime,
         ) -> Result<(), Self::Error> {
             // This is mostly a noop. We don't care about this test
-            // implementation, only whether this method was called
-            // with the right time.
+            // implementation, only whether this method was called with the
+            // right time.
             self.inner().cleanup_time = Some(current_time);
 
             Ok(())

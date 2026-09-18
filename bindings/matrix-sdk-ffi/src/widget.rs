@@ -67,18 +67,18 @@ pub struct WidgetSettings {
     /// Widget's unique identifier.
     pub widget_id: String,
     /// Whether or not the widget should be initialized on load message
-    /// (`ContentLoad` message), or upon creation/attaching of the widget to
-    /// the SDK's state machine that drives the API.
+    /// (`ContentLoad` message), or upon creation/attaching of the widget to the
+    /// SDK's state machine that drives the API.
     pub init_after_content_load: bool,
-    /// This contains the url from the widget state event.
-    /// In this url placeholders can be used to pass information from the client
-    /// to the widget. Possible values are: `$widgetId`, `$parentUrl`,
-    /// `$userId`, `$lang`, `$fontScale`, `$analyticsID`.
+    /// This contains the url from the widget state event. In this url
+    /// placeholders can be used to pass information from the client to the
+    /// widget. Possible values are: `$widgetId`, `$parentUrl`, `$userId`,
+    /// `$lang`, `$fontScale`, `$analyticsID`.
     ///
     /// # Examples
     ///
-    /// e.g `http://widget.domain?username=$userId`
-    /// will become: `http://widget.domain?username=@user_matrix_id:server.domain`.
+    /// e.g `http://widget.domain?username=$userId` will become:
+    /// `http://widget.domain?username=@user_matrix_id:server.domain`.
     raw_url: String,
 }
 
@@ -101,13 +101,14 @@ impl From<matrix_sdk::widget::WidgetSettings> for WidgetSettings {
     }
 }
 
-/// Create the actual url that can be used to setup the WebView or IFrame
-/// that contains the widget.
+/// Create the actual url that can be used to setup the WebView or IFrame that
+/// contains the widget.
 ///
 /// # Arguments
-/// * `widget_settings` - The widget settings to generate the url for.
-/// * `room` - A Matrix room which is used to query the logged in username
-/// * `props` - Properties from the client that can be used by a widget to adapt
+///
+/// - `widget_settings` - The widget settings to generate the url for.
+/// - `room` - A Matrix room which is used to query the logged in username
+/// - `props` - Properties from the client that can be used by a widget to adapt
 ///   to the client. e.g. language, font-scale...
 #[matrix_sdk_ffi_macros::export]
 pub async fn generate_webview_url(
@@ -124,18 +125,17 @@ pub async fn generate_webview_url(
     .map(|url| url.to_string())?)
 }
 
-/// `WidgetSettings` are usually created from a state event.
-/// (currently unimplemented)
+/// `WidgetSettings` are usually created from a state event. (currently
+/// unimplemented)
 ///
-/// In some cases the client wants to create custom `WidgetSettings`
-/// for specific rooms based on other conditions.
-/// This function returns a `WidgetSettings` object which can be used
-/// to setup a widget using `run_client_widget_api`
-/// and to generate the correct url for the widget.
+/// In some cases the client wants to create custom `WidgetSettings` for
+/// specific rooms based on other conditions. This function returns a
+/// `WidgetSettings` object which can be used to setup a widget using
+/// `run_client_widget_api` and to generate the correct url for the widget.
 ///
 /// # Arguments
 ///
-/// * `props` - A struct containing the configuration parameters for a element
+/// - `props` - A struct containing the configuration parameters for a element
 ///   call widget.
 #[matrix_sdk_ffi_macros::export]
 pub fn new_virtual_element_call_widget(
@@ -173,12 +173,14 @@ pub fn get_element_call_required_permissions(
         // To read and send encryption keys
         WidgetEventFilter::ToDevice { event_type: "io.element.call.encryption_keys".to_owned() },
         // TODO change this to the appropriate to-device version once ready
-        // remove this once all matrixRTC call apps supports to-device encryption.
+        // remove this once all matrixRTC call apps supports to-device
+        // encryption.
         WidgetEventFilter::MessageLikeWithType {
             event_type: "io.element.call.encryption_keys".to_owned(),
         },
-        // To read and send custom EC reactions. They are different to normal `m.reaction`
-        // because they can be send multiple times to the same event.
+        // To read and send custom EC reactions. They are different to normal
+        // `m.reaction` because they can be send multiple times to the same
+        // event.
         WidgetEventFilter::MessageLikeWithType {
             event_type: "io.element.call.reaction".to_owned(),
         },
@@ -208,8 +210,8 @@ pub fn get_element_call_required_permissions(
             WidgetEventFilter::StateWithType {
                 event_type: StateEventType::RoomEncryption.to_string(),
             },
-            // This allows the widget to check the room version, so it can know about
-            // version-specific auth rules (namely MSC3779).
+            // This allows the widget to check the room version, so it can know
+            // about version-specific auth rules (namely MSC3779).
             WidgetEventFilter::StateWithType { event_type: StateEventType::RoomCreate.to_string() },
         ]
         .into_iter()
@@ -220,35 +222,37 @@ pub fn get_element_call_required_permissions(
             WidgetEventFilter::MessageLikeWithType {
                 event_type: MessageLikeEventType::RtcNotification.to_string(),
             },
-            // Also for call notifications, except this is the deprecated fallback type which
-            // Element Call still sends.
-            // Deprecated for now, kept for backward compatibility as widgets will send both
+            // Also for call notifications, except this is the deprecated
+            // fallback type which Element Call still sends. Deprecated for now,
+            // kept for backward compatibility as widgets will send both
             // CallNotify and RtcNotification.
             WidgetEventFilter::MessageLikeWithType {
                 event_type: MessageLikeEventType::CallNotify.to_string(),
             },
-            // To send the call participation state event (main MatrixRTC event).
-            // This is required for legacy state events (using only one event for all devices with
-            // a membership array). TODO: remove once legacy call member events are
-            // sunset.
+            // To send the call participation state event (main MatrixRTC
+            // event). This is required for legacy state events (using only one
+            // event for all devices with a membership array). TODO: remove once
+            // legacy call member events are sunset.
             WidgetEventFilter::StateWithTypeAndStateKey {
                 event_type: StateEventType::CallMember.to_string(),
                 state_key: own_user_id.clone(),
             },
             // `delayed_event`` version for session memberhips
-            // [MSC3779](https://github.com/matrix-org/matrix-spec-proposals/pull/3779), with no leading underscore.
+            // [MSC3779](https://github.com/matrix-org/matrix-spec-proposals/pull/3779),
+            // with no leading underscore.
             WidgetEventFilter::StateWithTypeAndStateKey {
                 event_type: StateEventType::CallMember.to_string(),
                 state_key: format!("{own_user_id}_{own_device_id}"),
             },
-            // Same as above for [MSC3779] and [MSC4143](https://github.com/matrix-org/matrix-spec-proposals/pull/4143),
+            // Same as above for [MSC3779] and
+            // [MSC4143](https://github.com/matrix-org/matrix-spec-proposals/pull/4143),
             // with application suffix
             WidgetEventFilter::StateWithTypeAndStateKey {
                 event_type: StateEventType::CallMember.to_string(),
                 state_key: format!("{own_user_id}_{own_device_id}_m.call"),
             },
-            // The same as above but with an underscore.
-            // To work around the issue that state events starting with `@` have to be Matrix id's
+            // The same as above but with an underscore. To work around the
+            // issue that state events starting with `@` have to be Matrix id's
             // but we use mxId+deviceId.
             WidgetEventFilter::StateWithTypeAndStateKey {
                 event_type: StateEventType::CallMember.to_string(),
@@ -518,8 +522,8 @@ mod tests {
         let cap_json_repr = serde_json::to_string(&cap).unwrap();
 
         // Converting to a Vec<String> allows to check if the required elements
-        // exist without breaking the test each time the order of
-        // permissions might change.
+        // exist without breaking the test each time the order of permissions
+        // might change.
         let permission_array: Vec<String> = serde_json::from_str(&cap_json_repr).unwrap();
 
         let cap_assert = |capability: &str| {

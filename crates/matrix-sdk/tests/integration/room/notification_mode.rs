@@ -72,9 +72,8 @@ async fn test_get_notification_mode() {
     let mode = room.notification_mode().await;
     assert_matches!(mode, Some(RoomNotificationMode::AllMessages));
 
-    // Joined room without user-defined rules
-    // As this room has no user-defined rules, the encryption status will be
-    // fetched
+    // Joined room without user-defined rules As this room has no user-defined
+    // rules, the encryption status will be fetched
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.room.encryption/"))
         .and(header("authorization", "Bearer 1234"))
@@ -85,8 +84,8 @@ async fn test_get_notification_mode() {
                     "rotation_period_ms": 604800000,
                     "rotation_period_msgs": 100
                 }))
-                // Introduce a delay so the first `is_encrypted()` doesn't finish before we make
-                // the second call.
+                // Introduce a delay so the first `is_encrypted()` doesn't
+                // finish before we make the second call.
                 .set_delay(Duration::from_millis(50)),
         )
         .mount(&server)

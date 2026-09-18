@@ -223,10 +223,9 @@ async fn test_toggling_reaction() -> Result<()> {
                 assert_matches!(reaction.send_state, None);
             }
 
-            // Remote event should have a timestamp <= than now.
-            // Note: this can actually be equal because if the timestamp from
-            // server is not available, it might be created with a local call to
-            // `now()`
+            // Remote event should have a timestamp <= than now. Note: this can
+            // actually be equal because if the timestamp from server is not
+            // available, it might be created with a local call to `now()`
             assert!(reaction.timestamp <= MilliSecondsSinceUnixEpoch::now());
         }
 
@@ -309,7 +308,7 @@ async fn test_stale_local_echo_time_abort_edit() {
 
     // It is then sent. The timeline stream can be racy here:
     //
-    // - either the local echo is marked as sent *before*, and we receive an
+    // - either the local echo is marked as sent _before_, and we receive an
     //   update for this before the remote echo.
     // - or the remote echo comes up faster.
     //
@@ -326,8 +325,8 @@ async fn test_stale_local_echo_time_abort_edit() {
         assert!(diffs.len() >= 2);
     }
 
-    // Now do a crime: try to edit the local echo.
-    // The edit works on the local echo and applies to the remote echo \o/.
+    // Now do a crime: try to edit the local echo. The edit works on the local
+    // echo and applies to the remote echo \o/.
     timeline
         .edit(
             &local_echo.identifier(),
@@ -458,9 +457,9 @@ async fn test_enabling_backups_retries_decryption() {
         .await
         .expect("We should be able to paginate the timeline to fetch the history");
 
-    // Wait for the event cache and the timeline to do their job.
-    // Timeline triggers a pagination, that inserts events in the event cache,
-    // that then broadcasts new events into the timeline. All this is async.
+    // Wait for the event cache and the timeline to do their job. Timeline
+    // triggers a pagination, that inserts events in the event cache, that then
+    // broadcasts new events into the timeline. All this is async.
     sleep(Duration::from_millis(300)).await;
 
     let item =
@@ -657,10 +656,9 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
             .await
             .expect("We should be able to paginate the timeline to fetch the history");
 
-        // Wait for the event cache and the timeline to do their job.
-        // Timeline triggers a pagination, that inserts events in the event
-        // cache, that then broadcasts new events into the timeline. All
-        // this is async.
+        // Wait for the event cache and the timeline to do their job. Timeline
+        // triggers a pagination, that inserts events in the event cache, that
+        // then broadcasts new events into the timeline. All this is async.
         sleep(Duration::from_millis(300)).await;
 
         if let Some(timeline_item) = timeline.item_by_event_id(&event_id).await {

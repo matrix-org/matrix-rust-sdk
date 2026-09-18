@@ -165,12 +165,12 @@ pub struct PasswordStrengthEstimate {
     pub ranking: PasswordStrengthRanking,
     /// Estimated number of guesses needed to crack the password.
     pub guesses: u64,
-    /// A numeric score derived from the order of magnitude of `guesses`
-    /// (i.e. log base 10).
+    /// A numeric score derived from the order of magnitude of `guesses` (i.e.
+    /// log base 10).
     pub score: f64,
     /// A normalized score from 0 to 1.0 derived from `score` and the
-    /// estimator's `very_strong` threshold (`score / very_strong`).
-    /// Scores above the `VeryStrong` threshold *can* exceed 1.0.
+    /// estimator's `very_strong` threshold (`score / very_strong`). Scores
+    /// above the `VeryStrong` threshold _can_ exceed 1.0.
     pub normal_score: f64,
     /// Verbal feedback to help choose a better password. Only set when the
     /// ranking is Fair or below.
@@ -245,7 +245,8 @@ impl PasswordStrengthEstimator {
     }
 
     /// Creates an estimator using thresholds tuned for modern hardware (2025).
-    /// Values derived from determining entropy from the chart at https://www.hivesystems.com/blog/are-your-passwords-in-the-green
+    /// Values derived from determining entropy from the chart at
+    /// https://www.hivesystems.com/blog/are-your-passwords-in-the-green
     #[uniffi::constructor]
     pub fn with_modern_defaults2025() -> Self {
         Self {

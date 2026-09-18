@@ -16,8 +16,8 @@
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 // AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-// THE SOFTWARE.
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
 
 mod common;
 mod master;
@@ -32,14 +32,15 @@ pub use user_signing::*;
 macro_rules! impl_partial_eq {
     ($key_type: ty) => {
         impl PartialEq for $key_type {
-            /// The `PartialEq` implementation compares the user ID, the usage and the
-            /// key material, ignoring signatures.
+            /// The `PartialEq` implementation compares the user ID, the usage
+            /// and the key material, ignoring signatures.
             ///
-            /// The usage could be safely ignored since the type guarantees it has the
-            /// correct usage by construction -- it is impossible to construct a
-            /// value of a particular key type with an incorrect usage. However, we
-            /// check it anyway, to codify the notion that the same key material
-            /// with a different usage results in a logically different key.
+            /// The usage could be safely ignored since the type guarantees it
+            /// has the correct usage by construction -- it is impossible to
+            /// construct a value of a particular key type with an incorrect
+            /// usage. However, we check it anyway, to codify the notion that
+            /// the same key material with a different usage results in a
+            /// logically different key.
             ///
             /// The signatures are provided by other devices and don't alter the
             /// identity of the key itself.
@@ -144,7 +145,7 @@ mod tests {
             };
         }
 
-        // The last argument is deliberately some usage which is *not* correct
+        // The last argument is deliberately some usage which is _not_ correct
         // for the type.
         test_partial_eq!(MasterPubkey, master_key, master_keys, KeyUsage::SelfSigning);
         test_partial_eq!(SelfSigningPubkey, self_signing_key, self_signing_keys, KeyUsage::Master);

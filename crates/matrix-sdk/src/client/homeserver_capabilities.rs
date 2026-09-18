@@ -52,7 +52,10 @@ impl HomeserverCapabilities {
     /// This will first check the `m.profile_fields` capability and use it if
     /// present, or fall back to `m.set_displayname` otherwise.
     ///
-    /// Spec: <https://spec.matrix.org/latest/client-server-api/#mset_displayname-capability>
+    /// Spec:
+    /// [https://spec.matrix.org/latest/client-server-api/#mset_displayname-capability][https-spec-matrix-org-latest-client-server-api-mset-displayname-capability]
+    ///
+    /// [https-spec-matrix-org-latest-client-server-api-mset-displayname-capability]: https://spec.matrix.org/latest/client-server-api/#mset_displayname-capability
     pub async fn can_change_displayname(&self) -> crate::Result<bool> {
         let capabilities = self.profile_capabilities().await?;
 
@@ -68,7 +71,10 @@ impl HomeserverCapabilities {
     /// This will first check the `m.profile_fields` capability and use it if
     /// present, or fall back to `m.set_avatar_url` otherwise.
     ///
-    /// Spec: <https://spec.matrix.org/latest/client-server-api/#mset_avatar_url-capability>
+    /// Spec:
+    /// [https://spec.matrix.org/latest/client-server-api/#mset_avatar_url-capability][https-spec-matrix-org-latest-client-server-api-mset-avatar-url-capability]
+    ///
+    /// [https-spec-matrix-org-latest-client-server-api-mset-avatar-url-capability]: https://spec.matrix.org/latest/client-server-api/#mset_avatar_url-capability
     pub async fn can_change_avatar(&self) -> crate::Result<bool> {
         let capabilities = self.profile_capabilities().await?;
 
@@ -82,20 +88,26 @@ impl HomeserverCapabilities {
     /// Returns whether the user can add, remove, or change 3PID associations on
     /// their account.
     ///
-    /// Spec: <https://spec.matrix.org/latest/client-server-api/#m3pid_changes-capability>
+    /// Spec:
+    /// [https://spec.matrix.org/latest/client-server-api/#m3pid_changes-capability][https-spec-matrix-org-latest-client-server-api-m3pid-changes-capability]
+    ///
+    /// [https-spec-matrix-org-latest-client-server-api-m3pid-changes-capability]: https://spec.matrix.org/latest/client-server-api/#m3pid_changes-capability
     pub async fn can_change_thirdparty_ids(&self) -> crate::Result<bool> {
         let capabilities = self.load_or_fetch_homeserver_capabilities().await?;
         Ok(capabilities.thirdparty_id_changes.enabled)
     }
 
     /// Returns whether the user is able to use `POST /login/get_token` to
-    /// generate single-use, time-limited tokens to log unauthenticated
-    /// clients into their account.
+    /// generate single-use, time-limited tokens to log unauthenticated clients
+    /// into their account.
     ///
     /// When not listed, clients SHOULD assume the user is unable to generate
     /// tokens.
     ///
-    /// Spec: <https://spec.matrix.org/latest/client-server-api/#mget_login_token-capability>
+    /// Spec:
+    /// [https://spec.matrix.org/latest/client-server-api/#mget_login_token-capability][https-spec-matrix-org-latest-client-server-api-mget-login-token-capability]
+    ///
+    /// [https-spec-matrix-org-latest-client-server-api-mget-login-token-capability]: https://spec.matrix.org/latest/client-server-api/#mget_login_token-capability
     pub async fn can_get_login_token(&self) -> crate::Result<bool> {
         let capabilities = self.load_or_fetch_homeserver_capabilities().await?;
         Ok(capabilities.get_login_token.enabled)
@@ -131,7 +143,10 @@ impl HomeserverCapabilities {
     /// Returns whether or not the server automatically forgets rooms which the
     /// user has left.
     ///
-    /// Spec: <https://spec.matrix.org/latest/client-server-api/#mforget_forced_upon_leave-capability>
+    /// Spec:
+    /// [https://spec.matrix.org/latest/client-server-api/#mforget_forced_upon_leave-capability][https-spec-matrix-org-latest-client-server-api-mforget-forced-upon-leave-capability]
+    ///
+    /// [https-spec-matrix-org-latest-client-server-api-mforget-forced-upon-leave-capability]: https://spec.matrix.org/latest/client-server-api/#mforget_forced_upon_leave-capability
     pub async fn forgets_room_when_leaving(&self) -> crate::Result<bool> {
         let capabilities = self.load_or_fetch_homeserver_capabilities().await?;
         Ok(capabilities.forget_forced_upon_leave.enabled)
@@ -266,12 +281,14 @@ impl HomeserverCapabilities {
         let profile_fields = match capabilities.profile_fields {
             Some(profile_fields) => Some(profile_fields),
             None => {
-                // According to the Matrix spec about the `m.profile_fields` capability:
+                // According to the Matrix spec about the `m.profile_fields`
+                // capability:
                 //
-                // > When this capability is not listed, clients SHOULD assume the user is
-                // > able to change profile fields without any restrictions, provided the
-                // > homeserver advertises a specification version that includes the
-                // > `m.profile_fields` capability in the `/versions` response.
+                // > When this capability is not listed, clients SHOULD assume
+                // > the user is able to change profile fields without any
+                // > restrictions, provided the homeserver advertises a
+                // > specification version that includes the `m.profile_fields`
+                // > capability in the `/versions` response.
                 if self.homeserver_supports_extended_profile_fields().await? {
                     Some(ProfileFieldsCapability::new(true))
                 } else {
@@ -448,8 +465,8 @@ mod tests {
             .await;
 
         // Client with Matrix 1.12 that did not support extended profile fields
-        // yet. Because there is no `m.profile_fields` capability, we
-        // rely on the legacy profile capabilities.
+        // yet. Because there is no `m.profile_fields` capability, we rely on
+        // the legacy profile capabilities.
         let client =
             server.client_builder().server_versions(vec![MatrixVersion::V1_12]).build().await;
         let capabilities_api = client.homeserver_capabilities();
@@ -498,8 +515,8 @@ mod tests {
     async fn test_extended_profile_fields_capabilities_enabled() {
         let server = MatrixMockServer::new().await;
 
-        // The user can set any profile field.
-        // The legacy capabilities say differently, but they will be ignored.
+        // The user can set any profile field. The legacy capabilities say
+        // differently, but they will be ignored.
         let mut capabilities = Capabilities::new();
         capabilities.profile_fields = Some(ProfileFieldsCapability::new(true));
         capabilities.set_displayname = SetDisplayNameCapability::new(true);
@@ -513,8 +530,8 @@ mod tests {
             .await;
 
         // Client with Matrix 1.12 that did not support extended profile fields
-        // yet. However, because there is an `m.profile_fields`
-        // capability, we still rely on it.
+        // yet. However, because there is an `m.profile_fields` capability, we
+        // still rely on it.
         let client =
             server.client_builder().server_versions(vec![MatrixVersion::V1_12]).build().await;
         let capabilities_api = client.homeserver_capabilities();
@@ -563,8 +580,8 @@ mod tests {
     async fn test_extended_profile_fields_capabilities_disabled() {
         let server = MatrixMockServer::new().await;
 
-        // The user cannot set any profile field.
-        // The legacy capabilities say differently, but they will be ignored.
+        // The user cannot set any profile field. The legacy capabilities say
+        // differently, but they will be ignored.
         let mut capabilities = Capabilities::new();
         capabilities.profile_fields = Some(ProfileFieldsCapability::new(false));
         capabilities.set_displayname = SetDisplayNameCapability::new(true);
@@ -578,8 +595,8 @@ mod tests {
             .await;
 
         // Client with Matrix 1.12 that did not support extended profile fields
-        // yet. However, because there is an `m.profile_fields`
-        // capability, we still rely on it.
+        // yet. However, because there is an `m.profile_fields` capability, we
+        // still rely on it.
         let client =
             server.client_builder().server_versions(vec![MatrixVersion::V1_12]).build().await;
         let capabilities_api = client.homeserver_capabilities();
@@ -628,8 +645,8 @@ mod tests {
     async fn test_fine_grained_extended_profile_fields_capabilities() {
         let server = MatrixMockServer::new().await;
 
-        // The user can only set the avatar URL.
-        // The legacy capabilities say differently, but they will be ignored.
+        // The user can only set the avatar URL. The legacy capabilities say
+        // differently, but they will be ignored.
         let mut profile_fields = ProfileFieldsCapability::new(true);
         profile_fields.allowed = Some(vec![ProfileFieldName::AvatarUrl]);
         let mut capabilities = Capabilities::new();
@@ -645,8 +662,8 @@ mod tests {
             .await;
 
         // Client with Matrix 1.12 that did not support extended profile fields
-        // yet. However, because there is an `m.profile_fields`
-        // capability, we still rely on it.
+        // yet. However, because there is an `m.profile_fields` capability, we
+        // still rely on it.
         let client =
             server.client_builder().server_versions(vec![MatrixVersion::V1_12]).build().await;
         let capabilities_api = client.homeserver_capabilities();

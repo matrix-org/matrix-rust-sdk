@@ -128,8 +128,8 @@ fn handle_room_updates(c: &mut Criterion) {
                 client
             });
 
-            // Define a state store with all rooms known in it.
-            // Define the throughput.
+            // Define a state store with all rooms known in it. Define the
+            // throughput.
             group.throughput(Throughput::Elements(num_rooms));
 
             // Bench the handling of room updates.
@@ -166,8 +166,8 @@ fn handle_room_updates(c: &mut Criterion) {
 
 fn find_event_relations(c: &mut Criterion) {
     // Number of other events to saturate the DB, but that will not be affected
-    // by the benchmark. A small multiple of this number will be added.
-    // When running locally, run with more events than in Codespeed CI.
+    // by the benchmark. A small multiple of this number will be added. When
+    // running locally, run with more events than in Codespeed CI.
     #[cfg(feature = "codspeed")]
     const NUM_OTHER_EVENTS: usize = 100;
     #[cfg(not(feature = "codspeed"))]

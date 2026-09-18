@@ -32,8 +32,8 @@ pub struct TimelineUniqueId(pub String);
 pub enum TimelineItemKind {
     /// An event or aggregation of multiple events.
     Event(EventTimelineItem),
-    /// An item that doesn't correspond to an event, for example the user's
-    /// own read marker, or a date divider.
+    /// An item that doesn't correspond to an event, for example the user's own
+    /// read marker, or a date divider.
     Virtual(VirtualTimelineItem),
 }
 
@@ -77,12 +77,11 @@ impl TimelineItem {
 
     /// Get a unique ID for this timeline item.
     ///
-    /// It identifies the item on a best-effort basis. For instance, edits
-    /// to an [`EventTimelineItem`] will not change the ID of the
-    /// enclosing `TimelineItem`. For some virtual items like date
-    /// dividers, identity isn't easy to define though and you might
-    /// see a new ID getting generated for a date divider that you
-    /// perceive to be "the same" as a previous one.
+    /// It identifies the item on a best-effort basis. For instance, edits to an
+    /// [`EventTimelineItem`] will not change the ID of the enclosing
+    /// `TimelineItem`. For some virtual items like date dividers, identity
+    /// isn't easy to define though and you might see a new ID getting generated
+    /// for a date divider that you perceive to be "the same" as a previous one.
     pub fn unique_id(&self) -> &TimelineUniqueId {
         &self.internal_id
     }

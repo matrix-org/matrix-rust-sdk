@@ -83,8 +83,8 @@ impl DecryptedForwardedRoomKeyEvent {
 /// `m.olm.v1.curve25519-aes-sha2` algorithm
 pub type DecryptedSecretSendEvent = DecryptedOlmV1Event<SecretSendContent>;
 
-/// An `m.room_key_bundle` to-device event which has
-/// been decrypted using using the `m.olm.v1.curve25519-aes-sha2` algorithm
+/// An `m.room_key_bundle` to-device event which has been decrypted using using
+/// the `m.olm.v1.curve25519-aes-sha2` algorithm
 pub type DecryptedRoomKeyBundleEvent = DecryptedOlmV1Event<RoomKeyBundleContent>;
 
 /// An `io.element.msc4385.secret.push` event that was decrypted using the

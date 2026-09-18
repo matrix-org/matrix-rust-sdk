@@ -86,7 +86,7 @@ struct Cli {
     #[clap(short, long, env = "PROXY")]
     proxy: Option<Url>,
 
-    /// Whether to *not* reload the `pos`ition sliding sync token from disk at
+    /// Whether to _not_ reload the `pos`ition sliding sync token from disk at
     /// start or not, for the room list sliding sync.
     ///
     /// Set to false by default (i.e. reload the position from disk).

@@ -266,9 +266,8 @@ async fn test_false_positive_late_decryption_regression() {
 
     sleep(Duration::from_millis(200)).await;
 
-    // Simulate a retry decryption.
-    // Due to the regression this was marking the event as successfully
-    // decrypted on retry
+    // Simulate a retry decryption. Due to the regression this was marking the
+    // event as successfully decrypted on retry
     timeline
         .controller
         .retry_event_decryption(Some(iter::once(SESSION_ID.to_owned()).collect()))

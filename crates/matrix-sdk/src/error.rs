@@ -123,9 +123,9 @@ impl HttpError {
 
     /// Try to destructure the error into a user-interactive auth info.
     ///
-    /// Some requests require user-interactive auth, doing such a request
-    /// will always fail the first time with a 401 status code, the response
-    /// body will contain info on how the client can authenticate.
+    /// Some requests require user-interactive auth, doing such a request will
+    /// always fail the first time with a 401 status code, the response body
+    /// will contain info on how the client can authenticate.
     ///
     /// The request will need to be retried, this time containing additional
     /// authentication data.
@@ -140,8 +140,9 @@ impl HttpError {
     /// or permanent.
     pub(crate) fn retry_kind(&self) -> RetryKind {
         match self {
-            // If it was a plain network error, it's either that we're disconnected from the
-            // internet, or that the remote is, so retry a few times.
+            // If it was a plain network error, it's either that we're
+            // disconnected from the internet, or that the remote is, so retry a
+            // few times.
             HttpError::Reqwest(_) => RetryKind::NetworkFailure,
 
             HttpError::Api(error) => match error.as_ref() {
@@ -172,8 +173,7 @@ pub(crate) enum RetryKind {
     NetworkFailure,
 
     /// The request failed with a "transient" error, meaning it could be retried
-    /// either soon, or after a given amount of time expressed in
-    /// `retry_after`.
+    /// either soon, or after a given amount of time expressed in `retry_after`.
     Transient {
         // This is used only for attempts to retry, so on non-wasm32 code (in the `native` module).
         #[cfg_attr(target_family = "wasm", allow(dead_code))]
@@ -224,19 +224,19 @@ impl RetryKind {
     /// Construct a [`RetryKind`] from a HTTP [`StatusCode`].
     ///
     /// This should be used if we don't have a more specific Matrix style error
-    /// which gives us more information about the nature of the error, i.e.
-    /// if we received an error from a reverse proxy while the Matrix
-    /// homeserver is down.
+    /// which gives us more information about the nature of the error, i.e. if
+    /// we received an error from a reverse proxy while the Matrix homeserver is
+    /// down.
     fn from_status_code(status_code: StatusCode) -> Self {
         // If the status code is 429, this is requesting a retry in HTTP,
-        // without the custom `errcode`. Treat that as a retriable
-        // request with no specified retry_after delay.
+        // without the custom `errcode`. Treat that as a retriable request with
+        // no specified retry_after delay.
         //
         // All 5xx errors are considered transient, including non-standard ones
-        // like 520 ("web server returned an unknown error", from
-        // Cloudflare or another reverse proxy): they reflect the state
-        // of the server at the time of the request, and the request may
-        // well succeed when retried later.
+        // like 520 ("web server returned an unknown error", from Cloudflare or
+        // another reverse proxy): they reflect the state of the server at the
+        // time of the request, and the request may well succeed when retried
+        // later.
         if status_code == StatusCode::TOO_MANY_REQUESTS || status_code.is_server_error() {
             RetryKind::Transient { retry_after: None }
         } else {
@@ -363,8 +363,8 @@ pub enum Error {
 
     /// An other error was raised.
     ///
-    /// This might happen because encryption was enabled on the base-crate
-    /// but not here and that raised.
+    /// This might happen because encryption was enabled on the base-crate but
+    /// not here and that raised.
     #[cfg(not(target_family = "wasm"))]
     #[error("unknown error: {0}")]
     UnknownError(Box<dyn std::error::Error + Send + Sync>),

@@ -1179,6 +1179,7 @@ async fn test_subscribe_to_knock_requests_reloads_members_on_limited_sync() {
         .mock_get_members()
         .ok(vec![knock_event])
         // The endpoint will be called twice:
+        //
         // 1. For the initial loading of room members.
         // 2. When a gappy (limited) sync is received.
         .expect(2)

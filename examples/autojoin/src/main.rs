@@ -19,8 +19,8 @@ async fn on_stripped_state_member(
         let mut delay = 2;
 
         while let Err(err) = room.join().await {
-            // retry autojoin due to synapse sending invites, before the
-            // invited user can join for more information see
+            // retry autojoin due to synapse sending invites, before the invited
+            // user can join for more information see
             // https://github.com/matrix-org/synapse/issues/4345
             eprintln!("Failed to join room {} ({err:?}), retrying in {delay}s", room.room_id());
 
@@ -42,8 +42,8 @@ async fn login_and_sync(
     password: &str,
 ) -> anyhow::Result<()> {
     // Note that when encryption is enabled, you should use a persistent store
-    // to be able to restore the session with a working encryption setup.
-    // See the `persist_session` example.
+    // to be able to restore the session with a working encryption setup. See
+    // the `persist_session` example.
     let client = Client::builder().homeserver_url(homeserver_url).build().await?;
 
     client

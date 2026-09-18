@@ -214,8 +214,7 @@ impl GossipMachine {
         // Some servers might send to-device events to ourselves if we send one
         // out using a wildcard instead of a specific device as a recipient.
         //
-        // Check if we're the sender of this request event and ignore it if
-        // so.
+        // Check if we're the sender of this request event and ignore it if so.
         if event.sender() == self.user_id() && event.requesting_device_id() == self.device_id() {
             trace!("Received a secret request event from ourselves, ignoring")
         } else {
@@ -274,10 +273,10 @@ impl GossipMachine {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The user id of the device that we created the Olm session
+    /// - `user_id` - The user id of the device that we created the Olm session
     ///   with.
     ///
-    /// * `device_id` - The device ID of the device that got the Olm session.
+    /// - `device_id` - The device ID of the device that got the Olm session.
     pub fn retry_keyshare(&self, user_id: &UserId, device_id: &DeviceId) {
         if let Entry::Occupied(mut e) =
             self.inner.users_for_key_claim.write().entry(user_id.to_owned())
@@ -298,10 +297,10 @@ impl GossipMachine {
     /// Push a secret to all of our other verified devices.
     ///
     /// This function assumes that we already have Olm sessions with the other
-    /// devices.  This can be done by calling
+    /// devices. This can be done by calling
     /// [`OlmMachine::get_missing_sessions()`].
     ///
-    /// * `secret_name` - The name of the secret to push
+    /// - `secret_name` - The name of the secret to push
     #[cfg(feature = "experimental-push-secrets")]
     pub async fn push_secret_to_verified_devices(
         &self,
@@ -481,9 +480,9 @@ impl GossipMachine {
     /// a forwarded room key.
     ///
     /// This method might fail if we do not share an 1-to-1 Olm session with the
-    /// given `Device`, in that case we're going to queue up an
-    /// `/keys/claim` request to be sent out and retry once the 1-to-1 Olm
-    /// session has been established.
+    /// given `Device`, in that case we're going to queue up an `/keys/claim`
+    /// request to be sent out and retry once the 1-to-1 Olm session has been
+    /// established.
     #[cfg(feature = "automatic-room-key-forwarding")]
     async fn try_to_forward_room_key(
         &self,
@@ -637,9 +636,9 @@ impl GossipMachine {
     ///
     /// # Arguments
     ///
-    /// * `device` is the device to send the request to.
-    /// * `content` is the actual event content, containing the secret to send.
-    /// * `secret_name` is the name of the secret e.g. `m.megolm_backup.v1`
+    /// - `device` is the device to send the request to.
+    /// - `content` is the actual event content, containing the secret to send.
+    /// - `secret_name` is the name of the secret e.g. `m.megolm_backup.v1`
     ///   (used for logging).
     async fn share_secret(
         &self,
@@ -719,23 +718,22 @@ impl GossipMachine {
     ///
     /// The logic for this is currently as follows:
     ///
-    /// * Share the session in full, starting from the earliest known index, if
+    /// - Share the session in full, starting from the earliest known index, if
     ///   the requesting device is our own, trusted (verified) device.
     ///
-    /// * For other requesting devices, share only a limited session and only if
+    /// - For other requesting devices, share only a limited session and only if
     ///   we originally shared with that device because it was present when the
     ///   message was initially sent. By limited, we mean that the session will
     ///   not be shared in full, but only from the message index at that moment.
     ///   Since this information is recorded in the outbound session, we need to
     ///   have it for this to work.
     ///
-    /// * In all other cases, refuse to share the session.
+    /// - In all other cases, refuse to share the session.
     ///
     /// # Arguments
     ///
-    /// * `device` - The device that is requesting a session from us.
-    ///
-    /// * `session` - The session that was requested to be shared.
+    /// - `device` - The device that is requesting a session from us.
+    /// - `session` - The session that was requested to be shared.
     ///
     /// # Return value
     ///
@@ -745,7 +743,7 @@ impl GossipMachine {
     ///   earliest known index.
     /// - `Ok(Some(i))`: Should share the session, but only starting from index
     ///   i.
-    /// - `Err(x)`: Should *refuse* to share the session. `x` is the reason for
+    /// - `Err(x)`: Should _refuse_ to share the session. `x` is the reason for
     ///   the refusal.
     #[cfg(feature = "automatic-room-key-forwarding")]
     async fn should_share_key(
@@ -768,9 +766,9 @@ impl GossipMachine {
         if device.user_id() == self.user_id() && device.is_verified() {
             Ok(None)
         // Otherwise, if the records show we previously shared with this device,
-        // we'll reshare the session from the index we previously shared
-        // at. For this, we need an outbound session because this
-        // information is recorded there.
+        // we'll reshare the session from the index we previously shared at. For
+        // this, we need an outbound session because this information is
+        // recorded there.
         } else if let Some(outbound) = outbound_session {
             match outbound.sharing_view().get_share_state(&device.inner) {
                 ShareState::Shared { message_index, olm_wedging_index: _ } => {
@@ -788,12 +786,12 @@ impl GossipMachine {
         }
     }
 
-    /// Check if it's ok, or rather if it makes sense to automatically request
-    /// a key from our other devices.
+    /// Check if it's ok, or rather if it makes sense to automatically request a
+    /// key from our other devices.
     ///
     /// # Arguments
     ///
-    /// * `key_info` - The info of our key request containing information about
+    /// - `key_info` - The info of our key request containing information about
     ///   the key we wish to request.
     #[cfg(feature = "automatic-room-key-forwarding")]
     async fn should_request_key(&self, key_info: &SecretInfo) -> Result<bool, CryptoStoreError> {
@@ -807,9 +805,8 @@ impl GossipMachine {
 
                 // Devices will only respond to key requests if the devices are
                 // verified, if the device isn't verified by us it's unlikely
-                // that we're verified by them either. Don't
-                // request keys if there isn't at least one
-                // verified device.
+                // that we're verified by them either. Don't request keys if
+                // there isn't at least one verified device.
                 Ok(devices.is_any_verified())
             } else {
                 Ok(false)
@@ -831,9 +828,8 @@ impl GossipMachine {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The id of the room where the key is used in.
-    ///
-    /// * `event` - The event for which we would like to request the room key.
+    /// - `room_id` - The id of the room where the key is used in.
+    /// - `event` - The event for which we would like to request the room key.
     pub async fn request_key(
         &self,
         room_id: &RoomId,
@@ -900,9 +896,9 @@ impl GossipMachine {
     /// This does nothing if a request for this key has already been sent out.
     ///
     /// # Arguments
-    /// * `room_id` - The id of the room where the key is used in.
     ///
-    /// * `event` - The event for which we would like to request the room key.
+    /// - `room_id` - The id of the room where the key is used in.
+    /// - `event` - The event for which we would like to request the room key.
     #[cfg(feature = "automatic-room-key-forwarding")]
     pub async fn create_outgoing_key_request(
         &self,
@@ -1011,12 +1007,12 @@ impl GossipMachine {
             }
         } else {
             // We would need to fire out a request to figure out if this backup
-            // decryption key is the one that is used for the
-            // current backup and if the backup is trusted.
+            // decryption key is the one that is used for the current backup and
+            // if the backup is trusted.
             //
             // So we put the secret into our inbox. Later users can inspect the
-            // contents of the inbox and decide if they want to
-            // activate the backup.
+            // contents of the inbox and decide if they want to activate the
+            // backup.
             info!("Received a backup decryption key, storing it into the secret inbox.");
             changes.secrets.push(secret.into());
         }
@@ -1806,8 +1802,7 @@ mod tests {
         );
 
         // Now let's encrypt some messages in another session to increment the
-        // message index and then share it with our own untrusted
-        // device.
+        // message index and then share it with our own untrusted device.
         own_device.set_trust_state(LocalTrust::Unset);
 
         for _ in 1..=3 {
@@ -1824,8 +1819,8 @@ mod tests {
         machine.inner.outbound_group_sessions.insert(other_outbound.clone());
 
         // Since our device is untrusted, we should share the session starting
-        // only from the current index (at which the message was marked
-        // as shared). This should be 3 since we encrypted 3 messages.
+        // only from the current index (at which the message was marked as
+        // shared). This should be 3 since we encrypted 3 messages.
         assert_matches!(machine.should_share_key(&own_device, &other_inbound).await, Ok(Some(3)));
 
         own_device.set_trust_state(LocalTrust::Verified);
@@ -2550,7 +2545,7 @@ mod tests {
         assert_eq!(requests.len(), 1);
         let request = requests.first().expect("We should have an outgoing to-device request");
 
-        // Test receiving the event.  Alice isn't trusted, so the secret will be
+        // Test receiving the event. Alice isn't trusted, so the secret will be
         // dropped
         let event: EncryptedToDeviceEvent =
             request_to_event(bob_machine.user_id(), alice_machine.user_id(), request);

@@ -58,7 +58,8 @@ async fn test_history_share_on_invite() -> Result<()> {
 /// share the encryption history, even when "exclude insecure devices" is
 /// enabled.
 ///
-/// Regression test for https://github.com/matrix-org/matrix-rust-sdk/issues/5613
+/// Regression test for
+/// https://github.com/matrix-org/matrix-rust-sdk/issues/5613
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_history_share_on_invite_exclude_insecure_devices() -> Result<()> {
     test_history_share_on_invite_helper(true).await
@@ -108,14 +109,14 @@ async fn test_history_share_on_invite_helper(exclude_insecure_devices: bool) -> 
     alice_room.invite_user_by_id(bob.user_id().unwrap()).await?;
 
     // Alice is done. Bob has been invited and the room key bundle should have
-    // been sent out. Let's log her out, so we know that this feature works
-    // even when the sender device has been deleted (and to reduce the
-    // amount of noise in the logs).
+    // been sent out. Let's log her out, so we know that this feature works even
+    // when the sender device has been deleted (and to reduce the amount of
+    // noise in the logs).
     alice_sync_service.stop().await;
     alice.logout().instrument(alice_span.clone()).await?;
 
-    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770: Bob needs a copy of
-    // Alice's identity.
+    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770:
+    // Bob needs a copy of Alice's identity.
     bob.encryption()
         .request_user_identity(alice.user_id().unwrap())
         .instrument(bob_span.clone())
@@ -389,21 +390,21 @@ async fn test_history_share_on_invite_pin_violation() -> Result<()> {
 ///
 /// In this scenario we have four separate users:
 ///
-///  1. Alice and Bob share a room, where the history visibility is set to
+/// 1. Alice and Bob share a room, where the history visibility is set to
 ///    "shared".
-///  2. Bob sends a message. This will be "shareable".
-///  3. Alice changes the history viz to "joined".
-///  4. Alice changes the history viz back to "shared", but Bob doesn't (yet)
-///     receive the memo.
-///  5. Bob sends a second message; the key is "unshareable" because Bob still
-///     thinks the history viz is "joined".
-///  6. Bob syncs, and sends a third message; the key is now "shareable".
-///  7. Alice invites Charlie.
-///  8. Charlie joins the room. He should see Bob's first message; the second
-///     should have an appropriate withheld code from Alice; the third should be
-///     decryptable.
-///  9. Charlie invites Derek.
-///  10. Derek joins the room, and sees the same as Charlie.
+/// 2. Bob sends a message. This will be "shareable".
+/// 3. Alice changes the history viz to "joined".
+/// 4. Alice changes the history viz back to "shared", but Bob doesn't (yet)
+///    receive the memo.
+/// 5. Bob sends a second message; the key is "unshareable" because Bob still
+///    thinks the history viz is "joined".
+/// 6. Bob syncs, and sends a third message; the key is now "shareable".
+/// 7. Alice invites Charlie.
+/// 8. Charlie joins the room. He should see Bob's first message; the second
+///    should have an appropriate withheld code from Alice; the third should be
+///    decryptable.
+/// 9. Charlie invites Derek.
+/// 10. Derek joins the room, and sees the same as Charlie.
 ///
 /// This tests correct "withheld" code handling, even with transitive invites.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -507,8 +508,8 @@ async fn test_transitive_history_share_with_withhelds() -> Result<()> {
     // 7. Alice invites Charlie.
     alice_room.invite_user_by_id(charlie.user_id().unwrap()).instrument(alice_span.clone()).await?;
 
-    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770: Charlie needs a copy of
-    // Alice's identity.
+    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770:
+    // Charlie needs a copy of Alice's identity.
     charlie
         .encryption()
         .request_user_identity(alice.user_id().unwrap())
@@ -537,8 +538,8 @@ async fn test_transitive_history_share_with_withhelds() -> Result<()> {
         .instrument(charlie_span.clone())
         .await?;
 
-    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770: Derek needs a copy of
-    // Charlie's identity.
+    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770:
+    // Derek needs a copy of Charlie's identity.
     derek
         .encryption()
         .request_user_identity(charlie.user_id().unwrap())
@@ -567,13 +568,13 @@ async fn test_transitive_history_share_with_withhelds() -> Result<()> {
 
 /// Test megolm session merging with history sharing
 ///
-///  1. Alice and Bob share a room
-///  2. Bob sends a message
-///  3. Alice invites Charlie, sharing the history
-///  4. Charlie can see Bob's message, but the sender is unauthenticated.
-///  5. Bob sends another message (on the same session)
-///  6. Charlie can now decrypt both of Bob's messages, with authenticated
-///     sender.
+/// 1. Alice and Bob share a room
+/// 2. Bob sends a message
+/// 3. Alice invites Charlie, sharing the history
+/// 4. Charlie can see Bob's message, but the sender is unauthenticated.
+/// 5. Bob sends another message (on the same session)
+/// 6. Charlie can now decrypt both of Bob's messages, with authenticated
+///    sender.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_history_sharing_session_merging() -> Result<()> {
     let alice_span = tracing::info_span!("alice");
@@ -641,8 +642,8 @@ async fn test_history_sharing_session_merging() -> Result<()> {
     // 3. Alice invites Charlie.
     alice_room.invite_user_by_id(charlie.user_id().unwrap()).instrument(alice_span.clone()).await?;
 
-    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770: Charlie needs a copy of
-    // Alice's identity.
+    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770:
+    // Charlie needs a copy of Alice's identity.
     charlie
         .encryption()
         .request_user_identity(alice.user_id().unwrap())
@@ -764,8 +765,8 @@ async fn test_history_share_on_invite_no_forwarder_info_for_normal_events() -> R
     // Alice invites Bob to the room
     alice_room.invite_user_by_id(bob.user_id().unwrap()).await?;
 
-    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770: Bob needs a copy of
-    // Alice's identity.
+    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770:
+    // Bob needs a copy of Alice's identity.
     bob.encryption()
         .request_user_identity(alice.user_id().unwrap())
         .instrument(bob_span.clone())
@@ -835,8 +836,7 @@ async fn test_history_share_on_invite_no_forwarder_info_for_normal_events() -> R
     );
 
     // Alice sends a second message, which Bob should receive, but have no
-    // forwarder info for as it was sent as part of a session they already
-    // have.
+    // forwarder info for as it was sent as part of a session they already have.
 
     let event_id = alice_room
         .send(RoomMessageEventContent::text_plain("I said Hello, Bob"))
@@ -948,8 +948,8 @@ async fn test_history_share_on_invite_downloads_backup_keys() -> Result<()> {
     // Alice is done, let's log her out.
     alice_b.logout().instrument(alice_b_span.clone()).await?;
 
-    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770: Bob needs a copy of
-    // Alice's identity.
+    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770:
+    // Bob needs a copy of Alice's identity.
     bob.encryption()
         .request_user_identity(alice_b.user_id().unwrap())
         .instrument(bob_span.clone())
@@ -1499,8 +1499,8 @@ async fn test_history_share_on_invite_room_key_rotation_with_shutdown() -> Resul
 ///
 /// # Arguments
 ///
-/// * `username` - The username for the client.
-/// * `exclude_insecure_devices` - A boolean indicating whether to exclude
+/// - `username` - The username for the client.
+/// - `exclude_insecure_devices` - A boolean indicating whether to exclude
 ///   insecure devices.
 async fn create_encryption_enabled_client(
     username: &str,

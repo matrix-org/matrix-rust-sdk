@@ -92,9 +92,9 @@ pub fn format_emojis(emojis: [Emoji; 7]) -> String {
     let center_emoji = |emoji: &str| -> String {
         const EMOJI_WIDTH: usize = 2;
         // These are emojis that need VARIATION-SELECTOR-16 (U+FE0F) so that
-        // they are rendered with coloured glyphs. For these, we need to
-        // add an extra space after them so that they are rendered
-        // properly in terminals.
+        // they are rendered with coloured glyphs. For these, we need to add an
+        // extra space after them so that they are rendered properly in
+        // terminals.
         const VARIATION_SELECTOR_EMOJIS: [&str; 7] = ["☁️", "❤️", "☂️", "✏️", "✂️", "☎️", "✈️"];
 
         // Hack to make terminals behave properly when one of the above is
@@ -404,9 +404,8 @@ impl Cancelled {
     }
 }
 
-/// A key verification can be requested and started by a to-device
-/// request or a room event. `FlowId` helps to represent both
-/// usecases.
+/// A key verification can be requested and started by a to-device request or a
+/// room event. `FlowId` helps to represent both usecases.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub enum FlowId {
     /// The flow ID comes from a to-device request.
@@ -505,8 +504,8 @@ impl IdentitiesBeingVerified {
             self.mark_identity_as_verified(verified_identities).await?;
 
         if device.is_none() && identity.is_none() {
-            // Something went wrong if nothing was verified. We use key
-            // mismatch here, since it's the closest to nothing was verified
+            // Something went wrong if nothing was verified. We use key mismatch
+            // here, since it's the closest to nothing was verified
             return Ok(VerificationResult::Cancel(CancelCode::KeyMismatch));
         }
 
@@ -578,11 +577,11 @@ impl IdentitiesBeingVerified {
             None
         };
 
-        // If there are two signature upload requests, merge them. Otherwise
-        // use the one we have or None.
+        // If there are two signature upload requests, merge them. Otherwise use
+        // the one we have or None.
         //
-        // Realistically at most one request will be used but let's make
-        // this future proof.
+        // Realistically at most one request will be used but let's make this
+        // future proof.
         let merged_request = if let Some(mut r) = signature_request {
             if let Some(user_request) = identity_signature_request {
                 r.signed_keys.extend(user_request.signed_keys);
@@ -653,10 +652,9 @@ impl IdentitiesBeingVerified {
                     (Some(identity), should_request_secrets)
                 } else {
                     // Note, this is normal. For example, if we're an existing
-                    // device in a device verification, we
-                    // don't need to verify our identity: instead the
-                    // verification process should verify
-                    // the new device.
+                    // device in a device verification, we don't need to verify
+                    // our identity: instead the verification process should
+                    // verify the new device.
                     debug!(
                         user_id = ?self.other_user_id(),
                         "The interactive verification process didn't verify \
@@ -723,10 +721,10 @@ impl IdentitiesBeingVerified {
             Ok(Some(device))
         } else {
             // Note, this is normal. For example, if we're a new device in a QR
-            // code device verification, we'll verify the master key
-            // but not (directly) the remote device. Likewise, in a
-            // QR code identity verification, we'll verify the
-            // master key of the remote user but not (directly) their device.
+            // code device verification, we'll verify the master key but not
+            // (directly) the remote device. Likewise, in a QR code identity
+            // verification, we'll verify the master key of the remote user but
+            // not (directly) their device.
             debug!(
                 user_id = ?device.user_id(),
                 device_id = ?device.device_id(),

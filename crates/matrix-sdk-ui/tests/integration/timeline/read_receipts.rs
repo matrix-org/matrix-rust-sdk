@@ -1268,8 +1268,8 @@ async fn test_mark_as_read_with_only_own_events() {
         .await;
 
     // With no other user's event to point at, the receipt falls back to the
-    // user's own latest event so a lingering server-side push/badge count
-    // can be reset.
+    // user's own latest event so a lingering server-side push/badge count can
+    // be reset.
     server
         .mock_send_receipt(CreateReceiptType::Read)
         .match_event_id(event_id!("$second"))
@@ -1948,15 +1948,15 @@ async fn test_no_duplicate_receipt_after_backpagination() {
     let room_id = room_id!("!a98sd12bjh:example.org");
 
     // We want the following final state in the room:
-    // - received from back-pagination:
-    //  - $1: an event from Alice
-    //  - $2: an event from Bob
-    // - received from sync:
-    //  - $3: an hidden event sent by Alice, with a read receipt from Carol
     //
-    // As a result, since $3 is *after* the two others, Alice's implicit read
-    // receipt and Carol's receipt on the edit event should be placed onto the
-    // most recent rendered event, that is, $2.
+    // - received from back-pagination:
+    // - $1: an event from Alice
+    // - $2: an event from Bob
+    // - received from sync:
+    // - $3: an hidden event sent by Alice, with a read receipt from Carol
+    //
+    // As a result, since
+    // $3 is _after_ the two others, Alice's implicit read receipt and Carol's receipt on the edit event should be placed onto the most recent rendered event, that is, $2.
 
     let eid1 = event_id!("$1_backpaginated_oldest");
     let eid2 = event_id!("$2_backpaginated_newest");
@@ -2029,8 +2029,8 @@ async fn test_no_duplicate_receipt_after_backpagination() {
         assert!(receipts.get(*CAROL).is_none());
 
         // Alice has seen this event, being the sender; but Alice has also sent
-        // an edit after Bob's message, so Alice must not have a read
-        // receipt here.
+        // an edit after Bob's message, so Alice must not have a read receipt
+        // here.
         assert!(receipts.get(*ALICE).is_none());
 
         // And Bob has seen the original, but posted something after it, so no
@@ -2062,12 +2062,12 @@ async fn test_no_duplicate_receipt_after_backpagination_with_message_like_events
     // read receipts are tracked in
     // `TimelineReadReceiptTracking::MessageLikeEvents` mode.
     //
-    // In that mode a state event is *rendered* (`visible == true`) but *cannot
-    // hold a read receipt* (`can_show_read_receipts == false`).
-    // When a new visible event is inserted right after such a state event,
+    // In that mode a state event is _rendered_ (`visible == true`) but
+    // _cannot hold a read receipt_ (`can_show_read_receipts == false`). When a
+    // new visible event is inserted right after such a state event,
     // `compute_event_receipts` used to pick the state event as the "previous
     // rendered item" to steal folded receipts from — but the receipts actually
-    // live on the message-like event *before* the state event. The steal
+    // live on the message-like event _before_ the state event. The steal
     // missed, so the receipt was added to the new event while remaining on the
     // old one, tripping the `check_no_duplicate_read_receipts` invariant.
     let server = MatrixMockServer::new().await;
@@ -2078,19 +2078,19 @@ async fn test_no_duplicate_receipt_after_backpagination_with_message_like_events
     let room_id = room_id!("!a98sd12bjh:example.org");
 
     // We want the following final state in the room:
-    // - received from back-pagination:
-    //  - $1: a message from Alice
-    //  - $2: a *state event* from Bob (visible, but can't show read receipts)
-    //  - $3: a message from our own user
-    // - received from sync:
-    //  - $4: a hidden edit of $3 (from our own user), with a read receipt from
-    //    Carol
     //
-    // $4 is hidden and at the end, so Carol's receipt must land on the
-    // most recent event that can show read receipts, that is $3. Crucially, $3
-    // is immediately preceded by the state event $2, which is rendered but
-    // cannot carry receipts — so the receipt-holder to reconcile against is
-    // $1, not $2.
+    // - received from back-pagination:
+    // - $1: a message from Alice
+    // - $2: a _state event_ from Bob (visible, but can't show read receipts)
+    // - $3: a message from our own user
+    // - received from sync:
+    // - $4: a hidden edit of $3 (from our own user), with a read receipt from
+    //   Carol
+    //
+    // $4 is hidden and at the end, so Carol's receipt must land on the most recent event that can show read receipts, that is $3.
+    // Crucially, $3 is immediately preceded by the state event $2, which is
+    // rendered but cannot carry receipts — so the receipt-holder to reconcile
+    // against is $1, not $2.
 
     let eid1 = event_id!("$1_alice_message");
     let eid2 = event_id!("$2_bob_state_event");

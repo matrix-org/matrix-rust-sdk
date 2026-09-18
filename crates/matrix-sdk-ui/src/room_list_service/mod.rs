@@ -100,8 +100,8 @@ const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
     (StateEventType::SpaceChild, "*"),
     // Required for live location sharing to work - beacon events reference this state.
     (StateEventType::BeaconInfo, "*"),
-    // Required for `Room::retention`/`Room::effective_retention` (MSC1763) to see
-    // room-level retention overrides.
+    // Required for `Room::retention`/`Room::effective_retention` (MSC1763) to
+    // see room-level retention overrides.
     (StateEventType::RoomRetention, ""),
 ];
 
@@ -206,10 +206,10 @@ impl RoomListService {
 
         if share_pos {
             // The e2ee extensions aren't enabled in this sliding sync instance,
-            // and this is the only one that could be used from a
-            // different process. So it's fine to enable position
-            // sharing (i.e. reloading it from disk), since it's
-            // always exclusively owned by the current process.
+            // and this is the only one that could be used from a different
+            // process. So it's fine to enable position sharing (i.e. reloading
+            // it from disk), since it's always exclusively owned by the current
+            // process.
             debug!("Enabling `share_pos` for the room list sliding sync");
             builder = builder.share_pos();
         }
@@ -232,19 +232,20 @@ impl RoomListService {
                             .collect(),
                     )
                     .filters(Some(assign!(http::request::ListFilters::default(), {
-                        // As defined in the [SlidingSync MSC](https://github.com/matrix-org/matrix-spec-proposals/blob/9450ced7fb9cf5ea9077d029b3adf36aebfa8709/proposals/3575-sync.md?plain=1#L444)
-                        // If unset, both invited and joined rooms are returned. If false, no invited rooms are
-                        // returned. If true, only invited rooms are returned.
+                        // As defined in the
+                        // [SlidingSync MSC](https://github.com/matrix-org/matrix-spec-proposals/blob/9450ced7fb9cf5ea9077d029b3adf36aebfa8709/proposals/3575-sync.md?plain=1#L444)
+                        // If unset, both invited and joined rooms are returned.
+                        // If false, no invited rooms are returned. If true,
+                        // only invited rooms are returned.
                         is_invite: None,
                     })))
                     .requires_timeout(move |request_generator| {
                         // We want Sliding Sync to apply the poll + network
-                        // timeout —i.e. to do the
-                        // long-polling— in some particular cases. Let's define
-                        // them.
+                        // timeout —i.e. to do the long-polling— in some
+                        // particular cases. Let's define them.
                         match observable_state.get() {
-                            // These are the states where we want an immediate response from the
-                            // server, with no long-polling.
+                            // These are the states where we want an immediate
+                            // response from the server, with no long-polling.
                             State::Init
                             | State::SettingUp
                             | State::Recovering
@@ -282,14 +283,14 @@ impl RoomListService {
     /// It's the main method of this entire API. Calling `sync` allows to
     /// receive updates on the room list: new rooms, rooms updates etc. Those
     /// updates can be read with `RoomList::entries` for example. This method
-    /// returns a [`Stream`] where produced items only hold an empty value
-    /// in case of a sync success, otherwise an error.
+    /// returns a [`Stream`] where produced items only hold an empty value in
+    /// case of a sync success, otherwise an error.
     ///
     /// The `RoomListService`' state machine is run by this method.
     ///
     /// Stopping the [`Stream`] (i.e. by calling [`Self::stop_sync`]), and
-    /// calling [`Self::sync`] again will resume from the previous state of
-    /// the state machine.
+    /// calling [`Self::sync`] again will resume from the previous state of the
+    /// state machine.
     ///
     /// This should be used only for testing. In practice, most users should be
     /// using the [`SyncService`](crate::sync_service::SyncService) instead.
@@ -299,8 +300,8 @@ impl RoomListService {
             let sync = self.sliding_sync.sync();
             pin_mut!(sync);
 
-            // This is a state machine implementation.
-            // Things happen in this order:
+            // This is a state machine implementation. Things happen in this
+            // order:
             //
             // 1. The next state is calculated,
             // 2. The actions associated to the next state are run,
@@ -355,9 +356,9 @@ impl RoomListService {
     ///
     /// It's of utter importance to call this method rather than stop polling
     /// the `Stream` returned by [`Self::sync`] because it will force the
-    /// cancellation and exit the sync loop, i.e. it will cancel any
-    /// in-flight HTTP requests, cancel any pending futures etc. and put the
-    /// service into a termination state.
+    /// cancellation and exit the sync loop, i.e. it will cancel any in-flight
+    /// HTTP requests, cancel any pending futures etc. and put the service into
+    /// a termination state.
     ///
     /// Ideally, one wants to consume the `Stream` returned by [`Self::sync`]
     /// until it returns `None`, because of [`Self::stop_sync`], so that it
@@ -385,9 +386,9 @@ impl RoomListService {
         // Usually, when the session expires, it leads the state to be `Error`,
         // thus some actions (like refreshing the lists) are executed. However,
         // if the sync loop has been stopped manually, the state is
-        // `Terminated`, and when the session is forced to expire, the
-        // state remains `Terminated`, thus the actions aren't executed
-        // as expected. Consequently, let's update the state.
+        // `Terminated`, and when the session is forced to expire, the state
+        // remains `Terminated`, thus the actions aren't executed as expected.
+        // Consequently, let's update the state.
         if let State::Terminated { from } = self.state_machine.get() {
             self.state_machine.set(State::Error { from });
         }
@@ -407,8 +408,8 @@ impl RoomListService {
             // Ensure the `SyncIndicator` is always hidden to start with.
             yield SyncIndicator::Hide;
 
-            // Let's not wait for an update to happen. The `SyncIndicator` must be
-            // computed as fast as possible.
+            // Let's not wait for an update to happen. The `SyncIndicator` must
+            // be computed as fast as possible.
             let mut current_state = state.next_now();
 
             loop {
@@ -424,17 +425,17 @@ impl RoomListService {
 
                 // `state.next().await` has a maximum of `yield_delay` time to execute…
                 let next_state = match timeout(state.next(), yield_delay).await {
-                    // A new state has been received before `yield_delay` time. The new
-                    // `sync_indicator` value won't be yielded.
+                    // A new state has been received before `yield_delay` time.
+                    // The new `sync_indicator` value won't be yielded.
                     Ok(next_state) => next_state,
 
-                    // No new state has been received before `yield_delay` time. The
-                    // `sync_indicator` value can be yielded.
+                    // No new state has been received before `yield_delay` time.
+                    // The `sync_indicator` value can be yielded.
                     Err(_) => {
                         yield sync_indicator;
 
-                        // Now that `sync_indicator` has been yielded, let's wait on
-                        // the next state again.
+                        // Now that `sync_indicator` has been yielded, let's
+                        // wait on the next state again.
                         state.next().await
                     }
                 };

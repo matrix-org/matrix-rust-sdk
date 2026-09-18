@@ -54,7 +54,7 @@ async fn test_publishing_room_alias() -> anyhow::Result<()> {
     });
 
     // The room can only be visible in the public room directory later if its
-    // join rule is one of  [public, knock, knock_restricted] or its history
+    // join rule is one of [public, knock, knock_restricted] or its history
     // visibility is `world_readable`. Let's use this last option.
     let room_history_visibility = InitialRoomHistoryVisibilityEvent::with_empty_state_key(
         RoomHistoryVisibilityEventContent::new(HistoryVisibility::WorldReadable),
@@ -179,10 +179,10 @@ async fn test_removing_published_room_alias() -> anyhow::Result<()> {
     let room_alias = RoomAliasId::parse(raw_room_alias).expect("The room alias should be valid");
 
     // The room can only be visible in the public room directory later if its
-    // join rule is one of  [public, knock, knock_restricted] or its history
-    // visibility is `world_readable`. Let's use this last option.
-    // This room will be created with a room alias and being visible in the
-    // public room directory.
+    // join rule is one of [public, knock, knock_restricted] or its history
+    // visibility is `world_readable`. Let's use this last option. This room
+    // will be created with a room alias and being visible in the public room
+    // directory.
     let room_history_visibility = InitialRoomHistoryVisibilityEvent::with_empty_state_key(
         RoomHistoryVisibilityEventContent::new(HistoryVisibility::WorldReadable),
     )

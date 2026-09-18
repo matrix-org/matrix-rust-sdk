@@ -73,8 +73,8 @@ pub(super) async fn room_updates_task(
 
             Err(RecvError::Lagged(num_skipped)) => {
                 // Forget everything we know; we could have missed events, and
-                // we have no way to reconcile at the moment!
-                // TODO: implement Smart Matching™,
+                // we have no way to reconcile at the moment! TODO: implement
+                // Smart Matching™,
                 warn!(num_skipped, "Lagged behind room updates, clearing all rooms");
                 if let Err(err) = inner.clear_all_rooms().await {
                     error!("when clearing storage after lag in listen_task: {err}");
@@ -186,9 +186,9 @@ pub(super) async fn auto_shrink_linked_chunk_task(
                 //
                 // 1. No race, no subscribers have been registered, so it's safe
                 //    to do nothing,
-                // 2. A race, a subscriber has been created meanwhile, we **must
-                //    not** send the diff to it, otherwise it can create an
-                //    invalid state.
+                // 2. A race, a subscriber has been created meanwhile, we
+                //    **must not** send the diff to it, otherwise it can create
+                //    an invalid state.
                 //
                 // Note that a race shouldn't be possible as we have acquired an
                 // exclusive access to the state, ensuring no subscriber can be
@@ -296,12 +296,11 @@ pub(super) async fn thread_subscriber_task(
     }
 }
 
-/// React to a given send queue update by subscribing the user to a
-/// thread, if needs be (when the user sent an event in a thread they were
-/// not subscribed to).
+/// React to a given send queue update by subscribing the user to a thread, if
+/// needs be (when the user sent an event in a thread they were not subscribed
+/// to).
 ///
-/// Returns a boolean indicating whether the task should keep on running or
-/// not.
+/// Returns a boolean indicating whether the task should keep on running or not.
 #[instrument(skip(client, thread_subscriber_sender))]
 async fn handle_thread_subscriber_send_queue_update(
     client: &WeakClient,
@@ -354,8 +353,7 @@ async fn handle_thread_subscriber_send_queue_update(
                 events_being_sent.insert(transaction_id, thread_root);
             } else {
                 // It could be that the event isn't part of a thread anymore;
-                // handle that by removing the pending
-                // transaction id.
+                // handle that by removing the pending transaction id.
                 events_being_sent.remove(&transaction_id);
             }
             return true;
@@ -393,12 +391,11 @@ async fn handle_thread_subscriber_send_queue_update(
     true
 }
 
-/// React to a given linked chunk update by subscribing the user to a
-/// thread, if needs be (when the user got mentioned in a thread reply, for
-/// a thread they were not subscribed to).
+/// React to a given linked chunk update by subscribing the user to a thread, if
+/// needs be (when the user got mentioned in a thread reply, for a thread they
+/// were not subscribed to).
 ///
-/// Returns a boolean indicating whether the task should keep on running or
-/// not.
+/// Returns a boolean indicating whether the task should keep on running or not.
 #[instrument(skip(client, thread_subscriber_sender))]
 async fn handle_thread_subscriber_linked_chunk_update(
     client: &WeakClient,
@@ -434,9 +431,9 @@ async fn handle_thread_subscriber_linked_chunk_update(
     // event would trigger a mention.
     //
     // Of course, we're not interested in an in-thread event causing a mention,
-    // because it's part of a thread we've subscribed to. So the
-    // `PushContext` must not include the check for thread subscriptions
-    // (otherwise it would be impossible to subscribe to new threads).
+    // because it's part of a thread we've subscribed to. So the `PushContext`
+    // must not include the check for thread subscriptions (otherwise it would
+    // be impossible to subscribe to new threads).
 
     let with_thread_subscriptions = false;
 
@@ -483,9 +480,8 @@ async fn handle_thread_subscriber_linked_chunk_update(
     true
 }
 
-/// Takes an [`Event`] and passes it to the [`RoomIndex`] of the
-/// given room which will add/remove/edit an event in the index based on
-/// the event type.
+/// Takes an [`Event`] and passes it to the [`RoomIndex`] of the given room
+/// which will add/remove/edit an event in the index based on the event type.
 ///
 /// [`Event`]: matrix_sdk_base::event_cache::Event
 /// [`RoomIndex`]: matrix_sdk_search::index::RoomIndex

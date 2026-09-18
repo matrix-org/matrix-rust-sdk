@@ -177,8 +177,8 @@ async fn test_notification() -> Result<()> {
             assert_eq!(notification.joined_members_count, 2);
         } else {
             // This can't be computed for /context, because we only get a single
-            // request, and not a full sync response that would
-            // contain a room summary.
+            // request, and not a full sync response that would contain a room
+            // summary.
             warn!("joined member counts: {}", notification.joined_members_count);
         }
 

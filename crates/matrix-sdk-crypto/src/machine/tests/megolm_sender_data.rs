@@ -60,7 +60,7 @@ async fn test_receive_megolm_session_from_unknown_device() {
     // them.
     forget_devices_for_user(&bob, alice.user_id()).await;
 
-    // When Alice starts a megolm session and shares the key with Bob, *without*
+    // When Alice starts a megolm session and shares the key with Bob, _without_
     // sending the sender data.
     let room_id = room_id!("!test:example.org");
     let event = create_and_share_session_with_custom_sender_data(&alice, &bob, room_id, None).await;
@@ -244,7 +244,7 @@ async fn test_update_unknown_device_senderdata_on_keys_query() {
     // them.
     forget_devices_for_user(&bob, alice.user_id()).await;
 
-    // Alice starts a megolm session and shares the key with Bob, *without*
+    // Alice starts a megolm session and shares the key with Bob, _without_
     // sending the sender data.
     let room_id = room_id!("!test:example.org");
     let event = create_and_share_session_with_custom_sender_data(&alice, &bob, room_id, None).await;
@@ -262,8 +262,8 @@ async fn test_update_unknown_device_senderdata_on_keys_query() {
     // Double-check that it is, in fact, an unknown device session.
     assert_matches!(session.sender_data, SenderData::UnknownDevice { .. });
 
-    // When Bob gets a /keys/query response for Alice, that includes the
-    // sending device...
+    // When Bob gets a /keys/query response for Alice, that includes the sending
+    // device...
 
     let alice_device = DeviceData::from_machine_test_helper(&alice).await.unwrap();
     let kq_response = json!({
@@ -361,10 +361,10 @@ async fn forget_devices_for_user(machine: &OlmMachine, other_user: &UserId) {
 ///
 /// # Arguments
 ///
-/// * `alice` - sending device.
-/// * `bob` - receiving device.
-/// * `room_id` - room to create a session for.
-/// * `sender_device_keys` - the MSC4147 sender data to include, or `None` to
+/// - `alice` - sending device.
+/// - `bob` - receiving device.
+/// - `room_id` - room to create a session for.
+/// - `sender_device_keys` - the MSC4147 sender data to include, or `None` to
 ///   omit the sender data
 async fn create_and_share_session_with_custom_sender_data(
     alice: &OlmMachine,
@@ -400,8 +400,8 @@ async fn create_and_share_session_with_custom_sender_data(
         "sender": alice.user_id(),
         "sender_device": alice.device_id(),
         "keys": { "ed25519": alice.identity_keys().ed25519.to_base64() },
-        // We deliberately do *not* include:
-        // "org.matrix.msc4147.device_keys": alice_device_keys,
+        // We deliberately do _not_ include: "org.matrix.msc4147.device_keys":
+        // alice_device_keys,
         "recipient": bob.user_id(),
         "recipient_keys": { "ed25519": bob.identity_keys().ed25519.to_base64() },
         "type": room_key_content.event_type(),

@@ -98,9 +98,10 @@ impl RawX509Signature {
         )?;
 
         let signer_info = SignerInfo {
-            // RFC 5652 § 5.3: version is the syntax version number.  If the SignerIdentifier is
-            // the CHOICE issuerAndSerialNumber, then the version MUST be 1. If
-            // the SignerIdentifier is subjectKeyIdentifier, then the version MUST be 3.
+            // RFC 5652 § 5.3: version is the syntax version number. If the
+            // SignerIdentifier is the CHOICE issuerAndSerialNumber, then the
+            // version MUST be 1. If the SignerIdentifier is
+            // subjectKeyIdentifier, then the version MUST be 3.
             version: CmsVersion::V3,
 
             sid: SignerIdentifier::SubjectKeyIdentifier(leaf_ski),
@@ -115,23 +116,15 @@ impl RawX509Signature {
         };
 
         let signed_data = SignedData {
-            // RFC 5652 § 5.1.  SignedData Type
-            // IF ((certificates is present) AND
-            //             (any certificates with a type of other are present)) OR
-            //             ((crls is present) AND
-            //             (any crls with a type of other are present))
-            //          THEN version MUST be 5
-            //          ELSE
-            //             IF (certificates is present) AND
-            //                (any version 2 attribute certificates are present)
-            //             THEN version MUST be 4
-            //             ELSE
-            //                IF ((certificates is present) AND
-            //                   (any version 1 attribute certificates are present)) OR
-            //                   (any SignerInfo structures are version 3) OR
-            //                   (encapContentInfo eContentType is other than id-data)
-            //                THEN version MUST be 3
-            //                ELSE version MUST be 1
+            // RFC 5652 § 5.1. SignedData Type IF ((certificates is present) AND
+            // (any certificates with a type of other are present)) OR ((crls is
+            // present) AND (any crls with a type of other are present)) THEN
+            // version MUST be 5 ELSE IF (certificates is present) AND (any
+            // version 2 attribute certificates are present) THEN version MUST
+            // be 4 ELSE IF ((certificates is present) AND (any version 1
+            // attribute certificates are present)) OR (any SignerInfo
+            // structures are version 3) OR (encapContentInfo eContentType is
+            // other than id-data) THEN version MUST be 3 ELSE version MUST be 1
             //
             // TL;DR: since our SignerInfo is v3, we need a v3 SignedData.
             version: CmsVersion::V3,
@@ -175,8 +168,8 @@ trait IntoSetOfVec<T: der::DerOrd> {
 impl<T: der::DerOrd> IntoSetOfVec<T> for Vec<T> {
     fn into_set_of_vec(self) -> SetOfVec<T> {
         // Building a SetOfVec has to calculate the lengths of each of the
-        // entries, which is theoretically fallible if the lengths
-        // cannot be represented as a `usize`.
+        // entries, which is theoretically fallible if the lengths cannot be
+        // represented as a `usize`.
         //
         // In practice, I can't see why it would fail.
         self.try_into().expect("Unable to construct SetOfVec")
@@ -280,8 +273,8 @@ fn check_encapsulated_content_info(
     Ok(())
 }
 
-/// Verify the given [`SignerInfo`], checking its signer identifier matches
-/// the given `expected_ski`.
+/// Verify the given [`SignerInfo`], checking its signer identifier matches the
+/// given `expected_ski`.
 ///
 /// # Returns
 ///
@@ -337,7 +330,8 @@ fn parse_signer_info(
 /// ```
 ///
 /// The `parameters` of the `sha512` `hashAlgorithm` fields MAY be NULL instead
-/// of absent (see [RFC 8017 §A.2.3](https://www.rfc-editor.org/info/rfc8017#appendix-A.2.3)).
+/// of absent (see
+/// [RFC 8017 §A.2.3](https://www.rfc-editor.org/info/rfc8017#appendix-A.2.3)).
 ///
 /// You can find more documentation on the signature format on the
 /// [`crate::x509`] module documentation.
@@ -387,8 +381,7 @@ fn map_signer_info_algorithms_to_signature_scheme(
 
 /// The algorithm that was used to construct the signature.
 ///
-/// This might be extended in future, but for now we only support
-/// RsaPssSha512.
+/// This might be extended in future, but for now we only support RsaPssSha512.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum X509SignatureScheme {
@@ -417,31 +410,33 @@ impl X509SignatureScheme {
         }
     }
 
-    /// Build an X.509 `AlgorithmIdentifier` (as defined in [RFC 5280 §
-    /// 4.1.1.2]) for this signature scheme.
+    /// Build an X.509 `AlgorithmIdentifier` (as defined in
+    /// [RFC 5280 § 4.1.1.2]) for this signature scheme.
     ///
     /// [RFC 5280 § 4.1.1.2]: https://tools.ietf.org/html/rfc5280#section-4.1.1.2
     pub fn get_signature_algorithm(&self) -> AlgorithmIdentifierOwned {
         match self {
             X509SignatureScheme::RsaPssSha512 => {
                 // The format of the AlgorithmIdentifier for RSA-PSS is defined
-                // by [RFC 4055 §3.1]( https://www.rfc-editor.org/info/rfc4055/#section-3.1) and
+                // by
+                // [RFC 4055 §3.1](https://www.rfc-editor.org/info/rfc4055/#section-3.1)
+                // and
                 // [RFC 8017 §A.2.3](https://www.rfc-editor.org/info/rfc8017#appendix-A.2.3).
                 //
                 // If you are interested in the details of all the parameters,
-                // then https://crypto.stackexchange.com/a/58708 is a decent primer. Happily,
-                // there are established conventions followed by any sane
-                // implementation of RSA-PSS, and the RustCrypto
+                // then https://crypto.stackexchange.com/a/58708 is a decent
+                // primer. Happily, there are established conventions followed
+                // by any sane implementation of RSA-PSS, and the RustCrypto
                 // folks have done most of the legwork for us in
                 // `pkcs1::RsaPssParams`.
                 //
                 // Normal behaviour is to use the digest length as the length of
-                // the salt (as recommended by RFC 4055) - 64
-                // bytes in the case of SHA-512.
+                // the salt (as recommended by RFC 4055) - 64 bytes in the case
+                // of SHA-512.
                 //
                 // This code is inlined from
-                // `rsa::pss::get_default_pss_signature_algo_id`,
-                // to avoid bringing in the entire `rsa` crate just for this.
+                // `rsa::pss::get_default_pss_signature_algo_id`, to avoid
+                // bringing in the entire `rsa` crate just for this.
                 AlgorithmIdentifierOwned {
                     oid: const_oid::db::rfc5912::ID_RSASSA_PSS,
                     parameters: Some(

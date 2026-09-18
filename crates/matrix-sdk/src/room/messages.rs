@@ -39,8 +39,10 @@ use crate::Result;
 /// Options for [`messages`][super::Room::messages].
 ///
 /// See that method and
-/// <https://spec.matrix.org/v1.3/client-server-api/#get_matrixclientv3roomsroomidmessages>
+/// [https://spec.matrix.org/v1.3/client-server-api/#get_matrixclientv3roomsroomidmessages][https-spec-matrix-org-v1-3-client-server-api-get-matrixclientv3roomsroomidmessages]
 /// for details.
+///
+/// [https-spec-matrix-org-v1-3-client-server-api-get-matrixclientv3roomsroomidmessages]: https://spec.matrix.org/v1.3/client-server-api/#get_matrixclientv3roomsroomidmessages
 #[non_exhaustive]
 pub struct MessagesOptions {
     /// The token to start returning events from.
@@ -83,8 +85,8 @@ impl MessagesOptions {
 
     /// Creates `MessagesOptions` with `dir` set to `Backward`.
     ///
-    /// If no `from` token is set afterwards, pagination will start at the
-    /// end of (the accessible part of) the room timeline.
+    /// If no `from` token is set afterwards, pagination will start at the end
+    /// of (the accessible part of) the room timeline.
     pub fn backward() -> Self {
         Self::new(Direction::Backward)
     }
@@ -101,8 +103,8 @@ impl MessagesOptions {
     /// the given value.
     ///
     /// Since the field is public, you can also assign to it directly. This
-    /// method merely acts as a shorthand for that, because it is very
-    /// common to set this field.
+    /// method merely acts as a shorthand for that, because it is very common to
+    /// set this field.
     pub fn from<'a>(self, from: impl Into<Option<&'a str>>) -> Self {
         Self { from: from.into().map(ToOwned::to_owned), ..self }
     }
@@ -295,9 +297,9 @@ impl RelationsOptions {
         }
 
         // This match to common out the different `Response` types into a single
-        // one. It would've been nice that Ruma used the same response
-        // type for all the responses, but it is likely doing so to
-        // guard against possible future changes.
+        // one. It would've been nice that Ruma used the same response type for
+        // all the responses, but it is likely doing so to guard against
+        // possible future changes.
         let (chunk, prev_batch, next_batch, recursion_depth) = match self.include_relations {
             IncludeRelations::AllRelations => {
                 let request = fill_params!(relations::get_relating_events::v1::Request::new(
@@ -359,6 +361,7 @@ pub struct Relations {
     /// The events related to the specified event from the request.
     ///
     /// Note: the events will be sorted according to the `dir` parameter:
+    ///
     /// - if the direction was backwards, then the events will be ordered in
     ///   reverse topological order.
     /// - if the direction was forwards, then the events will be ordered in

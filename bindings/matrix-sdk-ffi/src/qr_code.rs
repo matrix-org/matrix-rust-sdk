@@ -53,16 +53,16 @@ impl LoginWithQrCodeHandler {
     /// [`LoginWithQrCodeHandler`] must have been built with
     /// [`QrCodeData::server_name`] as the server name.
     ///
-    /// This method uses the login mechanism described in [MSC4108]. As such,
-    /// it requires OAuth 2.0 support.
+    /// This method uses the login mechanism described in [MSC4108]. As such, it
+    /// requires OAuth 2.0 support.
     ///
     /// For the reverse flow where this device generates the QR code for the
     /// existing device to scan, use [`LoginWithQrCodeHandler::generate`].
     ///
     /// # Arguments
     ///
-    /// * `qr_code_data` - The [`QrCodeData`] scanned from the QR code.
-    /// * `progress_listener` - A progress listener that must also be used to
+    /// - `qr_code_data` - The [`QrCodeData`] scanned from the QR code.
+    /// - `progress_listener` - A progress listener that must also be used to
     ///   transfer the [`CheckCode`] to the existing device.
     ///
     /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
@@ -97,18 +97,18 @@ impl LoginWithQrCodeHandler {
     /// This method allows you to log in by generating a QR code.
     ///
     /// This device needs to call this method and handle its progress updates to
-    /// generate a QR code which the existing device can scan and grant the
-    /// log in.
+    /// generate a QR code which the existing device can scan and grant the log
+    /// in.
     ///
-    /// This method uses the login mechanism described in [MSC4108]. As such,
-    /// it requires OAuth 2.0 support.
+    /// This method uses the login mechanism described in [MSC4108]. As such, it
+    /// requires OAuth 2.0 support.
     ///
-    /// For the reverse flow where the existing device generates the QR code
-    /// for this device to scan, use [`LoginWithQrCodeHandler::scan`].
+    /// For the reverse flow where the existing device generates the QR code for
+    /// this device to scan, use [`LoginWithQrCodeHandler::scan`].
     ///
     /// # Arguments
     ///
-    /// * `progress_listener` - A progress listener that must also be used to
+    /// - `progress_listener` - A progress listener that must also be used to
     ///   obtain the [`QrCodeData`] and collect the [`CheckCode`] from the user.
     ///
     /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
@@ -155,20 +155,19 @@ impl GrantLoginWithQrCodeHandler {
 impl GrantLoginWithQrCodeHandler {
     /// This method allows you to grant login with a scanned QR code.
     ///
-    /// The new device needs to display the QR code which this device can
-    /// scan, call this method and handle its progress updates to grant the
-    /// login.
+    /// The new device needs to display the QR code which this device can scan,
+    /// call this method and handle its progress updates to grant the login.
     ///
-    /// This method uses the login mechanism described in [MSC4108]. As such,
-    /// it requires OAuth 2.0 support.
+    /// This method uses the login mechanism described in [MSC4108]. As such, it
+    /// requires OAuth 2.0 support.
     ///
     /// For the reverse flow where this device generates the QR code for the
     /// existing device to scan, use [`GrantLoginWithQrCodeHandler::generate`].
     ///
     /// # Arguments
     ///
-    /// * `qr_code_data` - The [`QrCodeData`] scanned from the QR code.
-    /// * `progress_listener` - A progress listener that must also be used to
+    /// - `qr_code_data` - The [`QrCodeData`] scanned from the QR code.
+    /// - `progress_listener` - A progress listener that must also be used to
     ///   transfer the [`CheckCode`] to the new device.
     ///
     /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
@@ -199,15 +198,15 @@ impl GrantLoginWithQrCodeHandler {
     /// This device needs to call this method and handle its progress updates to
     /// generate a QR code which the new device can scan to log in.
     ///
-    /// This method uses the login mechanism described in [MSC4108]. As such,
-    /// it requires OAuth 2.0 support.
+    /// This method uses the login mechanism described in [MSC4108]. As such, it
+    /// requires OAuth 2.0 support.
     ///
-    /// For the reverse flow where the existing device generates the QR code
-    /// for this device to scan, use [`GrantLoginWithQrCodeHandler::scan`].
+    /// For the reverse flow where the existing device generates the QR code for
+    /// this device to scan, use [`GrantLoginWithQrCodeHandler::scan`].
     ///
     /// # Arguments
     ///
-    /// * `progress_listener` - A progress listener that must also be used to
+    /// - `progress_listener` - A progress listener that must also be used to
     ///   obtain the [`QrCodeData`] and collect the [`CheckCode`] from the user.
     ///
     /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
@@ -261,8 +260,8 @@ impl QrCodeData {
     /// The server name contained within the scanned QR code data.
     ///
     /// Note: This value is only present when scanning a QR code that belongs to
-    /// a logged in client. The mode where the new client shows the QR code
-    /// will return `None`.
+    /// a logged in client. The mode where the new client shows the QR code will
+    /// return `None`.
     pub fn server_name(&self) -> Option<String> {
         match &self.inner.intent_data() {
             qr_login::QrCodeIntentData::Msc4108 { data, .. } => match data {
@@ -502,8 +501,8 @@ pub enum QrLoginProgress {
         /// can confirm that the channel is secure as well.
         check_code: u8,
         /// The string representation of the check code, will be guaranteed to
-        /// be 2 characters long, preserving the leading zero if the
-        /// first digit is a zero.
+        /// be 2 characters long, preserving the leading zero if the first digit
+        /// is a zero.
         check_code_string: String,
     },
     /// We are waiting for the login and for the OAuth 2.0 authorization server
@@ -546,12 +545,12 @@ pub enum GeneratedQrLoginProgress {
     /// The login process is starting.
     #[default]
     Starting,
-    /// We have established the secure channel and now need to display the
-    /// QR code so that the existing device can scan it.
+    /// We have established the secure channel and now need to display the QR
+    /// code so that the existing device can scan it.
     QrReady { qr_code: Arc<QrCodeData> },
     /// The existing device has scanned the QR code and is displaying the
-    /// checkcode. We now need to ask the user to enter the checkcode so that
-    /// we can verify that the channel is indeed secure.
+    /// checkcode. We now need to ask the user to enter the checkcode so that we
+    /// can verify that the channel is indeed secure.
     QrScanned { check_code_sender: Arc<CheckCodeSender> },
     /// We are waiting for the login and for the OAuth 2.0 authorization server
     /// to give us an access token.
@@ -599,8 +598,8 @@ pub enum GrantQrLoginProgress {
         /// can confirm that the channel is secure as well.
         check_code: u8,
         /// The string representation of the check code, will be guaranteed to
-        /// be 2 characters long, preserving the leading zero if the
-        /// first digit is a zero.
+        /// be 2 characters long, preserving the leading zero if the first digit
+        /// is a zero.
         check_code_string: String,
     },
     /// The secure channel has been confirmed using the [`CheckCode`] and this
@@ -650,19 +649,19 @@ impl From<qrcode::GrantLoginProgress<QrProgress>> for GrantQrLoginProgress {
     }
 }
 
-/// Enum describing the progress of granting login by generating a QR code to
-/// be scanned on the new device.
+/// Enum describing the progress of granting login by generating a QR code to be
+/// scanned on the new device.
 #[derive(Debug, Default, Clone, uniffi::Enum)]
 pub enum GrantGeneratedQrLoginProgress {
     /// The login process is starting.
     #[default]
     Starting,
-    /// We have established the secure channel and now need to display the
-    /// QR code so that the existing device can scan it.
+    /// We have established the secure channel and now need to display the QR
+    /// code so that the existing device can scan it.
     QrReady { qr_code: Arc<QrCodeData> },
     /// The existing device has scanned the QR code and is displaying the
-    /// checkcode. We now need to ask the user to enter the checkcode so that
-    /// we can verify that the channel is indeed secure.
+    /// checkcode. We now need to ask the user to enter the checkcode so that we
+    /// can verify that the channel is indeed secure.
     QrScanned { check_code_sender: Arc<CheckCodeSender> },
     /// The secure channel has been confirmed using the [`CheckCode`] and this
     /// device is waiting for the authorization to complete.

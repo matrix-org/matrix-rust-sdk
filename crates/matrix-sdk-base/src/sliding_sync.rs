@@ -90,7 +90,7 @@ impl BaseClient {
     ///
     /// # Arguments
     ///
-    /// * `response` - The response that we received after a successful sliding
+    /// - `response` - The response that we received after a successful sliding
     ///   sync.
     #[instrument(skip_all, level = "trace")]
     pub async fn process_sliding_sync(
@@ -187,9 +187,9 @@ impl BaseClient {
         }
 
         // Handle read receipts and typing notifications independently of the
-        // rooms: these both live in a different subsection of the
-        // server's response, so they may exist without any update for
-        // the associated room.
+        // rooms: these both live in a different subsection of the server's
+        // response, so they may exist without any update for the associated
+        // room.
         processors::room::msc4186::extensions::dispatch_typing_ephemeral_events(
             &extensions.typing,
             &mut room_updates.joined,
@@ -232,8 +232,8 @@ impl BaseClient {
         let mut context = processors::Context::default();
 
         // Now that all the rooms information have been saved, update the
-        // display name of the updated rooms (which relies on
-        // information stored in the database).
+        // display name of the updated rooms (which relies on information stored
+        // in the database).
         processors::room::display_name::update_for_rooms(
             &mut context,
             &room_updates,
@@ -1080,8 +1080,9 @@ mod tests {
         update_room_membership(&client, room_id, user_b_id, MembershipState::Leave).await;
 
         // Then B is still a direct target, and is in Leave state (B is a direct
-        // target because we want to return to our old DM in the UI even
-        // if the other user left, so we can reinvite them. See https://github.com/matrix-org/matrix-rust-sdk/issues/2017)
+        // target because we want to return to our old DM in the UI even if the
+        // other user left, so we can reinvite them. See
+        // https://github.com/matrix-org/matrix-rust-sdk/issues/2017)
         assert!(
             direct_targets(&client, room_id).contains(<&DirectUserIdentifier>::from(user_b_id))
         );
@@ -1109,8 +1110,9 @@ mod tests {
         update_room_membership(&client, room_id, user_b_id, MembershipState::Leave).await;
 
         // Then B is still a direct target, and is in Leave state (B is a direct
-        // target because we want to return to our old DM in the UI even
-        // if the other user left, so we can reinvite them. See https://github.com/matrix-org/matrix-rust-sdk/issues/2017)
+        // target because we want to return to our old DM in the UI even if the
+        // other user left, so we can reinvite them. See
+        // https://github.com/matrix-org/matrix-rust-sdk/issues/2017)
         assert!(
             direct_targets(&client, room_id).contains(<&DirectUserIdentifier>::from(user_b_id))
         );
@@ -2409,8 +2411,8 @@ mod tests {
         );
         assert!(room_info_notable_update_stream.is_empty());
 
-        // When I receive a sliding sync response with an unstable unread
-        // marker update again,
+        // When I receive a sliding sync response with an unstable unread marker
+        // update again,
         response
             .extensions
             .account_data
@@ -2636,9 +2638,9 @@ mod tests {
         let mut response = http::Response::new("0".to_owned());
 
         // Create two rooms that are encrypted, i.e. they have a
-        // `m.room.encryption` state event in their `required_state`.
-        // Create a third room that is not encrypted, i.e. it doesn't
-        // have a `m.room.encryption` state event.
+        // `m.room.encryption` state event in their `required_state`. Create a
+        // third room that is not encrypted, i.e. it doesn't have a
+        // `m.room.encryption` state event.
         {
             let not_encrypted_room = http::response::Room::new();
             let mut encrypted_room = http::response::Room::new();

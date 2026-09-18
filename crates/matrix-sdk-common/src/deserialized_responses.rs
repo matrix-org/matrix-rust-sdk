@@ -80,8 +80,8 @@ enum OldVerificationStateHelper {
 impl From<OldVerificationStateHelper> for VerificationState {
     fn from(value: OldVerificationStateHelper) -> Self {
         match value {
-            // This mapping isn't strictly correct but we don't know which part in the old
-            // `VerificationState` enum was unverified.
+            // This mapping isn't strictly correct but we don't know which part
+            // in the old `VerificationState` enum was unverified.
             OldVerificationStateHelper::Untrusted => {
                 VerificationState::Unverified(VerificationLevel::UnsignedDevice)
             }
@@ -164,10 +164,9 @@ impl VerificationState {
                 VerificationLevel::None(link) => match link {
                     DeviceLinkProblem::MissingDevice => {
                         // Have to warn as it could have been a temporary
-                        // injected device. Notice that
-                        // the device might just not be known at this time, so
-                        // callers should retry when
-                        // there is a device change for that user.
+                        // injected device. Notice that the device might just
+                        // not be known at this time, so callers should retry
+                        // when there is a device change for that user.
                         ShieldState::Red {
                             code: ShieldStateCode::UnknownDevice,
                             message: UNKNOWN_DEVICE,
@@ -175,8 +174,8 @@ impl VerificationState {
                     }
                     DeviceLinkProblem::InsecureSource => {
                         // In legacy mode, we tone down this warning as it is
-                        // quite common and mostly noise
-                        // (due to legacy backup and lack of trusted forwards).
+                        // quite common and mostly noise (due to legacy backup
+                        // and lack of trusted forwards).
                         ShieldState::Grey {
                             code: ShieldStateCode::AuthenticityNotGuaranteed,
                             message: AUTHENTICITY_NOT_GUARANTEED,
@@ -211,8 +210,8 @@ pub enum VerificationLevel {
     /// We weren't able to link the message back to any device. This might be
     /// because the message claims to have been sent by a device which we have
     /// not been able to obtain (for example, because the device was since
-    /// deleted) or because the key to decrypt the message was obtained from
-    /// an insecure source.
+    /// deleted) or because the key to decrypt the message was obtained from an
+    /// insecure source.
     None(DeviceLinkProblem),
 
     /// The `sender` field on the event does not match the owner of the device
@@ -241,9 +240,8 @@ impl fmt::Display for VerificationLevel {
 /// a message back to a device.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum DeviceLinkProblem {
-    /// The device is missing, either because it was deleted, or you haven't
-    /// yet downoaled it or the server is erroneously omitting it (federation
-    /// lag).
+    /// The device is missing, either because it was deleted, or you haven't yet
+    /// downoaled it or the server is erroneously omitting it (federation lag).
     MissingDevice,
     /// The key was obtained from an insecure source: imported from a file,
     /// obtained from a legacy (asymmetric) backup, unsafe key forward, etc.
@@ -477,12 +475,11 @@ impl ThreadSummaryStatus {
 /// The "initial processing" includes an attempt to decrypt encrypted events, so
 /// the main thing this adds over [`AnyTimelineEvent`] is information on
 /// encryption.
-//
 // 🚨 Note about this type, please read! 🚨
 //
-// `TimelineEvent` is heavily used across the SDK crates. In some cases, we
-// are reaching a [`recursion_limit`] when the compiler is trying to figure out
-// if `TimelineEvent` implements `Sync` when it's embedded in other types.
+// `TimelineEvent` is heavily used across the SDK crates. In some cases, we are
+// reaching a [`recursion_limit`] when the compiler is trying to figure out if
+// `TimelineEvent` implements `Sync` when it's embedded in other types.
 //
 // We want to help the compiler so that one doesn't need to increase the
 // `recursion_limit`. We stop the recursive check by (un)safely implement `Sync`
@@ -655,8 +652,9 @@ impl TimelineEvent {
         let kind = TimelineEventKind::Decrypted(decrypted);
 
         Self {
-            // We could clone `self.event_id`, but we prefer to re-parse the event ID from
-            // `decrypted` in case it has changed (it MUST NOT happen, but we never know).
+            // We could clone `self.event_id`, but we prefer to re-parse the
+            // event ID from `decrypted` in case it has changed (it MUST NOT
+            // happen, but we never know).
             event_id: kind.parse_event_id(),
             kind,
             timestamp: self.timestamp,
@@ -704,17 +702,16 @@ impl TimelineEvent {
                     match unsigned_decryption_result {
                         UnsignedDecryptionResult::Decrypted(encryption_info) => {
                             // The bundled event was encrypted, and we could
-                            // decrypt it: pass that
-                            // information around.
+                            // decrypt it: pass that information around.
                             return Some(TimelineEvent::from_decrypted_with_max_timestamp(
                                 DecryptedRoomEvent {
-                                    // Safety: A decrypted event always includes a room_id in
-                                    // its payload.
+                                    // Safety: A decrypted event always includes
+                                    // a room_id in its payload.
                                     event: latest_event.cast_unchecked(),
                                     encryption_info: encryption_info.clone(),
-                                    // A bundled latest event is never a thread root. It could
-                                    // have
-                                    // a replacement event, but we don't carry this information
+                                    // A bundled latest event is never a thread
+                                    // root. It could have a replacement event,
+                                    // but we don't carry this information
                                     // around.
                                     unsigned_encryption_info: None,
                                 },
@@ -754,9 +751,8 @@ impl TimelineEvent {
 
             Ok(Some(MessageLikeEventType::RoomEncrypted)) => {
                 // The bundled latest thread event is encrypted, but we didn't
-                // have any information about it in the unsigned
-                // map. Try to fetch the information from
-                // the content instead.
+                // have any information about it in the unsigned map. Try to
+                // fetch the information from the content instead.
                 let session_id = if let Some(content) =
                     latest_event.get_field::<EncryptedEventScheme>("content").ok().flatten()
                 {
@@ -801,8 +797,8 @@ impl TimelineEvent {
         self.push_actions = Some(push_actions);
     }
 
-    /// Get the (cached) event ID of this [`TimelineEvent`] if the event has
-    /// any valid ID.
+    /// Get the (cached) event ID of this [`TimelineEvent`] if the event has any
+    /// valid ID.
     pub fn event_id(&self) -> Option<&EventId> {
         self.event_id.as_deref()
     }
@@ -825,8 +821,8 @@ impl TimelineEvent {
             TimelineEventKind::UnableToDecrypt { event, .. }
             | TimelineEventKind::PlainText { event } => {
                 // It's safe to cast `AnyMessageLikeEvent` into
-                // `AnySyncMessageLikeEvent`, because the former
-                // contains a superset of the fields included in the latter.
+                // `AnySyncMessageLikeEvent`, because the former contains a
+                // superset of the fields included in the latter.
                 *event = replacement.cast();
             }
         }
@@ -887,7 +883,8 @@ impl<'de> Deserialize<'de> for TimelineEvent {
     /// Custom deserializer for [`TimelineEvent`], to support older formats.
     ///
     /// Ideally we might use an untagged enum and then convert from that;
-    /// however, that doesn't work due to a [serde bug](https://github.com/serde-rs/json/issues/497).
+    /// however, that doesn't work due to a
+    /// [serde bug](https://github.com/serde-rs/json/issues/497).
     ///
     /// Instead, we first deserialize into an unstructured JSON map, and then
     /// inspect the json to figure out which format we have.
@@ -932,8 +929,8 @@ pub enum TimelineEventKind {
     /// An encrypted event which could not be decrypted.
     UnableToDecrypt {
         /// The `m.room.encrypted` event. Depending on the source of the event,
-        /// it could actually be an [`AnyTimelineEvent`] (i.e., it may
-        /// have a `room_id` property).
+        /// it could actually be an [`AnyTimelineEvent`] (i.e., it may have a
+        /// `room_id` property).
         event: Raw<AnySyncTimelineEvent>,
 
         /// Information on the reason we failed to decrypt
@@ -954,11 +951,12 @@ impl TimelineEventKind {
     /// this `TimelineEvent`.
     pub fn raw(&self) -> &Raw<AnySyncTimelineEvent> {
         match self {
-            // It is safe to cast from an `AnyMessageLikeEvent` (i.e. JSON which does
-            // *not* contain a `state_key` and *does* contain a `room_id`) into an
-            // `AnySyncTimelineEvent` (i.e. JSON which *may* contain a `state_key` and is *not*
-            // expected to contain a `room_id`). It just means that the `room_id` will be ignored
-            // in a future deserialization.
+            // It is safe to cast from an `AnyMessageLikeEvent` (i.e. JSON which
+            // does _not_ contain a `state_key` and _does_ contain a `room_id`)
+            // into an `AnySyncTimelineEvent` (i.e. JSON which _may_ contain a
+            // `state_key` and is _not_ expected to contain a `room_id`). It
+            // just means that the `room_id` will be ignored in a future
+            // deserialization.
             TimelineEventKind::Decrypted(d) => d.event.cast_ref(),
             TimelineEventKind::UnableToDecrypt { event, .. } => event,
             TimelineEventKind::PlainText { event } => event,
@@ -1005,11 +1003,12 @@ impl TimelineEventKind {
     /// decrypted) Matrix event within.
     pub fn into_raw(self) -> Raw<AnySyncTimelineEvent> {
         match self {
-            // It is safe to cast from an `AnyMessageLikeEvent` (i.e. JSON which does
-            // *not* contain a `state_key` and *does* contain a `room_id`) into an
-            // `AnySyncTimelineEvent` (i.e. JSON which *may* contain a `state_key` and is *not*
-            // expected to contain a `room_id`). It just means that the `room_id` will be ignored
-            // in a future deserialization.
+            // It is safe to cast from an `AnyMessageLikeEvent` (i.e. JSON which
+            // does _not_ contain a `state_key` and _does_ contain a `room_id`)
+            // into an `AnySyncTimelineEvent` (i.e. JSON which _may_ contain a
+            // `state_key` and is _not_ expected to contain a `room_id`). It
+            // just means that the `room_id` will be ignored in a future
+            // deserialization.
             TimelineEventKind::Decrypted(d) => d.event.cast(),
             TimelineEventKind::UnableToDecrypt { event, .. } => event,
             TimelineEventKind::PlainText { event } => event,
@@ -1064,9 +1063,9 @@ impl fmt::Debug for TimelineEventKind {
 pub struct DecryptedRoomEvent {
     /// The decrypted event.
     ///
-    /// Note: it's not an error that this contains an [`AnyTimelineEvent`]
-    /// (as opposed to an [`AnySyncTimelineEvent`]): an
-    /// encrypted payload *always contains* a room id, by the [spec].
+    /// Note: it's not an error that this contains an [`AnyTimelineEvent`] (as
+    /// opposed to an [`AnySyncTimelineEvent`]): an encrypted payload
+    /// _always contains_ a room id, by the [spec].
     ///
     /// [spec]: https://spec.matrix.org/v1.12/client-server-api/#mmegolmv1aes-sha2
     pub event: Raw<AnyTimelineEvent>,
@@ -1074,8 +1073,7 @@ pub struct DecryptedRoomEvent {
     /// The encryption info about the event.
     pub encryption_info: Arc<EncryptionInfo>,
 
-    /// The encryption info about the events bundled in the `unsigned`
-    /// object.
+    /// The encryption info about the events bundled in the `unsigned` object.
     ///
     /// Will be `None` if no bundled event was encrypted.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1112,7 +1110,7 @@ impl UnsignedEventLocation {
     ///
     /// # Arguments
     ///
-    /// * `unsigned` - The `unsigned` property of an event as a JSON object.
+    /// - `unsigned` - The `unsigned` property of an event as a JSON object.
     pub fn find_mut<'a>(&self, unsigned: &'a mut JsonObject) -> Option<&'a mut serde_json::Value> {
         let relations = unsigned.get_mut("m.relations")?.as_object_mut()?;
 
@@ -1222,8 +1220,7 @@ pub enum UnableToDecryptReason {
     MismatchedIdentityKeys,
 
     /// An encrypted message wasn't decrypted, because the sender's
-    /// cross-signing identity did not satisfy the requested
-    /// `TrustRequirement`.
+    /// cross-signing identity did not satisfy the requested `TrustRequirement`.
     SenderIdentityNotTrusted(VerificationLevel),
 
     /// The outer state key could not be verified against the inner encrypted
@@ -1237,8 +1234,8 @@ impl UnableToDecryptReason {
     /// resolve itself if we wait a bit.)
     pub fn is_missing_room_key(&self) -> bool {
         // In case of MissingMegolmSession with a withheld code we return false
-        // here given that this API is used to decide if waiting a bit
-        // will help.
+        // here given that this API is used to decide if waiting a bit will
+        // help.
         matches!(
             self,
             Self::MissingMegolmSession { withheld_code: None } | Self::UnknownMegolmMessageIndex
@@ -1271,8 +1268,8 @@ pub enum WithheldCode {
     Unverified,
 
     /// The user/device is not allowed have the key. For example, this would
-    /// usually be sent in response to a key request if the user was not in
-    /// the room when the message was sent.
+    /// usually be sent in response to a key request if the user was not in the
+    /// room when the message was sent.
     #[ruma_enum(rename = "m.unauthorised")]
     Unauthorised,
 
@@ -1281,14 +1278,13 @@ pub enum WithheldCode {
     #[ruma_enum(rename = "m.unavailable")]
     Unavailable,
 
-    /// An olm session could not be established.
-    /// This may happen, for example, if the sender was unable to obtain a
-    /// one-time key from the recipient.
+    /// An olm session could not be established. This may happen, for example,
+    /// if the sender was unable to obtain a one-time key from the recipient.
     #[ruma_enum(rename = "m.no_olm")]
     NoOlm,
 
-    /// Normally used when sharing history, per [MSC4268]: indicates
-    /// that the session was not marked as "shared_history".
+    /// Normally used when sharing history, per [MSC4268]: indicates that the
+    /// session was not marked as "shared_history".
     ///
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
     #[ruma_enum(rename = "m.history_not_shared", alias = "io.element.msc4268.history_not_shared")]
@@ -1314,9 +1310,9 @@ impl fmt::Display for WithheldCode {
     }
 }
 
-// The Ruma macro expects the type to have this name.
-// The payload is counter intuitively made public in order to avoid having
-// multiple copies of this struct.
+// The Ruma macro expects the type to have this name. The payload is counter
+// intuitively made public in order to avoid having multiple copies of this
+// struct.
 #[doc(hidden)]
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PrivOwnedStr(pub Box<str>);
@@ -1361,12 +1357,12 @@ impl From<SyncTimelineEventDeserializationHelperV1> for TimelineEvent {
         } = value;
 
         // If `timestamp` is `None`, it is very likely that the event was
-        // serialised before the addition of the `timestamp` field. We
-        // _could_ compute it here, but if the `timestamp` was
-        // malicious, it means we are going to _cap_ the `timestamp` to
-        // `now()` for every deserialisation. It is annoying because it
-        // means the event is no longer deterministic, it's not constant.
-        // We don't want that. Consequently, we keep `None` here, and we let
+        // serialised before the addition of the `timestamp` field. We _could_
+        // compute it here, but if the `timestamp` was malicious, it means we
+        // are going to _cap_ the `timestamp` to `now()` for every
+        // deserialisation. It is annoying because it means the event is no
+        // longer deterministic, it's not constant. We don't want that.
+        // Consequently, we keep `None` here, and we let
         // [`TimelineEvent::timestamp`] to handle that case for us.
 
         TimelineEvent {
@@ -1394,8 +1390,7 @@ struct SyncTimelineEventDeserializationHelperV0 {
     #[serde(default)]
     push_actions: Vec<Action>,
 
-    /// The encryption info about the events bundled in the `unsigned`
-    /// object.
+    /// The encryption info about the events bundled in the `unsigned` object.
     ///
     /// Will be `None` if no bundled event was encrypted.
     unsigned_encryption_info: Option<BTreeMap<UnsignedEventLocation, UnsignedDecryptionResult>>,
@@ -1412,22 +1407,20 @@ impl From<SyncTimelineEventDeserializationHelperV0> for TimelineEvent {
 
         // We do not compute the `timestamp` value here because if the
         // `timestamp` is malicious, it means we are going to _cap_ the
-        // `timestamp` to `now()` for every deserialisation. It is
-        // annoying because it means the event is no longer
-        // deterministic, it's not constant. We don't want that. Consequently,
-        // we keep `None` here, and we let [`TimelineEvent::timestamp`]
-        // to handle that case for us.
+        // `timestamp` to `now()` for every deserialisation. It is annoying
+        // because it means the event is no longer deterministic, it's not
+        // constant. We don't want that. Consequently, we keep `None` here, and
+        // we let [`TimelineEvent::timestamp`] to handle that case for us.
         let timestamp = None;
 
         let kind = match encryption_info {
             Some(encryption_info) => {
                 TimelineEventKind::Decrypted(DecryptedRoomEvent {
                     // We cast from `Raw<AnySyncTimelineEvent>` to
-                    // `Raw<AnyMessageLikeEvent>`, which means
-                    // we are asserting that it contains a room_id.
-                    // That *should* be ok, because if this is genuinely a decrypted
-                    // room event (as the encryption_info indicates), then it will have
-                    // a room_id.
+                    // `Raw<AnyMessageLikeEvent>`, which means we are asserting
+                    // that it contains a room_id. That _should_ be ok, because
+                    // if this is genuinely a decrypted room event (as the
+                    // encryption_info indicates), then it will have a room_id.
                     event: event.cast_unchecked(),
                     encryption_info,
                     unsigned_encryption_info,
@@ -1451,8 +1444,8 @@ impl From<SyncTimelineEventDeserializationHelperV0> for TimelineEvent {
 /// Reason code for a to-device decryption failure
 #[derive(Debug, Clone, PartialEq)]
 pub enum ToDeviceUnableToDecryptReason {
-    /// An error occurred while encrypting the event. This covers all
-    /// `OlmError` types.
+    /// An error occurred while encrypting the event. This covers all `OlmError`
+    /// types.
     DecryptionFailure,
 
     /// We refused to decrypt the message because the sender's device is not
@@ -1478,8 +1471,8 @@ pub struct ToDeviceUnableToDecryptInfo {
 /// Represents a to-device event after it has been processed by the Olm machine.
 #[derive(Clone, Debug)]
 pub enum ProcessedToDeviceEvent {
-    /// A successfully-decrypted encrypted event.
-    /// Contains the raw decrypted event and encryption info
+    /// A successfully-decrypted encrypted event. Contains the raw decrypted
+    /// event and encryption info
     Decrypted {
         /// The raw decrypted event
         raw: Raw<AnyToDeviceEvent>,
@@ -1497,8 +1490,7 @@ pub enum ProcessedToDeviceEvent {
     PlainText(Raw<AnyToDeviceEvent>),
 
     /// An invalid to device event that was ignored because it is missing some
-    /// required information to be processed (like no event `type` for
-    /// example)
+    /// required information to be processed (like no event `type` for example)
     Invalid(Raw<AnyToDeviceEvent>),
 }
 
@@ -1900,21 +1892,12 @@ mod tests {
 
     #[test]
     fn sync_timeline_event_deserialisation_migration_for_withheld() {
-        // Old serialized version was
-        //    "utd_info": {
-        //         "reason": "MissingMegolmSession",
-        //         "session_id": "session000"
-        //       }
+        // Old serialized version was "utd_info": { "reason":
+        // "MissingMegolmSession", "session_id": "session000" }
 
-        // The new version would be
-        //      "utd_info": {
-        //         "reason": {
-        //           "MissingMegolmSession": {
-        //              "withheld_code": null
-        //           }
-        //         },
-        //         "session_id": "session000"
-        //       }
+        // The new version would be "utd_info": { "reason": {
+        // "MissingMegolmSession": { "withheld_code": null } }, "session_id":
+        // "session000" }
 
         let serialized = json!({
              "kind": {
@@ -2080,8 +2063,8 @@ mod tests {
 
     #[test]
     fn test_encryption_info_migration() {
-        // In the old format the session_id was in the EncryptionInfo, now
-        // it is moved to the `algorithm_info` struct.
+        // In the old format the session_id was in the EncryptionInfo, now it is
+        // moved to the `algorithm_info` struct.
         let old_format = json!({
           "sender": "@alice:localhost",
           "sender_device": "ABCDEFGH",
@@ -2171,8 +2154,9 @@ mod tests {
         };
 
         with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
-            // We use directly the serde_json formatter here, because of a bug in insta
-            // not serializing custom BTreeMap key enum https://github.com/mitsuhiko/insta/issues/689
+            // We use directly the serde_json formatter here, because of a bug
+            // in insta not serializing custom BTreeMap key enum
+            // https://github.com/mitsuhiko/insta/issues/689
             assert_json_snapshot! {
                 serde_json::to_value(&room_event).unwrap(),
             }

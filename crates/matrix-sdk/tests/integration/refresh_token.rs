@@ -133,8 +133,8 @@ async fn test_register_refresh_token() {
             "refresh_token": true,
         })))
         .respond_with(
-            // Successful registration response is the same as for login,
-            // if `inhibit_login` is `false`.
+            // Successful registration response is the same as for login, if
+            // `inhibit_login` is `false`.
             ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN_WITH_REFRESH_TOKEN),
         )
         .mount(&server)

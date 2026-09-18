@@ -59,8 +59,8 @@ async fn test_decline_call() {
     );
     assert_eq!(declined_by.len(), 0);
 
-    // Ignore update 1 (implicit read receipt following the declination)
-    // Then the decline is taken into account.
+    // Ignore update 1 (implicit read receipt following the declination) Then
+    // the decline is taken into account.
     assert_let!(VectorDiff::Set { index: 0, value: updated_message } = &timeline_updates[2]);
     let event_item = updated_message.as_event().unwrap();
 
@@ -125,8 +125,8 @@ async fn test_multiple_decline_call() {
     );
     assert_eq!(declined_by.len(), 0);
 
-    // Ignore update 1 (implicit read receipt following the declination)
-    // Then the first decline is taken into account.
+    // Ignore update 1 (implicit read receipt following the declination) Then
+    // the first decline is taken into account.
     assert_let!(VectorDiff::Set { index: 0, value: updated_message } = &timeline_updates[2]);
     let event_item = updated_message.as_event().unwrap();
 
@@ -137,8 +137,8 @@ async fn test_multiple_decline_call() {
     assert_eq!(declined_by.len(), 1);
     assert_eq!(declined_by[0], *BOB);
 
-    // Ignore update 3 (implicit read receipt following the declination)
-    // Then the second decline is taken into account.
+    // Ignore update 3 (implicit read receipt following the declination) Then
+    // the second decline is taken into account.
     assert_let!(VectorDiff::Set { index: 0, value: updated_message } = &timeline_updates[4]);
     let event_item = updated_message.as_event().unwrap();
 
@@ -385,13 +385,13 @@ async fn test_active_call_info_is_restored_when_the_timeline_is_rebuilt() {
 }
 
 // There is an order in which the initial events are sent, first the membership
-// event is sent, then the notification event is sent.
-// When the membership event is received this will trigger an active call info
-// update and we don't want that this first update is attached to the current
-// last notification in the timeline as it is not the correct one, the correct
-// one will come after. If this is not done then there will be a visual glitch
-// in the timeline where the last rtc_notification will be updated and then
-// replaced by the correct one (it will "jump")
+// event is sent, then the notification event is sent. When the membership event
+// is received this will trigger an active call info update and we don't want
+// that this first update is attached to the current last notification in the
+// timeline as it is not the correct one, the correct one will come after. If
+// this is not done then there will be a visual glitch in the timeline where the
+// last rtc_notification will be updated and then replaced by the correct one
+// (it will "jump")
 #[async_test]
 async fn test_only_update_notification_after_it_has_been_marked_as_last() {
     let server = MatrixMockServer::new().await;
@@ -470,8 +470,7 @@ async fn test_only_update_notification_after_it_has_been_marked_as_last() {
     );
     assert!(active_call_info.active_members.contains(&BOB.to_owned()));
 
-    // Simulate call ending
-    // A call is started, so first the membership is added
+    // Simulate call ending A call is started, so first the membership is added
     server
         .sync_room(
             &client,

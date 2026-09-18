@@ -17,8 +17,8 @@ use serde::Deserialize;
 
 use crate::deserialized_responses::EncryptionInfo;
 
-/// Represents all possible validation errors that can occur when processing
-/// an event edit.
+/// Represents all possible validation errors that can occur when processing an
+/// event edit.
 ///
 /// These errors ensure that a replacement event complies with the rules
 /// required to safely and correctly modify an existing event.
@@ -26,8 +26,8 @@ use crate::deserialized_responses::EncryptionInfo;
 /// [spec]: https://spec.matrix.org/v1.17/client-server-api/#validity-of-replacement-events
 #[derive(Debug, thiserror::Error)]
 pub enum EditValidityError {
-    /// Occurs when the sender of the replacement event does not match
-    /// the sender of the original event.
+    /// Occurs when the sender of the replacement event does not match the
+    /// sender of the original event.
     ///
     /// Only the original sender is allowed to edit their own event.
     #[error(
@@ -42,11 +42,11 @@ pub enum EditValidityError {
     #[error("the original event or the replacement event contains a state key")]
     StateKeyPresent,
 
-    /// Occurs when the content type of the original event differs from
-    /// that of the replacement event.
+    /// Occurs when the content type of the original event differs from that of
+    /// the replacement event.
     ///
-    /// Edits must not change the event’s content type, as this would
-    /// introduce semantic inconsistencies.
+    /// Edits must not change the event’s content type, as this would introduce
+    /// semantic inconsistencies.
     #[error(
         "the content type of the original event is `{content_type}` while the replacement is a `{replacement_type}`"
     )]
@@ -67,8 +67,8 @@ pub enum EditValidityError {
     #[error("the replacement event is not a replacement for the original event")]
     NotReplacement,
 
-    /// Occurs when a required field is missing from either the original
-    /// or the replacement event.
+    /// Occurs when a required field is missing from either the original or the
+    /// replacement event.
     ///
     /// The event is considered malformed and cannot be validated.
     #[error("the event was encrypted, as such it should have an `m.new_content` field")]
@@ -77,8 +77,8 @@ pub enum EditValidityError {
     #[error(transparent)]
     InvalidJson(#[from] serde_json::Error),
 
-    /// Occurs when the original event is encrypted but the replacement
-    /// event is not.
+    /// Occurs when the original event is encrypted but the replacement event is
+    /// not.
     #[error("the original event was encrypted while the replacement is not")]
     ReplacementNotEncrypted,
 }
@@ -91,7 +91,7 @@ pub enum EditValidityError {
 /// the event might not contain the room ID if it wasn received over a `/sync`
 /// request.
 ///
-/// *Warning*: Callers must ensure that the original event and replacement event
+/// _Warning_: Callers must ensure that the original event and replacement event
 /// belong to the same room, that is, they have the same room ID.
 ///
 /// [spec]: https://spec.matrix.org/v1.17/client-server-api/#validity-of-replacement-events
@@ -143,8 +143,8 @@ pub fn check_validity_of_replacement_events(
     }
 
     // This check isn't part of the list in the spec, but it makes sense to
-    // check if the replacement event is has the correct rel_type and if
-    // it's an edit for the original event.
+    // check if the replacement event is has the correct rel_type and if it's an
+    // edit for the original event.
     if let Some(relates_to) = replacement_event.content.relates_to {
         if relates_to.rel_type != Some(REPLACEMENT_REL_TYPE)
             || relates_to.event_id != Some(original_event.event_id)
@@ -171,8 +171,8 @@ pub fn check_validity_of_replacement_events(
     }
 
     // The original event must not, itself, have a rel_type of m.replace (i.e.
-    // you cannot edit an edit — though you can send multiple edits for a
-    // single original event).
+    // you cannot edit an edit — though you can send multiple edits for a single
+    // original event).
     if let Some(relates_to) = original_event.content.relates_to
         && relates_to.rel_type == Some(REPLACEMENT_REL_TYPE)
     {

@@ -124,8 +124,7 @@ matrix_sdk_test_utils::init_tracing_for_tests!();
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
-/// The trust level in the sender's device that is required to decrypt an
-/// event.
+/// The trust level in the sender's device that is required to decrypt an event.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum TrustRequirement {
@@ -185,7 +184,8 @@ pub enum RoomEventDecryptionResult {
 /// end-to-end encryption, including the [Olm] and [Megolm] protocols, you may
 /// choose to skip directly to the [Getting Started](#getting-started) section.
 ///
-/// # Table of Contents
+/// # Table of contents
+///
 /// 1. [Introduction](#introduction)
 /// 2. [Getting started](#getting-started)
 /// 3. [Decrypting room events](#decryption)
@@ -198,11 +198,11 @@ pub enum RoomEventDecryptionResult {
 /// fundamental concepts of end-to-end encryption and its implementation in
 /// Matrix.
 ///
-/// This section will provide a clear and concise overview of what
-/// end-to-end encryption is and why it is important for secure communication.
-/// You will also learn about how Matrix uses end-to-end encryption to protect
-/// the privacy and security of its users' communications. Whether you are new
-/// to the topic or simply want to improve your understanding, this section will
+/// This section will provide a clear and concise overview of what end-to-end
+/// encryption is and why it is important for secure communication. You will
+/// also learn about how Matrix uses end-to-end encryption to protect the
+/// privacy and security of its users' communications. Whether you are new to
+/// the topic or simply want to improve your understanding, this section will
 /// serve as a solid foundation for the rest of the guide.
 ///
 /// Let's dive in!
@@ -255,9 +255,9 @@ pub enum RoomEventDecryptionResult {
 ///
 /// Note that the path from the outbox to the inbox is now encrypted as well.
 ///
-/// Alice and Bob have created a secure communication channel
-/// through which they can exchange messages confidentially, without the risk of
-/// the server accessing the contents of their messages.
+/// Alice and Bob have created a secure communication channel through which they
+/// can exchange messages confidentially, without the risk of the server
+/// accessing the contents of their messages.
 ///
 /// ## Publishing cryptographic identities of devices
 ///
@@ -293,7 +293,7 @@ pub enum RoomEventDecryptionResult {
 /// Once a user has the other user's public key, they can use it to establish an
 /// end-to-end encrypted channel using a [key-agreement protocol].
 ///
-/// ## Using the Triple Diffie-Hellman key-agreement protocol
+/// ## Using the triple Diffie-Hellman key-agreement protocol
 ///
 /// In the triple Diffie-Hellman key agreement protocol (3DH in short), each
 /// user generates a long-term identity key pair and a set of one-time prekeys.
@@ -384,6 +384,7 @@ pub enum RoomEventDecryptionResult {
 /// ```
 ///
 /// This will create a [`OlmMachine`] that does not persist any data TODO
+///
 /// ```ignore
 /// use anyhow::Result;
 /// use matrix_sdk_crypto::OlmMachine;
@@ -412,21 +413,19 @@ pub enum RoomEventDecryptionResult {
 /// that our client library can simply receive encrypted messages and then
 /// decrypt them.
 ///
-/// In this section, we will guide you through the minimal steps
-/// necessary to get the decryption process up and running using the
-/// matrix-sdk-crypto Rust crate. By the end of this section you should have a
-/// Matrix client that is able to decrypt room events that other clients have
-/// sent.
+/// In this section, we will guide you through the minimal steps necessary to
+/// get the decryption process up and running using the matrix-sdk-crypto Rust
+/// crate. By the end of this section you should have a Matrix client that is
+/// able to decrypt room events that other clients have sent.
 ///
 /// To enable decryption the following three steps are needed:
 ///
-/// 1. [The cryptographic identity of your device needs to be published to the
-///    homeserver](#uploading-identity-and-one-time-keys).
-/// 2. [Decryption keys coming in from other devices need to be processed and
-///    stored](#receiving-room-keys-and-related-changes).
+/// 1. [The cryptographic identity of your device needs to be published to the homeserver](#uploading-identity-and-one-time-keys).
+/// 2. [Decryption keys coming in from other devices need to be processed and stored](#receiving-room-keys-and-related-changes).
 /// 3. [Individual messages need to be decrypted](#decrypting-room-events).
 ///
 /// The simplified flowchart
+///
 /// ```mermaid
 /// graph TD
 ///     sync[Sync with the homeserver]
@@ -440,7 +439,7 @@ pub enum RoomEventDecryptionResult {
 ///     decrypt -- repeat --> sync;
 /// ```
 ///
-/// ## Uploading identity and one-time keys.
+/// ## Uploading identity and one-time keys
 ///
 /// To enable end-to-end encryption in a Matrix client, the first step is to
 /// announce the support for it to other users in the network. This is done by
@@ -484,7 +483,7 @@ pub enum RoomEventDecryptionResult {
 /// # }
 /// ```
 ///
-/// #### 🔒 Locking rule
+/// ### 🔒 locking rule
 ///
 /// It's important to note that the outgoing requests method in the
 /// [`OlmMachine`], while thread-safe, may return the same request multiple
@@ -497,10 +496,11 @@ pub enum RoomEventDecryptionResult {
 /// multiple identical requests from being sent.
 ///
 /// Additionally, if an error occurs while sending a request using the
-/// [`OlmMachine::outgoing_requests()`] method, the request will be
-/// naturally retried the next time the method is called.
+/// [`OlmMachine::outgoing_requests()`] method, the request will be naturally
+/// retried the next time the method is called.
 ///
 /// A more complete example, which uses a helper method, might look like this:
+///
 /// ```no_run
 /// # use std::collections::BTreeMap;
 /// # use ruma::api::client::keys::upload_keys::v3::Response;
@@ -583,8 +583,8 @@ pub enum RoomEventDecryptionResult {
 ///
 /// The next step in our implementation is to forward messages that were sent
 /// directly to the client's device, and state updates about the one-time
-/// prekeys, to the [`OlmMachine`]. This is achieved using
-/// the [`OlmMachine::receive_sync_changes()`] method.
+/// prekeys, to the [`OlmMachine`]. This is achieved using the
+/// [`OlmMachine::receive_sync_changes()`] method.
 ///
 /// The method performs two tasks:
 ///
@@ -690,6 +690,7 @@ pub enum RoomEventDecryptionResult {
 /// # Ok(())
 /// # }
 /// ```
+///
 /// It's worth mentioning that the [`OlmMachine::decrypt_room_event()`] method
 /// is designed to be thread-safe and can be safely called concurrently. This
 /// means that room message [events] can be processed in parallel, improving the
@@ -714,16 +715,10 @@ pub enum RoomEventDecryptionResult {
 /// encrypting messages using the Megolm group session. The specific steps are
 /// outlined below:
 ///
-/// 1. [Cryptographic devices of other users need to be
-///    discovered](#tracking-users)
-///
-/// 2. [Secure channels between the devices need to be
-///    established](#establishing-end-to-end-encrypted-channels)
-///
+/// 1. [Cryptographic devices of other users need to be discovered](#tracking-users)
+/// 2. [Secure channels between the devices need to be established](#establishing-end-to-end-encrypted-channels)
 /// 3. [A room key needs to be exchanged with the group](#exchanging-room-keys)
-///
-/// 4. [Individual messages need to be encrypted using the room
-///    key](#encrypting-room-events)
+/// 4. [Individual messages need to be encrypted using the room key](#encrypting-room-events)
 ///
 /// The process for enabling encryption in a two-device scenario is also
 /// depicted in the following sequence diagram:
@@ -760,8 +755,8 @@ pub enum RoomEventDecryptionResult {
 /// end-to-end encryption.
 ///
 /// The process for discovering and keeping track of devices for a user is
-/// outlined in the Matrix specification in the "[Tracking the device list for a
-/// user]" section.
+/// outlined in the Matrix specification in the
+/// "[Tracking the device list for a user]" section.
 ///
 /// A simplified sequence diagram of the process can also be found below.
 ///
@@ -875,8 +870,8 @@ pub enum RoomEventDecryptionResult {
 ///
 /// ## Establishing end-to-end encrypted channels
 ///
-/// In the [Triple
-/// Diffie-Hellman](#using-the-triple-diffie-hellman-key-agreement-protocol)
+/// In the
+/// [Triple Diffie-Hellman](#using-the-triple-diffie-hellman-key-agreement-protocol)
 /// section, we described the need for two Curve25519 keys from the recipient
 /// device to establish a 1-to-1 secure channel: the long-term identity key of a
 /// device and a one-time prekey. In the previous section, we started tracking
@@ -888,7 +883,7 @@ pub enum RoomEventDecryptionResult {
 /// method in bulk, which will claim the one-time prekey for all the devices of
 /// a user that we're not already sharing a 1-to-1 encrypted channel with.
 ///
-/// #### 🔒 Locking rule
+/// ### 🔒 locking rule
 ///
 /// As with the [`OlmMachine::outgoing_requests()`] method, it is necessary to
 /// protect this method with a lock, otherwise we will be creating more 1-to-1
@@ -932,7 +927,7 @@ pub enum RoomEventDecryptionResult {
 /// then output an array of sendToDevice requests that we must send to the
 /// server, and mark the requests as sent.
 ///
-/// #### 🔒 Locking rule
+/// ### 🔒 locking rule
 ///
 /// Like some of the previous methods, OlmMachine::share_room_key() needs to be
 /// protected by a lock to prevent the possibility of creating and sending
@@ -975,9 +970,9 @@ pub enum RoomEventDecryptionResult {
 /// ```
 ///
 /// In order to ensure that room keys are rotated and exchanged when needed, the
-/// [`OlmMachine::share_room_key()`] method should be called before sending
-/// each room message in an end-to-end encrypted room. If a room key has
-/// already been exchanged, the method becomes a no-op.
+/// [`OlmMachine::share_room_key()`] method should be called before sending each
+/// room message in an end-to-end encrypted room. If a room key has already been
+/// exchanged, the method becomes a no-op.
 ///
 /// ## Encrypting room events
 ///
@@ -1000,7 +995,7 @@ pub enum RoomEventDecryptionResult {
 /// # }
 /// ```
 ///
-/// ## Appendix: Combining the session creation and room key exchange
+/// ## Appendix: combining the session creation and room key exchange
 ///
 /// The steps from the previous three sections should combined into a single
 /// method that is used to send messages.

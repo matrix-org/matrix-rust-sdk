@@ -81,7 +81,7 @@ pub enum Update<Item, Gap> {
 
     /// An item has been replaced in the linked chunk.
     ///
-    /// The `at` position MUST resolve to the actual position an existing *item*
+    /// The `at` position MUST resolve to the actual position an existing _item_
     /// (not a gap).
     ReplaceItem {
         /// The position of the item that's being replaced.
@@ -101,8 +101,7 @@ pub enum Update<Item, Gap> {
     /// truncated.
     DetachLastItems {
         /// The split position. Before this position (`..position`), items are
-        /// kept, from this position (`position..`), items are
-        /// detached.
+        /// kept, from this position (`position..`), items are detached.
         at: Position,
     },
 
@@ -121,8 +120,8 @@ impl<Item, Gap> Update<Item, Gap> {
     /// Get the items from the [`Update`] if any.
     ///
     /// This function is useful if you only care about the items from the
-    /// [`Update`] and not what kind of update it was and where the items
-    /// should be placed.
+    /// [`Update`] and not what kind of update it was and where the items should
+    /// be placed.
     ///
     /// [`Update`] variants which don't contain any items will return an empty
     /// [`Vec`].
@@ -223,8 +222,7 @@ impl<Item, Gap> ObservableUpdatesPusher<Item, Gap> {
     }
 }
 
-/// A token used to represent readers that read the updates in
-/// [`UpdatesInner`].
+/// A token used to represent readers that read the updates in [`UpdatesInner`].
 pub(super) type ReaderToken = usize;
 
 /// Inner type for [`ObservableUpdates`].
@@ -258,8 +256,8 @@ pub(super) struct UpdatesInner<Item, Gap> {
     /// The last generated token. This is useful to generate new token.
     last_token: ReaderToken,
 
-    /// Pending wakers for [`UpdateSubscriber`]s. A waker is removed
-    /// every time it is called.
+    /// Pending wakers for [`UpdateSubscriber`]s. A waker is removed every time
+    /// it is called.
     wakers: Vec<Waker>,
 }
 
@@ -320,8 +318,8 @@ impl<Item, Gap> UpdatesInner<Item, Gap> {
     ///
     /// Updates are stored in [`Self::updates`]. Multiple readers can read them.
     /// A reader is identified by a [`ReaderToken`]. Every reader can
-    /// take/read/consume each update only once. An internal index is stored
-    /// per reader token to know where to start reading updates next time this
+    /// take/read/consume each update only once. An internal index is stored per
+    /// reader token to know where to start reading updates next time this
     /// method is called.
     pub(super) fn take_with_token(&mut self, token: ReaderToken) -> &[Update<Item, Gap>] {
         // Let's garbage collect unused updates.
@@ -377,8 +375,8 @@ impl<Item, Gap> UpdatesInner<Item, Gap> {
 pub struct UpdatesSubscriber<Item, Gap> {
     /// Weak reference to [`UpdatesInner`].
     ///
-    /// Using a weak reference allows [`ObservableUpdates`] to be dropped
-    /// freely even if a subscriber exists.
+    /// Using a weak reference allows [`ObservableUpdates`] to be dropped freely
+    /// even if a subscriber exists.
     updates: Weak<RwLock<UpdatesInner<Item, Gap>>>,
 
     /// The token to read the updates.
@@ -425,16 +423,15 @@ where
 
 impl<Item, Gap> Drop for UpdatesSubscriber<Item, Gap> {
     fn drop(&mut self) {
-        // Remove `Self::token` from `UpdatesInner::last_index_per_reader`.
-        // This is important so that the garbage collector can do its jobs
-        // correctly without a dead dangling reader token.
+        // Remove `Self::token` from `UpdatesInner::last_index_per_reader`. This
+        // is important so that the garbage collector can do its jobs correctly
+        // without a dead dangling reader token.
         if let Some(updates) = self.updates.upgrade() {
             let mut updates = updates.write().unwrap();
 
-            // Remove the reader token from `UpdatesInner`.
-            // It's safe to ignore the result of `remove` here: `None` means the
-            // token was already removed (note: it should be
-            // unreachable).
+            // Remove the reader token from `UpdatesInner`. It's safe to ignore
+            // the result of `remove` here: `None` means the token was already
+            // removed (note: it should be unreachable).
             let _ = updates.last_index_per_reader.remove(&self.token);
         }
     }
@@ -505,13 +502,11 @@ mod tests {
         // Scenario 1: “main” takes the new updates, “other” doesn't take the
         // new updates.
         //
-        // 0   1   2   3
-        // +---+---+---+
+        // 0 1 2 3 +---+---+---+
         // | a | b | c |
         // +---+---+---+
         //
-        // “main” will move its index from 0 to 3.
-        // “other” won't move its index.
+        // “main” will move its index from 0 to 3. “other” won't move its index.
         {
             let updates = linked_chunk.updates().unwrap();
 
@@ -532,10 +527,9 @@ mod tests {
             {
                 let inner = updates.inner.read().unwrap();
 
-                // Inspect number of updates in memory.
-                // It must be the same number as before as the garbage collector
-                // weren't not able to remove any unused
-                // updates.
+                // Inspect number of updates in memory. It must be the same
+                // number as before as the garbage collector weren't not able to
+                // remove any unused updates.
                 assert_eq!(inner.len(), 3);
 
                 // Inspect the indices.
@@ -553,13 +547,11 @@ mod tests {
         // Scenario 2: “other“ takes the new updates, “main” doesn't take the
         // new updates.
         //
-        // 0   1   2   3   4   5   6
-        // +---+---+---+---+---+---+
+        // 0 1 2 3 4 5 6 +---+---+---+---+---+---+
         // | a | b | c | d | e | f |
         // +---+---+---+---+---+---+
         //
-        // “main” won't move its index.
-        // “other” will move its index from 0 to 6.
+        // “main” won't move its index. “other” will move its index from 0 to 6.
         {
             let updates = linked_chunk.updates().unwrap();
 
@@ -578,10 +570,9 @@ mod tests {
             {
                 let inner = updates.inner.read().unwrap();
 
-                // Inspect number of updates in memory.
-                // It must be the same number as before as the garbage collector
-                // will be able to remove unused updates but at
-                // the next call…
+                // Inspect number of updates in memory. It must be the same
+                // number as before as the garbage collector will be able to
+                // remove unused updates but at the next call…
                 assert_eq!(inner.len(), 6);
 
                 // Inspect the indices.
@@ -596,13 +587,12 @@ mod tests {
         // doesn't take new updates. The garbage collector will run and collect
         // unused updates.
         //
-        // 0   1   2   3
-        // +---+---+---+
+        // 0 1 2 3 +---+---+---+
         // | d | e | f |
         // +---+---+---+
         //
-        // “main” will have its index updated from 3 to 0.
-        // “other” will have its index updated from 6 to 3.
+        // “main” will have its index updated from 3 to 0. “other” will have its
+        // index updated from 6 to 3.
         {
             let updates = linked_chunk.updates().unwrap();
 
@@ -611,8 +601,8 @@ mod tests {
             {
                 let inner = updates.inner.read().unwrap();
 
-                // Inspect number of updates in memory.
-                // The garbage collector has removed unused updates.
+                // Inspect number of updates in memory. The garbage collector
+                // has removed unused updates.
                 assert_eq!(inner.len(), 3);
 
                 // Inspect the indices. They must have been adjusted.
@@ -629,13 +619,12 @@ mod tests {
 
         // Scenario 4: both “main” and “other” take the new updates.
         //
-        // 0   1   2   3   4   5   6
-        // +---+---+---+---+---+---+
+        // 0 1 2 3 4 5 6 +---+---+---+---+---+---+
         // | d | e | f | g | h | i |
         // +---+---+---+---+---+---+
         //
-        // “main” will have its index updated from 0 to 3.
-        // “other” will have its index updated from 6 to 3.
+        // “main” will have its index updated from 0 to 3. “other” will have its
+        // index updated from 6 to 3.
         {
             let updates = linked_chunk.updates().unwrap();
 
@@ -662,9 +651,8 @@ mod tests {
             {
                 let inner = updates.inner.read().unwrap();
 
-                // Inspect number of updates in memory.
-                // The garbage collector had a chance to collect the first 3
-                // updates.
+                // Inspect number of updates in memory. The garbage collector
+                // had a chance to collect the first 3 updates.
                 assert_eq!(inner.len(), 3);
 
                 // Inspect the indices.
@@ -676,11 +664,11 @@ mod tests {
         }
 
         // Scenario 5: no more updates but they both try to take new updates.
-        // The garbage collector will collect all updates as all of them as
-        // been read already.
+        // The garbage collector will collect all updates as all of them as been
+        // read already.
         //
-        // “main” will have its index updated from 0 to 0.
-        // “other” will have its index updated from 3 to 0.
+        // “main” will have its index updated from 0 to 0. “other” will have its
+        // index updated from 3 to 0.
         {
             let updates = linked_chunk.updates().unwrap();
 
@@ -690,8 +678,8 @@ mod tests {
             {
                 let inner = updates.inner.read().unwrap();
 
-                // Inspect number of updates in memory.
-                // The garbage collector had a chance to collect all updates.
+                // Inspect number of updates in memory. The garbage collector
+                // had a chance to collect all updates.
                 assert_eq!(inner.len(), 0);
 
                 // Inspect the indices.
@@ -862,10 +850,9 @@ mod tests {
             linked_chunk.push_items_back(['c']);
 
             // A waker is consumed when called. The first call to
-            // `push_items_back` will call and consume the wakers.
-            // The second call to `push_items_back` will do
-            // nothing as the wakers have been consumed. New wakers will be
-            // registered on polling.
+            // `push_items_back` will call and consume the wakers. The second
+            // call to `push_items_back` will do nothing as the wakers have been
+            // consumed. New wakers will be registered on polling.
             //
             // So, the waker must have been called only once for the two
             // updates.
@@ -893,17 +880,17 @@ mod tests {
             let _ = linked_chunk.updates().unwrap().take();
 
             // If we inspect the garbage collector state, `a`, `b` and `c`
-            // should still be present because not all of them have
-            // been consumed by `updates_subscriber2` yet.
+            // should still be present because not all of them have been
+            // consumed by `updates_subscriber2` yet.
             {
                 let updates = linked_chunk.updates().unwrap();
 
                 let inner = updates.inner.read().unwrap();
 
-                // Inspect number of updates in memory.
-                // We get 2 because the garbage collector runs before data are
-                // taken, not after: `updates_subscriber2` has
-                // read `a` only, so `b` and `c` remain.
+                // Inspect number of updates in memory. We get 2 because the
+                // garbage collector runs before data are taken, not after:
+                // `updates_subscriber2` has read `a` only, so `b` and `c`
+                // remain.
                 assert_eq!(inner.len(), 2);
 
                 // Inspect the indices.
@@ -939,9 +926,9 @@ mod tests {
         };
 
         // `updates_subscriber2` has been dropped. Poll `updates_subscriber1`
-        // again: still no new update, but it will run the garbage
-        // collector again, and this time `updates_subscriber2` is not
-        // “retaining” `b` and `c`. The garbage collector must be empty.
+        // again: still no new update, but it will run the garbage collector
+        // again, and this time `updates_subscriber2` is not “retaining” `b` and
+        // `c`. The garbage collector must be empty.
         assert_matches!(updates_subscriber1.as_mut().poll_next(&mut context1), Poll::Pending);
 
         // Inspect the garbage collector.

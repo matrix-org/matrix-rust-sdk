@@ -108,8 +108,7 @@ impl MegolmV1BackupKey {
         let pk = PkEncryption::from_key(self.inner.key);
 
         // The forwarding chains don't mean much, we only care whether we
-        // received the session directly from the creator of the session
-        // or not.
+        // received the session directly from the creator of the session or not.
         let forwarded_count = (session.has_been_imported() as u8).into();
         let first_message_index = session.first_known_index().into();
 
@@ -134,9 +133,9 @@ impl MegolmV1BackupKey {
             first_message_index,
             forwarded_count,
             // TODO: is this actually used anywhere? seems to be completely
-            // useless and requires us to get the Device out of the store?
-            // Also should this be checked at the time of the backup or at the
-            // time of the room key receival?
+            // useless and requires us to get the Device out of the store? Also
+            // should this be checked at the time of the backup or at the time
+            // of the room key receival?
             is_verified: false,
             session_data,
         }

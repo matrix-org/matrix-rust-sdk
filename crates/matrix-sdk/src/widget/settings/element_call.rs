@@ -15,23 +15,23 @@
 // This module contains ALL the Element Call related code (minus the FFI
 // bindings for this file). Hence all other files in the rust sdk contain code
 // that is relevant for all widgets. This makes it simple to rip out Element
-// Call related pieces.
-// TODO: The goal is to have not any Element Call specific code
-// in the rust sdk. Find a better solution for this.
+// Call related pieces. TODO: The goal is to have not any Element Call specific
+// code in the rust sdk. Find a better solution for this.
 
 use serde::Serialize;
 use url::Url;
 
 use super::{WidgetSettings, url_params};
 
-/// Serialization struct for URL parameters for the Element Call widget.
-/// These are documented at https://github.com/element-hq/element-call/blob/livekit/docs/url-params.md
+/// Serialization struct for URL parameters for the Element Call widget. These
+/// are documented at
+/// https://github.com/element-hq/element-call/blob/livekit/docs/url-params.md
 ///
 /// The ElementCallParams are used to be translated into url query parameters.
 /// For all optional fields, the None case implies, that it will not be part of
 /// the url parameters.
 ///
-/// # Example:
+/// # Example
 ///
 /// ```no_compile
 /// # use matrix_sdk::widget::settings::element_call::ElementCallUrlParams;
@@ -44,6 +44,7 @@ use super::{WidgetSettings, url_params};
 ///     ..Default::default()
 /// }
 /// ```
+///
 /// will become: `my.url? ...requires_parameters... &hide_screensharing=true`
 /// The reason it might be desirable to not list those configurations in the
 /// URLs parameters is that the `intent` implies defaults for all configuration
@@ -113,12 +114,10 @@ pub enum EncryptionSystem {
     /// Equivalent to the element call url parameter: `perParticipantE2EE=false`
     /// and no password.
     Unencrypted,
-    /// Equivalent to the element call url parameters:
-    /// `perParticipantE2EE=true`
+    /// Equivalent to the element call url parameters: `perParticipantE2EE=true`
     #[default]
     PerParticipantKeys,
-    /// Equivalent to the element call url parameters:
-    /// `password={secret}`
+    /// Equivalent to the element call url parameters: `password={secret}`
     SharedSecret {
         /// The secret/password which is used in the url.
         secret: String,
@@ -144,8 +143,8 @@ pub enum Intent {
     StartCallDm,
     /// The user wants to start a voice call in a "Direct Message" (DM) room.
     StartCallDmVoice,
-    /// The user wants to join an existing  voice call that is a "Direct
-    /// Message" (DM) room.
+    /// The user wants to join an existing voice call that is a "Direct Message"
+    /// (DM) room.
     JoinExistingDmVoice,
 }
 
@@ -178,18 +177,18 @@ pub enum NotificationType {
 /// Configuration parameters, to create a new virtual Element Call widget.
 ///
 /// If `intent` is provided the appropriate default values for all other
-/// parameters will be used by element call.
-/// In most cases its enough to only set the intent. Use the other properties
-/// only if you want to deviate from the `intent` defaults.
+/// parameters will be used by element call. In most cases its enough to only
+/// set the intent. Use the other properties only if you want to deviate from
+/// the `intent` defaults.
 ///
-/// Set [`docs/url-params.md`](https://github.com/element-hq/element-call/blob/livekit/docs/url-params.md)
+/// Set
+/// [`docs/url-params.md`](https://github.com/element-hq/element-call/blob/livekit/docs/url-params.md)
 /// to find out more about the parameters and their defaults.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Default, Clone)]
 pub struct VirtualElementCallWidgetConfig {
-    /// The intent of showing the call.
-    /// If the user wants to start a call or join an existing one.
-    /// Controls if the lobby is skipped or not.
+    /// The intent of showing the call. If the user wants to start a call or
+    /// join an existing one. Controls if the lobby is skipped or not.
     pub intent: Option<Intent>,
 
     /// Skip the lobby when joining a call.
@@ -210,8 +209,8 @@ pub struct VirtualElementCallWidgetConfig {
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub hide_header: Option<bool>,
 
-    /// If set, the lobby will be skipped and the widget will join the
-    /// call on the `io.element.join` action.
+    /// If set, the lobby will be skipped and the widget will join the call on
+    /// the `io.element.join` action.
     ///
     /// Default: `false`
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
@@ -247,9 +246,9 @@ pub struct VirtualElementCallWidgetConfig {
 
 /// Properties to create a new virtual Element Call widget.
 ///
-/// All these are required to start the widget in the first place.
-/// This is different from the `VirtualElementCallWidgetConfiguration` which
-/// configures the widgets behavior.
+/// All these are required to start the widget in the first place. This is
+/// different from the `VirtualElementCallWidgetConfiguration` which configures
+/// the widgets behavior.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Default, Clone)]
 pub struct VirtualElementCallWidgetProperties {
@@ -261,16 +260,16 @@ pub struct VirtualElementCallWidgetProperties {
     /// The widget id.
     pub widget_id: String,
 
-    /// The url that is used as the target for the PostMessages sent
-    /// by the widget (to the client).
+    /// The url that is used as the target for the PostMessages sent by the
+    /// widget (to the client).
     ///
     /// For a web app client this is the client url. In case of using other
-    /// platforms the client most likely is setup up to listen to
-    /// postmessages in the same webview the widget is hosted. In this case
-    /// the `parent_url` is set to the url of the webview with the widget. Be
-    /// aware that this means that the widget will receive its own postmessage
-    /// messages. The `matrix-widget-api` (js) ignores those so this works but
-    /// it might break custom implementations.
+    /// platforms the client most likely is setup up to listen to postmessages
+    /// in the same webview the widget is hosted. In this case the `parent_url`
+    /// is set to the url of the webview with the widget. Be aware that this
+    /// means that the widget will receive its own postmessage messages. The
+    /// `matrix-widget-api` (js) ignores those so this works but it might break
+    /// custom implementations.
     ///
     /// Defaults to `element_call_url` for the non-iframe (dedicated webview)
     /// usecase.
@@ -295,17 +294,17 @@ pub struct VirtualElementCallWidgetProperties {
     /// Can be used to pass a PostHog id to element call.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub posthog_user_id: Option<String>,
-    /// The host of the posthog api.
-    /// This is only used by the embedded package of Element Call.
+    /// The host of the posthog api. This is only used by the embedded package
+    /// of Element Call.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub posthog_api_host: Option<String>,
-    /// The key for the posthog api.
-    /// This is only used by the embedded package of Element Call.
+    /// The key for the posthog api. This is only used by the embedded package
+    /// of Element Call.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub posthog_api_key: Option<String>,
 
-    /// The url to use for submitting rageshakes.
-    /// This is only used by the embedded package of Element Call.
+    /// The url to use for submitting rageshakes. This is only used by the
+    /// embedded package of Element Call.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub rageshake_submit_url: Option<String>,
 
@@ -314,25 +313,25 @@ pub struct VirtualElementCallWidgetProperties {
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub sentry_dsn: Option<String>,
 
-    /// Sentry [environment](https://docs.sentry.io/concepts/key-terms/key-terms/)
-    /// This is only used by the embedded package of Element Call.
+    /// Sentry
+    /// [environment](https://docs.sentry.io/concepts/key-terms/key-terms/) This
+    /// is only used by the embedded package of Element Call.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub sentry_environment: Option<String>,
 }
 
 impl WidgetSettings {
-    /// `WidgetSettings` are usually created from a state event.
-    /// (currently unimplemented)
+    /// `WidgetSettings` are usually created from a state event. (currently
+    /// unimplemented)
     ///
-    /// In some cases the client wants to create custom `WidgetSettings`
-    /// for specific rooms based on other conditions.
-    /// This function returns a `WidgetSettings` object which can be used
-    /// to setup a widget using `run_client_widget_api`
-    /// and to generate the correct url for the widget.
+    /// In some cases the client wants to create custom `WidgetSettings` for
+    /// specific rooms based on other conditions. This function returns a
+    /// `WidgetSettings` object which can be used to setup a widget using
+    /// `run_client_widget_api` and to generate the correct url for the widget.
     ///
     /// # Arguments
     ///
-    /// * `props` - A struct containing the configuration parameters for a
+    /// - `props` - A struct containing the configuration parameters for a
     ///   element call widget.
     pub fn new_virtual_element_call_widget(
         props: VirtualElementCallWidgetProperties,
@@ -387,8 +386,7 @@ impl WidgetSettings {
         let query = query.replace("%24", "$");
 
         // All the params will be set inside the fragment (to keep the traffic
-        // to the server minimal and most importantly don't send the
-        // passwords).
+        // to the server minimal and most importantly don't send the passwords).
         raw_url.set_fragment(Some(&format!("?{query}")));
 
         // for EC we always want init on content load to be true.
@@ -808,8 +806,8 @@ mod tests {
         // as defined in the Element-Call repo:
         // https://github.com/element-hq/element-call/blob/de8fdcfa694659a29f2c7a4401dd09cfec846a96/src/UrlParams.ts#L32
         // The enum uses serde rename `snake_case` to serialize the values, but
-        // it makes it invisible that it is important, so ensure that
-        // the values are correct.
+        // it makes it invisible that it is important, so ensure that the values
+        // are correct.
         assert_eq!(serde_json::to_string(&Intent::StartCall).unwrap(), r#""start_call""#);
         assert_eq!(serde_json::to_string(&Intent::JoinExisting).unwrap(), r#""join_existing""#);
         assert_eq!(

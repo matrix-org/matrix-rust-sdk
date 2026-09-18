@@ -129,8 +129,8 @@ impl RuleCommands {
 
     /// Set whether `IsUserMention` is enabled
     fn set_user_mention_enabled(&mut self, enabled: bool) -> Result<(), NotificationSettingsError> {
-        // Add a command for the `IsUserMention` `Override` rule (MSC3952).
-        // This is a new push rule that may not yet be present.
+        // Add a command for the `IsUserMention` `Override` rule (MSC3952). This
+        // is a new push rule that may not yet be present.
         self.set_enabled_internal(
             RuleKind::Override,
             PredefinedOverrideRuleId::IsUserMention.as_str(),
@@ -173,8 +173,8 @@ impl RuleCommands {
 
     /// Set whether `IsRoomMention` is enabled
     fn set_room_mention_enabled(&mut self, enabled: bool) -> Result<(), NotificationSettingsError> {
-        // Sets the `IsRoomMention` `Override` rule (MSC3952).
-        // This is a new push rule that may not yet be present.
+        // Sets the `IsRoomMention` `Override` rule (MSC3952). This is a new
+        // push rule that may not yet be present.
         self.set_enabled_internal(
             RuleKind::Override,
             PredefinedOverrideRuleId::IsRoomMention.as_str(),

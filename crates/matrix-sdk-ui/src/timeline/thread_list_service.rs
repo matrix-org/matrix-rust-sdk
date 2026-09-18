@@ -51,14 +51,14 @@ pub struct ThreadListItem {
     /// The latest event in the thread (i.e. the most recent reply), if
     /// available.
     ///
-    /// This is initially populated from the server's bundled thread summary
-    /// and is updated in real time as new events arrive via sync.
+    /// This is initially populated from the server's bundled thread summary and
+    /// is updated in real time as new events arrive via sync.
     pub latest_event: Option<ThreadListItemEvent>,
 
     /// The number of replies in this thread (excluding the root event).
     ///
-    /// This is initially populated from the server's bundled thread summary
-    /// and is updated in real time as new events arrive via sync.
+    /// This is initially populated from the server's bundled thread summary and
+    /// is updated in real time as new events arrive via sync.
     pub num_replies: u32,
 }
 
@@ -167,8 +167,8 @@ impl ThreadListService {
     /// Creates a new [`ThreadListService`] for the given room.
     ///
     /// This immediately spawns a background task that listens to the room's
-    /// event cache for live updates. The task self-bootstraps by performing
-    /// the async event cache subscription internally.
+    /// event cache for live updates. The task self-bootstraps by performing the
+    /// async event cache subscription internally.
     pub fn new(room: Room) -> Self {
         let items: Arc<Mutex<ObservableVector<ThreadListItem>>> =
             Arc::new(Mutex::new(ObservableVector::new()));
@@ -255,8 +255,8 @@ impl ThreadListService {
     ///
     /// - If the list is already loading or the end has been reached, this
     ///   method returns immediately with `Ok(())`.
-    /// - On a network/SDK error the pagination state is reset to `Idle {
-    ///   end_reached: false }` and the error is propagated.
+    /// - On a network/SDK error the pagination state is reset to
+    ///   `Idle { end_reached: false }` and the error is propagated.
     pub async fn paginate(&self) -> Result<(), ThreadListServiceError> {
         // Guard: do nothing if we are already loading or have reached the end.
         {
@@ -309,10 +309,10 @@ impl ThreadListService {
 
     /// Resets the service back to its initial state.
     ///
-    /// Clears all loaded items, discards the current pagination token, and
-    /// sets the pagination state to `Idle { end_reached: false }`.  The next
-    /// call to [`Self::paginate`] will therefore start from the beginning of
-    /// the thread list.
+    /// Clears all loaded items, discards the current pagination token, and sets
+    /// the pagination state to `Idle { end_reached: false }`. The next call to
+    /// [`Self::paginate`] will therefore start from the beginning of the thread
+    /// list.
     pub async fn reset(&self) {
         let mut pagination_token = self.token.lock().await;
         *pagination_token = PaginationToken::None;
@@ -424,8 +424,8 @@ impl ThreadListService {
                             let mut guard = items.lock();
 
                             // Re-check the position — the vector may have
-                            // changed while we were
-                            // awaiting the profile lookup above.
+                            // changed while we were awaiting the profile lookup
+                            // above.
                             if index < guard.len()
                                 && guard[index].root_event.event_id == thread_root
                             {
@@ -655,7 +655,7 @@ mod tests {
     }
 
     /// When the server returns an error, [`ThreadListService::paginate`] must
-    /// propagate the error *and* reset the pagination state back to
+    /// propagate the error _and_ reset the pagination state back to
     /// `Idle { end_reached: false }` so that the caller can retry.
     #[async_test]
     async fn test_pagination_error() {
@@ -671,7 +671,7 @@ mod tests {
         // Pagination must surface the server error.
         service.paginate().await.expect_err("paginate should fail on a 500 response");
 
-        // The state must be reset so the caller can retry; it must *not* be
+        // The state must be reset so the caller can retry; it must _not_ be
         // stuck in `Loading`.
         assert_eq!(
             service.pagination_state(),
@@ -928,8 +928,8 @@ mod tests {
         ));
     }
 
-    /// Builds a [`ThreadListService`] and makes the room known to the client
-    /// by performing a sync.
+    /// Builds a [`ThreadListService`] and makes the room known to the client by
+    /// performing a sync.
     async fn make_service(server: &MatrixMockServer) -> ThreadListService {
         let client = server.client_builder().build().await;
         let room_id = room_id!("!a:b.c");

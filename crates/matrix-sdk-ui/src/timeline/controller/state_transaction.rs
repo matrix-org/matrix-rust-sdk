@@ -301,6 +301,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
     /// Handle a set of live remote aggregations on events as [`VectorDiff`]s.
     ///
     /// This is like `handle_remote_events`, with two key differences:
+    ///
     /// - it only applies to aggregated events, not all the sync events.
     /// - it will also not add the events to the `all_remote_events` array
     ///   itself.
@@ -379,34 +380,34 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         // FIXME: This branch is a complete hackjob.
                         //
                         // The reason being is that this branch is here to
-                        // handle UTD -> Decrypted event
-                        // remplacements for focused timelines. But this
-                        // transition should
+                        // handle UTD -> Decrypted event remplacements for
+                        // focused timelines. But this transition should
                         // naturally happen the same way it happens for
                         // unfocused timelines.
                         //
                         // Why it doesn't work here? Because the event cache
-                        // fires out a VectorDiff::Set
-                        // with an index that matches to the cache's view of the
-                        // timeline, which is unfiltered, while the focused
-                        // timeline will only show
+                        // fires out a VectorDiff::Set with an index that
+                        // matches to the cache's view of the timeline, which is
+                        // unfiltered, while the focused timeline will only show
                         // i.e. pinned events.
                         //
-                        // The `test_pinned_events_are_decrypted_after_recovering` integration test
-                        // showcases this. The event cache fires out the `Set`
-                        // with an index of 7,
-                        // but the timeline with the PinnedEvents focus has only
-                        // 4 items.
+                        // The
+                        // `test_pinned_events_are_decrypted_after_recovering`
+                        // integration test showcases this. The event cache
+                        // fires out the `Set` with an index of 7, but the
+                        // timeline with the PinnedEvents focus has only 4
+                        // items.
                         //
                         // This hackjob continues in the
-                        // `handle_remote_aggregation()` method as we
-                        // can't just handle any `TimelineAction::AddItem` due
-                        // to:  https://github.com/matrix-org/matrix-rust-sdk/pull/4645
+                        // `handle_remote_aggregation()` method as we can't just
+                        // handle any `TimelineAction::AddItem` due to:
+                        // https://github.com/matrix-org/matrix-rust-sdk/pull/4645
                         //
                         // Doing so breaks the
                         // `test_new_pinned_events_are_not_added_on_sync` test.
                         //
-                        // Relevant issue: https://github.com/matrix-org/matrix-rust-sdk/issues/5954.
+                        // Relevant issue:
+                        // https://github.com/matrix-org/matrix-rust-sdk/issues/5954.
                         self.handle_remote_aggregation(
                             event,
                             TimelineItemPosition::UpdateAt { timeline_item_index },
@@ -523,8 +524,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 
             TimelineFocusKind::Event { .. } => {
                 // For event-focused timelines, thread filtering is now handled
-                // in the event cache layer. We accept all
-                // events from pagination.
+                // in the event cache layer. We accept all events from
+                // pagination.
 
                 // Retrieve the origin of the event.
                 let origin = match position {
@@ -561,8 +562,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         }
     }
 
-    /// Whether this event can show read receipts, or if they should be moved
-    /// to the previous event.
+    /// Whether this event can show read receipts, or if they should be moved to
+    /// the previous event.
     fn can_show_read_receipts(
         &self,
         settings: &TimelineSettings,
@@ -579,8 +580,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
     }
 
     /// After a deserialization error, adds a failed-to-parse item to the
-    /// timeline if configured to do so, or logs the error (and optionally
-    /// save metadata) if not.
+    /// timeline if configured to do so, or logs the error (and optionally save
+    /// metadata) if not.
     async fn maybe_add_error_item(
         &mut self,
         position: TimelineItemPosition,
@@ -601,8 +602,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         let state_key: Option<String> = raw.get_field("state_key").ok().flatten();
 
         // A state event is an event that has a state key. Note that the two
-        // branches differ because the inferred return type for
-        // `get_field` is different in each case.
+        // branches differ because the inferred return type for `get_field` is
+        // different in each case.
         //
         // If this was a state event but it didn't include a state_key, we'll
         // assume it was a msg-like, because we can't do much more.
@@ -635,8 +636,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 if settings.add_failed_to_parse =>
             {
                 // We have sufficient information to show an item in the
-                // timeline, and we've been requested to show
-                // it, let's do it.
+                // timeline, and we've been requested to show it, let's do it.
                 #[derive(serde::Deserialize)]
                 struct Unsigned {
                     transaction_id: Option<OwnedTransactionId>,
@@ -664,16 +664,16 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 
             (sender, origin_server_ts, event_type) => {
                 // We either lack information for rendering an item, or we've
-                // been requested not to show it. Save it into
-                // the metadata and return.
+                // been requested not to show it. Save it into the metadata and
+                // return.
                 warn!(
                     ?event_type,
                     ?event_id,
                     "Failed to deserialize timeline event: {deserialization_error}"
                 );
 
-                // Remember the event before returning prematurely.
-                // See [`ObservableItems::all_remote_events`].
+                // Remember the event before returning prematurely. See
+                // [`ObservableItems::all_remote_events`].
                 self.add_or_update_remote_event(
                     EventMeta::new(event_id, sender.as_deref(), false, false, None),
                     sender.as_deref(),
@@ -822,8 +822,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             }
         };
 
-        // Remember the event.
-        // See [`ObservableItems::all_remote_events`].
+        // Remember the event. See [`ObservableItems::all_remote_events`].
         self.add_or_update_remote_event(
             EventMeta::new(
                 event_id.clone(),
@@ -881,12 +880,12 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 should_add_new_items: should_add,
             };
             // A recycled timeline ID carries the TimelineUniqueId from a
-            // previously removed item (see VectorDiff::Remove), so
-            // that when the same event is re-added in the same diff
-            // batch the UI sees a stable identifier. It is only
-            // applicable when the event produces a single AddItem action;
-            // with multiple actions (e.g. beacon replace) there
-            // is no single item to associate it with, so it's safe to ignore.
+            // previously removed item (see VectorDiff::Remove), so that when
+            // the same event is re-added in the same diff batch the UI sees a
+            // stable identifier. It is only applicable when the event produces
+            // a single AddItem action; with multiple actions (e.g. beacon
+            // replace) there is no single item to associate it with, so it's
+            // safe to ignore.
             let recycled_timeline_id = recycled_timeline_id.filter(|_| timeline_actions.len() == 1);
 
             for action in timeline_actions {
@@ -928,11 +927,11 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         // We need to be careful here.
         //
         // We must first remove the timeline item, which will update the mapping
-        // between remote events and timeline items. Removing the
-        // timeline item will “unlink” this mapping as the remote event
-        // will be updated to map to nothing. Only after that, we can
-        // remove the remote event. Doing this in the other order
-        // will update the mapping twice, and will result in a corrupted state.
+        // between remote events and timeline items. Removing the timeline item
+        // will “unlink” this mapping as the remote event will be updated to map
+        // to nothing. Only after that, we can remove the remote event. Doing
+        // this in the other order will update the mapping twice, and will
+        // result in a corrupted state.
 
         let mut recycled_timeline_id = None;
 
@@ -1064,8 +1063,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 
                     if settings.track_read_receipts.is_enabled() {
                         // Since the event's visibility changed, we need to
-                        // update the read receipts of
-                        // the previous visible event.
+                        // update the read receipts of the previous visible
+                        // event.
                         self.maybe_update_read_receipts_of_prev_event(&event_meta.event_id);
                     }
                 }
@@ -1124,6 +1123,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 /// # Returns
 ///
 /// A tuple containing:
+///
 /// - `Option<OwnedUserId>`: The user ID of the forwarder, if available.
 /// - `Option<Profile>`: The profile of the forwarder, if available.
 async fn get_forwarder_info<P: RoomDataProvider>(

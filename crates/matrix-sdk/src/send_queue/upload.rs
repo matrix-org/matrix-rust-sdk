@@ -94,9 +94,8 @@ fn update_media_event_after_upload(echo: &mut RoomMessageEventContent, sent: Sen
 
         _ => {
             // All `MessageType` created by `Room::make_attachment_type` should
-            // be handled here. The only way to end up here is that
-            // a message type has been tampered with in the
-            // database.
+            // be handled here. The only way to end up here is that a message
+            // type has been tampered with in the database.
             error!("Invalid message type in database: {}", echo.msgtype());
             // Only crash debug builds.
             debug_assert!(false, "invalid message type in database");
@@ -113,8 +112,8 @@ fn update_gallery_event_after_upload(
 ) {
     let MessageType::Gallery(gallery) = &mut echo.msgtype else {
         // All `GalleryItemType` created by `Room::make_gallery_item_type`
-        // should be handled here. The only way to end up here is that a
-        // item type has been tampered with in the database.
+        // should be handled here. The only way to end up here is that a item
+        // type has been tampered with in the database.
         error!("Invalid gallery item types in database");
         // Only crash debug builds.
         debug_assert!(false, "invalid item type in database {:?}", echo.msgtype());
@@ -159,9 +158,9 @@ fn update_gallery_event_after_upload(
 
             _ => {
                 // All `GalleryItemType` created by
-                // `Room::make_gallery_item_type` should be
-                // handled here. The only way to end up here is that a item type
-                // has been tampered with in the database.
+                // `Room::make_gallery_item_type` should be handled here. The
+                // only way to end up here is that a item type has been tampered
+                // with in the database.
                 error!("Invalid gallery item types in database");
                 // Only crash debug builds.
                 debug_assert!(false, "invalid gallery item type in database {itemtype:?}");
@@ -183,15 +182,15 @@ impl RoomSendQueue {
     /// This returns quickly (without sending or uploading anything), and will
     /// push the event to be sent into a queue, handled in the background.
     ///
-    /// Callers are expected to consume [`RoomSendQueueUpdate`] via calling
-    /// the [`Self::subscribe()`] method to get updates about the sending of
-    /// that event.
+    /// Callers are expected to consume [`RoomSendQueueUpdate`] via calling the
+    /// [`Self::subscribe()`] method to get updates about the sending of that
+    /// event.
     ///
     /// By default, if sending failed on the first attempt, it will be retried a
-    /// few times. If sending failed after those retries, the entire
-    /// client's sending queue will be disabled, and it will need to be
-    /// manually re-enabled by the caller (e.g. after network is back, or when
-    /// something has been done about the faulty requests).
+    /// few times. If sending failed after those retries, the entire client's
+    /// sending queue will be disabled, and it will need to be manually
+    /// re-enabled by the caller (e.g. after network is back, or when something
+    /// has been done about the faulty requests).
     ///
     /// The attachment and its optional thumbnail are stored in the media cache
     /// and can be retrieved at any time, by calling
@@ -293,15 +292,15 @@ impl RoomSendQueue {
     /// This returns quickly (without sending or uploading anything), and will
     /// push the event to be sent into a queue, handled in the background.
     ///
-    /// Callers are expected to consume [`RoomSendQueueUpdate`] via calling
-    /// the [`Self::subscribe()`] method to get updates about the sending of
-    /// that event.
+    /// Callers are expected to consume [`RoomSendQueueUpdate`] via calling the
+    /// [`Self::subscribe()`] method to get updates about the sending of that
+    /// event.
     ///
     /// By default, if sending failed on the first attempt, it will be retried a
-    /// few times. If sending failed after those retries, the entire
-    /// client's sending queue will be disabled, and it will need to be
-    /// manually re-enabled by the caller (e.g. after network is back, or when
-    /// something has been done about the faulty requests).
+    /// few times. If sending failed after those retries, the entire client's
+    /// sending queue will be disabled, and it will need to be manually
+    /// re-enabled by the caller (e.g. after network is back, or when something
+    /// has been done about the faulty requests).
     ///
     /// The attachments and their optional thumbnails are stored in the media
     /// cache and can be retrieved at any time, by calling
@@ -669,8 +668,8 @@ impl QueueStorage {
             .into_media()
             .ok_or(RoomSendQueueError::StorageError(RoomSendQueueStorageError::InvalidParentKey))?;
 
-        // If the previous upload was a thumbnail, it shouldn't have
-        // a thumbnail itself.
+        // If the previous upload was a thumbnail, it shouldn't have a thumbnail
+        // itself.
         if parent_is_thumbnail_upload {
             debug_assert!(sent_media.thumbnail.is_none());
             if sent_media.thumbnail.is_some() {
@@ -685,11 +684,10 @@ impl QueueStorage {
         );
 
         // If the parent request was a thumbnail upload, don't add it to the
-        // list of accumulated medias yet because its dependent file
-        // upload is still pending. If the parent request was a file
-        // upload, we know that both the file and its thumbnail (if any)
-        // have finished uploading and we can add them to the
-        // accumulated sent media.
+        // list of accumulated medias yet because its dependent file upload is
+        // still pending. If the parent request was a file upload, we know that
+        // both the file and its thumbnail (if any) have finished uploading and
+        // we can add them to the accumulated sent media.
         #[cfg(feature = "unstable-msc4274")]
         let accumulated = if parent_is_thumbnail_upload {
             sent_media.accumulated
@@ -705,8 +703,8 @@ impl QueueStorage {
         let request = QueuedRequestKind::MediaUpload {
             content_type,
             cache_key,
-            // If the previous upload was a thumbnail, it becomes the thumbnail source for the next
-            // upload.
+            // If the previous upload was a thumbnail, it becomes the thumbnail
+            // source for the next upload.
             thumbnail_source: parent_is_thumbnail_upload.then_some(sent_media.file),
             related_to: event_txn,
             #[cfg(feature = "unstable-msc4274")]
@@ -731,9 +729,9 @@ impl QueueStorage {
     /// Try to abort an upload that would be ongoing.
     ///
     /// Return true if any media (media itself or its thumbnail) was being
-    /// uploaded. In this case, the media event has also been removed from
-    /// the send queue. If it returns false, then the uploads already
-    /// happened, and the event sending *may* have started.
+    /// uploaded. In this case, the media event has also been removed from the
+    /// send queue. If it returns false, then the uploads already happened, and
+    /// the event sending _may_ have started.
     #[instrument(skip(self, handles))]
     pub(super) async fn abort_upload(
         &self,
@@ -758,8 +756,7 @@ impl QueueStorage {
             && store.remove_send_queue_request(&self.room_id, thumbnail_txn).await?
         {
             // The thumbnail upload existed as a request: either it was pending
-            // (something else was being sent), or it was actively
-            // being sent.
+            // (something else was being sent), or it was actively being sent.
             trace!("could remove thumbnail request, removing 2 dependent requests now");
 
             // 1. Try to abort sending using the being_sent info, in case it was
@@ -792,6 +789,7 @@ impl QueueStorage {
         }
 
         // If we're here:
+        //
         // - either there was no thumbnail to upload,
         // - or the thumbnail request has terminated already.
         //
@@ -800,8 +798,8 @@ impl QueueStorage {
         if !removed_dependent_upload {
             if store.remove_send_queue_request(&self.room_id, &handles.upload_file_txn).await? {
                 // The upload existed as a request: either it was pending
-                // (something else was being sent), or it was
-                // actively being sent.
+                // (something else was being sent), or it was actively being
+                // sent.
                 trace!("could remove file upload request, removing 1 dependent request");
 
                 // 1. Try to abort sending using the being_sent info, in case it
@@ -827,17 +825,15 @@ impl QueueStorage {
                 // The upload was not in the send queue, so it's completed.
                 //
                 // It means the event sending is either still queued as a
-                // dependent request, or it's graduated into a
-                // request.
+                // dependent request, or it's graduated into a request.
                 if !removed_dependent_event
                     && !store
                         .remove_dependent_queued_request(&self.room_id, &event_as_dependent)
                         .await?
                 {
                     // The media event has been promoted into a request, or the
-                    // promoted request has been sent
-                    // already: we couldn't abort, let the caller decide what to
-                    // do.
+                    // promoted request has been sent already: we couldn't
+                    // abort, let the caller decide what to do.
                     debug!("uploads already happened => deferring to aborting an event sending");
                     return Ok(false);
                 }
@@ -845,8 +841,8 @@ impl QueueStorage {
         }
 
         // At this point, all the requests and dependent requests have been
-        // cleaned up. Perform the final step: empty the cache from the
-        // local items.
+        // cleaned up. Perform the final step: empty the cache from the local
+        // items.
         {
             let media_store = client.media_store().lock().await?;
             media_store
@@ -877,6 +873,7 @@ impl QueueStorage {
         let store = client.state_store();
 
         // The media event can be in one of three states:
+        //
         // - still stored as a dependent request,
         // - stored as a queued request, active (aka it's being sent).
         // - stored as a queued request, not active yet (aka it's not being sent
@@ -886,8 +883,7 @@ impl QueueStorage {
 
         {
             // If the event can be found as a dependent event, update the
-            // captions, save it back into the database, and return
-            // early.
+            // captions, save it back into the database, and return early.
             let dependent_requests = store.load_dependent_queued_requests(&self.room_id).await?;
 
             if let Some(found) =
@@ -1030,9 +1026,9 @@ async fn update_media_cache_keys_after_upload(
             );
 
             // Try to reload the content of the thumbnail from the media store.
-            // As it's not a strong requirement to store the
-            // thumbnail a second time, we silently log errors
-            // instead of propagating them to the caller.
+            // As it's not a strong requirement to store the thumbnail a second
+            // time, we silently log errors instead of propagating them to the
+            // caller.
             match media_store
                 .get_media_content(&MediaRequestParameters {
                     source: from_request_params.source.clone(),
@@ -1042,8 +1038,8 @@ async fn update_media_cache_keys_after_upload(
             {
                 Ok(Some(thumbnail_content)) => {
                     // Also cache this as a thumbnail for the thumbnail, in the
-                    // media store; the ElementX apps expect
-                    // that specific format for thumbnails.
+                    // media store; the ElementX apps expect that specific
+                    // format for thumbnails.
                     media_store
                         .add_media_content(
                             &MediaRequestParameters {
@@ -1068,8 +1064,7 @@ async fn update_media_cache_keys_after_upload(
 
                 Err(err) => {
                     // Silently log the error, but proceed, as storing the
-                    // thumbnail as such isn't
-                    // a strong requirement.
+                    // thumbnail as such isn't a strong requirement.
                     error!(
                         from = ?from_request_params.source,
                         "unable to reload thumbnail content from media store: {err}"

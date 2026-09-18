@@ -88,9 +88,9 @@ pub struct MemoryStore {
     sessions: StdRwLock<BTreeMap<String, BTreeMap<String, String>>>,
     inbound_group_sessions: StdRwLock<BTreeMap<OwnedRoomId, HashMap<String, String>>>,
 
-    /// Map room id -> session id -> backup order number
-    /// The latest backup in which this session is stored. Equivalent to
-    /// `backed_up_to` in [`IndexedDbCryptoStore`]
+    /// Map room id -> session id -> backup order number The latest backup in
+    /// which this session is stored. Equivalent to `backed_up_to` in
+    /// [`IndexedDbCryptoStore`]
     inbound_group_sessions_backed_up_to:
         StdRwLock<HashMap<OwnedRoomId, HashMap<SessionId, BackupVersion>>>,
 
@@ -509,8 +509,8 @@ impl CryptoStore for MemoryStore {
                 .count()
         } else {
             // We asked about a nonexistent backup version - this doesn't make
-            // much sense, but we can easily answer that nothing is
-            // backed up in this nonexistent backup.
+            // much sense, but we can easily answer that nothing is backed up in
+            // this nonexistent backup.
             0
         };
 
@@ -565,8 +565,8 @@ impl CryptoStore for MemoryStore {
                 None => 0,
                 Some(id) => {
                     // We're looking for the first session with a session ID
-                    // strictly after `id`; if
-                    // there are none, the end of the array.
+                    // strictly after `id`; if there are none, the end of the
+                    // array.
                     sessions
                         .iter()
                         .position(|session| session.session_id() > id.as_str())
@@ -638,10 +638,10 @@ impl CryptoStore for MemoryStore {
 
     async fn reset_backup_state(&self) -> Result<()> {
         // Nothing to do here, because we remember which backup versions we
-        // backed up to in `mark_inbound_group_sessions_as_backed_up`,
-        // so we don't need to reset anything here because the required
-        // version is passed in to `inbound_group_sessions_for_backup`,
-        // and we can compare against the version we stored.
+        // backed up to in `mark_inbound_group_sessions_as_backed_up`, so we
+        // don't need to reset anything here because the required version is
+        // passed in to `inbound_group_sessions_for_backup`, and we can compare
+        // against the version we stored.
 
         Ok(())
     }
@@ -1075,7 +1075,8 @@ mod tests {
             to_backup,
             &[
                 sessions[0].clone(), // Backed up in bkp0
-                // sessions[1] is backed up in bkp1 already, which we asked about
+                // sessions[1] is backed up in bkp1 already, which we asked
+                // about
                 sessions[2].clone(), // Backed up in bkp2
                 sessions[3].clone(), // Not backed up
             ]
@@ -1380,17 +1381,17 @@ mod integration_tests {
 
     /// Return a clone of the store for the test with the supplied name. Note:
     /// dropping this store won't destroy its data, since
-    /// [PersistentMemoryStore] is a reference-counted smart pointer
-    /// to an underlying [MemoryStore].
+    /// [PersistentMemoryStore] is a reference-counted smart pointer to an
+    /// underlying [MemoryStore].
     async fn get_store(
         name: &str,
         _passphrase: Option<&str>,
         clear_data: bool,
     ) -> PersistentMemoryStore {
         // Holds on to one [PersistentMemoryStore] per test, so even if the test
-        // drops the store, we keep its data alive. This simulates the
-        // behaviour of the other stores, which keep their data in a
-        // real DB, allowing us to test MemoryStore using the same code.
+        // drops the store, we keep its data alive. This simulates the behaviour
+        // of the other stores, which keep their data in a real DB, allowing us
+        // to test MemoryStore using the same code.
         static STORES: OnceLock<Mutex<HashMap<String, PersistentMemoryStore>>> = OnceLock::new();
         let stores = STORES.get_or_init(|| Mutex::new(HashMap::new()));
 

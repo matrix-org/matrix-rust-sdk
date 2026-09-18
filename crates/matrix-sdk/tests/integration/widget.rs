@@ -204,10 +204,10 @@ async fn test_negotiate_capabilities_immediately() {
         let data = &msg["data"];
         let request_id = msg["requestId"].as_str().unwrap();
 
-        // Let's send a request to get supported versions in the middle
-        // of a capabilities negotiation to ensure that we're not "deadlocked"
-        // by not processing messages while waiting for a reply from a
-        // widget to the the toWidget request.
+        // Let's send a request to get supported versions in the middle of a
+        // capabilities negotiation to ensure that we're not "deadlocked" by not
+        // processing messages while waiting for a reply from a widget to the
+        // the toWidget request.
         {
             send_request(
                 &driver_handle,
@@ -507,8 +507,9 @@ async fn test_receive_live_events() {
                             .membership(MembershipState::Join)
                             .previous(MembershipState::Join),
                     )
-                    // kick alice - doesn't match because the `#@example:localhost` bit
-                    // is about the state_key, not the sender
+                    // kick alice - doesn't match because the
+                    // `#@example:localhost` bit is about the state_key, not the
+                    // sender
                     .add_timeline_event(
                         f.member(user_id!("@example:localhost"))
                             .banned(&ALICE)
@@ -1609,8 +1610,8 @@ async fn test_send_encrypted_to_device_wildcard_edge_cases() {
     assert_eq!(sent_messages.len(), 1, "a single to-device request should have been sent");
 
     // For Bob, the `*` takes precedence and the explicit `OTHER_UNKNOWN` device
-    // is ignored. Carl, of whom we know no device at all, is dropped
-    // entirely: only Bob's two known devices are sent to.
+    // is ignored. Carl, of whom we know no device at all, is dropped entirely:
+    // only Bob's two known devices are sent to.
     assert_eq!(
         recipients_of(&sent_messages[0]),
         BTreeMap::from([(
@@ -2073,8 +2074,7 @@ async fn test_get_rtc_transports_endpoint_unsupported() {
     );
 
     // The widget receives an error (as opposed to an empty list), so it can
-    // tell the endpoint apart from a homeserver that advertises no
-    // transports.
+    // tell the endpoint apart from a homeserver that advertises no transports.
     let response = recv_message(&driver_handle).await;
     assert_eq!(response["api"], "fromWidget");
     assert_eq!(response["action"], "org.matrix.msc4515.get_rtc_transports");

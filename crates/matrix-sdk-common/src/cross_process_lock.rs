@@ -56,17 +56,17 @@ use crate::{
     sleep::sleep,
 };
 
-/// A lock generation is an integer incremented each time the lock is taken by
-/// a different holder.
+/// A lock generation is an integer incremented each time the lock is taken by a
+/// different holder.
 ///
 /// This is used to know if a lock has been dirtied.
 pub type CrossProcessLockGeneration = u64;
 
-/// A trait that represents any function which can be used to
-/// acquire the underlying lock of a [`CrossProcessLock`].
+/// A trait that represents any function which can be used to acquire the
+/// underlying lock of a [`CrossProcessLock`].
 ///
-/// For example, this can be useful when writing a function which
-/// is parameterized to acquire the underlying lock through either
+/// For example, this can be useful when writing a function which is
+/// parameterized to acquire the underlying lock through either
 /// [`CrossProcessLock::spin_lock`] or [`CrossProcessLock::try_lock_once`].
 pub trait AcquireCrossProcessLockFn<L>
 where
@@ -82,8 +82,8 @@ where
 {
 }
 
-/// A convenience type for the [`Result`] returned from calling
-/// or [`CrossProcessLock::try_lock_once`] or [`CrossProcessLock::spin_lock`].
+/// A convenience type for the [`Result`] returned from calling or
+/// [`CrossProcessLock::try_lock_once`] or [`CrossProcessLock::spin_lock`].
 pub type AcquireCrossProcessLockResult<E> =
     Result<Result<CrossProcessLockState, CrossProcessLockUnobtained>, E>;
 
@@ -108,8 +108,8 @@ pub trait TryLock {
     /// Returns `Some(_)` to indicate the lock succeeded, `None` otherwise. The
     /// cross-process lock generation must be compared to the generation before
     /// the call to see if the lock has been dirtied: a different generation
-    /// means the lock has been dirtied, i.e. taken by a different holder in
-    /// the meantime.
+    /// means the lock has been dirtied, i.e. taken by a different holder in the
+    /// meantime.
     fn try_lock(
         &self,
         lease_duration_ms: u32,
@@ -162,18 +162,18 @@ impl CrossProcessLockGuard {
         self.inner
             .upgrade()
             .map(|inner| inner.is_dirty())
-            // If it's not possible to upgrade the weak pointer, it means the lock _and_ the
-            // `renew_task` have been dropped. In this case, whether the lock is dirty or
-            // not doesn't make any difference.
+            // If it's not possible to upgrade the weak pointer, it means the
+            // lock _and_ the `renew_task` have been dropped. In this case,
+            // whether the lock is dirty or not doesn't make any difference.
             .unwrap_or(false)
     }
 
     /// Clear the dirty state from the cross-process lock associated to this
     /// guard.
     ///
-    /// If the cross-process lock is dirtied, it will remain dirtied until
-    /// this method is called. This allows recovering from a dirty state and
-    /// marking that it has recovered.
+    /// If the cross-process lock is dirtied, it will remain dirtied until this
+    /// method is called. This allows recovering from a dirty state and marking
+    /// that it has recovered.
     pub fn clear_dirty(&self) {
         // If it's not possible to upgrade the weak pointer, it means the lock
         // _and_ the `renew_task` have been dropped. Marking the lock as
@@ -207,27 +207,30 @@ pub struct CrossProcessLock<L> {
     /// [`CrossProcessLock::count_holders`].
     ///
     /// If the number of lock holders is greater than 0, this means we've
-    /// already obtained this lock, in this process, and the store lock
-    /// mustn't be touched.
+    /// already obtained this lock, in this process, and the store lock mustn't
+    /// be touched.
     ///
     /// When the number of holders is decreased to 0, then the lock must be
     /// released in the store.
-    //
     // Notes about the `Arc`/`Weak` usage:
     //
-    // - We want to track the number of holders, i.e. the number of guards. To achieve that, we
-    //   could use a thread-safe counter, or hijack `Arc` and `Weak` which provide two thread-safe
-    //   counters: strong count and weak count.
+    // - We want to track the number of holders, i.e. the number of guards. To
+    //   achieve that, we could use a thread-safe counter, or hijack `Arc` and
+    //   `Weak` which provide two thread-safe counters: strong count and weak
+    //   count.
     // - `CrossProcessLock` holds an `Arc` (this field).
     // - `renew_task` holds an `Arc` (a clone of this field).
-    // - `CrossProcessLockGuard` holds a `Weak` (it could use an `Arc`, but a `Weak` is fine in
-    //   this context and offers a unique counter for guards!).
+    // - `CrossProcessLockGuard` holds a `Weak` (it could use an `Arc`, but a
+    //   `Weak` is fine in this context and offers a unique counter for
+    //   guards!).
     // - Counting holders = counting the number of `Weak` pointers.
-    // - It is safe to upgrade the `Weak` pointer to an `Arc` (to get information about dirtiness)
-    //   in a guard because the `renew_task` holds a clone of the `Arc` and will not exit until all
-    //   guards have been dropped.
-    // - It is always possible to create a `Weak` pointer (i) either from `CrossProcessLock` by
-    //   using `Arc::downgrade`, (ii) or from `CrossProcessLockGuard` by cloning it.
+    // - It is safe to upgrade the `Weak` pointer to an `Arc` (to get
+    //   information about dirtiness) in a guard because the `renew_task` holds
+    //   a clone of the `Arc` and will not exit until all guards have been
+    //   dropped.
+    // - It is always possible to create a `Weak` pointer (i) either from
+    //   `CrossProcessLock` by using `Arc::downgrade`, (ii) or from
+    //   `CrossProcessLockGuard` by cloning it.
     inner: Arc<CrossProcessLockInner>,
 
     /// The key used in the key/value mapping for the lock entry.
@@ -274,9 +277,9 @@ impl CrossProcessLockInner {
 
     /// Clear the dirty state from this cross-process lock.
     ///
-    /// If the cross-process lock is dirtied, it will remain dirtied until
-    /// this method is called. This allows recovering from a dirty state and
-    /// marking that it has recovered.
+    /// If the cross-process lock is dirtied, it will remain dirtied until this
+    /// method is called. This allows recovering from a dirty state and marking
+    /// that it has recovered.
     pub fn clear_dirty(&self) {
         self.is_dirty.store(false, Ordering::SeqCst);
     }
@@ -285,19 +288,19 @@ impl CrossProcessLockInner {
 /// Amount of time a lease of the lock should last, in milliseconds.
 pub const LEASE_DURATION_MS: u32 = 500;
 
-/// Period of time between two attempts to extend the lease. We'll
-/// re-request a lease for an entire duration of `LEASE_DURATION_MS`
-/// milliseconds, every `EXTEND_LEASE_EVERY_MS`, so this has to
-/// be an amount safely low compared to `LEASE_DURATION_MS`, to make sure
-/// that we can miss a deadline without compromising the lock.
+/// Period of time between two attempts to extend the lease. We'll re-request a
+/// lease for an entire duration of `LEASE_DURATION_MS` milliseconds, every
+/// `EXTEND_LEASE_EVERY_MS`, so this has to be an amount safely low compared to
+/// `LEASE_DURATION_MS`, to make sure that we can miss a deadline without
+/// compromising the lock.
 pub const EXTEND_LEASE_EVERY_MS: u64 = 50;
 
-/// Initial backoff, in milliseconds. This is the time we wait the first
-/// time, if taking the lock initially failed.
+/// Initial backoff, in milliseconds. This is the time we wait the first time,
+/// if taking the lock initially failed.
 const INITIAL_BACKOFF_MS: u32 = 10;
 
-/// Maximal backoff, in milliseconds. This is the maximum amount of time
-/// we'll wait for the lock, *between two attempts*.
+/// Maximal backoff, in milliseconds. This is the maximum amount of time we'll
+/// wait for the lock, _between two attempts_.
 pub const MAX_BACKOFF_MS: u32 = 1000;
 
 /// Sentinel value representing the absence of a lock generation value.
@@ -362,9 +365,9 @@ where
 
     /// Clear the dirty state from this cross-process lock.
     ///
-    /// If the cross-process lock is dirtied, it will remain dirtied until
-    /// this method is called. This allows recovering from a dirty state and
-    /// marking that it has recovered.
+    /// If the cross-process lock is dirtied, it will remain dirtied until this
+    /// method is called. This allows recovering from a dirty state and marking
+    /// that it has recovered.
     pub fn clear_dirty(&self) {
         self.inner.clear_dirty();
     }
@@ -389,10 +392,10 @@ where
         // been acquired, and we can safely generate a new guard.
         if Self::count_holders(&self.inner) > 0 {
             // Note: between the above “count” and the
-            // `CrossProcessLockGuard::new` below, another thread
-            // may decrement the number of holders. That's fine because that
-            // means the lock was taken by at least one thread, and after this
-            // call it will be taken by at least one thread.
+            // `CrossProcessLockGuard::new` below, another thread may decrement
+            // the number of holders. That's fine because that means the lock
+            // was taken by at least one thread, and after this call it will be
+            // taken by at least one thread.
             //
             // Because `locking_attempt` is acquired, the task cannot drop the
             // lock while the “count” might change.
@@ -405,8 +408,8 @@ where
             self.locker.try_lock(LEASE_DURATION_MS, &self.lock_key, holder_name).await?
         {
             match self.inner.generation.swap(new_generation, Ordering::SeqCst) {
-                // If there was no lock generation, it means this is the first time the lock is
-                // obtained. It cannot be dirty.
+                // If there was no lock generation, it means this is the first
+                // time the lock is obtained. It cannot be dirty.
                 NO_CROSS_PROCESS_LOCK_GENERATION => {
                     trace!(?new_generation, "Setting the lock generation for the first time");
                 }
@@ -436,13 +439,13 @@ where
         trace!("Obtained the lock, spawning the lease extension task.");
 
         // No lock was acquired before (either because it's the first time the
-        // lock is acquired, or because all previous guards have been
-        // dropped). We're going to spawn the task that will renew the
-        // lease.
+        // lock is acquired, or because all previous guards have been dropped).
+        // We're going to spawn the task that will renew the lease.
 
         let mut renew_task = self.inner.renew_task.lock().await;
 
         // Cancel the previous task, if any. That's safe to do, because:
+        //
         // - either the task was done,
         // - or it was still running, but taking a lock in the database has to
         //   be an atomic operation running in a transaction.
@@ -471,6 +474,7 @@ where
                             // lock.
                             //
                             // This is not racy, because:
+                            //
                             // - the `locking_attempt` mutex makes sure we don't
                             //   have unexpected interactions with the
                             //   non-atomic sequence above in `try_lock_once`,
@@ -482,8 +486,8 @@ where
                             if Self::count_holders(&inner) == 0 {
                                 trace!("exiting the lease extension loop");
 
-                                // Cancel the lease with another 0ms lease.
-                                // If we don't get the lock, that's (weird but)
+                                // Cancel the lease with another 0ms lease. If
+                                // we don't get the lock, that's (weird but)
                                 // fine.
                                 let fut = locker.try_lock(0, &lock_key, &holder_name);
                                 let _ = fut.await;
@@ -542,10 +546,10 @@ where
     /// already been taken before.
     ///
     /// The `max_backoff` parameter is the maximum time (in milliseconds) that
-    /// should be waited for, between two attempts. When that time is
-    /// reached a second time, the lock will stop attempting to get the lock
-    /// and will return a timeout error upon locking. If not provided,
-    /// will wait for [`MAX_BACKOFF_MS`].
+    /// should be waited for, between two attempts. When that time is reached a
+    /// second time, the lock will stop attempting to get the lock and will
+    /// return a timeout error upon locking. If not provided, will wait for
+    /// [`MAX_BACKOFF_MS`].
     #[instrument(skip(self), fields(?self.lock_key, ?self.config))]
     pub async fn spin_lock(
         &self,

@@ -58,8 +58,8 @@ impl SessionStore {
 
     /// Add a session to the store.
     ///
-    /// Returns true if the session was added, false if the session was
-    /// already in the store.
+    /// Returns true if the session was added, false if the session was already
+    /// in the store.
     pub async fn add(&self, session: Session) -> bool {
         let sessions_lock =
             self.entries.write().await.entry(session.sender_key.to_base64()).or_default().clone();
@@ -139,8 +139,8 @@ impl DeviceStore {
 ///
 /// It uses wrapping arithmetic to make sure we never run out of numbers. (2**64
 /// should be enough for anyone, but it's easy enough just to make it wrap.)
-//
-/// Internally it uses a *signed* counter so that we can compare values via a
+///
+/// Internally it uses a _signed_ counter so that we can compare values via a
 /// subtraction. For example, suppose we've just overflowed from i64::MAX to
 /// i64::MIN. (i64::MAX.wrapping_sub(i64::MIN)) is -1, which tells us that
 /// i64::MAX comes before i64::MIN in the sequence.
@@ -243,14 +243,13 @@ impl UsersForKeyQuery {
         let last_invalidation = self.user_map.get(user).copied();
 
         // If there were any jobs waiting for this key query to complete, we can
-        // flag them as completed and remove them from our list. We also
-        // clear out any tasks that have been cancelled.
+        // flag them as completed and remove them from our list. We also clear
+        // out any tasks that have been cancelled.
         self.tasks_awaiting_key_query.retain(|waiter| {
             let Some(waiter) = waiter.upgrade() else {
                 // the TaskAwaitingKeyQuery has been dropped, so it probably
-                // timed out and the caller went away. We can
-                // remove it from our list whether or not it's for this
-                // user.
+                // timed out and the caller went away. We can remove it from our
+                // list whether or not it's for this user.
                 trace!("removing expired waiting task");
 
                 return false;
@@ -309,8 +308,8 @@ impl UsersForKeyQuery {
     /// so.
     ///
     /// If no key query is currently pending, returns `None`. Otherwise, returns
-    /// (an `Arc` to) a `KeysQueryWaiter`, whose `completed` flag will
-    /// be set once the lookup completes.
+    /// (an `Arc` to) a `KeysQueryWaiter`, whose `completed` flag will be set
+    /// once the lookup completes.
     pub(super) fn maybe_register_waiting_task(
         &mut self,
         user: &UserId,
@@ -346,15 +345,15 @@ impl StoreCache {
 
     /// Returns a reference to the `Account`.
     ///
-    /// Either load the account from the cache, or the store if missing from
-    /// the cache.
+    /// Either load the account from the cache, or the store if missing from the
+    /// cache.
     ///
     /// Note there should always be an account stored at least in the store, so
     /// this doesn't return an `Option`.
     ///
     /// Note: this method should remain private, otherwise it's possible to ask
-    /// for a `StoreTransaction`, then get the `StoreTransaction::cache()`
-    /// and thus have two different live copies of the `Account` at once.
+    /// for a `StoreTransaction`, then get the `StoreTransaction::cache()` and
+    /// thus have two different live copies of the `Account` at once.
     pub(super) async fn account(&self) -> super::Result<impl Deref<Target = Account> + '_> {
         let mut guard = self.account.lock().await;
         if guard.is_some() {
@@ -383,8 +382,8 @@ pub(crate) struct StoreCacheGuard {
 impl StoreCacheGuard {
     /// Returns a reference to the `Account`.
     ///
-    /// Either load the account from the cache, or the store if missing from
-    /// the cache.
+    /// Either load the account from the cache, or the store if missing from the
+    /// cache.
     ///
     /// Note there should always be an account stored at least in the store, so
     /// this doesn't return an `Option`.

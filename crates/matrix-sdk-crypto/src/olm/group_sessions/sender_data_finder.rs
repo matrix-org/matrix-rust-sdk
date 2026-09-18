@@ -130,9 +130,9 @@ pub(crate) struct SenderDataFinder<'a> {
 }
 
 impl<'a> SenderDataFinder<'a> {
-    /// Find the device associated with the to-device message used to
-    /// create the InboundGroupSession we are about to create, and decide
-    /// whether we trust the sender.
+    /// Find the device associated with the to-device message used to create the
+    /// InboundGroupSession we are about to create, and decide whether we trust
+    /// the sender.
     pub(crate) async fn find_using_event(
         store: &'a Store,
         sender_curve_key: Curve25519PublicKey,
@@ -177,10 +177,10 @@ impl<'a> SenderDataFinder<'a> {
             // Yes: use the device keys to continue.
 
             // Validate the signature of the DeviceKeys supplied. (We've
-            // actually already done this when decrypting the event,
-            // but doing it again here is relatively harmless and is
-            // the easiest way of getting hold of a DeviceData so
-            // that we can follow the rest of this logic).
+            // actually already done this when decrypting the event, but doing
+            // it again here is relatively harmless and is the easiest way of
+            // getting hold of a DeviceData so that we can follow the rest of
+            // this logic).
             let sender_device_data = DeviceData::try_from(sender_device_keys)?;
             Ok(self.have_device_data(sender_device_data).await?)
         } else {
@@ -208,8 +208,8 @@ impl<'a> SenderDataFinder<'a> {
             // We have no device data for this session so we can't continue in
             // the "fast lane" (blocking sync).
             let sender_data = SenderData::UnknownDevice {
-                // This is not a legacy session since we did attempt to look
-                // up its sender data at the time of reception.
+                // This is not a legacy session since we did attempt to look up
+                // its sender data at the time of reception.
                 legacy_session: false,
                 owner_check_failed: false,
             };
@@ -233,8 +233,8 @@ impl<'a> SenderDataFinder<'a> {
         let device_is_owner = sender_device.is_owner_of_session(self.session)?;
 
         if !device_is_owner {
-            // Step E (the device does not own the session)
-            // Give up: something is wrong with the session.
+            // Step E (the device does not own the session) Give up: something
+            // is wrong with the session.
             Ok(SenderData::UnknownDevice { legacy_session: false, owner_check_failed: true })
         } else {
             // Steps F, G, and H: we have a device, which may or may not be
@@ -429,8 +429,7 @@ mod tests {
 
     #[async_test]
     async fn test_adds_device_info_even_if_it_is_not_signed() {
-        // Given that the the device is in the store
-        // But it is not signed
+        // Given that the the device is in the store But it is not signed
         let setup = TestSetup::new(TestOptions::new().store_contains_device()).await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
@@ -564,8 +563,8 @@ mod tests {
 
     #[async_test]
     async fn test_if_session_signing_does_not_match_device_return_an_error() {
-        // Given everything is the same as the above test
-        // except the session is not owned by the device
+        // Given everything is the same as the above test except the session is
+        // not owned by the device
         let setup = TestSetup::new(
             TestOptions::new()
                 .store_contains_sender_identity()
@@ -604,9 +603,8 @@ mod tests {
 
     #[async_test]
     async fn test_does_not_add_sender_data_for_a_device_missing_keys() {
-        // Given everything is the same as the successful test
-        // except the device does not own the session because
-        // it is imported.
+        // Given everything is the same as the successful test except the device
+        // does not own the session because it is imported.
         let setup = TestSetup::new(
             TestOptions::new()
                 .store_contains_sender_identity()
@@ -664,8 +662,8 @@ mod tests {
 
     #[async_test]
     async fn test_notes_master_key_is_verified_for_other_identity() {
-        // Given we can find the device, and someone else sent the event
-        // And the sender is verified
+        // Given we can find the device, and someone else sent the event And the
+        // sender is verified
         let setup = TestSetup::new(
             TestOptions::new()
                 .store_contains_device()

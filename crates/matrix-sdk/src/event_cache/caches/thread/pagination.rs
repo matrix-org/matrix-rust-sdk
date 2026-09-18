@@ -42,14 +42,13 @@ use crate::room::{IncludeRelations, RelationsOptions};
 
 /// Intermediate type because the `ThreadEventCache` state doesn't provide all
 /// the feature for the moment.
-//
 // TODO: Remove this intermediate type.
 #[derive(Clone)]
 struct ThreadEventCacheWrapper {
     cache: Arc<ThreadEventCacheInner>,
 
-    // Threads do not support pagination status for the moment but we need one, so let's use a
-    // dummy one for now.
+    // Threads do not support pagination status for the moment but we need one,
+    // so let's use a dummy one for now.
     dummy_pagination_status: SharedObservable<SharedPaginationStatus>,
 }
 
@@ -75,6 +74,7 @@ impl ThreadPagination {
     ///
     /// It will run multiple back-paginations until one of these two conditions
     /// is met:
+    ///
     /// - either we've reached the start of the timeline,
     /// - or we've obtained enough events to fulfill the requested number of
     ///   events.
@@ -116,8 +116,8 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         let prev_first_chunk = state.thread_linked_chunk().first_chunk();
 
         // If we are here, it means all gaps have been resolved (see the `if`
-        // block above). So the first chunk is not a gap, we can load
-        // its previous chunk.
+        // block above). So the first chunk is not a gap, we can load its
+        // previous chunk.
         let linked_chunk_id = LinkedChunkId::Thread(&state.room_id, &state.thread_id);
         let new_first_chunk = match state
             .store
@@ -133,8 +133,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
                 // No previous chunk in the store.
                 //
                 // If the first in-memory event is the thread root, it's all
-                // good, we have effectively reached the start
-                // of the thread.
+                // good, we have effectively reached the start of the thread.
                 if let Some((_pos, first_event)) = state.thread_linked_chunk().events().next()
                     && self.cache.thread_id
                         == first_event.event_id().expect("Stored events all have an ID")
@@ -274,8 +273,8 @@ impl PaginatedCache for ThreadEventCacheWrapper {
 
         BackPaginationOutcome {
             reached_start,
-            // This is a backwards pagination. `BackPaginationOutcome` expects events to
-            // be in “reverse order”.
+            // This is a backwards pagination. `BackPaginationOutcome` expects
+            // events to be in “reverse order”.
             events: events.into_iter().rev().collect(),
         }
     }
@@ -297,8 +296,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         // necessary.
         //
         // It is necessary to load the thread root event when `new_token` is
-        // `None`, i.e. when we've reached the start of the thread
-        // usually.
+        // `None`, i.e. when we've reached the start of the thread usually.
         //
         // We must do this dance before acquiring the state lock because
         // `Room::load_or_fetch_event` is hitting the state lock too.
@@ -321,9 +319,9 @@ impl PaginatedCache for ThreadEventCacheWrapper {
                 });
 
             if gap_chunk_id.is_none() {
-                // We got a previous-batch token from the linked chunk *before*
-                // running the request, but it is missing
-                // *after* completing the request.
+                // We got a previous-batch token from the linked chunk _before_
+                // running the request, but it is missing _after_ completing the
+                // request.
                 //
                 // It may be a sign the linked chunk has been reset, but it's
                 // fine!
@@ -353,15 +351,15 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         // previous ones, otherwise we can end up with misordered events.
         //
         // Consider the following scenario:
+        //
         // - sync returns [D, E, F]
         // - then sync returns [] with a previous batch token PB1, so the
         //   internal linked chunk state is [D, E, F, PB1].
         // - back-paginating with PB1 may return [A, B, C, D, E, F].
         //
         // Only inserting the new events when replacing PB1 would result in a
-        // timeline ordering of [D, E, F, A, B, C], which is incorrect.
-        // So we do have to remove all the events, in case this happens
-        // (see also #4746).
+        // timeline ordering of [D, E, F, A, B, C], which is incorrect. So we do
+        // have to remove all the events, in case this happens (see also #4746).
 
         if !all_duplicates {
             // Let's forget all the previous events.
@@ -395,8 +393,8 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         // safely set the receipt event to None here.
         //
         // Note: read receipts may be updated anyhow in the post-processing
-        // step, as the back-pagination may have revealed the event
-        // pointed to by the latest read receipt.
+        // step, as the back-pagination may have revealed the event pointed to
+        // by the latest read receipt.
         let receipt_event = None;
 
         // Post-process newly inserted events.

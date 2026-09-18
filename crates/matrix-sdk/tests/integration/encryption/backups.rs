@@ -635,10 +635,9 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
 
 /// Test that new room keys are uploaded to backup when they are known/imported.
 /// Current implementation of the backup module will try to trigger a backup
-/// upload at the end of a sync.
-/// For simplicity we are testing here that the upload is triggered when a new
-/// outbound room key is created. But it would work for a key received via a to
-/// device event as well.
+/// upload at the end of a sync. For simplicity we are testing here that the
+/// upload is triggered when a new outbound room key is created. But it would
+/// work for a key received via a to device event as well.
 #[async_test]
 async fn test_incremental_upload_of_keys() -> TestResult {
     let session = matrix_session_example();
@@ -1563,8 +1562,8 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
     Ok(())
 }
 
-/// Set up secret storage, and allow the client to import the backup
-/// decryption key from 4S.
+/// Set up secret storage, and allow the client to import the backup decryption
+/// key from 4S.
 async fn init_client_secret_storage_and_backup(client: &Client, server: &wiremock::MockServer) {
     let store = init_secret_store(client, server).await;
     mock_query_key_backup(server).await;
@@ -1651,8 +1650,8 @@ async fn mock_query_key_backup(server: &wiremock::MockServer) {
         .await;
 }
 
-/// Encrypt the given session with the backup key, and add a mock for a `GET
-/// /_matrix/client/r0/room_keys/keys/{}/{}` request which will return it.
+/// Encrypt the given session with the backup key, and add a mock for a
+/// `GET /_matrix/client/r0/room_keys/keys/{}/{}` request which will return it.
 async fn mock_download_session_from_key_backup(
     room_id: &RoomId,
     inbound_group_session: InboundGroupSession,

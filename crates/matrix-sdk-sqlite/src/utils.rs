@@ -194,12 +194,12 @@ pub(crate) trait SqliteAsyncConnExt {
 
     /// Limit the size of the WAL file, in **bytes**.
     ///
-    /// By default, while the DB connections of the databases are open, [the
-    /// size of the WAL file can keep increasing][size_wal_file] depending on
-    /// the size needed for the transactions. A critical case is `VACUUM`
-    /// which basically writes the content of the DB file to the WAL file
-    /// before writing it back to the DB file, so we end up taking twice the
-    /// size of the database.
+    /// By default, while the DB connections of the databases are open,
+    /// [the size of the WAL file can keep increasing][size_wal_file] depending
+    /// on the size needed for the transactions. A critical case is `VACUUM`
+    /// which basically writes the content of the DB file to the WAL file before
+    /// writing it back to the DB file, so we end up taking twice the size of
+    /// the database.
     ///
     /// By setting this limit, the WAL file is truncated after its content is
     /// written to the database, if it is bigger than the limit.
@@ -527,8 +527,8 @@ impl SqliteKeyValueStoreConnExt for rusqlite::Connection {
     }
 }
 
-/// Extension trait for an [`SqliteAsyncConn`] that contains a key-value
-/// table named `kv`.
+/// Extension trait for an [`SqliteAsyncConn`] that contains a key-value table
+/// named `kv`.
 ///
 /// The table should be created like this:
 ///
@@ -611,32 +611,28 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
                 Secret::Key(key) => StoreCipher::import_with_key(key.as_slice(), &encrypted)?,
                 Secret::HighEntropyPassPhrase { key, base64_variant } => {
                     // Element X apps used the passphrase-based secret variant
-                    // even though the underlying secret was
-                    // a randomly generated key.
+                    // even though the underlying secret was a randomly
+                    // generated key.
                     //
                     // The `HighEntropyPassPhrase` variant was introduced to
-                    // migrate these cipher exports from a
-                    // passphrase-based setup to a key-based setup.
+                    // migrate these cipher exports from a passphrase-based
+                    // setup to a key-based setup.
                     //
                     // We first attempt to decrypt the cipher using the provided
-                    // high-entropy passphrase as a key. If
-                    // this results in a KDF mismatch, it indicates that
-                    // the export was originally encrypted with the high-entropy
-                    // passphrase being used as a passphrase
-                    // instead.
+                    // high-entropy passphrase as a key. If this results in a
+                    // KDF mismatch, it indicates that the export was originally
+                    // encrypted with the high-entropy passphrase being used as
+                    // a passphrase instead.
                     //
                     // In that case, we re-encrypt the cipher using the
-                    // key-based setup. On the next
-                    // import attempt, `import_with_key()` can then decrypt it
-                    // successfully.
+                    // key-based setup. On the next import attempt,
+                    // `import_with_key()` can then decrypt it successfully.
                     match StoreCipher::import_with_key(key.as_slice(), &encrypted) {
                         Ok(cipher) => cipher,
                         Err(matrix_sdk_store_encryption::Error::KdfMismatch) => {
                             // EX generated a byte array for a key but converted
-                            // it into a string by
-                            // base64 encoding it to use it as a passphrase. So
-                            // let's do that as
-                            // well.
+                            // it into a string by base64 encoding it to use it
+                            // as a passphrase. So let's do that as well.
                             //
                             // Funnily enough, iOS used padded base64, while
                             // Android used unpadded.
@@ -733,8 +729,8 @@ pub(crate) fn time_to_timestamp(time: SystemTime) -> i64 {
     time.duration_since(SystemTime::UNIX_EPOCH)
         .ok()
         .and_then(|d| d.as_secs().try_into().ok())
-        // It is unlikely to happen unless the time on the system is seriously wrong, but we always
-        // need a value.
+        // It is unlikely to happen unless the time on the system is seriously
+        // wrong, but we always need a value.
         .unwrap_or(0)
 }
 
@@ -750,9 +746,8 @@ pub(crate) trait EncryptableStore {
     fn get_cypher(&self) -> Option<&StoreCipher>;
 
     /// If the store is using encryption, this will hash the given key. This is
-    /// useful when we need to do queries against a given key, but we don't
-    /// need to store the key in plain text (i.e. it's not both a key and a
-    /// value).
+    /// useful when we need to do queries against a given key, but we don't need
+    /// to store the key in plain text (i.e. it's not both a key and a value).
     fn encode_key(&self, table_name: &str, key: impl AsRef<[u8]>) -> Key {
         let bytes = key.as_ref();
         if let Some(store_cipher) = self.get_cypher() {

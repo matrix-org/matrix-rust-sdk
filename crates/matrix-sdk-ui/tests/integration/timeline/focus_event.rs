@@ -48,8 +48,8 @@ async fn test_new_focused() {
         .mock_room_event_context()
         .room(room_id)
         .ok(
-            // events_before are passed in reverse chronological order (newest first),
-            // as required by the /context response format.
+            // events_before are passed in reverse chronological order (newest
+            // first), as required by the /context response format.
             RoomContextResponseTemplate::new(
                 f.text_msg("in the end").event_id(target_event).sender(*BOB).into_event(),
             )

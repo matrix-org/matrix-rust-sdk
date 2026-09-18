@@ -34,8 +34,8 @@ async fn login_and_sync(
     password: String,
 ) -> anyhow::Result<()> {
     // Note that when encryption is enabled, you should use a persistent store
-    // to be able to restore the session with a working encryption setup.
-    // See the `persist_session` example.
+    // to be able to restore the session with a working encryption setup. See
+    // the `persist_session` example.
     let client = Client::builder().homeserver_url(homeserver_url).build().await.unwrap();
     client
         .matrix_auth()

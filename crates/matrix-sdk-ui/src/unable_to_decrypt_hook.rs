@@ -55,9 +55,9 @@ pub struct UnableToDecryptInfo {
     pub event_id: OwnedEventId,
 
     /// If the event could be decrypted late (that is, the event was encrypted
-    /// at first, but could be decrypted later on), then this indicates the
-    /// time it took to decrypt the event. If it is not set, this is
-    /// considered a definite UTD.
+    /// at first, but could be decrypted later on), then this indicates the time
+    /// it took to decrypt the event. If it is not set, this is considered a
+    /// definite UTD.
     pub time_to_decrypt: Option<Duration>,
 
     /// What we know about what caused this UTD. E.g. was this event sent when
@@ -66,7 +66,7 @@ pub struct UnableToDecryptInfo {
 
     /// The difference between the event creation time (`origin_server_ts`) and
     /// the time our device was created. If negative, this event was sent
-    /// *before* our device was created.
+    /// _before_ our device was created.
     pub event_local_age_millis: i64,
 
     /// Whether the user had verified their own identity at the point they
@@ -94,8 +94,8 @@ struct PendingUtdReport {
     utd_info: UnableToDecryptInfo,
 }
 
-/// A manager over an existing [`UnableToDecryptHook`] that deduplicates UTDs
-/// on similar events, and adds basic consistency checks.
+/// A manager over an existing [`UnableToDecryptHook`] that deduplicates UTDs on
+/// similar events, and adds basic consistency checks.
 ///
 /// It can also implement a grace period before reporting an event as a UTD, if
 /// configured with [`Self::with_max_delay`]. Instead of immediately reporting
@@ -136,20 +136,21 @@ impl UtdHookManager {
     /// persistent data.
     pub fn new(parent: Arc<dyn UnableToDecryptHook>, client: Client) -> Self {
         let bloom_filter =
-            // Some slightly arbitrarily-chosen parameters here. We specify that, after 1000
-            // UTDs, we want to have a false-positive rate of 1%.
+            // Some slightly arbitrarily-chosen parameters here. We specify
+            // that, after 1000 UTDs, we want to have a false-positive rate of
+            // 1%.
             //
-            // The `GrowableBloomFilter` is based on a series of (partitioned) Bloom filters;
-            // once the first starts getting full (the expected false-positive
-            // rate gets too high), it adds another Bloom filter. Each new entry
-            // is recorded in the most recent Bloom filter; when querying, if
-            // *any* of the component filters show a match, that shows
-            // an overall match.
+            // The `GrowableBloomFilter` is based on a series of (partitioned)
+            // Bloom filters; once the first starts getting full (the expected
+            // false-positive rate gets too high), it adds another Bloom filter.
+            // Each new entry is recorded in the most recent Bloom filter; when
+            // querying, if _any_ of the component filters show a match, that
+            // shows an overall match.
             //
-            // The first component filter is created based on the parameters we give. For
-            // reasons derived in the paper [1], a partitioned Bloom filter with
-            // target false-positive rate `P` after `n` insertions requires a
-            // number of slices `k` given by:
+            // The first component filter is created based on the parameters we
+            // give. For reasons derived in the paper [1], a partitioned Bloom
+            // filter with target false-positive rate `P` after `n` insertions
+            // requires a number of slices `k` given by:
             //
             // ```latex
             // k = log2(1/P) = -ln(P) / ln(2)
@@ -161,8 +162,8 @@ impl UtdHookManager {
             // m = n / ln(2)
             // ```
             //
-            // We have to have a whole number of slices and bits, so the total number of
-            // bits M is:
+            // We have to have a whole number of slices and bits, so the total
+            // number of bits M is:
             //
             // ```latex
             // M = ceil(k) * ceil(m)
@@ -176,11 +177,11 @@ impl UtdHookManager {
             //   = 7 * 1443 = 10101 bits
             // ```
             //
-            // So our filter starts off with 1263 bytes of data (plus a little overhead).
-            // Once we hit 1000 UTDs, we add a second component filter with a capacity
-            // double that of the original and target error rate 85% of the
-            // original (another 2526 bytes), which then lasts us until a total
-            // of 3000 UTDs.
+            // So our filter starts off with 1263 bytes of data (plus a little
+            // overhead). Once we hit 1000 UTDs, we add a second component
+            // filter with a capacity double that of the original and target
+            // error rate 85% of the original (another 2526 bytes), which then
+            // lasts us until a total of 3000 UTDs.
             //
             // [1]: https://gsd.di.uminho.pt/members/cbm/ps/dbloom.pdf
             GrowableBloomBuilder::new().estimated_insertions(1000).desired_error_ratio(0.01).build();
@@ -226,13 +227,14 @@ impl UtdHookManager {
     /// Pipe in any information that needs to be included in the final report.
     ///
     /// # Arguments
-    ///  * `event_id` - The ID of the event that could not be decrypted.
-    ///  * `cause` - Our best guess at the reason why the event can't be
-    ///    decrypted.
-    ///  * `event_timestamp` - The event's `origin_server_ts` field (or creation
-    ///    time for local echo).
-    ///  * `sender_user_id` - The Matrix user ID of the user that sent the
-    ///    undecryptable message.
+    ///
+    /// - `event_id` - The ID of the event that could not be decrypted.
+    /// - `cause` - Our best guess at the reason why the event can't be
+    ///   decrypted.
+    /// - `event_timestamp` - The event's `origin_server_ts` field (or creation
+    ///   time for local echo).
+    /// - `sender_user_id` - The Matrix user ID of the user that sent the
+    ///   undecryptable message.
     pub(crate) async fn on_utd(
         &self,
         event_id: &EventId,
@@ -305,16 +307,14 @@ impl UtdHookManager {
             sleep(max_delay).await;
 
             // Make sure we take out the lock on `reported_utds` before removing
-            // the entry from `pending_delayed`, to ensure we don't
-            // race against another call to `on_utd` (which could
-            // otherwise see that the entry has been removed from
-            // `pending_delayed` but not yet added to
-            // `reported_utds`).
+            // the entry from `pending_delayed`, to ensure we don't race against
+            // another call to `on_utd` (which could otherwise see that the
+            // entry has been removed from `pending_delayed` but not yet added
+            // to `reported_utds`).
             let mut reported_utds_lock = reported_utds.lock().await;
 
             // Remove the task from the outstanding set. But if it's already
-            // been removed, it's been decrypted since the task was
-            // added!
+            // been removed, it's been decrypted since the task was added!
             let pending_report = pending_delayed.lock().unwrap().remove(&owned_event_id);
             if let Some(pending_report) = pending_report {
                 Self::report_utd(
@@ -346,9 +346,8 @@ impl UtdHookManager {
         let mut reported_utds_lock = self.reported_utds.lock().await;
 
         // Only let the parent hook know about the late decryption if the event
-        // is a pending UTD. If so, remove the event from the pending
-        // list — doing so will cause the reporting task to no-op if it
-        // runs.
+        // is a pending UTD. If so, remove the event from the pending list —
+        // doing so will cause the reporting task to no-op if it runs.
         let Some(pending_utd_report) = self.pending_delayed.lock().unwrap().remove(event_id) else {
             trace!(%event_id, "UtdHookManager: received a late decrypt report for an unknown utd");
             return;
@@ -396,14 +395,13 @@ impl Drop for UtdHookManager {
         // Cancel all the outstanding delayed tasks to report UTDs.
         //
         // Here, we don't take the lock on `reported_utd`s (indeed, we can't,
-        // since `reported_utds` has an async mutex, and `drop` has to
-        // be sync), but that's ok. We can't race against `on_utd` or
-        // `on_late_decrypt`, since they both have `&self` references
-        // which mean `drop` can't be called. We *could* race against
-        // one of the actual tasks to report UTDs, but that's ok too:
-        // either the report task will bail out when it sees
-        // the entry has been removed from `pending_delayed` (which is fine), or
-        // the report task will successfully report the UTD (which is
+        // since `reported_utds` has an async mutex, and `drop` has to be sync),
+        // but that's ok. We can't race against `on_utd` or `on_late_decrypt`,
+        // since they both have `&self` references which mean `drop` can't be
+        // called. We _could_ race against one of the actual tasks to report
+        // UTDs, but that's ok too: either the report task will bail out when it
+        // sees the entry has been removed from `pending_delayed` (which is
+        // fine), or the report task will successfully report the UTD (which is
         // fine).
         let mut pending_delayed = self.pending_delayed.lock().unwrap();
         for (_, pending_utd_report) in pending_delayed.drain() {

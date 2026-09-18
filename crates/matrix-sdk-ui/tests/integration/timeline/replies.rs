@@ -724,9 +724,9 @@ async fn test_send_reply() {
     // so it's not available if the timeline got cleared. Not critical, but
     // there's notable room for improvement here.
     //
-    // let replied_to_event =
-    // assert_matches!(&in_reply_to.event, TimelineDetails::Ready(ev) => ev);
-    // assert_eq!(replied_to_event.sender(), *BOB);
+    // let replied_to_event = assert_matches!(&in_reply_to.event,
+    // TimelineDetails::Ready(ev) => ev); assert_eq!(replied_to_event.sender(),
+    // *BOB);
 
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
     assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
@@ -740,9 +740,9 @@ async fn test_send_reply() {
 
     // Same as above.
     //
-    // let replied_to_event =
-    // assert_matches!(&in_reply_to.event, TimelineDetails::Ready(ev) =>
-    // ev); assert_eq!(replied_to_event.sender(), *BOB);
+    // let replied_to_event = assert_matches!(&in_reply_to.event,
+    // TimelineDetails::Ready(ev) => ev); assert_eq!(replied_to_event.sender(),
+    // *BOB);
 }
 
 #[async_test]
@@ -1243,9 +1243,9 @@ async fn test_send_reply_enforce_thread_is_reply() {
 #[async_test]
 async fn test_send_reply_with_event_id_that_is_redacted() {
     // This test checks if is possible to reply to a redacted event that is not
-    // in the timeline. The event id will go through a process where the
-    // event is fetched and the content will be extracted and deserialised
-    // to be used in the reply.
+    // in the timeline. The event id will go through a process where the event
+    // is fetched and the content will be extracted and deserialised to be used
+    // in the reply.
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 

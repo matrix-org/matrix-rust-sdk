@@ -50,8 +50,7 @@ impl X509Verifier {
     }
 
     /// Verify that the given object is signed with a certificate issued by a
-    /// trusted CA, and that the certificate was issued to the given user
-    /// ID.
+    /// trusted CA, and that the certificate was issued to the given user ID.
     ///
     /// Note that, unlike verifying an Ed25519 signature, the result here is
     /// derived from the configured trust anchors at the time of the call, and

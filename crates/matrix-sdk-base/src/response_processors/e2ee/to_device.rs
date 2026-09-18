@@ -98,10 +98,9 @@ async fn process(
     };
 
     Ok(if let Some(olm_machine) = olm_machine {
-        // Let the crypto machine handle the sync response, this
-        // decrypts to-device events, but leaves room events alone.
-        // This makes sure that we have the decryption keys for the room
-        // events at hand.
+        // Let the crypto machine handle the sync response, this decrypts
+        // to-device events, but leaves room events alone. This makes sure that
+        // we have the decryption keys for the room events at hand.
         let (events, _room_key_updates) = if msc_4186 {
             olm_machine
                 .receive_sync_changes_msc4186(encryption_sync_changes, decryption_settings)
@@ -113,9 +112,9 @@ async fn process(
         Output { processed_to_device_events: events }
     } else {
         // If we have no `OlmMachine`, just return the clear events that were
-        // passed in. The encrypted ones are dropped as they are
-        // un-usable. This should not happen unless we forget to set
-        // things up by calling `Self::activate()`.
+        // passed in. The encrypted ones are dropped as they are un-usable. This
+        // should not happen unless we forget to set things up by calling
+        // `Self::activate()`.
         Output {
             processed_to_device_events: encryption_sync_changes
                 .to_device_events

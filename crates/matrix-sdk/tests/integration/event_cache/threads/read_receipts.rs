@@ -723,9 +723,9 @@ async fn test_read_receipt_from_store_used_as_latest_active() {
     let thread_id = event_id!("$t");
     let f = EventFactory::new().room(room_id).sender(*ALICE);
 
-    // Important test note: the read receipt must be in the state store *before*
-    // the event cache is subscribed to, so that it's not marked as active
-    // at start.
+    // Important test note: the read receipt must be in the state store _before_
+    // the event cache is subscribed to, so that it's not marked as active at
+    // start.
     server
         .sync_room(
             &client,

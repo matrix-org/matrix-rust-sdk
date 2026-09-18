@@ -72,9 +72,8 @@ async fn test_repeated_join_leave() -> Result<()> {
         assert_eq!(room.state(), RoomState::Joined);
 
         // Syncs can overwrite the internal state. If the sync lags behind
-        // because we change so often so fast, we can get errors in the
-        // asserts here. So we have to wait here a bit till the sync
-        // happened.
+        // because we change so often so fast, we can get errors in the asserts
+        // here. So we have to wait here a bit till the sync happened.
         room.sync_up().await;
 
         // Leave the room

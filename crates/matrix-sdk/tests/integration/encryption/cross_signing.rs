@@ -123,9 +123,8 @@ async fn test_reset_unstable_oauth() {
         .mount()
         .await;
 
-    // And finally succeed.
-    // This works because the first mocked endpoint that matches the path is
-    // used until it is invalidated by `up_to_n_times`.
+    // And finally succeed. This works because the first mocked endpoint that
+    // matches the path is used until it is invalidated by `up_to_n_times`.
     server
         .mock_upload_cross_signing_keys()
         .ok()
@@ -206,9 +205,8 @@ async fn test_reset_stable_oauth() {
         .mount()
         .await;
 
-    // And finally succeed.
-    // This works because the first mocked endpoint that matches the path is
-    // used until it is invalidated by `up_to_n_times`.
+    // And finally succeed. This works because the first mocked endpoint that
+    // matches the path is used until it is invalidated by `up_to_n_times`.
     server
         .mock_upload_cross_signing_keys()
         .expect_uiaa_auth_data(&expected_auth_data)

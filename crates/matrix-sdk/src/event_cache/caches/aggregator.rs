@@ -87,9 +87,9 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
                         .push(event.clone());
                 }
 
-                // `event` represents an annotation (e.g. reactions), a replacement (an edit), a
-                // reference or something custom. Let's see if the `related_event_id` is an
-                // in-thread event.
+                // `event` represents an annotation (e.g. reactions), a
+                // replacement (an edit), a reference or something custom. Let's
+                // see if the `related_event_id` is an in-thread event.
                 RelationType::Annotation
                 | RelationType::Replacement
                 | RelationType::Reference
@@ -101,12 +101,13 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
                         .rev()
                         .find(|event| event.event_id() == Some(&related_event_id))
                     {
-                        // The related event has been found in the `timeline`! Extract its thread
-                        // root.
+                        // The related event has been found in the `timeline`!
+                        // Extract its thread root.
                         Some(related_event) => extract_thread_root(related_event.raw()),
 
-                        // Not in `timeline`, okay, look for the related event in the `room` as it
-                        // knows about all the events, and then extract its thread root.
+                        // Not in `timeline`, okay, look for the related event
+                        // in the `room` as it knows about all the events, and
+                        // then extract its thread root.
                         None => match &maybe_room {
                             Some(room) => room.find_event(&related_event_id).await?.and_then(
                                 |(_location, related_event)| {
@@ -129,8 +130,8 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
             // No explicit relation, okay, but it can still be related to a thread!
             None => {
                 // We previously found events that are part of a thread, but we
-                // didn't see the thread root yet. And guess
-                // what? This might be this event!
+                // didn't see the thread root yet. And guess what? This might be
+                // this event!
                 if let Some(event_id) = event.event_id()
                     && existing_threads.contains_key(event_id)
                 {
@@ -229,9 +230,9 @@ pub fn aggregate_timeline_for_pinned_events(
                 // `event` relates to a thread: not what we want.
                 RelationType::Thread => {}
 
-                // `event` represents an annotation (e.g. reactions), a replacement (an edit), a
-                // reference or something custom. Let's see if the `related_event_id` is a
-                // pinned-event.
+                // `event` represents an annotation (e.g. reactions), a
+                // replacement (an edit), a reference or something custom. Let's
+                // see if the `related_event_id` is a pinned-event.
                 RelationType::Annotation
                 | RelationType::Replacement
                 | RelationType::Reference

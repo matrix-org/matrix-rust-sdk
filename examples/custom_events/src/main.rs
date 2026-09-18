@@ -1,11 +1,10 @@
-///
-///  This is an example showcasing how to build a very simple bot with custom
-/// events  using the matrix-sdk. To try it, you need a rust build setup, then
-/// you can run: `cargo run -p example-custom-events -- <homeserver_url> <user>
-/// <password>`
+/// This is an example showcasing how to build a very simple bot with custom
+/// events using the matrix-sdk. To try it, you need a rust build setup, then
+/// you can run:
+/// `cargo run -p example-custom-events -- <homeserver_url> <user> <password>`
 ///
 /// Use a second client to open a DM to your bot or invite them into some room.
-/// You should see it automatically join. Then post `!ping`  and observe the log
+/// You should see it automatically join. Then post `!ping` and observe the log
 /// of the bot. You will see that it sends the `Ping` event and upon receiving
 /// it responds with the `Ack` event send to the room. You won't see that in
 /// most regular clients, unless you activate showing of unknown events.
@@ -36,8 +35,8 @@ use matrix_sdk::{
 use serde::{Deserialize, Serialize};
 use tokio::time::{Duration, sleep};
 
-// We use ruma to define our custom events. Just declare the events content
-// by deriving from `EventContent` and define `ruma_events` for the metadata
+// We use ruma to define our custom events. Just declare the events content by
+// deriving from `EventContent` and define `ruma_events` for the metadata
 
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
 #[ruma_event(type = "rs.matrix-sdk.example.ping", kind = MessageLike)]
@@ -57,11 +56,11 @@ pub struct CustomContext {
     ping_counter: Arc<AtomicU64>,
 }
 
-// Deriving `EventContent` generates a few types and aliases,
-// like wrapping the content into full-blown events: for `PingEventContent` this
-// generates us `PingEvent` and `SyncPingEvent`, which have redaction support
-// and contain all the other event-metadata like event_id and room_id. We will
-// use that for `on_ping_event`.
+// Deriving `EventContent` generates a few types and aliases, like wrapping the
+// content into full-blown events: for `PingEventContent` this generates us
+// `PingEvent` and `SyncPingEvent`, which have redaction support and contain all
+// the other event-metadata like event_id and room_id. We will use that for
+// `on_ping_event`.
 
 // we want to start the ping-ack-flow on "!ping" messages.
 async fn on_regular_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
@@ -96,15 +95,16 @@ async fn on_ping_event(event: SyncPingEvent, room: Room, context: Ctx<CustomCont
     println!("ack sent");
 }
 
-// once logged in, this is called where we configure the handlers
-// and run the client
+// once logged in, this is called where we configure the handlers and run the
+// client
 async fn sync_loop(client: Client) -> anyhow::Result<()> {
     // invite acceptance as in the getting-started-client
     client.add_event_handler(on_stripped_state_member);
     let response = client.sync_once(SyncSettings::default()).await.unwrap();
 
     // our customisation:
-    //  - send `PingEvent` on `!ping` in any room
+    //
+    // - send `PingEvent` on `!ping` in any room
     client.add_event_handler(on_regular_room_message);
     //  - send `AckEvent` on `PingEvent` in any room
     client.add_event_handler(on_ping_event);
@@ -153,8 +153,8 @@ async fn on_stripped_state_member(
         let mut delay = 2;
 
         while let Err(err) = room.join().await {
-            // retry autojoin due to synapse sending invites, before the
-            // invited user can join for more information see
+            // retry autojoin due to synapse sending invites, before the invited
+            // user can join for more information see
             // https://github.com/matrix-org/synapse/issues/4345
             eprintln!("Failed to join room {} ({err:?}), retrying in {delay}s", room.room_id());
 

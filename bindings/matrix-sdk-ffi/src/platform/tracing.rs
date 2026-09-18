@@ -49,9 +49,9 @@ fn log_event(file: String, line: Option<u32>, level: LogLevel, target: String, m
         #[allow(trivial_casts)] // The compiler is lying, it can't infer this cast
         let values = [(&message_field, Some(&message as &dyn tracing::Value))];
 
-        // This function is hidden from docs, but we have to use it
-        // because there is no other way of obtaining a `ValueSet`.
-        // It's not entirely clear why it is private. See this issue:
+        // This function is hidden from docs, but we have to use it because
+        // there is no other way of obtaining a `ValueSet`. It's not entirely
+        // clear why it is private. See this issue:
         // https://github.com/tokio-rs/tracing/issues/2363
         let values = fields.value_set(&values);
         tracing::Event::dispatch(metadata, &values);
@@ -118,11 +118,11 @@ impl Span {
     /// Create a span originating at the given callsite (file, line and column).
     ///
     /// The target should be something like a module path, and can be referenced
-    /// in the filter string given to `setup_tracing`. `level` and `target`
-    /// for a callsite are fixed at the first creation of a span for that
-    /// callsite and can not be changed afterwards, i.e. the level and
-    /// target passed for second and following creation of a span with the same
-    /// callsite will be ignored.
+    /// in the filter string given to `setup_tracing`. `level` and `target` for
+    /// a callsite are fixed at the first creation of a span for that callsite
+    /// and can not be changed afterwards, i.e. the level and target passed for
+    /// second and following creation of a span with the same callsite will be
+    /// ignored.
     ///
     /// This function leaks a little bit of memory for each unique (file +
     /// line + level + target + name) it is called with. Please make sure that
@@ -137,7 +137,7 @@ impl Span {
     /// work, exiting a span must be done on the same thread where it was
     /// entered. It is possible to enter a span on multiple threads, in which
     /// case it should also be exited on all of them individually; that is,
-    /// unless you *want* the span to be attached to all further events created
+    /// unless you _want_ the span to be attached to all further events created
     /// on that thread.
     #[uniffi::constructor]
     pub fn new(
@@ -207,9 +207,9 @@ impl Span {
     }
 
     /// Creates a [`Span`] that acts as a bridge between the client spans and
-    /// the SDK ones, allowing them to be joined in Sentry. This function
-    /// will only return a valid span if the `sentry` feature is enabled,
-    /// otherwise it will return a noop span.
+    /// the SDK ones, allowing them to be joined in Sentry. This function will
+    /// only return a valid span if the `sentry` feature is enabled, otherwise
+    /// it will return a noop span.
     #[uniffi::constructor]
     pub fn new_bridge_span(target: String, parent_trace_id: Option<String>) -> Arc<Self> {
         if cfg!(feature = "sentry") {

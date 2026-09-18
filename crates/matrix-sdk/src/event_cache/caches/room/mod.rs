@@ -181,8 +181,8 @@ impl RoomEventCache {
 
     /// Try to find an event by ID in this room, along with its related events.
     ///
-    /// You can filter which types of related events to retrieve using
-    /// `filter`. `None` will retrieve related events of any type.
+    /// You can filter which types of related events to retrieve using `filter`.
+    /// `None` will retrieve related events of any type.
     ///
     /// The related events are sorted like this:
     ///
@@ -209,8 +209,8 @@ impl RoomEventCache {
 
     /// Try to find the related events for an event by ID in this room.
     ///
-    /// You can filter which types of related events to retrieve using
-    /// `filter`. `None` will retrieve related events of any type.
+    /// You can filter which types of related events to retrieve using `filter`.
+    /// `None` will retrieve related events of any type.
     ///
     /// The related events are sorted like this:
     ///
@@ -384,8 +384,7 @@ impl RoomEventCacheInner {
         }
     }
 
-    /// Handle a [`Timeline`], i.e. new events received by a sync for this
-    /// room.
+    /// Handle a [`Timeline`], i.e. new events received by a sync for this room.
     async fn handle_timeline(
         &self,
         timeline: Timeline,
@@ -1295,11 +1294,10 @@ mod timed_tests {
         // event, so no generic changes whatsoever!
         assert!(generic_stream.recv().now_or_never().is_none());
 
-        // The stream doesn't report these changes *yet*. Use the items vector
-        // given when subscribing, to check that the items correspond to
-        // their new positions. The duplicated item is removed (so it's
-        // not the first element anymore), and it's added to the back of
-        // the list.
+        // The stream doesn't report these changes _yet_. Use the items vector
+        // given when subscribing, to check that the items correspond to their
+        // new positions. The duplicated item is removed (so it's not the first
+        // element anymore), and it's added to the back of the list.
         let items = room_event_cache.events().await.unwrap();
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].event_id().unwrap(), event_id1);
@@ -1890,9 +1888,9 @@ mod timed_tests {
         assert_eq!(expected_room_id, room_id);
         assert!(generic_stream.is_empty());
 
-        // Have another subscriber.
-        // Since it's not the first one, and the previous one loaded some more
-        // events, the second subscribers sees them all.
+        // Have another subscriber. Since it's not the first one, and the
+        // previous one loaded some more events, the second subscribers sees
+        // them all.
         let (events2, stream2) = room_event_cache.subscribe().await.unwrap();
         assert_eq!(events2.len(), 2);
         assert_eq!(events2[0].event_id(), Some(evid1));
@@ -2136,8 +2134,7 @@ mod timed_tests {
         // Okay. We are ready for the test!
         //
         // First off, let's check `room_event_cache_p0` has access to the first
-        // event loaded in-memory, then do a pagination, and see more
-        // events.
+        // event loaded in-memory, then do a pagination, and see more events.
         let mut updates_stream_p0 = {
             let room_event_cache = &room_event_cache_p0;
 
@@ -2221,8 +2218,8 @@ mod timed_tests {
         // Do this a couple times, for the fun.
         for _ in 0..3 {
             // Third, because `room_event_cache_p1` has locked the store, the
-            // lock is dirty for `room_event_cache_p0`, so it will
-            // shrink to its last chunk!
+            // lock is dirty for `room_event_cache_p0`, so it will shrink to its
+            // last chunk!
             {
                 let room_event_cache = &room_event_cache_p0;
                 let updates_stream = &mut updates_stream_p0;
@@ -2231,8 +2228,7 @@ mod timed_tests {
                 assert!(event_loaded(room_event_cache, ev_id_1).await);
 
                 // However, `ev_id_0` must NOT be loaded in memory. It WAS
-                // loaded, but the state has been reloaded to
-                // its last chunk.
+                // loaded, but the state has been reloaded to its last chunk.
                 assert!(event_loaded(room_event_cache, ev_id_0).await.not());
 
                 // The reload can be observed via the updates too.
@@ -2273,8 +2269,8 @@ mod timed_tests {
             }
 
             // Fourth, because `room_event_cache_p0` has locked the store again,
-            // the lock is dirty for `room_event_cache_p1` too!, so
-            // it will shrink to its last chunk!
+            // the lock is dirty for `room_event_cache_p1` too!, so it will
+            // shrink to its last chunk!
             {
                 let room_event_cache = &room_event_cache_p1;
                 let updates_stream = &mut updates_stream_p1;
@@ -2283,8 +2279,7 @@ mod timed_tests {
                 assert!(event_loaded(room_event_cache, ev_id_1).await);
 
                 // However, `ev_id_0` must NOT be loaded in memory. It WAS
-                // loaded, but the state has shrunk to its last
-                // chunk.
+                // loaded, but the state has shrunk to its last chunk.
                 assert!(event_loaded(room_event_cache, ev_id_0).await.not());
 
                 // The reload can be observed via the updates too.
@@ -2335,8 +2330,8 @@ mod timed_tests {
                 let guard = room_event_cache.inner.state.read().await.unwrap();
 
                 // Guard is kept alive, to ensure we can have multiple read
-                // guards alive with a shared access.
-                // See `RoomEventCacheStateLock::read` to learn more.
+                // guards alive with a shared access. See
+                // `RoomEventCacheStateLock::read` to learn more.
 
                 // The lock is no longer marked as dirty, it's been cleaned.
                 assert!(guard.is_dirty().not());
@@ -2361,8 +2356,7 @@ mod timed_tests {
                 assert!(event_loaded(room_event_cache, ev_id_0).await.not());
 
                 // Ensure `guard` is alive up to this point (in case this test
-                // is refactored, I want to make this super
-                // explicit).
+                // is refactored, I want to make this super explicit).
                 //
                 // We drop need to drop it before the pagination because the
                 // pagination needs to obtain a write lock.
@@ -2418,8 +2412,7 @@ mod timed_tests {
                 assert!(event_loaded(room_event_cache, ev_id_0).await.not());
 
                 // Ensure `guard` is alive up to this point (in case this test
-                // is refactored, I want to make this super
-                // explicit).
+                // is refactored, I want to make this super explicit).
                 //
                 // We drop need to drop it before the pagination because the
                 // pagination needs to obtain a write lock.
@@ -2608,8 +2601,7 @@ mod timed_tests {
 
         // Create the `RoomEventCache` for `room_id_1`. During its creation, the
         // cross-process lock over the store MUST be dirty, which makes no
-        // difference as a clean one: the state is just loaded, not
-        // reloaded.
+        // difference as a clean one: the state is just loaded, not reloaded.
         let (room_event_cache_1_p0, _) =
             client_p0.get_room(room_id_1).unwrap().event_cache().await.unwrap();
 

@@ -55,15 +55,15 @@ use crate::IndexeddbStateStoreError;
 const CURRENT_DB_VERSION: u32 = 15;
 const CURRENT_META_DB_VERSION: u32 = 2;
 
-/// Sometimes Migrations can't proceed without having to drop existing
-/// data. This allows you to configure, how these cases should be handled.
+/// Sometimes Migrations can't proceed without having to drop existing data.
+/// This allows you to configure, how these cases should be handled.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MigrationConflictStrategy {
     /// Just drop the data, we don't care that we have to sync again
     Drop,
     /// Raise a [`IndexeddbStateStoreError::MigrationConflict`] error with the
-    /// path to the DB in question. The caller then has to take care about
-    /// what they want to do and try again after.
+    /// path to the DB in question. The caller then has to take care about what
+    /// they want to do and try again after.
     Raise,
     /// Default.
     BackupAndDrop,
@@ -165,23 +165,26 @@ pub async fn upgrade_inner_db(
     let mut db = Database::open(name).await?;
 
     // Even if the web-sys bindings expose the version as a f64, the IndexedDB
-    // API works with an unsigned integer.
-    // See <https://github.com/rustwasm/wasm-bindgen/issues/1149>
+    // API works with an unsigned integer. See
+    // [https://github.com/rustwasm/wasm-bindgen/issues/1149][https-github-com-rustwasm-wasm-bindgen-issues-1149]
+    //
+    // [https-github-com-rustwasm-wasm-bindgen-issues-1149]: https://github.com/rustwasm/wasm-bindgen/issues/1149
     let mut old_version = db.version() as u32;
 
     if old_version < CURRENT_DB_VERSION {
         // This is a hack, we need to open the database a first time to get the
-        // current version.
-        // The indexed_db_futures crate doesn't let us access the transaction so
-        // we can't migrate data inside the `onupgradeneeded` callback.
-        // Instead we see if we need to migrate some data before the
-        // upgrade, then let the store process the upgrade.
-        // See <https://github.com/Alorel/rust-indexed-db/issues/20>
+        // current version. The indexed_db_futures crate doesn't let us access
+        // the transaction so we can't migrate data inside the `onupgradeneeded`
+        // callback. Instead we see if we need to migrate some data before the
+        // upgrade, then let the store process the upgrade. See
+        // [https://github.com/Alorel/rust-indexed-db/issues/20][https-github-com-alorel-rust-indexed-db-issues-20]
+        //
+        // [https-github-com-alorel-rust-indexed-db-issues-20]: https://github.com/Alorel/rust-indexed-db/issues/20
         let has_store_cipher = store_cipher.is_some();
 
         // Inside the `onupgradeneeded` callback we would know whether it's a
-        // new DB because the old version would be set to 0, here it is
-        // already set to 1 so we check if the stores exist.
+        // new DB because the old version would be set to 0, here it is already
+        // set to 1 so we check if the stores exist.
         if old_version == 1 && db.object_store_names().next().is_none() {
             old_version = 0;
         }
@@ -264,10 +267,9 @@ pub async fn upgrade_inner_db(
             .with_version(CURRENT_DB_VERSION)
             .with_on_upgrade_needed(
                 move |evt: VersionChangeEvent, _: &Transaction<'_>| -> Result<(), Error> {
-                    // Sanity check.
-                    // There should be no upgrade needed since the database
-                    // should have already been upgraded to
-                    // the latest version.
+                    // Sanity check. There should be no upgrade needed since the
+                    // database should have already been upgraded to the latest
+                    // version.
                     panic!(
                         "Opening database that was not fully upgraded: \
                      DB version: {}; latest version: {CURRENT_DB_VERSION}",

@@ -162,8 +162,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
             }
             TimelineFocusKind::Event { .. } | TimelineFocusKind::PinnedEvents { .. } => {
                 // Don't add new items to these timelines; aggregations are
-                // added independently
-                // of the `should_add_new_items` value.
+                // added independently of the `should_add_new_items` value.
                 false
             }
         };
@@ -210,7 +209,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
     /// Replaces the existing events in the timeline with the given remote ones.
     ///
     /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
-    /// should be ordered in *reverse* topological order, that is, `events[0]`
+    /// should be ordered in _reverse_ topological order, that is, `events[0]`
     /// is the most recent.
     pub(super) async fn replace_with_remote_events<Events>(
         &mut self,

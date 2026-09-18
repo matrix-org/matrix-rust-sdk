@@ -102,13 +102,13 @@ pub(crate) enum Action {
         data: MatrixDriverRequestData,
     },
 
-    /// Subscribe to the events that the widget capabilities allow,
-    /// in the _current_ room, i.e. a room which this widget is instantiated
-    /// with. The client is aware of the room.
+    /// Subscribe to the events that the widget capabilities allow, in the
+    /// _current_ room, i.e. a room which this widget is instantiated with. The
+    /// client is aware of the room.
     Subscribe,
 
-    /// Unsubscribe from the events that the widget capabilities allow,
-    /// in the _current_ room. Symmetrical to `Subscribe`.
+    /// Unsubscribe from the events that the widget capabilities allow, in the
+    /// _current_ room. Symmetrical to `Subscribe`.
     Unsubscribe,
 }
 
@@ -122,9 +122,8 @@ struct InitialStateUpdate {
     /// for this update to be considered complete.
     request_count: usize,
     /// The data carried by any state updates which raced with the requests to
-    /// read the initial state. These should be pushed to the widget
-    /// immediately after pushing the initial state to ensure no data is
-    /// lost.
+    /// read the initial state. These should be pushed to the widget immediately
+    /// after pushing the initial state to ensure no data is lost.
     postponed_updates: Vec<Vec<Raw<AnyStateEvent>>>,
 }
 
@@ -151,12 +150,12 @@ pub(crate) struct WidgetMachine {
     ///
     /// Whenever the widget is approved to read a set of room state entries, we
     /// want to push an initial state to the widget in a single
-    /// [`NotifyStateUpdate`] action. However, multiple asynchronous
-    /// requests must be sent to the driver to gather this data. Therefore
-    /// we use this field to hold the responses to the driver requests while
-    /// some of them are still in flight. It is set to `Some` whenever the
-    /// widget is approved to read some room state, and reset to `None` as
-    /// soon as the [`NotifyStateUpdate`] action is emitted.
+    /// [`NotifyStateUpdate`] action. However, multiple asynchronous requests
+    /// must be sent to the driver to gather this data. Therefore we use this
+    /// field to hold the responses to the driver requests while some of them
+    /// are still in flight. It is set to `Some` whenever the widget is approved
+    /// to read some room state, and reset to `None` as soon as the
+    /// [`NotifyStateUpdate`] action is emitted.
     pending_state_updates: Option<InitialStateUpdate>,
 
     /// Current negotiation state for capabilities.
@@ -164,9 +163,9 @@ pub(crate) struct WidgetMachine {
 }
 
 impl WidgetMachine {
-    /// Creates a new instance of a client widget API state machine.
-    /// Returns the client api handler as well as the channel to receive
-    /// actions (commands) from the client.
+    /// Creates a new instance of a client widget API state machine. Returns the
+    /// client api handler as well as the channel to receive actions (commands)
+    /// from the client.
     pub(crate) fn new(
         widget_id: String,
         room_id: OwnedRoomId,
@@ -242,8 +241,7 @@ impl WidgetMachine {
                 match &mut self.pending_state_updates {
                     Some(InitialStateUpdate { postponed_updates, .. }) => {
                         // This state update is racing with the read requests
-                        // used to calculate the initial
-                        // state; postpone it
+                        // used to calculate the initial state; postpone it
                         postponed_updates.push(state);
                         Vec::new()
                     }
@@ -378,8 +376,8 @@ impl WidgetMachine {
                         vec![Self::send_from_widget_response(
                             raw_request,
                             // This is mapped to another type because the
-                            // update_delay_event::Response
-                            // does not impl Serialize
+                            // update_delay_event::Response does not impl
+                            // Serialize
                             result
                                 .map(Into::<UpdateDelayedEventResponse>::into)
                                 .map_err(FromWidgetErrorResponse::from_error),
@@ -452,15 +450,15 @@ impl WidgetMachine {
             }
             Some(state_key) => {
                 let allowed = match state_key.clone() {
-                    // If the widget tries to read any state event we can only skip sending the
-                    // request, if the widget does not have any capability for
-                    // the requested event type.
+                    // If the widget tries to read any state event we can only
+                    // skip sending the request, if the widget does not have any
+                    // capability for the requested event type.
                     StateKeySelector::Any => {
                         capabilities.has_read_filter_for_type(&request.event_type)
                     }
-                    // If we have a specific state key we will check if the widget has
-                    // the capability to read this specific state key and otherwise
-                    // skip sending the request.
+                    // If we have a specific state key we will check if the
+                    // widget has the capability to read this specific state key
+                    // and otherwise skip sending the request.
                     StateKeySelector::Key(state_key) => capabilities
                         .allow_reading(FilterInput::state(&request.event_type, &state_key)),
                 };
@@ -726,9 +724,9 @@ impl WidgetMachine {
         events: Vec<Raw<AnyStateEvent>>,
     ) -> Option<Vec<Action>> {
         // Pull the updates struct out of the machine temporarily so that we can
-        // match on it in one place, mutate it, and still be able to
-        // call `send_to_widget_request` later in this block (which
-        // borrows the machine mutably)
+        // match on it in one place, mutate it, and still be able to call
+        // `send_to_widget_request` later in this block (which borrows the
+        // machine mutably)
         match self.pending_state_updates.take() {
             None => {
                 error!(
@@ -743,8 +741,8 @@ impl WidgetMachine {
 
                 if updates.initial_state.len() != updates.request_count {
                     // Not all of the initial state requests have completed yet;
-                    // put the updates struct back so we can
-                    // continue accumulating the initial state.
+                    // put the updates struct back so we can continue
+                    // accumulating the initial state.
                     self.pending_state_updates = Some(updates);
                     return None;
                 }
@@ -754,13 +752,12 @@ impl WidgetMachine {
                 let initial =
                     self.send_state_update(updates.initial_state.into_iter().flatten().collect());
                 // Also flush any state updates that had been postponed until
-                // after the initial state push. We deliberately
-                // do not bundle these updates into a single action,
-                // since they might contain some repeated updates to the same
-                // room state entry which could confuse the
-                // widget if included in the same `events` array. It's
-                // easiest to let the widget process each update sequentially
-                // rather than put effort into coalescing them -
+                // after the initial state push. We deliberately do not bundle
+                // these updates into a single action, since they might contain
+                // some repeated updates to the same room state entry which
+                // could confuse the widget if included in the same `events`
+                // array. It's easiest to let the widget process each update
+                // sequentially rather than put effort into coalescing them -
                 // this is for an edge case after all.
                 let postponed = updates
                     .postponed_updates
@@ -775,9 +772,9 @@ impl WidgetMachine {
 
     /// Processes a response from the [`crate::widget::MatrixDriver`] saying
     /// that the widget is approved to acquire some capabilities. This will
-    /// store those capabilities in the state machine, notify the widget,
-    /// and then begin computing an initial state update if the widget
-    /// was approved to read room state.
+    /// store those capabilities in the state machine, notify the widget, and
+    /// then begin computing an initial state update if the widget was approved
+    /// to read room state.
     fn process_acquired_capabilities(
         &mut self,
         approved: Result<Capabilities, Error>,
@@ -807,9 +804,9 @@ impl WidgetMachine {
 
         if !state_filters.is_empty() {
             // Begin accumulating the initial state to be pushed to the widget.
-            // Since this widget driver currently doesn't implement
-            // capability renegotiation, we can be sure that we
-            // aren't overwriting another in-progress update.
+            // Since this widget driver currently doesn't implement capability
+            // renegotiation, we can be sure that we aren't overwriting another
+            // in-progress update.
             if self.pending_state_updates.is_some() {
                 // Or so we should be. Let's at least log something if we ever
                 // break that invariant.
@@ -823,8 +820,8 @@ impl WidgetMachine {
         }
 
         // For each room state filter that the widget has been approved to read,
-        // fire off a request to the driver to determine the initial
-        // values of the matching room state entries
+        // fire off a request to the driver to determine the initial values of
+        // the matching room state entries
         let initial_state_actions = state_filters.iter().flat_map(|filter| {
             self.send_matrix_driver_request(match filter {
                 StateEventFilter::WithType(event_type) => ReadStateRequest {
@@ -842,9 +839,8 @@ impl WidgetMachine {
                         .process_read_initial_state_response(result.unwrap_or_else(|e| {
                             error!("Reading initial room state failed: {e}");
                             // Pretend that we just got an empty response so the
-                            // initial state
-                            // update won't be completely blocked on this one
-                            // bit of missing data
+                            // initial state update won't be completely blocked
+                            // on this one bit of missing data
                             Vec::new()
                         }))
                         .unwrap_or_default()
@@ -882,11 +878,10 @@ impl WidgetMachine {
     /// Performs an initial capability negotiation handshake.
     ///
     /// The sequence is as follows: the machine sends a [`RequestCapabilities`]
-    /// `toWidget` action, the widget responds with its requested
-    /// capabilities, the machine attempts to acquire the
-    /// requested capabilities from the driver, then it sends a
-    /// [`NotifyCapabilitiesChanged`] `toWidget` action to tell the widget
-    /// which capabilities were approved.
+    /// `toWidget` action, the widget responds with its requested capabilities,
+    /// the machine attempts to acquire the requested capabilities from the
+    /// driver, then it sends a [`NotifyCapabilitiesChanged`] `toWidget` action
+    /// to tell the widget which capabilities were approved.
     fn negotiate_capabilities(&mut self) -> Vec<Action> {
         let mut actions = Vec::new();
 

@@ -73,7 +73,7 @@ pub enum EnforceThread {
     MaybeThreaded,
 
     /// A thread relation is not enforced. If the original message has a thread
-    /// relation, it is *not* forwarded.
+    /// relation, it is _not_ forwarded.
     Unthreaded,
 }
 
@@ -86,9 +86,9 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `content` - The content to reply with
-    /// * `event_id` - ID of the event to reply to
-    /// * `enforce_thread` - Whether to enforce a thread relation
+    /// - `content` - The content to reply with
+    /// - `event_id` - ID of the event to reply to
+    /// - `enforce_thread` - Whether to enforce a thread relation
     #[instrument(skip(self, content), fields(room = %self.room_id()))]
     pub async fn make_reply_event(
         &self,
@@ -120,11 +120,11 @@ async fn make_reply_event<S: EventSource>(
 
     let reply_metadata = ReplyMetadata::new(event.event_id(), event.sender(), thread);
 
-    // [The specification](https://spec.matrix.org/v1.10/client-server-api/#user-and-room-mentions) says:
+    // [The specification](https://spec.matrix.org/v1.10/client-server-api/#user-and-room-mentions)
+    // says:
     //
     // > Users should not add their own Matrix ID to the `m.mentions` property
-    // > as
-    // > outgoing messages cannot self-notify.
+    // > as outgoing messages cannot self-notify.
     //
     // If the replied to event has been written by the current user, let's
     // toggle to `AddMentions::No`.

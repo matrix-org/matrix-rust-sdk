@@ -76,8 +76,8 @@ impl EventHandlerMaps {
         room_id: Option<&'a RoomId>,
     ) -> impl Iterator<Item = (EventHandlerHandle, &'a EventHandlerFn)> + 'a {
         // Use get_key_value instead of just get to be able to access the
-        // event_type from the BTreeMap key as &'static str, required
-        // for EventHandlerHandle.
+        // event_type from the BTreeMap key as &'static str, required for
+        // EventHandlerHandle.
         let kind_kv = self.by_kind.get_key_value(&ev_kind).map(|(_, handlers)| (None, handlers));
         let kind_type_kv = self
             .by_kind_type
@@ -279,8 +279,8 @@ struct KindTypeRoomId<'a> {
     room_id: OwnedRoomId,
 }
 
-// These lifetime-generic impls are what makes it possible to obtain a
-// &'static str event type from get_key_value in call_event_handlers.
+// These lifetime-generic impls are what makes it possible to obtain a &'static
+// str event type from get_key_value in call_event_handlers.
 impl<'a> Borrow<KindType<'a>> for KindTypeWrap {
     fn borrow(&self) -> &KindType<'a> {
         &self.0

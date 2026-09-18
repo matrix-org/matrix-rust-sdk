@@ -61,8 +61,8 @@ async fn test_new_pinned_events_are_not_added_on_sync() {
         .mount()
         .await;
 
-    // Load initial timeline items: a `m.room.pinned_events` with events $1 and
-    // $2 pinned
+    // Load initial timeline items: a `m.room.pinned_events` with events
+    // $1 and $2 pinned
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec!["$1", "$2"])
         .mock_and_sync(&client, &server)
@@ -433,8 +433,8 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
         .mount()
         .await;
 
-    // Load initial timeline items: a `m.room.pinned_events` with event $1 and
-    // $2 pinned
+    // Load initial timeline items: a `m.room.pinned_events` with event
+    // $1 and $2 pinned
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec!["$1", "$2"])
         .mock_and_sync(&client, &server)
@@ -496,9 +496,9 @@ async fn test_pinned_timeline_with_pinned_event_ids_and_empty_result_fails() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    // Load initial timeline items: a `m.room.pinned_events` with event $1 and
-    // $2 pinned, but they're not available neither in the cache nor in the
-    // HS
+    // Load initial timeline items: a `m.room.pinned_events` with event
+    // $1 and $2 pinned, but they're not available neither in the cache nor in
+    // the HS
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec!["$1", "$2"])
         .mock_and_sync(&client, &server)

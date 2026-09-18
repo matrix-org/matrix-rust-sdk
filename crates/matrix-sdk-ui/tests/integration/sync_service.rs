@@ -182,8 +182,7 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
             } else if conn_id == "room-list" {
                 if num_room_list_requests == 0 {
                     // Either it's the same pos, or it's the next one if the
-                    // request could be processed by the
-                    // client.
+                    // request could be processed by the client.
                     let mut current_pos = None;
                     for (key, val) in request.url.query_pairs() {
                         if key == "pos" {

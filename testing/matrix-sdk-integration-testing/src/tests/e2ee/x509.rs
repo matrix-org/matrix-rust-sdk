@@ -23,9 +23,8 @@ async fn test_user_is_not_verified_if_their_msk_is_not_signed() -> anyhow::Resul
     // This is the base case: with no X.509 code running at all, users are
     // unverified.
     //
-    // Alice has no X.509 key pair.
-    // Alice registers on the server. They do not sign the MSK with any X.509
-    // key.
+    // Alice has no X.509 key pair. Alice registers on the server. They do not
+    // sign the MSK with any X.509 key.
     let alice = create_encryption_enabled_client("alice", None, None)
         .instrument(alice_span.clone())
         .await?;
@@ -151,8 +150,8 @@ async fn test_user_is_not_verified_if_we_dont_trust_their_cert() -> anyhow::Resu
 ///
 /// # Arguments
 ///
-/// * `username` - The username for the client.
-/// * `exclude_insecure_devices` - A boolean indicating whether to exclude
+/// - `username` - The username for the client.
+/// - `exclude_insecure_devices` - A boolean indicating whether to exclude
 ///   insecure devices.
 async fn create_encryption_enabled_client(
     username: &str,
@@ -178,8 +177,8 @@ async fn create_encryption_enabled_client(
     Ok(client)
 }
 
-/// Generate a little certificate authority i.e. a key pair and a
-/// self-signed certificate.
+/// Generate a little certificate authority i.e. a key pair and a self-signed
+/// certificate.
 fn ca_cert() -> (Certificate, KeyPair) {
     set_up_default_crypto_provider();
 
@@ -191,19 +190,17 @@ fn ca_cert() -> (Certificate, KeyPair) {
     (cert_params.self_signed(&signing_key).expect("Failed to generate certificate"), signing_key)
 }
 
-/// Create a certificate that contains the supplied email address in its
-/// Subject Distinguished Name, and is signed by the supplied certificate
-/// authority.
+/// Create a certificate that contains the supplied email address in its Subject
+/// Distinguished Name, and is signed by the supplied certificate authority.
 ///
 /// Note: https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.6 says:
 ///
-/// > Legacy implementations exist where an electronic mail address is
-/// > embedded in the subject distinguished name as an emailAddress
-/// > attribute [RFC2985].
+/// > Legacy implementations exist where an electronic mail address is embedded
+/// > in the subject distinguished name as an emailAddress attribute [RFC2985].
 ///
 /// So this is a legacy implementation. To be non-legacy it should, at a
-/// minimum, include the email address in the Subject Alternative Name
-/// as well as in Subject Distinguished Name.
+/// minimum, include the email address in the Subject Alternative Name as well
+/// as in Subject Distinguished Name.
 fn cert_and_key_with_email_signed_by(
     email: &str,
     ca_cert: &Certificate,
@@ -253,8 +250,8 @@ async fn username_and_email(prefix: &str) -> (String, String) {
     (username, email)
 }
 
-/// Build an X.509 "SubjectKeyIdentifier" extension for a cert with the
-/// given public key.
+/// Build an X.509 "SubjectKeyIdentifier" extension for a cert with the given
+/// public key.
 pub(crate) fn subject_key_identifier_extension(
     signing_key: &impl PublicKeyData,
 ) -> CustomExtension {
@@ -263,9 +260,8 @@ pub(crate) fn subject_key_identifier_extension(
     use sha2::{Digest, Sha256};
 
     // The actual bytes in the SKI don't actually matter that much (and the RFC
-    // just makes a couple of suggestions): they just need to be a
-    // reasonably unique way of referring to the certificate with the right
-    // public key.
+    // just makes a couple of suggestions): they just need to be a reasonably
+    // unique way of referring to the certificate with the right public key.
     let spki = signing_key.subject_public_key_info();
     let spki_hash = Sha256::digest(&spki);
     let ski_bytes = &spki_hash.as_slice()[0..20];

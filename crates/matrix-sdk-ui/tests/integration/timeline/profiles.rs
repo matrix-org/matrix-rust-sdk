@@ -37,9 +37,9 @@ async fn test_user_profile_after_being_banned() {
     let timeline = Arc::new(room.timeline().await.unwrap());
 
     // Build a simple timeline with Bob joining the room, Alice accepting an
-    // invite, sending some messages, and then getting banned by Bob.
-    // Alice's profile should be unavailable after the ban, while Bob's
-    // profile should be unaffected.
+    // invite, sending some messages, and then getting banned by Bob. Alice's
+    // profile should be unavailable after the ban, while Bob's profile should
+    // be unaffected.
     server
         .sync_room(
             &client,
@@ -78,9 +78,8 @@ async fn test_user_profile_after_being_banned() {
     // Date divider + 6 events
     assert_eq!(timeline_items.len(), 7);
 
-    // Alice's profile, and therefore display name, should be empty,
-    // as she has been banned. The SDK **should** return an empty
-    // profile for banned users.
+    // Alice's profile, and therefore display name, should be empty, as she has
+    // been banned. The SDK **should** return an empty profile for banned users.
     // We are only checking Alice's profile here, as we check Bob's profile in a
     // separate test
     let alice_event = timeline_items[4].as_event().unwrap();
@@ -109,8 +108,7 @@ async fn test_user_profile_after_leaving() {
     let timeline = Arc::new(room.timeline().await.unwrap());
 
     // Build a simple timeline with Bob joining the room, Alice accepting an
-    // invite and sending a message, Bob sending a message, and Alice
-    // leaving
+    // invite and sending a message, Bob sending a message, and Alice leaving
     server
         .sync_room(
             &client,

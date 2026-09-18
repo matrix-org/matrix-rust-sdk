@@ -82,13 +82,13 @@ impl<'a> SendMessageLikeEvent<'a> {
     /// The transaction ID is a locally-unique ID describing a message
     /// transaction with the homeserver.
     ///
-    /// * On the sending side, this field is used for re-trying earlier failed
-    ///   transactions. Subsequent messages *must never* re-use an earlier
+    /// - On the sending side, this field is used for re-trying earlier failed
+    ///   transactions. Subsequent messages _must never_ re-use an earlier
     ///   transaction ID.
-    /// * On the receiving side, the field is used for recognizing our own
+    /// - On the receiving side, the field is used for recognizing our own
     ///   messages when they arrive down the sync: the server includes the ID in
     ///   the [`MessageLikeUnsigned`] field `transaction_id` of the
-    ///   corresponding [`SyncMessageLikeEvent`], but only for the *sending*
+    ///   corresponding [`SyncMessageLikeEvent`], but only for the _sending_
     ///   device. Other devices will not see it. This is then used to ignore
     ///   events sent by our own device and/or to implement local echo.
     pub fn with_transaction_id(mut self, txn_id: OwnedTransactionId) -> Self {
@@ -150,13 +150,13 @@ impl<'a> SendRawMessageLikeEvent<'a> {
     /// Since sending message-like events always requires a transaction ID, one
     /// is generated if this method is not called.
     ///
-    /// * On the sending side, this field is used for re-trying earlier failed
-    ///   transactions. Subsequent messages *must never* re-use an earlier
+    /// - On the sending side, this field is used for re-trying earlier failed
+    ///   transactions. Subsequent messages _must never_ re-use an earlier
     ///   transaction ID.
-    /// * On the receiving side, the field is used for recognizing our own
+    /// - On the receiving side, the field is used for recognizing our own
     ///   messages when they arrive down the sync: the server includes the ID in
     ///   the [`MessageLikeUnsigned`] field `transaction_id` of the
-    ///   corresponding [`SyncMessageLikeEvent`], but only for the *sending*
+    ///   corresponding [`SyncMessageLikeEvent`], but only for the _sending_
     ///   device. Other devices will not see it. This is then used to ignore
     ///   events sent by our own device and/or to implement local echo.
     pub fn with_transaction_id(mut self, txn_id: &TransactionId) -> Self {
@@ -375,6 +375,7 @@ impl<'a> SendRawStateEvent<'a> {
     /// sending.
     ///
     /// This method checks two conditions:
+    ///
     /// 1. Whether the room supports encrypted state events, by inspecting the
     ///    room's encryption state.
     /// 2. Whether the event type is considered "critical" or excluded from
@@ -528,8 +529,8 @@ async fn ensure_room_encryption_ready(room: &Room) -> Result<()> {
     // Query keys in case we don't have them for newly synced members.
     //
     // Note we do it all the time, because we might have sync'd members before
-    // sending a message (so didn't enter the above branch), but
-    // could have not query their keys ever.
+    // sending a message (so didn't enter the above branch), but could have not
+    // query their keys ever.
     room.query_keys_for_untracked_or_dirty_users().await?;
 
     room.preshare_room_key().await?;

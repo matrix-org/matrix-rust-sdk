@@ -74,15 +74,15 @@ pub struct MakeJsLogWriter {
     ///
     /// Since [`MakeWriter`]s need to be [`Send`], and references to JS-side
     /// objects are not `Send`, we cannot refer directly to the logger here. In
-    /// practice, the lack of `Send` shouldn't be a problem, because there
-    /// will only ever be one thread in the WASM environment, but the types
-    /// don't know that.
+    /// practice, the lack of `Send` shouldn't be a problem, because there will
+    /// only ever be one thread in the WASM environment, but the types don't
+    /// know that.
     ///
     /// So, we indirect through a thread-local hashmap instance. Each time we
-    /// construct a new `MakeJsLogWriter` backed by a `JsLogger`, we assign
-    /// it a unique ID; we then store that ID in the thread-local hashmap.
-    /// Then, when we come to use the logger, provided we are really
-    /// in the same thread, we can look up the logger in the map.
+    /// construct a new `MakeJsLogWriter` backed by a `JsLogger`, we assign it a
+    /// unique ID; we then store that ID in the thread-local hashmap. Then, when
+    /// we come to use the logger, provided we are really in the same thread, we
+    /// can look up the logger in the map.
     logger_id: Option<u32>,
 }
 
@@ -334,7 +334,7 @@ pub type JsLoggingSubscriber =
 ///
 /// # Arguments
 ///
-/// * `logger` - if `None`, logs will be sent to the JS console. Otherwise, must
+/// - `logger` - if `None`, logs will be sent to the JS console. Otherwise, must
 ///   be a reference to a javascript object implementing `debug`, `info`, `warn`
 ///   and `error` methods each taking a single `String` parameter.
 pub fn make_tracing_subscriber(logger: Option<JsLogger>) -> JsLoggingSubscriber {

@@ -137,10 +137,11 @@ impl Serialize for Capabilities {
                     Filter::MessageLike(filter) => PrintMessageLikeEventFilter(filter).fmt(f),
                     Filter::State(filter) => PrintStateEventFilter(filter).fmt(f),
                     Filter::ToDevice(filter) => {
-                        // As per MSC 3819 https://github.com/matrix-org/matrix-spec-proposals/pull/3819
+                        // As per MSC 3819
+                        // https://github.com/matrix-org/matrix-spec-proposals/pull/3819
                         // ToDevice capabilities is in the form of
-                        // `m.send.to_device:<event type>`
-                        // or `m.receive.to_device:<event type>`
+                        // `m.send.to_device:<event type>` or
+                        // `m.receive.to_device:<event type>`
                         write!(f, "{}", filter.event_type)
                     }
                 }

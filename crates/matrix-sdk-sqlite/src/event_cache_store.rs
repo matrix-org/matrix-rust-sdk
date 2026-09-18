@@ -115,8 +115,7 @@ impl Encryption {
         self.encode_key(table_name, event_id)
     }
 
-    /// Encode the room ID as a _key_: it cannot be decoded, but this is
-    /// stable.
+    /// Encode the room ID as a _key_: it cannot be decoded, but this is stable.
     fn encode_room_id(&self, table_name: &str, room_id: &RoomId) -> Key {
         self.encode_key(table_name, room_id)
     }
@@ -481,8 +480,8 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     if version < 1 {
         debug!("Creating database");
         // First turn on WAL mode, this can't be done in the transaction, it
-        // fails with the error message: "cannot change into wal mode
-        // from within a transaction".
+        // fails with the error message: "cannot change into wal mode from
+        // within a transaction".
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/001_init.sql"))?;
@@ -811,8 +810,8 @@ impl EventCacheStore for SqliteEventCacheStore {
                             txn.execute("UPDATE linked_chunks SET previous = ? WHERE id = ? AND linked_chunk_id = ?", (previous, next, &hashed_linked_chunk_id))?;
                         }
 
-                        // Now delete it, and let cascading delete corresponding entries in the
-                        // other data tables.
+                        // Now delete it, and let cascading delete corresponding
+                        // entries in the other data tables.
                         txn.execute("DELETE FROM linked_chunks WHERE id = ? AND linked_chunk_id = ?", (chunk_id, &hashed_linked_chunk_id))?;
                     }
 
@@ -830,10 +829,12 @@ impl EventCacheStore for SqliteEventCacheStore {
                             "INSERT INTO event_chunks(chunk_id, linked_chunk_id, event_id, position) VALUES (?, ?, ?, ?)"
                         )?;
 
-                        // Note: we use `OR REPLACE` here, because the event might have been
-                        // already inserted in the database. This is the case when an event is
-                        // deduplicated and moved to another position; or because it was inserted
-                        // outside the context of a linked chunk (e.g. pinned event).
+                        // Note: we use `OR REPLACE` here, because the event
+                        // might have been already inserted in the database.
+                        // This is the case when an event is deduplicated and
+                        // moved to another position; or because it was inserted
+                        // outside the context of a linked chunk (e.g. pinned
+                        // event).
                         let mut content_statement = txn.prepare(
                             "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)"
                         )?;
@@ -854,10 +855,11 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                         for (i, (event_id, event_type, event)) in items.into_iter().filter_map(invalid_event).enumerate() {
                             let hashed_event_id = encryption.encode_event_id(
-                                // For the event ID, we need a stable hash between the `events`
-                                // and `event_chunks` tables. That's why we use `keys::EVENTS`
-                                // even if `hashed_event_id` is sometimes only used in
-                                // `events_chunks`.
+                                // For the event ID, we need a stable hash
+                                // between the `events` and `event_chunks`
+                                // tables. That's why we use `keys::EVENTS` even
+                                // if `hashed_event_id` is sometimes only used
+                                // in `events_chunks`.
                                 keys::EVENTS,
                                 &event_id,
                             );
@@ -907,10 +909,11 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                         let hashed_event_id = encryption.encode_event_id(keys::EVENTS, &event_id);
 
-                        // Before updating the event in its chunk, we must ensure the event exists:
-                        // either we insert it, or we update it. Note that it's possible to replace
-                        // an event by itself (with different encryption info for example, or from
-                        // UTD to decrypted, stuff like that).
+                        // Before updating the event in its chunk, we must
+                        // ensure the event exists: either we insert it, or we
+                        // update it. Note that it's possible to replace an
+                        // event by itself (with different encryption info for
+                        // example, or from UTD to decrypted, stuff like that).
 
                         // Table `events`.
                         {
@@ -957,7 +960,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // Imagine we have the following events:
                         //
                         // | event_id | linked_chunk_id | chunk_id | position |
-                        // |----------|-----------------|----------|----------|
+                        // | -------- | --------------- | -------- | -------- |
                         // | $ev0     | !r0             | 42       | 0        |
                         // | $ev1     | !r0             | 42       | 1        |
                         // | $ev2     | !r0             | 42       | 2        |
@@ -967,11 +970,12 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // `$ev2` has been removed, then we end up in this
                         // state:
                         //
-                        // | event_id | linked_chunk_id    | chunk_id | position |
-                        // |----------|--------------------|----------|----------|
-                        // | $ev0     | !r0                | 42       | 0        |
-                        // | $ev1     | !r0                | 42       | 1        |
-                        // |          |                    |          |          | <- no more `$ev2`
+                        // | event_id | linked_chunk_id | chunk_id | position |
+                        // | -------- | --------------- | -------- | -------- |
+                        // | $ev0     | !r0             | 42       | 0        |
+                        // | $ev1     | !r0             | 42       | 1        |
+                        //
+                        // | | | | | <- no more `$ev2`
                         // | $ev3     | !r0                | 42       | 3        |
                         // | $ev4     | !r0                | 42       | 4        |
                         //
@@ -979,7 +983,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // to `position - 1`, like so:
                         //
                         // | event_id | linked_chunk_id | chunk_id | position |
-                        // |----------|-----------------|----------|----------|
+                        // | -------- | --------------- | -------- | -------- |
                         // | $ev0     | !r0             | 42       | 0        |
                         // | $ev1     | !r0             | 42       | 1        |
                         // | $ev3     | !r0             | 42       | 2        |
@@ -997,9 +1001,10 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // order. It means that it can update `$ev4` before
                         // `$ev3` for example. What happens in this particular
                         // case? The `position` of `$ev4` becomes `3`, however
-                        // `$ev3` already has `position = 3`. Because there
-                        // is a `UNIQUE` constraint on `(linked_chunk_id, chunk_id,
-                        // position)`, it will result in a constraint violation.
+                        // `$ev3` already has `position = 3`. Because there is a
+                        // `UNIQUE` constraint on
+                        // `(linked_chunk_id, chunk_id, position)`, it will
+                        // result in a constraint violation.
                         //
                         // There is **no way** to control the execution order of
                         // `UPDATE` in SQLite. To persuade yourself, try:
@@ -1041,13 +1046,14 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // - Do `position = position - 1` but in the negative
                         //   space, so `position = -(position - 1)`. A position
                         //   cannot be negative; we are sure it is unique!
-                        // - Once all candidate rows are updated, do `position =
-                        //   -position` to move back to the positive space.
+                        // - Once all candidate rows are updated, do
+                        //   `position = -position` to move back to the positive
+                        //   space.
                         //
                         // 'told you it's gonna be creative.
                         //
-                        // This solution is a hack, **but** it is a small
-                        // number of operations, and we can keep the `UNIQUE`
+                        // This solution is a hack, **but** it is a small number
+                        // of operations, and we can keep the `UNIQUE`
                         // constraint in place.
                         txn.execute(
                             r#"
@@ -1166,33 +1172,36 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await?
             .with_transaction(move |txn| -> Result<_> {
                 // We want to collect the metadata about each chunk (id, next,
-                // previous), and for event chunks, the number
-                // of events in it. For gaps, the
-                // number of events is 0, by convention.
+                // previous), and for event chunks, the number of events in it.
+                // For gaps, the number of events is 0, by convention.
                 //
                 // We've tried different strategies over time:
-                // - use a `LEFT JOIN` + `COUNT`, which was extremely inefficient because it
-                //   caused a full table traversal for each chunk, including for gaps which
-                //   don't have any events. This happened in
+                //
+                // - use a `LEFT JOIN` + `COUNT`, which was extremely
+                //   inefficient because it caused a full table traversal for
+                //   each chunk, including for gaps which don't have any events.
+                //   This happened in
                 //   https://github.com/matrix-org/matrix-rust-sdk/pull/5225.
-                // - use a `CASE` statement on the chunk's type: if it's an event chunk, run an
-                //   additional `SELECT` query. It was an immense improvement, but still caused
-                //   one select query per event chunk. This happened in
+                // - use a `CASE` statement on the chunk's type: if it's an
+                //   event chunk, run an additional `SELECT` query. It was an
+                //   immense improvement, but still caused one select query per
+                //   event chunk. This happened in
                 //   https://github.com/matrix-org/matrix-rust-sdk/pull/5411.
                 //
                 // The current solution is to run two queries:
+                //
                 // - one to get each chunk and its number of events, by doing a
                 //   single `SELECT` query over the `event_chunks` table,
-                //   grouping by chunk ids. This gives us a list of `(chunk_id,
-                //   num_events)` pairs, which can be transformed into a
-                //   hashmap.
+                //   grouping by chunk ids. This gives us a list of
+                //   `(chunk_id, num_events)` pairs, which can be transformed
+                //   into a hashmap.
                 // - one to get each chunk's metadata (id, previous, next, type)
                 //   from the database with a `SELECT`, and then use the hashmap
                 //   to get the number of events.
                 //
                 // This strategy minimizes the number of queries to the
-                // database, and keeps them super simple, while
-                // doing a bit more processing here, which is much faster.
+                // database, and keeps them super simple, while doing a bit more
+                // processing here, which is much faster.
 
                 let num_events_by_chunk_ids = txn
                     .prepare(
@@ -1228,12 +1237,11 @@ impl EventCacheStore for SqliteEventCacheStore {
                     let (id, previous, next, chunk_type) = data?;
 
                     // Note: since a gap has 0 events, an alternative could be
-                    // to *not* retrieve the chunk type, and
-                    // just let the hashmap lookup fail for gaps. However,
-                    // benchmarking shows that this is slightly slower than
-                    // matching the chunk type (around 1%,
-                    // so in the realm of noise), so we keep the explicit
-                    // check instead.
+                    // to _not_ retrieve the chunk type, and just let the
+                    // hashmap lookup fail for gaps. However, benchmarking shows
+                    // that this is slightly slower than matching the chunk type
+                    // (around 1%, so in the realm of noise), so we keep the
+                    // explicit check instead.
                     let num_items = if chunk_type == CHUNK_TYPE_GAP_TYPE_STRING {
                         0
                     } else {
@@ -1276,10 +1284,10 @@ impl EventCacheStore for SqliteEventCacheStore {
                         (&hashed_linked_chunk_id,),
                         |row| {
                             Ok((
-                                // Read the `MAX(id)` as an `Option<u64>` instead
-                                // of `u64` in case the `SELECT` returns nothing.
-                                // Indeed, if it returns no line, the `MAX(id)` is
-                                // set to `Null`.
+                                // Read the `MAX(id)` as an `Option<u64>`
+                                // instead of `u64` in case the `SELECT` returns
+                                // nothing. Indeed, if it returns no line, the
+                                // `MAX(id)` is set to `Null`.
                                 row.get::<_, Option<u64>>(0)?,
                                 row.get::<_, u64>(1)?,
                             ))
@@ -1312,15 +1320,17 @@ impl EventCacheStore for SqliteEventCacheStore {
                     )
                     .optional()?
                 else {
-                    // Chunk is not found and there are zero chunks for this room, this is consistent, all
-                    // good.
+                    // Chunk is not found and there are zero chunks for this
+                    // room, this is consistent, all good.
                     if number_of_chunks == 0 {
                         return Ok((None, chunk_identifier_generator));
                     }
-                    // Chunk is not found **but** there are chunks for this room, this is inconsistent. The
-                    // linked chunk is malformed.
+                    // Chunk is not found **but** there are chunks for this
+                    // room, this is inconsistent. The linked chunk is
+                    // malformed.
                     //
-                    // Returning `Ok((None, _))` would be invalid here: we must return an error.
+                    // Returning `Ok((None, _))` would be invalid here: we must
+                    // return an error.
                     else {
                         return Err(Error::InvalidData {
                             details:
@@ -1525,8 +1535,9 @@ impl EventCacheStore for SqliteEventCacheStore {
                             {
                                 let linked_chunk_id = encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &linked_chunk_id);
 
-                                // Remove all the chunks about the current `LinkedChunkId`, and let cascading
-                                // do its job.
+                                // Remove all the chunks about the current
+                                // `LinkedChunkId`, and let cascading do its
+                                // job.
                                 delete.execute((&linked_chunk_id,))?;
                             }
                         }
@@ -1563,9 +1574,8 @@ impl EventCacheStore for SqliteEventCacheStore {
         let _timer = timer!("method");
 
         // If there's no events for which we want to check duplicates, we can
-        // return early. It's not only an optimization to do so: it's
-        // required, otherwise the `host_parameters` call below will
-        // panic.
+        // return early. It's not only an optimization to do so: it's required,
+        // otherwise the `host_parameters` call below will panic.
         if event_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -1618,8 +1628,8 @@ impl EventCacheStore for SqliteEventCacheStore {
                                     |(_event_id, hashed_event_id)| {
                                         hashed_event_id
                                             .to_sql()
-                                            // SAFETY: it cannot fail since `Vec::<u8>::to_sql`
-                                            // never fails
+                                            // SAFETY: it cannot fail since
+                                            // `Vec::<u8>::to_sql` never fails
                                             .unwrap()
                                     },
                                 ),
@@ -1641,10 +1651,9 @@ impl EventCacheStore for SqliteEventCacheStore {
                                 duplicated_event?;
 
                             // The event ID is encoded in the database. We can't
-                            // decode it. However,
-                            // we can find the original event ID with the
-                            // `event_ids` parameter of
-                            // this method by comparing the encoded event ID!
+                            // decode it. However, we can find the original
+                            // event ID with the `event_ids` parameter of this
+                            // method by comparing the encoded event ID!
                             let Some(duplicated_event_id) = event_ids_and_hashed_event_ids
                                 .iter()
                                 .find_map(|(event_id, hashed_event_id)| {
@@ -1751,9 +1760,10 @@ impl EventCacheStore for SqliteEventCacheStore {
         self.read()
             .await?
             .with_transaction(move |txn| -> Result<_> {
-                // I'm not sure why clippy claims that the clones aren't required. The compiler
-                // tells us that the lifetimes aren't long enough if we remove them. Doesn't matter
-                // much so let's silence things.
+                // I'm not sure why clippy claims that the clones aren't
+                // required. The compiler tells us that the lifetimes aren't
+                // long enough if we remove them. Doesn't matter much so let's
+                // silence things.
                 #[allow(clippy::redundant_clone)]
                 let (query, keys) = match (hashed_event_type, hashed_session_id) {
                     (None, None) => {
@@ -1870,8 +1880,8 @@ fn find_event_relations_transaction(
             let event = encryption.decode_event(&event)?;
 
             // Only build the position if both the chunk_id and position were
-            // present; in theory, they should either be present at
-            // the same time, or not at all.
+            // present; in theory, they should either be present at the same
+            // time, or not at all.
             let pos = chunk_id
                 .zip(index)
                 .map(|(chunk_id, index)| Position::new(ChunkIdentifier::new(chunk_id), index));
@@ -1894,9 +1904,9 @@ fn find_event_relations_transaction(
         );
 
         // First the filters need to be stringified; because `.to_sql()` will
-        // borrow from them, they also need to be stringified onto the
-        // stack, so as to get a stable address (to avoid returning a
-        // temporary reference in the map closure below).
+        // borrow from them, they also need to be stringified onto the stack, so
+        // as to get a stable address (to avoid returning a temporary reference
+        // in the map closure below).
         let filter_strings: Vec<_> = filters.iter().map(|f| f.to_string()).collect();
         let filters_params: Vec<_> = filter_strings
             .iter()
@@ -1952,8 +1962,9 @@ async fn with_immediate_transaction<
         .await?
         .interact(move |conn| -> Result<T, Error> {
             // Start the transaction in IMMEDIATE mode since all updates may
-            // cause writes, to avoid read transactions upgrading to
-            // write mode and causing SQLITE_BUSY errors. See also: https://www.sqlite.org/lang_transaction.html#deferred_immediate_and_exclusive_transactions
+            // cause writes, to avoid read transactions upgrading to write mode
+            // and causing SQLITE_BUSY errors. See also:
+            // https://www.sqlite.org/lang_transaction.html#deferred_immediate_and_exclusive_transactions
             conn.set_transaction_behavior(TransactionBehavior::Immediate);
 
             let code = || -> Result<T, Error> {
@@ -1966,8 +1977,7 @@ async fn with_immediate_transaction<
             let res = code();
 
             // Reset the transaction behavior to use Deferred, after this
-            // transaction has been run, whether it was successful
-            // or not.
+            // transaction has been run, whether it was successful or not.
             conn.set_transaction_behavior(TransactionBehavior::Deferred);
 
             res
@@ -2222,8 +2232,8 @@ mod tests {
         });
 
         // If the updates have been handled transactionally, then no new chunks
-        // should have been added; failure of the second update leads to
-        // the first one being rolled back.
+        // should have been added; failure of the second update leads to the
+        // first one being rolled back.
         let chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
         assert!(chunks.is_empty());
     }
@@ -2307,8 +2317,8 @@ mod encrypted_tests {
         store.save_event(another_room_id, another_event).await.unwrap();
 
         // Craft a `RelationType` that will inject some SQL to be executed. The
-        // `OR 1=1` ensures that all the previous parameters, the room
-        // ID and event ID are ignored.
+        // `OR 1=1` ensures that all the previous parameters, the room ID and
+        // event ID are ignored.
         let filter = Some(vec![RelationType::Replacement, "x\") OR 1=1; --".into()]);
 
         // Attempt to find events in the first room.

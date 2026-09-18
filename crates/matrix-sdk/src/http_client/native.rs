@@ -48,11 +48,12 @@ impl HttpClient {
         R: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
-        // some functions split out so they only get compiled once,
-        // not monomorphized per request type
+        // some functions split out so they only get compiled once, not
+        // monomorphized per request type
         fn make_backoff(config: &RequestConfig) -> ExponentialBuilder {
             // These values were picked because we used to use the `backoff`
-            // crate, those were defined here: https://docs.rs/backoff/0.4.0/backoff/default/index.html
+            // crate, those were defined here:
+            // https://docs.rs/backoff/0.4.0/backoff/default/index.html
             let mut backoff = ExponentialBuilder::new()
                 .with_min_delay(Duration::from_millis(500))
                 .with_max_delay(Duration::from_secs(60))
@@ -66,8 +67,8 @@ impl HttpClient {
 
             if let Some(max_times) = config.retry_limit {
                 // Backon behaves a bit differently to our own handcrafted max
-                // retry logic. We were counting from one while
-                // `backon` counts from zero.
+                // retry logic. We were counting from one while `backon` counts
+                // from zero.
                 backoff = backoff.with_max_times(max_times.saturating_sub(1))
             }
 
@@ -101,8 +102,8 @@ impl HttpClient {
                 let header_name = header_name.as_str().to_lowercase();
 
                 // Header added in case of OAuth 2.0 authentication failure, so
-                // we can correlate failures with a Sentry event
-                // emitted by the OAuth 2.0 authentication server.
+                // we can correlate failures with a Sentry event emitted by the
+                // OAuth 2.0 authentication server.
                 if header_name == "x-sentry-event-id" {
                     tracing::Span::current()
                         .record("sentry_event_id", header_value.to_str().unwrap_or("<???>"));
@@ -119,15 +120,13 @@ impl HttpClient {
             match err.retry_kind() {
                 RetryKind::Transient { retry_after } => {
                     // This bit is somewhat tricky but it's necessary so we
-                    // respect the `max_times` limit from
-                    // `backon`.
+                    // respect the `max_times` limit from `backon`.
                     //
                     // The exponential backoff in `backon` is implemented as an
-                    // iterator that returns `None` when we
-                    // hit the `max_times` limit; if it returned `None`,
-                    // that means we ran out of attempts. So it's necessary to
-                    // only override
-                    // the `backon_suggested_timeout` if it's `Some`.
+                    // iterator that returns `None` when we hit the `max_times`
+                    // limit; if it returned `None`, that means we ran out of
+                    // attempts. So it's necessary to only override the
+                    // `backon_suggested_timeout` if it's `Some`.
                     if backon_suggested_timeout.is_some() {
                         retry_after.or(backon_suggested_timeout)
                     } else {
@@ -137,10 +136,9 @@ impl HttpClient {
                 RetryKind::Permanent => None,
                 RetryKind::NetworkFailure => {
                     // If we ran into a network failure, only retry if there's
-                    // some retry limit associated to this
-                    // request's configuration; otherwise, we would end up
-                    // running an infinite loop of network requests in offline
-                    // mode.
+                    // some retry limit associated to this request's
+                    // configuration; otherwise, we would end up running an
+                    // infinite loop of network requests in offline mode.
                     if has_retry_limit { backon_suggested_timeout } else { None }
                 }
             }
@@ -210,8 +208,8 @@ impl HttpSettings {
         let user_agent = self.user_agent.clone().unwrap_or_else(|| "matrix-rust-sdk".to_owned());
         let mut http_client = reqwest::Client::builder()
             .user_agent(user_agent)
-            // As recommended by BCP 195.
-            // See: https://datatracker.ietf.org/doc/bcp195/
+            // As recommended by BCP 195. See:
+            // https://datatracker.ietf.org/doc/bcp195/
             .min_tls_version(tls::Version::TLS_1_2);
 
         if let Some(timeout) = self.timeout {
@@ -259,9 +257,9 @@ pub(super) async fn execute_request(
             let content_length = request.body().len();
             send_progress.update(|p| p.total += content_length);
 
-            // Make sure any concurrent futures in the same task get a chance
-            // to also add to the progress total before the first chunks are
-            // pulled out of the body stream.
+            // Make sure any concurrent futures in the same task get a chance to
+            // also add to the progress total before the first chunks are pulled
+            // out of the body stream.
             tokio::task::yield_now().await;
 
             let mut req = reqwest::Request::try_from(request.map(|body| {

@@ -110,10 +110,9 @@ static DOT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 
 /// A high-level wrapper for strings representing display names.
 ///
-/// This wrapper provides attempts to determine whether a display name
-/// contains characters that could make it ambiguous or easily confused
-/// with similar names.
-///
+/// This wrapper provides attempts to determine whether a display name contains
+/// characters that could make it ambiguous or easily confused with similar
+/// names.
 ///
 /// # Examples
 ///
@@ -197,8 +196,8 @@ impl DisplayName {
             let removed_left_to_right = LEFT_TO_RIGHT_REGEX.replace_all(cured.as_ref(), "");
             let replaced = I_REGEX.replace_all(&removed_left_to_right, "l");
             // We re-run the dot replacement because decancer normalized a lot
-            // of weird characets into a `.`, it just doesn't do
-            // that for /u{1d16d}.
+            // of weird characets into a `.`, it just doesn't do that for
+            // /u{1d16d}.
             let replaced = DOT_REGEX.replace_all(&replaced, ":");
             let replaced = ZERO_REGEX.replace_all(&replaced, "o");
 

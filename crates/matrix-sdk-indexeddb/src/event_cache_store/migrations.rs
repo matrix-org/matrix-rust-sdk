@@ -179,8 +179,8 @@ pub mod v1 {
 
     /// Create an object store for tracking information about linked chunks.
     ///
-    /// * Primary Key - `id`
-    /// * Index - `is_last` - tracks the last chunk in linked chunks
+    /// - Primary Key - `id`
+    /// - Index - `is_last` - tracks the last chunk in linked chunks
     fn create_linked_chunks_object_store(db: &Database) -> Result<(), Error> {
         let _ = db
             .create_object_store(keys::LINKED_CHUNKS)
@@ -193,11 +193,11 @@ pub mod v1 {
 
     /// Create an object store for tracking information about events.
     ///
-    /// * Primary Key - `id`
-    /// * Index (unique) - `room` - tracks whether an event is in a given room
-    /// * Index (unique) - `position` - tracks position of an event in linked
+    /// - Primary Key - `id`
+    /// - Index (unique) - `room` - tracks whether an event is in a given room
+    /// - Index (unique) - `position` - tracks position of an event in linked
     ///   chunks
-    /// * Index - `relation` - tracks any event to which the given event is
+    /// - Index - `relation` - tracks any event to which the given event is
     ///   related
     fn create_events_object_store(db: &Database) -> Result<(), Error> {
         let events = db
@@ -286,7 +286,8 @@ mod v3 {
         // It is faster to clear all events first, then delete the object store
         // rather than immediately deleting.
         //
-        // For details, see https://www.artificialworlds.net/blog/2024/02/02/deleting-an-indexed-db-store-can-be-incredibly-slow-on-firefox/
+        // For details, see
+        // https://www.artificialworlds.net/blog/2024/02/02/deleting-an-indexed-db-store-can-be-incredibly-slow-on-firefox/
         object_store.clear()?;
         transaction.db().delete_object_store(keys::EVENTS)?;
         Ok(())
@@ -294,11 +295,11 @@ mod v3 {
 
     /// Create an object store for tracking information about events.
     ///
-    /// * Primary Key - `id`
-    /// * Index - `room` - tracks whether an event is in a given room
-    /// * Index (unique) - `position` - tracks position of an event in linked
+    /// - Primary Key - `id`
+    /// - Index - `room` - tracks whether an event is in a given room
+    /// - Index (unique) - `position` - tracks position of an event in linked
     ///   chunks
-    /// * Index - `relation` - tracks any event to which the given event is
+    /// - Index - `relation` - tracks any event to which the given event is
     ///   related
     pub fn create_events_object_store(db: &Database) -> Result<(), Error> {
         let events = db
@@ -408,8 +409,8 @@ mod v6 {
     /// properly handle deleting events - namely, subsequent events in the same
     /// chunk did not have their indices decremented after an event was deleted.
     /// This caused bugs when callers tried to address events by position, as
-    /// the assumption is that deletions do not leave gaps between indices,
-    /// but rather shift higher indices down.
+    /// the assumption is that deletions do not leave gaps between indices, but
+    /// rather shift higher indices down.
     ///
     /// The implementation has now been fixed, but it is also necessary to clear
     /// existing data where the indices may have gaps due to deletions that

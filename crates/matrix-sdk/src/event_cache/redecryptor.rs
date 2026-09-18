@@ -187,18 +187,17 @@ impl MaybeResolvedEvent {
         match self {
             Self::NotYet(resolved_utd) => {
                 // There is a race between the multiple sources of updates. It's
-                // possible that two sources trigger a
-                // decryption for the same event (for example,
-                // the room key stream and the event cache updates). It is then
-                // likely that the event has been already
-                // resolved. This race is fine, but we should
-                // avoid to replace an event that has already been resolved as
-                // it is a non-negligible operation.
+                // possible that two sources trigger a decryption for the same
+                // event (for example, the room key stream and the event cache
+                // updates). It is then likely that the event has been already
+                // resolved. This race is fine, but we should avoid to replace
+                // an event that has already been resolved as it is a
+                // non-negligible operation.
                 //
                 // Note that a simple check like “event's kind is
-                // `UnableToDecrypt`” is not enough. The event
-                // can already be decrypted but its encryption info can
-                // change. So we must ensure they are also different.
+                // `UnableToDecrypt`” is not enough. The event can already be
+                // decrypted but its encryption info can change. So we must
+                // ensure they are also different.
                 if matches!(unresolved_event.kind, TimelineEventKind::UnableToDecrypt { .. })
                     || unresolved_event.encryption_info()
                         != Some(&resolved_utd.decrypted_event.encryption_info)
@@ -246,8 +245,8 @@ impl TryResolveEvents for [MaybeResolvedEvent] {
             match resolved_event {
                 MaybeResolvedEvent::NotYet(resolved_utd) => {
                     // Event has not been resolved. Let's try to locate the
-                    // corresponding event with the provided
-                    // `EventLinkedChunk` and try to resolve it.
+                    // corresponding event with the provided `EventLinkedChunk`
+                    // and try to resolve it.
 
                     if let Some((_location, event)) =
                         event_linked_chunk.find_event(&resolved_utd.event_id)
@@ -260,10 +259,8 @@ impl TryResolveEvents for [MaybeResolvedEvent] {
                             // check.
                             //
                             // SAFETY: `self` and `new_resolved_events` have the
-                            // same size and
-                            // represent the same data. Thus, the index `nth`
-                            // exists in
-                            // `new_resolved_events`.
+                            // same size and represent the same data. Thus, the
+                            // index `nth` exists in `new_resolved_events`.
                             unsafe {
                                 *new_resolved_events.to_mut().get_unchecked_mut(nth) =
                                     new_resolved_event;
@@ -348,8 +345,7 @@ fn filter_timeline_event_to_utd(
     // what the OlmMachine needs.
     let event = as_variant!(event.kind, TimelineEventKind::UnableToDecrypt { event, .. } => event);
     // Zip the event ID and event together so we don't have to pick out the
-    // event ID again. We need the event ID to replace the event in the
-    // cache.
+    // event ID again. We need the event ID to replace the event in the cache.
     event_id.zip(event)
 }
 
@@ -365,8 +361,7 @@ fn filter_timeline_event_to_decrypted(
 
     let event = as_variant!(event.kind, TimelineEventKind::Decrypted(event) => event);
     // Zip the event ID and event together so we don't have to pick out the
-    // event ID again. We need the event ID to replace the event in the
-    // cache.
+    // event ID again. We need the event ID to replace the event in the cache.
     event_id.zip(event)
 }
 
@@ -375,8 +370,8 @@ impl EventCache {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The ID of the room where the events were sent to.
-    /// * `session_id` - The unique ID of the room key that was used to encrypt
+    /// - `room_id` - The ID of the room where the events were sent to.
+    /// - `session_id` - The unique ID of the room key that was used to encrypt
     ///   the event.
     async fn all_encrypted_events(
         &self,
@@ -448,13 +443,13 @@ impl EventCache {
     /// have now successfully decrypted.
     ///
     /// This function will replace the existing UTD events in memory and the
-    /// store and send out a [`RoomEventCacheUpdate`] for the newly
-    /// decrypted events.
+    /// store and send out a [`RoomEventCacheUpdate`] for the newly decrypted
+    /// events.
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The ID of the room where the events were sent to.
-    /// * `events` - A chunk of events that were successfully decrypted.
+    /// - `room_id` - The ID of the room where the events were sent to.
+    /// - `events` - A chunk of events that were successfully decrypted.
     #[instrument(skip_all, fields(room_id))]
     async fn on_resolved_utds(
         &self,
@@ -477,19 +472,19 @@ impl EventCache {
         // # Room cache, thread caches, and pinned-event cache
         //
         // For each resolved UTD, find the corresponding event (either in-store
-        // or in-memory of the room cache), build the resolved event,
-        // and replace it in the store. We use the room cache for that
-        // because it contains all events (there is an exception with
-        // the event-focused cache, see below).
+        // or in-memory of the room cache), build the resolved event, and
+        // replace it in the store. We use the room cache for that because it
+        // contains all events (there is an exception with the event-focused
+        // cache, see below).
         //
         // # Event-focused cache
         //
         // Events received by the sync or pagination are not forwarded to the
         // event-focused cache: it handles its own set of events. All of them
-        // live in-memory, there are not put in the store by any cache.
-        // So this cache will miss all UTD resolutions. To address that,
-        // the event-focused cache resolves UTD on its own, without the
-        // general logic described above.
+        // live in-memory, there are not put in the store by any cache. So this
+        // cache will miss all UTD resolutions. To address that, the
+        // event-focused cache resolves UTD on its own, without the general
+        // logic described above.
         {
             let room_cache = &all_caches.room;
             let mut state = room_cache.state().write().await?;
@@ -513,9 +508,8 @@ impl EventCache {
                     maybe_resolved_events.push(maybe_resolved_event);
                 } else {
                     // Event is unknown by the room cache, the thread caches,
-                    // nor the pinned-events cache. However,
-                    // it might be known by an event-focused cache! So let's
-                    // keep it for later.
+                    // nor the pinned-events cache. However, it might be known
+                    // by an event-focused cache! So let's keep it for later.
                     maybe_resolved_events.push(MaybeResolvedEvent::NotYet(resolved_utd));
                 }
             }
@@ -549,8 +543,8 @@ impl EventCache {
 
         // Resolve in-memory UTDs on the thread caches.
         {
-            // TODO: This ain't great for performance; there shouldn't be
-            // that many thread caches alive at the same time, but they could
+            // TODO: This ain't great for performance; there shouldn't be that
+            // many thread caches alive at the same time, but they could
             // accumulate over time. Consider keeping track of which linked
             // chunk contains which event ID, to avoid doing the linear searches
             // here.
@@ -560,8 +554,9 @@ impl EventCache {
             for (thread_id, thread_cache) in try_join_all(
                 all_caches.threads.read().await.iter().map(|(thread_id, thread_cache)| async {
                     Result::<_, EventCacheError>::Ok(
-                        // If at least one event has been replaced, return the `thread_id` and the
-                        // `thread_cache` to update the thread summary later.
+                        // If at least one event has been replaced, return the
+                        // `thread_id` and the `thread_cache` to update the
+                        // thread summary later.
                         thread_cache
                             .replace_in_memory_utds(&maybe_resolved_events)
                             .await?
@@ -589,10 +584,10 @@ impl EventCache {
         // Resolve in-memory UTDs on the event-focused caches.
         {
             // TODO: This ain't great for performance; there shouldn't be that
-            // many event-focused caches alive at the same time, but
-            // they could accumulate over time. Consider keeping
-            // track of which linked chunk contains which event ID,
-            // to avoid doing the linear searches here.
+            // many event-focused caches alive at the same time, but they could
+            // accumulate over time. Consider keeping track of which linked
+            // chunk contains which event ID, to avoid doing the linear searches
+            // here.
             try_join_all(all_caches.event_focused.read().await.values().map(
                 |event_focused_cache| {
                     event_focused_cache.replace_in_memory_utds(&maybe_resolved_events)
@@ -723,8 +718,8 @@ impl EventCache {
 
         for (event_id, event) in events {
             // If we managed to decrypt the event, and we should have to since
-            // we received the room key for this specific event,
-            // then replace the event.
+            // we received the room key for this specific event, then replace
+            // the event.
             if let Some((decrypted_event, actions)) = self
                 .decrypt_event(
                     room_id,
@@ -843,9 +838,8 @@ impl EventCache {
     /// subscribed to the event cache are have received and are keeping cached.
     ///
     /// If components subscribed to the event cache are doing additional
-    /// caching, they'll need to listen to [`RedecryptorReport`]s and
-    /// explicitly request redecryption attempts using
-    /// [`EventCache::request_decryption`].
+    /// caching, they'll need to listen to [`RedecryptorReport`]s and explicitly
+    /// request redecryption attempts using [`EventCache::request_decryption`].
     async fn retry_in_memory_events(&self) {
         self.retry_decryption_for_in_memory_events().await;
         self.retry_update_encryption_info_for_in_memory_events().await;
@@ -866,8 +860,7 @@ impl EventCache {
     ///
     /// This method allows you to do so. The events that get decrypted, if any,
     /// will be advertised over the usual event cache subscription mechanism
-    /// which can be accessed using the [`RoomEventCache::subscribe()`]
-    /// method.
+    /// which can be accessed using the [`RoomEventCache::subscribe()`] method.
     ///
     /// # Examples
     ///
@@ -1056,8 +1049,9 @@ impl Redecryptor {
 
         loop {
             tokio::select! {
-                // An explicit request, presumably from the timeline, has been received to decrypt
-                // events that were encrypted with a certain room key.
+                // An explicit request, presumably from the timeline, has been
+                // received to decrypt events that were encrypted with a certain
+                // room key.
                 Some(request) = decryption_request_stream.next() => {
                         let Some(cache) = upgrade_event_cache(cache) else {
                             break false;
@@ -1081,13 +1075,14 @@ impl Redecryptor {
                             ));
                         }
                 }
-                // The room key stream from the OlmMachine. Needs to be recreated every time we
-                // receive a `None` from the stream.
+                // The room key stream from the OlmMachine. Needs to be
+                // recreated every time we receive a `None` from the stream.
                 room_keys = room_key_stream.next() => {
                     match room_keys {
                         Some(Ok(room_keys)) => {
-                            // Alright, some room keys were received and persisted in our store,
-                            // let's attempt to redecrypt events that were encrypted using these
+                            // Alright, some room keys were received and
+                            // persisted in our store, let's attempt to
+                            // redecrypt events that were encrypted using these
                             // room keys.
                             let Some(cache) = upgrade_event_cache(cache) else {
                                 break false;
@@ -1112,20 +1107,22 @@ impl Redecryptor {
                             }
                         },
                         Some(Err(_)) => {
-                            // We missed some room keys, we need to report this in case a listener
-                            // has and idea which UTDs we should attempt to redecrypt.
+                            // We missed some room keys, we need to report this
+                            // in case a listener has and idea which UTDs we
+                            // should attempt to redecrypt.
                             //
-                            // This would most likely be the timeline from the UI crate. The
-                            // timeline might attempt to redecrypt all UTDs it is showing to the
-                            // user.
+                            // This would most likely be the timeline from the
+                            // UI crate. The timeline might attempt to redecrypt
+                            // all UTDs it is showing to the user.
                             warn!("The room key stream lagged, reporting the lag to our listeners");
 
                             if send_report_and_retry_memory_events(cache, RedecryptorReport::Lagging).await.is_err() {
                                 break false;
                             }
                         },
-                        // The stream got closed, this could mean that our OlmMachine got
-                        // regenerated, let's return true and try to recreate the stream.
+                        // The stream got closed, this could mean that our
+                        // OlmMachine got regenerated, let's return true and try
+                        // to recreate the stream.
                         None => {
                             break true;
                         }
@@ -1149,14 +1146,15 @@ impl Redecryptor {
                                 ));
                             }
                         }
-                        // The stream got closed, same as for the room key stream, we'll try to
-                        // recreate the streams.
+                        // The stream got closed, same as for the room key
+                        // stream, we'll try to recreate the streams.
                         None => break true,
                     }
                 }
-                // Events that the event cache handled. If the event cache received any UTDs, let's
-                // attempt to redecrypt them in case the room key was received before the event
-                // cache was able to return them using `get_utds()`.
+                // Events that the event cache handled. If the event cache
+                // received any UTDs, let's attempt to redecrypt them in case
+                // the room key was received before the event cache was able to
+                // return them using `get_utds()`.
                 Some(event_updates) = events_stream.next() => {
                     match event_updates {
                         Ok(updates) => {
@@ -1190,14 +1188,17 @@ impl Redecryptor {
                                 BackupState::Resuming |
                                 BackupState::Downloading |
                                 BackupState::Disabling =>{
-                                    // Those states aren't particularly interesting to components
-                                    // listening to R2D2 reports.
+                                    // Those states aren't particularly
+                                    // interesting to components listening to
+                                    // R2D2 reports.
                                 }
                                 BackupState::Enabled => {
-                                    // Alright, the backup got enabled, we might or might not have
-                                    // downloaded the room keys from the backup. In case they get
-                                    // downloaded on-demand, let's try to decrypt all the events we
-                                    // have cached in-memory.
+                                    // Alright, the backup got enabled, we might
+                                    // or might not have downloaded the room
+                                    // keys from the backup. In case they get
+                                    // downloaded on-demand, let's try to
+                                    // decrypt all the events we have cached
+                                    // in-memory.
                                     if send_report_and_retry_memory_events(cache, RedecryptorReport::BackupAvailable).await.is_err() {
                                         break false;
                                     }
@@ -1223,8 +1224,8 @@ impl Redecryptor {
         backup_state_stream: impl Stream<Item = Result<BackupState, BroadcastStreamRecvError>>,
     ) {
         // We pin the decryption request stream here since that one doesn't need
-        // to be recreated and we don't want to miss messages coming
-        // from the stream while recreating it unnecessarily.
+        // to be recreated and we don't want to miss messages coming from the
+        // stream while recreating it unnecessarily.
         pin_mut!(decryption_request_stream);
         pin_mut!(events_stream);
         pin_mut!(backup_state_stream);
@@ -1240,8 +1241,8 @@ impl Redecryptor {
             info!("Regenerating the re-decryption streams");
 
             // Report that the stream got recreated so listeners know about it,
-            // at the same time retry to decrypt anything we have
-            // cached in memory.
+            // at the same time retry to decrypt anything we have cached in
+            // memory.
             if send_report_and_retry_memory_events(&cache, RedecryptorReport::Lagging)
                 .await
                 .is_err()
@@ -1602,8 +1603,8 @@ mod tests {
             .expect("Alice should have access to the room now that we synced");
 
         // Alice will send a single event to the room, but this will trigger a
-        // to-device message containing the room key to be sent as well.
-        // We capture both the event and the to-device message.
+        // to-device message containing the room key to be sent as well. We
+        // capture both the event and the to-device message.
 
         let event_type = "m.room.message";
         let content = json!({"body": "It's a secret to everybody", "msgtype": "m.text"});

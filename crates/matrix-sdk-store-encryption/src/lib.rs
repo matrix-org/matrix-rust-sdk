@@ -126,7 +126,7 @@ impl StoreCipher {
     ///
     /// # Arguments
     ///
-    /// * `passphrase` - The passphrase that should be used to encrypt the store
+    /// - `passphrase` - The passphrase that should be used to encrypt the store
     ///   cipher.
     ///
     /// # Examples
@@ -158,7 +158,7 @@ impl StoreCipher {
     ///
     /// # Arguments
     ///
-    /// * `key` - The 32-byte key to be used to encrypt the store cipher. It's
+    /// - `key` - The 32-byte key to be used to encrypt the store cipher. It's
     ///   recommended to use a freshly and securely generated random key.
     ///
     /// # Examples
@@ -265,10 +265,10 @@ impl StoreCipher {
     ///
     /// # Arguments
     ///
-    /// * `passphrase` - The passphrase that was used to encrypt the store
+    /// - `passphrase` - The passphrase that was used to encrypt the store
     ///   cipher.
     ///
-    /// * `encrypted` - The exported and encrypted version of the store cipher.
+    /// - `encrypted` - The exported and encrypted version of the store cipher.
     ///
     /// # Examples
     ///
@@ -290,8 +290,7 @@ impl StoreCipher {
     /// ```
     pub fn import(passphrase: &str, encrypted: &[u8]) -> Result<Self, Error> {
         // Our old export format used serde_json for the serialization format.
-        // Let's first try the new format and if that fails, try the old
-        // one.
+        // Let's first try the new format and if that fails, try the old one.
         let encrypted: EncryptedStoreCipher =
             if let Ok(deserialized) = rmp_serde::from_slice(encrypted) {
                 deserialized
@@ -317,10 +316,10 @@ impl StoreCipher {
     ///
     /// # Arguments
     ///
-    /// * `key` - The 32-byte decryption key that was previously used to encrypt
+    /// - `key` - The 32-byte decryption key that was previously used to encrypt
     ///   the store cipher.
     ///
-    /// * `encrypted` - The exported and encrypted version of the store cipher.
+    /// - `encrypted` - The exported and encrypted version of the store cipher.
     ///
     /// # Examples
     ///
@@ -346,9 +345,9 @@ impl StoreCipher {
         let mut key = match &encrypted.kdf_info {
             KdfInfo::None => {
                 // We used to be able to call this method only with a 32-byte
-                // array. If we call this method with a smaller
-                // key and the `None` KDF info, then there's a
-                // mismatch between how the export was used.
+                // array. If we call this method with a smaller key and the
+                // `None` KDF info, then there's a mismatch between how the
+                // export was used.
                 if key.len() != 32 {
                     return Err(Error::KdfMismatch);
                 }
@@ -391,13 +390,13 @@ impl StoreCipher {
     ///
     /// # Arguments
     ///
-    /// * `table_name` - The name of the key/value table this key will be
+    /// - `table_name` - The name of the key/value table this key will be
     ///   inserted into. This can also contain additional unique data. It will
     ///   be used to derive a table-specific cryptographic key which will be
     ///   used in a keyed hash function. This ensures data independence between
     ///   the different tables of the key/value store.
     ///
-    /// * `key` - The key to be hashed, prior to insertion into the key/value
+    /// - `key` - The key to be hashed, prior to insertion into the key/value
     ///   store.
     ///
     /// **Note**: This is a one-way transformation; you cannot obtain the
@@ -433,7 +432,7 @@ impl StoreCipher {
     ///
     /// # Arguments
     ///
-    /// * `value` - A value that should be encrypted, any value that implements
+    /// - `value` - A value that should be encrypted, any value that implements
     ///   `Serialize` can be given to this method. The value will be serialized
     ///   as json before it is encrypted.
     ///
@@ -468,7 +467,7 @@ impl StoreCipher {
     ///
     /// # Arguments
     ///
-    /// * `data` - A value that should be encrypted, encoded as a `Vec<u8>`
+    /// - `data` - A value that should be encrypted, encoded as a `Vec<u8>`
     ///
     /// # Examples
     ///
@@ -502,15 +501,15 @@ impl StoreCipher {
         Ok(EncryptedValue { version: VERSION, ciphertext, nonce })
     }
 
-    /// Encrypt some data before it is inserted into the key/value store,
-    /// using base64 for arrays of integers.
+    /// Encrypt some data before it is inserted into the key/value store, using
+    /// base64 for arrays of integers.
     ///
     /// A value can be decrypted using the
     /// [`StoreCipher::decrypt_value_base64_data()`] method.
     ///
     /// # Arguments
     ///
-    /// * `data` - A value that should be encrypted, encoded as a `Vec<u8>`
+    /// - `data` - A value that should be encrypted, encoded as a `Vec<u8>`
     ///
     /// # Examples
     ///
@@ -542,7 +541,7 @@ impl StoreCipher {
     ///
     /// # Arguments
     ///
-    /// * `value` - The ciphertext of a value that should be decrypted.
+    /// - `value` - The ciphertext of a value that should be decrypted.
     ///
     /// The method will deserialize the decrypted value into the expected type.
     ///
@@ -581,7 +580,7 @@ impl StoreCipher {
     ///
     /// # Arguments
     ///
-    /// * `value` - The EncryptedValueBase64 of a value that should be
+    /// - `value` - The EncryptedValueBase64 of a value that should be
     ///   decrypted.
     ///
     /// The method will return the raw decrypted value
@@ -616,7 +615,7 @@ impl StoreCipher {
     ///
     /// # Arguments
     ///
-    /// * `value` - The EncryptedValue of a value that should be decrypted.
+    /// - `value` - The EncryptedValue of a value that should be decrypted.
     ///
     /// The method will return the raw decrypted value
     ///

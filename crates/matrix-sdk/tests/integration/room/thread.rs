@@ -92,8 +92,8 @@ async fn test_subscribe_thread_if_needed() {
     let room = server.sync_joined_room(&client, room_id).await;
 
     // If there's no prior subscription, the function
-    // `subscribe_thread_if_needed` will automatically subscribe to the
-    // thread, whether the new subscription is automatic or not.
+    // `subscribe_thread_if_needed` will automatically subscribe to the thread,
+    // whether the new subscription is automatic or not.
     for (root_id, automatic) in [
         (owned_event_id!("$root"), None),
         (owned_event_id!("$woot"), Some(owned_event_id!("$woot"))),
@@ -250,8 +250,8 @@ async fn test_thread_push_rule_is_triggered_for_subscribed_threads() {
 #[async_test]
 async fn test_thread_push_rules_and_notification_modes() {
     // This test checks that, given a combination of a global notification mode,
-    // and a room notification mode, we do get notifications for thread
-    // events according to the subscriptions.
+    // and a room notification mode, we do get notifications for thread events
+    // according to the subscriptions.
 
     let server = MatrixMockServer::new().await;
     let client = server

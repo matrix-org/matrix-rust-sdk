@@ -44,8 +44,8 @@ struct SimplifiedContent {
 
 /// Try to extract the thread root from an event's content, if provided.
 ///
-/// The thread root is the field located at `m.relates_to`.`event_id`,
-/// if the field at `m.relates_to`.`rel_type` is `m.thread`.
+/// The thread root is the field located at `m.relates_to`.`event_id`, if the
+/// field at `m.relates_to`.`rel_type` is `m.thread`.
 ///
 /// Returns `None` if we couldn't find a thread root, or if there was an issue
 /// during deserialization.

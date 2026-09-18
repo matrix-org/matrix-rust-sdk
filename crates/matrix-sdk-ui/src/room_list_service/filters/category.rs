@@ -22,8 +22,8 @@ use super::{super::RoomListItem, Filter};
 /// different for this high-level UI API.
 ///
 /// This is implemented this way so that it's impossible to filter by “group”
-/// and by “people” at the same time: these criteria are mutually
-/// exclusive by design per filter.
+/// and by “people” at the same time: these criteria are mutually exclusive by
+/// design per filter.
 #[derive(Copy, Clone, PartialEq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[cfg_attr(feature = "uniffi", uniffi(name = "RoomListFilterCategory"))]

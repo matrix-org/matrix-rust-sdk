@@ -53,8 +53,8 @@ use url::Url;
 /// You can test this against any homeserver supporting next-gen auth, like
 /// `matrix.org`.
 ///
-/// To use this, just run `cargo run -p example-oauth-cli`, and everything
-/// is interactive after that. You might want to set the `RUST_LOG` environment
+/// To use this, just run `cargo run -p example-oauth-cli`, and everything is
+/// interactive after that. You might want to set the `RUST_LOG` environment
 /// variable to `warn` to reduce the noise in the logs. The program exits
 /// whenever an unexpected error occurs.
 ///
@@ -157,9 +157,9 @@ impl OAuthCli {
             }
         }
 
-        // Persist the session to reuse it later.
-        // This is not very secure, for simplicity. If the system provides a way
-        // of storing secrets securely, it should be used instead.
+        // Persist the session to reuse it later. This is not very secure, for
+        // simplicity. If the system provides a way of storing secrets securely,
+        // it should be used instead.
         let full_session =
             cli.client.oauth().full_session().expect("A logged-in client should have a session");
 
@@ -185,9 +185,9 @@ impl OAuthCli {
         // We create a loop here so the user can retry if an error happens.
         loop {
             // Here we spawn a server to listen on the loopback interface.
-            // Another option would be to register a custom URI
-            // scheme with the system and handle the redirect when
-            // the custom URI scheme is opened.
+            // Another option would be to register a custom URI scheme with the
+            // system and handle the redirect when the custom URI scheme is
+            // opened.
             let (redirect_uri, server_handle) = LocalServerBuilder::new().spawn().await?;
 
             let OAuthAuthorizationData { url, .. } = oauth
@@ -409,8 +409,8 @@ impl OAuthCli {
         let client = &self.client;
 
         // If this is a new client, ignore previous messages to not fill the
-        // logs. Note that this might not work as intended, the initial
-        // sync might have failed in a previous session.
+        // logs. Note that this might not work as intended, the initial sync
+        // might have failed in a previous session.
         if !self.restored {
             client.sync_once(SyncSettings::default()).await.unwrap();
         }
@@ -444,10 +444,11 @@ impl OAuthCli {
         let sync_service_clone = sync_service.clone();
         let task = tokio::spawn(async move {
             // Only fail after getting 5 errors in a row. When we're in an
-            // always-refail scenario, we move from the Error to the
-            // Running state for a bit until we fail again, so we
-            // need to track both failure state and running state,
-            // hence `num_errors` and `num_running`:
+            // always-refail scenario, we move from the Error to the Running
+            // state for a bit until we fail again, so we need to track both
+            // failure state and running state, hence `num_errors` and
+            // `num_running`:
+            //
             // - if we failed and num_running was 1, then this is a failure
             //   following a failure.
             // - otherwise, we recovered from the failure and we can plain
@@ -566,8 +567,7 @@ impl OAuthCli {
         self.client.oauth().refresh_access_token().await?;
 
         // The session will automatically be refreshed because of the task
-        // persisting the full session upon refresh in
-        // `setup_background_save`.
+        // persisting the full session upon refresh in `setup_background_save`.
 
         println!("\nToken refreshed successfully");
 
@@ -618,9 +618,9 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)
             .server_name_or_homeserver_url(homeserver)
             // Make sure to automatically refresh tokens if needs be.
             .handle_refresh_tokens()
-            // We use the sqlite store, which is available by default. This is the crucial part to
-            // persist the encryption setup.
-            // Note that other store backends are available and you can even implement your own.
+            // We use the sqlite store, which is available by default. This is
+            // the crucial part to persist the encryption setup. Note that other
+            // store backends are available and you can even implement your own.
             .sqlite_store(&db_path, Some(&passphrase))
             .build()
             .await
@@ -691,16 +691,17 @@ fn client_metadata() -> Raw<ClientMetadata> {
     );
 
     let metadata = ClientMetadata {
-        // The following fields should be displayed in the OAuth 2.0 authorization server's
-        // web UI as part of the process to get the user's consent. It means that these
-        // should contain real data so the user can make sure that they allow the proper
-        // application. We are cheating here because this is an example.
+        // The following fields should be displayed in the OAuth 2.0
+        // authorization server's web UI as part of the process to get the
+        // user's consent. It means that these should contain real data so the
+        // user can make sure that they allow the proper application. We are
+        // cheating here because this is an example.
         client_name: Some(Localized::new("matrix-rust-sdk-oauth-cli".to_owned(), [])),
         policy_uri: Some(client_uri.clone()),
         tos_uri: Some(client_uri.clone()),
         ..ClientMetadata::new(
-            // This is a native application (in contrast to a web application, that runs in a
-            // browser).
+            // This is a native application (in contrast to a web application,
+            // that runs in a browser).
             ApplicationType::Native,
             // We are going to use the Authorization Code flow.
             vec![OAuthGrantType::AuthorizationCode {

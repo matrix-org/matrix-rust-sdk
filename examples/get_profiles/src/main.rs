@@ -17,25 +17,30 @@ struct UserProfile {
     displayname: Option<String>,
 }
 
-/// This function calls the GET profile endpoint
-/// Spec: <https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3profileuserid>
-/// Ruma: <https://docs.rs/ruma-client-api/latest/ruma_client_api/profile/get_profile/v3/index.html>
+/// This function calls the GET profile endpoint Spec:
+/// [https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3profileuserid][https-spec-matrix-org-latest-client-server-api-get-matrixclientv3profileuserid]
+/// Ruma:
+/// [https://docs.rs/ruma-client-api/latest/ruma_client_api/profile/get_profile/v3/index.html][https-docs-rs-ruma-client-api-latest-ruma-client-api-profile-get-profile-v3-index-html]
 /// The Matrix spec does not require authentication for this endpoint. However,
 /// some server configurations (e.g. Synapse's
 /// `require_auth_for_profile_requests`) enforce auth to prevent user
 /// enumeration, which will cause `client.send()` to return a 401 error.
+///
+/// [https-spec-matrix-org-latest-client-server-api-get-matrixclientv3profileuserid]: https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3profileuserid
+/// [https-docs-rs-ruma-client-api-latest-ruma-client-api-profile-get-profile-v3-index-html]: https://docs.rs/ruma-client-api/latest/ruma_client_api/profile/get_profile/v3/index.html
 async fn get_profile(client: Client, mxid: &UserId) -> MatrixResult<UserProfile> {
-    // First construct the request you want to make
-    // See https://docs.rs/ruma-client-api/latest/ruma_client_api/index.html for all available Endpoints
+    // First construct the request you want to make See
+    // https://docs.rs/ruma-client-api/latest/ruma_client_api/index.html for all
+    // available Endpoints
     let request = profile::get_profile::v3::Request::new(mxid.to_owned());
 
-    // Start the request using matrix_sdk::Client::send
-    // To avoid having to deal with auth errors, you can also use
-    // account().fetch_user_profile() which handles auth correctly.
+    // Start the request using matrix_sdk::Client::send To avoid having to deal
+    // with auth errors, you can also use account().fetch_user_profile() which
+    // handles auth correctly.
     let resp = client.send(request).await?;
 
-    // Use the response and construct a UserProfile struct.
-    // See https://docs.rs/ruma-client-api/latest/ruma_client_api/profile/get_profile/v3/struct.Response.html
+    // Use the response and construct a UserProfile struct. See
+    // https://docs.rs/ruma-client-api/latest/ruma_client_api/profile/get_profile/v3/struct.Response.html
     // for details on the Response for this Request
     let user_profile = UserProfile {
         avatar_url: resp.get_static::<AvatarUrl>()?,

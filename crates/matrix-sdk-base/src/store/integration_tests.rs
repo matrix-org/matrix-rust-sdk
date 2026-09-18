@@ -1518,8 +1518,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         }
 
         // Now add one event for two other rooms, remove one of the events, and
-        // then query all the rooms which have outstanding unsent
-        // events.
+        // then query all the rooms which have outstanding unsent events.
 
         // Add one event for room2.
         let room_id2 = room_id!("!test_send_queue_two:localhost");
@@ -2245,7 +2244,8 @@ impl StateStoreIntegrationTests for DynStateStore {
 /// You need to provide a `async fn get_store() -> StoreResult<impl StateStore>`
 /// providing a fresh store on the same level you invoke the macro.
 ///
-/// ## Usage Example:
+/// ## Usage example
+///
 /// ```no_run
 /// # use matrix_sdk_base::store::{
 /// #    StateStore,

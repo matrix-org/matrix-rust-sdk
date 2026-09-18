@@ -25,8 +25,8 @@ use tracing::debug;
 use super::machine::{SendEventRequest, SendToDeviceRequest};
 
 /// A Filter for Matrix events. It is used to decide if a given event can be
-/// sent to the widget and if a widget is allowed to send an event to a
-/// Matrix room.
+/// sent to the widget and if a widget is allowed to send an event to a Matrix
+/// room.
 #[derive(Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq))]
 pub enum Filter {
@@ -39,9 +39,9 @@ pub enum Filter {
 }
 
 impl Filter {
-    /// Checks if this filter matches with the given filter_input.
-    /// A filter input can be create by using the `From` trait on FilterInput
-    /// for [`Raw<AnyTimelineEvent>`] or [`SendEventRequest`].
+    /// Checks if this filter matches with the given filter_input. A filter
+    /// input can be create by using the `From` trait on FilterInput for
+    /// [`Raw<AnyTimelineEvent>`] or [`SendEventRequest`].
     pub(super) fn matches(&self, filter_input: &FilterInput<'_>) -> bool {
         match self {
             Self::MessageLike(filter) => filter.matches(filter_input),
@@ -157,8 +157,8 @@ impl ToDeviceEventFilter {
 #[serde(untagged)]
 pub enum FilterInput<'a> {
     #[serde(borrow)]
-    // The order is important.
-    // We first need to check if we can deserialize as a state (state_key exists)
+    // The order is important. We first need to check if we can deserialize as a
+    // state (state_key exists)
     State(FilterInputState<'a>),
     // only then we can check if we can deserialize as a message-like.
     MessageLike(FilterInputMessageLike<'a>),
@@ -190,8 +190,9 @@ impl<'a> FilterInput<'a> {
 #[derive(Debug, Deserialize)]
 pub struct FilterInputState<'a> {
     #[serde(rename = "type")]
-    // TODO: This wants to be `StateEventType` but we need a type which supports `as_str()`
-    // as soon as ruma supports `as_str()` on `StateEventType` we can use it here.
+    // TODO: This wants to be `StateEventType` but we need a type which supports
+    // `as_str()` as soon as ruma supports `as_str()` on `StateEventType` we can
+    // use it here.
     pub(super) event_type: &'a str,
     pub(super) state_key: &'a str,
 }
@@ -205,16 +206,17 @@ pub(super) struct MessageLikeFilterEventContent<'a> {
 
 #[derive(Debug, Deserialize)]
 pub struct FilterInputMessageLike<'a> {
-    // TODO: This wants to be `StateEventType` but we need a type which supports `as_str()`
-    // as soon as ruma supports `as_str()` on `StateEventType` we can use it here.
+    // TODO: This wants to be `StateEventType` but we need a type which supports
+    // `as_str()` as soon as ruma supports `as_str()` on `StateEventType` we can
+    // use it here.
     #[serde(rename = "type")]
     pub(super) event_type: &'a str,
     pub(super) content: MessageLikeFilterEventContent<'a>,
 }
 
-/// Create a filter input based on [`AnyTimelineEvent`].
-/// This will create a [`FilterInput::State`] or [`FilterInput::MessageLike`]
-/// depending on the event type.
+/// Create a filter input based on [`AnyTimelineEvent`]. This will create a
+/// [`FilterInput::State`] or [`FilterInput::MessageLike`] depending on the
+/// event type.
 impl<'a> TryFrom<&'a Raw<AnyTimelineEvent>> for FilterInput<'a> {
     type Error = serde_json::Error;
 
@@ -225,8 +227,8 @@ impl<'a> TryFrom<&'a Raw<AnyTimelineEvent>> for FilterInput<'a> {
     }
 }
 
-/// Create a filter input based on [`AnyStateEvent`].
-/// This will create a [`FilterInput::State`].
+/// Create a filter input based on [`AnyStateEvent`]. This will create a
+/// [`FilterInput::State`].
 impl<'a> TryFrom<&'a Raw<AnyStateEvent>> for FilterInput<'a> {
     type Error = serde_json::Error;
 
@@ -252,9 +254,8 @@ impl<'a> TryFrom<&'a Raw<AnyToDeviceEvent>> for FilterInput<'a> {
     type Error = serde_json::Error;
     fn try_from(raw_event: &'a Raw<AnyToDeviceEvent>) -> Result<Self, Self::Error> {
         // deserialize_as::<FilterInput> will first try state, message-like and
-        // then to-device. The `AnyToDeviceEvent` would match message
-        // like first, so we need to explicitly deserialize as
-        // `FilterInputToDevice`.
+        // then to-device. The `AnyToDeviceEvent` would match message like
+        // first, so we need to explicitly deserialize as `FilterInputToDevice`.
         raw_event.deserialize_as::<FilterInputToDevice<'a>>().map(FilterInput::ToDevice)
     }
 }
@@ -278,13 +279,11 @@ impl<'a> From<&'a SendEventRequest> for FilterInput<'a> {
                         )
                         .unwrap_or_else(|e| {
                             debug!("Failed to deserialize event content for filter: {e}");
-                            // Fallback to empty content is safe.
-                            // If we do have a filter matching any content type,
-                            // it will match
-                            // independent of the body.
-                            // Any filter that does only match a specific
-                            // content type will not
-                            // match the empty content.
+                            // Fallback to empty content is safe. If we do have
+                            // a filter matching any content type, it will match
+                            // independent of the body. Any filter that does
+                            // only match a specific content type will not match
+                            // the empty content.
                             Default::default()
                         })
                         .msgtype
@@ -372,8 +371,8 @@ mod tests {
         assert!(!reaction_event_filter().matches(&FilterInput::state("m.reaction", "")));
     }
 
-    // Tests against an `m.room.member` filter with `state_key =
-    // "@self:example.me"`
+    // Tests against an `m.room.member` filter with
+    // `state_key = "@self:example.me"`
     fn self_member_event_filter() -> Filter {
         Filter::State(StateEventFilter::WithTypeAndStateKey(
             StateEventType::RoomMember,

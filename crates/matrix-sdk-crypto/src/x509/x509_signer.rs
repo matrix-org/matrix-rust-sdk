@@ -76,8 +76,8 @@ impl X509Signer {
     /// Check if the signer's certificates have a later expiry than the
     /// certificates in the provided signatures.
     ///
-    /// Returns `true` if no X.509 signatures are found.  Returns `false` if the
-    /// expiry is the same.  Only the validity period is checked -- no other
+    /// Returns `true` if no X.509 signatures are found. Returns `false` if the
+    /// expiry is the same. Only the validity period is checked -- no other
     /// verification or validation is done.
     pub fn has_later_expiry_than(&self, user_id: &UserId, signatures: &Signatures) -> bool {
         let Some(this_user_sigs) = signatures.get(user_id) else {
@@ -93,9 +93,9 @@ impl X509Signer {
             return false;
         };
 
-        // We check all the available X.509 signatures.  If any of them has a
-        // later or equal expiry, then we return `false`.  Otherwise, all of
-        // them have a strictly earlier expiry, so we return `true`.
+        // We check all the available X.509 signatures. If any of them has a
+        // later or equal expiry, then we return `false`. Otherwise, all of them
+        // have a strictly earlier expiry, so we return `true`.
         for sig in this_user_sigs.values() {
             if let Ok(Signature::X509(sig)) = sig {
                 // We get the earliest expiry date from all the certificates in

@@ -93,8 +93,7 @@ pub enum RequestedKeyInfo {
     /// The `m.megolm.v2.aes-sha2` variant of the `m.room_key_request` content.
     #[cfg(feature = "experimental-algorithms")]
     MegolmV2AesSha2(MegolmV2AesSha2Content),
-    /// An unknown and unsupported variant of the `m.room_key_request`
-    /// content.
+    /// An unknown and unsupported variant of the `m.room_key_request` content.
     Unknown(UnknownRoomKeyRequest),
 }
 

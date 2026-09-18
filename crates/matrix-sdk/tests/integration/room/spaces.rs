@@ -264,7 +264,8 @@ async fn test_parent_space_reciprocal() {
         "origin_server_ts": 1432735824653_u64,
         "room_id": *DEFAULT_TEST_SPACE_ID,
         "sender": "@example2:example.org", // Not equal to sender of m.room.space because
-                                           // equality is only required for power-levels
+                                           // equality is only required for
+                                           // power-levels
         "state_key": *DEFAULT_TEST_ROOM_ID,
         "type": "m.space.child",
         "unsigned": {

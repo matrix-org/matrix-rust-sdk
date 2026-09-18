@@ -50,8 +50,8 @@ struct FullSession {
 /// A simple example to show how to persist a client's data to be able to
 /// restore it.
 ///
-/// Restoring a session with encryption without having a persisted store
-/// will break the encryption setup and the client will not be able to send or
+/// Restoring a session with encryption without having a persisted store will
+/// break the encryption setup and the client will not be able to send or
 /// receive encrypted messages, hence the need to persist the session.
 ///
 /// To use this, just run `cargo run -p example-persist-session`, and everything
@@ -59,9 +59,9 @@ struct FullSession {
 /// variable to `warn` to reduce the noise in the logs. The program exits
 /// whenever an unexpected error occurs.
 ///
-/// To reset the login, simply delete the folder containing the session
-/// file, the location is shown in the logs. Note that the database must be
-/// deleted too as it can't be reused.
+/// To reset the login, simply delete the folder containing the session file,
+/// the location is shown in the logs. Note that the database must be deleted
+/// too as it can't be reused.
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
@@ -140,10 +140,10 @@ async fn login(data_dir: &Path, session_file: &Path) -> anyhow::Result<Client> {
         }
     }
 
-    // Persist the session to reuse it later.
-    // This is not very secure, for simplicity. If the system provides a way of
-    // storing secrets securely, it should be used instead.
-    // Note that we could also build the user session from the login response.
+    // Persist the session to reuse it later. This is not very secure, for
+    // simplicity. If the system provides a way of storing secrets securely, it
+    // should be used instead. Note that we could also build the user session
+    // from the login response.
     let user_session = matrix_auth.session().expect("A logged-in client should have a session");
     let serialized_session =
         serde_json::to_string(&FullSession { client_session, user_session, sync_token: None })?;
@@ -154,8 +154,8 @@ async fn login(data_dir: &Path, session_file: &Path) -> anyhow::Result<Client> {
     // After logging in, you might want to verify this session with another one
     // (see the `emoji_verification` example), or bootstrap cross-signing if
     // this is your first session with encryption, or if you need to reset
-    // cross-signing because you don't have access to your old sessions (see
-    // the `cross_signing_bootstrap` example).
+    // cross-signing because you don't have access to your old sessions (see the
+    // `cross_signing_bootstrap` example).
 
     Ok(client)
 }
@@ -188,9 +188,9 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)
 
         match Client::builder()
             .homeserver_url(&homeserver)
-            // We use the SQLite store, which is enabled by default. This is the crucial part to
-            // persist the encryption setup.
-            // Note that other store backends are available and you can even implement your own.
+            // We use the SQLite store, which is enabled by default. This is the
+            // crucial part to persist the encryption setup. Note that other
+            // store backends are available and you can even implement your own.
             .sqlite_store(&db_path, Some(&passphrase))
             .build()
             .await
@@ -222,23 +222,23 @@ async fn sync(
     println!("Launching a first sync to ignore past messages…");
 
     // Enable room members lazy-loading, it will speed up the initial sync a lot
-    // with accounts in lots of rooms.
-    // See <https://spec.matrix.org/v1.6/client-server-api/#lazy-loading-room-members>.
+    // with accounts in lots of rooms. See
+    // [https://spec.matrix.org/v1.6/client-server-api/#lazy-loading-room-members][https-spec-matrix-org-v1-6-client-server-api-lazy-loading-room-members].
+    //
+    // [https-spec-matrix-org-v1-6-client-server-api-lazy-loading-room-members]: https://spec.matrix.org/v1.6/client-server-api/#lazy-loading-room-members
     let filter = FilterDefinition::with_lazy_loading();
 
     let mut sync_settings = SyncSettings::default().filter(filter.into());
 
-    // We restore the sync where we left.
-    // This is not necessary when not using `sync_once`. The other sync methods
-    // get the sync token from the store.
+    // We restore the sync where we left. This is not necessary when not using
+    // `sync_once`. The other sync methods get the sync token from the store.
     if let Some(sync_token) = initial_sync_token {
         sync_settings = sync_settings.token(sync_token);
     }
 
-    // Let's ignore messages before the program was launched.
-    // This is a loop in case the initial sync is longer than our timeout. The
-    // server should cache the response and it will ultimately take less time to
-    // receive.
+    // Let's ignore messages before the program was launched. This is a loop in
+    // case the initial sync is longer than our timeout. The server should cache
+    // the response and it will ultimately take less time to receive.
     loop {
         match client.sync_once(sync_settings.clone()).await {
             Ok(response) => {
@@ -277,9 +277,9 @@ async fn sync(
     Ok(())
 }
 
-/// Persist the sync token for a future session.
-/// Note that this is needed only when using `sync_once`. Other sync methods get
-/// the sync token from the store.
+/// Persist the sync token for a future session. Note that this is needed only
+/// when using `sync_once`. Other sync methods get the sync token from the
+/// store.
 async fn persist_sync_token(session_file: &Path, sync_token: String) -> anyhow::Result<()> {
     let serialized_session = fs::read_to_string(session_file).await?;
     let mut full_session: FullSession = serde_json::from_str(&serialized_session)?;

@@ -255,9 +255,9 @@ impl Room {
 #[derive(Clone, Debug)]
 pub struct RoomMember {
     pub(crate) event: Arc<MemberEvent>,
-    // The latest member event sent by the member themselves.
-    // Stored in addition to the latest member event overall to get displayname
-    // and avatar from, which should be ignored on events sent by others.
+    // The latest member event sent by the member themselves. Stored in addition
+    // to the latest member event overall to get displayname and avatar from,
+    // which should be ignored on events sent by others.
     pub(crate) profile: Arc<Option<MinimalRoomMemberEvent>>,
     // The user's status, taken from their global profile.
     #[cfg(feature = "unstable-msc4426")]
@@ -462,14 +462,13 @@ impl RoomMember {
     /// Whether this user can notify everybody in the room by writing `@room` in
     /// a message.
     ///
-    /// Same as `member.
-    /// can_do(PowerLevelAction::TriggerNotification(NotificationPowerLevelType::Room))`.
+    /// Same as
+    /// `member. can_do(PowerLevelAction::TriggerNotification(NotificationPowerLevelType::Room))`.
     pub fn can_trigger_room_notification(&self) -> bool {
         self.can_do_impl(|pls| pls.user_can_trigger_room_notification(self.user_id()))
     }
 
-    /// Whether this user can do the given action based on the power
-    /// levels.
+    /// Whether this user can do the given action based on the power levels.
     pub fn can_do(&self, action: PowerLevelAction) -> bool {
         self.can_do_impl(|pls| pls.user_can_do(self.user_id(), action))
     }

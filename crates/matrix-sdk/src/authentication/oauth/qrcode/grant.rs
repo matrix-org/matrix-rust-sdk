@@ -62,12 +62,12 @@ async fn finish_login_grant<Q>(
     state: &SharedObservable<GrantLoginProgress<Q>>,
 ) -> Result<(), QRCodeGrantLoginError> {
     // The new device registers with the authorization server and sends it a
-    // device authorization authorization request.
-    // -- MSC4108 OAuth 2.0 login step 2
+    // device authorization authorization request. -- MSC4108 OAuth 2.0 login
+    // step 2
 
     // We wait for the new device to send us the m.login.protocol message with
-    // the device authorization grant information. -- MSC4108 OAuth 2.0
-    // login step 3
+    // the device authorization grant information. -- MSC4108 OAuth 2.0 login
+    // step 3
     let (device_authorization_grant, protocol, device_id) = match channel.receive_json().await? {
         QrAuthMessage::LoginProtocol { device_authorization_grant, protocol, device_id } => {
             (device_authorization_grant, protocol, device_id)
@@ -83,8 +83,7 @@ async fn finish_login_grant<Q>(
         }
     };
 
-    // We verify the selected protocol.
-    // -- MSC4108 OAuth 2.0 login step 4
+    // We verify the selected protocol. -- MSC4108 OAuth 2.0 login step 4
     if protocol != LoginProtocolType::DeviceAuthorizationGrant {
         channel
             .send_json(QrAuthMessage::LoginFailure {
@@ -95,8 +94,8 @@ async fn finish_login_grant<Q>(
         return Err(QRCodeGrantLoginError::UnsupportedProtocol(protocol));
     }
 
-    // We check that the device ID is still available.
-    // -- MSC4108 OAuth 2.0 login step 4 continued
+    // We check that the device ID is still available. -- MSC4108 OAuth 2.0
+    // login step 4 continued
     if !matches!(client.device_exists(device_id.clone().into()).await, Ok(false)) {
         channel
             .send_json(QrAuthMessage::LoginFailure {
@@ -108,8 +107,8 @@ async fn finish_login_grant<Q>(
     }
 
     // We emit an update so that the caller can open the verification URI in a
-    // system browser to consent to the login.
-    // -- MSC4108 OAuth 2.0 login step 4 continued
+    // system browser to consent to the login. -- MSC4108 OAuth 2.0 login step 4
+    // continued
     let verification_uri = Url::parse(
         device_authorization_grant
             .verification_uri_complete
@@ -142,8 +141,8 @@ async fn finish_login_grant<Q>(
         }
     }
     // We send the new device the m.login.protocol_accepted message to let it
-    // know that the consent process is in progress.
-    // -- MSC4108 OAuth 2.0 login step 4 continued
+    // know that the consent process is in progress. -- MSC4108 OAuth 2.0 login
+    // step 4 continued
     let message = QrAuthMessage::LoginProtocolAccepted;
     channel.send_json(&message).await?;
 
@@ -194,8 +193,8 @@ async fn finish_login_grant<Q>(
         }
     }
 
-    // We send the new device the secrets bundle.
-    // -- MSC4108 Secret sharing and device verification step 2
+    // We send the new device the secrets bundle. -- MSC4108 Secret sharing and
+    // device verification step 2
     state.set(GrantLoginProgress::SyncingSecrets);
     let message = QrAuthMessage::LoginSecrets(secrets_bundle.clone());
     channel.send_json(&message).await?;
@@ -212,8 +211,8 @@ pub enum GrantLoginProgress<Q> {
     /// We're just starting up, this is the default and initial state.
     #[default]
     Starting,
-    /// The secure channel is being established by exchanging the QR code
-    /// and/or [`CheckCode`].
+    /// The secure channel is being established by exchanging the QR code and/or
+    /// [`CheckCode`].
     EstablishingSecureChannel(Q),
     /// The secure channel has been confirmed using the [`CheckCode`] and this
     /// device is waiting for the authorization to complete.
@@ -263,8 +262,8 @@ impl GrantLoginWithScannedQrCode<'_> {
     /// Subscribe to the progress of QR code login.
     ///
     /// It's necessary to subscribe to this to capture the [`CheckCode`] in
-    /// order to display it to the other device and to obtain the
-    /// verification URL for consenting to the login.
+    /// order to display it to the other device and to obtain the verification
+    /// URL for consenting to the login.
     pub fn subscribe_to_progress(
         &self,
     ) -> impl Stream<Item = GrantLoginProgress<QrProgress>> + use<> {
@@ -279,15 +278,14 @@ impl<'a> IntoFuture for GrantLoginWithScannedQrCode<'a> {
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
             // Before we get here, the other device has created a new rendezvous
-            // session and presented a QR code which this device has
-            // scanned. -- MSC4108 Secure channel setup steps 1-3
+            // session and presented a QR code which this device has scanned. --
+            // MSC4108 Secure channel setup steps 1-3
 
             // First things first, export the secrets bundle and establish the
-            // secure channel. Since we're the one that scanned the
-            // QR code, we're certain that the secure channel is
-            // secure, under the assumption that we didn't scan the
-            // wrong QR code. -- MSC4108 Secure channel setup steps
-            // 3-5
+            // secure channel. Since we're the one that scanned the QR code,
+            // we're certain that the secure channel is secure, under the
+            // assumption that we didn't scan the wrong QR code. -- MSC4108
+            // Secure channel setup steps 3-5
             let secrets_bundle = export_secrets_bundle(self.client).await?;
 
             let mut channel = EstablishedSecureChannel::from_qr_code(
@@ -298,28 +296,26 @@ impl<'a> IntoFuture for GrantLoginWithScannedQrCode<'a> {
             .await?;
 
             // The other side isn't yet sure that it's talking to the right
-            // device, show a check code so they can confirm.
-            // -- MSC4108 Secure channel setup step 6
+            // device, show a check code so they can confirm. -- MSC4108 Secure
+            // channel setup step 6
             let check_code = channel.check_code().to_owned();
             self.state
                 .set(GrantLoginProgress::EstablishingSecureChannel(QrProgress { check_code }));
 
             // The user now enters the checkcode on the other device which
-            // verifies it and will only continue requesting the
-            // login if the code matches. -- MSC4108 Secure channel
-            // setup step 7
+            // verifies it and will only continue requesting the login if the
+            // code matches. -- MSC4108 Secure channel setup step 7
 
             // Inform the other device about the available login protocols and
-            // the homeserver to use.
-            // -- MSC4108 OAuth 2.0 login step 1
+            // the homeserver to use. -- MSC4108 OAuth 2.0 login step 1
             let message = QrAuthMessage::LoginProtocols {
                 protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
                 homeserver: self.client.homeserver(),
             };
             channel.send_json(message).await?;
 
-            // Proceed with granting the login.
-            // -- MSC4108 OAuth 2.0 login remaining steps
+            // Proceed with granting the login. -- MSC4108 OAuth 2.0 login
+            // remaining steps
             finish_login_grant(
                 self.client,
                 &mut channel,
@@ -355,8 +351,8 @@ impl GrantLoginWithGeneratedQrCode<'_> {
     ///
     /// It's necessary to subscribe to this to capture the QR code in order to
     /// display it to the other device, to feed the [`CheckCode`] entered by the
-    /// user back in and to obtain the verification URL for consenting to
-    /// the login.
+    /// user back in and to obtain the verification URL for consenting to the
+    /// login.
     pub fn subscribe_to_progress(
         &self,
     ) -> impl Stream<Item = GrantLoginProgress<GeneratedQrProgress>> + use<> {
@@ -371,49 +367,46 @@ impl<'a> IntoFuture for GrantLoginWithGeneratedQrCode<'a> {
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
             // Create a new ephemeral key pair and a rendezvous session to grant
-            // a login with.
-            // -- MSC4108 Secure channel setup steps 1 & 2
+            // a login with. -- MSC4108 Secure channel setup steps 1 & 2
             let homeserver_url = self.client.homeserver();
             let http_client = self.client.inner.http_client.clone();
             let secrets_bundle = export_secrets_bundle(self.client).await?;
             let channel = SecureChannel::reciprocate(http_client, &homeserver_url).await?;
 
             // Extract the QR code data and emit an update so that the caller
-            // can present the QR code for scanning by the new
-            // device. -- MSC4108 Secure channel setup step 3
+            // can present the QR code for scanning by the new device. --
+            // MSC4108 Secure channel setup step 3
             self.state.set(GrantLoginProgress::EstablishingSecureChannel(
                 GeneratedQrProgress::QrReady(channel.qr_code_data().clone()),
             ));
 
             // Wait for the secure channel to connect. The other device now
-            // needs to scan the QR code and send us the
-            // LoginInitiateMessage which we respond to
-            // with the LoginOkMessage. -- MSC4108 step 4 & 5
+            // needs to scan the QR code and send us the LoginInitiateMessage
+            // which we respond to with the LoginOkMessage. -- MSC4108 step 4 &
+            // 5
             let channel = channel.connect().await?;
 
             // The other device now needs to verify our message, compute the
-            // checkcode and display it. We emit a progress update
-            // to let the caller prompt the user to enter the
-            // checkcode and feed it back to us. -- MSC4108 Secure
-            // channel setup step 6
+            // checkcode and display it. We emit a progress update to let the
+            // caller prompt the user to enter the checkcode and feed it back to
+            // us. -- MSC4108 Secure channel setup step 6
             let (tx, rx) = tokio::sync::oneshot::channel();
             self.state.set(GrantLoginProgress::EstablishingSecureChannel(
                 GeneratedQrProgress::QrScanned(CheckCodeSender::new(tx)),
             ));
             let check_code = rx.await.map_err(|_| SecureChannelError::CannotReceiveCheckCode)?;
 
-            // Use the checkcode to verify that the channel is actually secure.
-            // -- MSC4108 Secure channel setup step 7
+            // Use the checkcode to verify that the channel is actually
+            // secure. -- MSC4108 Secure channel setup step 7
             let mut channel = channel.confirm(check_code)?;
 
             // Since the QR code was generated on this existing device, the new
-            // device can derive the homeserver to use for logging
-            // in from the QR code and we don't need to send the
-            // m.login.protocols message. -- MSC4108 OAuth 2.0 login
-            // step 1
+            // device can derive the homeserver to use for logging in from the
+            // QR code and we don't need to send the m.login.protocols
+            // message. -- MSC4108 OAuth 2.0 login step 1
 
-            // Proceed with granting the login.
-            // -- MSC4108 OAuth 2.0 login remaining steps
+            // Proceed with granting the login. -- MSC4108 OAuth 2.0 login
+            // remaining steps
             finish_login_grant(
                 self.client,
                 &mut channel,
@@ -469,9 +462,9 @@ mod test {
         qr_code_rx: oneshot::Receiver<QrCodeData>,
         check_code_tx: oneshot::Sender<u8>,
         server: Option<MatrixMockServer>,
-        // The rendezvous server is here because it contains MockGuards that are tied to the
-        // lifetime of the MatrixMockServer. Otherwise we might attempt to drop the
-        // MatrixMockServer before the MockGuards.
+        // The rendezvous server is here because it contains MockGuards that are
+        // tied to the lifetime of the MatrixMockServer. Otherwise we might
+        // attempt to drop the MatrixMockServer before the MockGuards.
         _rendezvous_server: &MockedRendezvousServer,
         device_authorization_grant: Option<AuthorizationGrant>,
         secrets_bundle: Option<SecretsBundle>,
@@ -661,9 +654,9 @@ mod test {
         channel: SecureChannel,
         check_code_rx: oneshot::Receiver<u8>,
         server: Option<MatrixMockServer>,
-        // The rendezvous server is here because it contains MockGuards that are tied to the
-        // lifetime of the MatrixMockServer. Otherwise we might attempt to drop the
-        // MatrixMockServer before the MockGuards.
+        // The rendezvous server is here because it contains MockGuards that are
+        // tied to the lifetime of the MatrixMockServer. Otherwise we might
+        // attempt to drop the MatrixMockServer before the MockGuards.
         _rendezvous_server: &MockedRendezvousServer,
         homeserver: Url,
         device_authorization_grant: Option<AuthorizationGrant>,

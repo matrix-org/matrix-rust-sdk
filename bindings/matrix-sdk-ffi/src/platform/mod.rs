@@ -162,9 +162,9 @@ where
 }
 
 // Another fields formatter is necessary because of this bug
-// https://github.com/tokio-rs/tracing/issues/1372. Using a new
-// formatter for the fields forces to record them in different span
-// extensions, and thus remove the duplicated fields in the span.
+// https://github.com/tokio-rs/tracing/issues/1372. Using a new formatter for
+// the fields forces to record them in different span extensions, and thus
+// remove the duplicated fields in the span.
 #[derive(Default)]
 struct FieldsFormatterForFiles(DefaultFields);
 
@@ -263,9 +263,9 @@ fn make_file_layer(
     fmt::layer()
         .fmt_fields(FieldsFormatterForFiles::default())
         .event_format(EventFormatter::new())
-        // EventFormatter doesn't support ANSI colors anyways, but the
-        // default field formatter does, which is unhelpful for iOS +
-        // Android logs, but enabled by default.
+        // EventFormatter doesn't support ANSI colors anyways, but the default
+        // field formatter does, which is unhelpful for iOS + Android logs, but
+        // enabled by default.
         .with_ansi(false)
         .with_writer(writer)
 }
@@ -287,22 +287,22 @@ pub struct TracingFileConfiguration {
     /// Maximum total size of all log files combined in bytes.
     ///
     /// When the total size of all log files with the configured prefix and
-    /// suffix exceeds this limit, the oldest files will be removed until
-    /// the total is below the limit.
+    /// suffix exceeds this limit, the oldest files will be removed until the
+    /// total is below the limit.
     ///
     /// This is useful to prevent log files from consuming too much disk space
     /// over time, even with multiple rotated files.
     ///
-    /// Default: 10MB (10 * 1024 * 1024 bytes) if not specified.
+    /// Default: 10MB (10 _1024_ 1024 bytes) if not specified.
     max_total_size_bytes: Option<u64>,
 
     /// Maximum age of log files in seconds.
     ///
     /// Log files older than this age will be automatically removed during
-    /// cleanup. This is checked when the writer is created and during
-    /// rotation operations.
+    /// cleanup. This is checked when the writer is created and during rotation
+    /// operations.
     ///
-    /// Default: 1 week (7 * 24 * 60 * 60 seconds) if not specified.
+    /// Default: 1 week (7 _24_ 60 * 60 seconds) if not specified.
     max_age_seconds: Option<u64>,
 }
 
@@ -526,7 +526,7 @@ impl TracingConfiguration {
         // Show full backtraces, if we run into panics.
         //
         // FIXME: Use safe API for this once stable. Tracking issue:
-        //        https://github.com/rust-lang/rust/issues/93346
+        // https://github.com/rust-lang/rust/issues/93346
         unsafe {
             std::env::set_var("RUST_BACKTRACE", "1");
         }
@@ -564,9 +564,9 @@ impl TracingConfiguration {
                     // Add a Sentry layer to the tracing subscriber.
                     //
                     // Pass custom event and span filters, which will ignore
-                    // anything, if the Sentry support has been
-                    // globally disabled, or if the statement doesn't include a
-                    // `sentry` field set to `true`.
+                    // anything, if the Sentry support has been globally
+                    // disabled, or if the statement doesn't include a `sentry`
+                    // field set to `true`.
                     let sentry_layer = sentry_tracing::layer()
                         .event_filter({
                             let enabled = sentry_enabled.clone();
@@ -633,10 +633,9 @@ impl TracingConfiguration {
 
 fn build_tracing_filter(config: &TracingConfiguration) -> String {
     // We are intentionally not setting a global log level because we don't want
-    // to risk third party crates logging sensitive information.
-    // As such we need to make sure that panics will be properly logged.
-    // On 2025-01-08, `log_panics` uses the `panic` target, at the error log
-    // level.
+    // to risk third party crates logging sensitive information. As such we need
+    // to make sure that panics will be properly logged. On 2025-01-08,
+    // `log_panics` uses the `panic` target, at the error log level.
     let mut filters = vec!["panic=error".to_owned()];
 
     let global_level = config.log_level;

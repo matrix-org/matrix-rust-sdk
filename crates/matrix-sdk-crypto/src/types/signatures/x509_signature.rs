@@ -52,8 +52,8 @@ impl X509Signature {
     /// represent it in a Matrix `signatures` object.
     pub fn to_cms_pem(&self) -> String {
         // Given that we've either constructed this object ourselves, or
-        // successfully parsed it from PEM, I don't think it's possible
-        // for encoding to fail.
+        // successfully parsed it from PEM, I don't think it's possible for
+        // encoding to fail.
         self.0.to_pem(der::pem::LineEnding::LF).expect("Failed to encode an X.509 signature")
     }
 }

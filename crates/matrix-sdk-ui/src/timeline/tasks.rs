@@ -60,9 +60,8 @@ pub(in crate::timeline) async fn pinned_events_task(
                 warn!(num_skipped, "Lagged behind pinned-event cache updates, resetting timeline");
 
                 // The updates might have lagged, but the room event cache might
-                // have events, so retrieve them and add them
-                // back again to the timeline, after clearing
-                // it.
+                // have events, so retrieve them and add them back again to the
+                // timeline, after clearing it.
                 let (initial_events, _) = match pinned_events_cache.subscribe().await {
                     Ok(initial_events) => initial_events,
                     Err(err) => {
@@ -119,9 +118,8 @@ pub(in crate::timeline) async fn event_focused_task(
                 warn!(num_skipped, "Lagged behind focused-event cache updates, resetting timeline");
 
                 // The updates might have lagged, but the room event cache might
-                // have events, so retrieve them and add them
-                // back again to the timeline, after clearing
-                // it.
+                // have events, so retrieve them and add them back again to the
+                // timeline, after clearing it.
                 let Ok((initial_events, _)) = event_cache.subscribe().await else {
                     error!("Failed to subscribe to the event-focused cache");
                     break;
@@ -224,9 +222,8 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
                 warn!(num_skipped, "Lagged behind event cache updates, resetting timeline");
 
                 // The updates might have lagged, but the room event cache might
-                // have events, so retrieve them and add them
-                // back again to the timeline, after clearing
-                // it.
+                // have events, so retrieve them and add them back again to the
+                // timeline, after clearing it.
                 let initial_events = match room_event_cache.events().await {
                     Ok(initial_events) => initial_events,
                     Err(err) => {
@@ -364,8 +361,8 @@ pub(in crate::timeline) async fn room_send_queue_update_task(
     }
 }
 
-/// Long-lived task that watches RoomInfo for RTC membership changes
-/// and updates the active RtcNotification timeline item.
+/// Long-lived task that watches RoomInfo for RTC membership changes and updates
+/// the active RtcNotification timeline item.
 pub(in crate::timeline) async fn rtc_membership_update_task(
     mut room_info: EyeballSubscriber<RoomInfo>,
     timeline_controller: TimelineController,
@@ -376,8 +373,8 @@ pub(in crate::timeline) async fn rtc_membership_update_task(
 
     while let Some(info) = room_info.next().await {
         let active_call = ActiveCallInfo::from_info(info, own_user.clone());
-        // RoomInfo fires for many reasons; only act when the participant
-        // list actually changed.
+        // RoomInfo fires for many reasons; only act when the participant list
+        // actually changed.
         if active_call != prev_info {
             prev_info = active_call.clone();
             timeline_controller.handle_active_call_update(active_call).await;

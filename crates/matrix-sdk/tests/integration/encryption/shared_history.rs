@@ -419,9 +419,9 @@ async fn test_shared_history_crash_before_import() {
     );
 }
 
-/// Verifies that the Megolm session is rotated when a member leave is
-/// delivered only as a state snapshot inside a gappy (limited) sync, not as
-/// an explicit timeline event.
+/// Verifies that the Megolm session is rotated when a member leave is delivered
+/// only as a state snapshot inside a gappy (limited) sync, not as an explicit
+/// timeline event.
 #[async_test]
 async fn test_room_key_rotation_on_gappy_sync_v3() {
     let room_id = room_id!("!test:localhost");

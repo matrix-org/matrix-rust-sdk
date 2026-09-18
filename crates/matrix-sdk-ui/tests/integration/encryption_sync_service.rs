@@ -408,8 +408,8 @@ async fn test_encryption_sync_always_reloads_todevice_token() -> anyhow::Result<
     };
 
     // This encryption sync now conceptually goes to sleep, and another
-    // encryption sync starts in another process, runs a sync and changes
-    // the to-device token cached on disk.
+    // encryption sync starts in another process, runs a sync and changes the
+    // to-device token cached on disk.
     if let Some(olm_machine) = &*client.olm_machine_for_testing().await {
         olm_machine
             .store()

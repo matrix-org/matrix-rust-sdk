@@ -33,8 +33,8 @@ pub struct IdentityUpdates {
     /// The list of newly discovered user identities .
     ///
     /// A identity being in this list does not necessarily mean that the
-    /// identity was just created, it just means that it's the first time
-    /// we're seeing this identity.
+    /// identity was just created, it just means that it's the first time we're
+    /// seeing this identity.
     pub new: BTreeMap<OwnedUserId, UserIdentity>,
     /// The list of changed identities.
     pub changed: BTreeMap<OwnedUserId, UserIdentity>,
@@ -82,11 +82,12 @@ impl IdentityUpdates {
 /// and the User-signing key.
 ///
 /// Each key has a separate role:
-/// * Master key, signs only the sub-keys, can be used as a fingerprint of the
+///
+/// - Master key, signs only the sub-keys, can be used as a fingerprint of the
 ///   identity.
-/// * Self-signing key, signs devices belonging to the user that owns this
+/// - Self-signing key, signs devices belonging to the user that owns this
 ///   identity.
-/// * User-signing key, signs Master keys belonging to other users.
+/// - User-signing key, signs Master keys belonging to other users.
 ///
 /// The User-signing key and its signatures of other user's Master keys are
 /// hidden from us by the homeserver. This is done to preserve privacy and not
@@ -145,20 +146,20 @@ impl UserIdentity {
     /// event will be sent to depends on if we're verifying our own identity or
     /// someone else's:
     ///
-    /// * Our own identity - All our E2EE capable devices will receive the event
+    /// - Our own identity - All our E2EE capable devices will receive the event
     ///   over to-device messaging.
-    /// * Someone else's identity - The event will be sent to a DM room we share
+    /// - Someone else's identity - The event will be sent to a DM room we share
     ///   with the user, if we don't share a DM with the user, one will be
     ///   created.
     ///
     /// The default methods that are supported are:
     ///
-    /// * `m.sas.v1` - Short auth string, or emoji based verification
-    /// * `m.qr_code.show.v1` - QR code based verification
+    /// - `m.sas.v1` - Short auth string, or emoji based verification
+    /// - `m.qr_code.show.v1` - QR code based verification
     ///
-    /// [`request_verification_with_methods()`] method can be
-    /// used to override this. The `m.qr_code.show.v1` method is only available
-    /// if the `qrcode` feature is enabled, which it is by default.
+    /// [`request_verification_with_methods()`] method can be used to override
+    /// this. The `m.qr_code.show.v1` method is only available if the `qrcode`
+    /// feature is enabled, which it is by default.
     ///
     /// Check out the [`verification`] module for more info on how to handle
     /// interactive verifications.
@@ -182,7 +183,9 @@ impl UserIdentity {
     /// ```
     ///
     /// [`request_verification_with_methods()`]:
-    /// #method.request_verification_with_methods
+    ///
+    /// # Method.request_verification_with_methods
+    ///
     /// [`verification`]: crate::encryption::verification
     pub async fn request_verification(
         &self,
@@ -196,15 +199,15 @@ impl UserIdentity {
     /// Returns a [`VerificationRequest`] object that can be used to control the
     /// verification flow.
     ///
-    /// This methods behaves the same way as [`request_verification()`],
-    /// but the advertised verification methods can be manually selected.
+    /// This methods behaves the same way as [`request_verification()`], but the
+    /// advertised verification methods can be manually selected.
     ///
     /// Check out the [`verification`] module for more info on how to handle
     /// interactive verifications.
     ///
     /// # Arguments
     ///
-    /// * `methods` - The verification methods that we want to support. Must be
+    /// - `methods` - The verification methods that we want to support. Must be
     ///   non-empty.
     ///
     /// # Panics
@@ -319,9 +322,9 @@ impl UserIdentity {
     ///
     /// ### Manually verifying our own user
     ///
-    /// On the other hand, if the user identity belongs to us, it will be
-    /// marked as verified using a local flag, our own device will also sign the
-    /// Master key. Manually verifying our own user identity can't fail.
+    /// On the other hand, if the user identity belongs to us, it will be marked
+    /// as verified using a local flag, our own device will also sign the Master
+    /// key. Manually verifying our own user identity can't fail.
     ///
     /// ### Problems of manual verification
     ///
@@ -355,6 +358,7 @@ impl UserIdentity {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
+    ///
     /// [`Encryption::cross_signing_status()`]: crate::encryption::Encryption::cross_signing_status
     pub async fn verify(&self) -> Result<(), ManualVerifyError> {
         let request = match &self.inner {
@@ -371,9 +375,9 @@ impl UserIdentity {
     ///
     /// A user identity is considered to be verified if:
     ///
-    /// * It has been signed by our User-signing key, if the identity belongs to
+    /// - It has been signed by our User-signing key, if the identity belongs to
     ///   another user
-    /// * If it has been locally marked as verified, if the user identity
+    /// - If it has been locally marked as verified, if the user identity
     ///   belongs to us.
     ///
     /// If the identity belongs to another user, our own user identity needs to
@@ -439,9 +443,9 @@ impl UserIdentity {
     /// action "pinning".
     ///
     /// If the identity presented for the user changes later on, the newly
-    /// presented identity is considered to be in "pin violation". This
-    /// method explicitly accepts the new identity, allowing it to replace
-    /// the previously pinned one and bringing it out of pin violation.
+    /// presented identity is considered to be in "pin violation". This method
+    /// explicitly accepts the new identity, allowing it to replace the
+    /// previously pinned one and bringing it out of pin violation.
     ///
     /// UIs should display a warning to the user when encountering an identity
     /// which is not verified and is in pin violation.

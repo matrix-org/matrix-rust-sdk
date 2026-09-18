@@ -95,8 +95,8 @@ impl NotificationSettings {
     ///
     /// # Arguments
     ///
-    /// * `client` - A [`Client`] used to perform API calls.
-    /// * `ruleset` - A [`Ruleset`] containing account's owner push rules.
+    /// - `client` - A [`Client`] used to perform API calls.
+    /// - `ruleset` - A [`Ruleset`] containing account's owner push rules.
     pub(crate) fn new(client: Client, ruleset: Ruleset) -> Self {
         let changes_sender = broadcast::Sender::new(100);
         let rules = Arc::new(RwLock::new(Rules::new(ruleset)));
@@ -137,8 +137,8 @@ impl NotificationSettings {
     ///
     /// # Arguments
     ///
-    /// * `is_encrypted` - `Yes` if the room is encrypted
-    /// * `is_one_to_one` - `Yes` if the room is a direct chat involving two
+    /// - `is_encrypted` - `Yes` if the room is encrypted
+    /// - `is_one_to_one` - `Yes` if the room is a direct chat involving two
     ///   people
     pub async fn get_default_room_notification_mode(
         &self,
@@ -191,10 +191,10 @@ impl NotificationSettings {
     ///
     /// # Arguments
     ///
-    /// * `is_encrypted` - `Yes` if the mode is for encrypted rooms
-    /// * `is_one_to_one` - `Yes` if the mode if for `one-to-one` rooms (rooms
+    /// - `is_encrypted` - `Yes` if the mode is for encrypted rooms
+    /// - `is_one_to_one` - `Yes` if the mode if for `one-to-one` rooms (rooms
     ///   with exactly two members)
-    /// * `mode` - the new default mode
+    /// - `mode` - the new default mode
     pub async fn set_default_room_notification_mode(
         &self,
         is_encrypted: IsEncrypted,
@@ -219,8 +219,8 @@ impl NotificationSettings {
             self.set_underride_push_rule_actions(poll_start_rule_id, actions.clone()).await
         {
             // The poll start event rules are currently unstable so they might
-            // not be found on every homeserver. Let's ignore this
-            // error for the moment.
+            // not be found on every homeserver. Let's ignore this error for the
+            // moment.
             if let NotificationSettingsError::RuleNotFound(rule_id) = &error {
                 debug!("Unable to update poll start push rule: rule `{rule_id}` not found");
             } else {
@@ -237,8 +237,8 @@ impl NotificationSettings {
     ///
     /// # Arguments
     ///
-    /// * `rule_id` - the identifier of the push rule
-    /// * `actions` - the actions to set for the push rule
+    /// - `rule_id` - the identifier of the push rule
+    /// - `actions` - the actions to set for the push rule
     ///
     /// [Underride rules]: https://spec.matrix.org/v1.8/client-server-api/#push-rules
     pub async fn set_underride_push_rule_actions(
@@ -268,12 +268,15 @@ impl NotificationSettings {
     ///
     /// # Arguments
     ///
-    /// * `rule_id` - The identifier of the push rule.
-    /// * `rule_kind` - The kind of the push rule.
-    /// * `actions` - The actions to set for the push rule.
-    /// * `conditions` - The conditions for the push rule.
+    /// - `rule_id` - The identifier of the push rule.
+    /// - `rule_kind` - The kind of the push rule.
+    /// - `actions` - The actions to set for the push rule.
+    /// - `conditions` - The conditions for the push rule.
     ///
-    /// See more in the matrix spec: <https://spec.matrix.org/latest/client-server-api/#push-rules>
+    /// See more in the matrix spec:
+    /// [https://spec.matrix.org/latest/client-server-api/#push-rules][https-spec-matrix-org-latest-client-server-api-push-rules]
+    ///
+    /// [https-spec-matrix-org-latest-client-server-api-push-rules]: https://spec.matrix.org/latest/client-server-api/#push-rules
     pub async fn create_custom_conditional_push_rule(
         &self,
         rule_id: String,
@@ -972,11 +975,10 @@ mod tests {
             .and(path_regex(r"_matrix/client/r0/pushrules/global/room/.*"))
             .and(move |_: &wiremock::Request| {
                 // Make sure that the PUT is executed before the DELETE, so that
-                // the following sync results will give the
-                // following transitions: `AllMessages` ->
-                // `AllMessages` -> `Mute` by sending the DELETE
-                // before the PUT, we would have `AllMessages` ->
-                // `Default` -> `Mute`
+                // the following sync results will give the following
+                // transitions: `AllMessages` -> `AllMessages` -> `Mute` by
+                // sending the DELETE before the PUT, we would have
+                // `AllMessages` -> `Default` -> `Mute`
 
                 let put_was_called = put_was_called.load(Ordering::SeqCst);
                 assert!(

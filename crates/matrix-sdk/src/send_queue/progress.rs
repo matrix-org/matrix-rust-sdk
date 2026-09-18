@@ -32,8 +32,8 @@ use crate::{
 
 /// Progress of an operation in abstract units.
 ///
-/// Contrary to [`TransmissionProgress`], this allows tracking the progress
-/// of sending or receiving a payload in estimated pseudo units representing a
+/// Contrary to [`TransmissionProgress`], this allows tracking the progress of
+/// sending or receiving a payload in estimated pseudo units representing a
 /// percentage. This is helpful in cases where the exact progress in bytes isn't
 /// known, for instance, because encryption (which changes the size) happens on
 /// the fly.
@@ -111,10 +111,9 @@ impl RoomSendQueue {
 
         let offsets = {
             // If we're uploading a file, we may have already uploaded a
-            // thumbnail; get its size from the in-memory thumbnail
-            // sizes cache. This will account in the current and
-            // total size, for the overall progress of
-            // thumbnail+file.
+            // thumbnail; get its size from the in-memory thumbnail sizes cache.
+            // This will account in the current and total size, for the overall
+            // progress of thumbnail+file.
             let already_uploaded_thumbnail_bytes = if thumbnail_source.is_some() {
                 queue
                     .thumbnail_file_sizes
@@ -130,10 +129,9 @@ impl RoomSendQueue {
             let already_uploaded_thumbnail_bytes = already_uploaded_thumbnail_bytes.unwrap_or(0);
 
             // If we're uploading a thumbnail, get the size of the file to be
-            // uploaded after it, from the database. This will
-            // account in the total progress of the file+thumbnail
-            // upload (we're currently uploading the thumbnail,
-            // in the first step).
+            // uploaded after it, from the database. This will account in the
+            // total progress of the file+thumbnail upload (we're currently
+            // uploading the thumbnail, in the first step).
             let pending_file_bytes = match RoomSendQueue::get_dependent_pending_file_upload_size(
                 own_txn_id, room,
             )
@@ -220,13 +218,13 @@ impl RoomSendQueue {
         let media_upload_info = *media_upload_info;
 
         // Watch and communicate the progress on a detached background task.
-        // Once the progress observable is dropped, next() will return
-        // None and the task will end.
+        // Once the progress observable is dropped, next() will return None and
+        // the task will end.
         spawn(async move {
             while let Some(progress) = subscriber.next().await {
                 // Purposefully don't use `send_update` here, because we don't
-                // want to notify the global listeners about an
-                // upload progress update.
+                // want to notify the global listeners about an upload progress
+                // update.
                 let _ = update_sender.send(RoomSendQueueUpdate::MediaUpload {
                     related_to: related_txn_id.clone(),
                     file: None,
@@ -249,10 +247,10 @@ impl RoomSendQueue {
 ///
 /// # Arguments
 ///
-/// * `progress` - The [`TransmissionProgress`] of uploading the file (possibly
+/// - `progress` - The [`TransmissionProgress`] of uploading the file (possibly
 ///   after encryption).
 ///
-/// * `bytes` - The total number of bytes in the file before encryption.
+/// - `bytes` - The total number of bytes in the file before encryption.
 fn estimate_media_upload_progress(
     progress: TransmissionProgress,
     bytes: usize,

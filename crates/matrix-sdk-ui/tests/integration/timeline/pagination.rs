@@ -127,8 +127,9 @@ async fn test_back_pagination() {
         let _mock = server
             .mock_room_messages()
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                // Usually there would be a few events here, but we just want to test
-                // that the timeline start item is added when there is no end token
+                // Usually there would be a few events here, but we just want to
+                // test that the timeline start item is added when there is no
+                // end token
                 "chunk": [],
                 "start": "t47409-4357353_219380_26003_2269"
             })))
@@ -237,9 +238,9 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
         assert_eq!(event_item.event_id().unwrap(), expected_event_id);
     }
 
-    // After the loop, the last index that's been peeked is 2*17+1 == 35.
-    // These three happen differently, because we're getting closer to the
-    // initial maximum skip count value.
+    // After the loop, the last index that's been peeked is 2*17+1 == 35. These
+    // three happen differently, because we're getting closer to the initial
+    // maximum skip count value.
     {
         assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[36]);
         let event_item = message.as_event().unwrap();
@@ -582,6 +583,7 @@ async fn test_timeline_reset_while_paginating() {
         .await;
 
     // The pagination with the first token will be hit twice:
+    //
     // - first, before the sync response comes, then the gap is stored in the
     //   cache.
     // - second, after all other gaps have been resolved, we get back to
@@ -689,7 +691,8 @@ async fn test_timeline_reset_while_paginating() {
     assert!(hit_start);
 
     // No events in back-pagination responses, start of timeline + date divider
-    // + all events from the previous syncs are present.
+    //
+    // - all events from the previous syncs are present.
     assert_eq!(timeline.items().await.len(), 4);
 
     // Make sure both pagination mocks were called.
@@ -1132,8 +1135,8 @@ async fn test_lazy_back_pagination() {
         // … until we receive `$ev29`: the last received event, and the 19th item.
         append "$ev29";
 
-        // The day divider is inserted before `$ev0`, so it shifts items to
-        // the right: `$ev10` becomes part of the stream.
+        // The day divider is inserted before `$ev0`, so it shifts items to the
+        // right: `$ev10` becomes part of the stream.
         //
         // This is the 20th item, hurray!
         prepend "$ev10";
@@ -1228,8 +1231,8 @@ async fn test_lazy_back_pagination() {
     }
 
     // Finally, let's run a last backwards pagination of 5 items, fully hitting
-    // the network, but 2 will be returned because the beginning of the
-    // timeline is reached.
+    // the network, but 2 will be returned because the beginning of the timeline
+    // is reached.
     {
         let network_pagination = mock_server
             .mock_room_messages()
@@ -1293,8 +1296,8 @@ async fn test_from_an_empty_timeline_paginate_zero_event_and_then_sync_some_even
         let _network_pagination = mock_server
             .mock_room_messages()
             .ok(
-                // No previous batch token, the beginning of the timeline is reached.
-                // It returns zero event, we want an empty timeline.
+                // No previous batch token, the beginning of the timeline is
+                // reached. It returns zero event, we want an empty timeline.
                 RoomMessagesResponseTemplate::default(),
             )
             .mock_once()
@@ -1380,8 +1383,8 @@ async fn test_timeline_start_properly_inserted_when_created() {
             .mock_room_messages()
             .match_from("previous-batch")
             .ok(
-                // No previous batch token, the beginning of the timeline is reached.
-                // It returns zero event, we want an empty timeline.
+                // No previous batch token, the beginning of the timeline is
+                // reached. It returns zero event, we want an empty timeline.
                 RoomMessagesResponseTemplate::default(),
             )
             .mock_once()

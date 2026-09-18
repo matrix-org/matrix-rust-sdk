@@ -365,8 +365,8 @@ async fn test_internal_id_reuse() {
         .controller
         .handle_remote_events_with_diffs(
             vec![
-                // Note: indices are in the *event* array index space, not in the *timeline item*
-                // array index space.
+                // Note: indices are in the _event_ array index space, not in
+                // the _timeline item_ array index space.
                 VectorDiff::Remove { index: 2 },
                 VectorDiff::Insert { index: 2, value: ev_c },
             ],
@@ -567,8 +567,8 @@ async fn test_replace_with_initial_events_when_batched() {
     let ev = f.text_msg("yo").sender(*BOB).into_event();
     timeline.controller.replace_with_initial_remote_events([ev], RemoteEventOrigin::Sync).await;
 
-    // Assert there are more than a single Clear diff in the next batch:
-    // Clear + PushBack (event) + PushFront (date divider)
+    // Assert there are more than a single Clear diff in the next batch: Clear +
+    // PushBack (event) + PushFront (date divider)
     let batched_diffs = stream.next().await.unwrap();
     assert_eq!(batched_diffs.len(), 3);
     assert_matches!(batched_diffs[0], VectorDiff::Clear);

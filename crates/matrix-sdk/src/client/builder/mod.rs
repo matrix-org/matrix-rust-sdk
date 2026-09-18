@@ -78,8 +78,8 @@ use crate::{
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
 ///
-/// When setting the `StateStore` it is up to the user to open/connect
-/// the storage backend before client creation.
+/// When setting the `StateStore` it is up to the user to open/connect the
+/// storage backend before client creation.
 ///
 /// # Examples
 ///
@@ -212,8 +212,8 @@ impl ClientBuilder {
     ///
     /// The following methods are mutually exclusive: [`Self::homeserver_url`],
     /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
-    /// [`Self::server_name_or_homeserver_url`].
-    /// If you set more than one, then whatever was set last will be used.
+    /// [`Self::server_name_or_homeserver_url`]. If you set more than one, then
+    /// whatever was set last will be used.
     ///
     /// This is the only one of them that never performs a
     /// `.well-known/matrix/client` lookup, so it is the one to use together
@@ -230,8 +230,8 @@ impl ClientBuilder {
     ///
     /// The following methods are mutually exclusive: [`Self::homeserver_url`],
     /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
-    /// [`Self::server_name_or_homeserver_url`].
-    /// If you set more than one, then whatever was set last will be used.
+    /// [`Self::server_name_or_homeserver_url`]. If you set more than one, then
+    /// whatever was set last will be used.
     ///
     /// This performs a `.well-known/matrix/client` lookup, and is therefore
     /// incompatible with [`Self::disable_well_known_lookup`]: [`Self::build`]
@@ -251,8 +251,8 @@ impl ClientBuilder {
     ///
     /// The following methods are mutually exclusive: [`Self::homeserver_url`],
     /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
-    /// [`Self::server_name_or_homeserver_url`].
-    /// If you set more than one, then whatever was set last will be used.
+    /// [`Self::server_name_or_homeserver_url`]. If you set more than one, then
+    /// whatever was set last will be used.
     ///
     /// This performs a `.well-known/matrix/client` lookup, and is therefore
     /// incompatible with [`Self::disable_well_known_lookup`]: [`Self::build`]
@@ -273,8 +273,8 @@ impl ClientBuilder {
     ///
     /// The following methods are mutually exclusive: [`Self::homeserver_url`],
     /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
-    /// [`Self::server_name_or_homeserver_url`].
-    /// If you set more than one, then whatever was set last will be used.
+    /// [`Self::server_name_or_homeserver_url`]. If you set more than one, then
+    /// whatever was set last will be used.
     ///
     /// With [`Self::disable_well_known_lookup`], the discovery step is skipped
     /// and only the homeserver URL check is performed, so a homeserver URL
@@ -357,7 +357,7 @@ impl ClientBuilder {
     ///
     /// # Arguments
     ///
-    /// * `store_config` - The configuration of the store.
+    /// - `store_config` - The configuration of the store.
     ///
     /// # Examples
     ///
@@ -399,13 +399,13 @@ impl ClientBuilder {
     ///
     /// The homeserver must then be resolvable without a well-known lookup:
     ///
-    /// * [`Self::homeserver_url`] works, and is the recommended choice.
-    /// * [`Self::server_name`] and [`Self::insecure_server_name_no_tls`] can
-    ///   *only* be resolved through the well-known, so [`Self::build`] fails
+    /// - [`Self::homeserver_url`] works, and is the recommended choice.
+    /// - [`Self::server_name`] and [`Self::insecure_server_name_no_tls`] can
+    ///   _only_ be resolved through the well-known, so [`Self::build`] fails
     ///   with [`ClientBuildError::WellKnownLookupDisabled`]. Assuming that the
     ///   server name is also the homeserver would silently talk to the wrong
     ///   host for any deployment that delegates.
-    /// * [`Self::server_name_or_homeserver_url`] skips the well-known step and
+    /// - [`Self::server_name_or_homeserver_url`] skips the well-known step and
     ///   goes straight to checking whether the value points at a homeserver, so
     ///   it works when given a homeserver URL, and fails with
     ///   [`ClientBuildError::InvalidServerName`] otherwise.
@@ -430,7 +430,7 @@ impl ClientBuilder {
     ///
     /// # Arguments
     ///
-    /// * `proxy` - The HTTP URL of the proxy.
+    /// - `proxy` - The HTTP URL of the proxy.
     ///
     /// # Examples
     ///
@@ -520,11 +520,11 @@ impl ClientBuilder {
     /// Enabling this setting means that the `Client` will try to refresh the
     /// token automatically, which means that:
     ///
-    /// * If refreshing the token fails, the error is forwarded, so any endpoint
+    /// - If refreshing the token fails, the error is forwarded, so any endpoint
     ///   can return [`HttpError::RefreshToken`]. If an [`UnknownToken`] error
     ///   is encountered, it means that the user needs to be logged in again.
     ///
-    /// * The access token and refresh token need to be watched for changes,
+    /// - The access token and refresh token need to be watched for changes,
     ///   using the authentication API's `session_tokens_stream()` for example,
     ///   to be able to [restore the session] later.
     ///
@@ -609,9 +609,9 @@ impl ClientBuilder {
         self
     }
 
-    /// Whether the threads feature is enabled throuoghout the SDK.
-    /// This will affect how timelines are setup, how read receipts are sent
-    /// and how room unreads are computed.
+    /// Whether the threads feature is enabled throuoghout the SDK. This will
+    /// affect how timelines are setup, how read receipts are sent and how room
+    /// unreads are computed.
     pub fn with_threading_support(mut self, threading_support: ThreadingSupport) -> Self {
         self.threading_support = threading_support;
         self
@@ -646,9 +646,9 @@ impl ClientBuilder {
     ///
     /// This method can fail for two general reasons:
     ///
-    /// * Invalid input: a missing or invalid homeserver URL or invalid proxy
+    /// - Invalid input: a missing or invalid homeserver URL or invalid proxy
     ///   URL
-    /// * HTTP error: If you supplied a user ID instead of a homeserver URL, a
+    /// - HTTP error: If you supplied a user ID instead of a homeserver URL, a
     ///   server discovery request is made which can fail; if you didn't set
     ///   [`server_versions(false)`][Self::server_versions], that amounts to
     ///   another request that can fail
@@ -1027,11 +1027,11 @@ pub(crate) mod tests {
     }
 
     // Note: Due to a limitation of the http mocking library the following tests
-    // all supply an http:// url, to `server_name_or_homeserver_url` rather than the plain server name,
-    // otherwise  the builder will prepend https:// and the request will fail. In practice, this
-    // isn't a problem as the builder first strips the scheme and then checks if
-    // the name is a valid server name, so it is a close enough
-    // approximation.
+    // all supply an http:// url, to `server_name_or_homeserver_url` rather than
+    // the plain server name, otherwise the builder will prepend https:// and
+    // the request will fail. In practice, this isn't a problem as the builder
+    // first strips the scheme and then checks if the name is a valid server
+    // name, so it is a close enough approximation.
 
     #[async_test]
     async fn test_discovery_invalid_server() {
@@ -1169,8 +1169,8 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_discovery_server_name_or_url_with_well_known_lookup_disabled() {
         // Given a homeserver that also serves a well-known file, which must
-        // never be requested. `MockServer` verifies the expectation
-        // when it is dropped.
+        // never be requested. `MockServer` verifies the expectation when it is
+        // dropped.
         let homeserver = make_mock_homeserver().await;
         Mock::given(method("GET"))
             .and(path("/.well-known/matrix/client"))
@@ -1198,8 +1198,8 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_homeserver_url_never_contacts_the_server_name() {
         // Given a deployment where the server name serves a well-known that
-        // points to the underlying homeserver (hosted on an unrelated
-        // domain in this test).
+        // points to the underlying homeserver (hosted on an unrelated domain in
+        // this test).
         let mock_server = MockServer::start().await;
         let address = *mock_server.address();
         let port = address.port();

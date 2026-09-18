@@ -83,9 +83,9 @@ async fn redecryption_report_task(timeline_controller: TimelineController) {
             }
             Ok(RedecryptorReport::Lagging | RedecryptorReport::BackupAvailable) | Err(_) => {
                 // Since the event cache keeps all the events we are keeping
-                // cached in the timeline in memory as well,
-                // R2D2 will handle the redecryption of these events when any of
-                // those reports come in.
+                // cached in the timeline in memory as well, R2D2 will handle
+                // the redecryption of these events when any of those reports
+                // come in.
             }
         }
     }

@@ -72,11 +72,10 @@ struct StateLockInner {
     /// The per-process lock around the real state.
     locked_state: RwLock<State>,
 
-    /// A lock taken to avoid multiple attempts to upgrade from a read lock
-    /// to a write lock.
+    /// A lock taken to avoid multiple attempts to upgrade from a read lock to a
+    /// write lock.
     ///
-    /// Please see inline comment of [`Self::read`] to understand why it
-    /// exists.
+    /// Please see inline comment of [`Self::read`] to understand why it exists.
     state_lock_upgrade_mutex: Mutex<()>,
 }
 
@@ -93,10 +92,9 @@ impl StateLock {
 
     /// Lock this [`StateLock`] with per-thread shared access.
     ///
-    /// This method locks the per-thread lock over the state, and then locks
-    /// the cross-process lock over the store. It returns an RAII guard
-    /// which will drop the read access to the state and to the store when
-    /// dropped.
+    /// This method locks the per-thread lock over the state, and then locks the
+    /// cross-process lock over the store. It returns an RAII guard which will
+    /// drop the read access to the state and to the store when dropped.
     ///
     /// If the cross-process lock over the store is dirty (see
     /// [`EventCacheStoreLockState`]), the state is reloaded.
@@ -108,25 +106,24 @@ impl StateLock {
         // Only one call at a time to `read` is allowed.
         //
         // Why? Because in case the cross-process lock over the store is dirty,
-        // we need to upgrade the read lock over the state to a write
-        // lock.
+        // we need to upgrade the read lock over the state to a write lock.
         //
         // ## Upgradable read lock
         //
-        // One may argue that this upgrades can be done with an _upgradable read
-        // lock_ [^1] [^2]. We don't want to use this solution: an
-        // upgradable read lock is basically a mutex because we are
-        // losing the shared access property, i.e. having multiple read
-        // locks at the same time. This is an important property to hold
-        // for performance concerns.
+        // One may argue that this upgrades can be done with an
+        // _upgradable read lock_ [^1] [^2]. We don't want to use this solution:
+        // an upgradable read lock is basically a mutex because we are losing
+        // the shared access property, i.e. having multiple read locks at the
+        // same time. This is an important property to hold for performance
+        // concerns.
         //
         // ## Downgradable write lock
         //
         // One may also argue we could first obtain a write lock over the state
-        // from the beginning, thus removing the need to upgrade the
-        // read lock to a write lock. The write lock is then downgraded
-        // to a read lock once the dirty is cleaned up. It can
-        // potentially create a deadlock in the following situation:
+        // from the beginning, thus removing the need to upgrade the read lock
+        // to a write lock. The write lock is then downgraded to a read lock
+        // once the dirty is cleaned up. It can potentially create a deadlock in
+        // the following situation:
         //
         // - `read` is called once, it takes a write lock, then downgrades it to
         //   a read lock: the guard is kept alive somewhere,
@@ -137,24 +134,23 @@ impl StateLock {
         // ## “Atomic” read and write
         //
         // One may finally argue to first obtain a read lock over the state,
-        // then drop it if the cross-process lock over the store is
-        // dirty, and immediately obtain a write lock (which can later
-        // be downgraded to a read lock). The problem is that this write
-        // lock is async: anything can happen between the drop and the
-        // new lock acquisition, and it's not possible to pause the runtime in
-        // the meantime.
+        // then drop it if the cross-process lock over the store is dirty, and
+        // immediately obtain a write lock (which can later be downgraded to a
+        // read lock). The problem is that this write lock is async: anything
+        // can happen between the drop and the new lock acquisition, and it's
+        // not possible to pause the runtime in the meantime.
         //
-        // ## Semaphore with 1 permit, aka a Mutex
+        // ## Semaphore with 1 permit, aka a mutex
         //
         // The chosen idea is to allow only one execution at a time of this
-        // method: it becomes a critical section. That way we are free
-        // to “upgrade” the read lock by dropping it and obtaining a new
-        // write lock. All callers to this method are waiting, so
-        // nothing can happen in the meantime.
+        // method: it becomes a critical section. That way we are free to
+        // “upgrade” the read lock by dropping it and obtaining a new write
+        // lock. All callers to this method are waiting, so nothing can happen
+        // in the meantime.
         //
         // Note that it doesn't conflict with the `write` method because this
-        // latter immediately obtains a write lock, which avoids any
-        // conflict with this method.
+        // latter immediately obtains a write lock, which avoids any conflict
+        // with this method.
         //
         // [^1]: https://docs.rs/lock_api/0.4.14/lock_api/struct.RwLock.html#method.upgradable_read
         // [^2]: https://docs.rs/async-lock/3.4.1/async_lock/struct.RwLock.html#method.upgradable_read
@@ -175,8 +171,7 @@ impl StateLock {
             }
             EventCacheStoreLockState::Dirty(store_guard) => {
                 // Drop the read lock, and take a write lock to modify the
-                // state. This is safe because only one reader
-                // at a time (see
+                // state. This is safe because only one reader at a time (see
                 // `Self::state_lock_upgrade_mutex`) is allowed.
                 drop(state_guard);
 
@@ -203,10 +198,9 @@ impl StateLock {
 
     /// Lock this [`StateLock`] with exclusive per-thread write access.
     ///
-    /// This method locks the per-thread lock over the state, and then locks
-    /// the cross-process lock over the store. It returns an RAII guard
-    /// which will drop the write access to the state and to the store when
-    /// dropped.
+    /// This method locks the per-thread lock over the state, and then locks the
+    /// cross-process lock over the store. It returns an RAII guard which will
+    /// drop the write access to the state and to the store when dropped.
     ///
     /// If the cross-process lock over the store is dirty (see
     /// [`EventCacheStoreLockState`]), the state is reloaded automatically.
@@ -414,12 +408,12 @@ pub enum StateLockReadGuardKind<'state, S> {
     /// cache (sub-)state.
     ///
     /// This is useful if one needs to run operations over multiple cache
-    /// (sub-)states without mapping the read lock guard over the state
-    /// (because it would consume it).
+    /// (sub-)states without mapping the read lock guard over the state (because
+    /// it would consume it).
     Reference(&'state S),
 
-    /// The read lock over the state `S` is acquired, and this is a mapped
-    /// guard to a cache (sub-)state.
+    /// The read lock over the state `S` is acquired, and this is a mapped guard
+    /// to a cache (sub-)state.
     Owned(RwLockReadGuard<'state, S>),
 }
 
@@ -481,11 +475,11 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
 
     /// Synchronously downgrades a write lock into a read lock.
     ///
-    /// The per-thread/state lock is downgraded atomically, without allowing
-    /// any writers to take exclusive access of the lock in the meantime.
+    /// The per-thread/state lock is downgraded atomically, without allowing any
+    /// writers to take exclusive access of the lock in the meantime.
     ///
-    /// It returns an RAII guard which will drop the read access to the
-    /// state and to the store when dropped.
+    /// It returns an RAII guard which will drop the read access to the state
+    /// and to the store when dropped.
     fn downgrade(self) -> StateLockReadGuard<'state, State> {
         StateLockReadGuard {
             state: StateLockReadGuardKind::Owned(self.state.downgrade()),
@@ -658,10 +652,9 @@ where
     /// Lock this [`CacheStateLock`] by locking the full [`State`] with
     /// per-thread shared access.
     ///
-    /// This method locks the per-thread lock over the state, and then locks
-    /// the cross-process lock over the store. It returns an RAII guard
-    /// which will drop the read access to the state and to the store when
-    /// dropped.
+    /// This method locks the per-thread lock over the state, and then locks the
+    /// cross-process lock over the store. It returns an RAII guard which will
+    /// drop the read access to the state and to the store when dropped.
     ///
     /// If the cross-process lock over the store is dirty (see
     /// [`EventCacheStoreLockState`]), the state is reloaded.
@@ -672,10 +665,9 @@ where
     /// Lock this [`CacheStateLock`] by locking the full [`State`] with
     /// exclusive per-thread write access.
     ///
-    /// This method locks the per-thread lock over the state, and then locks
-    /// the cross-process lock over the store. It returns an RAII guard
-    /// which will drop the write access to the state and to the store when
-    /// dropped.
+    /// This method locks the per-thread lock over the state, and then locks the
+    /// cross-process lock over the store. It returns an RAII guard which will
+    /// drop the write access to the state and to the store when dropped.
     ///
     /// If the cross-process lock over the store is dirty (see
     /// [`EventCacheStoreLockState`]), the state is reloaded.

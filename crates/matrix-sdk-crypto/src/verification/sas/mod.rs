@@ -350,9 +350,8 @@ impl Sas {
     ///
     /// # Arguments
     ///
-    /// * `account` - Our own account.
-    ///
-    /// * `other_device` - The other device which we are going to verify.
+    /// - `account` - Our own account.
+    /// - `other_device` - The other device which we are going to verify.
     ///
     /// Returns the new `Sas` object and a `StartEventContent` that needs to be
     /// sent out through the server to the other device.
@@ -372,9 +371,8 @@ impl Sas {
     ///
     /// # Arguments
     ///
-    /// * `account` - Our own account.
-    ///
-    /// * `other_device` - The other device which we are going to verify.
+    /// - `account` - Our own account.
+    /// - `other_device` - The other device which we are going to verify.
     ///
     /// Returns the new `Sas` object and a `StartEventContent` that needs to be
     /// sent out through the server to the other device.
@@ -394,11 +392,9 @@ impl Sas {
     ///
     /// # Arguments
     ///
-    /// * `account` - Our own account.
-    ///
-    /// * `other_device` - The other device which we are going to verify.
-    ///
-    /// * `event` - The m.key.verification.start event that was sent to us by
+    /// - `account` - Our own account.
+    /// - `other_device` - The other device which we are going to verify.
+    /// - `event` - The m.key.verification.start event that was sent to us by
     ///   the other side.
     pub(crate) fn from_start_event(
         flow_id: FlowId,
@@ -635,9 +631,8 @@ impl Sas {
     ///
     /// Returns None if we can't yet present the short auth string or if the
     /// emoji method was not part of the negotiated short auth string methods
-    /// (see [`Sas::supports_emoji()`]), otherwise seven u8 numbers in the
-    /// range from 0 to 63 inclusive which can be converted to an emoji using
-    /// the
+    /// (see [`Sas::supports_emoji()`]), otherwise seven u8 numbers in the range
+    /// from 0 to 63 inclusive which can be converted to an emoji using the
     /// [relevant spec entry](https://spec.matrix.org/unstable/client-server-api/#sas-method-emoji).
     pub fn emoji_index(&self) -> Option<[u8; 7]> {
         self.inner.read().emoji_index()
@@ -657,14 +652,14 @@ impl Sas {
     /// The changes are presented as a stream of [`SasState`] values.
     ///
     /// This method can be used to react to changes in the state of the
-    /// verification process, or rather the method can be used to handle
-    /// each step of the verification process.
+    /// verification process, or rather the method can be used to handle each
+    /// step of the verification process.
     ///
     /// # Flowchart
     ///
-    /// The flow of the verification process is pictured below. Please note
-    /// that the process can be cancelled at each step of the process.
-    /// Either side can cancel the process.
+    /// The flow of the verification process is pictured below. Please note that
+    /// the process can be cancelled at each step of the process. Either side
+    /// can cancel the process.
     ///
     /// ```text
     ///                ┌───────┐

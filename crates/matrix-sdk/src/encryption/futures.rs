@@ -67,8 +67,7 @@ impl<'a, R: ?Sized> UploadEncryptedFile<'a, R> {
         self
     }
 
-    /// Get a subscriber to observe the progress of sending the request
-    /// body.
+    /// Get a subscriber to observe the progress of sending the request body.
     pub fn subscribe_to_send_progress(&self) -> Subscriber<TransmissionProgress> {
         self.send_progress.subscribe()
     }

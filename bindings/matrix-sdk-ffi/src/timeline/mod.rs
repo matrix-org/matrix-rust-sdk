@@ -208,8 +208,8 @@ pub struct UploadParameters {
     mentions: Option<Mentions>,
     /// Optional Event ID to reply to.
     in_reply_to: Option<String>,
-    /// Optional additional top-level fields for the media event's content,
-    /// as a serialized JSON object.
+    /// Optional additional top-level fields for the media event's content, as a
+    /// serialized JSON object.
     #[uniffi(default = None)]
     extra_content_json: Option<String>,
 }
@@ -244,13 +244,12 @@ impl From<UploadSource> for AttachmentSource {
 /// possibly a thumbnail) being uploaded.
 #[derive(Clone, Copy, uniffi::Record)]
 pub struct MediaUploadProgress {
-    /// The index of the media within the transaction. A file and its
-    /// thumbnail share the same index. Will always be 0 for non-gallery
-    /// media uploads.
+    /// The index of the media within the transaction. A file and its thumbnail
+    /// share the same index. Will always be 0 for non-gallery media uploads.
     pub index: u64,
 
-    /// The current combined upload progress for both the file and,
-    /// if it exists, its thumbnail.
+    /// The current combined upload progress for both the file and, if it
+    /// exists, its thumbnail.
     pub progress: AbstractProgress,
 }
 
@@ -262,8 +261,8 @@ impl From<SdkMediaUploadProgress> for MediaUploadProgress {
 
 /// Progress of an operation in abstract units.
 ///
-/// Contrary to [`TransmissionProgress`], this allows tracking the progress
-/// of sending or receiving a payload in estimated pseudo units representing a
+/// Contrary to [`TransmissionProgress`], this allows tracking the progress of
+/// sending or receiving a payload in estimated pseudo units representing a
 /// percentage. This is helpful in cases where the exact progress in bytes isn't
 /// known, for instance, because encryption (which changes the size) happens on
 /// the fly.
@@ -289,15 +288,15 @@ impl Timeline {
     pub async fn add_listener(&self, listener: Box<dyn TimelineListener>) -> Arc<TaskHandle> {
         let (timeline_items, timeline_stream) = self.inner.subscribe().await;
 
-        // It's important that the initial items are passed *before* we forward
-        // the stream updates, with a guaranteed ordering. Otherwise, it
-        // could be that the listener be called before the initial items
-        // have been handled by the caller. See #3535 for details.
+        // It's important that the initial items are passed _before_ we forward
+        // the stream updates, with a guaranteed ordering. Otherwise, it could
+        // be that the listener be called before the initial items have been
+        // handled by the caller. See #3535 for details.
 
         // Note we pass initial items as a reset update, as a way to give the
-        // callers a unified way to handle the initial batch of items as
-        // well as other batches, instead of having a separate callback
-        // for the initial items.
+        // callers a unified way to handle the initial batch of items as well as
+        // other batches, instead of having a separate callback for the initial
+        // items.
         listener.on_update(vec![TimelineDiff::new(VectorDiff::Reset { values: timeline_items })]);
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
@@ -333,8 +332,8 @@ impl Timeline {
         // Send the current state even if it hasn't changed right away.
         //
         // Note: don't do it in the spawned function, so that the caller is
-        // immediately aware of the current state, and this doesn't
-        // depend on the async runtime having an available worker
+        // immediately aware of the current state, and this doesn't depend on
+        // the async runtime having an available worker
         listener.on_update(initial);
 
         Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
@@ -372,13 +371,13 @@ impl Timeline {
     /// latest visible event.
     ///
     /// The latest visible event is determined from the timeline's focus kind
-    /// and whether or not it hides threaded events. If no latest event can
-    /// be determined and the timeline is live, the room's unread marker is
-    /// unset instead.
+    /// and whether or not it hides threaded events. If no latest event can be
+    /// determined and the timeline is live, the room's unread marker is unset
+    /// instead.
     ///
     /// # Arguments
     ///
-    /// * `receipt_type` - The type of receipt to send. When using
+    /// - `receipt_type` - The type of receipt to send. When using
     ///   [`ReceiptType::FullyRead`], an unthreaded receipt will be sent. This
     ///   works even if the latest event belongs to a thread, as a threaded
     ///   reply also belongs to the unthreaded timeline. Otherwise the receipt
@@ -393,8 +392,8 @@ impl Timeline {
         self.inner.latest_event_id().await.as_deref().map(ToString::to_string)
     }
 
-    /// Queues an event in the room's send queue so it's processed for
-    /// sending later.
+    /// Queues an event in the room's send queue so it's processed for sending
+    /// later.
     ///
     /// Returns an abort handle that allows to abort sending, if it hasn't
     /// happened yet.
@@ -405,8 +404,8 @@ impl Timeline {
         self.send_with_extra_content(msg, None).await
     }
 
-    /// Like [`Self::send`], but merges the given additional top-level fields
-    /// (a JSON object, encoded as a string) into the outgoing event's content.
+    /// Like [`Self::send`], but merges the given additional top-level fields (a
+    /// JSON object, encoded as a string) into the outgoing event's content.
     pub async fn send_with_extra_content(
         self: Arc<Self>,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
@@ -549,8 +548,8 @@ impl Timeline {
     /// Send a reply.
     ///
     /// If the replied to event has a thread relation, it is forwarded on the
-    /// reply so that clients that support threads can render the reply
-    /// inside the thread. Returns a handle to abort the pending send.
+    /// reply so that clients that support threads can render the reply inside
+    /// the thread. Returns a handle to abort the pending send.
     pub async fn send_reply(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
@@ -563,12 +562,12 @@ impl Timeline {
 
     /// Edits an event from the timeline.
     ///
-    /// If it was a local event, this will *try* to edit it, if it was not
-    /// being sent already. If the event was a remote event, then it will be
-    /// redacted by sending an edit request to the server.
+    /// If it was a local event, this will _try_ to edit it, if it was not being
+    /// sent already. If the event was a remote event, then it will be redacted
+    /// by sending an edit request to the server.
     ///
-    /// Returns whether the edit did happen. It can only return false for
-    /// local events that are being processed.
+    /// Returns whether the edit did happen. It can only return false for local
+    /// events that are being processed.
     pub async fn edit(
         &self,
         event_or_transaction_id: EventOrTransactionId,
@@ -583,8 +582,8 @@ impl Timeline {
 
             Err(timeline::Error::EventNotInTimeline(_)) => {
                 // If we couldn't edit, assume it was an (remote) event that
-                // wasn't in the timeline, and try to edit it
-                // via the room itself.
+                // wasn't in the timeline, and try to edit it via the room
+                // itself.
                 let event_id = match event_or_transaction_id {
                     EventOrTransactionId::EventId { event_id } => EventId::parse(event_id)?,
                     EventOrTransactionId::TransactionId { .. } => {
@@ -699,7 +698,7 @@ impl Timeline {
 
     /// Get the current timeline item for the given event ID, if any.
     ///
-    /// Will return a remote event, *or* a local echo that has been sent but not
+    /// Will return a remote event, _or_ a local echo that has been sent but not
     /// yet replaced by a remote echo.
     ///
     /// It's preferable to store the timeline items in the model for your UI, if
@@ -720,9 +719,9 @@ impl Timeline {
 
     /// Get the edit history for the given event.
     ///
-    /// Returns all revisions of the event, in chronological order.
-    /// The first entry is the original event content, followed by each
-    /// edit in the order they were applied.
+    /// Returns all revisions of the event, in chronological order. The first
+    /// entry is the original event content, followed by each edit in the order
+    /// they were applied.
     pub async fn edit_revisions(
         &self,
         event_id: String,
@@ -742,7 +741,7 @@ impl Timeline {
     ///
     /// Only works for events that exist as timeline items.
     ///
-    /// If it was a local event, this will *try* to cancel it, if it was not
+    /// If it was a local event, this will _try_ to cancel it, if it was not
     /// being sent already. If the event was a remote event, then it will be
     /// redacted by sending a redaction request to the server.
     ///
@@ -758,8 +757,8 @@ impl Timeline {
     /// Retry sending something on this item that failed, see [`SendTarget`].
     ///
     /// Only needed after an unrecoverable failure, which parks the request
-    /// until it's retried or aborted; a recoverable one goes out again when
-    /// the room's send queue is re-enabled.
+    /// until it's retried or aborted; a recoverable one goes out again when the
+    /// room's send queue is re-enabled.
     ///
     /// Returns `false` if there was nothing of that kind left to retry, e.g.
     /// because it went out in the meantime.
@@ -866,8 +865,8 @@ impl SendHandle {
 
 #[matrix_sdk_ffi_macros::export]
 impl SendHandle {
-    /// Try to abort the sending of the current event, with an optional
-    /// `reason` applied to the redaction when the event went out anyway.
+    /// Try to abort the sending of the current event, with an optional `reason`
+    /// applied to the redaction when the event went out anyway.
     ///
     /// If this returns `true`, then the sending could be aborted, because the
     /// event hasn't been sent yet. Otherwise, if this returns `false`, the
@@ -893,12 +892,12 @@ impl SendHandle {
     ///
     /// This is useful for example, when there's a
     /// `SessionRecipientCollectionError::VerifiedUserChangedIdentity` error;
-    /// the user may have re-verified on a different device and would now
-    /// like to send the failed message that's waiting on this device.
+    /// the user may have re-verified on a different device and would now like
+    /// to send the failed message that's waiting on this device.
     ///
     /// # Arguments
     ///
-    /// * `transaction_id` - The send queue transaction identifier of the local
+    /// - `transaction_id` - The send queue transaction identifier of the local
     ///   echo that should be unwedged.
     pub async fn try_resend(self: Arc<Self>) -> Result<(), ClientError> {
         let locked = self.inner.lock().await;
@@ -1006,7 +1005,7 @@ pub struct TimelineItem(pub(crate) matrix_sdk_ui::timeline::TimelineItem);
 impl TimelineItem {
     pub(crate) fn from_arc(arc: Arc<matrix_sdk_ui::timeline::TimelineItem>) -> Arc<Self> {
         // SAFETY: This is valid because Self is a repr(transparent) wrapper
-        //         around the other Timeline type.
+        // around the other Timeline type.
         unsafe { Arc::from_raw(Arc::into_raw(arc) as _) }
     }
 }

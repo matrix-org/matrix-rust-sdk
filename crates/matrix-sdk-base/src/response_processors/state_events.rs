@@ -83,10 +83,9 @@ pub mod sync {
 
     /// Dispatch the sync state events.
     ///
-    /// `raw_events` and `events` must be generated from [`collect`].
-    /// Events must be exactly the same list of events that are in
-    /// `raw_events`, but deserialised. We demand them here to avoid
-    /// deserialising multiple times.
+    /// `raw_events` and `events` must be generated from [`collect`]. Events
+    /// must be exactly the same list of events that are in `raw_events`, but
+    /// deserialised. We demand them here to avoid deserialising multiple times.
     ///
     /// The `new_users` mutable reference allows to collect the new users for
     /// this room.
@@ -140,9 +139,8 @@ pub mod sync {
                     ) {
                         room_info.handle_state_event(&mut raw_event);
                     } else {
-                        // Do not add the event to `room_info`.
-                        // Do not add the event to
-                        // `context.state_changes.state`.
+                        // Do not add the event to `room_info`. Do not add the
+                        // event to `context.state_changes.state`.
                         continue;
                     }
                 }
@@ -235,8 +233,8 @@ pub mod sync {
         room_info: &mut RoomInfo,
     ) {
         // Start from the last event; the first membership event we see in that
-        // order is the last in the regular order, so that's the only
-        // one we need to consider.
+        // order is the last in the regular order, so that's the only one we
+        // need to consider.
         if let Some(member) = state_events.iter_mut().rev().find_map(|event| {
             // Find the event that updates the current user's membership.
             if event.event_type == StateEventType::RoomMember
@@ -297,20 +295,19 @@ pub mod stripped {
 
     /// Dispatch the stripped state events.
     ///
-    /// `raw_events` and `events` must be generated from [`collect`].
-    /// Events must be exactly the same list of events that are in
-    /// `raw_events`, but deserialised. We demand them here to avoid
-    /// deserialising multiple times.
+    /// `raw_events` and `events` must be generated from [`collect`]. Events
+    /// must be exactly the same list of events that are in `raw_events`, but
+    /// deserialised. We demand them here to avoid deserialising multiple times.
     ///
     /// Dispatch the stripped state events in `invite_state` or `knock_state`,
     /// modifying the room's info and posting notifications as needed.
     ///
-    /// * `raw_events` and `events` - The contents of `invite_state` in the form
+    /// - `raw_events` and `events` - The contents of `invite_state` in the form
     ///   of list of pairs of raw stripped state events with their deserialized
     ///   counterpart.
-    /// * `room` - The [`Room`] to modify.
-    /// * `room_info` - The current room's info.
-    /// * `notifications` - Notifications to post for the current room.
+    /// - `room` - The [`Room`] to modify.
+    /// - `room_info` - The current room's info.
+    /// - `notifications` - Notifications to post for the current room.
     #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
     pub(crate) async fn dispatch_invite_or_knock(
         context: &mut Context,
@@ -367,8 +364,8 @@ pub mod stripped {
         raw_state_events: &[RawStateEventWithKeys<AnyStrippedStateEvent>],
     ) {
         // Start from the last event; the first membership event we see in that
-        // order is the last in the regular order, so that's the only
-        // one we need to consider.
+        // order is the last in the regular order, so that's the only one we
+        // need to consider.
         if raw_state_events.iter().rev().any(|raw_event| {
             // Find the event that updates the current user's membership.
             raw_event.event_type == StateEventType::RoomMember
@@ -418,11 +415,11 @@ pub fn validate_create_event_predecessor(
 
     loop {
         // We must check immediately if the `predecessor_room_id` is in
-        // `already_seen` in case of a room is created and marks itself
-        // as its predecessor in a single sync.
+        // `already_seen` in case of a room is created and marks itself as its
+        // predecessor in a single sync.
         if already_seen.contains(&predecessor_room_id) {
-            // Ahhh, there is a loop with `m.room.create` events!
-            // We remove the predecessor so that we don't process it later.
+            // Ahhh, there is a loop with `m.room.create` events! We remove the
+            // predecessor so that we don't process it later.
             let mut event = event.clone();
 
             match &mut event {
@@ -480,8 +477,8 @@ pub fn is_tombstone_event_valid(
 
     loop {
         // We must check immediately if the `successor_room_id` is in
-        // `already_seen` in case of a room is created and tombstones
-        // itself in a single sync.
+        // `already_seen` in case of a room is created and tombstones itself in
+        // a single sync.
         if already_seen.contains(AsRef::<RoomId>::as_ref(&successor_room_id)) {
             // Ahhh, there is a loop with `m.room.tombstone` events!
             error!(?room_id, ?tombstone, "`m.room.tombstone` event is invalid, it creates a loop");
@@ -515,8 +512,8 @@ pub fn is_tombstone_event_valid(
 
 /// Attempt to decrypt the given state event.
 ///
-/// Returns `Some(_)` if the state event was successfully decrypted and
-/// its keys were deserialized.
+/// Returns `Some(_)` if the state event was successfully decrypted and its keys
+/// were deserialized.
 #[cfg(feature = "experimental-encrypted-state-events")]
 async fn decrypt_state_event(
     raw_event: &mut RawStateEventWithKeys<AnySyncStateEvent>,
@@ -594,9 +591,8 @@ mod tests {
 
         let client = logged_in_base_client(None).await;
 
-        // Create room 0 with 2 `m.room.create` events.
-        // Create room 1 with 1 `m.room.create` event.
-        // Create room 2 with 0 `m.room.create` event.
+        // Create room 0 with 2 `m.room.create` events. Create room 1 with 1
+        // `m.room.create` event. Create room 2 with 0 `m.room.create` event.
         {
             let response = response_builder
                 .add_joined_room(
@@ -616,8 +612,7 @@ mod tests {
 
             assert!(client.receive_sync_response(response).await.is_ok());
 
-            // Room 0
-            // the second `m.room.create` has been ignored!
+            // Room 0 the second `m.room.create` has been ignored!
             assert_eq!(
                 client.get_room(room_id_0).unwrap().create_content().unwrap().room_version.as_str(),
                 "42"
@@ -631,9 +626,9 @@ mod tests {
             assert!(client.get_room(room_id_2).unwrap().create_content().is_none());
         }
 
-        // Room 0 receives a new `m.room.create` event.
-        // Room 1 receives a new `m.room.create` event.
-        // Room 2 receives its first `m.room.create` event.
+        // Room 0 receives a new `m.room.create` event. Room 1 receives a new
+        // `m.room.create` event. Room 2 receives its first `m.room.create`
+        // event.
         {
             let response = response_builder
                 .add_joined_room(JoinedRoomBuilder::new(room_id_0).add_timeline_event(
@@ -649,14 +644,12 @@ mod tests {
 
             assert!(client.receive_sync_response(response).await.is_ok());
 
-            // Room 0
-            // the third `m.room.create` has been ignored!
+            // Room 0 the third `m.room.create` has been ignored!
             assert_eq!(
                 client.get_room(room_id_0).unwrap().create_content().unwrap().room_version.as_str(),
                 "42"
             );
-            // Room 1
-            // the second `m.room.create` has been ignored!
+            // Room 1 the second `m.room.create` has been ignored!
             assert_eq!(
                 client.get_room(room_id_1).unwrap().create_content().unwrap().room_version.as_str(),
                 "44"
@@ -920,8 +913,7 @@ mod tests {
             let tombstone_event_id = event_id!("$ev0");
             let response = response_builder
                 .add_joined_room(
-                    // Successor of room 0 is room 0.
-                    // No predecessor.
+                    // Successor of room 0 is room 0. No predecessor.
                     JoinedRoomBuilder::new(room_id_0).add_timeline_event(
                         event_factory
                             .room_tombstone("hello", room_id_0)
@@ -1072,8 +1064,7 @@ mod tests {
             let tombstone_event_id = event_id!("$ev0");
             let response = response_builder
                 .add_joined_room(
-                    // Predecessor of room 0 is room 0.
-                    // No successor.
+                    // Predecessor of room 0 is room 0. No successor.
                     JoinedRoomBuilder::new(room_id_0).add_timeline_event(
                         event_factory
                             .create(sender, RoomVersionId::try_from("42")?)
@@ -1155,9 +1146,9 @@ mod tests {
         // Room 0, room 1 and room 2.
         //
         // Doing that in one sync, it's the only way to create such loop
-        // (otherwise it implies overwriting the `m.room.create` event,
-        // or not setting it first, then setting it later… anyway, it
-        // works in one sync)
+        // (otherwise it implies overwriting the `m.room.create` event, or not
+        // setting it first, then setting it later… anyway, it works in one
+        // sync)
         {
             let response = response_builder
                 .add_joined_room(

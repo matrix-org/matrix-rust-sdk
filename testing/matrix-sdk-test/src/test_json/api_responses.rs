@@ -79,9 +79,8 @@ pub static KEYS_QUERY: LazyLock<JsonValue> = LazyLock::new(|| {
     })
 });
 
-/// `POST /_matrix/client/v3/keys/query`
-/// For a set of 2 devices own by a user named web2.
-/// First device is unsigned, second one is signed
+/// `POST /_matrix/client/v3/keys/query` For a set of 2 devices own by a user
+/// named web2. First device is unsigned, second one is signed
 pub static KEYS_QUERY_TWO_DEVICES_ONE_SIGNED: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
     "device_keys":{
@@ -249,8 +248,7 @@ pub static NOT_FOUND: LazyLock<JsonValue> = LazyLock::new(|| {
     })
 });
 
-/// `GET /_matrix/client/v3/publicRooms`
-/// `POST /_matrix/client/v3/publicRooms`
+/// `GET /_matrix/client/v3/publicRooms` `POST /_matrix/client/v3/publicRooms`
 pub static PUBLIC_ROOMS: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "chunk": [
@@ -273,8 +271,7 @@ pub static PUBLIC_ROOMS: LazyLock<JsonValue> = LazyLock::new(|| {
     })
 });
 
-/// `GET /_matrix/client/v3/publicRooms`
-/// `POST /_matrix/client/v3/publicRooms``
+/// `GET /_matrix/client/v3/publicRooms` `POST /_matrix/client/v3/publicRooms``
 pub static PUBLIC_ROOMS_FINAL_PAGE: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
         "chunk": [

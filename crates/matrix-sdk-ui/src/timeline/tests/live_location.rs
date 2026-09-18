@@ -31,8 +31,8 @@ use crate::timeline::{
     tests::TestTimeline,
 };
 
-/// A `beacon_info` state event creates a `MsgLikeKind::LiveLocation`
-/// item with `is_live() == true` and no accumulated locations.
+/// A `beacon_info` state event creates a `MsgLikeKind::LiveLocation` item with
+/// `is_live() == true` and no accumulated locations.
 #[async_test]
 async fn test_beacon_info_creates_timeline_item() {
     let timeline = TestTimeline::new().await;
@@ -70,8 +70,8 @@ async fn test_beacon_info_with_expired_timeout_still_creates_item() {
     let mut stream = timeline.subscribe_events().await;
     let beacon_id = event_id!("$beacon_info:example.org");
 
-    // Use a timestamp in the past with a very short duration so that
-    // is_live() would return false (expired), but `live` field is true.
+    // Use a timestamp in the past with a very short duration so that is_live()
+    // would return false (expired), but `live` field is true.
     let past_ts = MilliSecondsSinceUnixEpoch(uint!(1_000)); // Very early timestamp
     let short_duration = Duration::from_millis(1); // Effectively expired immediately
 
@@ -92,8 +92,8 @@ async fn test_beacon_info_with_expired_timeout_still_creates_item() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let state = item.content().as_live_location_state().expect("should be a live location item");
 
-    // The `live` field is true, but is_live() returns false because the
-    // timeout has expired.
+    // The `live` field is true, but is_live() returns false because the timeout
+    // has expired.
     assert!(!state.is_live(), "is_live() should return false because the timeout has expired");
     assert!(state.beacon_info.live, "live should be true");
 
@@ -223,7 +223,7 @@ async fn test_multiple_beacon_updates_accumulate_in_order() {
     assert_pending!(stream);
 }
 
-/// When a `beacon` message event arrives *before* its parent `beacon_info`
+/// When a `beacon` message event arrives _before_ its parent `beacon_info`
 /// state event, the aggregation is stashed and applied once the parent appears.
 #[async_test]
 async fn test_beacon_update_before_beacon_info_is_applied_when_parent_arrives() {
@@ -366,8 +366,8 @@ async fn test_beacon_update_not_shown_standalone() {
     );
 }
 
-/// A stop `beacon_info` (live = false) updates the existing start item
-/// in-place rather than creating a new timeline item.
+/// A stop `beacon_info` (live = false) updates the existing start item in-place
+/// rather than creating a new timeline item.
 #[async_test]
 async fn test_beacon_stop_updates_existing_item() {
     let timeline = TestTimeline::new().await;
@@ -540,6 +540,7 @@ async fn test_beacon_stop_before_start_is_applied_later() {
 
 /// A pending beacon stop from an OLD session should NOT be applied to a NEW
 /// session. This tests the scenario where:
+///
 /// 1. User starts session A
 /// 2. Stop for session A arrives out-of-order and is stashed
 /// 3. User starts session B — the stashed stop should NOT apply
@@ -550,15 +551,15 @@ async fn test_pending_beacon_stop_not_applied_to_different_session() {
     let old_stop_id = event_id!("$old_stop:example.org");
     let new_start_id = event_id!("$new_start:example.org");
 
-    // Use the current time as base for session B.
-    // Session A's timestamp doesn't matter since its stop will be discarded.
-    // Session B needs a recent timestamp so is_live() doesn't fail due to
-    // timeout.
+    // Use the current time as base for session B. Session A's timestamp doesn't
+    // matter since its stop will be discarded. Session B needs a recent
+    // timestamp so is_live() doesn't fail due to timeout.
     let old_session_ts = MilliSecondsSinceUnixEpoch(uint!(1)); // Old session (past)
-    let new_session_ts = MilliSecondsSinceUnixEpoch::now(); // New session (now)
+     let new_session_ts = MilliSecondsSinceUnixEpoch::now(); // New session
+     (now)
 
-    // A stop event from the OLD session arrives first (out-of-order).
-    // Its corresponding start event is missing (maybe it's from long ago).
+    // A stop event from the OLD session arrives first (out-of-order). Its
+    // corresponding start event is missing (maybe it's from long ago).
     timeline
         .send_beacon_info(
             &ALICE,
@@ -711,8 +712,8 @@ async fn test_duplicate_beacon_location_is_deduplicated() {
     // A second event with the same ts (e.g. from a retried decryption pass).
     timeline.send_beacon_location(&ALICE, beacon_id, 1.0, 2.0, ts).await;
 
-    // The aggregation system still emits a Set diff, but the duplicate
-    // location is silently dropped so the count stays at 1.
+    // The aggregation system still emits a Set diff, but the duplicate location
+    // is silently dropped so the count stays at 1.
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert_eq!(
         item.content().as_live_location_state().unwrap().locations().len(),
@@ -826,7 +827,7 @@ async fn test_multiple_reactions_on_live_location_item() {
     assert_pending!(stream);
 }
 
-/// A reaction that arrives *before* its target live location item is stashed
+/// A reaction that arrives _before_ its target live location item is stashed
 /// and applied once the beacon_info item is inserted.
 #[async_test]
 async fn test_reaction_before_live_location_item_is_applied_when_parent_arrives() {
@@ -865,8 +866,8 @@ async fn test_reaction_before_live_location_item_is_applied_when_parent_arrives(
     assert_pending!(stream);
 }
 
-/// A locally-toggled reaction on a live location item produces a local echo
-/// and is then confirmed by the remote echo from sync.
+/// A locally-toggled reaction on a live location item produces a local echo and
+/// is then confirmed by the remote echo from sync.
 #[async_test]
 async fn test_local_reaction_on_live_location_item() {
     let timeline = TestTimeline::new().await;

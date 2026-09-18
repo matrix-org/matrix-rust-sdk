@@ -707,6 +707,7 @@ async fn test_clear_read_receipts() {
 #[async_test]
 async fn test_implicit_read_receipt_before_explicit_read_receipt() {
     // Test a timeline in this order:
+    //
     // 1. $alice_event: sent by alice, has no explicit read receipts.
     // 2. $bob_event: sent by bob, has no explicit read receipts.
     // 3. $carol_event: sent by carol, has the explicit read receipts of all

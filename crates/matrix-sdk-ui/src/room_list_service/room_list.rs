@@ -81,9 +81,8 @@ impl RoomList {
                     pin_mut!(room_list_service_state);
 
                     // As soon as `RoomListService` changes its state, if it
-                    // isn't `Terminated` nor `Error`, we
-                    // know we have fetched something,
-                    // so the room list is loaded.
+                    // isn't `Terminated` nor `Error`, we know we have fetched
+                    // something, so the room list is loaded.
                     while let Some(state) = room_list_service_state.next().await {
                         use State::*;
 
@@ -136,8 +135,8 @@ impl RoomList {
     /// The returned stream will only start yielding diffs once a filter is set
     /// through the returned [`RoomListDynamicEntriesController`]. For every
     /// call to [`RoomListDynamicEntriesController::set_filter`], the stream
-    /// will yield a [`VectorDiff::Reset`] followed by any updates of the
-    /// room list under that filter (until the next reset).
+    /// will yield a [`VectorDiff::Reset`] followed by any updates of the room
+    /// list under that filter (until the next reset).
     pub fn entries_with_dynamic_adapters(
         &self,
         page_size: usize,
@@ -171,11 +170,11 @@ impl RoomList {
                 let (values, stream) = (values, stream)
                     .filter(filter_fn)
                     .sort_by(new_sorter_lexicographic(vec![
-                        // Sort by latest event's kind, i.e. put the rooms with a
-                        // **local** latest event first.
+                        // Sort by latest event's kind, i.e. put the rooms with
+                        // a **local** latest event first.
                         Box::new(new_sorter_latest_event()),
-                        // Sort rooms by their recency (either by looking
-                        // at their latest event's timestamp, or their
+                        // Sort rooms by their recency (either by looking at
+                        // their latest event's timestamp, or their
                         // `recency_stamp`).
                         Box::new(new_sorter_recency()),
                         // Finally, sort by name.
@@ -282,9 +281,9 @@ fn merge_stream_and_receiver(
 /// See [`RoomList::loading_state`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RoomListLoadingState {
-    /// The [`RoomList`] has not been loaded yet, i.e. a sync might run
-    /// or not run at all, there is nothing to show in this `RoomList` yet.
-    /// It's a good opportunity to show a placeholder to the user.
+    /// The [`RoomList`] has not been loaded yet, i.e. a sync might run or not
+    /// run at all, there is nothing to show in this `RoomList` yet. It's a good
+    /// opportunity to show a placeholder to the user.
     ///
     /// From [`Self::NotLoaded`], it's only possible to move to
     /// [`Self::Loaded`].
@@ -305,9 +304,9 @@ pub enum RoomListLoadingState {
         ///
         /// It does not mean that there are exactly this many rooms to display.
         /// The room entries are represented by [`RoomListItem`]. The room entry
-        /// might have been synced or not synced yet, but we know for sure
-        /// (from the server), that there will be this amount of rooms in the
-        /// list at the end.
+        /// might have been synced or not synced yet, but we know for sure (from
+        /// the server), that there will be this amount of rooms in the list at
+        /// the end.
         ///
         /// Note that it's an `Option`, because it may be possible that the
         /// server did miss to send us this value. It's up to you, dear reader,
@@ -365,10 +364,9 @@ impl RoomListDynamicEntriesController {
 
         if limit < max {
             // With this logic, it is possible that `limit` becomes greater than
-            // `max` if `max - limit < page_size`, and that's
-            // perfectly fine. It's OK to have a `limit` greater
-            // than `max`, but it's not OK to increase the limit
-            // indefinitely.
+            // `max` if `max - limit < page_size`, and that's perfectly fine.
+            // It's OK to have a `limit` greater than `max`, but it's not OK to
+            // increase the limit indefinitely.
             self.limit.set_if_not_eq(limit + self.page_size);
         }
     }

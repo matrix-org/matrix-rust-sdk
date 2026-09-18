@@ -38,8 +38,10 @@ metadata! {
     },
 }
 
-/// The HTTP request body for fetching the public server key.
-/// Spec: <https://github.com/element-hq/matrix-content-scanner-python/blob/main/docs/api.md#get-_matrixmedia_proxyunstablepublic_key>
+/// The HTTP request body for fetching the public server key. Spec:
+/// [https://github.com/element-hq/matrix-content-scanner-python/blob/main/docs/api.md#get-_matrixmedia_proxyunstablepublic_key][https-github-com-element-hq-matrix-content-scanner-python-blob-main-docs-api-md-get-matrixmedia-proxyunstablepublic-key]
+///
+/// [https-github-com-element-hq-matrix-content-scanner-python-blob-main-docs-api-md-get-matrixmedia-proxyunstablepublic-key]: https://github.com/element-hq/matrix-content-scanner-python/blob/main/docs/api.md#get-_matrixmedia_proxyunstablepublic_key
 #[derive(Debug, Clone)]
 pub(crate) struct PublicServerKeyRequest {
     scanner_url: String,

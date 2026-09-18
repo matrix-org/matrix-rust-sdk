@@ -842,9 +842,8 @@ async fn test_timeline_without_encryption_can_update() {
         )
         .await;
 
-    // Previously this would have panicked.
-    // We're creating a timeline without read receipts tracking to check only
-    // the encryption changes.
+    // Previously this would have panicked. We're creating a timeline without
+    // read receipts tracking to check only the encryption changes.
     let timeline = TimelineBuilder::new(&room).build().await.unwrap();
 
     let (items, mut stream) = timeline.subscribe().await;

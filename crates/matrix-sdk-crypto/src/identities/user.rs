@@ -108,19 +108,18 @@ impl UserIdentity {
     /// Check if this user identity is verified.
     ///
     /// For our own identity, this means either that we have checked the public
-    /// keys in the identity against the private keys; or that the identity
-    /// has been manually marked as verified via
-    /// [`OwnUserIdentity::verify`].
+    /// keys in the identity against the private keys; or that the identity has
+    /// been manually marked as verified via [`OwnUserIdentity::verify`].
     ///
     /// For another user's identity, it means that we have verified our own
-    /// identity as above, *and* that the other user's identity has been signed
+    /// identity as above, _and_ that the other user's identity has been signed
     /// by our own user-signing key.
     ///
     /// Alternatively, if experimental X.509 identity verification is enabled,
-    /// an X.509 verifier is configured, and this is another user's identity,
-    /// we consider this identity verified if it carries a valid X.509
-    /// signature chaining to one of our trusted CAs, regardless of whether
-    /// our own identity is verified or even present.
+    /// an X.509 verifier is configured, and this is another user's identity, we
+    /// consider this identity verified if it carries a valid X.509 signature
+    /// chaining to one of our trusted CAs, regardless of whether our own
+    /// identity is verified or even present.
     pub fn is_verified(&self) -> bool {
         match self {
             UserIdentity::Own(u) => u.is_verified(),
@@ -157,9 +156,9 @@ impl UserIdentity {
     /// action "pinning".
     ///
     /// If the identity presented for the user changes later on, the newly
-    /// presented identity is considered to be in "pin violation". This
-    /// method explicitly accepts the new identity, allowing it to replace
-    /// the previously pinned one and bringing it out of pin violation.
+    /// presented identity is considered to be in "pin violation". This method
+    /// explicitly accepts the new identity, allowing it to replace the
+    /// previously pinned one and bringing it out of pin violation.
     ///
     /// UIs should display a warning to the user when encountering an identity
     /// which is not verified and is in pin violation. See
@@ -167,8 +166,8 @@ impl UserIdentity {
     pub async fn pin(&self) -> Result<(), CryptoStoreError> {
         match self {
             UserIdentity::Own(_) => {
-                // Nothing to be done for our own identity: we already
-                // consider it trusted in this sense.
+                // Nothing to be done for our own identity: we already consider
+                // it trusted in this sense.
                 Ok(())
             }
             UserIdentity::Other(u) => u.pin_current_master_key().await,
@@ -198,8 +197,8 @@ impl From<OtherUserIdentity> for UserIdentity {
 
 /// Struct representing a cross signing identity of a user.
 ///
-/// This is the user identity of a user that is our own. Other users will
-/// only contain a master key and a self signing key, meaning that only device
+/// This is the user identity of a user that is our own. Other users will only
+/// contain a master key and a self signing key, meaning that only device
 /// signatures can be checked with this identity.
 ///
 /// This struct wraps the [`OwnUserIdentityData`] type and allows a verification
@@ -291,7 +290,7 @@ impl OwnUserIdentity {
     ///
     /// # Arguments
     ///
-    /// * `methods` - The verification methods that we're supporting.
+    /// - `methods` - The verification methods that we're supporting.
     pub async fn request_verification_with_methods(
         &self,
         methods: Vec<VerificationMethod>,
@@ -299,8 +298,8 @@ impl OwnUserIdentity {
         self.request_verification_helper(Some(methods)).await
     }
 
-    /// Does our user identity trust our own device, i.e. have we signed our
-    /// own device keys with our self-signing key.
+    /// Does our user identity trust our own device, i.e. have we signed our own
+    /// device keys with our self-signing key.
     pub async fn trusts_our_own_device(&self) -> Result<bool, CryptoStoreError> {
         Ok(if let Some(signatures) = self.verification_machine.store.device_signatures().await? {
             let mut device_keys = self.store.cache().await?.account().await?.device_keys();
@@ -391,8 +390,8 @@ impl OtherUserIdentity {
     /// This method fails if we don't have the private part of our user-signing
     /// key.
     ///
-    /// Returns a request that needs to be sent out for the user to be marked
-    /// as verified.
+    /// Returns a request that needs to be sent out for the user to be marked as
+    /// verified.
     pub async fn verify(&self) -> Result<SignatureUploadRequest, SignatureError> {
         if self.user_id() != self.verification_machine.own_user_id() {
             Ok(self
@@ -599,8 +598,8 @@ impl UserIdentityData {
         }
     }
 
-    /// Convert the enum into a reference [`OwnUserIdentityData`] if it's of
-    /// the correct type.
+    /// Convert the enum into a reference [`OwnUserIdentityData`] if it's of the
+    /// correct type.
     pub fn own(&self) -> Option<&OwnUserIdentityData> {
         as_variant!(self, Self::Own)
     }
@@ -611,8 +610,8 @@ impl UserIdentityData {
         as_variant!(self, Self::Own)
     }
 
-    /// Convert the enum into a reference to [`OtherUserIdentityData`] if
-    /// it's of the correct type.
+    /// Convert the enum into a reference to [`OtherUserIdentityData`] if it's
+    /// of the correct type.
     pub fn other(&self) -> Option<&OtherUserIdentityData> {
         as_variant!(self, Self::Other)
     }
@@ -629,8 +628,8 @@ impl UserIdentityData {
 /// identity was verified once.
 ///
 /// The first time a cryptographic user identity is seen for a given user, it
-/// will be associated with that user ("pinned"). Future interactions
-/// will expect this identity to stay the same, to avoid MITM attacks from the
+/// will be associated with that user ("pinned"). Future interactions will
+/// expect this identity to stay the same, to avoid MITM attacks from the
 /// homeserver.
 ///
 /// The user can explicitly pin the new identity to allow for legitimate
@@ -716,8 +715,9 @@ impl TryFrom<OtherUserIdentityDataSerializer> for OtherUserIdentityData {
                     master_key: Arc::new(v1.master_key.clone()),
                     self_signing_key: Arc::new(v1.self_signing_key),
                     pinned_master_key: Arc::new(RwLock::new(v1.pinned_master_key)),
-                    // Put it to false. There will be a migration to mark all users as dirty, so we
-                    // will receive an update for the identity that will correctly set up the value.
+                    // Put it to false. There will be a migration to mark all
+                    // users as dirty, so we will receive an update for the
+                    // identity that will correctly set up the value.
                     previously_verified: Arc::new(false.into()),
                 })
             }
@@ -754,14 +754,14 @@ impl From<OtherUserIdentityData> for OtherUserIdentityDataSerializer {
 
 impl PartialEq for OtherUserIdentityData {
     /// The `PartialEq` implementation compares several attributes, including
-    /// the user ID, key material, usage, and, notably, the signatures of
-    /// the master key.
+    /// the user ID, key material, usage, and, notably, the signatures of the
+    /// master key.
     ///
     /// This approach contrasts with the `PartialEq` implementation of the
-    /// [`MasterPubkey`], and [`SelfSigningPubkey`] types,
-    /// where the signatures are disregarded. This distinction arises from our
-    /// treatment of identity as the combined representation of cross-signing
-    /// keys and the associated verification state.
+    /// [`MasterPubkey`], and [`SelfSigningPubkey`] types, where the signatures
+    /// are disregarded. This distinction arises from our treatment of identity
+    /// as the combined representation of cross-signing keys and the associated
+    /// verification state.
     ///
     /// The verification state of an identity depends on the signatures of the
     /// master key, requiring their inclusion in our `PartialEq` implementation.
@@ -778,9 +778,8 @@ impl OtherUserIdentityData {
     ///
     /// # Arguments
     ///
-    /// * `master_key` - The master key of the user identity.
-    ///
-    /// * `self signing key` - The self signing key of user identity.
+    /// - `master_key` - The master key of the user identity.
+    /// - `self signing key` - The self signing key of user identity.
     ///
     /// Returns a `SignatureError` if the self signing key fails to be correctly
     /// verified by the given master key.
@@ -801,14 +800,13 @@ impl OtherUserIdentityData {
 
     /// Check if this identity is verified from our point of view.
     ///
-    /// The identity of another user is verified if our own identity is
-    /// verified and has signed this identity with our user-signing key.
+    /// The identity of another user is verified if our own identity is verified
+    /// and has signed this identity with our user-signing key.
     ///
     /// Alternatively, if experimental X.509 identity verification is enabled
     /// and an X.509 verifier is configured, we consider this identity verified
     /// if it carries a valid X.509 signature chaining to one of our trusted
-    /// CAs, regardless of whether our own identity is verified or even
-    /// present.
+    /// CAs, regardless of whether our own identity is verified or even present.
     ///
     /// User verification, device trust and the room key sharing strategies
     /// should all go through this method, such that their answers cannot
@@ -875,9 +873,9 @@ impl OtherUserIdentityData {
     /// action "pinning".
     ///
     /// If the identity presented for the user changes later on, the newly
-    /// presented identity is considered to be in "pin violation". This
-    /// method explicitly accepts the new identity, allowing it to replace
-    /// the previously pinned one and bringing it out of pin violation.
+    /// presented identity is considered to be in "pin violation". This method
+    /// explicitly accepts the new identity, allowing it to replace the
+    /// previously pinned one and bringing it out of pin violation.
     ///
     /// UIs should display a warning to the user when encountering an identity
     /// which is not verified and is in pin violation. See
@@ -892,8 +890,7 @@ impl OtherUserIdentityData {
         self.previously_verified.store(true, Ordering::SeqCst)
     }
 
-    /// True if we verified this identity (with any own identity, at any
-    /// point).
+    /// True if we verified this identity (with any own identity, at any point).
     ///
     /// To set this latch back to false, call
     /// [`OtherUserIdentityData::withdraw_verification()`].
@@ -921,8 +918,8 @@ impl OtherUserIdentityData {
     /// For future interaction with a user, the identity is expected to be the
     /// one that was pinned. In case of identity change the UI client should
     /// receive reports of pinning violation and decide to act accordingly:
-    /// accept and pin the new identity, perform a verification, or
-    /// stop communications.
+    /// accept and pin the new identity, perform a verification, or stop
+    /// communications.
     pub(crate) fn has_pin_violation(&self) -> bool {
         let pinned_master_key = self.pinned_master_key.read();
         pinned_master_key.get_first_key() != self.master_key().get_first_key()
@@ -932,11 +929,9 @@ impl OtherUserIdentityData {
     ///
     /// # Arguments
     ///
-    /// * `master_key` - The new master key of the user identity.
-    ///
-    /// * `self_signing_key` - The new self signing key of user identity.
-    ///
-    /// * `maybe_verified_own_user_signing_key` - Our own user_signing_key if it
+    /// - `master_key` - The new master key of the user identity.
+    /// - `self_signing_key` - The new self signing key of user identity.
+    /// - `maybe_verified_own_user_signing_key` - Our own user_signing_key if it
     ///   is verified to check the identity trust status after update.
     ///
     /// Returns a `SignatureError` if we failed to update the identity.
@@ -951,9 +946,9 @@ impl OtherUserIdentityData {
         master_key.verify_subkey(&self_signing_key)?;
 
         // We update the identity with the new master and self signing key, but
-        // we keep the previous pinned master key.
-        // This identity will have a pin violation until the new master key is
-        // pinned (see `has_pin_violation()`).
+        // we keep the previous pinned master key. This identity will have a pin
+        // violation until the new master key is pinned (see
+        // `has_pin_violation()`).
         let pinned_master_key = self.pinned_master_key.read().clone();
 
         // Check if the new master_key is signed by our own **verified**
@@ -986,7 +981,7 @@ impl OtherUserIdentityData {
     ///
     /// # Arguments
     ///
-    /// * `device` - The device that should be checked for a valid signature.
+    /// - `device` - The device that should be checked for a valid signature.
     ///
     /// Returns `true` if the signature check succeeded, otherwise `false`.
     pub(crate) fn is_device_signed(&self, device: &DeviceData) -> bool {
@@ -1027,8 +1022,8 @@ enum OwnUserIdentityVerifiedState {
 
 impl PartialEq for OwnUserIdentityData {
     /// The `PartialEq` implementation compares several attributes, including
-    /// the user ID, key material, usage, and, notably, the signatures of
-    /// the master key.
+    /// the user ID, key material, usage, and, notably, the signatures of the
+    /// master key.
     ///
     /// This approach contrasts with the `PartialEq` implementation of the
     /// [`MasterPubkey`], [`SelfSigningPubkey`] and [`UserSigningPubkey`] types,
@@ -1054,11 +1049,9 @@ impl OwnUserIdentityData {
     ///
     /// # Arguments
     ///
-    /// * `master_key` - The master key of the user identity.
-    ///
-    /// * `self_signing_key` - The self signing key of user identity.
-    ///
-    /// * `user_signing_key` - The user signing key of user identity.
+    /// - `master_key` - The master key of the user identity.
+    /// - `self_signing_key` - The self signing key of user identity.
+    /// - `user_signing_key` - The user signing key of user identity.
     ///
     /// Returns a `SignatureError` if the self signing key fails to be correctly
     /// verified by the given master key.
@@ -1124,7 +1117,7 @@ impl OwnUserIdentityData {
     ///
     /// # Arguments
     ///
-    /// * `identity` - The identity of another user that we want to check if it
+    /// - `identity` - The identity of another user that we want to check if it
     ///   has been signed.
     ///
     /// Returns `true` if the signature check succeeded, otherwise `false`.
@@ -1140,7 +1133,7 @@ impl OwnUserIdentityData {
     ///
     /// # Arguments
     ///
-    /// * `device` - The device that should be checked for a valid signature.
+    /// - `device` - The device that should be checked for a valid signature.
     ///
     /// Returns `true` if the signature check succeeded, otherwise `false`.
     pub(crate) fn is_device_signed(&self, device: &DeviceData) -> bool {
@@ -1209,7 +1202,7 @@ impl OwnUserIdentityData {
     /// if a new one is needed.
     ///
     /// Note that this function does not update our own copy of the signature
-    /// immediately.  Rather, after we upload the new signature, the server will
+    /// immediately. Rather, after we upload the new signature, the server will
     /// notify us of the changed key, we will re-fetch it, and then store the
     /// new result at that point.
     #[cfg(feature = "experimental-x509-identity-verification")]
@@ -1217,7 +1210,7 @@ impl OwnUserIdentityData {
         &self,
         store: &Store,
     ) -> Result<Option<SignatureUploadRequest>, SignatureError> {
-        // We only re-sign our identity our identity is already verified.  If it
+        // We only re-sign our identity our identity is already verified. If it
         // isn't already verified, then our identity should be signed by
         // `OwnUserIdentity::verify()` instead.
         if !self.is_verified() {
@@ -1256,11 +1249,9 @@ impl OwnUserIdentityData {
     ///
     /// # Arguments
     ///
-    /// * `master_key` - The new master key of the user identity.
-    ///
-    /// * `self_signing_key` - The new self signing key of user identity.
-    ///
-    /// * `user_signing_key` - The new user signing key of user identity.
+    /// - `master_key` - The new master key of the user identity.
+    /// - `self_signing_key` - The new self signing key of user identity.
+    /// - `user_signing_key` - The new user signing key of user identity.
     ///
     /// Returns a `SignatureError` if we failed to update the identity.
     /// Otherwise, returns `true` if there was a change to the identity and
@@ -1419,9 +1410,9 @@ pub(crate) mod testing {
     }
 
     /// When we want to test identities that are verified, we need to simulate
-    /// the verification process. This function supports that by simulating
-    /// what happens when a successful verification dance happens and
-    /// providing the /keys/query response we would get when that happened.
+    /// the verification process. This function supports that by simulating what
+    /// happens when a successful verification dance happens and providing the
+    /// /keys/query response we would get when that happened.
     ///
     /// signature_upload_request will be the result of calling
     /// [`super::OtherUserIdentity::verify`].
@@ -1795,8 +1786,8 @@ pub(crate) mod tests {
     }
 
     /// Test that `CrossSigningKey` instances without a correct `usage` cannot
-    /// be deserialized into high-level structs representing the MSK, SSK
-    /// and USK.
+    /// be deserialized into high-level structs representing the MSK, SSK and
+    /// USK.
     #[test]
     fn cannot_instantiate_keys_with_incorrect_usage() {
         let user_id = user_id!("@example:localhost");

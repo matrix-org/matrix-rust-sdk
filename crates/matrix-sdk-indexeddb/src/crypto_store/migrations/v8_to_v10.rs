@@ -46,7 +46,8 @@ pub(crate) async fn schema_add(name: &str) -> Result<(), OpenDbError> {
             "needs_backup",
         )?;
 
-        // See https://github.com/element-hq/element-web/issues/26892#issuecomment-1906336076
+        // See
+        // https://github.com/element-hq/element-web/issues/26892#issuecomment-1906336076
         // for the plan concerning this property and index. At time of writing,
         // it is unused, and needs_backup is still used.
         add_nonunique_index(
@@ -119,7 +120,8 @@ pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) 
     }
 
     // We have finished with the old store. Clear it, since it is faster to
-    // clear+delete than just delete. See https://www.artificialworlds.net/blog/2024/02/02/deleting-an-indexed-db-store-can-be-incredibly-slow-on-firefox/
+    // clear+delete than just delete. See
+    // https://www.artificialworlds.net/blog/2024/02/02/deleting-an-indexed-db-store-can-be-incredibly-slow-on-firefox/
     // for more details.
     inbound_group_sessions2.clear()?.await?;
 

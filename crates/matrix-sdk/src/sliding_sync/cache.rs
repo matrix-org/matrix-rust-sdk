@@ -59,9 +59,9 @@ pub(super) async fn store_sliding_sync_state(
         let instance_storage_key = format_storage_key_for_sliding_sync(storage_key);
 
         // FIXME (TERRIBLE HACK): we want to save `pos` in a cross-process safe
-        // manner, with both processes sharing the same database
-        // backend; that needs to go in the crypto process store at the
-        // moment, but should be fixed later on.
+        // manner, with both processes sharing the same database backend; that
+        // needs to go in the crypto process store at the moment, but should be
+        // fixed later on.
         if let Some(olm_machine) = &*sliding_sync.inner.client.olm_machine().await {
             let pos_blob = serde_json::to_vec(&FrozenSlidingSyncPos { pos: position.pos.clone() })?;
             olm_machine.store().set_custom_value(&instance_storage_key, pos_blob).await?;
@@ -121,11 +121,10 @@ pub(super) async fn restore_sliding_sync_list(
 
         Some(Err(_)) => {
             // List has been found, but it wasn't possible to deserialize it.
-            // It's declared as obsolete. The main reason might be
-            // that the internal representation of a
-            // `SlidingSyncList` might have changed. Instead of considering this
-            // as a strong error, we remove the entry from the cache
-            // and keep the list in its initial state.
+            // It's declared as obsolete. The main reason might be that the
+            // internal representation of a `SlidingSyncList` might have
+            // changed. Instead of considering this as a strong error, we remove
+            // the entry from the cache and keep the list in its initial state.
             warn!(
                 list_name,
                 "failed to deserialize the list from the cache, it is obsolete; removing the cache entry!"
@@ -135,8 +134,8 @@ pub(super) async fn restore_sliding_sync_list(
         }
 
         None => {
-            // A missing cache doesn't make anything obsolete.
-            // We just do nothing here.
+            // A missing cache doesn't make anything obsolete. We just do
+            // nothing here.
             trace!(list_name, "failed to find the list in the cache");
         }
     }

@@ -27,29 +27,32 @@ use tracing_appender::rolling::Rotation;
 ///
 /// This writer automatically manages log files with the following behavior:
 ///
-/// # File Naming
+/// # File naming
 ///
-/// Log files are named using the pattern: `{prefix}.{timestamp}.{suffix}`
-/// where the timestamp format depends on the rotation period:
+/// Log files are named using the pattern: `{prefix}.{timestamp}.{suffix}` where
+/// the timestamp format depends on the rotation period:
+///
 /// - `MINUTELY`: `YYYY-MM-DD-HH-MM`
 /// - `HOURLY`: `YYYY-MM-DD-HH`
 /// - `DAILY`: `YYYY-MM-DD`
 /// - `WEEKLY` or `NEVER`: `YYYY-Www` (ISO week number, e.g., `2024-W03`)
 ///
-/// # Automatic Rotation
+/// # Automatic rotation
 ///
 /// Files are rotated (a new file is created) when the configured time period
 /// changes. For example, with hourly rotation, a new file is created when the
 /// hour changes. Rotation is checked:
+///
 /// - During writer initialization (creates/opens file for current period)
 /// - Before each write operation (only rotates if time period has changed)
 ///
 /// If a log file already exists for the current time period, it will be
 /// reopened and appended to rather than creating a new file.
 ///
-/// # Automatic Cleanup
+/// # Automatic cleanup
 ///
 /// The writer performs cleanup operations during initialization and rotation:
+///
 /// - **Size limit enforcement**: When total size of all log files exceeds
 ///   `max_total_size_bytes`, the oldest files are removed until under the limit
 /// - **Age-based cleanup**: Files older than `max_age_seconds` (based on
@@ -57,9 +60,10 @@ use tracing_appender::rolling::Rotation;
 /// - **File filtering**: Only files matching both the configured prefix and
 ///   suffix are managed; other files in the directory are left untouched
 ///
-/// # Side Effects on Creation
+/// # Side effects on creation
 ///
 /// When `new()` is called, the following side effects occur:
+///
 /// 1. Creates the log directory if it doesn't exist (including parent
 ///    directories)
 /// 2. Creates or opens a log file for the current time period (appends if
@@ -67,7 +71,7 @@ use tracing_appender::rolling::Rotation;
 /// 3. Performs cleanup of old files based on age (by filesystem mtime)
 /// 4. Enforces the total size limit by removing oldest files if needed
 ///
-/// # Thread Safety
+/// # Thread safety
 ///
 /// This writer is safe to use from multiple threads. Internal state is
 /// protected by a mutex, ensuring that file operations and rotations are
@@ -80,8 +84,8 @@ pub(super) struct SizeAndDateRollingWriter {
 /// Immutable configuration for the writer - shared without locks.
 ///
 /// This struct contains all configuration parameters that remain constant
-/// throughout the writer's lifetime. Since these values never change, they
-/// can be safely shared across threads without synchronization.
+/// throughout the writer's lifetime. Since these values never change, they can
+/// be safely shared across threads without synchronization.
 struct WriterConfig {
     /// Directory where log files are created
     base_path: PathBuf,
@@ -118,20 +122,21 @@ impl SizeAndDateRollingWriter {
     ///
     /// # Arguments
     ///
-    /// * `path` - Directory where log files will be created. Will be created if
+    /// - `path` - Directory where log files will be created. Will be created if
     ///   it doesn't exist.
-    /// * `file_prefix` - Prefix for log file names (e.g., "app")
-    /// * `file_suffix` - Suffix for log file names (e.g., ".log")
-    /// * `rotation` - Time period for rotation (MINUTELY, HOURLY, DAILY,
+    /// - `file_prefix` - Prefix for log file names (e.g., "app")
+    /// - `file_suffix` - Suffix for log file names (e.g., ".log")
+    /// - `rotation` - Time period for rotation (MINUTELY, HOURLY, DAILY,
     ///   WEEKLY, or NEVER which is treated as WEEKLY)
-    /// * `max_total_size_bytes` - Maximum total size of all log files. When
+    /// - `max_total_size_bytes` - Maximum total size of all log files. When
     ///   exceeded, oldest files are removed.
-    /// * `max_age_seconds` - Maximum age of log files in seconds. Files older
+    /// - `max_age_seconds` - Maximum age of log files in seconds. Files older
     ///   than this (by filesystem mtime) are removed during cleanup.
     ///
-    /// # Side Effects
+    /// # Side effects
     ///
     /// This method performs several file system operations in order:
+    ///
     /// 1. Creates the directory at `path` if it doesn't exist
     /// 2. Creates or reopens a log file for the current time period (appends if
     ///    exists)
@@ -142,6 +147,7 @@ impl SizeAndDateRollingWriter {
     /// # Errors
     ///
     /// Returns an error if:
+    ///
     /// - The directory cannot be created
     /// - The directory cannot be read
     /// - The log file cannot be created or opened
@@ -190,8 +196,8 @@ impl SizeAndDateRollingWriter {
     fn extract_timestamp_from_path(config: &WriterConfig, current_path: &Path) -> Option<String> {
         let filename = current_path.file_name()?.to_str()?;
 
-        // Strip prefix and suffix to get the timestamp
-        // Format: "prefix.timestamp.suffix"
+        // Strip prefix and suffix to get the timestamp Format:
+        // "prefix.timestamp.suffix"
         let without_prefix = filename.strip_prefix(&format!("{}.", config.file_prefix))?;
         let timestamp = without_prefix.strip_suffix(&config.file_suffix)?;
 
@@ -298,8 +304,8 @@ impl SizeAndDateRollingWriter {
 
     /// Remove all log files older than the configured max age.
     ///
-    /// Only files matching the configured prefix and suffix are removed.
-    /// Other files in the directory are left alone.
+    /// Only files matching the configured prefix and suffix are removed. Other
+    /// files in the directory are left alone.
     fn trim_old_logs_internal(config: &WriterConfig, state: &WriterState) -> io::Result<()> {
         let now = SystemTime::now();
         let files = Self::get_matching_log_files(config)?;
@@ -324,8 +330,8 @@ impl SizeAndDateRollingWriter {
     /// Enforce total size limit across all log files.
     ///
     /// If the total size of all matching log files exceeds
-    /// max_total_size_bytes, remove the oldest files until the total is
-    /// below the limit.
+    /// max_total_size_bytes, remove the oldest files until the total is below
+    /// the limit.
     fn enforce_total_size_limit_internal(
         config: &WriterConfig,
         state: &WriterState,
@@ -347,8 +353,8 @@ impl SizeAndDateRollingWriter {
             return Ok(());
         }
 
-        // Remove oldest files until we're under the limit
-        // Files are already sorted by modification time (oldest first)
+        // Remove oldest files until we're under the limit Files are already
+        // sorted by modification time (oldest first)
         for (path, _) in files {
             // Don't remove the current file
             if path == state.current_path {
@@ -604,8 +610,9 @@ mod tests {
 
         assert_eq!(count_files(), 3, "Should have 3 log files");
 
-        // Now create a new writer with 200 byte total limit
-        // Current total is 240 bytes. The writer will:
+        // Now create a new writer with 200 byte total limit Current total is
+        // 240 bytes. The writer will:
+        //
         // 1. Create a new file with current timestamp
         // 2. See total exceeds 200 bytes
         // 3. Remove oldest file(s) until under limit
@@ -620,6 +627,7 @@ mod tests {
         .unwrap();
 
         // After writer creation, we should still have 3 files:
+        //
         // - Oldest file (10-00) was removed
         // - Two middle files (10-01, 10-02) remain
         // - New current file was created
@@ -720,9 +728,9 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let log_path = temp_dir.path();
 
-        // Create files with timestamps more than a week old
-        // We can't easily manipulate file mtimes without external crates,
-        // but we can verify the cleanup logic doesn't fail
+        // Create files with timestamps more than a week old We can't easily
+        // manipulate file mtimes without external crates, but we can verify the
+        // cleanup logic doesn't fail
         std::fs::write(log_path.join("old.2020-01-01-10-00.log"), "old data").unwrap();
 
         // Create a writer which will trigger cleanup

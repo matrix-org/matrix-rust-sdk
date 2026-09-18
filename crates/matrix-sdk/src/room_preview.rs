@@ -196,7 +196,8 @@ impl RoomPreview {
 
         // If we have no alias, filtering using a room id is impossible, so just
         // take the first 100 results and try to find the current room
-        // #YOLO
+        //
+        // # YOLO
         let batch_size = if search_term.is_some() { 20 } else { 100 };
 
         if via.is_empty() {
@@ -251,8 +252,8 @@ impl RoomPreview {
         let response = client.send(request).await?;
 
         // The server returns a `Left` room state for rooms the user has not
-        // joined. Be more precise than that, and set it to `None` if we
-        // haven't joined that room.
+        // joined. Be more precise than that, and set it to `None` if we haven't
+        // joined that room.
         let cached_room = client.get_room(&room_id);
         let state = if cached_room.is_none() {
             None
@@ -380,8 +381,8 @@ async fn search_for_room_preview_in_room_directory(
     Ok(None)
 }
 
-// Make sure the server name of the room id/alias is
-// included in the list of server names to send if no server names are provided
+// Make sure the server name of the room id/alias is included in the list of
+// server names to send if no server names are provided
 fn ensure_server_names_is_not_empty(
     own_server_name: Option<&ServerName>,
     server_names: Vec<OwnedServerName>,

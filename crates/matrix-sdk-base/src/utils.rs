@@ -20,9 +20,9 @@ use crate::room::RoomCreateWithCreatorEventContent;
 
 /// A minimal state event.
 ///
-/// This type can hold a possibly-redacted state event with an optional
-/// event ID. The event ID is optional so this type can also hold events from
-/// invited rooms, where event IDs are not available.
+/// This type can hold a possibly-redacted state event with an optional event
+/// ID. The event ID is optional so this type can also hold events from invited
+/// rooms, where event IDs are not available.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(
     bound(serialize = "C: Serialize + Clone"),
@@ -200,8 +200,8 @@ impl From<&StrippedRoomCreateEvent> for MinimalStateEvent<RoomCreateWithCreatorE
     }
 }
 
-/// A raw state event and its `(type, state_key)` tuple that identifies it
-/// in the state map of the room.
+/// A raw state event and its `(type, state_key)` tuple that identifies it in
+/// the state map of the room.
 ///
 /// This type can also cache the deserialized event lazily when using
 /// [`RawStateEventWithKeys::deserialize_as()`].
@@ -314,8 +314,8 @@ impl<T: AnyStateEventEnum> RawStateEventWithKeys<T> {
 }
 
 impl RawStateEventWithKeys<AnySyncStateEvent> {
-    /// Try to construct a `RawStateEventWithKeys` from the given raw
-    /// timeline event.
+    /// Try to construct a `RawStateEventWithKeys` from the given raw timeline
+    /// event.
     ///
     /// Returns `None` if deserializing the `type` or `state_key` fails, or if
     /// the event is not a state event.

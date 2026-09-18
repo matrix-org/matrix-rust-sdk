@@ -292,17 +292,18 @@ impl Caches {
         let Self { room, threads: _, pinned_events, event_focused, internals } = &self;
 
         // This method will compute a `JoinedRoomUpdate` for each cache. The
-        // game is to avoid cloning useless data or to clone as few data
-        // as possible. That's a fun game.
+        // game is to avoid cloning useless data or to clone as few data as
+        // possible. That's a fun game.
         let JoinedRoomUpdate {
-            // Read receipts are computed by the Event Cache, see [`read_receipts`], we
-            // don't need the server value.
+            // Read receipts are computed by the Event Cache, see
+            // [`read_receipts`], we don't need the server value.
             unread_notifications: _,
             // State-events are not stored in the Event Cache.
             state: _,
 
-            // Extract the original timeline and ephemeral events as timeline will be used by all
-            // caches, and ephemeral events by the room and thread caches.
+            // Extract the original timeline and ephemeral events as timeline
+            // will be used by all caches, and ephemeral events by the room and
+            // thread caches.
             timeline: original_timeline,
             ephemeral: original_ephemeral,
 
@@ -340,9 +341,9 @@ impl Caches {
         {
             let timeline_and_read_receipts_for_threads = {
                 // To aggregate the timelines for threads, we need to lookup in
-                // the room cache and the thread caches. We
-                // acquire a read lock over all the caches, and select
-                // the room cache and thread cache' states.
+                // the room cache and the thread caches. We acquire a read lock
+                // over all the caches, and select the room cache and thread
+                // cache' states.
                 let all_states_lock = states::CacheStateLock::new(
                     states::selectors::AllStatesSelector::new(room.room_id().to_owned()),
                     self.internals.state.clone(),
@@ -390,8 +391,7 @@ impl Caches {
         // Event-focused.
         {
             // An event-focused cache isn't listening to live update.
-            // Consequently, it is not interested by this kind of
-            // update.
+            // Consequently, it is not interested by this kind of update.
             let _ = event_focused;
         }
 
@@ -403,8 +403,8 @@ impl Caches {
         let Self { room, threads: _, pinned_events, event_focused, internals } = &self;
 
         // This method will compute a `JoinedRoomUpdate` for each cache. The
-        // game is to avoid cloning useless data or to clone as few data
-        // as possible. That's a fun game.
+        // game is to avoid cloning useless data or to clone as few data as
+        // possible. That's a fun game.
         let LeftRoomUpdate {
             // State-events are not stored in the Event Cache.
             state: _,
@@ -430,9 +430,9 @@ impl Caches {
         {
             let timeline_and_read_receipts_for_threads = {
                 // To aggregate the timelines for threads, we need to lookup in
-                // the room cache and the thread caches. We
-                // acquire a read lock over all the caches, and select
-                // the room cache and thread cache' states.
+                // the room cache and the thread caches. We acquire a read lock
+                // over all the caches, and select the room cache and thread
+                // cache' states.
                 let all_caches_states_lock = states::CacheStateLock::new(
                     states::selectors::AllStatesSelector::new(room.room_id().to_owned()),
                     self.internals.state.clone(),
@@ -469,8 +469,7 @@ impl Caches {
         // Event-focused.
         {
             // An event-focused cache isn't listening to live update.
-            // Consequently, it is not interested by this kind of
-            // update.
+            // Consequently, it is not interested by this kind of update.
             let _ = event_focused;
         }
 
@@ -504,9 +503,9 @@ impl Caches {
     /// Get all encrypted events from all the event caches managed by this
     /// [`Caches`].
     ///
-    /// The `event_type` represents the type of the event to filter by.
-    /// The `session_id` represents the unique ID of the room key that was used
-    /// to encrypt the event
+    /// The `event_type` represents the type of the event to filter by. The
+    /// `session_id` represents the unique ID of the room key that was used to
+    /// encrypt the event
     ///
     /// Events can be duplicated if present in different event caches.
     #[cfg(feature = "e2e-encryption")]

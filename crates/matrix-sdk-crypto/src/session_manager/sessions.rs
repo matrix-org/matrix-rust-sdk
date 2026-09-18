@@ -174,8 +174,8 @@ impl SessionManager {
         Ok(())
     }
 
-    /// Get a key claiming request for the user/device pairs that we are
-    /// missing Olm sessions for.
+    /// Get a key claiming request for the user/device pairs that we are missing
+    /// Olm sessions for.
     ///
     /// Returns None if no key claiming request needs to be sent out.
     ///
@@ -322,16 +322,16 @@ impl SessionManager {
     /// requested but is not present in the response.
     ///
     /// As per [spec], if a user/device pair does not have any one-time keys on
-    /// the homeserver, the server will just omit the user/device pair from
-    /// the response:
+    /// the homeserver, the server will just omit the user/device pair from the
+    /// response:
     ///
     /// > If the homeserver could be reached, but the user or device was
-    /// > unknown, no failure is recorded. Instead, the corresponding user
-    /// > or device is missing from the one_time_keys result.
+    /// > unknown, no failure is recorded. Instead, the corresponding user or
+    /// > device is missing from the one_time_keys result.
     ///
     /// The user/device pairs which are missing from the response are going to
-    /// be put in the failures cache so we don't retry to claim a one-time
-    /// key right away next time the user tries to send a message.
+    /// be put in the failures cache so we don't retry to claim a one-time key
+    /// right away next time the user tries to send a message.
     ///
     /// [spec]: https://spec.matrix.org/unstable/client-server-api/#post_matrixclientv3keysclaim
     fn handle_otk_exhaustion_failure(
@@ -391,8 +391,8 @@ impl SessionManager {
                 .difference(&devices_in_response)
                 .filter(|(user_id, _)| {
                     // Skip over users whose homeservers were in the "failed
-                    // servers" list: we don't want to mark
-                    // individual devices as broken *as well as* the server.
+                    // servers" list: we don't want to mark individual devices
+                    // as broken _as well as_ the server.
                     !failed_servers.contains(user_id.server_name())
                 })
                 .collect();
@@ -423,10 +423,10 @@ impl SessionManager {
     ///
     /// # Arguments
     ///
-    /// * `request_id` - The unique id of the request that was sent out. This is
+    /// - `request_id` - The unique id of the request that was sent out. This is
     ///   needed to couple the response with the sent out request.
     ///
-    /// * `response` - The response containing the claimed one-time keys.
+    /// - `response` - The response containing the claimed one-time keys.
     #[instrument(skip(self, response))]
     pub async fn receive_keys_claim_response(
         &self,
@@ -478,8 +478,8 @@ impl SessionManager {
     ///
     /// # Arguments
     ///
-    ///  * `device_map` - a map from (user ID, device ID) pairs to key object,
-    ///    for each device we should create a session for.
+    /// - `device_map` - a map from (user ID, device ID) pairs to key object,
+    ///   for each device we should create a session for.
     pub(crate) async fn create_sessions(&self, response: &KeysClaimResponse) -> OlmResult<()> {
         struct SessionInfo {
             session_id: String,
@@ -809,7 +809,7 @@ mod tests {
         );
         identity_manager.receive_keys_query_response(&key_query_txn_id, &response).await.unwrap();
 
-        // Now, an attempt to get the missing sessions should now *not* block.
+        // Now, an attempt to get the missing sessions should now _not_ block.
         // We use a timeout so that we can detect the call blocking.
         let result = tokio::time::timeout(
             Duration::from_millis(10),

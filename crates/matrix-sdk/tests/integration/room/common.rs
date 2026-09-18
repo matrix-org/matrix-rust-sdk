@@ -619,8 +619,8 @@ async fn test_event() {
     let room = server
         .sync_room(
             &client,
-            // We need the member event and power levels locally so the push rules processor
-            // works.
+            // We need the member event and power levels locally so the push
+            // rules processor works.
             JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
                 .add_state_event(f.member(user_id!("@example:localhost")).display_name("example"))
                 .add_state_event(f.default_power_levels()),

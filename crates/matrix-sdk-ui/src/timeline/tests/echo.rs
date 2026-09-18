@@ -129,8 +129,8 @@ async fn test_remote_echo_full_trip() {
     assert!(!item.as_event().unwrap().is_local_echo());
     assert_eq!(*item.unique_id(), id);
 
-    // The date divider is adjusted.
-    // A new date divider is inserted, and the older one is removed.
+    // The date divider is adjusted. A new date divider is inserted, and the
+    // older one is removed.
     let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(date_divider.is_date_divider());
     assert_next_matches!(stream, VectorDiff::Remove { index: 2 });
@@ -206,10 +206,9 @@ async fn test_date_divider_removed_after_local_echo_disappeared() {
     assert!(items[0].is_date_divider());
     assert!(items[1].is_remote_event());
 
-    // Add a local echo.
-    // It's not possible to synthesize `LocalEcho`s because they require forging
-    // a `SendHandle`, which is a bit involved. Instead, use
-    // handle_local_event.
+    // Add a local echo. It's not possible to synthesize `LocalEcho`s because
+    // they require forging a `SendHandle`, which is a bit involved. Instead,
+    // use handle_local_event.
     let txn_id =
         timeline.handle_local_event(RoomMessageEventContent::text_plain("local echo").into()).await;
 
@@ -270,10 +269,9 @@ async fn test_no_read_marker_with_local_echo() {
     assert!(items[0].is_date_divider());
     assert!(items[1].is_remote_event());
 
-    // Add a local echo.
-    // It's not possible to synthesize `LocalEcho`s because they require forging
-    // a `SendHandle`, which is a bit involved. Instead, use
-    // handle_local_event.
+    // Add a local echo. It's not possible to synthesize `LocalEcho`s because
+    // they require forging a `SendHandle`, which is a bit involved. Instead,
+    // use handle_local_event.
     let txn_id =
         timeline.handle_local_event(RoomMessageEventContent::text_plain("local echo").into()).await;
 
@@ -312,8 +310,7 @@ async fn test_no_reuse_of_counters() {
         ))
         .await;
 
-    // It gets added with a unique id
-    // Timeline = [local]
+    // It gets added with a unique id Timeline = [local]
     let local_id = assert_next_matches_with_timeout!(stream, VectorDiff::PushBack { value: item } => {
         let event_item = item.as_event().unwrap();
         assert!(event_item.is_local_echo());
@@ -322,8 +319,7 @@ async fn test_no_reuse_of_counters() {
         item.unique_id().to_owned()
     });
 
-    // The date divider comes in late.
-    // Timeline = [date-divider local]
+    // The date divider comes in late. Timeline = [date-divider local]
     assert_next_matches_with_timeout!(stream, VectorDiff::PushFront { value } => {
         assert!(value.is_date_divider());
     });
@@ -347,8 +343,8 @@ async fn test_no_reuse_of_counters() {
         assert_ne!(local_id, item.unique_id().to_owned());
     });
 
-    // Date divider shenanigans.
-    // Timeline = [date-divider remote date-divider local]
+    // Date divider shenanigans. Timeline = [date-divider remote date-divider
+    // local]
     assert_next_matches_with_timeout!(stream, VectorDiff::PushFront { value } => {
         assert!(value.is_date_divider());
     });

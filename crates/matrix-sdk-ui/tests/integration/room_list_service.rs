@@ -460,8 +460,8 @@ async fn test_sync_all_states() -> Result<(), Error> {
         [server, room_list, sync]
         states = Running => Running,
         assert pos Some("2"),
-        // Still no long-polling because the list isn't fully-loaded,
-        // but it's about to be!
+        // Still no long-polling because the list isn't fully-loaded, but it's
+        // about to be!
         assert timeout Some(0),
         assert request >= {
             "conn_id": "room-list",
@@ -1011,8 +1011,8 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
 async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     let (_, server, room_list) = new_room_list_service().await?;
 
-    // Let's stop the sync before actually syncing (we never know!).
-    // We get an error, obviously.
+    // Let's stop the sync before actually syncing (we never know!). We get an
+    // error, obviously.
     assert!(room_list.stop_sync().is_err());
 
     let sync = room_list.sync();
@@ -1495,8 +1495,8 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         },
     };
 
-    // Assert the dynamic entries.
-    // It's pushed on the front because rooms are sorted by recency.
+    // Assert the dynamic entries. It's pushed on the front because rooms are
+    // sorted by recency.
     assert_entries_batch! {
         [dynamic_entries_stream]
         push front [ "!r1:bar.org" ];
@@ -1751,9 +1751,8 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         },
     };
 
-    // Assert the dynamic entries.
-    // `!r0:bar.org` has a new state event. The room must move in the room list
-    // because it has the highest recency.
+    // Assert the dynamic entries. `!r0:bar.org` has a new state event. The room
+    // must move in the room list because it has the highest recency.
     assert_entries_batch! {
         [dynamic_entries_stream]
         pop back;
@@ -1883,7 +1882,7 @@ async fn test_room_sorting() -> Result<(), Error> {
     // Now we have:
     //
     // | index | room ID | recency | name |
-    // |-------|---------|---------|------|
+    // | ----- | ------- | ------- | ---- |
     // | 0     | !r4     | 5       |      |
     // | 1     | !r3     | 4       |      |
     // | 2     | !r1     | 3       | Aaa  |
@@ -2006,7 +2005,7 @@ async fn test_room_sorting() -> Result<(), Error> {
     // Now we have:
     //
     // | index | room ID | recency | name |
-    // |-------|---------|---------|------|
+    // | ----- | ------- | ------- | ---- |
     // | 0     | !r2     | 9       |      |
     // | 1     | !r0     | 7       | Bbb  |
     // | 2     | !r1     | 6       | Aaa  |
@@ -2075,7 +2074,7 @@ async fn test_room_sorting() -> Result<(), Error> {
     // Now we have:
     //
     // | index | room ID | recency | name |
-    // |-------|---------|---------|------|
+    // | ----- | ------- | ------- | ---- |
     // | 0     | !r2     | 9       |      |
     // | 1     | !r6     | 8       |      |
     // | 2     | !r0     | 7       | Bbb  |
@@ -2108,7 +2107,7 @@ async fn test_room_sorting() -> Result<(), Error> {
     // Now we have:
     //
     // | index | room ID | recency | name |
-    // |-------|---------|---------|------|
+    // | ----- | ------- | ------- | ---- |
     // | 0     | !r3     | 10      |      |
     // | 1     | !r2     | 9       |      |
     // | 2     | !r6     | 8       |      |
@@ -2351,8 +2350,8 @@ async fn test_room_subscription() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        // strict comparison (with `=`) because we want to ensure
-        // the exact shape of `room_subscriptions`.
+        // strict comparison (with `=`) because we want to ensure the exact
+        // shape of `room_subscriptions`.
         assert request = {
             "conn_id": "room-list",
             "lists": {
@@ -2427,8 +2426,8 @@ async fn test_room_subscription() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        // strict comparison (with `=`) because we want to ensure
-        // the exact shape of `room_subscriptions`.
+        // strict comparison (with `=`) because we want to ensure the exact
+        // shape of `room_subscriptions`.
         assert request = {
             "conn_id": "room-list",
             "lists": {
@@ -2971,8 +2970,8 @@ async fn test_room_latest_event() -> Result<(), Error> {
     let timeline = room.timeline_builder().build().await.unwrap();
 
     // We could subscribe to the room —with `RoomList::set_room_subscriptions`—
-    // to automatically listen to the latest event updates, but we will do
-    // it manually here (so that we can ignore the subscription thingies).
+    // to automatically listen to the latest event updates, but we will do it
+    // manually here (so that we can ignore the subscription thingies).
     let latest_events = client.latest_events().await;
     latest_events.listen_to_room(room_id).await.unwrap();
 
@@ -3267,16 +3266,16 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
 
     {
         // The first time, don't advertise support for MSC4306; the extension
-        // will NOT enabled in this case, despite the client requesting
-        // it.
+        // will NOT enabled in this case, despite the client requesting it.
         server
             .mock_versions()
             .ok()
             .named("/versions, first time")
-            // This used to be a `mock_once()`, but we're not caching the versions in the
-            // `RoomListService::new()` method anymore, so we're now doing a couple more requests
-            // for this. The sync will want to know about the `/versions` once it tries to build
-            // the request path.
+            // This used to be a `mock_once()`, but we're not caching the
+            // versions in the `RoomListService::new()` method anymore, so we're
+            // now doing a couple more requests for this. The sync will want to
+            // know about the `/versions` once it tries to build the request
+            // path.
             .up_to_n_times(3)
             .expect(3..)
             .mount()

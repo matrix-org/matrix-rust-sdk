@@ -91,8 +91,8 @@ impl DateDividerAdjuster {
     pub fn new(mode: DateDividerMode) -> Self {
         Self {
             ops: Default::default(),
-            // The adjuster starts as consumed, and it will be marked no consumed iff it's used
-            // with `mark_used`.
+            // The adjuster starts as consumed, and it will be marked no
+            // consumed iff it's used with `mark_used`.
             consumed: true,
             mode,
         }
@@ -121,11 +121,10 @@ impl DateDividerAdjuster {
         // we want, if running in reverse order.
         //
         // Also note that we can remove a few items at position J, then later
-        // decide to replace/remove an item (in `handle_event`) at
-        // position I, with I<J. That would break the above invariant
-        // (that operations happen in non-decreasing order of the
-        // indices), so we must record the insert position for an
-        // operation related to the previous item.
+        // decide to replace/remove an item (in `handle_event`) at position I,
+        // with I<J. That would break the above invariant (that operations
+        // happen in non-decreasing order of the indices), so we must record the
+        // insert position for an operation related to the previous item.
 
         let mut prev_item: Option<PrevItemDesc<'_>> = None;
         let mut latest_event_ts = None;
@@ -162,8 +161,8 @@ impl DateDividerAdjuster {
         }
 
         // Also chase trailing date dividers explicitly, by iterating from the
-        // end to the start. Since they wouldn't be the prev_item of
-        // anything, we wouldn't analyze them in the previous loop.
+        // end to the start. Since they wouldn't be the prev_item of anything,
+        // we wouldn't analyze them in the previous loop.
         for (i, item) in items.iter_remotes_and_locals_regions().rev() {
             if item.is_date_divider() {
                 // The item is a trailing date divider: remove it, if it wasn't
@@ -176,9 +175,8 @@ impl DateDividerAdjuster {
                     trace!("removing trailing date divider @ {i}");
 
                     // Find the index at which to insert the removal operation.
-                    // It must be before any other operation
-                    // on a bigger index, to maintain the
-                    // non-decreasing invariant.
+                    // It must be before any other operation on a bigger index,
+                    // to maintain the non-decreasing invariant.
                     let index =
                         self.ops.iter().position(|op| op.index() > i).unwrap_or(self.ops.len());
 
@@ -410,6 +408,7 @@ impl DateDividerAdjuster {
         };
 
         // Assert invariants.
+        //
         // 1. The timeline starts with a date divider, if it's not only virtual
         //    items.
         {
@@ -958,8 +957,8 @@ mod tests {
         let mut meta = test_metadata();
 
         txn.push_back(
-            // Start one day later than the origin, to make this test pass on all timezones.
-            // Let's call this time T.
+            // Start one day later than the origin, to make this test pass on
+            // all timezones. Let's call this time T.
             meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(86_400_000)))),
             None,
         );

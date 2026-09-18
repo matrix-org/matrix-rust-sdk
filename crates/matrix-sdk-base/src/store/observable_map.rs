@@ -21,25 +21,23 @@ use futures_util::Stream;
 
 /// An observable map.
 ///
-/// This is an “observable map” naive implementation. Just like regular
-/// hashmap, we have a redirection from a key to a position, and from a
-/// position to a value. The (key, position) tuples are stored in an
-/// [`HashMap`]. The (position, value) tuples are stored in an
-/// [`ObservableVector`]. The (key, position) tuple is only provided for
-/// fast _reading_ implementations, like `Self::get` and
-/// `Self::get_or_create`. The (position, value) tuples are observable,
-/// this is what interests us the most here.
+/// This is an “observable map” naive implementation. Just like regular hashmap,
+/// we have a redirection from a key to a position, and from a position to a
+/// value. The (key, position) tuples are stored in an [`HashMap`]. The
+/// (position, value) tuples are stored in an [`ObservableVector`]. The (key,
+/// position) tuple is only provided for fast _reading_ implementations, like
+/// `Self::get` and `Self::get_or_create`. The (position, value) tuples are
+/// observable, this is what interests us the most here.
 ///
-/// Why not implementing a new `ObservableMap` type in `eyeball-im` instead
-/// of this custom implementation? Because we want to continue providing
-/// `VectorDiff` when observing the changes, so that the rest of the API in
-/// the Matrix Rust SDK aren't broken. Indeed, an `ObservableMap` must
-/// produce `MapDiff`, which would be quite different.
-/// Plus, we would like to re-use all our existing code, test, stream
-/// adapters and so on.
+/// Why not implementing a new `ObservableMap` type in `eyeball-im` instead of
+/// this custom implementation? Because we want to continue providing
+/// `VectorDiff` when observing the changes, so that the rest of the API in the
+/// Matrix Rust SDK aren't broken. Indeed, an `ObservableMap` must produce
+/// `MapDiff`, which would be quite different. Plus, we would like to re-use all
+/// our existing code, test, stream adapters and so on.
 ///
-/// This is a trade-off. This implementation is simple enough for the
-/// moment, and basically does the job.
+/// This is a trade-off. This implementation is simple enough for the moment,
+/// and basically does the job.
 #[derive(Debug)]
 pub(crate) struct ObservableMap<K, V>
 where
@@ -48,8 +46,7 @@ where
     /// The (key, position) tuples.
     mapping: HashMap<K, usize>,
 
-    /// The values where the indices are the `position` part of
-    /// `Self::mapping`.
+    /// The values where the indices are the `position` part of `Self::mapping`.
     values: ObservableVector<V>,
 }
 
@@ -93,8 +90,8 @@ where
         self.mapping.get(key).and_then(|position| self.values.get(*position))
     }
 
-    /// Reading one `V` value based on their ID, or create a new one (by
-    /// using `default`).
+    /// Reading one `V` value based on their ID, or create a new one (by using
+    /// `default`).
     pub(crate) fn get_or_create<L, F>(&mut self, key: &L, default: F) -> &V
     where
         K: Borrow<L>,

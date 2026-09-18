@@ -31,8 +31,8 @@ pub async fn test_linked_chunk_update_is_a_transaction(store: IndexeddbEventCach
     store.handle_linked_chunk_updates(linked_chunk_id, updates).await.unwrap_err();
 
     // If the updates have been handled transactionally, then no new chunks
-    // should have been added; failure of the second update leads to the
-    // first one being rolled back.
+    // should have been added; failure of the second update leads to the first
+    // one being rolled back.
     let chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
     assert!(chunks.is_empty());
 }
@@ -44,8 +44,8 @@ pub async fn test_linked_chunk_update_is_a_transaction(store: IndexeddbEventCach
 /// [`EventCacheStore`] which will be used in the generated tests. The function
 /// must have the signature shown in the example below.
 ///
+/// ## Usage example
 ///
-/// ## Usage Example:
 /// ```no_run
 /// # use matrix_sdk_base::event_cache::store::{
 /// #    EventCacheStore,

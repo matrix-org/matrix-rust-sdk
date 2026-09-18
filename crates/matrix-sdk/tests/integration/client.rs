@@ -216,8 +216,8 @@ async fn test_join_room_by_id() {
         .await;
 
     assert_eq!(
-        // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId
-        // field
+        // this is the `join_by_room_id::Response` but since no PartialEq we
+        // check the RoomId field
         client.join_room_by_id(&DEFAULT_TEST_ROOM_ID).await.unwrap().room_id(),
         *DEFAULT_TEST_ROOM_ID
     );
@@ -235,8 +235,8 @@ async fn test_join_room_by_id_or_alias() {
         .await;
 
     assert_eq!(
-        // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId
-        // field
+        // this is the `join_by_room_id::Response` but since no PartialEq we
+        // check the RoomId field
         client
             .join_room_by_id_or_alias(
                 (&**DEFAULT_TEST_ROOM_ID).into(),
@@ -474,8 +474,8 @@ async fn test_request_encryption_event_before_sending() {
                     "rotation_period_ms": 604800000,
                     "rotation_period_msgs": 100
                 }))
-                // Introduce a delay so the first `latest_encryption_state()` doesn't finish before
-                // we make the second call.
+                // Introduce a delay so the first `latest_encryption_state()`
+                // doesn't finish before we make the second call.
                 .set_delay(Duration::from_millis(50)),
         )
         .mount(&server)
@@ -1896,8 +1896,8 @@ async fn test_logout() {
     let res = oauth_client.logout().await;
 
     // This returns an error because it requires a HTTPS server URI, or to be
-    // able to call `OAuth::insecure_rewrite_https_to_http()`, but at least
-    // we are testing the OAuth branch inside `Client::logout()`.
+    // able to call `OAuth::insecure_rewrite_https_to_http()`, but at least we
+    // are testing the OAuth branch inside `Client::logout()`.
     assert_matches!(res, Err(Error::OAuth(oauth_error)));
     assert_matches!(*oauth_error, OAuthError::Logout(OAuthTokenRevocationError::Url(_)));
 }

@@ -115,9 +115,9 @@ impl EventLinkedChunk {
         // be replaced with no events.
         //
         // However, our linked chunk requires that it includes at least one
-        // chunk in the in-memory representation. We could tweak this
-        // invariant, but in the meanwhile, don't remove the gap chunk
-        // if it's the only one we know about.
+        // chunk in the in-memory representation. We could tweak this invariant,
+        // but in the meanwhile, don't remove the gap chunk if it's the only one
+        // we know about.
         let has_only_one_chunk = {
             let mut it = self.chunks.chunks();
 
@@ -252,9 +252,9 @@ impl EventLinkedChunk {
     /// Get a mutable reference to the [`LinkedChunk`] updates, aka
     /// [`ObservableUpdates`] to be consumed by the store.
     ///
-    /// These updates are expected to be *only* forwarded to storage, as they
-    /// might hide some underlying updates to the in-memory chunk; those
-    /// updates should be reflected with manual updates to
+    /// These updates are expected to be _only_ forwarded to storage, as they
+    /// might hide some underlying updates to the in-memory chunk; those updates
+    /// should be reflected with manual updates to
     /// [`Self::chunks_updates_as_vectordiffs`].
     pub(in super::super) fn store_updates(&mut self) -> &mut ObservableUpdates<Event, Gap> {
         self.chunks.updates().expect("this is always built with an update history in the ctor")
@@ -348,8 +348,8 @@ impl EventLinkedChunk {
             trace!("replacing previous gap with the back-paginated events");
 
             // Replace the gap with the events we just deduplicated. This might
-            // get rid of the underlying gap, if the conditions are
-            // favorable to us.
+            // get rid of the underlying gap, if the conditions are favorable to
+            // us.
             self.replace_gap_at(gap_id, events.to_vec())
                 .expect("gap_identifier is a valid chunk id we read previously")
         } else if let Some(pos) = first_event_pos {
@@ -376,8 +376,8 @@ impl EventLinkedChunk {
         // And insert the new gap if needs be.
         //
         // We only do this when at least one new, non-duplicated event, has been
-        // added to the chunk. Otherwise it means we've back-paginated
-        // all the known events.
+        // added to the chunk. Otherwise it means we've back-paginated all the
+        // known events.
         let has_new_gap = new_gap.is_some();
         if let Some(new_gap) = new_gap {
             if let Some(new_pos) = insert_new_gap_pos {
@@ -390,9 +390,9 @@ impl EventLinkedChunk {
         }
 
         // There could be an inconsistency between the network (which thinks we
-        // hit the start of the timeline) and the disk (which has the
-        // initial empty chunks), so tweak the `reached_start` value so
-        // that it reflects the disk state in priority instead.
+        // hit the start of the timeline) and the disk (which has the initial
+        // empty chunks), so tweak the `reached_start` value so that it reflects
+        // the disk state in priority instead.
 
         let has_gaps = self.chunks().any(|chunk| chunk.is_gap());
 
@@ -533,10 +533,9 @@ impl EventLinkedChunk {
     /// ordering tracker.
     ///
     /// Updates to the linked chunk that happen because of lazy loading must not
-    /// be taken into account by the order tracker, otherwise the
-    /// fully-loaded state (tracked by the order tracker) wouldn't match
-    /// reality anymore. This provides a facility to help applying such
-    /// updates.
+    /// be taken into account by the order tracker, otherwise the fully-loaded
+    /// state (tracked by the order tracker) wouldn't match reality anymore.
+    /// This provides a facility to help applying such updates.
     fn inhibit_updates_to_ordering_tracker<F: FnOnce(&mut Self) -> R, R>(&mut self, f: F) -> R {
         // Start by flushing previous pending updates to the chunk ordering, if
         // any.
@@ -571,8 +570,8 @@ impl EventLinkedChunk {
             lazy_loader::replace_with(&mut this.chunks, last_chunk, chunk_identifier_generator)?;
 
             // Don't propagate those updates to the store; this is only for the
-            // in-memory representation that we're doing this. Let's
-            // drain those store updates.
+            // in-memory representation that we're doing this. Let's drain those
+            // store updates.
             let _ = this.store_updates().take();
 
             this.order_tracker = this
@@ -591,8 +590,7 @@ impl EventLinkedChunk {
         raw_new_first_chunk: RawChunk<Event, Gap>,
     ) -> Result<(), LazyLoaderError> {
         // This is only used when reinserting a chunk that was in persisted
-        // storage, so we don't need to touch the chunk ordering for
-        // this.
+        // storage, so we don't need to touch the chunk ordering for this.
         self.inhibit_updates_to_ordering_tracker(move |this| {
             lazy_loader::insert_new_first_chunk(&mut this.chunks, raw_new_first_chunk)
         })
@@ -830,8 +828,7 @@ mod tests {
 
         assert_events_eq!(linked_chunk.events(), []);
 
-        // Remove one undefined event.
-        // An error is expected.
+        // Remove one undefined event. An error is expected.
         linked_chunk
             .remove_events_by_position(vec![Position::new(ChunkIdentifier::new(42), 153)])
             .unwrap_err();
@@ -971,8 +968,8 @@ mod tests {
             let updates = linked_chunk.store_updates().take();
 
             assert_eq!(updates.len(), 1);
-            // No `Update::Clear`, because it is drained.
-            // However, `Update::NewItemsChunk` is **NOT** drained!
+            // No `Update::Clear`, because it is drained. However,
+            // `Update::NewItemsChunk` is **NOT** drained!
             assert_matches!(
                 &updates[0],
                 Update::NewItemsChunk { previous, new, next } => {

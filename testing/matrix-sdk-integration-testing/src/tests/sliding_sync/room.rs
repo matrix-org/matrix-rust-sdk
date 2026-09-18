@@ -241,10 +241,11 @@ async fn test_room_avatar_group_conversation() -> Result<()> {
 #[tokio::test]
 async fn test_joined_user_can_create_push_context_with_room_list_service() -> Result<()> {
     // This regression test for #3031 checks that we properly get the logged-in
-    // room member information, when connecting on the first time using the
-    // room list service.
+    // room member information, when connecting on the first time using the room
+    // list service.
     //
     // Now the conditions to trigger this bug were quite precise:
+    //
     // - obviously we shouldn't have had any previous info about the logged-in
     //   user's room membership (which can be queried and cached for different
     //   reasons, at different times),
@@ -256,8 +257,8 @@ async fn test_joined_user_can_create_push_context_with_room_list_service() -> Re
     // haven't sent the last event.
     //
     // Set this up, by creating a room, inviting another user, have the other
-    // user send a message, and fake a new "device" by creating another
-    // client for the same user.
+    // user send a message, and fake a new "device" by creating another client
+    // for the same user.
 
     let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
@@ -562,8 +563,7 @@ async fn test_room_notification_count() -> Result<()> {
         assert_eq!(alice_room.num_unread_mentions(), 0);
 
         // Sometimes the server is slow at realizing that the room has been
-        // marked as read, and zeroing the server-side
-        // notification_count.
+        // marked as read, and zeroing the server-side notification_count.
         if alice_room.unread_notification_counts().notification_count == 2 {
             update_observer
                 .next()
@@ -688,8 +688,8 @@ impl wiremock::Respond for &CustomResponder {
             .body(request.body.clone());
 
         // Run await inside of non-async fn by spawning a new thread and
-        // creating a new runtime. We need to do this because the
-        // current runtime can't run blocking tasks (hence can't run
+        // creating a new runtime. We need to do this because the current
+        // runtime can't run blocking tasks (hence can't run
         // `Handle::block_on`).
         let drop_todevice = self.drop_todevice.clone();
 
@@ -935,8 +935,8 @@ async fn test_room_preview() -> Result<()> {
             SlidingSyncList::builder("all")
                 .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20))
                 .required_state(vec![
-                    // Explicitly request all the state events we need to get a preview for a known
-                    // room.
+                    // Explicitly request all the state events we need to get a
+                    // preview for a known room.
                     (StateEventType::RoomName, "".to_owned()),
                     (StateEventType::RoomCanonicalAlias, "".to_owned()),
                     (StateEventType::RoomTopic, "".to_owned()),

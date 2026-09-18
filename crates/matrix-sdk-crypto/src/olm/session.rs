@@ -77,7 +77,7 @@ impl Session {
     ///
     /// # Arguments
     ///
-    /// * `message` - The Olm message that should be decrypted.
+    /// - `message` - The Olm message that should be decrypted.
     pub async fn decrypt(&mut self, message: &OlmMessage) -> Result<String, DecryptionError> {
         let mut inner = self.inner.lock().await;
         Span::current().record("session_id", inner.session_id());
@@ -133,18 +133,16 @@ impl Session {
         Ok(message)
     }
 
-    /// Encrypt the given event content as an m.room.encrypted event
-    /// content.
+    /// Encrypt the given event content as an m.room.encrypted event content.
     ///
     /// # Arguments
     ///
-    /// * `recipient_device` - The device for which this message is going to be
+    /// - `recipient_device` - The device for which this message is going to be
     ///   encrypted, this needs to be the device that was used to create this
     ///   session with.
     ///
-    /// * `event_type` - The type of the event content.
-    ///
-    /// * `content` - The content of the event.
+    /// - `event_type` - The type of the event content.
+    /// - `content` - The content of the event.
     pub async fn encrypt(
         &mut self,
         recipient_device: &DeviceData,
@@ -160,13 +158,11 @@ impl Session {
 
         impl EventType for Content<'_> {
             // This is a bit of a hack: usually we just define the `EVENT_TYPE`
-            // and use the default implementation of `event_type()`.
-            // We can't do this here because the event type isn't
-            // static.
+            // and use the default implementation of `event_type()`. We can't do
+            // this here because the event type isn't static.
             //
             // We have to provide `EVENT_TYPE` to conform to the `EventType`
-            // trait, but don't actually use it, so we just leave it
-            // empty.
+            // trait, but don't actually use it, so we just leave it empty.
             //
             // This works because the serialization uses `event_type()` and this
             // type is contained to this function.
@@ -222,8 +218,8 @@ impl Session {
     ///
     /// # Arguments
     ///
-    /// * `ciphertext` - The encrypted message content.
-    /// * `message_id` - The ID to use for this to-device message, as
+    /// - `ciphertext` - The encrypted message content.
+    /// - `message_id` - The ID to use for this to-device message, as
     ///   `org.matrix.msgid`.
     pub(crate) async fn build_encrypted_event(
         &self,
@@ -266,7 +262,7 @@ impl Session {
     ///
     /// # Arguments
     ///
-    /// * `pickle_mode` - The mode that was used to pickle the session, either
+    /// - `pickle_mode` - The mode that was used to pickle the session, either
     ///   an unencrypted mode or an encrypted using passphrase.
     pub async fn pickle(&self) -> PickledSession {
         let pickle = self.inner.lock().await.pickle();
@@ -287,9 +283,8 @@ impl Session {
     ///
     /// # Arguments
     ///
-    /// * `our_device_keys` - Our own signed device keys.
-    ///
-    /// * `pickle` - The pickled version of the `Session`.
+    /// - `our_device_keys` - Our own signed device keys.
+    /// - `pickle` - The pickled version of the `Session`.
     pub fn from_pickle(
         our_device_keys: DeviceKeys,
         pickle: PickledSession,
@@ -324,8 +319,8 @@ impl PartialEq for Session {
 
 /// A pickled version of a `Session`.
 ///
-/// Holds all the information that needs to be stored in a database to restore
-/// a Session.
+/// Holds all the information that needs to be stored in a database to restore a
+/// Session.
 #[derive(Serialize, Deserialize)]
 #[allow(missing_debug_implementations)]
 pub struct PickledSession {

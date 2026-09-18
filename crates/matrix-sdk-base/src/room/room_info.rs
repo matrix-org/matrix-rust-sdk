@@ -125,9 +125,9 @@ impl Room {
         self.info.set(info);
 
         if reasons.is_empty() {
-            // TODO: remove this block!
-            // Read `RoomInfoNotableUpdateReasons::NONE` to understand why it
-            // must be removed.
+            // TODO: remove this block! Read
+            // `RoomInfoNotableUpdateReasons::NONE` to understand why it must be
+            // removed.
             reasons = RoomInfoNotableUpdateReasons::NONE;
         }
         let _ = self
@@ -254,9 +254,9 @@ impl BaseRoomInfo {
         match (&raw_event.event_type, raw_event.state_key.as_str()) {
             (StateEventType::RoomEncryption, "") => {
                 // To avoid breaking encrypted rooms, we ignore
-                // `m.room.encryption` events that
-                // fail to deserialize or that are redacted (i.e. they don't
-                // contain the algorithm used for encryption).
+                // `m.room.encryption` events that fail to deserialize or that
+                // are redacted (i.e. they don't contain the algorithm used for
+                // encryption).
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
                     as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomEncryption)
                 }) && event.content.algorithm.is_some()
@@ -481,8 +481,7 @@ impl BaseRoomInfo {
                         true
                     } else {
                         // Remove the previous content with the same state key
-                        // if the new content is
-                        // unknown.
+                        // if the new content is unknown.
                         self.rtc_member_events.remove(&call_member_key).is_some()
                     }
                 } else {
@@ -669,9 +668,9 @@ pub struct RoomInfo {
     /// The recency stamp of this room.
     ///
     /// It's not to be confused with the `origin_server_ts` value of an event.
-    /// Sliding Sync might “ignore” some events when computing the recency
-    /// stamp of the room. The recency stamp must be considered as an opaque
-    /// unsigned integer value.
+    /// Sliding Sync might “ignore” some events when computing the recency stamp
+    /// of the room. The recency stamp must be considered as an opaque unsigned
+    /// integer value.
     ///
     /// # Sorting rooms
     ///
@@ -779,9 +778,9 @@ impl RoomInfo {
         self.encryption_state_synced = false;
     }
 
-    /// Set the `prev_batch`-token.
-    /// Returns whether the token has differed and thus has been upgraded:
-    /// `false` means no update was applied as the were the same
+    /// Set the `prev_batch`-token. Returns whether the token has differed and
+    /// thus has been upgraded: `false` means no update was applied as the were
+    /// the same
     pub fn set_prev_batch(&mut self, prev_batch: Option<&str>) -> bool {
         if self.last_prev_batch.as_deref() != prev_batch {
             self.last_prev_batch = prev_batch.map(|p| p.to_owned());
@@ -846,10 +845,10 @@ impl RoomInfo {
             .any(|(state_event, _)| state_event == &StateEventType::RoomEncryption)
         {
             // The `m.room.encryption` event was requested during the sync.
-            // Whether we have received a `m.room.encryption` event
-            // in return doesn't matter: we must mark the encryption
-            // state as synced; if the event is present, it means the room
-            // _is_ encrypted, otherwise it means the room _is not_ encrypted.
+            // Whether we have received a `m.room.encryption` event in return
+            // doesn't matter: we must mark the encryption state as synced; if
+            // the event is present, it means the room _is_ encrypted, otherwise
+            // it means the room _is not_ encrypted.
 
             self.mark_encryption_state_synced();
         }
@@ -885,10 +884,9 @@ impl RoomInfo {
         if raw_event.event_type == StateEventType::RoomEncryption && raw_event.state_key.is_empty()
         {
             // The `m.room.encryption` event was or wasn't explicitly requested,
-            // we don't know here (see
-            // `Self::handle_encryption_state`) but we got one in
-            // return! In this case, we can deduce the room _is_ encrypted, but
-            // we cannot know if it _is not_ encrypted.
+            // we don't know here (see `Self::handle_encryption_state`) but we
+            // got one in return! In this case, we can deduce the room _is_
+            // encrypted, but we cannot know if it _is not_ encrypted.
 
             self.mark_encryption_state_synced();
         }
@@ -1183,9 +1181,9 @@ impl RoomInfo {
     /// Whether the given `(user_id, device_id)` tuple is currently a
     /// participant in this room's active MatrixRTC call.
     ///
-    /// Distinct from [`Self::active_room_call_participants`] which returns
-    /// only user IDs. Callers that must not conflate multiple devices of
-    /// the same user (e.g. profile-field mirroring) should use this.
+    /// Distinct from [`Self::active_room_call_participants`] which returns only
+    /// user IDs. Callers that must not conflate multiple devices of the same
+    /// user (e.g. profile-field mirroring) should use this.
     pub fn is_device_in_active_room_call(
         &self,
         user_id: &ruma::UserId,
@@ -1200,9 +1198,9 @@ impl RoomInfo {
     /// members are advertising.
     ///
     /// This provides detailed information about the consensus state (is it an
-    /// audio or video call), including whether it's full (all members
-    /// agree) or partial (only some members advertise), allowing callers to
-    /// distinguish between different levels of consensus.
+    /// audio or video call), including whether it's full (all members agree) or
+    /// partial (only some members advertise), allowing callers to distinguish
+    /// between different levels of consensus.
     ///
     /// # Returns
     ///
@@ -1294,9 +1292,8 @@ impl RoomInfo {
         self.base_info.fully_read_event_id.as_deref()
     }
 
-    /// Checks if an `EventId` is currently pinned.
-    /// It avoids having to clone the whole list of event ids to check a single
-    /// value.
+    /// Checks if an `EventId` is currently pinned. It avoids having to clone
+    /// the whole list of event ids to check a single value.
     ///
     /// Returns `true` if the provided `event_id` is pinned, `false` otherwise.
     pub fn is_pinned_event(&self, event_id: &EventId) -> bool {
@@ -1505,14 +1502,15 @@ bitflags! {
 
         /// This is a temporary hack.
         ///
-        /// So here is the thing. Ideally, we DO NOT want to emit this reason. It does not
-        /// makes sense. However, all notable update reasons are not clearly identified
-        /// so far. Why is it a problem? The `matrix_sdk_ui::room_list_service::RoomList`
-        /// is listening this stream of [`RoomInfoNotableUpdate`], and emits an update on a
-        /// room item if it receives a notable reason. Because all reasons are not
-        /// identified, we are likely to miss particular updates, and it can feel broken.
-        /// Ultimately, we want to clearly identify all the notable update reasons, and
-        /// remove this one.
+        /// So here is the thing. Ideally, we DO NOT want to emit this reason.
+        /// It does not makes sense. However, all notable update reasons are not
+        /// clearly identified so far. Why is it a problem? The
+        /// `matrix_sdk_ui::room_list_service::RoomList` is listening this
+        /// stream of [`RoomInfoNotableUpdate`], and emits an update on a room
+        /// item if it receives a notable reason. Because all reasons are not
+        /// identified, we are likely to miss particular updates, and it can
+        /// feel broken. Ultimately, we want to clearly identify all the notable
+        /// update reasons, and remove this one.
         const NONE = 0b0000_0000_1000_0000;
 
         /// The user's `m.fully_read` marker has changed.

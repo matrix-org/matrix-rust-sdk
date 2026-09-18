@@ -79,7 +79,7 @@ pub(crate) struct SessionCreatorInfo {
     ///
     /// However, if the session was simply forwarded to us in an
     /// `m.forwarded_room_key` event (in which case sender != creator), this key
-    /// is just a *claim* made by the session sender of what the actual creator
+    /// is just a _claim_ made by the session sender of what the actual creator
     /// device is.
     pub curve25519_key: Curve25519PublicKey,
 
@@ -87,13 +87,12 @@ pub(crate) struct SessionCreatorInfo {
     /// [`Device`] that sent us the session.
     ///
     /// If the session was received directly from the creator via an
-    /// `m.room_key` event, this map is taken from the plaintext value of
-    /// the decrypted Olm event, and is a copy of the
-    /// [`DecryptedOlmV1Event::keys`] field as defined in the [spec].
+    /// `m.room_key` event, this map is taken from the plaintext value of the
+    /// decrypted Olm event, and is a copy of the [`DecryptedOlmV1Event::keys`]
+    /// field as defined in the [spec].
     ///
     /// If the session was forwarded to us using an `m.forwarded_room_key`, this
-    /// map is a copy of the claimed Ed25519 key from the content of the
-    /// event.
+    /// map is a copy of the claimed Ed25519 key from the content of the event.
     ///
     /// [spec]: https://spec.matrix.org/unstable/client-server-api/#molmv1curve25519-aes-sha2
     pub signing_keys: Arc<SigningKeys<DeviceKeyAlgorithm>>,
@@ -157,13 +156,13 @@ pub(crate) struct SessionCreatorInfo {
 ///    practice) and `shared_history` (because any key being shared via that
 ///    mechanism is inherently suitable for sharing with other users).
 ///
-/// | Type     | Self-signed room key | `room_id`, `session_id` | `sender_key` | Sender's Ed25519 key | `forwarding _curve25519 _key _chain` | `shared _history` |
-/// |----------|----------------------|-------------------------|--------------|----------------------|------------------------------------|------------------|
-/// | [`RoomKeyContent`]          | ✅ | ✅                       | ❌            | ❌                    | ❌                                  | ✅                |
-/// | [`ForwardedRoomKeyContent`] | ❌ | ✅                       | ✅            | `sender_claimed_ed25519_key` | ✅                          | ✅                |
-/// | [`ExportedRoomKey`]         | ❌ | ✅                       | ✅            | `sender_claimed_keys` | ✅                                 | ✅                |
-/// | [`BackedUpRoomKey`]         | ❌ | ❌                       | ✅            | `sender_claimed_keys` | ✅                                 | ✅                |
-/// | [`HistoricRoomKey`]         | ❌ | ✅                       | ✅            | `sender_claimed_keys` | ❌                                 | ❌                |
+/// | Type                        | Self-signed room key | `room_id`, `session_id` | `sender_key` | Sender's Ed25519 key         | `forwarding _curve25519 _key _chain` | `shared _history` |
+/// | --------------------------- | -------------------- | ----------------------- | ------------ | ---------------------------- | ------------------------------------ | ----------------- |
+/// | [`RoomKeyContent`]          | ✅                   | ✅                      | ❌           | ❌                           | ❌                                   | ✅                |
+/// | [`ForwardedRoomKeyContent`] | ❌                   | ✅                      | ✅           | `sender_claimed_ed25519_key` | ✅                                   | ✅                |
+/// | [`ExportedRoomKey`]         | ❌                   | ✅                      | ✅           | `sender_claimed_keys`        | ✅                                   | ✅                |
+/// | [`BackedUpRoomKey`]         | ❌                   | ❌                      | ✅           | `sender_claimed_keys`        | ✅                                   | ✅                |
+/// | [`HistoricRoomKey`]         | ❌                   | ✅                      | ✅           | `sender_claimed_keys`        | ❌                                   | ❌                |
 #[derive(Clone)]
 pub struct InboundGroupSession {
     inner: Arc<Mutex<InnerSession>>,
@@ -177,8 +176,8 @@ pub struct InboundGroupSession {
     first_known_index: u32,
 
     /// Information about the creator of the [`InboundGroupSession`] ("room
-    /// key"). The trustworthiness of the information in this field depends
-    /// on how the session was received.
+    /// key"). The trustworthiness of the information in this field depends on
+    /// how the session was received.
     pub(crate) creator_info: SessionCreatorInfo,
 
     /// Information about the sender of this session and how much we trust that
@@ -234,35 +233,34 @@ impl InboundGroupSession {
     ///
     /// # Arguments
     ///
-    /// * `sender_key` - The public Curve25519 key of the account that sent us
+    /// - `sender_key` - The public Curve25519 key of the account that sent us
     ///   the session.
     ///
-    /// * `signing_key` - The public Ed25519 key of the account that sent us the
+    /// - `signing_key` - The public Ed25519 key of the account that sent us the
     ///   session.
     ///
-    /// * `room_id` - The id of the room that the session is used in.
-    ///
-    /// * `session_key` - The private session key that is used to decrypt
+    /// - `room_id` - The id of the room that the session is used in.
+    /// - `session_key` - The private session key that is used to decrypt
     ///   messages.
     ///
-    /// * `sender_data` - Information about the sender of the to-device message
+    /// - `sender_data` - Information about the sender of the to-device message
     ///   that established this session.
     ///
-    /// * `forwarder_data` - If present, indicates this session was received via
+    /// - `forwarder_data` - If present, indicates this session was received via
     ///   an [MSC4268] room key bundle, and provides information about the
     ///   forwarder of this bundle.
     ///
-    /// * `encryption_algorithm` - The [`EventEncryptionAlgorithm`] that should
+    /// - `encryption_algorithm` - The [`EventEncryptionAlgorithm`] that should
     ///   be used when messages are being decrypted. The method will return an
     ///   [`SessionCreationError::Algorithm`] error if an algorithm we do not
     ///   support is given,
     ///
-    /// * `history_visibility` - The history visibility of the room at the time
+    /// - `history_visibility` - The history visibility of the room at the time
     ///   the matching [`OutboundGroupSession`] was created. This is only set if
-    ///   we are the crator of this  [`InboundGroupSession`]. Sessinons that are
-    ///   received from other devices use the  `shared_history` flag instead.
+    ///   we are the crator of this [`InboundGroupSession`]. Sessinons that are
+    ///   received from other devices use the `shared_history` flag instead.
     ///
-    /// * `shared_history` - Whether this [`InboundGroupSession`] can be shared
+    /// - `shared_history` - Whether this [`InboundGroupSession`] can be shared
     ///   with users who are invited to the room in the future, allowing access
     ///   to history, as defined in [MSC3061]. This flag is a surjection of the
     ///   history visibility of the room.
@@ -314,8 +312,8 @@ impl InboundGroupSession {
     ///
     /// The `m.room_key` event **must** have been encrypted using the
     /// `m.olm.v1.curve25519-aes-sha2` algorithm and the `sender_key` **must**
-    /// be the long-term [`Curve25519PublicKey`] that was used to establish
-    /// the 1-to-1 Olm session.
+    /// be the long-term [`Curve25519PublicKey`] that was used to establish the
+    /// 1-to-1 Olm session.
     ///
     /// The `signing_key` **must** be the [`Ed25519PublicKey`] contained in the
     /// `keys` field of the [decrypted payload].
@@ -461,14 +459,13 @@ impl InboundGroupSession {
 
     /// Restore a Session from a previously pickled string.
     ///
-    /// Returns the restored group session or a `UnpicklingError` if there
-    /// was an error.
+    /// Returns the restored group session or a `UnpicklingError` if there was
+    /// an error.
     ///
     /// # Arguments
     ///
-    /// * `pickle` - The pickled version of the `InboundGroupSession`.
-    ///
-    /// * `pickle_mode` - The mode that was used to pickle the session, either
+    /// - `pickle` - The pickled version of the `InboundGroupSession`.
+    /// - `pickle_mode` - The mode that was used to pickle the session, either
     ///   an unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(pickle: PickledInboundGroupSession) -> Result<Self, PickleError> {
         let PickledInboundGroupSession {
@@ -557,17 +554,17 @@ impl InboundGroupSession {
     /// of the given other [`InboundGroupSession`].
     ///
     /// If the two sessions are not connected (i.e., they are from different
-    /// senders, or if advancing the ratchets to the same index does not
-    /// give the same ratchet value), returns [`SessionOrdering::Unconnected`].
+    /// senders, or if advancing the ratchets to the same index does not give
+    /// the same ratchet value), returns [`SessionOrdering::Unconnected`].
     ///
     /// Otherwise, returns [`SessionOrdering::Equal`],
     /// [`SessionOrdering::Better`], or [`SessionOrdering::Worse`] respectively
-    /// depending on whether this session's first known index is equal to,
-    /// lower than, or higher than, that of `other`.
+    /// depending on whether this session's first known index is equal to, lower
+    /// than, or higher than, that of `other`.
     pub async fn compare_ratchet(&self, other: &InboundGroupSession) -> SessionOrdering {
         // If this is the same object the ordering is the same, we can't compare
-        // because we would deadlock while trying to acquire the same
-        // lock twice.
+        // because we would deadlock while trying to acquire the same lock
+        // twice.
         if Arc::ptr_eq(&self.inner, &other.inner) {
             SessionOrdering::Equal
         } else if self.sender_key() != other.sender_key()
@@ -584,12 +581,12 @@ impl InboundGroupSession {
 
     /// Decrypt the given ciphertext.
     ///
-    /// Returns the decrypted plaintext or an `DecryptionError` if
-    /// decryption failed.
+    /// Returns the decrypted plaintext or an `DecryptionError` if decryption
+    /// failed.
     ///
     /// # Arguments
     ///
-    /// * `message` - The message that should be decrypted.
+    /// - `message` - The message that should be decrypted.
     pub(crate) async fn decrypt_helper(
         &self,
         message: &MegolmMessage,
@@ -716,8 +713,8 @@ pub struct PickledInboundGroupSession {
     pub forwarder_data: Option<ForwarderData>,
     /// The id of the room that the session is used in.
     pub room_id: OwnedRoomId,
-    /// Flag remembering if the session was directly sent to us by the sender
-    /// or if it was imported.
+    /// Flag remembering if the session was directly sent to us by the sender or
+    /// if it was imported.
     pub imported: bool,
     /// Flag remembering if the session has been backed up.
     #[serde(default)]
@@ -751,7 +748,7 @@ impl HistoricRoomKey {
     ///
     /// # Arguments
     ///
-    /// * `forwarder_data` - A reference to a `SenderData` object containing
+    /// - `forwarder_data` - A reference to a `SenderData` object containing
     ///   information about the forwarder of the session.
     ///
     /// # Returns
@@ -787,8 +784,9 @@ impl HistoricRoomKey {
                 curve25519_key: *sender_key,
                 signing_keys: sender_claimed_keys.to_owned().into(),
             },
-            // TODO: How do we remember that this is a historic room key and events decrypted using
-            // this room key should always show some form of warning.
+            // TODO: How do we remember that this is a historic room key and
+            // events decrypted using this room key should always show some form
+            // of warning.
             sender_data: SenderData::default(),
             forwarder_data: Some(forwarder_data.clone()),
             history_visibility: None.into(),
@@ -828,8 +826,9 @@ impl TryFrom<&ExportedRoomKey> for InboundGroupSession {
                 curve25519_key: *sender_key,
                 signing_keys: sender_claimed_keys.to_owned().into(),
             },
-            // TODO: In future, exported keys should contain sender data that we can use here.
-            // See https://github.com/matrix-org/matrix-rust-sdk/issues/3548
+            // TODO: In future, exported keys should contain sender data that we
+            // can use here. See
+            // https://github.com/matrix-org/matrix-rust-sdk/issues/3548
             sender_data: SenderData::default(),
             forwarder_data: None,
             history_visibility: None.into(),
@@ -860,8 +859,9 @@ impl From<&ForwardedMegolmV1AesSha2Content> for InboundGroupSession {
                 )])
                 .into(),
             },
-            // In future, exported keys should contain sender data that we can use here.
-            // See https://github.com/matrix-org/matrix-rust-sdk/issues/3548
+            // In future, exported keys should contain sender data that we can
+            // use here. See
+            // https://github.com/matrix-org/matrix-rust-sdk/issues/3548
             sender_data: SenderData::default(),
             forwarder_data: None,
             history_visibility: None.into(),
@@ -888,8 +888,9 @@ impl From<&ForwardedMegolmV2AesSha2Content> for InboundGroupSession {
                 curve25519_key: value.claimed_sender_key,
                 signing_keys: value.claimed_signing_keys.to_owned().into(),
             },
-            // In future, exported keys should contain sender data that we can use here.
-            // See https://github.com/matrix-org/matrix-rust-sdk/issues/3548
+            // In future, exported keys should contain sender data that we can
+            // use here. See
+            // https://github.com/matrix-org/matrix-rust-sdk/issues/3548
             sender_data: SenderData::default(),
             forwarder_data: None,
             history_visibility: None.into(),

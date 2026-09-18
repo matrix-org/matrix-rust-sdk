@@ -96,11 +96,11 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// remote echoes.
     ///
     /// This is never cleared, but always incremented, to avoid issues with
-    /// reusing a stale internal id across timeline clears. We don't expect
-    /// we can hit `u64::max_value()` realistically, but if this would
-    /// happen, we do a wrapping addition when incrementing this
-    /// id; the previous 0 value would have disappeared a long time ago, unless
-    /// the device has terabytes of RAM.
+    /// reusing a stale internal id across timeline clears. We don't expect we
+    /// can hit `u64::max_value()` realistically, but if this would happen, we
+    /// do a wrapping addition when incrementing this id; the previous 0 value
+    /// would have disappeared a long time ago, unless the device has terabytes
+    /// of RAM.
     next_internal_id: u64,
 
     /// Aggregation metadata and pending aggregations.
@@ -119,6 +119,7 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// date with the room's read marker.
     ///
     /// This is false when:
+    ///
     /// - The fully-read marker points to an event that is not in the timeline,
     /// - The fully-read marker item would be the last item in the timeline.
     pub has_up_to_date_read_marker_item: bool,
@@ -133,10 +134,9 @@ pub(in crate::timeline) struct TimelineMetadata {
     ///
     /// There is no real link to the active room call and a rtc notification
     /// event. For example there could be several rtc notifications events for
-    /// the same call, but we only want to have a single active call tile in
-    /// the timeline. We achieve this by keeping a link to the latest
-    /// notification event in the timeline and the `active_call` info will
-    /// be attached to it.
+    /// the same call, but we only want to have a single active call tile in the
+    /// timeline. We achieve this by keeping a link to the latest notification
+    /// event in the timeline and the `active_call` info will be attached to it.
     pub(crate) active_rtc_notification_event_id: Option<OwnedEventId>,
 
     /// Current active call info for the room.
@@ -162,8 +162,9 @@ impl TimelineMetadata {
             aggregations: Default::default(),
             replies: Default::default(),
             fully_read_event: Default::default(),
-            // It doesn't make sense to set this to false until we fill the `fully_read_event`
-            // field, otherwise we'll keep on exiting early in `Self::update_read_marker`.
+            // It doesn't make sense to set this to false until we fill the
+            // `fully_read_event` field, otherwise we'll keep on exiting early
+            // in `Self::update_read_marker`.
             has_up_to_date_read_marker_item: true,
             read_receipts: Default::default(),
             room_version_rules,
@@ -186,8 +187,7 @@ impl TimelineMetadata {
         self.replies.clear();
         self.fully_read_event = None;
         // We forgot about the fully read marker right above, so wait for a new
-        // one before attempting to update it for each new timeline
-        // item.
+        // one before attempting to update it for each new timeline item.
         self.has_up_to_date_read_marker_item = true;
         self.read_receipts.clear();
     }
@@ -208,8 +208,8 @@ impl TimelineMetadata {
         }
 
         // We can make early returns here because we know all events since the
-        // end of the timeline, so the first event encountered is the
-        // oldest one.
+        // end of the timeline, so the first event encountered is the oldest
+        // one.
         for event_meta in all_remote_events.iter().rev() {
             if event_meta.event_id == event_a {
                 return Some(RelativePosition::Before);
@@ -278,18 +278,17 @@ impl TimelineMetadata {
 
             if let Some(next) = next {
                 // `next` point to the first item that's not sent by us, so the
-                // *previous* of next is the right place where
-                // to insert the fully read marker.
+                // _previous_ of next is the right place where to insert the
+                // fully read marker.
                 *fully_read_event_idx = next.wrapping_sub(1);
             } else {
                 // There's no event after the read marker that's not sent by us,
-                // i.e. the full timeline has been read: the
-                // fully read marker goes to the end, even after the
-                // local timeline items.
+                // i.e. the full timeline has been read: the fully read marker
+                // goes to the end, even after the local timeline items.
                 //
                 // TODO (@hywan): Should we introduce a
-                // `items.position_of_last_remote()` to
-                // insert before the local timeline items?
+                // `items.position_of_last_remote()` to insert before the local
+                // timeline items?
                 *fully_read_event_idx = items.len().wrapping_sub(1);
             }
         }
@@ -297,9 +296,8 @@ impl TimelineMetadata {
         match (read_marker_idx, fully_read_event_idx) {
             (None, None) => {
                 // We didn't have a previous read marker, and we didn't find the
-                // fully-read event in the timeline items. Don't
-                // do anything, and retry on the next event we
-                // add.
+                // fully-read event in the timeline items. Don't do anything,
+                // and retry on the next event we add.
                 self.has_up_to_date_read_marker_item = false;
             }
 
@@ -319,8 +317,8 @@ impl TimelineMetadata {
 
             (Some(_), None) => {
                 // We didn't find the timeline item containing the event
-                // referred to by the read marker. Retry next
-                // time we get a new event.
+                // referred to by the read marker. Retry next time we get a new
+                // event.
                 self.has_up_to_date_read_marker_item = false;
             }
 
@@ -343,10 +341,9 @@ impl TimelineMetadata {
                 // timeline.
                 if to + 1 < prev_len {
                     // Since the fully-read event's index was shifted to the
-                    // left by one position by the remove
-                    // call above, insert the fully-
-                    // read marker at its previous position, rather than that +
-                    // 1
+                    // left by one position by the remove call above, insert the
+                    // fully- read marker at its previous position, rather than
+                    // that + 1
                     items.insert(to, read_marker, None);
                     self.has_up_to_date_read_marker_item = true;
                 } else {
@@ -382,8 +379,8 @@ impl TimelineMetadata {
     }
 
     /// Extracts the in-reply-to details and thread root from the content of a
-    /// message-like event, and take care of internal bookkeeping as well
-    /// (like marking responses).
+    /// message-like event, and take care of internal bookkeeping as well (like
+    /// marking responses).
     ///
     /// Returns the in-reply-to details and the thread root event ID, if any.
     pub(crate) fn process_content_relations(
@@ -528,17 +525,15 @@ impl TimelineMetadata {
 
                 if is_thread_focus && thread.is_falling_back {
                     // In general, a threaded event is marked as a response to
-                    // the previous message in the thread,
-                    // to maintain backwards compatibility with clients not
-                    // supporting threads.
+                    // the previous message in the thread, to maintain backwards
+                    // compatibility with clients not supporting threads.
                     //
                     // But we can have actual replies to other in-thread events.
-                    // The `is_falling_back` bool helps
-                    // distinguishing both use cases.
+                    // The `is_falling_back` bool helps distinguishing both use
+                    // cases.
                     //
                     // If this timeline is thread-focused, we only mark
-                    // non-falling-back replies as
-                    // actual in-thread replies.
+                    // non-falling-back replies as actual in-thread replies.
                     None
                 } else {
                     thread.in_reply_to.map(|in_reply_to| {
@@ -599,9 +594,8 @@ pub(in crate::timeline) struct EventMeta {
     /// Foundation for the mapping between remote events to timeline items.
     ///
     /// Let's explain it. The events represent the first set and are stored in
-    /// [`ObservableItems::all_remote_events`], and the timeline
-    /// items represent the second set and are stored in
-    /// [`ObservableItems::items`].
+    /// [`ObservableItems::all_remote_events`], and the timeline items represent
+    /// the second set and are stored in [`ObservableItems::items`].
     ///
     /// Each event is mapped to at most one timeline item:
     ///
@@ -640,8 +634,8 @@ pub(in crate::timeline) struct EventMeta {
     /// | 4     | content of `$ev5` |                      |
     ///
     /// Note the date divider that is a virtual item. Also note `$ev4` which is
-    /// a reaction to `$ev2`. Finally note that `$ev1` is not rendered in
-    /// the timeline.
+    /// a reaction to `$ev2`. Finally note that `$ev1` is not rendered in the
+    /// timeline.
     ///
     /// The mapping between remote event index to timeline item index will look
     /// like this:

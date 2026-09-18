@@ -169,7 +169,7 @@ impl Sas {
     ///
     /// # Arguments
     ///
-    /// * `cancel_code` - The error code for why the verification was cancelled,
+    /// - `cancel_code` - The error code for why the verification was cancelled,
     ///   manual cancellatio usually happens with `m.user` cancel code. The full
     ///   list of cancel codes can be found in the [spec]
     ///
@@ -181,7 +181,7 @@ impl Sas {
     /// Get a list of emoji indices of the emoji representation of the short
     /// auth string.
     ///
-    /// *Note*: A SAS verification needs to be started and in the presentable
+    /// _Note_: A SAS verification needs to be started and in the presentable
     /// state for this to return the list of emoji indices, otherwise returns
     /// `None`.
     pub fn get_emoji_indices(&self) -> Option<Vec<i32>> {
@@ -190,9 +190,8 @@ impl Sas {
 
     /// Get the decimal representation of the short auth string.
     ///
-    /// *Note*: A SAS verification needs to be started and in the presentable
-    /// state for this to return the list of decimals, otherwise returns
-    /// `None`.
+    /// _Note_: A SAS verification needs to be started and in the presentable
+    /// state for this to return the list of decimals, otherwise returns `None`.
     pub fn get_decimals(&self) -> Option<Vec<i32>> {
         self.inner.decimals().map(|v| [v.0.into(), v.1.into(), v.2.into()].to_vec())
     }
@@ -202,17 +201,17 @@ impl Sas {
     /// The given callback will be called whenever the state changes.
     ///
     /// This method can be used to react to changes in the state of the
-    /// verification process, or rather the method can be used to handle
-    /// each step of the verification process.
+    /// verification process, or rather the method can be used to handle each
+    /// step of the verification process.
     ///
     /// This method will spawn a tokio task on the Rust side, once we reach the
     /// Done or Cancelled state, the task will stop listening for changes.
     ///
     /// # Flowchart
     ///
-    /// The flow of the verification process is pictured below. Please note
-    /// that the process can be cancelled at each step of the process.
-    /// Either side can cancel the process.
+    /// The flow of the verification process is pictured below. Please note that
+    /// the process can be cancelled at each step of the process. Either side
+    /// can cancel the process.
     ///
     /// ```text
     ///                ┌───────┐
@@ -261,8 +260,8 @@ impl Sas {
     ) {
         while let Some(state) = stream.next().await {
             // If we receive a done or a cancelled state we're at the end of our
-            // road, we break out of the loop to deallocate the
-            // stream and finish the task.
+            // road, we break out of the loop to deallocate the stream and
+            // finish the task.
             let should_break =
                 matches!(state, RustSasState::Done { .. } | RustSasState::Cancelled { .. });
 
@@ -391,7 +390,7 @@ impl QrCode {
     ///
     /// # Arguments
     ///
-    /// * `cancel_code` - The error code for why the verification was cancelled,
+    /// - `cancel_code` - The error code for why the verification was cancelled,
     ///   manual cancellatio usually happens with `m.user` cancel code. The full
     ///   list of cancel codes can be found in the [spec]
     ///
@@ -443,8 +442,8 @@ impl QrCode {
     ) {
         while let Some(state) = stream.next().await {
             // If we receive a done or a cancelled state we're at the end of our
-            // road, we break out of the loop to deallocate the
-            // stream and finish the task.
+            // road, we break out of the loop to deallocate the stream and
+            // finish the task.
             let should_break = matches!(
                 state,
                 QrVerificationState::Done { .. } | QrVerificationState::Cancelled { .. }
@@ -495,8 +494,8 @@ pub struct StartSasResult {
 pub struct ScanResult {
     /// The QR code verification object that got created.
     pub qr: Arc<QrCode>,
-    /// The request that needs to be sent out to notify the other side that a
-    /// QR code verification should start.
+    /// The request that needs to be sent out to notify the other side that a QR
+    /// code verification should start.
     pub request: OutgoingVerificationRequest,
 }
 
@@ -640,12 +639,11 @@ impl VerificationRequest {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user for which we would like to accept the
+    /// - `user_id` - The ID of the user for which we would like to accept the
     ///   verification requests.
     ///
-    /// * `flow_id` - The ID that uniquely identifies the verification flow.
-    ///
-    /// * `methods` - A list of verification methods that we want to advertise
+    /// - `flow_id` - The ID that uniquely identifies the verification flow.
+    /// - `methods` - A list of verification methods that we want to advertise
     ///   as supported.
     pub fn accept(&self, methods: Vec<String>) -> Option<OutgoingVerificationRequest> {
         let methods = methods.into_iter().map(VerificationMethod::from).collect();
@@ -663,10 +661,10 @@ impl VerificationRequest {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user for which we would like to start the
+    /// - `user_id` - The ID of the user for which we would like to start the
     ///   SAS verification.
     ///
-    /// * `flow_id` - The ID of the verification request that initiated the
+    /// - `flow_id` - The ID of the verification request that initiated the
     ///   verification flow.
     pub fn start_sas_verification(&self) -> Result<Option<StartSasResult>, CryptoStoreError> {
         Ok(self.runtime.block_on(self.inner.start_sas())?.map(|(sas, r)| StartSasResult {
@@ -682,10 +680,10 @@ impl VerificationRequest {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user for which we would like to start the QR
+    /// - `user_id` - The ID of the user for which we would like to start the QR
     ///   code verification.
     ///
-    /// * `flow_id` - The ID of the verification request that initiated the
+    /// - `flow_id` - The ID of the verification request that initiated the
     ///   verification flow.
     pub fn start_qr_verification(&self) -> Result<Option<Arc<QrCode>>, CryptoStoreError> {
         Ok(self
@@ -702,13 +700,13 @@ impl VerificationRequest {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user for which we would like to start the QR
+    /// - `user_id` - The ID of the user for which we would like to start the QR
     ///   code verification.
     ///
-    /// * `flow_id` - The ID of the verification request that initiated the
+    /// - `flow_id` - The ID of the verification request that initiated the
     ///   verification flow.
     ///
-    /// * `data` - The data that was extracted from the scanned QR code as an
+    /// - `data` - The data that was extracted from the scanned QR code as an
     ///   base64 encoded string, without padding.
     pub fn scan_qr_code(&self, data: String) -> Option<ScanResult> {
         let data = base64_decode(data).ok()?;
@@ -788,8 +786,8 @@ impl VerificationRequest {
     ) {
         while let Some(state) = stream.next().await {
             // If we receive a done or a cancelled state we're at the end of our
-            // road, we break out of the loop to deallocate the
-            // stream and finish the task.
+            // road, we break out of the loop to deallocate the stream and
+            // finish the task.
             let should_break = matches!(
                 state,
                 RustVerificationRequestState::Done | RustVerificationRequestState::Cancelled { .. }

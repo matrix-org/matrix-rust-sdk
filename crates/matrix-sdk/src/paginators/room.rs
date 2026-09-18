@@ -164,9 +164,9 @@ impl<PR: PaginableRoom> Paginator<PR> {
         self.check_state(PaginatorState::Initial)?;
 
         // Note: it's possible two callers have checked the state and both
-        // figured it's initial. This check below makes sure there's at
-        // most one which can set the state to FetchingTargetEvent,
-        // preventing a race condition.
+        // figured it's initial. This check below makes sure there's at most one
+        // which can set the state to FetchingTargetEvent, preventing a race
+        // condition.
         if self.state.set_if_not_eq(PaginatorState::FetchingTargetEvent).is_none() {
             return Err(PaginatorError::InvalidPreviousState {
                 expected: PaginatorState::Initial,
@@ -183,8 +183,8 @@ impl<PR: PaginableRoom> Paginator<PR> {
             self.room.event_with_context(event_id, lazy_load_members, num_events).await?;
 
         // NOTE: it's super important to not have any `await` after this point,
-        // since we don't want the task to be interrupted anymore, or
-        // the internal state may become incorrect.
+        // since we don't want the task to be interrupted anymore, or the
+        // internal state may become incorrect.
 
         let has_prev = response.prev_batch_token.is_some();
         let has_next = response.next_batch_token.is_some();
@@ -207,6 +207,7 @@ impl<PR: PaginableRoom> Paginator<PR> {
         self.state.set(PaginatorState::Idle);
 
         // Consolidate the events into a linear timeline, topologically ordered.
+        //
         // - the events before are returned in the reverse topological order:
         //   invert them.
         // - insert the target event, if set.
@@ -296,9 +297,8 @@ impl<PR: PaginableRoom> Paginator<PR> {
         };
 
         // Note: it's possible two callers have checked the state and both
-        // figured it's idle. This check below makes sure there's at
-        // most one which can set the state to paginating, preventing a
-        // race condition.
+        // figured it's idle. This check below makes sure there's at most one
+        // which can set the state to paginating, preventing a race condition.
         if self.state.set_if_not_eq(PaginatorState::Paginating).is_none() {
             return Err(PaginatorError::InvalidPreviousState {
                 expected: PaginatorState::Idle,
@@ -316,8 +316,8 @@ impl<PR: PaginableRoom> Paginator<PR> {
         let response = self.room.messages(options).await?;
 
         // NOTE: it's super important to not have any `await` after this point,
-        // since we don't want the task to be interrupted anymore, or
-        // the internal state may be incorrect.
+        // since we don't want the task to be interrupted anymore, or the
+        // internal state may be incorrect.
 
         let hit_end_of_timeline = response.end.is_none();
 
@@ -397,8 +397,8 @@ impl PaginableRoom for Room {
 
                 Err(err) => {
                     // If the error was a 404, then the event wasn't found on
-                    // the server; special case this to make
-                    // it easy to react to such an error.
+                    // the server; special case this to make it easy to react to
+                    // such an error.
                     if let Some(error) = err.as_client_api_error()
                         && error.status_code == 404
                     {
@@ -501,8 +501,8 @@ mod tests {
                 .into_event();
 
             // Properly simulate `num_events`: take either the closest
-            // num_events events before, or use all of the before
-            // events and then consume after events.
+            // num_events events before, or use all of the before events and
+            // then consume after events.
             let mut num_events = u64::from(num_events) as usize;
 
             let prev_events = self.prev_events.lock().await;

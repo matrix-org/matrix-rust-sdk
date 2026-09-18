@@ -196,7 +196,7 @@ impl PrivateCrossSigningIdentity {
     ///
     /// # Arguments
     ///
-    /// * `secret_name` - The type of the cross signing key that should be
+    /// - `secret_name` - The type of the cross signing key that should be
     ///   exported.
     pub async fn export_secret(&self, secret_name: &SecretName) -> Option<String> {
         match secret_name {
@@ -309,8 +309,8 @@ impl PrivateCrossSigningIdentity {
     /// The private parts should be unexpanded Ed25519 keys encoded as a base64
     /// string.
     ///
-    /// *Note*: This method won't check if the public keys match the public
-    /// keys present on the server.
+    /// _Note_: This method won't check if the public keys match the public keys
+    /// present on the server.
     pub async fn import_secrets_unchecked(
         &self,
         master_key: Option<&str>,
@@ -576,9 +576,8 @@ impl PrivateCrossSigningIdentity {
         let mut master = MasterSigning::new(account.user_id().into());
 
         // This is duplicated with
-        // `matrix_sdk_crypto::identities::user::OwnUserIdentity::verify`,
-        // but there's no good way to prevent this (at least not one we can
-        // see).
+        // `matrix_sdk_crypto::identities::user::OwnUserIdentity::verify`, but
+        // there's no good way to prevent this (at least not one we can see).
         let cross_signing_key: &mut CrossSigningKey = &mut *master.public_key_mut().as_mut();
 
         account.sign_cross_signing_key(cross_signing_key)?;
@@ -586,10 +585,9 @@ impl PrivateCrossSigningIdentity {
         #[cfg(feature = "experimental-x509-identity-verification")]
         if let Some(x509_signer) = x509_signer {
             // X.509 signing can and will fail - the user may enter the wrong
-            // PIN, the hardware key could vanish mid-sign, etc. We
-            // should not, however, let this prevent us from setting
-            // up normal cross-signing, so we log and disregard
-            // any errors.
+            // PIN, the hardware key could vanish mid-sign, etc. We should not,
+            // however, let this prevent us from setting up normal
+            // cross-signing, so we log and disregard any errors.
             x509_signer
                 .sign_cross_signing_key(&account.user_id, cross_signing_key)
                 .await
@@ -626,7 +624,7 @@ impl PrivateCrossSigningIdentity {
     ///
     /// # Arguments
     ///
-    /// * `pickle_key` - The key that should be used to encrypt the signing
+    /// - `pickle_key` - The key that should be used to encrypt the signing
     ///   object, must be 32 bytes long.
     ///
     /// # Panics

@@ -32,22 +32,21 @@ use crate::utils::ChannelObservable;
 pub enum SteadyStateError {
     /// The currently active backup got either deleted or a new one was created.
     ///
-    /// No further room keys will be uploaded to the currently active
-    /// backup.
+    /// No further room keys will be uploaded to the currently active backup.
     #[error("The backup got disabled while waiting for the room keys to be uploaded.")]
     BackupDisabled,
     /// Uploading the room keys to the homeserver failed due to a network error.
     ///
-    /// Uploading will be retried again at a later point in time, or
-    /// immediately if you wait for the steady state again.
+    /// Uploading will be retried again at a later point in time, or immediately
+    /// if you wait for the steady state again.
     #[error("There was a network connection error.")]
     Connection,
     /// We missed some updates to the [`UploadState`] from the upload task.
     ///
     /// This error doesn't imply that there was an error with the uploading of
-    /// room keys, it just means that we didn't receive all the transitions
-    /// in the [`UploadState`]. You might want to retry waiting for the
-    /// steady state.
+    /// room keys, it just means that we didn't receive all the transitions in
+    /// the [`UploadState`]. You might want to retry waiting for the steady
+    /// state.
     #[error("We couldn't read status updates from the upload task quickly enough.")]
     Lagged,
 }
@@ -116,9 +115,8 @@ impl<'a> IntoFuture for WaitForSteadyState<'a> {
                 let mut ret = Ok(());
 
                 // TODO: Do we want to be smart here and remember the count when
-                // we started waiting and prevent the total from
-                // increasing, in case new room keys arrive
-                // after we started waiting.
+                // we started waiting and prevent the total from increasing, in
+                // case new room keys arrive after we started waiting.
                 while let Some(state) = progress_stream.next().await {
                     trace!(?state, "Update state while waiting for the backup steady state");
 

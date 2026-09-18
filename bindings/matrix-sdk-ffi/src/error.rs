@@ -83,8 +83,7 @@ impl From<matrix_sdk::Error> for ClientError {
                         ErrorBody::Standard(StandardErrorBody { kind, message, .. }) => {
                             let Ok(ffi_error_kind) = kind.clone().try_into() else {
                                 // We couldn't parse the API error, so we return
-                                // a generic one
-                                // instead
+                                // a generic one instead
                                 return (*http_error).into();
                             };
                             let code = kind.errcode().to_string();
@@ -538,8 +537,7 @@ pub enum ErrorKind {
     /// `M_EXCLUSIVE`
     ///
     /// The resource being requested is reserved by an application service, or
-    /// the application service making the request has not created the
-    /// resource.
+    /// the application service making the request has not created the resource.
     Exclusive,
 
     /// `M_FORBIDDEN`
@@ -627,9 +625,9 @@ pub enum ErrorKind {
     /// `M_RESOURCE_LIMIT_EXCEEDED`
     ///
     /// The request cannot be completed because the homeserver has reached a
-    /// resource limit imposed on it. For example, a homeserver held in a
-    /// shared hosting environment may reach a resource limit if it starts
-    /// using too much memory or disk space.
+    /// resource limit imposed on it. For example, a homeserver held in a shared
+    /// hosting environment may reach a resource limit if it starts using too
+    /// much memory or disk space.
     ResourceLimitExceeded {
         /// A URI giving a contact method for the server administrator.
         admin_contact: String,
@@ -660,8 +658,8 @@ pub enum ErrorKind {
     /// `M_THREEPID_DENIED`
     ///
     /// The server does not permit this [third-party identifier]. This may
-    /// happen if the server only permits, for example, email addresses from
-    /// a particular domain.
+    /// happen if the server only permits, for example, email addresses from a
+    /// particular domain.
     ///
     /// [third-party identifier]: https://spec.matrix.org/latest/client-server-api/#adding-account-administrative-contact-information
     ThreepidDenied,
@@ -696,8 +694,8 @@ pub enum ErrorKind {
     /// `M_UNABLE_TO_AUTHORISE_JOIN`
     ///
     /// The room is [restricted] and none of the conditions can be validated by
-    /// the homeserver. This can happen if the homeserver does not know
-    /// about any of the rooms listed as conditions, for example.
+    /// the homeserver. This can happen if the homeserver does not know about
+    /// any of the rooms listed as conditions, for example.
     ///
     /// [restricted]: https://spec.matrix.org/latest/client-server-api/#restricted-rooms
     UnableToAuthorizeJoin,
@@ -705,10 +703,9 @@ pub enum ErrorKind {
     /// `M_UNABLE_TO_GRANT_JOIN`
     ///
     /// A different server should be attempted for the join. This is typically
-    /// because the resident server can see that the joining user satisfies
-    /// one or more conditions, such as in the case of [restricted rooms],
-    /// but the resident server would be unable to meet the authorization
-    /// rules.
+    /// because the resident server can see that the joining user satisfies one
+    /// or more conditions, such as in the case of [restricted rooms], but the
+    /// resident server would be unable to meet the authorization rules.
     ///
     /// [restricted rooms]: https://spec.matrix.org/latest/client-server-api/#restricted-rooms
     UnableToGrantJoin,
@@ -731,8 +728,8 @@ pub enum ErrorKind {
     UnknownToken {
         /// If this is `true`, the client is in a "[soft logout]" state, i.e.
         /// the server requires re-authentication but the session is not
-        /// invalidated. The client can acquire a new access token by
-        /// specifying the device ID it is already using to the login API.
+        /// invalidated. The client can acquire a new access token by specifying
+        /// the device ID it is already using to the login API.
         ///
         /// [soft logout]: https://spec.matrix.org/latest/client-server-api/#soft-logout
         soft_logout: bool,
@@ -743,8 +740,8 @@ pub enum ErrorKind {
     /// The server did not understand the request.
     ///
     /// This is expected to be returned with a 404 HTTP status code if the
-    /// endpoint is not implemented or a 405 HTTP status code if the
-    /// endpoint is implemented, but the incorrect HTTP method is used.
+    /// endpoint is not implemented or a 405 HTTP status code if the endpoint is
+    /// implemented, but the incorrect HTTP method is used.
     Unrecognized,
 
     /// `M_UNSUPPORTED_ROOM_VERSION`

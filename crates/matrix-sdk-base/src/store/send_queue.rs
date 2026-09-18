@@ -174,10 +174,10 @@ impl QueuedRequest {
 /// Represents a failed to send unrecoverable error of an event sent via the
 /// send queue.
 ///
-/// It is a serializable representation of a client error, see
-/// `From` implementation for more details. These errors can not be
-/// automatically retried, but yet some manual action can be taken before retry
-/// sending. If not the only solution is to delete the local event.
+/// It is a serializable representation of a client error, see `From`
+/// implementation for more details. These errors can not be automatically
+/// retried, but yet some manual action can be taken before retry sending. If
+/// not the only solution is to delete the local event.
 #[derive(Clone, Debug, Serialize, Deserialize, thiserror::Error)]
 pub enum QueueWedgeError {
     /// This error occurs when there are some insecure devices in the room, and
@@ -320,9 +320,8 @@ pub struct FinishUploadThumbnailInfo {
     pub height: Option<UInt>,
 }
 
-/// Detailed record about a file and thumbnail. When finishing a gallery
-/// upload, one [`FinishGalleryItemInfo`] will be used for each media in the
-/// gallery.
+/// Detailed record about a file and thumbnail. When finishing a gallery upload,
+/// one [`FinishGalleryItemInfo`] will be used for each media in the gallery.
 #[cfg(feature = "unstable-msc4274")]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FinishGalleryItemInfo {
@@ -504,7 +503,7 @@ pub struct DependentQueuedRequest {
 }
 
 impl DependentQueuedRequest {
-    /// Does the dependent request represent a new event that is *not*
+    /// Does the dependent request represent a new event that is _not_
     /// aggregated, aka it is going to be its own item in a timeline?
     pub fn is_own_event(&self) -> bool {
         match self.kind {
@@ -551,8 +550,8 @@ mod tests {
     fn test_deserialize_legacy_redact_event() {
         // `RedactEvent` is a unit variant, and must stay one for as long as it
         // exists: requests persisted before `RedactEventWithReason` are
-        // serialized as a plain string, and this is the only thing that
-        // still reads them.
+        // serialized as a plain string, and this is the only thing that still
+        // reads them.
         let deserialized: DependentQueuedRequestKind =
             serde_json::from_str("\"RedactEvent\"").unwrap();
         assert_matches!(deserialized, DependentQueuedRequestKind::RedactEvent);

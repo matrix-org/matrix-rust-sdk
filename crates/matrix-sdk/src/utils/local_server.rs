@@ -55,8 +55,7 @@ use url::Url;
 
 /// The default range of ports the server will try to bind to randomly.
 const DEFAULT_PORT_RANGE: Range<u16> = 20000..30000;
-/// The default number of times the server will try to bind to a random
-/// port.
+/// The default number of times the server will try to bind to a random port.
 const DEFAULT_BIND_TRIES: u8 = 10;
 
 /// Builder for a server that binds on a random port on localhost and waits for
@@ -129,9 +128,9 @@ impl LocalServerBuilder {
     /// Spawn the server.
     ///
     /// Returns the [`Url`] where the server is listening, and a
-    /// [`LocalServerRedirectHandle`] to `await` the redirect or to shutdown
-    /// the server. Returns an error if the server could not be bound to a port
-    /// on localhost.
+    /// [`LocalServerRedirectHandle`] to `await` the redirect or to shutdown the
+    /// server. Returns an error if the server could not be bound to a port on
+    /// localhost.
     pub async fn spawn(self) -> Result<(Url, LocalServerRedirectHandle), io::Error> {
         let Self { ip_address, port_range, bind_tries, response } = self;
 
@@ -274,8 +273,8 @@ impl fmt::Debug for LocalServerRedirectHandle {
 ///
 /// Constructed with [`LocalServerRedirectHandle::shutdown_handle()`].
 ///
-/// Calling [`LocalServerShutdownHandle::shutdown()`] will shutdown the
-/// server before the end-user is redirected to it.
+/// Calling [`LocalServerShutdownHandle::shutdown()`] will shutdown the server
+/// before the end-user is redirected to it.
 #[derive(Clone)]
 #[allow(missing_debug_implementations)]
 pub struct LocalServerShutdownHandle(Arc<Mutex<Option<oneshot::Sender<()>>>>);
@@ -329,8 +328,8 @@ impl LocalServerIpAddress {
     }
 }
 
-/// The content that the end user will see when they a redirected to the
-/// local server's URI.
+/// The content that the end user will see when they a redirected to the local
+/// server's URI.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LocalServerResponse {
     /// A plain text body.

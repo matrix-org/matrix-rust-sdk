@@ -623,9 +623,8 @@ async fn test_to_device_messages_from_dehydrated_devices_are_ignored() {
     // Given alice's device is dehydrated
     let (alice, bob) = create_dehydrated_machine_and_pair().await;
 
-    // When we send a to-device message from alice to bob
-    // (Note: we send a room_key message, but it could be any to-device
-    // message.)
+    // When we send a to-device message from alice to bob (Note: we send a
+    // room_key message, but it could be any to-device message.)
     let room_id = room_id!("!test:example.org");
     let (decrypted, room_key_updates) =
         send_room_key_to_device(&alice, &bob, room_id).await.unwrap();
@@ -688,8 +687,8 @@ async fn send_room_key_to_device(
 /// is dehydrated.
 async fn create_dehydrated_machine_and_pair() -> (OlmMachine, OlmMachine) {
     // Create a store holding info about an account that is linked to a
-    // dehydrated device. This should never happen in real life, so we have
-    // to poke the info into the store directly.
+    // dehydrated device. This should never happen in real life, so we have to
+    // poke the info into the store directly.
     let alice_store = MemoryStore::new();
     let alice_dehydrated_account = Account::new_dehydrated(alice_id());
     let mut alice_static_account = alice_dehydrated_account.static_data().clone();
@@ -868,7 +867,7 @@ async fn test_megolm_encryption() {
         panic!("Decrypted room event has the wrong type");
     }
 
-    // Just decrypting the event should *not* cause an update on the
+    // Just decrypting the event should _not_ cause an update on the
     // inbound_group_session_stream.
     if let Some(igs) = room_keys_received_stream.next().now_or_never() {
         panic!("Session stream unexpectedly returned update: {igs:?}");
@@ -883,7 +882,7 @@ async fn test_megolm_encryption() {
 ///
 /// # Arguments
 ///
-/// * `room_id` - The RoomId for which to set up Megolm encryption.
+/// - `room_id` - The RoomId for which to set up Megolm encryption.
 ///
 /// # Returns
 ///
@@ -972,9 +971,9 @@ async fn test_megolm_state_encryption() {
     }
 }
 
-/// Verifies that decryption fails with StateKeyVerificationFailed
-/// when unpacking the state_key of the decrypted event yields an event type
-/// that does not exist or does not match the type in the decrypted ciphertext.
+/// Verifies that decryption fails with StateKeyVerificationFailed when
+/// unpacking the state_key of the decrypted event yields an event type that
+/// does not exist or does not match the type in the decrypted ciphertext.
 #[cfg(feature = "experimental-encrypted-state-events")]
 #[async_test]
 async fn test_megolm_state_encryption_bad_type() {
@@ -1014,9 +1013,9 @@ async fn test_megolm_state_encryption_bad_type() {
     );
 }
 
-/// Verifies that decryption fails with StateKeyVerificationFailed
-/// when unpacking the state_key of the decrypted event yields a state_key
-/// that does not match the state_key in the decrypted ciphertext.
+/// Verifies that decryption fails with StateKeyVerificationFailed when
+/// unpacking the state_key of the decrypted event yields a state_key that does
+/// not match the state_key in the decrypted ciphertext.
 #[cfg(feature = "experimental-encrypted-state-events")]
 #[async_test]
 async fn test_megolm_state_encryption_bad_state_key() {
@@ -1710,8 +1709,8 @@ async fn test_importing_private_cross_signing_keys_verifies_the_public_identity(
 #[async_test]
 async fn test_wait_on_key_query_doesnt_block_store() {
     // Waiting for a key query shouldn't delay other write attempts to the
-    // store. This test will end immediately if it works, and times out
-    // after a few seconds if it failed.
+    // store. This test will end immediately if it works, and times out after a
+    // few seconds if it failed.
 
     let machine = OlmMachine::new(bob_id(), bob_device_id()).await;
 

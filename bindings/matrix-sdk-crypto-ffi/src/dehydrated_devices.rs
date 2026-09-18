@@ -107,8 +107,8 @@ impl DehydratedDevices {
     /// None if the key was not previously cached (via
     /// [`Self::save_dehydrated_device_pickle_key`]).
     ///
-    /// Should be used to periodically rotate the dehydrated device to avoid
-    /// OTK exhaustion and accumulation of to_device messages.
+    /// Should be used to periodically rotate the dehydrated device to avoid OTK
+    /// exhaustion and accumulation of to_device messages.
     pub fn get_dehydrated_device_key(
         &self,
     ) -> Result<Option<crate::DehydratedDeviceKey>, CryptoStoreError> {

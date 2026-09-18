@@ -357,9 +357,8 @@ impl MediaStoreInner for MemoryMediaStore {
         // fits.
         if let Some(max_cache_size) = policy.max_cache_size {
             // Reverse the iterator because in case the cache size is
-            // overflowing, we want to count the number of old items
-            // to remove. Items are sorted by last access
-            // and old items are at the start.
+            // overflowing, we want to count the number of old items to remove.
+            // Items are sorted by last access and old items are at the start.
             let (_, items_to_remove) = inner.media.iter().enumerate().rev().fold(
                 (0u64, Vec::with_capacity(NUMBER_OF_MEDIAS.into())),
                 |(mut cache_size, mut items_to_remove), (index, content)| {
@@ -377,9 +376,8 @@ impl MediaStoreInner for MemoryMediaStore {
                             cache_size > max_cache_size
                         } else {
                             // The cache size is overflowing, remove the
-                            // remaining items, since the
-                            // max cache size cannot be bigger than
-                            // usize::MAX.
+                            // remaining items, since the max cache size cannot
+                            // be bigger than usize::MAX.
                             true
                         }
                     } else {

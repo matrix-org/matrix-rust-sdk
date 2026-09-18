@@ -43,8 +43,8 @@ impl DisplayNameUsers {
         if self.user_count() == 1 { self.users.iter().next().cloned() } else { None }
     }
 
-    /// Add the given [`UserId`] from the map, marking that the [`UserId`]
-    /// is using the display name.
+    /// Add the given [`UserId`] from the map, marking that the [`UserId`] is
+    /// using the display name.
     fn add(&mut self, user_id: OwnedUserId) -> Option<OwnedUserId> {
         let ambiguous_user =
             if self.user_count() == 1 { self.users.iter().next().cloned() } else { None };
@@ -103,11 +103,11 @@ impl AmbiguityCache {
         // state and the timeline sometimes.
         //
         // Since our state, e.g. the old display name, already ended up inside
-        // the state changes and we're pulling stuff out of the cache if
-        // it's there calculating this twice for the same event will
-        // result in an incorrect AmbiguityChange overwriting the
-        // correct one. In other words, this method is not idempotent so
-        // we make it by ignoring duplicate events.
+        // the state changes and we're pulling stuff out of the cache if it's
+        // there calculating this twice for the same event will result in an
+        // incorrect AmbiguityChange overwriting the correct one. In other
+        // words, this method is not idempotent so we make it by ignoring
+        // duplicate events.
         if self.changes.get(room_id).is_some_and(|c| c.contains_key(member_event.event_id())) {
             return Ok(());
         }
@@ -213,8 +213,7 @@ impl AmbiguityCache {
     /// room.
     ///
     /// This method will get the [`DisplayNameUsers`] from the cache, if the
-    /// cache doesn't contain such an entry, it falls back to the state
-    /// store.
+    /// cache doesn't contain such an entry, it falls back to the state store.
     async fn get_users_with_display_name(
         &mut self,
         room_id: &RoomId,
@@ -234,8 +233,8 @@ impl AmbiguityCache {
     /// [`SyncRoomMemberEvent`] will cause for a given room.
     ///
     /// Returns the [`DisplayNameUsers`] before the member event is applied and
-    /// the [`DisplayNameUsers`] after the member event is applied to the
-    /// room state.
+    /// the [`DisplayNameUsers`] after the member event is applied to the room
+    /// state.
     async fn calculate_changes(
         &mut self,
         changes: &StateChanges,

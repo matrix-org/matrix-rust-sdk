@@ -145,8 +145,7 @@ pub enum PushCondition {
     RoomMemberCount { prefix: ComparisonOperator, count: u64 },
 
     /// Takes into account the current power levels in the room, ensuring the
-    /// sender of the event has high enough power to trigger the
-    /// notification.
+    /// sender of the event has high enough power to trigger the notification.
     SenderNotificationPermission {
         /// The field in the power level event the user needs a minimum power
         /// level for.
@@ -490,9 +489,9 @@ impl NotificationSettings {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - the room ID
-    /// * `is_encrypted` - whether the room is encrypted
-    /// * `is_one_to_one` - whether the room is a direct chat involving two
+    /// - `room_id` - the room ID
+    /// - `is_encrypted` - whether the room is encrypted
+    /// - `is_one_to_one` - whether the room is a direct chat involving two
     ///   people
     pub async fn get_room_notification_settings(
         &self,
@@ -564,8 +563,8 @@ impl NotificationSettings {
     ///
     /// # Arguments
     ///
-    /// * `is_encrypted` - whether the room is encrypted
-    /// * `is_one_to_one` - whether the room is a direct chats involving two
+    /// - `is_encrypted` - whether the room is encrypted
+    /// - `is_one_to_one` - whether the room is a direct chats involving two
     ///   people
     pub async fn get_default_room_notification_mode(
         &self,
@@ -583,10 +582,10 @@ impl NotificationSettings {
     ///
     /// # Arguments
     ///
-    /// * `is_encrypted` - whether the mode is for encrypted rooms
-    /// * `is_one_to_one` - whether the mode is for direct chats involving two
+    /// - `is_encrypted` - whether the mode is for encrypted rooms
+    /// - `is_one_to_one` - whether the mode is for direct chats involving two
     ///   people
-    /// * `mode` - the new default mode
+    /// - `mode` - the new default mode
     pub async fn set_default_room_notification_mode(
         &self,
         is_encrypted: bool,
@@ -779,9 +778,9 @@ impl NotificationSettings {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - the room to unmute
-    /// * `is_encrypted` - whether the room is encrypted
-    /// * `is_one_to_one` - whether the room is a direct chat involving two
+    /// - `room_id` - the room to unmute
+    /// - `is_encrypted` - whether the room is encrypted
+    /// - `is_one_to_one` - whether the room is a direct chat involving two
     ///   people
     pub async fn unmute_room(
         &self,

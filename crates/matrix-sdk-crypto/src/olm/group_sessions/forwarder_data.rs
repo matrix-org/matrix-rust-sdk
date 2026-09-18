@@ -45,8 +45,8 @@ impl TryFrom<&SenderData> for ForwarderData {
 
     fn try_from(value: &SenderData) -> Result<Self, Self::Error> {
         // The sender's device must be either `SenderData::SenderUnverified`
-        // (i.e., TOFU-trusted) or `SenderData::SenderVerified` (i.e.,
-        // fully verified via user verification and cross-signing).
+        // (i.e., TOFU-trusted) or `SenderData::SenderVerified` (i.e., fully
+        // verified via user verification and cross-signing).
         match value {
             SenderData::SenderUnverified(known_sender_data) => {
                 Ok(Self::SenderUnverified(known_sender_data.clone()))

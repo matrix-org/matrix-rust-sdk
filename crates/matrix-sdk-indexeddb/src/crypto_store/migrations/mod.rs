@@ -50,9 +50,9 @@ struct MigrationDb {
 }
 
 impl MigrationDb {
-    /// Create an Indexed DB wrapper that manages a database migration,
-    /// logging messages before and after the migration, and automatically
-    /// closing the DB when this object is dropped.
+    /// Create an Indexed DB wrapper that manages a database migration, logging
+    /// messages before and after the migration, and automatically closing the
+    /// DB when this object is dropped.
     async fn new(name: &str, next_version: u32) -> Result<Self> {
         info!("IndexeddbCryptoStore migrate data before v{next_version} starting");
         Ok(Self { db: Database::open(name).await?, next_version })
@@ -81,18 +81,18 @@ impl Drop for MigrationDb {
 /// A note on how this works.
 ///
 /// Normally, when you open an indexeddb database, you tell it the "schema
-/// version" that you know about. If the existing database is older than
-/// that, it lets you run a migration. If the existing database is newer, then
-/// it assumes that there have been incompatible schema changes and complains
-/// with an error ("The requested version (10) is less than the existing version
+/// version" that you know about. If the existing database is older than that,
+/// it lets you run a migration. If the existing database is newer, then it
+/// assumes that there have been incompatible schema changes and complains with
+/// an error ("The requested version (10) is less than the existing version
 /// (11)").
 ///
 /// The problem with this is that, if someone upgrades their installed
-/// application, then realises it was a terrible mistake and tries to roll
-/// back, then suddenly every user's session is completely hosed. (They see
-/// an "unable to restore session" dialog.) Often, schema updates aren't
-/// actually backwards-incompatible — for example, existing code will work just
-/// fine if someone adds a new store or a new index — so this approach is too
+/// application, then realises it was a terrible mistake and tries to roll back,
+/// then suddenly every user's session is completely hosed. (They see an "unable
+/// to restore session" dialog.) Often, schema updates aren't actually
+/// backwards-incompatible — for example, existing code will work just fine if
+/// someone adds a new store or a new index — so this approach is too
 /// heavy-handed.
 ///
 /// The solution we take here is to say "any schema changes up to
@@ -117,8 +117,8 @@ pub async fn open_and_upgrade_db(
 ) -> Result<Database, IndexeddbCryptoStoreError> {
     // Move the DB version up from where it is to the latest version.
     //
-    // Schema changes need to be separate from data migrations, so we often
-    // have a pattern of:
+    // Schema changes need to be separate from data migrations, so we often have
+    // a pattern of:
     //
     // 1. schema_add - create new object stores, indices etc.
     // 2. data_migrate - move data from the old stores to the new ones
@@ -222,8 +222,8 @@ pub async fn open_and_upgrade_db(
 
     // NOTE: IF YOU MAKE A BREAKING CHANGE TO THE SCHEMA, BUMP THE SCHEMA
     // VERSION TO SOMETHING HIGHER THAN `MAX_SUPPORTED_SCHEMA_VERSION`! (And
-    // then bump `MAX_SUPPORTED_SCHEMA_VERSION` itself to the next multiple
-    // of 10).
+    // then bump `MAX_SUPPORTED_SCHEMA_VERSION` itself to the next multiple of
+    // 10).
 
     // Open and return the DB (we know it's at the latest version)
     Ok(Database::open(name).await?)
@@ -242,13 +242,13 @@ type OldVersion = u32;
 ///
 /// # Arguments
 ///
-/// * `name` - name of the indexeddb database to be upgraded.
-/// * `version` - version we are upgrading to.
-/// * `f` - closure which will be called if the database is below the version
+/// - `name` - name of the indexeddb database to be upgraded.
+/// - `version` - version we are upgrading to.
+/// - `f` - closure which will be called if the database is below the version
 ///   given. It will be called with three arguments `(db, txn, oldver)`, where:
-///   * `db` - the [`Database`]
-///   * `txn` - the database transaction: a [`Transaction`]
-///   * `oldver` - the version number before the upgrade.
+///   - `db` - the [`Database`]
+///   - `txn` - the database transaction: a [`Transaction`]
+///   - `oldver` - the version number before the upgrade.
 async fn do_schema_upgrade<F>(name: &str, version: u32, f: F) -> Result<(), OpenDbError>
 where
     F: Fn(&Transaction<'_>, OldVersion) -> Result<(), Error> + 'static,
@@ -258,8 +258,10 @@ where
         .with_version(version)
         .with_on_upgrade_needed(move |evt, tx| {
             // Even if the web-sys bindings expose the version as a f64, the
-            // IndexedDB API works with an unsigned integer.
-            // See <https://github.com/rustwasm/wasm-bindgen/issues/1149>
+            // IndexedDB API works with an unsigned integer. See
+            // [https://github.com/rustwasm/wasm-bindgen/issues/1149][https-github-com-rustwasm-wasm-bindgen-issues-1149]
+            //
+            // [https-github-com-rustwasm-wasm-bindgen-issues-1149]: https://github.com/rustwasm/wasm-bindgen/issues/1149
             let old_version = evt.old_version() as u32;
 
             // Run the upgrade code we were supplied
@@ -557,8 +559,8 @@ mod tests {
         .unwrap()
     }
 
-    /// Test migrating `inbound_group_sessions` data from store v5 to latest,
-    /// on a store with encryption disabled.
+    /// Test migrating `inbound_group_sessions` data from store v5 to latest, on
+    /// a store with encryption disabled.
     #[async_test]
     async fn test_v8_v10_v12_migration_unencrypted() {
         test_v8_v10_v12_migration_with_cipher("test_v8_migration_unencrypted", None).await
@@ -748,9 +750,9 @@ mod tests {
         store_cipher: Option<Arc<StoreCipher>>,
         session_entries: &[&InboundGroupSession],
     ) {
-        // Schema V7 migrated the inbound group sessions to a new format.
-        // To test, first create a database and populate it with the *old* style
-        // of entry.
+        // Schema V7 migrated the inbound group sessions to a new format. To
+        // test, first create a database and populate it with the _old_ style of
+        // entry.
         let db = create_v5_db(&db_name).await.unwrap();
 
         let serializer = SafeEncodeSerializer::new(store_cipher.clone());
@@ -780,15 +782,15 @@ mod tests {
         db.close();
     }
 
-    /// Test migrating `backup_keys` data from store v10 to latest,
-    /// on a store with encryption disabled.
+    /// Test migrating `backup_keys` data from store v10 to latest, on a store
+    /// with encryption disabled.
     #[async_test]
     async fn test_v10_v11_migration_unencrypted() {
         test_v10_v11_migration_with_cipher("test_v10_migration_unencrypted", None).await
     }
 
-    /// Test migrating `backup_keys` data from store v10 to latest,
-    /// on a store with encryption enabled.
+    /// Test migrating `backup_keys` data from store v10 to latest, on a store
+    /// with encryption enabled.
     #[async_test]
     async fn test_v10_v11_migration_encrypted() {
         let cipher = StoreCipher::new().unwrap();
@@ -834,15 +836,15 @@ mod tests {
         assert_eq!(backup_data.backup_version, Some("1".to_owned()));
     }
 
-    /// Test migrating `withheld_sessions` data from store v14 to latest,
-    /// on a store with encryption disabled.
+    /// Test migrating `withheld_sessions` data from store v14 to latest, on a
+    /// store with encryption disabled.
     #[async_test]
     async fn test_v14_v101_migration_unencrypted() {
         test_v14_v101_migration_with_cipher("test_v101_migration_unencrypted", None).await
     }
 
-    /// Test migrating `withheld_sessions` data from store v14 to latest,
-    /// on a store with encryption enabled.
+    /// Test migrating `withheld_sessions` data from store v14 to latest, on a
+    /// store with encryption enabled.
     #[async_test]
     async fn test_v14_v101_migration_encrypted() {
         let cipher = StoreCipher::new().unwrap();
@@ -917,15 +919,15 @@ mod tests {
         assert_eq!(withheld_entry.content.withheld_code(), WithheldCode::Blacklisted)
     }
 
-    /// Test migrating `secrets_inbox` data from store v105 to latest,
-    /// on a store with encryption disabled.
+    /// Test migrating `secrets_inbox` data from store v105 to latest, on a
+    /// store with encryption disabled.
     #[async_test]
     async fn test_v105_v107_migration_unencrypted() {
         test_v105_v107_migration_with_cipher("test_v107_migration_unencrypted", None).await
     }
 
-    /// Test migrating `secrets_inbox` data from store v105 to latest,
-    /// on a store with encryption enabled.
+    /// Test migrating `secrets_inbox` data from store v105 to latest, on a
+    /// store with encryption enabled.
     #[async_test]
     async fn test_v105_v107_migration_encrypted() {
         let cipher = StoreCipher::new().unwrap();

@@ -391,8 +391,7 @@ impl CrossSigningResetHandle {
                     match e.as_uiaa_response() {
                         Some(uiaa_info) => {
                             // Return the error except if we are at the
-                            // `m.oauth` stage where we
-                            // want to keep polling.
+                            // `m.oauth` stage where we want to keep polling.
                             if !matches!(self.auth_type, CrossSigningResetAuthType::OAuth(_))
                                 && uiaa_info.auth_error.is_some()
                             {
@@ -492,8 +491,8 @@ impl FromStr for DuplicateOneTimeKeyErrorMessage {
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         // First we split the string into two parts, the part containing the old
-        // key and the part containing the new key. The parts are
-        // conveniently separated by a `;` character.
+        // key and the part containing the new key. The parts are conveniently
+        // separated by a `;` character.
         let mut split = s.split_terminator(';');
 
         let old_key = split
@@ -522,8 +521,7 @@ impl FromStr for DuplicateOneTimeKeyErrorMessage {
             .ok_or(serde_json::Error::custom("New key is missing the prefix"))?;
 
         // The JSON containing the new key is for some reason quoted using
-        // single quotes, so let's replace them with normal double
-        // quotes.
+        // single quotes, so let's replace them with normal double quotes.
         let new_key = new_key.replace("'", "\"");
 
         // Let's deserialize now.
@@ -584,8 +582,8 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `content_type` - The content type of the file.
-    /// * `reader` - The reader that should be encrypted and uploaded.
+    /// - `content_type` - The content type of the file.
+    /// - `reader` - The reader that should be encrypted and uploaded.
     ///
     /// # Examples
     ///
@@ -641,8 +639,8 @@ impl Client {
         Ok((MediaSource::Encrypted(Box::new(file)), thumbnail))
     }
 
-    /// Uploads an encrypted thumbnail to the media repository, and returns
-    /// its source and extra information.
+    /// Uploads an encrypted thumbnail to the media repository, and returns its
+    /// source and extra information.
     async fn upload_encrypted_thumbnail(
         &self,
         thumbnail: Option<Thumbnail>,
@@ -779,12 +777,10 @@ impl Client {
                             if let ErrorBody::Standard(StandardErrorBody { message, .. }) = &e.body
                             {
                                 // This is one of the nastiest errors we can
-                                // have. The server
-                                // telling us that we already have a one-time
-                                // key uploaded means
-                                // that we forgot about some of our one-time
-                                // keys. This will lead to
-                                // UTDs.
+                                // have. The server telling us that we already
+                                // have a one-time key uploaded means that we
+                                // forgot about some of our one-time keys. This
+                                // will lead to UTDs.
                                 {
                                     let already_reported = self
                                         .state_store()
@@ -862,8 +858,8 @@ impl Client {
     pub(crate) async fn send_outgoing_requests(&self) -> Result<()> {
         const MAX_CONCURRENT_REQUESTS: usize = 20;
 
-        // This is needed because sometimes we need to automatically
-        // claim some one-time keys to unwedge an existing Olm session.
+        // This is needed because sometimes we need to automatically claim some
+        // one-time keys to unwedge an existing Olm session.
         if let Err(e) = self.claim_one_time_keys(iter::empty()).await {
             warn!("Error while claiming one-time keys {:?}", e);
         }
@@ -905,21 +901,21 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `event_type` - The type of the to-device event to send.
+    /// - `event_type` - The type of the to-device event to send.
+    /// - `recipients` - The devices to send the message to, as a
+    ///   `user id -> device ids` map. [`DeviceIdOrAllDevices::AllDevices`]
+    ///   targets every device of that user we know about.
     ///
-    /// * `recipients` - The devices to send the message to, as a `user id ->
-    ///   device ids` map. [`DeviceIdOrAllDevices::AllDevices`] targets every
-    ///   device of that user we know about.
-    ///
-    /// * `content` - The content of the to-device event, encrypted for and sent
+    /// - `content` - The content of the to-device event, encrypted for and sent
     ///   to every recipient.
     ///
     /// # Returns
     ///
-    /// The devices that did *not* receive the message, as a `user id -> device
-    /// ids` map. A device can end up in there because it is unknown to us,
-    /// because the sharing strategy excluded it, or because encrypting for it
-    /// or sending to it failed. An empty map means every recipient was served.
+    /// The devices that did _not_ receive the message, as a
+    /// `user id -> device ids` map. A device can end up in there because it is
+    /// unknown to us, because the sharing strategy excluded it, or because
+    /// encrypting for it or sending to it failed. An empty map means every
+    /// recipient was served.
     ///
     /// [`send_event_to_device`]: ruma::api::client::to_device::send_event_to_device
     pub async fn send_encrypted_to_device(
@@ -977,8 +973,8 @@ impl Client {
 
         if recipient_device_ids.contains(&DeviceIdOrAllDevices::AllDevices) {
             // If the user wants to send to all devices, there's nothing to
-            // filter and no need to inspect other entries in the
-            // user's device list.
+            // filter and no need to inspect other entries in the user's device
+            // list.
             let devices: Vec<_> = user_devices.devices().collect();
 
             if devices.is_empty() {
@@ -995,8 +991,7 @@ impl Client {
             Ok((devices, Vec::new()))
         } else {
             // If the user wants to send to only some devices, filter out any
-            // devices that aren't part of the recipient_device_ids
-            // list.
+            // devices that aren't part of the recipient_device_ids list.
             let (found_device_ids, devices): (BTreeSet<_>, Vec<_>) = user_devices
                 .devices()
                 .map(|device| (device.device_id().to_owned(), device))
@@ -1012,8 +1007,7 @@ impl Client {
                 .collect();
 
             // Let's now find any devices that are part of the
-            // recipient_device_ids list but were not found in our
-            // store.
+            // recipient_device_ids list but were not found in our store.
             let missing_devices =
                 requested_device_ids.difference(&found_device_ids).map(ToOwned::to_owned).collect();
 
@@ -1078,8 +1072,8 @@ impl Encryption {
     }
 
     /// This method will import all the private cross-signing keys and, if
-    /// available, the private part of a backup key and its accompanying
-    /// version into the store.
+    /// available, the private part of a backup key and its accompanying version
+    /// into the store.
     ///
     /// Importing all the secrets will mark the device as verified and enable
     /// backups if a backup key was available in the bundle.
@@ -1228,9 +1222,8 @@ impl Encryption {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The unique id of the user that the device belongs to.
-    ///
-    /// * `device_id` - The unique id of the device.
+    /// - `user_id` - The unique id of the user that the device belongs to.
+    /// - `device_id` - The unique id of the device.
     ///
     /// Returns a `Device` if one is found and the crypto store didn't throw an
     /// error.
@@ -1288,7 +1281,7 @@ impl Encryption {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The unique id of the user that the devices belong to.
+    /// - `user_id` - The unique id of the user that the devices belong to.
     ///
     /// # Examples
     ///
@@ -1321,18 +1314,18 @@ impl Encryption {
 
     /// Get the E2EE identity of a user from the crypto store.
     ///
-    /// Usually, we only have the E2EE identity of a user locally if the user
-    /// is tracked, meaning that we are both members of the same encrypted room.
+    /// Usually, we only have the E2EE identity of a user locally if the user is
+    /// tracked, meaning that we are both members of the same encrypted room.
     ///
     /// To get the E2EE identity of a user even if it is not available locally
     /// use [`Encryption::request_user_identity()`].
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The unique id of the user that the identity belongs to.
+    /// - `user_id` - The unique id of the user that the identity belongs to.
     ///
-    /// Returns a `UserIdentity` if one is found and the crypto store
-    /// didn't throw an error.
+    /// Returns a `UserIdentity` if one is found and the crypto store didn't
+    /// throw an error.
     ///
     /// This will always return None if the client hasn't been logged in.
     ///
@@ -1368,15 +1361,15 @@ impl Encryption {
     /// Get the E2EE identity of a user from the homeserver.
     ///
     /// The E2EE identity returned is always guaranteed to be up-to-date. If the
-    /// E2EE identity is not found, it should mean that the user did not set
-    /// up cross-signing.
+    /// E2EE identity is not found, it should mean that the user did not set up
+    /// cross-signing.
     ///
     /// If you want the E2EE identity of a user without making a request to the
     /// homeserver, use [`Encryption::get_user_identity()`] instead.
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user that the identity belongs to.
+    /// - `user_id` - The ID of the user that the identity belongs to.
     ///
     /// Returns a [`UserIdentity`] if one is found. Returns an error if there
     /// was an issue with the crypto store or with the request to the
@@ -1498,7 +1491,7 @@ impl Encryption {
     ///
     /// # Arguments
     ///
-    /// * `auth_data` - This request requires user interactive auth, the first
+    /// - `auth_data` - This request requires user interactive auth, the first
     ///   request needs to set this to `None` and will always fail with an
     ///   `UiaaResponse`. The response will contain information for the
     ///   interactive auth and the same request needs to be made but this time
@@ -1532,6 +1525,7 @@ impl Encryption {
     ///     }
     /// }
     /// # anyhow::Ok(()) };
+    /// ```
     pub async fn bootstrap_cross_signing(&self, auth_data: Option<AuthData>) -> Result<()> {
         let olm = self.client.olm_machine().await;
         let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
@@ -1666,13 +1660,14 @@ impl Encryption {
     ///
     /// # Arguments
     ///
-    /// * `auth_data` - This request requires user interactive auth, the first
+    /// - `auth_data` - This request requires user interactive auth, the first
     ///   request needs to set this to `None` and will always fail with an
     ///   `UiaaResponse`. The response will contain information for the
     ///   interactive auth and the same request needs to be made but this time
     ///   with some `auth_data` provided.
     ///
     /// # Examples
+    ///
     /// ```no_run
     /// # use std::collections::BTreeMap;
     /// # use matrix_sdk::{ruma::api::client::uiaa, Client};
@@ -1701,6 +1696,7 @@ impl Encryption {
     ///     }
     /// }
     /// # anyhow::Ok(()) };
+    /// ```
     pub async fn bootstrap_cross_signing_if_needed(
         &self,
         auth_data: Option<AuthData>,
@@ -1723,12 +1719,11 @@ impl Encryption {
     ///
     /// # Arguments
     ///
-    /// * `path` - The file path where the exported key file will be saved.
-    ///
-    /// * `passphrase` - The passphrase that will be used to encrypt the
+    /// - `path` - The file path where the exported key file will be saved.
+    /// - `passphrase` - The passphrase that will be used to encrypt the
     ///   exported room keys.
     ///
-    /// * `predicate` - A closure that will be called for every known
+    /// - `predicate` - A closure that will be called for every known
     ///   `InboundGroupSession`, which represents a room key. If the closure
     ///   returns `true` the `InboundGroupSessoin` will be included in the
     ///   export, if the closure returns `false` it will not be included.
@@ -1798,9 +1793,8 @@ impl Encryption {
     ///
     /// # Arguments
     ///
-    /// * `path` - The file path where the exported key file will can be found.
-    ///
-    /// * `passphrase` - The passphrase that should be used to decrypt the
+    /// - `path` - The file path where the exported key file will can be found.
+    /// - `passphrase` - The passphrase that should be used to decrypt the
     ///   exported room keys.
     ///
     /// Returns a tuple of numbers that represent the number of sessions that
@@ -1898,7 +1892,8 @@ impl Encryption {
 
     /// Receive notifications of historic room key bundles as a [`Stream`].
     ///
-    /// Historic room key bundles are defined in [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
+    /// Historic room key bundles are defined in
+    /// [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
     ///
     /// Each time a historic room key bundle was received, an update will be
     /// sent to the stream. This stream is useful for informative purposes
@@ -1952,11 +1947,10 @@ impl Encryption {
 
     /// Get the dehydrated-devices manager of the client.
     ///
-    /// A dehydrated device is a virtual device that the homeserver holds on
-    /// the user's behalf and that can receive end-to-end encrypted to-device
-    /// events while the user is offline. See the
-    /// [`dehydrated_devices`] module
-    /// for the full lifecycle and an example.
+    /// A dehydrated device is a virtual device that the homeserver holds on the
+    /// user's behalf and that can receive end-to-end encrypted to-device events
+    /// while the user is offline. See the [`dehydrated_devices`] module for the
+    /// full lifecycle and an example.
     pub fn dehydrated_devices(&self) -> dehydrated_devices::DehydratedDevices {
         dehydrated_devices::DehydratedDevices { client: self.client.to_owned() }
     }
@@ -1964,10 +1958,9 @@ impl Encryption {
     /// Enables the crypto-store cross-process lock.
     ///
     /// This may be required if there are multiple processes that may do writes
-    /// to the same crypto store. In that case, it's necessary to create a
-    /// lock, so that only one process writes to it, otherwise this may
-    /// cause confusing issues because of stale data contained in in-memory
-    /// caches.
+    /// to the same crypto store. In that case, it's necessary to create a lock,
+    /// so that only one process writes to it, otherwise this may cause
+    /// confusing issues because of stale data contained in in-memory caches.
     ///
     /// The provided `lock_value` must be a unique identifier for this process.
     /// Use [`Client::cross_process_lock_config`] to get the global value, if
@@ -1996,8 +1989,8 @@ impl Encryption {
         // Gently try to initialize the crypto store generation counter.
         //
         // If we don't get the lock immediately, then it is already acquired by
-        // another process, and we'll get to reload next time we acquire
-        // the lock.
+        // another process, and we'll get to reload next time we acquire the
+        // lock.
         {
             let lock_result = lock.try_lock_once().await?;
 
@@ -2046,10 +2039,9 @@ impl Encryption {
             Ok(generation_number)
         } else {
             // XXX: not sure this is reachable. Seems like the OlmMachine should
-            // always have been initialised by the time we get here.
-            // Ideally we'd panic, or return an error, but for now
-            // I'm just adding some logging to check if it
-            // happens, and returning the magic number 0.
+            // always have been initialised by the time we get here. Ideally
+            // we'd panic, or return an error, but for now I'm just adding some
+            // logging to check if it happens, and returning the magic number 0.
             warn!("Encryption::on_lock_newly_acquired: called before OlmMachine initialised");
             Ok(0)
         }
@@ -2120,6 +2112,7 @@ impl Encryption {
     /// Bootstrap encryption and enables event listeners for the E2EE support.
     ///
     /// Based on the `EncryptionSettings`, this call might:
+    ///
     /// - Bootstrap cross-signing if needed (POST `/device_signing/upload`)
     /// - Create a key backup if needed (POST `/room_keys/version`)
     /// - Create a secret storage if needed (PUT `/account_data/{type}`)
@@ -2128,12 +2121,12 @@ impl Encryption {
     /// uploaded to the server, new account data would be added, and cross
     /// signing keys and signatures might be uploaded.
     ///
-    /// Should be called once we
-    /// created a [`OlmMachine`], i.e. after logging in.
+    /// Should be called once we created a [`OlmMachine`], i.e. after logging
+    /// in.
     ///
     /// # Arguments
     ///
-    /// * `auth_data` - Some requests may require re-authentication. To prevent
+    /// - `auth_data` - Some requests may require re-authentication. To prevent
     ///   the user from having to re-enter their password (or use other
     ///   methods), we can provide the authentication data here. This is
     ///   necessary for uploading cross-signing keys. However, please note that
@@ -2142,9 +2135,9 @@ impl Encryption {
     ///   authentication, rendering this parameter obsolete.
     pub(crate) async fn spawn_initialization_task(&self, auth_data: Option<AuthData>) {
         // It's fine to be async here as we're only getting the lock protecting
-        // the `OlmMachine`. Since the lock shouldn't be that contested
-        // right after logging in we won't delay the login or
-        // restoration of the Client.
+        // the `OlmMachine`. Since the lock shouldn't be that contested right
+        // after logging in we won't delay the login or restoration of the
+        // Client.
         let bundle_receiver_task = if self.client.inner.enable_share_history_on_invite {
             Some(BundleReceiverTask::new(&self.client).await)
         } else {
@@ -2196,8 +2189,8 @@ impl Encryption {
 
     /// Upload the device keys and initial set of one-time keys to the server.
     ///
-    /// This should only be called when the user logs in for the first time,
-    /// the method will ensure that other devices see our own device as an
+    /// This should only be called when the user logs in for the first time, the
+    /// method will ensure that other devices see our own device as an
     /// end-to-end encryption enabled one.
     ///
     /// **Warning**: Do not use this method if we're already calling
@@ -2265,8 +2258,8 @@ impl Encryption {
     ///
     /// Under the old logic, Alice would not rotate her key after Charlie
     /// leaves, resulting in M2 being encrypted with the same session as M1.
-    /// This would allow Charlie to decrypt M2 if he ever gains access to
-    /// the event.
+    /// This would allow Charlie to decrypt M2 if he ever gains access to the
+    /// event.
     ///
     /// This handler listens for changes to the room membership, and discards
     /// the current room key if the event is a `leave` event.
@@ -2303,8 +2296,9 @@ impl Encryption {
 
             debug!(room_id = ?room.room_id(), member_id = ?ev.sender, "Discarding session as a user left the room");
 
-            // Attempt to discard the current room key. This won't do anything if we don't have one,
-            // but that's fine since we will create a new room key whenever we try to send a message.
+            // Attempt to discard the current room key. This won't do anything
+            // if we don't have one, but that's fine since we will create a new
+            // room key whenever we try to send a message.
             if let Err(e) = olm.discard_room_key(room.room_id()).await {
                 warn!(
                     room_id = ?room.room_id(),
@@ -2321,6 +2315,7 @@ impl Encryption {
     /// requests might be sent out.
     ///
     /// # Returns
+    ///
     /// A list of failures. The list of devices that couldn't get the messages.
     #[cfg(feature = "experimental-send-custom-to-device")]
     pub async fn encrypt_and_send_raw_to_device(
@@ -2332,10 +2327,9 @@ impl Encryption {
     ) -> Result<Vec<(OwnedUserId, OwnedDeviceId)>> {
         let users = recipient_devices.iter().map(|device| device.user_id());
 
-        // Will claim one-time-key for users that needs it
-        // TODO: For later optimisation: This will establish missing olm
-        // sessions with all this users devices, but we just want for
-        // some devices.
+        // Will claim one-time-key for users that needs it TODO: For later
+        // optimisation: This will establish missing olm sessions with all this
+        // users devices, but we just want for some devices.
         self.client.claim_one_time_keys(users).await?;
 
         let olm = self.client.olm_machine().await;
@@ -2750,7 +2744,7 @@ mod tests {
             .expect_err("We shouldn't be able to parse an incomplete error message");
     }
 
-    // Helper function for the test_devices_to_verify_against_* tests.  Make a
+    // Helper function for the test_devices_to_verify_against_* tests. Make a
     // response to a /keys/query request using the given device keys and a
     // pre-defined set of cross-signing keys.
     fn devices_to_verify_against_keys_query_response(
@@ -3081,9 +3075,9 @@ mod tests {
             assert_eq!(unknown_devices, vec![owned_device_id!("UNKNOWNDEVICE")]);
         }
 
-        /// If `AllDevices` is mixed with explicit device IDs, `AllDevices`
-        /// wins and the explicit entries are ignored, even if they are unknown
-        /// to us.
+        /// If `AllDevices` is mixed with explicit device IDs, `AllDevices` wins
+        /// and the explicit entries are ignored, even if they are unknown to
+        /// us.
         #[async_test]
         async fn test_all_devices_takes_precedence_over_explicit_device_ids() {
             let (_server, alice, bob) = alice_and_bob_with_two_bob_devices().await;

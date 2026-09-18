@@ -121,8 +121,8 @@ where
     }
 }
 
-/// Ask the client (capability provider) to acquire given capabilities
-/// from the user. The client must eventually respond with granted capabilities.
+/// Ask the client (capability provider) to acquire given capabilities from the
+/// user. The client must eventually respond with granted capabilities.
 #[derive(Clone, Debug)]
 pub(crate) struct AcquireCapabilities {
     pub(crate) desired_capabilities: Capabilities,
@@ -195,8 +195,9 @@ impl FromMatrixDriverResponse for request_openid_token::v3::Response {
 #[derive(Clone, Debug)]
 pub(crate) struct ReadEventsRequest {
     /// The event type to read.
-    // TODO: This wants to be `MessageLikeEventType`` but we need a type which supports `as_str()`
-    // as soon as ruma supports `as_str()` on `MessageLikeEventType` we can use it here.
+    // TODO: This wants to be
+    // `MessageLikeEventType`` but we need a type which supports `as_str()` as soon as ruma supports `as_str()` on `MessageLikeEventType`
+    // we can use it here.
     pub(crate) event_type: String,
 
     /// The `state_key` to read. If None, this will read events regardless of
@@ -236,8 +237,9 @@ impl FromMatrixDriverResponse for Vec<Raw<AnyTimelineEvent>> {
 #[derive(Clone, Debug)]
 pub(crate) struct ReadStateRequest {
     /// The event type to read.
-    // TODO: This wants to be `TimelineEventType` but we need a type which supports `as_str()`
-    // as soon as ruma supports `as_str()` on `TimelineEventType` we can use it here.
+    // TODO: This wants to be `TimelineEventType` but we need a type which
+    // supports `as_str()` as soon as ruma supports `as_str()` on
+    // `TimelineEventType` we can use it here.
     pub(crate) event_type: String,
 
     /// The `state_key` to read, or `Any` to receive any/all room state entries
@@ -268,22 +270,24 @@ impl FromMatrixDriverResponse for Vec<Raw<AnyStateEvent>> {
 }
 
 /// Ask the client to send Matrix event that corresponds to the given
-/// description and returns an event ID (or a delay ID,
-/// see [MSC4140](https://github.com/matrix-org/matrix-spec-proposals/pull/4140)) as a response.
+/// description and returns an event ID (or a delay ID, see
+/// [MSC4140](https://github.com/matrix-org/matrix-spec-proposals/pull/4140)) as
+/// a response.
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct SendEventRequest {
     /// The type of the event.
-    // TODO: This wants to be `TimelineEventType` but we need a type which supports `as_str()`
-    // as soon as ruma supports `as_str()` on `TimelineEventType` we can use it here.
+    // TODO: This wants to be `TimelineEventType` but we need a type which
+    // supports `as_str()` as soon as ruma supports `as_str()` on
+    // `TimelineEventType` we can use it here.
     #[serde(rename = "type")]
     pub(crate) event_type: String,
     /// State key of an event (if it's a state event).
     pub(crate) state_key: Option<String>,
     /// Raw content of an event.
     pub(crate) content: Box<RawJsonValue>,
-    /// The optional delay (in ms) to send the event at.
-    /// If provided, the response will contain a delay_id instead of a event_id.
-    /// Defined by [MSC4157](https://github.com/matrix-org/matrix-spec-proposals/pull/4157)
+    /// The optional delay (in ms) to send the event at. If provided, the
+    /// response will contain a delay_id instead of a event_id. Defined by
+    /// [MSC4157](https://github.com/matrix-org/matrix-spec-proposals/pull/4157)
     pub(crate) delay: Option<u64>,
 }
 
@@ -316,9 +320,8 @@ pub(crate) struct SendToDeviceRequest {
     /// The type of the to-device message.
     #[serde(rename = "type")]
     pub(crate) event_type: String,
-    /// The messages to be sent.
-    /// They are organized in a map of user ID -> device ID -> content like the
-    /// cs api request.
+    /// The messages to be sent. They are organized in a map of user ID ->
+    /// device ID -> content like the cs api request.
     pub(crate) messages:
         BTreeMap<OwnedUserId, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
 }
@@ -334,7 +337,8 @@ impl MatrixDriverRequest for SendToDeviceRequest {
 }
 
 /// Ask the client to send a UpdateDelayedEventRequest with the given `delay_id`
-/// and `action`. Defined by [MSC4157](https://github.com/matrix-org/matrix-spec-proposals/pull/4157)
+/// and `action`. Defined by
+/// [MSC4157](https://github.com/matrix-org/matrix-spec-proposals/pull/4157)
 #[derive(Deserialize, Debug, Clone)]
 pub(crate) struct UpdateDelayedEventRequest {
     pub(crate) action: update_delayed_event::UpdateAction,

@@ -28,8 +28,8 @@ use tracing::{error, info, instrument, trace, warn};
 
 use crate::{Room, event_cache::RoomEventCache, room::WeakRoom, send_queue::RoomSendQueueUpdate};
 
-/// Whether back-paginating a room could give its latest event a value it
-/// cannot compute from what's currently in memory.
+/// Whether back-paginating a room could give its latest event a value it cannot
+/// compute from what's currently in memory.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum NeedMoreEvents {
     Yes,
@@ -108,9 +108,8 @@ impl LatestEvent {
     ) -> NeedMoreEvents {
         if self.buffer_of_values_for_local_events.is_empty().not() {
             // At least one `LatestEventValue` exists for local events (i.e.
-            // coming from the send queue). In this case, we don't
-            // overwrite the current value with a newly computed one
-            // from the event cache.
+            // coming from the send queue). In this case, we don't overwrite the
+            // current value with a newly computed one from the event cache.
             return NeedMoreEvents::No;
         }
 
@@ -169,28 +168,25 @@ impl LatestEvent {
         // membership.
         if reasons.contains(RoomInfoNotableUpdateReasons::MEMBERSHIP) {
             let new_value = match room.state() {
-                // If the room' state is `Invited`, it means the current user has been recently
-                // invited to this room.
+                // If the room' state is `Invited`, it means the current user
+                // has been recently invited to this room.
                 RoomState::Invited => {
                     // Short: Let's not update a `RemoteInvite` to another
                     // `RemoteInvite`.
                     //
                     // Long: An invite room is only constituted of
-                    // stripped-state events. These
-                    // events do not have an `origin_server_ts` field. It means
-                    // we cannot compute the timestamp of
-                    // the `LatestEventValue`. To workaround this, we set the
-                    // timestamp to `now()`. See
-                    // `Builder::new_remote_for_invite` to learn more.
-                    // If an invite room receives a new event, its
-                    // `LatestEventValue`'s timestamp
-                    // will be updated to `now()`, which will make the room
-                    // bumps to the top of the room list for
-                    // example. This is not an acceptable behaviour because it
-                    // can be an “attack vector”, i.e. a way
-                    // to annoy people with spammy invites. That's
-                    // why, once a `RemoteInvite` has been computed, we do not
-                    // refresh it.
+                    // stripped-state events. These events do not have an
+                    // `origin_server_ts` field. It means we cannot compute the
+                    // timestamp of the `LatestEventValue`. To workaround this,
+                    // we set the timestamp to `now()`. See
+                    // `Builder::new_remote_for_invite` to learn more. If an
+                    // invite room receives a new event, its
+                    // `LatestEventValue`'s timestamp will be updated to
+                    // `now()`, which will make the room bumps to the top of the
+                    // room list for example. This is not an acceptable
+                    // behaviour because it can be an “attack vector”, i.e. a
+                    // way to annoy people with spammy invites. That's why, once
+                    // a `RemoteInvite` has been computed, we do not refresh it.
                     if matches!(
                         self.current_value.read().await.deref(),
                         LatestEventValue::RemoteInvite { .. }
@@ -227,16 +223,16 @@ impl LatestEvent {
     /// erased correctly.
     async fn update(&mut self, new_value: LatestEventValue) {
         // Ideally, we would set `new_value` if and only if it is different from
-        // the previous value. However, `LatestEventValue` cannot
-        // implement `PartialEq` at the time of writing (2025-12-12). So
-        // we are only updating if:
+        // the previous value. However, `LatestEventValue` cannot implement
+        // `PartialEq` at the time of writing (2025-12-12). So we are only
+        // updating if:
         //
         // - if `LatestEventValue` and the previous value aren't `None`,
         // - if the event IDs are different.
         //
         // We must be careful when comparing the event IDs: `None` and `Local*`
-        // have no event ID, we can't compare them at this point. Hence
-        // the `match` statement to have a fine-grained decision.
+        // have no event ID, we can't compare them at this point. Hence the
+        // `match` statement to have a fine-grained decision.
         {
             let mut guard = self.current_value.write().await;
             let previous_value = guard.deref();
@@ -255,8 +251,9 @@ impl LatestEvent {
                     LatestEventValue::LocalIsSending(_) | LatestEventValue::LocalCannotBeSent(_),
                 ) => true,
 
-                // If both event IDs are known, do an update if they're different.
-                // If either is unknown, the two values cannot be compared, so do an update.
+                // If both event IDs are known, do an update if they're
+                // different. If either is unknown, the two values cannot be
+                // compared, so do an update.
                 (previous, new) => match (previous.event_id(), new.event_id()) {
                     (Some(previous_event_id), Some(new_event_id)) => {
                         previous_event_id != new_event_id
@@ -572,8 +569,7 @@ mod tests_latest_event {
         assert_next_matches!(stream, LatestEventValue::LocalIsSending(_));
 
         // An invite computed from stripped state events has no event ID either,
-        // but both values are obviously different: this must not be
-        // ignored.
+        // but both values are obviously different: this must not be ignored.
         latest_event
             .update(LatestEventValue::RemoteInvite {
                 event_id: None,

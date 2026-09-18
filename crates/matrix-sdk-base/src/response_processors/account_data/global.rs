@@ -73,9 +73,8 @@ impl Global {
 
     /// Processes the direct rooms in a sync response:
     ///
-    /// Given a [`StateChanges`] instance, processes any direct room info
-    /// from the global account data and adds it to the room infos to
-    /// save.
+    /// Given a [`StateChanges`] instance, processes any direct room info from
+    /// the global account data and adds it to the room infos to save.
     #[instrument(skip_all)]
     fn process_direct_rooms(
         &self,

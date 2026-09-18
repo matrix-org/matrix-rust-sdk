@@ -110,9 +110,8 @@ async fn test_getting_most_recent_session() {
     let mut changes = Changes::default();
 
     // Since the sessions are created quickly in succession and our timestamps
-    // have a resolution in seconds, it's very likely that we're going to
-    // end up with the same timestamps, so we manually masage them to be 10s
-    // apart.
+    // have a resolution in seconds, it's very likely that we're going to end up
+    // with the same timestamps, so we manually masage them to be 10s apart.
     let session_id = {
         let sessions = alice_machine
             .store()
@@ -128,8 +127,7 @@ async fn test_getting_most_recent_session() {
         let mut session_id = None;
 
         // Iterate through the sessions skipping the first and last element so
-        // we know that the correct session isn't the first nor the last
-        // one.
+        // we know that the correct session isn't the first nor the last one.
         let (_, sessions_slice) = sessions.as_mut_slice().split_last_mut().unwrap();
 
         for session in sessions_slice.iter_mut().skip(1) {

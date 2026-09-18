@@ -51,13 +51,13 @@ use crate::{
     },
 };
 
-/// Stores pending to-device messages for each user and device.
-/// To be used with [`MatrixMockServer::capture_put_to_device_traffic`].
+/// Stores pending to-device messages for each user and device. To be used with
+/// [`MatrixMockServer::capture_put_to_device_traffic`].
 pub type PendingToDeviceMessages =
     BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Vec<Raw<AnyToDeviceEvent>>>>;
 
-/// Extends the `MatrixMockServer` with useful methods to help mocking
-/// matrix crypto API and perform integration test with encryption.
+/// Extends the `MatrixMockServer` with useful methods to help mocking matrix
+/// crypto API and perform integration test with encryption.
 ///
 /// It implements mock endpoints for the `keys/upload`, will store the uploaded
 /// devices and serves them back for incoming `keys/query`. It is also storing
@@ -67,10 +67,11 @@ pub type PendingToDeviceMessages =
 /// client running out of otks. More can be added if needed later.
 ///
 /// It works like this:
-/// * Start by creating the mock server like this [`MatrixMockServer::new`].
-/// * Then mock the crypto API endpoints
+///
+/// - Start by creating the mock server like this [`MatrixMockServer::new`].
+/// - Then mock the crypto API endpoints
 ///   [`MatrixMockServer::mock_crypto_endpoints_preset`].
-/// * Create your test client using
+/// - Create your test client using
 ///   [`MatrixMockServer::client_builder_for_crypto_end_to_end`], this is
 ///   important as it will set up an access token that will allow to know what
 ///   client is doing what request.
@@ -79,9 +80,8 @@ pub type PendingToDeviceMessages =
 /// two olm machines aware of each other and ready to communicate.
 impl MatrixMockServer {
     /// Creates a new [`MockClientBuilder`] configured to use this server and
-    /// suitable for usage of the crypto API end points.
-    /// Will create a specific access token and some mapping to the associated
-    /// user_id.
+    /// suitable for usage of the crypto API end points. Will create a specific
+    /// access token and some mapping to the associated user_id.
     pub fn client_builder_for_crypto_end_to_end(
         &self,
         user_id: &UserId,
@@ -192,15 +192,15 @@ impl MatrixMockServer {
         carl
     }
 
-    /// Creates a new device and returns a new client for it.
-    /// The new and old clients will be aware of each other.
+    /// Creates a new device and returns a new client for it. The new and old
+    /// clients will be aware of each other.
     ///
     /// # Arguments
     ///
-    /// * `existing_client` - The original client for which a new device will be
+    /// - `existing_client` - The original client for which a new device will be
     ///   created
-    /// * `device_id` - The device ID to use for the new client
-    /// * `clients_to_update` - A vector of client references that should be
+    /// - `device_id` - The device ID to use for the new client
+    /// - `clients_to_update` - A vector of client references that should be
     ///   notified about the new device. These clients will receive a device
     ///   list change notification during their next sync.
     ///
@@ -285,11 +285,12 @@ impl MatrixMockServer {
     ///
     /// # Arguments
     ///
-    /// * `sender` - The user ID of the message sender
+    /// - `sender` - The user ID of the message sender
     ///
     /// # Returns
     ///
     /// Returns a tuple containing:
+    ///
     /// - A `MockGuard` the end-point mock is scoped to this guard
     /// - A `Future` that resolves to a `Raw<EncryptedToDeviceEvent>>`
     ///   containing the captured encrypted to-device message.
@@ -395,13 +396,13 @@ impl MatrixMockServer {
     ///
     /// This is a utility function that combines capturing an encrypted
     /// to-device message and delivering it to the recipient through a sync
-    /// response. It's useful for testing end-to-end encryption scenarios
-    /// where you need to verify message delivery and processing.
+    /// response. It's useful for testing end-to-end encryption scenarios where
+    /// you need to verify message delivery and processing.
     ///
     /// # Arguments
     ///
-    /// * `sender_user_id` - The user ID of the message sender
-    /// * `recipient` - The client that will receive the message through sync
+    /// - `sender_user_id` - The user ID of the message sender
+    /// - `recipient` - The client that will receive the message through sync
     ///
     /// # Returns
     ///
@@ -427,8 +428,8 @@ impl MatrixMockServer {
         }
     }
 
-    /// Utility to capture all the `/toDevice` upload traffic and store it in
-    /// a queue to be later used with
+    /// Utility to capture all the `/toDevice` upload traffic and store it in a
+    /// queue to be later used with
     /// [`MatrixMockServer::sync_back_pending_to_device_messages`].
     pub async fn capture_put_to_device_traffic(
         &self,
@@ -485,8 +486,8 @@ impl MatrixMockServer {
     /// Sync the pending to-device messages for this client.
     ///
     /// To be used in connection with
-    /// [`MatrixMockServer::capture_put_to_device_traffic`] that is
-    /// capturing the traffic.
+    /// [`MatrixMockServer::capture_put_to_device_traffic`] that is capturing
+    /// the traffic.
     pub async fn sync_back_pending_to_device_messages(
         &self,
         to_device_queue: Arc<Mutex<PendingToDeviceMessages>>,
@@ -751,9 +752,9 @@ fn mock_keys_signature_upload(keys: Arc<Mutex<Keys>>) -> impl Fn(&Request) -> Re
                     }
                 }
 
-                // Otherwise, try to find a field in keys.device.
-                // Either merge signatures if an entry is already present, or
-                // insert a new entry.
+                // Otherwise, try to find a field in keys.device. Either merge
+                // signatures if an entry is already present, or insert a new
+                // entry.
                 let known_devices = keys.device.entry(user.clone()).or_default();
                 let device_keys = known_devices
                     .get_mut(key_id)

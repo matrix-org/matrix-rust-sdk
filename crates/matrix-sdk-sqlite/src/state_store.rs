@@ -110,8 +110,8 @@ impl SqliteStateStore {
         Self::open_with_config(&SqliteStoreConfig::new(path).passphrase(passphrase)).await
     }
 
-    /// Open the SQLite-based state store at the given path using the given
-    /// key to encrypt private data.
+    /// Open the SQLite-based state store at the given path using the given key
+    /// to encrypt private data.
     pub async fn open_with_key(
         path: impl AsRef<Path>,
         key: Option<&[u8]>,
@@ -431,10 +431,9 @@ impl SqliteStateStore {
 
         if from < 12 {
             debug!("Upgrading database to version 12");
-            // Defragment the DB and optimize its size on the filesystem.
-            // This should have been run in the migration for version 7, to
-            // reduce the size of the DB as we removed the media
-            // cache.
+            // Defragment the DB and optimize its size on the filesystem. This
+            // should have been run in the migration for version 7, to reduce
+            // the size of the DB as we removed the media cache.
             conn.vacuum().await?;
             conn.set_kv("version", vec![12]).await?;
         }
@@ -566,8 +565,8 @@ impl SqliteStateStore {
         self.encode_key(keys::KV_BLOB, full_key)
     }
 
-    /// Acquire a connection for executing read operations.
-    /// Returns `StoreClosed` if closed.
+    /// Acquire a connection for executing read operations. Returns
+    /// `StoreClosed` if closed.
     #[instrument(skip_all)]
     async fn read(&self) -> Result<SqliteAsyncConn> {
         let pool = {
@@ -578,8 +577,8 @@ impl SqliteStateStore {
         Ok(pool.get().await?)
     }
 
-    /// Acquire a connection for executing write operations.
-    /// Returns `StoreClosed` if closed.
+    /// Acquire a connection for executing write operations. Returns
+    /// `StoreClosed` if closed.
     #[instrument(skip_all)]
     async fn write(&self) -> Result<OwnedMutexGuard<SqliteAsyncConn>> {
         let write_conn = {
@@ -1491,8 +1490,9 @@ impl StateStore for SqliteStateStore {
 
                             for (user_id, receipt) in receipt_users {
                                 let encoded_user_id = this.encode_key(keys::RECEIPT, &user_id);
-                                // We cannot have a NULL primary key so we rely on serialization
-                                // instead of the string representation.
+                                // We cannot have a NULL primary key so we rely
+                                // on serialization instead of the string
+                                // representation.
                                 let thread = this.encode_key(
                                     keys::RECEIPT,
                                     rmp_serde::to_vec_named(&receipt.thread)?,
@@ -1581,20 +1581,24 @@ impl StateStore for SqliteStateStore {
                         if user_ids.is_empty() {
                             txn.remove_display_name(&room_id, &encoded_name)?;
 
-                            // We can't do a migration to merge the previously distinct buckets of
-                            // user IDs since the display names themselves are hashed before they
-                            // are persisted in the store. So the store will always retain two
-                            // buckets: one for raw display names and one for normalised ones.
+                            // We can't do a migration to merge the previously
+                            // distinct buckets of user IDs since the display
+                            // names themselves are hashed before they are
+                            // persisted in the store. So the store will always
+                            // retain two buckets: one for raw display names and
+                            // one for normalised ones.
                             //
-                            // We therefore do the next best thing, which is a sort of a soft
-                            // migration: we fetch both the raw and normalised buckets, then merge
-                            // the user IDs contained in them into a separate, temporary merged
-                            // bucket. The SDK then operates on the merged buckets exclusively. See
-                            // the comment in `get_users_with_display_names` for details.
+                            // We therefore do the next best thing, which is a
+                            // sort of a soft migration: we fetch both the raw
+                            // and normalised buckets, then merge the user IDs
+                            // contained in them into a separate, temporary
+                            // merged bucket. The SDK then operates on the
+                            // merged buckets exclusively. See the comment in
+                            // `get_users_with_display_names` for details.
                             //
-                            // If the merged bucket is empty, that must mean that both the raw and
-                            // normalised buckets were also empty, so we can remove both from the
-                            // store.
+                            // If the merged bucket is empty, that must mean
+                            // that both the raw and normalised buckets were
+                            // also empty, so we can remove both from the store.
                             let raw_name = this.encode_key(keys::DISPLAY_NAME, name.as_raw_str());
                             txn.remove_display_name(&room_id, &raw_name)?;
                         } else {
@@ -1864,13 +1868,14 @@ impl StateStore for SqliteStateStore {
                 // normalized string.
                 //
                 // This is for compatibility reasons since:
-                //  1. Previously "Alice" and "alice" were considered to be
-                //     distinct display names, while we now consider them to be
-                //     the same so we need to merge the previously distinct
-                //     buckets of user IDs.
-                //  2. We can't do a migration to merge the previously distinct
-                //     buckets of user IDs since the display names itself are
-                //     hashed before they are persisted in the store.
+                //
+                // 1. Previously "Alice" and "alice" were considered to be
+                //    distinct display names, while we now consider them to be
+                //    the same so we need to merge the previously distinct
+                //    buckets of user IDs.
+                // 2. We can't do a migration to merge the previously distinct
+                //    buckets of user IDs since the display names itself are
+                //    hashed before they are persisted in the store.
                 let raw =
                     (self.encode_key(keys::DISPLAY_NAME, display_name.as_raw_str()), display_name);
                 let normalized = display_name.as_normalized_str().map(|normalized| {
@@ -2064,10 +2069,10 @@ impl StateStore for SqliteStateStore {
 
         let content = self.serialize_json(&content)?;
         // The transaction id is used both as a key (in remove/update) and a
-        // value (as it's useful for the callers), so we keep it as is,
-        // and neither hash it (with encode_key) or encrypt it (through
-        // serialize_value). After all, it carries no personal
-        // information, so this is considered fine.
+        // value (as it's useful for the callers), so we keep it as is, and
+        // neither hash it (with encode_key) or encrypt it (through
+        // serialize_value). After all, it carries no personal information, so
+        // this is considered fine.
 
         let created_at_ts: u64 = created_at.0.into();
         self.write()
@@ -2133,9 +2138,9 @@ impl StateStore for SqliteStateStore {
         let room_id = self.encode_key(keys::SEND_QUEUE, room_id);
 
         // Note: ROWID is always present and is an auto-incremented integer
-        // counter. We want to maintain the insertion order, so we can
-        // sort using it. Note 2: transaction_id is not encoded, see why
-        // in `save_send_queue_request`.
+        // counter. We want to maintain the insertion order, so we can sort
+        // using it. Note 2: transaction_id is not encoded, see why in
+        // `save_send_queue_request`.
         let res: Vec<(String, Vec<u8>, Option<Vec<u8>>, usize, Option<u64>)> = self
             .read()
             .await?
@@ -2195,9 +2200,9 @@ impl StateStore for SqliteStateStore {
 
     async fn load_rooms_with_unsent_requests(&self) -> Result<Vec<OwnedRoomId>, Self::Error> {
         // If the values were not encrypted, we could use `SELECT DISTINCT`
-        // here, but we have to manually do the deduplication: indeed,
-        // for all X, encrypt(X) != encrypted(X), since we use a nonce
-        // in the encryption process.
+        // here, but we have to manually do the deduplication: indeed, for all
+        // X, encrypt(X) != encrypted(X), since we use a nonce in the encryption
+        // process.
 
         let res: Vec<Vec<u8>> = self
             .read()

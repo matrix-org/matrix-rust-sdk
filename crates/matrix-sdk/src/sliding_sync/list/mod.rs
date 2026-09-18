@@ -67,8 +67,8 @@ impl SlidingSyncList {
     /// request generator is generated. Since requests are calculated based on
     /// the request generator, changing the sync-mode is equivalent to
     /// “resetting” the list. The ranges and the state will be updated when the
-    /// next request will be sent and a response will be received. The
-    /// maximum number of rooms won't change.
+    /// next request will be sent and a response will be received. The maximum
+    /// number of rooms won't change.
     pub fn set_sync_mode<M>(&self, sync_mode: M)
     where
         M: Into<SlidingSyncMode>,
@@ -212,9 +212,8 @@ pub(super) struct SlidingSyncListInner {
     /// given list.
     ///
     /// It's not the total rooms that have been fetched. The server tells the
-    /// client that it's possible to fetch this amount of rooms maximum.
-    /// Since this number can change according to the list filters, it's
-    /// observable.
+    /// client that it's possible to fetch this amount of rooms maximum. Since
+    /// this number can change according to the list filters, it's observable.
     maximum_number_of_rooms: SharedObservable<Option<u32>>,
 
     /// The request generator, i.e. a type that yields the appropriate list

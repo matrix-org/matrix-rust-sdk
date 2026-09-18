@@ -16,14 +16,14 @@
 
 //! A linked chunk is the underlying data structure that holds all events.
 
-/// A macro to test the items and the gap of a `LinkedChunk`.
-/// A chunk is delimited by `[` and `]`. An item chunk has the form `[a, b,
-/// c]` where `a`, `b` and `c` are items. A gap chunk has the form `[-]`.
+/// A macro to test the items and the gap of a `LinkedChunk`. A chunk is
+/// delimited by `[` and `]`. An item chunk has the form `[a, b, c]` where `a`,
+/// `b` and `c` are items. A gap chunk has the form `[-]`.
 ///
-/// For example, here is an assertion of 7 chunks: 1 items chunk, 1 gap
-/// chunk, 2 items chunks, 1 gap chunk, 2 items chunk. `a` is the oldest
-/// item of the oldest chunk (the first chunk), and `i` is the oldest (and
-/// newest) item of the newest chunk (the last chunk).
+/// For example, here is an assertion of 7 chunks: 1 items chunk, 1 gap chunk, 2
+/// items chunks, 1 gap chunk, 2 items chunk. `a` is the oldest item of the
+/// oldest chunk (the first chunk), and `i` is the oldest (and newest) item of
+/// the newest chunk (the last chunk).
 ///
 /// ```rust,no_run
 /// assert_items_eq!(linked_chunk, ['a'] [-] ['b', 'c', 'd'] ['e'] [-] ['f', 'g', 'h'] ['i']);
@@ -224,9 +224,10 @@ impl<const CAP: usize, Item, Gap> Ends<CAP, Item, Gap> {
 
         self.first
             .get_mut()
-            // SAFETY: `self.first` has been initialised by the call to `Self::first_chunk_ptr`
-            // above. The fact this method takes a `&mut self` also ensures an exclusive access to
-            // the `OnceLock`, providing the guarantee there is no other reader or writer to it,
+            // SAFETY: `self.first` has been initialised by the call to
+            // `Self::first_chunk_ptr` above. The fact this method takes a
+            // `&mut self` also ensures an exclusive access to the `OnceLock`,
+            // providing the guarantee there is no other reader or writer to it,
             // which makes it thread-safe.
             .expect("`first` must have been initialised")
     }
@@ -260,8 +261,7 @@ impl<const CAP: usize, Item, Gap> Ends<CAP, Item, Gap> {
     fn latest_chunk_mut(&mut self) -> &mut Chunk<CAP, Item, Gap> {
         if let Some(last) = &mut self.last {
             // SAFETY: The pointer to the last chunk has been correctly
-            // initialised and is convertible to a mutable
-            // reference.
+            // initialised and is convertible to a mutable reference.
             unsafe { last.as_mut() }
         } else {
             self.first_chunk_mut()
@@ -329,8 +329,8 @@ impl<const CAP: usize, Item, Gap> Ends<CAP, Item, Gap> {
     unsafe fn replace_with(&mut self, first_chunk: NonNull<Chunk<CAP, Item, Gap>>) {
         self.clear();
 
-        // At this step, all chunks have been dropped
-        // `self.first` is supposed to be uninitialised. Let's be sure.
+        // At this step, all chunks have been dropped `self.first` is supposed
+        // to be uninitialised. Let's be sure.
         let mut first_chunk = Some(first_chunk);
         self.first.get_or_init(|| first_chunk.take().unwrap());
 
@@ -386,8 +386,8 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     /// Create a new [`Self`] with a history of updates.
     ///
     /// When [`Self`] is built with update history, the
-    /// [`ObservableUpdates::take`] method must be called to consume and
-    /// clean the updates. See [`Self::updates`].
+    /// [`ObservableUpdates::take`] method must be called to consume and clean
+    /// the updates. See [`Self::updates`].
     pub fn new_with_update_history() -> Self {
         let updates = Some(ObservableUpdates::new());
 
@@ -416,11 +416,10 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         }
     }
 
-    /// Push items at the end of the [`LinkedChunk`], i.e. on the last
-    /// chunk.
+    /// Push items at the end of the [`LinkedChunk`], i.e. on the last chunk.
     ///
-    /// If the last chunk doesn't have enough space to welcome all `items`,
-    /// then new chunks can be created (and linked appropriately).
+    /// If the last chunk doesn't have enough space to welcome all `items`, then
+    /// new chunks can be created (and linked appropriately).
     pub fn push_items_back<I>(&mut self, items: I)
     where
         Item: Clone,
@@ -438,8 +437,8 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
         debug_assert!(last_chunk.is_last_chunk(), "`last_chunk` must be… the last chunk");
 
-        // We need to update `self.links.last` if and only if `last_chunk` _is
-        // not_ the first chunk, and _is_ the last chunk (ensured by the
+        // We need to update `self.links.last` if and only if `last_chunk`
+        // _is not_ the first chunk, and _is_ the last chunk (ensured by the
         // `debug_assert!` above).
         if !last_chunk.is_first_chunk() {
             // Maybe `last_chunk` is the same as the previous `self.links.last`
@@ -448,8 +447,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         }
     }
 
-    /// Push a gap at the end of the [`LinkedChunk`], i.e. after the last
-    /// chunk.
+    /// Push a gap at the end of the [`LinkedChunk`], i.e. after the last chunk.
     pub fn push_gap_back(&mut self, content: Gap)
     where
         Item: Clone,
@@ -466,8 +464,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
     /// Insert items at a specified position in the [`LinkedChunk`].
     ///
-    /// Because the `position` can be invalid, this method returns a
-    /// `Result`.
+    /// Because the `position` can be invalid, this method returns a `Result`.
     pub fn insert_items_at<I>(&mut self, position: Position, items: I) -> Result<(), Error>
     where
         Item: Clone,
@@ -596,8 +593,8 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                 chunk_ptr = Some(chunk.as_ptr());
 
                 // We need to update `self.links.last` if and only if `chunk`
-                // _is_ the last chunk. The new last chunk is
-                // the chunk before `chunk`.
+                // _is_ the last chunk. The new last chunk is the chunk before
+                // `chunk`.
                 if chunk.is_last_chunk() {
                     self.links.last = chunk.previous;
                 }
@@ -612,8 +609,8 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             // Re-box the chunk, and let Rust do its job.
             //
             // SAFETY: `chunk` is unlinked and not borrowed anymore.
-            // `LinkedChunk` doesn't use it anymore, it's a leak. It
-            // is time to re-`Box` it and drop it.
+            // `LinkedChunk` doesn't use it anymore, it's a leak. It is time to
+            // re-`Box` it and drop it.
             let _chunk_boxed = unsafe { Box::from_raw(chunk_ptr.as_ptr()) };
         }
 
@@ -647,7 +644,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                 }
 
                 // Avoid one spurious clone by notifying about the update
-                // *before* applying it.
+                // _before_ applying it.
                 if let Some(updates) = self.updates.as_mut() {
                     updates.push(Update::ReplaceItem {
                         at: Position(chunk_identifier, item_index),
@@ -664,8 +661,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
     /// Insert a gap at a specified position in the [`LinkedChunk`].
     ///
-    /// Because the `position` can be invalid, this method returns a
-    /// `Result`.
+    /// Because the `position` can be invalid, this method returns a `Result`.
     pub fn insert_gap_at(&mut self, content: Gap, position: Position) -> Result<(), Error>
     where
         Item: Clone,
@@ -686,9 +682,9 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
             ChunkContent::Items(current_items) => {
                 // If `item_index` is 0, we don't want to split the current
-                // items chunk to insert a new gap chunk,
-                // otherwise it would create an empty current items
-                // chunk. Let's handle this case in particular.
+                // items chunk to insert a new gap chunk, otherwise it would
+                // create an empty current items chunk. Let's handle this case
+                // in particular.
                 if item_index == 0 {
                     let chunk_was_first = chunk.is_first_chunk();
                     let chunk_was_last = chunk.is_last_chunk();
@@ -704,12 +700,11 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                     // `chunk` was the first: let's update `self.links.first`.
                     //
                     // If `chunk` was not the first but was the last, there is
-                    // nothing to do, `self.links.last` is
-                    // already up-to-date.
+                    // nothing to do, `self.links.last` is already up-to-date.
                     if chunk_was_first {
                         *self.links.first_chunk_mut_ptr() = new_chunk_ptr;
 
-                        // `chunk` was the first __and__ the last: let's set
+                        // `chunk` was the first **and** the last: let's set
                         // `self.links.last`.
                         if chunk_was_last {
                             self.links.last = Some(chunk_ptr);
@@ -780,11 +775,12 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     /// Remove a chunk with the given identifier iff it's empty.
     ///
     /// A chunk is considered empty if:
+    ///
     /// - it's a gap chunk, or
     /// - it's an items chunk with no items.
     ///
-    /// This returns the next insert position, viz. the start of the next
-    /// chunk, if any, or none if there was no next chunk.
+    /// This returns the next insert position, viz. the start of the next chunk,
+    /// if any, or none if there was no next chunk.
     pub fn remove_empty_chunk_at(
         &mut self,
         chunk_identifier: ChunkIdentifier,
@@ -826,8 +822,8 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         }
 
         // SAFETY: `chunk` is unlinked and not borrowed anymore. `LinkedChunk`
-        // doesn't use it anymore, it's a leak. It is time to re-`Box`
-        // it and drop it.
+        // doesn't use it anymore, it's a leak. It is time to re-`Box` it and
+        // drop it.
         let _chunk_boxed = unsafe { Box::from_raw(chunk_ptr.as_ptr()) };
 
         // Return the first position of the next chunk, if any.
@@ -910,14 +906,15 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         // Re-box the chunk, and let Rust do its job.
         //
         // SAFETY: `chunk` is unlinked and not borrowed anymore. `LinkedChunk`
-        // doesn't use it anymore, it's a leak. It is time to re-`Box`
-        // it and drop it.
+        // doesn't use it anymore, it's a leak. It is time to re-`Box` it and
+        // drop it.
         let _chunk_boxed = unsafe { Box::from_raw(chunk_ptr.as_ptr()) };
 
         Ok(
-            // SAFETY: `new_chunk_ptr` is valid, non-null and well-aligned. It's taken from
-            // `chunk`, and that's how the entire `LinkedChunk` type works. Pointer construction
-            // safety is guaranteed by `Chunk::new_items_leaked` and `Chunk::new_gap_leaked`.
+            // SAFETY: `new_chunk_ptr` is valid, non-null and well-aligned. It's
+            // taken from `chunk`, and that's how the entire `LinkedChunk` type
+            // works. Pointer construction safety is guaranteed by
+            // `Chunk::new_items_leaked` and `Chunk::new_gap_leaked`.
             unsafe { new_chunk_ptr.as_ref() },
         )
     }
@@ -1095,8 +1092,8 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     ///
     /// A pre-requisite is that the linked chunk has been constructed with
     /// [`Self::new_with_update_history`], and that if the linked chunk is
-    /// lazily-loaded, an iterator over the fully-loaded linked chunk is
-    /// passed at construction time here.
+    /// lazily-loaded, an iterator over the fully-loaded linked chunk is passed
+    /// at construction time here.
     pub fn order_tracker(
         &mut self,
         all_chunks: Option<Vec<ChunkMetadata>>,
@@ -1192,8 +1189,8 @@ impl ChunkIdentifierGenerator {
     fn next(&self) -> ChunkIdentifier {
         let previous = self.next.fetch_add(1, atomic::Ordering::Relaxed);
 
-        // Check for overflows.
-        // unlikely — TODO: call `std::intrinsics::unlikely` once it's stable.
+        // Check for overflows. unlikely — TODO: call
+        // `std::intrinsics::unlikely` once it's stable.
         if previous == u64::MAX {
             panic!(
                 "No more chunk identifiers available. Congrats, you did it. \
@@ -1329,8 +1326,8 @@ impl<'a, const CAP: usize, Item, Gap> Iterator for Iter<'a, CAP, Item, Gap> {
 /// This enum represents the content of a [`Chunk`].
 #[derive(Clone, Debug)]
 pub enum ChunkContent<Item, Gap> {
-    /// The chunk represents a gap in the linked chunk, i.e. a hole. It
-    /// means that some items are missing in this location.
+    /// The chunk represents a gap in the linked chunk, i.e. a hole. It means
+    /// that some items are missing in this location.
     Gap(Gap),
 
     /// The chunk contains items.
@@ -1481,11 +1478,11 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
     /// chunk will be inserted next, and correctly linked.
     ///
     /// This method returns the last inserted chunk if any, or the current
-    /// chunk. Basically, it returns the chunk onto which new computations
-    /// must happen.
+    /// chunk. Basically, it returns the chunk onto which new computations must
+    /// happen.
     ///
-    /// Pushing items will always create new chunks if necessary, but it
-    /// will never merge them, so that we avoid updating too much chunks.
+    /// Pushing items will always create new chunks if necessary, but it will
+    /// never merge them, so that we avoid updating too much chunks.
     fn push_items<I>(
         &mut self,
         mut new_items: I,
@@ -1506,14 +1503,14 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
         let prev_num_items = self.num_items();
 
         match &mut self.content {
-            // Cannot push items on a `Gap`. Let's insert a new `Items` chunk to push the
-            // items onto it.
+            // Cannot push items on a `Gap`. Let's insert a new `Items` chunk to
+            // push the items onto it.
             ChunkContent::Gap(..) => {
                 self
                     // Insert a new items chunk.
                     .insert_next(Self::new_items_leaked(chunk_identifier_generator.next()), updates)
-                    // Now push the new items on the next chunk, and return the result of
-                    // `push_items`.
+                    // Now push the new items on the next chunk, and return the
+                    // result of `push_items`.
                     .push_items(new_items, chunk_identifier_generator, updates)
             }
 
@@ -1555,8 +1552,8 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
                             Self::new_items_leaked(chunk_identifier_generator.next()),
                             updates,
                         )
-                        // Now push the rest of the new items on the next chunk, and return the
-                        // result of `push_items`.
+                        // Now push the rest of the new items on the next chunk,
+                        // and return the result of `push_items`.
                         .push_items(new_items, chunk_identifier_generator, updates)
                 }
             }
@@ -1565,8 +1562,8 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
 
     /// Insert a new chunk after the current one.
     ///
-    /// The respective [`Self::previous`] and [`Self::next`] of the current
-    /// and new chunk will be updated accordingly.
+    /// The respective [`Self::previous`] and [`Self::next`] of the current and
+    /// new chunk will be updated accordingly.
     fn insert_next(
         &mut self,
         mut new_chunk_ptr: NonNull<Self>,
@@ -1612,8 +1609,8 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
 
     /// Insert a new chunk before the current one.
     ///
-    /// The respective [`Self::previous`] and [`Self::next`] of the current
-    /// and new chunk will be updated accordingly.
+    /// The respective [`Self::previous`] and [`Self::next`] of the current and
+    /// new chunk will be updated accordingly.
     fn insert_before(
         &mut self,
         mut new_chunk_ptr: NonNull<Self>,
@@ -1632,8 +1629,8 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
             // Link the new chunk to the next chunk.
             new_chunk.previous = self.previous;
         }
-        // No previous: `self` is the first! We need to move the `lazy_previous` from `self` to
-        // `new_chunk`.
+        // No previous: `self` is the first! We need to move the `lazy_previous`
+        // from `self` to `new_chunk`.
         else {
             new_chunk.lazy_previous = self.lazy_previous.take();
         }
@@ -1670,9 +1667,8 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
         let previous_ptr = self.previous;
         let next_ptr = self.next;
         // If `self` is not the first, `lazy_previous` might be set on its
-        // previous chunk. Otherwise, if `lazy_previous` is set on
-        // `self`, it means it's the first chunk and it must be moved
-        // onto the next chunk.
+        // previous chunk. Otherwise, if `lazy_previous` is set on `self`, it
+        // means it's the first chunk and it must be moved onto the next chunk.
         let lazy_previous = self.lazy_previous.take();
 
         if let Some(previous) = self.previous_mut() {
@@ -1819,8 +1815,8 @@ mod tests {
 
         assert_eq!(items.num_items(), 0);
 
-        // This test also ensures that `Drop` for `LinkedChunk` works when
-        // there is only one chunk.
+        // This test also ensures that `Drop` for `LinkedChunk` works when there
+        // is only one chunk.
     }
 
     #[test]
@@ -2269,8 +2265,7 @@ mod tests {
             let pos_e = linked_chunk.item_position(|item| *item == 'e').unwrap();
 
             // Insert 4 elements, so that it overflows the chunk capacity. It's
-            // important to see whether chunks are correctly updated
-            // and linked.
+            // important to see whether chunks are correctly updated and linked.
             linked_chunk.insert_items_at(pos_e, ['w', 'x', 'y', 'z'])?;
 
             assert_items_eq!(
@@ -2446,8 +2441,7 @@ mod tests {
         let pos_e = linked_chunk.item_position(|item| *item == 'e').unwrap();
 
         // Insert 4 elements, so that it overflows the chunk capacity. It's
-        // important to see whether chunks are correctly updated and
-        // linked.
+        // important to see whether chunks are correctly updated and linked.
         linked_chunk.insert_items_at(pos_e, ['w', 'x', 'y', 'z'])?;
 
         assert_items_eq!(
@@ -2733,8 +2727,7 @@ mod tests {
         }
 
         // Remove the first item of the first chunk, 3 times. The chunk is empty
-        // after that. The chunk is NOT removed because it's the first
-        // chunk.
+        // after that. The chunk is NOT removed because it's the first chunk.
         {
             let first_position = linked_chunk.item_position(|item| *item == 'a').unwrap();
             let removed_item = linked_chunk.remove_item_at(first_position)?;
@@ -2949,8 +2942,7 @@ mod tests {
         }
 
         // Insert at the beginning of a chunk. The targeted chunk is the first
-        // chunk. `Ends::first` and `Ends::last` may be updated
-        // differently.
+        // chunk. `Ends::first` and `Ends::last` may be updated differently.
         {
             let position_of_a = linked_chunk.item_position(|item| *item == 'a').unwrap();
             linked_chunk.insert_gap_at((), position_of_a)?;
@@ -3046,8 +3038,7 @@ mod tests {
         // Insert in an existing gap.
         {
             // It is impossible to get the item position inside a gap. It's only
-            // possible if the item position is crafted by hand or
-            // is outdated.
+            // possible if the item position is crafted by hand or is outdated.
             let position_of_a_gap = Position(ChunkIdentifier(2), 0);
             assert_matches!(
                 linked_chunk.insert_gap_at((), position_of_a_gap),

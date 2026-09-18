@@ -63,20 +63,20 @@ impl IdentityStatusChanges {
     /// changes.
     ///
     /// A "significant" change means a warning should either be added or removed
-    /// (e.g. the user changed from pinned to unpinned (show a warning) or
-    /// from verification violation to pinned (remove a warning). An
-    /// insignificant change would be from pinned to verified - no warning
-    /// is needed in this case.
+    /// (e.g. the user changed from pinned to unpinned (show a warning) or from
+    /// verification violation to pinned (remove a warning). An insignificant
+    /// change would be from pinned to verified - no warning is needed in this
+    /// case.
     ///
     /// For example, if an identity is "pinned" i.e. not manually verified, but
-    /// known, and it becomes a "unpinned" i.e. unknown, because the
-    /// encryption keys are different and the user has not acknowledged
-    /// this, then this constitutes a status change. Also, if an identity is
-    /// "unpinned" and becomes "pinned", this is also a status change.
+    /// known, and it becomes a "unpinned" i.e. unknown, because the encryption
+    /// keys are different and the user has not acknowledged this, then this
+    /// constitutes a status change. Also, if an identity is "unpinned" and
+    /// becomes "pinned", this is also a status change.
     ///
     /// The supplied stream is intended to provide enough information for a
-    /// client to display a list of room members whose identities have
-    /// changed, and allow the user to acknowledge this or act upon it.
+    /// client to display a list of room members whose identities have changed,
+    /// and allow the user to acknowledge this or act upon it.
     ///
     /// The first item in the stream provides the current state of the room:
     /// each member of the room who is not in "pinned" or "verified" state will
@@ -131,9 +131,9 @@ fn filter_for_initial_update(
     own_user_id: &UserId,
 ) -> Vec<IdentityStatusChange> {
     // We are never interested in changes to our own identity, and also for
-    // initial updates, we are only interested in "bad" states where we need
-    // to notify the user, so we can remove Verified states (Pinned states
-    // are already missing, because Pinned is considered the default).
+    // initial updates, we are only interested in "bad" states where we need to
+    // notify the user, so we can remove Verified states (Pinned states are
+    // already missing, because Pinned is considered the default).
     input.retain(|change| {
         change.user_id != own_user_id && change.changed_to != IdentityState::Verified
     });
@@ -508,12 +508,12 @@ mod tests {
         pin_mut!(stream);
 
         // NOTE: below we pull the changes out of the subscription after each
-        // action. This makes sure that the identity changes and
-        // membership changes are properly ordered. If we pull them out
-        // later, the identity changes get shifted forward because they
-        // rely on less-complex async stuff under the hood. Calling
-        // next_change ends up winding the async machinery sufficiently that the
-        // membership change and any subsequent events have fully completed.
+        // action. This makes sure that the identity changes and membership
+        // changes are properly ordered. If we pull them out later, the identity
+        // changes get shifted forward because they rely on less-complex async
+        // stuff under the hood. Calling next_change ends up winding the async
+        // machinery sufficiently that the membership change and any subsequent
+        // events have fully completed.
 
         // When Bob joins the room ...
         t.bob_joins().await;
@@ -625,8 +625,8 @@ mod tests {
 
         /// Sets up a client and a room and allows changing user identities and
         /// room memberships. Note: most methods e.g. [`TestSetup::bob_user_id`]
-        /// are talking about the OTHER user, not our own user. Only
-        /// methods starting with `self_` are talking about this user.
+        /// are talking about the OTHER user, not our own user. Only methods
+        /// starting with `self_` are talking about this user.
         ///
         /// This user is called `@example:localhost` but is rarely used
         /// mentioned.
@@ -708,9 +708,8 @@ mod tests {
                 let a_master_key = master_key_json(&a);
 
                 // Change/set their identity pin it, then change it again - this
-                // will definitely unpin, even if the first
-                // identity we supply is their very first, making them
-                // initially pinned.
+                // will definitely unpin, even if the first identity we supply
+                // is their very first, making them initially pinned.
                 if requested_master_key == a_master_key {
                     self.change_bob_identity(b).await;
                     if !self.bob_is_pinned().await {
@@ -817,8 +816,7 @@ mod tests {
                     .expect("Should be able to bootstrap cross-signing");
 
                 // Note: if you change the user_id, you will need to change lots
-                // of hard-coded stuff inside
-                // IdentityChangeDataSet
+                // of hard-coded stuff inside IdentityChangeDataSet
                 let bob_user_id = owned_user_id!("@bob:localhost");
 
                 let sync_response_builder = SyncResponseBuilder::default();

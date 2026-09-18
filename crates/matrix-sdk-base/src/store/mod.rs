@@ -205,12 +205,11 @@ impl BaseStateStore {
         // Create the channel to receive `RoomInfoNotableUpdate`.
         //
         // Let's consider the channel will receive 5 updates for 100 rooms
-        // maximum. This is unrealistic in practise, as the sync
-        // mechanism is pretty unlikely to trigger such amount of
-        // updates, it's a safe value.
+        // maximum. This is unrealistic in practise, as the sync mechanism is
+        // pretty unlikely to trigger such amount of updates, it's a safe value.
         //
-        // Also, note that it must not be zero, because (i) it will panic,
-        // (ii) a new user has no room, but can create rooms; remember that the
+        // Also, note that it must not be zero, because (i) it will panic, (ii)
+        // a new user has no room, but can create rooms; remember that the
         // channel's capacity is immutable.
         let (room_info_notable_update_sender, _room_info_notable_update_receiver) =
             broadcast::channel(500);
@@ -424,7 +423,7 @@ impl Deref for BaseStateStore {
 ///
 /// <div class="warning">
 ///
-/// # ⚠️ Be careful!
+/// # ⚠️ be careful!
 ///
 /// When loading a single room with [`RoomLoadSettings::One`], the in-memory
 /// state may not reflect the store state (in the databases). Thus, when one
@@ -506,8 +505,7 @@ impl ThreadSubscriptionStatus {
     /// persistent format.
     ///
     /// Note: this is serialized in some databases implementations, so make sure
-    /// to not change it lightly, and keep it in sync with
-    /// [`Self::from_str`].
+    /// to not change it lightly, and keep it in sync with [`Self::from_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
             ThreadSubscriptionStatus::Subscribed { automatic } => {
@@ -533,8 +531,8 @@ pub struct StoredThreadSubscription {
     /// remembered.
     ///
     /// If not set, this means it's a user-provided thread subscription, for
-    /// which we're waiting validation from a server (e.g. through a remote
-    /// echo via sync).
+    /// which we're waiting validation from a server (e.g. through a remote echo
+    /// via sync).
     pub bump_stamp: Option<u64>,
 }
 

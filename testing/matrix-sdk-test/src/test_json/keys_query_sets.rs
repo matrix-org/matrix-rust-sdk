@@ -96,10 +96,10 @@ pub struct KeyQueryResponseTemplate {
     /// The structured representation of the user's public master cross-signing
     /// key, ready for return in the `/keys/query` response.
     ///
-    /// This starts off as `None`, but is populated with the correct
-    /// object when the master key is set. It accumulates additional
-    /// signatures when the key is cross-signed
-    /// via [`KeyQueryResponseTemplate::with_user_verification_signature`].
+    /// This starts off as `None`, but is populated with the correct object when
+    /// the master key is set. It accumulates additional signatures when the key
+    /// is cross-signed via
+    /// [`KeyQueryResponseTemplate::with_user_verification_signature`].
     master_cross_signing_key_json: Option<CrossSigningKey>,
 
     /// The JSON object containing the public, signed, device keys, added via
@@ -136,8 +136,8 @@ impl KeyQueryResponseTemplate {
         self.user_signing_key = Some(user_signing_key);
 
         // For the master key, we build the CrossSigningKey object upfront, so
-        // that we can start to accumulate signatures. For the other
-        // keys, we generate the JSON representation on-demand.
+        // that we can start to accumulate signatures. For the other keys, we
+        // generate the JSON representation on-demand.
         self.master_cross_signing_key_json =
             Some(self.signed_cross_signing_key(&master_public_key, KeyUsage::Master));
 
@@ -146,14 +146,13 @@ impl KeyQueryResponseTemplate {
 
     /// Add a device to the data to be returned.
     ///
-    /// As well as a device ID and public Curve25519 device key, the *private*
+    /// As well as a device ID and public Curve25519 device key, the _private_
     /// Ed25519 device key must be provided so that the signature can be
     /// calculated.
     ///
     /// The device can optionally be signed by the self-signing key by calling
-    /// [`KeyQueryResponseTemplateDeviceOptions::new().
-    /// verified(true)`](KeyQueryResponseTemplateDeviceOptions::verified) on the
-    /// `options` object.
+    /// [`KeyQueryResponseTemplateDeviceOptions::new(). verified(true)`](KeyQueryResponseTemplateDeviceOptions::verified)
+    /// on the `options` object.
     pub fn with_device(
         mut self,
         device_id: &DeviceId,
@@ -315,25 +314,22 @@ impl KeyQueryResponseTemplateDeviceOptions {
 
 /// This set of keys/query response was generated using a local synapse.
 ///
-/// The current user is `@me:localhost`, the private part of the
-/// cross-signing keys have been exported using the console with the
-/// following snippet:  `await mxMatrixClientPeg.get().getCrypto().
-/// olmMachine.exportCrossSigningKeys()`.
+/// The current user is `@me:localhost`, the private part of the cross-signing
+/// keys have been exported using the console with the following snippet:
+/// `await mxMatrixClientPeg.get().getCrypto(). olmMachine.exportCrossSigningKeys()`.
 ///
 /// They are imported in the test here in order to verify user signatures.
 ///
-/// * `@me:localhost` is the current user mxId.
-///
-/// * `@dan:localhost` is a user with cross-signing enabled, with 2 devices. One
+/// - `@me:localhost` is the current user mxId.
+/// - `@dan:localhost` is a user with cross-signing enabled, with 2 devices. One
 ///   device (`JHPUERYQUW`) is self signed by @dan, but not the other one
 ///   (`FRGNMZVOKA`). `@me` has verified `@dan`, can be seen because `@dan`
 ///   master key has a signature by `@me` ssk
 ///
-/// * `@dave` is a user that has not enabled cross-signing. And has one device
+/// - `@dave` is a user that has not enabled cross-signing. And has one device
 ///   (`HVCXJTHMBM`).
 ///
-///
-/// * `@good` is a user with cross-signing enabled, with 2 devices. The 2
+/// - `@good` is a user with cross-signing enabled, with 2 devices. The 2
 ///   devices are properly signed by `@good` (i.e were self-verified by @good)
 pub struct KeyDistributionTestData {}
 
@@ -617,8 +613,8 @@ impl KeyDistributionTestData {
     }
 }
 
-/// A set of keys query to test identity changes,
-/// For user @bob, several payloads with no identities then identity A and B.
+/// A set of keys query to test identity changes, For user @bob, several
+/// payloads with no identities then identity A and B.
 pub struct IdentityChangeDataSet {}
 
 impl IdentityChangeDataSet {
@@ -767,7 +763,7 @@ impl VerificationViolationTestData {
         response
     }
 
-    /// A second `/keys/query` response for Alice, containing a *different* set
+    /// A second `/keys/query` response for Alice, containing a _different_ set
     /// of public cross-signing keys.
     ///
     /// This response was lifted from the test data set from `matrix-js-sdk`.
@@ -814,9 +810,9 @@ impl VerificationViolationTestData {
         Self::own_unsigned_device_keys().0
     }
 
-    /// Device-keys response for a device belonging to Alice, which has *not*
-    /// been signed by her identity. This can be used as part of a
-    /// `/keys/query` response.
+    /// Device-keys response for a device belonging to Alice, which has _not_
+    /// been signed by her identity. This can be used as part of a `/keys/query`
+    /// response.
     ///
     /// For convenience, returns a tuple `(<device id>, <device keys>)`. The
     /// device id is also returned by [`Self::own_unsigned_device_id`].
@@ -922,7 +918,8 @@ impl VerificationViolationTestData {
                             "@bob:localhost": {
                                 "ed25519:XCYNVRMTER": "yZ7cpaoA+0rRx+bmklsP1iAd0eGPH6gsdywC11VE98/mrcbeFuxjQVn39Ds7h+vmciu5GRzwWgDgv+6go6FHAQ",
                                 // Remove the cross-signature
-                                // "ed25519:e8JFSrW8LW3UK6SSXh2ZESUzptFbapr28/+WqndD+Xk": "xYnGmU9FEdoavB5P743gx3xbEy29tlfRX5lT3JO0dWhHdsP+muqBXUYMBl1RRFeZtIE0GYc9ORb6Yf88EdeoCw"
+                                // "ed25519:e8JFSrW8LW3UK6SSXh2ZESUzptFbapr28/+WqndD+Xk":
+                                // "xYnGmU9FEdoavB5P743gx3xbEy29tlfRX5lT3JO0dWhHdsP+muqBXUYMBl1RRFeZtIE0GYc9ORb6Yf88EdeoCw"
                             }
                         },
                         "user_id": "@bob:localhost",
@@ -992,11 +989,10 @@ impl VerificationViolationTestData {
     /// `/keys/query` response for Bob, signed by Alice's identity.
     ///
     /// In contrast to [`Self::bob_keys_query_response_signed`], Bob has a new
-    /// cross-signing identity, which is **not** signed by Alice.
-    /// As well as the new identity, still contains the two devices
-    /// [`Self::bob_device_1_id`] (signed only by the *old* cross-signing
-    /// identity), and [`Self::bob_device_2_id`] (properly signed by the new
-    /// identity).
+    /// cross-signing identity, which is **not** signed by Alice. As well as the
+    /// new identity, still contains the two devices [`Self::bob_device_1_id`]
+    /// (signed only by the _old_ cross-signing identity), and
+    /// [`Self::bob_device_2_id`] (properly signed by the new identity).
     pub fn bob_keys_query_response_rotated() -> KeyQueryResponse {
         let data = json!({
             "device_keys": {
@@ -1172,13 +1168,11 @@ impl VerificationViolationTestData {
         })
     }
 
-    /// `/keys/query` response for Carol, not yet verified by any other
-    /// user.
+    /// `/keys/query` response for Carol, not yet verified by any other user.
     ///
     /// Contains Carol's cross-signing identity, and two devices:
-    /// [`Self::carol_signed_device_id`] (signed by the cross-signing
-    /// identity), and [`Self::carol_unsigned_device_id`]
-    /// (not cross-signed).
+    /// [`Self::carol_signed_device_id`] (signed by the cross-signing identity),
+    /// and [`Self::carol_unsigned_device_id`] (not cross-signed).
     pub fn carol_keys_query_response_unsigned() -> KeyQueryResponse {
         let data = json!({
             "device_keys": {
@@ -1200,8 +1194,8 @@ impl VerificationViolationTestData {
                         },
                         // Omit the signature from Alice's USK
                         // "@alice:localhost": {
-                        //     "ed25519:MXob/N/bYI7U2655O1/AI9NOX1245RnE03Nl4Hvf+u0": "yfRUvkaVg3KizC/HDXcuP4+gtYhxgzr8X916Wt4GRXjj4qhDjsCkf8mYZ7x4lcEXzRkYql5KelabgVzP12qmAA"
-                        // }
+                        // "ed25519:MXob/N/bYI7U2655O1/AI9NOX1245RnE03Nl4Hvf+u0":
+                        // "yfRUvkaVg3KizC/HDXcuP4+gtYhxgzr8X916Wt4GRXjj4qhDjsCkf8mYZ7x4lcEXzRkYql5KelabgVzP12qmAA" }
                     },
                     "usage": [
                         "master"
@@ -1257,8 +1251,8 @@ impl VerificationViolationTestData {
     }
 }
 
-/// A set of keys query to test identity changes,
-/// For user @malo, that performed an identity change with the same device.
+/// A set of keys query to test identity changes, For user @malo, that performed
+/// an identity change with the same device.
 pub struct MaloIdentityChangeDataSet {}
 
 impl MaloIdentityChangeDataSet {
@@ -1409,8 +1403,8 @@ impl MaloIdentityChangeDataSet {
 ///
 /// # Arguments
 ///
-/// * `value` - the JSON object to be signed.
-/// * `signing_key` - the Ed25519 key to sign with.
+/// - `value` - the JSON object to be signed.
+/// - `signing_key` - the Ed25519 key to sign with.
 fn calculate_json_signature(mut value: Value, signing_key: &Ed25519SecretKey) -> Ed25519Signature {
     // strip `unsigned` and any existing signatures
     let json_object = value.as_object_mut().expect("value must be object");
@@ -1424,16 +1418,17 @@ fn calculate_json_signature(mut value: Value, signing_key: &Ed25519SecretKey) ->
     signing_key.sign(canonical_json.to_string().as_ref())
 }
 
-/// Add a signature to a JSON object, following the Matrix JSON-signing spec (https://spec.matrix.org/v1.12/appendices/#signing-details).
+/// Add a signature to a JSON object, following the Matrix JSON-signing spec
+/// (https://spec.matrix.org/v1.12/appendices/#signing-details).
 ///
 /// # Arguments
 ///
-/// * `value` - the JSON object to be signed.
-/// * `signing_key` - the Ed25519 key to sign with.
-/// * `user_id` - the user doing the signing. This will be used to add the
+/// - `value` - the JSON object to be signed.
+/// - `signing_key` - the Ed25519 key to sign with.
+/// - `user_id` - the user doing the signing. This will be used to add the
 ///   signature to the object.
-/// * `key_identifier` - the name of the key being used to sign with,
-///   *excluding* the `ed25519` prefix.
+/// - `key_identifier` - the name of the key being used to sign with,
+///   _excluding_ the `ed25519` prefix.
 ///
 /// # Panics
 ///
@@ -1471,9 +1466,9 @@ fn sign_json(
 ///
 /// # Arguments
 ///
-/// * `value` - the [`CrossSigningKey`] object to be signed.
-/// * `signing_key` - the Ed25519 key to sign with.
-/// * `user_id` - the user doing the signing. This will be used to add the
+/// - `value` - the [`CrossSigningKey`] object to be signed.
+/// - `signing_key` - the Ed25519 key to sign with.
+/// - `user_id` - the user doing the signing. This will be used to add the
 ///   signature to the object.
 fn sign_cross_signing_key(
     value: &mut CrossSigningKey,

@@ -34,8 +34,8 @@ impl SessionHash {
         }
         for &c in &self.0 {
             // We don't really care about little vs big endianness, since we
-            // only need a stable format, so we pick one: little
-            // endian (print high bits first).
+            // only need a stable format, so we pick one: little endian (print
+            // high bits first).
             res.push(CHARS[(c >> 4) as usize]);
             res.push(CHARS[(c & 0b1111) as usize]);
         }
@@ -155,8 +155,8 @@ pub(super) struct CrossProcessRefreshLockGuard {
     /// in the background.
     ///
     /// We don't consider it a mismatch if there was no previous value in the
-    /// database. We do consider it a mismatch if there was no in-memory
-    /// value known, but one was known in the database.
+    /// database. We do consider it a mismatch if there was no in-memory value
+    /// known, but one was known in the database.
     pub hash_mismatch: bool,
 
     /// Session hash previously stored in the DB.
@@ -206,9 +206,8 @@ impl CrossProcessRefreshLockGuard {
             && new_hash != *db_hash
         {
             // That should never happen, unless we got into an impossible
-            // situation! In this case, we assume the value returned
-            // by the callback is always correct, so override that
-            // in the database too.
+            // situation! In this case, we assume the value returned by the
+            // callback is always correct, so override that in the database too.
             tracing::error!("error: DB and trusted disagree. Overriding in DB.");
             self.save_in_database(&new_hash).await?;
         }
@@ -374,8 +373,8 @@ mod tests {
     #[async_test]
     async fn test_refresh_access_token_twice() -> anyhow::Result<()> {
         // This tests that refresh token works, and that it doesn't cause
-        // multiple token refreshes whenever one spawns two refreshes
-        // around the same time.
+        // multiple token refreshes whenever one spawns two refreshes around the
+        // same time.
 
         let server = MatrixMockServer::new().await;
 
@@ -639,10 +638,10 @@ mod tests {
         let oauth_server = server.oauth();
 
         // The token endpoint behaves like a rotating MAS. Only the first
-        // exchange succeeds and rotates the token: that one is the
-        // NSE's refresh, which the app is suspended through. Any later
-        // exchange presents the token that rotation consumed, and is
-        // rejected with `invalid_grant`.
+        // exchange succeeds and rotates the token: that one is the NSE's
+        // refresh, which the app is suspended through. Any later exchange
+        // presents the token that rotation consumed, and is rejected with
+        // `invalid_grant`.
         oauth_server
             .mock_token()
             .ok_with_tokens("1234", "ZYXWV") // == mock_session_tokens_with_refresh()
@@ -653,8 +652,8 @@ mod tests {
         oauth_server.mock_token().invalid_grant().with_priority(2).mount().await;
 
         // The app's (first) metadata request is delayed, to keep its refresh
-        // parked until after the NSE has rotated the token. The NSE's
-        // own request is answered immediately.
+        // parked until after the NSE has rotated the token. The NSE's own
+        // request is answered immediately.
         oauth_server
             .mock_server_metadata()
             .with_delay(Duration::from_secs(1))
@@ -715,8 +714,8 @@ mod tests {
         let app_refresh = tokio::spawn(async move { app_oauth.refresh_access_token().await });
 
         // Wait until the app has actually issued that request — by then it
-        // holds the lock and, in the buggy ordering, has already
-        // captured the refresh token.
+        // holds the lock and, in the buggy ordering, has already captured the
+        // refresh token.
         let mut waited = Duration::ZERO;
         while !server
             .received_requests()
@@ -731,8 +730,8 @@ mod tests {
         }
 
         // "Suspend" the app: blocking the current-thread runtime freezes every
-        // task, including the one renewing the lease, so the 500ms lock
-        // lease lapses.
+        // task, including the one renewing the lease, so the 500ms lock lease
+        // lapses.
         thread::sleep(Duration::from_millis(700));
 
         // The NSE steals the lapsed lock and refreshes, rotating prev -> next

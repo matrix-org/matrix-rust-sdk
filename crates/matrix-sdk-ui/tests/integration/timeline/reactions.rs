@@ -26,7 +26,7 @@ use tokio::time::sleep;
 
 #[async_test]
 async fn test_abort_before_being_sent() {
-    // This test checks that a reaction could be aborted *before* or *while*
+    // This test checks that a reaction could be aborted _before_ or _while_
     // it's being sent by the send queue.
 
     let server = MatrixMockServer::new().await;
@@ -276,9 +276,8 @@ async fn test_local_reaction_to_local_echo() {
 
     assert!(initial_items.is_empty());
 
-    // Mock for the first message.
-    // Add a duration to the response, so we can check other things in the
-    // meanwhile.
+    // Mock for the first message. Add a duration to the response, so we can
+    // check other things in the meanwhile.
     server
         .mock_room_send()
         .ok_with_delay(event_id!("$0"), Duration::from_millis(150))

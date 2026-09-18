@@ -88,7 +88,7 @@ impl CryptoStoreWrapper {
     ///
     /// # Arguments
     ///
-    /// * `changes` - The set of changes that should be stored.
+    /// - `changes` - The set of changes that should be stored.
     pub async fn save_changes(&self, changes: Changes) -> store::Result<()> {
         let room_key_updates: Vec<_> =
             changes.inbound_group_sessions.iter().map(RoomKeyInfo::from).collect();
@@ -106,8 +106,8 @@ impl CryptoStoreWrapper {
             .collect();
 
         // If our own identity verified status changes we need to do some checks
-        // on other identities. So remember the verification status
-        // before processing the changes
+        // on other identities. So remember the verification status before
+        // processing the changes
         let own_identity_was_verified_before_change = self
             .store
             .get_user_identity(self.user_id.as_ref())
@@ -127,9 +127,8 @@ impl CryptoStoreWrapper {
             .iter()
             .any(|d| d.user_id() == self.user_id && d.device_id() == self.device_id)
         {
-            // If our own device key changes, we need to clear the
-            // session cache because the sessions contain a copy of our
-            // device key.
+            // If our own device key changes, we need to clear the session cache
+            // because the sessions contain a copy of our device key.
             self.sessions.clear().await;
         } else {
             // Otherwise add the sessions to the cache.
@@ -179,19 +178,19 @@ impl CryptoStoreWrapper {
 
         if !devices.is_empty() || !identities.is_empty() {
             // Mapping the devices and user identities from the read-only
-            // variant to one's that contain side-effects requires
-            // our own identity. This is guaranteed to be up-to-date
-            // since we just persisted it.
+            // variant to one's that contain side-effects requires our own
+            // identity. This is guaranteed to be up-to-date since we just
+            // persisted it.
             let maybe_own_identity =
                 self.store.get_user_identity(&self.user_id).await?.and_then(|i| i.into_own());
 
             // If our identity was not verified before the change and is now,
-            // that means this could impact the verification chain
-            // of other known identities.
+            // that means this could impact the verification chain of other
+            // known identities.
             if let Some(own_identity_after) = maybe_own_identity.as_ref() {
                 // Only do this if our identity is passing from not verified to
-                // verified, the previously_verified can only
-                // change in that case.
+                // verified, the previously_verified can only change in that
+                // case.
                 let own_identity_is_verified = own_identity_after.is_verified();
 
                 if !own_identity_was_verified_before_change && own_identity_is_verified {
@@ -199,8 +198,7 @@ impl CryptoStoreWrapper {
                         "Own identity is now verified, check all known identities for verification status changes"
                     );
                     // We need to review all the other identities to see if they
-                    // are verified now and mark them as
-                    // such
+                    // are verified now and mark them as such
                     self.check_all_identities_and_update_was_previously_verified_flag_if_needed(
                         own_identity_after,
                     )
@@ -294,8 +292,8 @@ impl CryptoStoreWrapper {
     ///
     /// # Arguments
     ///
-    /// * `sessions` - The sessions to be saved.
-    /// * `backed_up_to_version` - If the keys should be marked as having been
+    /// - `sessions` - The sessions to be saved.
+    /// - `backed_up_to_version` - If the keys should be marked as having been
     ///   backed up, the version of the backup.
     ///
     /// Note: some implementations ignore `backup_version` and assume the

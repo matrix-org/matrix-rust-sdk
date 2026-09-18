@@ -342,7 +342,7 @@ async fn test_edit_local_echo_keeps_thread_relation() {
 
     sleep(Duration::from_millis(500)).await;
 
-    // The event went out with the edited body *and* its original thread
+    // The event went out with the edited body _and_ its original thread
     // relation.
     let requests = server.server().received_requests().await.unwrap();
     let sent = requests
@@ -601,7 +601,7 @@ async fn test_edit_to_replied_updates_reply() {
         .await
         .unwrap();
 
-    yield_now().await; // let the send queue handle the edit.
+     yield_now().await; // let the send queue handle the edit.
 
     // The edit happens.
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {

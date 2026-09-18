@@ -25,13 +25,12 @@ use crate::linked_chunk::{ChunkMetadata, UpdateToVectorDiff};
 /// A tracker for the order of items in a linked chunk.
 ///
 /// This can be used to determine the absolute ordering of an item, and thus the
-/// relative ordering of two items in a linked chunk, in an
-/// efficient manner, thanks to [`OrderTracker::ordering`]. Internally, it
-/// keeps track of the relative ordering of the chunks themselves; given a
-/// [`Position`] in a linked chunk, the item ordering is the lexicographic
-/// ordering of the chunk in the linked chunk, and the internal position within
-/// the chunk. For the sake of ease, we return the absolute vector index of the
-/// item in the linked chunk.
+/// relative ordering of two items in a linked chunk, in an efficient manner,
+/// thanks to [`OrderTracker::ordering`]. Internally, it keeps track of the
+/// relative ordering of the chunks themselves; given a [`Position`] in a linked
+/// chunk, the item ordering is the lexicographic ordering of the chunk in the
+/// linked chunk, and the internal position within the chunk. For the sake of
+/// ease, we return the absolute vector index of the item in the linked chunk.
 ///
 /// It requires the full links' metadata to be provided at creation time, so
 /// that it can also give an order for an item that's not loaded yet, in the
@@ -77,14 +76,13 @@ where
 {
     /// Create a new [`OrderTracker`].
     ///
-    /// The `all_chunks_metadata` parameter must include the metadata for *all*
-    /// chunks (the full collection, even if the linked chunk is
-    /// lazy-loaded).
+    /// The `all_chunks_metadata` parameter must include the metadata for _all_
+    /// chunks (the full collection, even if the linked chunk is lazy-loaded).
     ///
     /// They must be ordered by their links in the linked chunk, i.e. the first
-    /// chunk in the vector is the first chunk in the linked chunk, the
-    /// second in the vector is the first's next chunk, and so on. If that
-    /// precondition doesn't hold, then the ordering of items will be undefined.
+    /// chunk in the vector is the first chunk in the linked chunk, the second
+    /// in the vector is the first's next chunk, and so on. If that precondition
+    /// doesn't hold, then the ordering of items will be undefined.
     pub(super) fn new(
         updates: Arc<RwLock<UpdatesInner<Item, Gap>>>,
         token: ReaderToken,
@@ -102,9 +100,8 @@ where
     /// Force flushing of the updates manually.
     ///
     /// If `inhibit` is `true` (which is useful in the case of lazy-loading
-    /// related updates, which shouldn't affect the canonical, persisted
-    /// linked chunk), the updates are ignored; otherwise, they are consumed
-    /// normally.
+    /// related updates, which shouldn't affect the canonical, persisted linked
+    /// chunk), the updates are ignored; otherwise, they are consumed normally.
     pub fn flush_updates(&mut self, inhibit: bool) {
         if inhibit {
             // Ignore the updates.
@@ -188,8 +185,8 @@ mod tests {
     }
 
     /// Given a linked chunk with an offset representing the number of items not
-    /// loaded yet, checks that the ordering of an item is effectively the
-    /// same as its index+offset in an iteration of items.
+    /// loaded yet, checks that the ordering of an item is effectively the same
+    /// as its index+offset in an iteration of items.
     fn assert_order(
         linked_chunk: &LinkedChunk<3, char, ()>,
         tracker: &OrderTracker<char, ()>,
@@ -277,8 +274,8 @@ mod tests {
     #[async_test]
     async fn test_lazy_loading() {
         // Assume that all the chunks haven't been loaded yet, so we have a few
-        // of them in some memory, and some of them are still in an
-        // hypothetical database.
+        // of them in some memory, and some of them are still in an hypothetical
+        // database.
         let db_metadata = vec![
             // Hypothetical non-empty items chunk with items 'a', 'b', 'c'.
             ChunkMetadata {
@@ -360,8 +357,8 @@ mod tests {
     #[async_test]
     async fn test_lazy_updates() {
         // Assume that all the chunks haven't been loaded yet, so we have a few
-        // of them in some memory, and some of them are still in an
-        // hypothetical database.
+        // of them in some memory, and some of them are still in an hypothetical
+        // database.
         let db_metadata = vec![
             // Hypothetical non-empty items chunk with items 'a', 'b'.
             ChunkMetadata {
@@ -513,8 +510,8 @@ mod tests {
     #[async_test]
     async fn test_out_of_band_updates() {
         // Assume that all the chunks haven't been loaded yet, so we have a few
-        // of them in some memory, and some of them are still in an
-        // hypothetical database.
+        // of them in some memory, and some of them are still in an hypothetical
+        // database.
         let db_metadata = vec![
             // Hypothetical non-empty items chunk with items 'a', 'b'.
             ChunkMetadata {
@@ -550,16 +547,14 @@ mod tests {
 
         let mut tracker = linked_chunk.order_tracker(Some(db_metadata)).unwrap();
 
-        // Sanity checks.
-        // Order of 'b':
+        // Sanity checks. Order of 'b':
         assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(0), 1)), Some(1));
         // Order of 'e':
         assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(2), 1)), Some(3));
 
         // It's possible to apply updates out of band, i.e. without affecting
-        // the observed linked chunk. This can be useful when an update
-        // only applies to a database, but not to the in-memory linked
-        // chunk.
+        // the observed linked chunk. This can be useful when an update only
+        // applies to a database, but not to the in-memory linked chunk.
         tracker.map_updates(&[Update::RemoveChunk(ChunkIdentifier::new(0))]);
 
         // 'b' doesn't exist anymore, so its ordering is now undefined.

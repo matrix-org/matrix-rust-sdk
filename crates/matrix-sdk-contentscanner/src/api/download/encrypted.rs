@@ -40,8 +40,10 @@ metadata! {
     },
 }
 
-/// The HTTP request body for downloading and scanning encrypted media.
-/// Spec: <https://github.com/element-hq/matrix-content-scanner-python/blob/main/docs/api.md#post-_matrixmedia_proxyunstabledownload_encrypted>
+/// The HTTP request body for downloading and scanning encrypted media. Spec:
+/// [https://github.com/element-hq/matrix-content-scanner-python/blob/main/docs/api.md#post-_matrixmedia_proxyunstabledownload_encrypted][https-github-com-element-hq-matrix-content-scanner-python-blob-main-docs-api-md-post-matrixmedia-proxyunstabledownload-encrypted]
+///
+/// [https-github-com-element-hq-matrix-content-scanner-python-blob-main-docs-api-md-post-matrixmedia-proxyunstabledownload-encrypted]: https://github.com/element-hq/matrix-content-scanner-python/blob/main/docs/api.md#post-_matrixmedia_proxyunstabledownload_encrypted
 #[derive(Debug, Clone)]
 pub(crate) struct DownloadAndScanEncryptedMediaRequest {
     scanner_url: String,

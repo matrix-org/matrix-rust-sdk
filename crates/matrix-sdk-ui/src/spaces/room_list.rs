@@ -40,15 +40,15 @@ pub enum SpaceRoomListPaginationState {
     Loading,
 }
 
-/// The `SpaceRoomList`represents a paginated list of direct rooms
-/// that belong to a particular space.
+/// The `SpaceRoomList`represents a paginated list of direct rooms that belong
+/// to a particular space.
 ///
 /// It can be used to paginate through the list (and have live updates on the
 /// pagination state) as well as subscribe to changes as rooms are joined or
 /// left.
 ///
-/// The `SpaceRoomList` also automatically subscribes to client room changes
-/// and updates the list accordingly as rooms are joined or left.
+/// The `SpaceRoomList` also automatically subscribes to client room changes and
+/// updates the list accordingly as rooms are joined or left.
 ///
 /// # Examples
 ///
@@ -295,8 +295,8 @@ impl SpaceRoomList {
                 };
 
                 // The space is part of the /hierarchy response. Partition the
-                // room array so we can use its details but also
-                // filter it out of the room list
+                // room array so we can use its details but also filter it out
+                // of the room list
                 let (space, children): (Vec<_>, Vec<_>) =
                     result.rooms.into_iter().partition(|f| f.summary.room_id == self.space_id);
 
@@ -375,9 +375,9 @@ impl SpaceRoomList {
     /// called.
     ///
     /// This is useful when you've added or removed children from the space as
-    /// the list is based on a cached state that lives server-side, meaning
-    /// the /hierarchy request needs to be restarted from scratch to pick up
-    /// the changes.
+    /// the list is based on a cached state that lives server-side, meaning the
+    /// /hierarchy request needs to be restarted from scratch to pick up the
+    /// changes.
     pub async fn reset(&self) {
         let mut pagination_token = self.token.lock().await;
         *pagination_token = None.into();
@@ -642,8 +642,8 @@ mod tests {
         // And the subscription is informed about the change
         assert_next_eq!(parent_space_subscriber, Some(parent_space));
 
-        // If the room is already known to the client then the space parent
-        // is populated directly on creation
+        // If the room is already known to the client then the space parent is
+        // populated directly on creation
         server
             .sync_room(
                 &client,

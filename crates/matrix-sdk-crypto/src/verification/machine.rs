@@ -159,9 +159,9 @@ impl VerificationMachine {
         self.requests.read().get(user_id).map(|v| v.values().cloned().collect()).unwrap_or_default()
     }
 
-    /// Add a new `VerificationRequest` object to the cache.
-    /// If there are any existing requests with this user (and different
-    /// flow_id), both the existing and new request will be cancelled.
+    /// Add a new `VerificationRequest` object to the cache. If there are any
+    /// existing requests with this user (and different flow_id), both the
+    /// existing and new request will be cancelled.
     fn insert_request(&self, request: VerificationRequest) {
         if let Some(r) = self.get_request(request.other_user(), request.flow_id().as_str()) {
             debug!(flow_id = r.flow_id().as_str(), "Ignoring known verification request",);
@@ -191,8 +191,8 @@ impl VerificationMachine {
             }
         }
 
-        // We still want to add the new verification request, in case users
-        // want to inspect the verification object a matching
+        // We still want to add the new verification request, in case users want
+        // to inspect the verification object a matching
         // `m.key.verification.request` produced.
         user_requests.insert(request.flow_id().as_str().to_owned(), request);
     }
@@ -429,7 +429,8 @@ impl VerificationMachine {
                     }
                 } else if let FlowId::ToDevice(_) = flow_id {
                     // TODO remove this soon, this has been deprecated by
-                    // MSC3122 https://github.com/matrix-org/matrix-doc/pull/3122
+                    // MSC3122
+                    // https://github.com/matrix-org/matrix-doc/pull/3122
                     if let Some(device) =
                         self.store.get_device(event.sender(), c.from_device()).await?
                     {

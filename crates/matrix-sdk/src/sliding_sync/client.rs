@@ -108,8 +108,8 @@ impl Client {
     /// Be careful: This method may hit the store and will send new requests for
     /// each call. It can be costly to call it repeatedly.
     ///
-    /// If `/versions` is unreachable, it will simply move
-    /// potential sliding sync versions aside. No error will be reported.
+    /// If `/versions` is unreachable, it will simply move potential sliding
+    /// sync versions aside. No error will be reported.
     pub async fn available_sliding_sync_versions(&self) -> Vec<Version> {
         let supported_versions = self.supported_versions().await.ok();
 
@@ -276,7 +276,7 @@ async fn update_in_memory_caches(
     let _timer = timer!(tracing::Level::TRACE, "update_in_memory_caches");
 
     // If the push rules have changed, update the cached notification mode for
-    // *all* the joined rooms.
+    // _all_ the joined rooms.
     if response.account_data.iter().any(|event| {
         event
             .get_field::<GlobalAccountDataEventType>("type")
@@ -340,8 +340,7 @@ async fn handle_receipts_extension(
     let _timer = timer!(tracing::Level::TRACE, "handle_receipts_extension");
 
     // We need to compute read receipts for each joined room that has received
-    // an update, or from each room that has received a receipt ephemeral
-    // event.
+    // an update, or from each room that has received a receipt ephemeral event.
     let room_ids = BTreeSet::from_iter(
         sync_response
             .rooms
@@ -478,8 +477,8 @@ mod tests {
             .build()
             .await?;
 
-        // Mock a sync response.
-        // A `m.push_rules` with `room` is cached during the sync.
+        // Mock a sync response. A `m.push_rules` with `room` is cached during
+        // the sync.
         {
             let server_response = assign!(http::Response::new("0".to_owned()), {
                 rooms: BTreeMap::from([(
@@ -531,9 +530,8 @@ mod tests {
             Some(RoomNotificationMode::AllMessages),
         );
 
-        // Mock a sync response.
-        // A `m.push_rules` with `room` is cached during the sync.
-        // It overwrites the previous cache.
+        // Mock a sync response. A `m.push_rules` with `room` is cached during
+        // the sync. It overwrites the previous cache.
         {
             let server_response = assign!(http::Response::new("0".to_owned()), {
                 rooms: BTreeMap::from([(
@@ -582,10 +580,9 @@ mod tests {
             Some(RoomNotificationMode::MentionsAndKeywordsOnly),
         );
 
-        // Mock a sync response.
-        // Even if the room doesn't appear in the response, its notification
-        // mode will be updated immediately if a new `m.push_rules` is
-        // received.
+        // Mock a sync response. Even if the room doesn't appear in the
+        // response, its notification mode will be updated immediately if a new
+        // `m.push_rules` is received.
         {
             let server_response = assign!(http::Response::new("0".to_owned()), {
                 extensions: assign!(http::response::Extensions::default(), {

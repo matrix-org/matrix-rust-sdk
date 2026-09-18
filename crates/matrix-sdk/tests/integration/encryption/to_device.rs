@@ -33,8 +33,8 @@ use crate::{recipients_of, record_sent_encrypted_to_device};
 #[async_test]
 async fn test_encrypt_and_send_to_device() {
     // ===========
-    // Happy path, will encrypt and send
-    // ============
+    //
+    // # Happy path, will encrypt and send
 
     let matrix_mock_server = MatrixMockServer::new().await;
     matrix_mock_server.mock_crypto_endpoints_preset().await;
@@ -95,8 +95,8 @@ async fn test_encrypt_and_send_to_device() {
 #[async_test]
 async fn test_encrypt_and_send_to_device_report_failures_server() {
     // ===========
-    // Error case, when the to-device fails to send
-    // ============
+    //
+    // # Error case, when the to-device fails to send
 
     let matrix_mock_server = MatrixMockServer::new().await;
     matrix_mock_server.mock_crypto_endpoints_preset().await;
@@ -157,8 +157,8 @@ async fn test_encrypt_and_send_to_device_report_failures_server() {
 #[async_test]
 async fn test_to_device_event_handler_olm_encryption_info() {
     // ===========
-    // Happy path, will encrypt and send
-    // ============
+    //
+    // # Happy path, will encrypt and send
     let server = MatrixMockServer::new().await;
     server.mock_crypto_endpoints_preset().await;
 
@@ -227,8 +227,8 @@ async fn test_to_device_event_handler_olm_encryption_info() {
 #[async_test]
 async fn test_encrypt_and_send_to_device_report_failures_encryption_error() {
     // ===========
-    // Error case, when the encryption fails
-    // ============
+    //
+    // # Error case, when the encryption fails
 
     let matrix_mock_server = MatrixMockServer::new().await;
     matrix_mock_server.mock_crypto_endpoints_preset().await;

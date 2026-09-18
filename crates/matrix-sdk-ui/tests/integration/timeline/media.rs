@@ -542,8 +542,8 @@ async fn test_send_media_with_thumbnail() -> TestResult {
         assert_eq!(thumbnail_uri.to_string(), "mxc://sdk.rs/thumbnail");
 
         // Now, getting the thumbnail should be a cache hit and not require an
-        // extra endpoint to be set up; the test will fail with a 404
-        // error if there's a cache miss.
+        // extra endpoint to be set up; the test will fail with a 404 error if
+        // there's a cache miss.
         let use_cache = true;
         let retrieved_thumbnail_data = client
             .media()
