@@ -269,14 +269,14 @@ pub enum LoginProgress<Q> {
 /// Named future for logging in by scanning a QR code with the
 /// [`OAuth::login_with_qr_code()`] method.
 #[derive(Debug)]
-pub struct LoginWithQrCode<'a> {
-    client: &'a Client,
-    registration_data: Option<&'a ClientRegistrationData>,
-    qr_code_data: &'a QrCodeData,
+pub struct LoginWithQrCode {
+    client: Client,
+    registration_data: Option<ClientRegistrationData>,
+    qr_code_data: QrCodeData,
     state: SharedObservable<LoginProgress<QrProgress>>,
 }
 
-impl LoginWithQrCode<'_> {
+impl LoginWithQrCode {
     /// Subscribe to the progress of QR code login.
     ///
     /// It's usually necessary to subscribe to this to let the existing device
@@ -287,9 +287,9 @@ impl LoginWithQrCode<'_> {
     }
 }
 
-impl<'a> IntoFuture for LoginWithQrCode<'a> {
+impl IntoFuture for LoginWithQrCode {
     type Output = Result<(), QRCodeLoginError>;
-    boxed_into_future!(extra_bounds: 'a);
+    boxed_into_future!();
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
@@ -317,18 +317,23 @@ impl<'a> IntoFuture for LoginWithQrCode<'a> {
 
             // Now attempt to finish the login.
             // -- MSC4108 OAuth 2.0 login all steps
-            finish_login(self.client, channel, self.registration_data, self.state).await
+            finish_login(&self.client, channel, self.registration_data.as_ref(), self.state).await
         })
     }
 }
 
-impl<'a> LoginWithQrCode<'a> {
+impl LoginWithQrCode {
     pub(crate) fn new(
-        client: &'a Client,
-        qr_code_data: &'a QrCodeData,
-        registration_data: Option<&'a ClientRegistrationData>,
-    ) -> LoginWithQrCode<'a> {
-        LoginWithQrCode { client, registration_data, qr_code_data, state: Default::default() }
+        client: &Client,
+        qr_code_data: &QrCodeData,
+        registration_data: Option<&ClientRegistrationData>,
+    ) -> LoginWithQrCode {
+        LoginWithQrCode {
+            client: client.clone(),
+            registration_data: registration_data.cloned(),
+            qr_code_data: qr_code_data.clone(),
+            state: Default::default(),
+        }
     }
 
     async fn establish_secure_channel(
@@ -338,7 +343,7 @@ impl<'a> LoginWithQrCode<'a> {
 
         let channel = EstablishedSecureChannel::from_qr_code(
             http_client,
-            self.qr_code_data,
+            &self.qr_code_data,
             QrCodeIntent::Login,
         )
         .await?;
@@ -350,13 +355,13 @@ impl<'a> LoginWithQrCode<'a> {
 /// Named future for logging in by generating a QR code with the
 /// [`OAuth::login_with_qr_code()`] method.
 #[derive(Debug)]
-pub struct LoginWithGeneratedQrCode<'a> {
-    client: &'a Client,
-    registration_data: Option<&'a ClientRegistrationData>,
+pub struct LoginWithGeneratedQrCode {
+    client: Client,
+    registration_data: Option<ClientRegistrationData>,
     state: SharedObservable<LoginProgress<GeneratedQrProgress>>,
 }
 
-impl LoginWithGeneratedQrCode<'_> {
+impl LoginWithGeneratedQrCode {
     /// Subscribe to the progress of QR code login.
     ///
     /// It's necessary to subscribe to this to show the QR code to the existing
@@ -368,9 +373,9 @@ impl LoginWithGeneratedQrCode<'_> {
     }
 }
 
-impl<'a> IntoFuture for LoginWithGeneratedQrCode<'a> {
+impl IntoFuture for LoginWithGeneratedQrCode {
     type Output = Result<(), QRCodeLoginError>;
-    boxed_into_future!(extra_bounds: 'a);
+    boxed_into_future!();
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
@@ -426,17 +431,18 @@ impl<'a> IntoFuture for LoginWithGeneratedQrCode<'a> {
 
             // Proceed with logging in.
             // -- MSC4108 OAuth 2.0 login remaining steps
-            finish_login(self.client, channel, self.registration_data, self.state).await
+            finish_login(&self.client, channel, self.registration_data.as_ref(), self.state).await
         })
     }
 }
 
-impl<'a> LoginWithGeneratedQrCode<'a> {
-    pub(crate) fn new(
-        client: &'a Client,
-        registration_data: Option<&'a ClientRegistrationData>,
-    ) -> Self {
-        Self { client, registration_data, state: Default::default() }
+impl LoginWithGeneratedQrCode {
+    pub(crate) fn new(client: &Client, registration_data: Option<&ClientRegistrationData>) -> Self {
+        Self {
+            client: client.clone(),
+            registration_data: registration_data.cloned(),
+            state: Default::default(),
+        }
     }
 
     async fn establish_secure_channel(
@@ -488,9 +494,12 @@ mod test {
 
     use assert_matches2::{assert_let, assert_matches};
     use futures_util::StreamExt;
-    use matrix_sdk_base::crypto::types::{
-        SecretsBundle,
-        qr_login::{Msc4108IntentData, QrCodeIntentData},
+    use matrix_sdk_base::{
+        CancellableIntoFutureExt,
+        crypto::types::{
+            SecretsBundle,
+            qr_login::{Msc4108IntentData, QrCodeIntentData},
+        },
     };
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
@@ -514,6 +523,11 @@ mod test {
         UnexpectedMessageInsteadOfSecrets,
         RefuseSecrets,
         LetSessionExpire,
+    }
+
+    enum BobBehaviour {
+        HappyPath,
+        CancelWhileWaitingForToken,
     }
 
     /// The possible token responses.
@@ -976,7 +990,8 @@ mod test {
     async fn test_failure(
         token_response: TokenResponse,
         alice_behavior: AliceBehaviour,
-    ) -> Result<(), QRCodeLoginError> {
+        bob_behavior: BobBehaviour,
+    ) -> Option<Result<(), QRCodeLoginError>> {
         let server = MatrixMockServer::new().await;
         let expiration = match alice_behavior {
             AliceBehaviour::LetSessionExpire => Duration::from_secs(2),
@@ -1050,6 +1065,9 @@ mod test {
         let login_bob = oauth.login_with_qr_code(Some(&registration_data)).scan(&qr_code);
         let mut updates = login_bob.subscribe_to_progress();
 
+        let login_bob = login_bob.cancellable();
+        let cancel = login_bob.cancellation_token();
+
         let _updates_task = spawn(async move {
             let mut sender = Some(sender);
 
@@ -1061,6 +1079,11 @@ mod test {
                             .expect("The establishing secure channel update should be received only once")
                             .send(check_code)
                             .expect("Bob should be able to send the check code to Alice");
+                    }
+                    LoginProgress::WaitingForToken { .. } => {
+                        if let BobBehaviour::CancelWhileWaitingForToken = bob_behavior {
+                            cancel.cancel();
+                        }
                     }
                     LoginProgress::Done => break,
                     _ => (),
@@ -1079,7 +1102,8 @@ mod test {
     async fn test_generated_failure(
         token_response: TokenResponse,
         alice_behavior: AliceBehaviour,
-    ) -> Result<(), QRCodeLoginError> {
+        bob_behavior: BobBehaviour,
+    ) -> Option<Result<(), QRCodeLoginError>> {
         let server = MatrixMockServer::new().await;
         let expiration = match alice_behavior {
             AliceBehaviour::LetSessionExpire => Duration::from_secs(2),
@@ -1158,6 +1182,9 @@ mod test {
         let bob_login = bob_oauth.login_with_qr_code(Some(&registration_data)).generate();
         let mut bob_updates = bob_login.subscribe_to_progress();
 
+        let bob_login = bob_login.cancellable();
+        let cancel = bob_login.cancellation_token();
+
         let _updates_task = spawn(async move {
             let mut qr_sender = Some(qr_sender);
             let mut cctx_sender = Some(cctx_sender);
@@ -1180,6 +1207,11 @@ mod test {
                             .send(cctx)
                             .expect("Bob should be able to send the qr code code to Alice");
                     }
+                    LoginProgress::WaitingForToken { .. } => {
+                        if let BobBehaviour::CancelWhileWaitingForToken = bob_behavior {
+                            cancel.cancel();
+                        }
+                    }
                     LoginProgress::Done => break,
                     _ => (),
                 }
@@ -1198,9 +1230,14 @@ mod test {
 
     #[async_test]
     async fn test_qr_login_refused_access_token() {
-        let result = test_failure(TokenResponse::AccessDenied, AliceBehaviour::HappyPath).await;
+        let result = test_failure(
+            TokenResponse::AccessDenied,
+            AliceBehaviour::HappyPath,
+            BobBehaviour::HappyPath,
+        )
+        .await;
 
-        assert_let!(Err(QRCodeLoginError::OAuth(e)) = result);
+        assert_let!(Some(Err(QRCodeLoginError::OAuth(e))) = result);
         assert_eq!(
             e.as_request_token_error(),
             Some(&DeviceCodeErrorResponseType::AccessDenied),
@@ -1210,10 +1247,14 @@ mod test {
 
     #[async_test]
     async fn test_generated_qr_login_refused_access_token() {
-        let result =
-            test_generated_failure(TokenResponse::AccessDenied, AliceBehaviour::HappyPath).await;
+        let result = test_generated_failure(
+            TokenResponse::AccessDenied,
+            AliceBehaviour::HappyPath,
+            BobBehaviour::HappyPath,
+        )
+        .await;
 
-        assert_let!(Err(QRCodeLoginError::OAuth(e)) = result);
+        assert_let!(Some(Err(QRCodeLoginError::OAuth(e))) = result);
         assert_eq!(
             e.as_request_token_error(),
             Some(&DeviceCodeErrorResponseType::AccessDenied),
@@ -1223,9 +1264,14 @@ mod test {
 
     #[async_test]
     async fn test_qr_login_expired_token() {
-        let result = test_failure(TokenResponse::ExpiredToken, AliceBehaviour::HappyPath).await;
+        let result = test_failure(
+            TokenResponse::ExpiredToken,
+            AliceBehaviour::HappyPath,
+            BobBehaviour::HappyPath,
+        )
+        .await;
 
-        assert_let!(Err(QRCodeLoginError::OAuth(e)) = result);
+        assert_let!(Some(Err(QRCodeLoginError::OAuth(e))) = result);
         assert_eq!(
             e.as_request_token_error(),
             Some(&DeviceCodeErrorResponseType::ExpiredToken),
@@ -1235,10 +1281,14 @@ mod test {
 
     #[async_test]
     async fn test_generated_qr_login_expired_token() {
-        let result =
-            test_generated_failure(TokenResponse::ExpiredToken, AliceBehaviour::HappyPath).await;
+        let result = test_generated_failure(
+            TokenResponse::ExpiredToken,
+            AliceBehaviour::HappyPath,
+            BobBehaviour::HappyPath,
+        )
+        .await;
 
-        assert_let!(Err(QRCodeLoginError::OAuth(e)) = result);
+        assert_let!(Some(Err(QRCodeLoginError::OAuth(e))) = result);
         assert_eq!(
             e.as_request_token_error(),
             Some(&DeviceCodeErrorResponseType::ExpiredToken),
@@ -1248,9 +1298,14 @@ mod test {
 
     #[async_test]
     async fn test_qr_login_declined_protocol() {
-        let result = test_failure(TokenResponse::Ok, AliceBehaviour::DeclinedProtocol).await;
+        let result = test_failure(
+            TokenResponse::Ok,
+            AliceBehaviour::DeclinedProtocol,
+            BobBehaviour::HappyPath,
+        )
+        .await;
 
-        assert_let!(Err(QRCodeLoginError::LoginFailure { reason, .. }) = result);
+        assert_let!(Some(Err(QRCodeLoginError::LoginFailure { reason, .. })) = result);
         assert_eq!(
             reason,
             LoginFailureReason::UnsupportedProtocol,
@@ -1260,10 +1315,14 @@ mod test {
 
     #[async_test]
     async fn test_generated_qr_login_declined_protocol() {
-        let result =
-            test_generated_failure(TokenResponse::Ok, AliceBehaviour::DeclinedProtocol).await;
+        let result = test_generated_failure(
+            TokenResponse::Ok,
+            AliceBehaviour::DeclinedProtocol,
+            BobBehaviour::HappyPath,
+        )
+        .await;
 
-        assert_let!(Err(QRCodeLoginError::LoginFailure { reason, .. }) = result);
+        assert_let!(Some(Err(QRCodeLoginError::LoginFailure { reason, .. })) = result);
         assert_eq!(
             reason,
             LoginFailureReason::UnsupportedProtocol,
@@ -1273,28 +1332,40 @@ mod test {
 
     #[async_test]
     async fn test_qr_login_unexpected_message() {
-        let result = test_failure(TokenResponse::Ok, AliceBehaviour::UnexpectedMessage).await;
+        let result = test_failure(
+            TokenResponse::Ok,
+            AliceBehaviour::UnexpectedMessage,
+            BobBehaviour::HappyPath,
+        )
+        .await;
 
-        assert_let!(Err(QRCodeLoginError::UnexpectedMessage { expected, .. }) = result);
+        assert_let!(Some(Err(QRCodeLoginError::UnexpectedMessage { expected, .. })) = result);
         assert_eq!(expected, "m.login.protocol_accepted");
     }
 
     #[async_test]
     async fn test_generated_qr_login_unexpected_message() {
-        let result =
-            test_generated_failure(TokenResponse::Ok, AliceBehaviour::UnexpectedMessage).await;
+        let result = test_generated_failure(
+            TokenResponse::Ok,
+            AliceBehaviour::UnexpectedMessage,
+            BobBehaviour::HappyPath,
+        )
+        .await;
 
-        assert_let!(Err(QRCodeLoginError::UnexpectedMessage { expected, .. }) = result);
+        assert_let!(Some(Err(QRCodeLoginError::UnexpectedMessage { expected, .. })) = result);
         assert_eq!(expected, "m.login.protocol_accepted");
     }
 
     #[async_test]
     async fn test_qr_login_unexpected_message_instead_of_secrets() {
-        let result =
-            test_failure(TokenResponse::Ok, AliceBehaviour::UnexpectedMessageInsteadOfSecrets)
-                .await;
+        let result = test_failure(
+            TokenResponse::Ok,
+            AliceBehaviour::UnexpectedMessageInsteadOfSecrets,
+            BobBehaviour::HappyPath,
+        )
+        .await;
 
-        assert_let!(Err(QRCodeLoginError::UnexpectedMessage { expected, .. }) = result);
+        assert_let!(Some(Err(QRCodeLoginError::UnexpectedMessage { expected, .. })) = result);
         assert_eq!(expected, "m.login.secrets");
     }
 
@@ -1303,42 +1374,83 @@ mod test {
         let result = test_generated_failure(
             TokenResponse::Ok,
             AliceBehaviour::UnexpectedMessageInsteadOfSecrets,
+            BobBehaviour::HappyPath,
         )
         .await;
 
-        assert_let!(Err(QRCodeLoginError::UnexpectedMessage { expected, .. }) = result);
+        assert_let!(Some(Err(QRCodeLoginError::UnexpectedMessage { expected, .. })) = result);
         assert_eq!(expected, "m.login.secrets");
     }
 
     #[async_test]
     async fn test_qr_login_refuse_secrets() {
-        let result = test_failure(TokenResponse::Ok, AliceBehaviour::RefuseSecrets).await;
+        let result =
+            test_failure(TokenResponse::Ok, AliceBehaviour::RefuseSecrets, BobBehaviour::HappyPath)
+                .await;
 
-        assert_let!(Err(QRCodeLoginError::LoginFailure { reason, .. }) = result);
+        assert_let!(Some(Err(QRCodeLoginError::LoginFailure { reason, .. })) = result);
         assert_eq!(reason, LoginFailureReason::DeviceNotFound);
     }
 
     #[async_test]
     async fn test_generated_qr_login_refuse_secrets() {
-        let result = test_generated_failure(TokenResponse::Ok, AliceBehaviour::RefuseSecrets).await;
+        let result = test_generated_failure(
+            TokenResponse::Ok,
+            AliceBehaviour::RefuseSecrets,
+            BobBehaviour::HappyPath,
+        )
+        .await;
 
-        assert_let!(Err(QRCodeLoginError::LoginFailure { reason, .. }) = result);
+        assert_let!(Some(Err(QRCodeLoginError::LoginFailure { reason, .. })) = result);
         assert_eq!(reason, LoginFailureReason::DeviceNotFound);
     }
 
     #[async_test]
     async fn test_qr_login_session_expired() {
-        let result = test_failure(TokenResponse::Ok, AliceBehaviour::LetSessionExpire).await;
+        let result = test_failure(
+            TokenResponse::Ok,
+            AliceBehaviour::LetSessionExpire,
+            BobBehaviour::HappyPath,
+        )
+        .await;
 
-        assert_matches!(result, Err(QRCodeLoginError::NotFound));
+        assert_matches!(result, Some(Err(QRCodeLoginError::NotFound)));
     }
 
     #[async_test]
     async fn test_generated_qr_login_session_expired() {
-        let result =
-            test_generated_failure(TokenResponse::Ok, AliceBehaviour::LetSessionExpire).await;
+        let result = test_generated_failure(
+            TokenResponse::Ok,
+            AliceBehaviour::LetSessionExpire,
+            BobBehaviour::HappyPath,
+        )
+        .await;
 
-        assert_matches!(result, Err(QRCodeLoginError::NotFound));
+        assert_matches!(result, Some(Err(QRCodeLoginError::NotFound)));
+    }
+
+    #[async_test]
+    async fn test_qr_login_cancelled() {
+        let result = test_failure(
+            TokenResponse::Ok,
+            AliceBehaviour::UnexpectedMessageInsteadOfSecrets,
+            BobBehaviour::CancelWhileWaitingForToken,
+        )
+        .await;
+
+        assert_matches!(result, None);
+    }
+
+    #[async_test]
+    async fn test_generated_qr_login_cancelled() {
+        let result = test_generated_failure(
+            TokenResponse::Ok,
+            AliceBehaviour::UnexpectedMessageInsteadOfSecrets,
+            BobBehaviour::CancelWhileWaitingForToken,
+        )
+        .await;
+
+        assert_matches!(result, None);
     }
 
     #[async_test]
