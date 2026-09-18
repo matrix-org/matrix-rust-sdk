@@ -474,9 +474,12 @@ async fn test_smoke() {
         .mount()
         .await;
 
-    room.send_queue().send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
+    let send_handle =
+        room.send_queue().send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
+    let txn0 = send_handle.transaction_id();
 
     let (txn1, _) = assert_update!((global_watch, watch) => local echo { body = "1" });
+    assert_eq!(txn0, txn1);
 
     {
         let (local_echoes, _) = q.subscribe().await.unwrap();
