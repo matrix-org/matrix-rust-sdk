@@ -94,6 +94,8 @@ ruma = { workspace = true, features = [
     "unstable-msc3954",
     # Room language event type
     "unstable-msc4334",
+    # Circle videos (MSC4546)
+    "unstable-msc4546",
     "unstable-uniffi",
 ] }
 serde.workspace = true
