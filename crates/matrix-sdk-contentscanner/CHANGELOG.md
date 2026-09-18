@@ -1,3 +1,7 @@
+## [0.19.1](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.1) - 2026-09-18
+
+No significant changes.
+
 ## [0.19.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.0) - 2026-09-16
 
 ### Added
