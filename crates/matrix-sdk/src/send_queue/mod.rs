@@ -2854,6 +2854,11 @@ impl SendHandle {
         Self { room, transaction_id, media_handles: vec![], created_at }
     }
 
+    /// Returns the [`TransactionId`] used for sending the associated event.
+    pub fn transaction_id(&self) -> &TransactionId {
+        &self.transaction_id
+    }
+
     fn nyi_for_uploads(&self) -> Result<(), RoomSendQueueStorageError> {
         if !self.media_handles.is_empty() {
             Err(RoomSendQueueStorageError::OperationNotImplementedYet)
@@ -3012,7 +3017,7 @@ impl SendHandle {
         }
     }
 
-    /// Unwedge a local echo identified by its transaction identifier and try to
+    /// Unwedge the local echo associated to this [`SendHandle`] and try to
     /// resend it.
     pub async fn unwedge(&self) -> Result<(), RoomSendQueueError> {
         let room = &self.room.inner;
