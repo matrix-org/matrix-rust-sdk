@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.19.1](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.1) - 2026-09-18
+
+### Fixed
+
+- The inlined HTML script that extracts and renders Mermaid diagrams in the
+  rustdoc has been included in the published crate source. Previously they were
+  not, and the script was referenced in the rustdoc with a path relative to the
+  monorepo root, which failed to resolve when individual crates are published,
+  thus breaking rustdoc build on docs.rs.
+  ([#7058](https://github.com/matrix-org/matrix-rust-sdk/pulls/7058))
+- Restore the logging of the user and device ID when creating an OlmMachine
+  ([#7064](https://github.com/matrix-org/matrix-rust-sdk/pulls/7064))
+
 ## [0.19.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.0) - 2026-09-16
 
 ### Removed
