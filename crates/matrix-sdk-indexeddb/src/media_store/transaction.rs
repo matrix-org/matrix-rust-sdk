@@ -158,7 +158,10 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
 
     /// Adds [`MediaMetadata`] and [`MediaContent`] to IndexedDB if the size of
     /// [`IndexedMediaContent::content`] does not exceed
-    /// [`MediaRetentionPolicy::max_file_size]. If an item with the same key already exists, it will be overwritten.  When the item is successfully put, the function returns the intermediary types [`IndexedMediaMetadata`] and [`IndexedMediaContent`]
+    /// [`MediaRetentionPolicy::max_file_size]. If an item with the same key
+    /// already exists, it will be overwritten.  When the item is successfully
+    /// put, the function returns the intermediary types
+    /// [`IndexedMediaMetadata`] and [`IndexedMediaContent`]
     /// in case inspection is needed.
     pub async fn put_media_if_policy_compliant(
         &self,
@@ -604,7 +607,9 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
 
     /// Adds [`MediaContent`] to IndexedDB if the size of
     /// [`IndexedMediaContent::content`] does not exceed
-    /// [`MediaRetentionPolicy::max_file_size]. If an item with the same key already exists, it will be overwritten. When the item is successfully put, the function returns the intermediary type [`IndexedMediaContent`]
+    /// [`MediaRetentionPolicy::max_file_size]. If an item with the same key
+    /// already exists, it will be overwritten. When the item is successfully
+    /// put, the function returns the intermediary type [`IndexedMediaContent`]
     /// in case inspection is needed.
     pub fn put_media_content_if_policy_compliant(
         &self,

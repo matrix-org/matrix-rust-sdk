@@ -186,9 +186,9 @@ pub(super) async fn auto_shrink_linked_chunk_task(
                 //
                 // 1. No race, no subscribers have been registered, so it's safe
                 //    to do nothing,
-                // 2. A race, a subscriber has been created meanwhile, we
-                //    **must not** send the diff to it, otherwise it can create
-                //    an invalid state.
+                // 2. A race, a subscriber has been created meanwhile, we **must
+                //    not** send the diff to it, otherwise it can create an
+                //    invalid state.
                 //
                 // Note that a race shouldn't be possible as we have acquired an
                 // exclusive access to the state, ensuring no subscriber can be

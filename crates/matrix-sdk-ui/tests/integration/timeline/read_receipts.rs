@@ -1956,7 +1956,9 @@ async fn test_no_duplicate_receipt_after_backpagination() {
     // - $3: an hidden event sent by Alice, with a read receipt from Carol
     //
     // As a result, since
-    // $3 is _after_ the two others, Alice's implicit read receipt and Carol's receipt on the edit event should be placed onto the most recent rendered event, that is, $2.
+    // $3 is _after_ the two others, Alice's implicit read receipt and Carol's
+    // receipt on the edit event should be placed onto the most recent rendered
+    // event, that is, $2.
 
     let eid1 = event_id!("$1_backpaginated_oldest");
     let eid2 = event_id!("$2_backpaginated_newest");
@@ -2087,10 +2089,11 @@ async fn test_no_duplicate_receipt_after_backpagination_with_message_like_events
     // - $4: a hidden edit of $3 (from our own user), with a read receipt from
     //   Carol
     //
-    // $4 is hidden and at the end, so Carol's receipt must land on the most recent event that can show read receipts, that is $3.
-    // Crucially, $3 is immediately preceded by the state event $2, which is
-    // rendered but cannot carry receipts — so the receipt-holder to reconcile
-    // against is $1, not $2.
+    // $4 is hidden and at the end, so Carol's receipt must land on the most
+    // recent event that can show read receipts, that is $3. Crucially, $3
+    // is immediately preceded by the state event $2, which is rendered but
+    // cannot carry receipts — so the receipt-holder to reconcile against is
+    // $1, not $2.
 
     let eid1 = event_id!("$1_alice_message");
     let eid2 = event_id!("$2_bob_state_event");

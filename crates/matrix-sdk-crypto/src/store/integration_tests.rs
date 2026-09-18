@@ -1641,21 +1641,21 @@ macro_rules! cryptostore_integration_tests_time {
                 let (_account, store) = get_loaded_store("lease_locks").await;
 
                 let acquired0 = store.try_take_leased_lock(0, "key", "alice").await.unwrap();
-                 assert_eq!(acquired0, Some(1)); // first generation
+                assert_eq!(acquired0, Some(1)); // first generation
 
                 // Should extend the lease automatically (same holder).
                 let acquired2 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
-                 assert_eq!(acquired2, Some(1)); // same lock generation
+                assert_eq!(acquired2, Some(1)); // same lock generation
 
                 // Should extend the lease automatically (same holder + time is
                 // ok).
                 let acquired3 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
-                 assert_eq!(acquired3, Some(1)); // same lock generation
+                assert_eq!(acquired3, Some(1)); // same lock generation
 
                 // Another attempt at taking the lock should fail, because it's
                 // taken.
                 let acquired4 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
-                 assert!(acquired4.is_none()); // not acquired
+                assert!(acquired4.is_none()); // not acquired
 
                 // Even if we insist.
                 let acquired5 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
@@ -1666,7 +1666,7 @@ macro_rules! cryptostore_integration_tests_time {
 
                 // Still too early.
                 let acquired55 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
-                 assert!(acquired55.is_none()); // not acquired
+                assert!(acquired55.is_none()); // not acquired
 
                 // Ok you can take another nap then.
                 tokio::time::sleep(Duration::from_millis(250)).await;
@@ -1685,11 +1685,11 @@ macro_rules! cryptostore_integration_tests_time {
 
                 // But when we take a longer lease…
                 let acquired8 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
-                 assert_eq!(acquired8, Some(4)); // new lock generation!
+                assert_eq!(acquired8, Some(4)); // new lock generation!
 
                 // It blocks the other user.
                 let acquired9 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
-                 assert!(acquired9.is_none()); // not acquired
+                assert!(acquired9.is_none()); // not acquired
 
                 // We can hold onto our lease.
                 let acquired10 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();

@@ -985,8 +985,10 @@ async fn test_compute_unread_counts_after_backfill_from_disk() {
 
     assert_let_timeout!(Ok(_) = room_cache_updates.recv());
 
-    // $2 isn't loaded, so the read-receipt backfill runs and loads the first chunk from the store, which contains it. The counts must then be recomputed against the newly loaded events: $3,
-    // $4 and $5 come after $2.
+    // $2 isn't loaded, so the read-receipt backfill runs and loads the first
+    // chunk from the store, which contains it. The counts must then be
+    // recomputed against the newly loaded events: $3, $4 and $5 come after
+    // $2.
     assert_let_timeout!(Duration::from_secs(2), Ok(_) = room_cache_updates.recv());
 
     assert_eq!(room.num_unread_messages(), 3);

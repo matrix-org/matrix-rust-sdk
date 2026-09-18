@@ -214,23 +214,19 @@ pub struct CrossProcessLock<L> {
     /// released in the store.
     // Notes about the `Arc`/`Weak` usage:
     //
-    // - We want to track the number of holders, i.e. the number of guards. To
-    //   achieve that, we could use a thread-safe counter, or hijack `Arc` and
-    //   `Weak` which provide two thread-safe counters: strong count and weak
-    //   count.
+    // - We want to track the number of holders, i.e. the number of guards. To achieve that, we
+    //   could use a thread-safe counter, or hijack `Arc` and `Weak` which provide two thread-safe
+    //   counters: strong count and weak count.
     // - `CrossProcessLock` holds an `Arc` (this field).
     // - `renew_task` holds an `Arc` (a clone of this field).
-    // - `CrossProcessLockGuard` holds a `Weak` (it could use an `Arc`, but a
-    //   `Weak` is fine in this context and offers a unique counter for
-    //   guards!).
+    // - `CrossProcessLockGuard` holds a `Weak` (it could use an `Arc`, but a `Weak` is fine in
+    //   this context and offers a unique counter for guards!).
     // - Counting holders = counting the number of `Weak` pointers.
-    // - It is safe to upgrade the `Weak` pointer to an `Arc` (to get
-    //   information about dirtiness) in a guard because the `renew_task` holds
-    //   a clone of the `Arc` and will not exit until all guards have been
-    //   dropped.
-    // - It is always possible to create a `Weak` pointer (i) either from
-    //   `CrossProcessLock` by using `Arc::downgrade`, (ii) or from
-    //   `CrossProcessLockGuard` by cloning it.
+    // - It is safe to upgrade the `Weak` pointer to an `Arc` (to get information about dirtiness)
+    //   in a guard because the `renew_task` holds a clone of the `Arc` and will not exit until all
+    //   guards have been dropped.
+    // - It is always possible to create a `Weak` pointer (i) either from `CrossProcessLock` by
+    //   using `Arc::downgrade`, (ii) or from `CrossProcessLockGuard` by cloning it.
     inner: Arc<CrossProcessLockInner>,
 
     /// The key used in the key/value mapping for the lock entry.

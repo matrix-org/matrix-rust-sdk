@@ -151,8 +151,9 @@ impl KeyQueryResponseTemplate {
     /// calculated.
     ///
     /// The device can optionally be signed by the self-signing key by calling
-    /// [`KeyQueryResponseTemplateDeviceOptions::new(). verified(true)`](KeyQueryResponseTemplateDeviceOptions::verified)
-    /// on the `options` object.
+    /// [`KeyQueryResponseTemplateDeviceOptions::new().
+    /// verified(true)`](KeyQueryResponseTemplateDeviceOptions::verified) on
+    /// the `options` object.
     pub fn with_device(
         mut self,
         device_id: &DeviceId,
@@ -316,7 +317,8 @@ impl KeyQueryResponseTemplateDeviceOptions {
 ///
 /// The current user is `@me:localhost`, the private part of the cross-signing
 /// keys have been exported using the console with the following snippet:
-/// `await mxMatrixClientPeg.get().getCrypto(). olmMachine.exportCrossSigningKeys()`.
+/// `await mxMatrixClientPeg.get().getCrypto().
+/// olmMachine.exportCrossSigningKeys()`.
 ///
 /// They are imported in the test here in order to verify user signatures.
 ///

@@ -571,12 +571,11 @@ impl Account {
     /// # Arguments
     ///
     /// - `new_password` - The new password to set.
-    /// - `auth_data` - This request uses the
-    ///   [User-Interactive Authentication API][uiaa]. The first request needs
-    ///   to set this to `None` and will always fail with an [`UiaaResponse`].
-    ///   The response will contain information for the interactive auth and the
-    ///   same request needs to be made but this time with some `auth_data`
-    ///   provided.
+    /// - `auth_data` - This request uses the [User-Interactive Authentication
+    ///   API][uiaa]. The first request needs to set this to `None` and will
+    ///   always fail with an [`UiaaResponse`]. The response will contain
+    ///   information for the interactive auth and the same request needs to be
+    ///   made but this time with some `auth_data` provided.
     ///
     /// # Returns
     ///
@@ -627,12 +626,11 @@ impl Account {
     /// - `id_server` - The identity server from which to unbind the user’s
     ///   [Third Party Identifiers][3pid].
     ///
-    /// - `auth_data` - This request uses the
-    ///   [User-Interactive Authentication API][uiaa]. The first request needs
-    ///   to set this to `None` and will always fail with an [`UiaaResponse`].
-    ///   The response will contain information for the interactive auth and the
-    ///   same request needs to be made but this time with some `auth_data`
-    ///   provided.
+    /// - `auth_data` - This request uses the [User-Interactive Authentication
+    ///   API][uiaa]. The first request needs to set this to `None` and will
+    ///   always fail with an [`UiaaResponse`]. The response will contain
+    ///   information for the interactive auth and the same request needs to be
+    ///   made but this time with some `auth_data` provided.
     ///
     /// - `erase` - Whether the user would like their content to be erased as
     ///   much as possible from the server.
@@ -872,12 +870,11 @@ impl Account {
     ///   [`Account::request_3pid_email_token()`] or
     ///   [`Account::request_3pid_msisdn_token()`].
     ///
-    /// - `auth_data` - This request uses the
-    ///   [User-Interactive Authentication API][uiaa]. The first request needs
-    ///   to set this to `None` and will always fail with an [`UiaaResponse`].
-    ///   The response will contain information for the interactive auth and the
-    ///   same request needs to be made but this time with some `auth_data`
-    ///   provided.
+    /// - `auth_data` - This request uses the [User-Interactive Authentication
+    ///   API][uiaa]. The first request needs to set this to `None` and will
+    ///   always fail with an [`UiaaResponse`]. The response will contain
+    ///   information for the interactive auth and the same request needs to be
+    ///   made but this time with some `auth_data` provided.
     ///
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     /// [uiaa]: https://spec.matrix.org/v1.2/client-server-api/#user-interactive-authentication-api
@@ -1003,10 +1000,17 @@ impl Account {
     /// # async {
     /// # let client = Client::new("http://localhost:8080".parse()?).await?;
     /// # let account = client.account();
-    /// use matrix_sdk::ruma::events::{ignored_user_list::IgnoredUserListEventContent, GlobalAccountDataEventType};
+    /// use matrix_sdk::ruma::events::{
+    ///     GlobalAccountDataEventType,
+    ///     ignored_user_list::IgnoredUserListEventContent,
+    /// };
     ///
-    /// if let Some(raw_content) = account.fetch_account_data(GlobalAccountDataEventType::IgnoredUserList).await? {
-    ///     let content = raw_content.deserialize_as_unchecked::<IgnoredUserListEventContent>()?;
+    /// if let Some(raw_content) = account
+    ///     .fetch_account_data(GlobalAccountDataEventType::IgnoredUserList)
+    ///     .await?
+    /// {
+    ///     let content = raw_content
+    ///         .deserialize_as_unchecked::<IgnoredUserListEventContent>()?;
     ///
     ///     println!("Ignored users:");
     ///

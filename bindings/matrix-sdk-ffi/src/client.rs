@@ -2081,10 +2081,10 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// - `auth_data` - This request uses the
-    ///   [User-Interactive Authentication API][uiaa]. The first request needs
-    ///   to set this to `None` and will always fail and the same request needs
-    ///   to be made but this time with some `auth_data` provided.
+    /// - `auth_data` - This request uses the [User-Interactive Authentication
+    ///   API][uiaa]. The first request needs to set this to `None` and will
+    ///   always fail and the same request needs to be made but this time with
+    ///   some `auth_data` provided.
     pub async fn deactivate_account(
         &self,
         auth_data: Option<AuthData>,
@@ -2426,9 +2426,9 @@ impl Client {
     /// # Arguments
     ///
     /// - `event_type` - The type of the to-device event to send.
-    /// - `recipients` - The devices to send the message to, as a
-    ///   `user id -> device ids` map. The special device id `"*"` targets every
-    ///   device of that user we know about.
+    /// - `recipients` - The devices to send the message to, as a `user id ->
+    ///   device ids` map. The special device id `"*"` targets every device of
+    ///   that user we know about.
     ///
     /// - `content` - The content of the to-device event, as a JSON string,
     ///   encrypted for and sent to every recipient.

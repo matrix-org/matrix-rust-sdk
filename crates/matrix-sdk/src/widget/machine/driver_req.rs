@@ -196,8 +196,8 @@ impl FromMatrixDriverResponse for request_openid_token::v3::Response {
 pub(crate) struct ReadEventsRequest {
     /// The event type to read.
     // TODO: This wants to be
-    // `MessageLikeEventType`` but we need a type which supports `as_str()` as soon as ruma supports `as_str()` on `MessageLikeEventType`
-    // we can use it here.
+    // `MessageLikeEventType`` but we need a type which supports `as_str()` as soon as ruma
+    // supports `as_str()` on `MessageLikeEventType` we can use it here.
     pub(crate) event_type: String,
 
     /// The `state_key` to read. If None, this will read events regardless of

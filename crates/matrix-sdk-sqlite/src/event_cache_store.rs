@@ -1192,9 +1192,9 @@ impl EventCacheStore for SqliteEventCacheStore {
                 //
                 // - one to get each chunk and its number of events, by doing a
                 //   single `SELECT` query over the `event_chunks` table,
-                //   grouping by chunk ids. This gives us a list of
-                //   `(chunk_id, num_events)` pairs, which can be transformed
-                //   into a hashmap.
+                //   grouping by chunk ids. This gives us a list of `(chunk_id,
+                //   num_events)` pairs, which can be transformed into a
+                //   hashmap.
                 // - one to get each chunk's metadata (id, previous, next, type)
                 //   from the database with a `SELECT`, and then use the hashmap
                 //   to get the number of events.

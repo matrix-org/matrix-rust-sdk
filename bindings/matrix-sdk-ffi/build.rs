@@ -45,8 +45,9 @@ fn setup_x86_64_android_workaround() {
         );
 
         // clang_path should now look something like
-        // `.../sdk/ndk/28.0.12674087/toolchains/llvm/prebuilt/linux-x86_64/bin/ clang`.
-        // We strip `/bin/clang` from the end to get the toolchain path.
+        // `.../sdk/ndk/28.0.12674087/toolchains/llvm/prebuilt/linux-x86_64/bin/
+        // clang`. We strip `/bin/clang` from the end to get the
+        // toolchain path.
         let toolchain_path = clang_path
             .ancestors()
             .nth(2)

@@ -255,8 +255,8 @@ impl ThreadListService {
     ///
     /// - If the list is already loading or the end has been reached, this
     ///   method returns immediately with `Ok(())`.
-    /// - On a network/SDK error the pagination state is reset to
-    ///   `Idle { end_reached: false }` and the error is propagated.
+    /// - On a network/SDK error the pagination state is reset to `Idle {
+    ///   end_reached: false }` and the error is propagated.
     pub async fn paginate(&self) -> Result<(), ThreadListServiceError> {
         // Guard: do nothing if we are already loading or have reached the end.
         {

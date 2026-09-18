@@ -420,8 +420,10 @@ pub enum RoomEventDecryptionResult {
 ///
 /// To enable decryption the following three steps are needed:
 ///
-/// 1. [The cryptographic identity of your device needs to be published to the homeserver](#uploading-identity-and-one-time-keys).
-/// 2. [Decryption keys coming in from other devices need to be processed and stored](#receiving-room-keys-and-related-changes).
+/// 1. [The cryptographic identity of your device needs to be published to the
+///    homeserver](#uploading-identity-and-one-time-keys).
+/// 2. [Decryption keys coming in from other devices need to be processed and
+///    stored](#receiving-room-keys-and-related-changes).
 /// 3. [Individual messages need to be decrypted](#decrypting-room-events).
 ///
 /// The simplified flowchart
@@ -715,10 +717,13 @@ pub enum RoomEventDecryptionResult {
 /// encrypting messages using the Megolm group session. The specific steps are
 /// outlined below:
 ///
-/// 1. [Cryptographic devices of other users need to be discovered](#tracking-users)
-/// 2. [Secure channels between the devices need to be established](#establishing-end-to-end-encrypted-channels)
+/// 1. [Cryptographic devices of other users need to be
+///    discovered](#tracking-users)
+/// 2. [Secure channels between the devices need to be
+///    established](#establishing-end-to-end-encrypted-channels)
 /// 3. [A room key needs to be exchanged with the group](#exchanging-room-keys)
-/// 4. [Individual messages need to be encrypted using the room key](#encrypting-room-events)
+/// 4. [Individual messages need to be encrypted using the room
+///    key](#encrypting-room-events)
 ///
 /// The process for enabling encryption in a two-device scenario is also
 /// depicted in the following sequence diagram:
@@ -871,8 +876,9 @@ pub enum RoomEventDecryptionResult {
 /// ## Establishing end-to-end encrypted channels
 ///
 /// In the
-/// [Triple Diffie-Hellman](#using-the-triple-diffie-hellman-key-agreement-protocol)
-/// section, we described the need for two Curve25519 keys from the recipient
+/// [Triple Diffie-Hellman](#
+/// using-the-triple-diffie-hellman-key-agreement-protocol) section, we
+/// described the need for two Curve25519 keys from the recipient
 /// device to establish a 1-to-1 secure channel: the long-term identity key of a
 /// device and a one-time prekey. In the previous section, we started tracking
 /// the device keys, including the long-term identity key that we need. The next

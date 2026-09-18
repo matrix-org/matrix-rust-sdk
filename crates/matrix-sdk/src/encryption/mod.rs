@@ -902,9 +902,9 @@ impl Client {
     /// # Arguments
     ///
     /// - `event_type` - The type of the to-device event to send.
-    /// - `recipients` - The devices to send the message to, as a
-    ///   `user id -> device ids` map. [`DeviceIdOrAllDevices::AllDevices`]
-    ///   targets every device of that user we know about.
+    /// - `recipients` - The devices to send the message to, as a `user id ->
+    ///   device ids` map. [`DeviceIdOrAllDevices::AllDevices`] targets every
+    ///   device of that user we know about.
     ///
     /// - `content` - The content of the to-device event, encrypted for and sent
     ///   to every recipient.
@@ -1510,14 +1510,18 @@ impl Encryption {
     /// if let Err(e) = client.encryption().bootstrap_cross_signing(None).await {
     ///     if let Some(response) = e.as_uiaa_response() {
     ///         let mut password = uiaa::Password::new(
-    ///             uiaa::UserIdentifier::Matrix(uiaa::MatrixUserIdentifier::new("example".to_owned())),
+    ///             uiaa::UserIdentifier::Matrix(uiaa::MatrixUserIdentifier::new(
+    ///                 "example".to_owned(),
+    ///             )),
     ///             "wordpass".to_owned(),
     ///         );
     ///         password.session = response.session.clone();
     ///
     ///         client
     ///             .encryption()
-    ///             .bootstrap_cross_signing(Some(uiaa::AuthData::Password(password)))
+    ///             .bootstrap_cross_signing(Some(uiaa::AuthData::Password(
+    ///                 password,
+    ///             )))
     ///             .await
     ///             .expect("Couldn't bootstrap cross signing")
     ///     } else {

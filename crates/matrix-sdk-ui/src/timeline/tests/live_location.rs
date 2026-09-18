@@ -554,9 +554,12 @@ async fn test_pending_beacon_stop_not_applied_to_different_session() {
     // Use the current time as base for session B. Session A's timestamp doesn't
     // matter since its stop will be discarded. Session B needs a recent
     // timestamp so is_live() doesn't fail due to timeout.
-    let old_session_ts = MilliSecondsSinceUnixEpoch(uint!(1)); // Old session (past)
-     let new_session_ts = MilliSecondsSinceUnixEpoch::now(); // New session
-     (now)
+
+    // Old session (past)
+    let old_session_ts = MilliSecondsSinceUnixEpoch(uint!(1));
+
+    // New session (now)
+    let new_session_ts = MilliSecondsSinceUnixEpoch::now();
 
     // A stop event from the OLD session arrives first (out-of-order). Its
     // corresponding start event is missing (maybe it's from long ago).

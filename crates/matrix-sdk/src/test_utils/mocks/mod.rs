@@ -242,14 +242,20 @@ impl MatrixMockServer {
     ///
     /// ```
     /// # tokio_test::block_on(async {
-    /// use matrix_sdk::{ruma::{room_id, event_id}, test_utils::mocks::MatrixMockServer};
+    /// use matrix_sdk::{
+    ///     ruma::{event_id, room_id},
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
     /// use matrix_sdk_test::LeftRoomBuilder;
     ///
     /// let mock_server = MatrixMockServer::new().await;
     /// let client = mock_server.client_builder().build().await;
     ///
     /// let left_room = mock_server
-    ///     .sync_room(&client, LeftRoomBuilder::new(room_id!("!room_id:localhost")))
+    ///     .sync_room(
+    ///         &client,
+    ///         LeftRoomBuilder::new(room_id!("!room_id:localhost")),
+    ///     )
     ///     .await;
     /// # anyhow::Ok(()) });
     /// ```
@@ -4240,8 +4246,9 @@ impl<'a> MockEndpoint<'a, UpdateRecentEmojisEndpoint> {
 }
 
 /// A prebuilt mock for a
-/// `GET /_matrix/client/v3/user/{userId}/account_data/m.secret_storage.default_key`
-/// request, which fetches the ID of the default secret storage key.
+/// `GET /_matrix/client/v3/user/{userId}/account_data/m.secret_storage.
+/// default_key` request, which fetches the ID of the default secret storage
+/// key.
 #[cfg(feature = "e2e-encryption")]
 pub struct GetDefaultSecretStorageKeyEndpoint;
 
@@ -4262,8 +4269,8 @@ impl<'a> MockEndpoint<'a, GetDefaultSecretStorageKeyEndpoint> {
 }
 
 /// A prebuilt mock for a
-/// `GET /_matrix/client/v3/user/{userId}/account_data/m.secret_storage.key.{keyId}`
-/// request, which fetches information about a secret storage key.
+/// `GET /_matrix/client/v3/user/{userId}/account_data/m.secret_storage.key.
+/// {keyId}` request, which fetches information about a secret storage key.
 #[cfg(feature = "e2e-encryption")]
 pub struct GetSecretStorageKeyEndpoint;
 
