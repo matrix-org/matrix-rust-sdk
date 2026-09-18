@@ -51,10 +51,10 @@ pub struct SasIds {
 ///
 /// # Arguments
 ///
-/// * `public_key` - Our own ephemeral public key that is used for the
+/// - `public_key` - Our own ephemeral public key that is used for the
 ///   interactive verification.
 ///
-/// * `content` - The `m.key.verification.start` event content that started the
+/// - `content` - The `m.key.verification.start` event content that started the
 ///   interactive verification process.
 pub fn calculate_commitment(public_key: Curve25519PublicKey, content: &StartContent<'_>) -> Base64 {
     let content = content.canonical_json();
@@ -162,9 +162,8 @@ fn emoji_from_index(index: u8) -> Emoji {
 ///
 /// # Arguments
 ///
-/// * `ids` - The ids that are used for this SAS authentication flow.
-///
-/// * `flow_id` - The unique id that identifies this SAS verification process.
+/// - `ids` - The ids that are used for this SAS authentication flow.
+/// - `flow_id` - The unique id that identifies this SAS verification process.
 fn extra_mac_info_receive(ids: &SasIds, flow_id: &str) -> String {
     format!(
         "MATRIX_KEY_VERIFICATION_MAC{first_user}{first_device}\
@@ -184,13 +183,10 @@ fn extra_mac_info_receive(ids: &SasIds, flow_id: &str) -> String {
 ///
 /// # Arguments
 ///
-/// * `sas` - The Olm SAS object that can be used to MACs
-///
-/// * `ids` - The ids that are used for this SAS authentication flow.
-///
-/// * `flow_id` - The unique id that identifies this SAS verification process.
-///
-/// * `event` - The m.key.verification.mac event that was sent to us by the
+/// - `sas` - The Olm SAS object that can be used to MACs
+/// - `ids` - The ids that are used for this SAS authentication flow.
+/// - `flow_id` - The unique id that identifies this SAS verification process.
+/// - `event` - The m.key.verification.mac event that was sent to us by the
 ///   other side.
 pub fn receive_mac_event(
     sas: &EstablishedSas,
@@ -262,9 +258,8 @@ pub fn receive_mac_event(
 ///
 /// # Arguments
 ///
-/// * `ids` - The ids that are used for this SAS authentication flow.
-///
-/// * `flow_id` - The unique id that identifies this SAS verification process.
+/// - `ids` - The ids that are used for this SAS authentication flow.
+/// - `flow_id` - The unique id that identifies this SAS verification process.
 fn extra_mac_info_send(ids: &SasIds, flow_id: &str) -> String {
     format!(
         "MATRIX_KEY_VERIFICATION_MAC{first_user}{first_device}\
@@ -339,11 +334,9 @@ pub fn get_mac_content(
 ///
 /// # Arguments
 ///
-/// * `ids` - The ids that are used for this SAS authentication flow.
-///
-/// * `flow_id` - The unique id that identifies this SAS verification process.
-///
-/// * `we_started` - Flag signaling if the SAS process was started on our side.
+/// - `ids` - The ids that are used for this SAS authentication flow.
+/// - `flow_id` - The unique id that identifies this SAS verification process.
+/// - `we_started` - Flag signaling if the SAS process was started on our side.
 fn extra_info_sas(
     ids: &SasIds,
     own_pubkey: Curve25519PublicKey,
@@ -372,19 +365,17 @@ fn extra_info_sas(
 
 /// Get the emoji version of the short authentication string.
 ///
-/// Returns seven tuples where the first element is the emoji and the
-/// second element the English description of the emoji.
+/// Returns seven tuples where the first element is the emoji and the second
+/// element the English description of the emoji.
 ///
 /// # Arguments
 ///
-/// * `sas` - The Olm SAS object that can be used to generate bytes using the
+/// - `sas` - The Olm SAS object that can be used to generate bytes using the
 ///   shared secret.
 ///
-/// * `ids` - The ids that are used for this SAS authentication flow.
-///
-/// * `flow_id` - The unique id that identifies this SAS verification process.
-///
-/// * `we_started` - Flag signaling if the SAS process was started on our side.
+/// - `ids` - The ids that are used for this SAS authentication flow.
+/// - `flow_id` - The unique id that identifies this SAS verification process.
+/// - `we_started` - Flag signaling if the SAS process was started on our side.
 ///
 /// # Panics
 ///
@@ -424,14 +415,12 @@ pub fn get_emoji(
 ///
 /// # Arguments
 ///
-/// * `sas` - The Olm SAS object that can be used to generate bytes using the
+/// - `sas` - The Olm SAS object that can be used to generate bytes using the
 ///   shared secret.
 ///
-/// * `ids` - The ids that are used for this SAS authentication flow.
-///
-/// * `flow_id` - The unique id that identifies this SAS verification process.
-///
-/// * `we_started` - Flag signaling if the SAS process was started on our side.
+/// - `ids` - The ids that are used for this SAS authentication flow.
+/// - `flow_id` - The unique id that identifies this SAS verification process.
+/// - `we_started` - Flag signaling if the SAS process was started on our side.
 ///
 /// # Panics
 ///
@@ -455,19 +444,17 @@ pub fn get_emoji_index(
 
 /// Get the decimal version of the short authentication string.
 ///
-/// Returns a tuple containing three 4 digit integer numbers that represent
-/// the short auth string.
+/// Returns a tuple containing three 4 digit integer numbers that represent the
+/// short auth string.
 ///
 /// # Arguments
 ///
-/// * `sas` - The Olm SAS object that can be used to generate bytes using the
+/// - `sas` - The Olm SAS object that can be used to generate bytes using the
 ///   shared secret.
 ///
-/// * `ids` - The ids that are used for this SAS authentication flow.
-///
-/// * `flow_id` - The unique id that identifies this SAS verification process.
-///
-/// * `we_started` - Flag signaling if the SAS process was started on our side.
+/// - `ids` - The ids that are used for this SAS authentication flow.
+/// - `flow_id` - The unique id that identifies this SAS verification process.
+/// - `we_started` - Flag signaling if the SAS process was started on our side.
 ///
 /// # Panics
 ///

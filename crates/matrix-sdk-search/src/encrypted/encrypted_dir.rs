@@ -56,8 +56,8 @@ type InitialKeyDerivationResult = (KeyBuffer, KeyBuffer, Vec<u8>);
 type KeyDerivationResult = (KeyBuffer, KeyBuffer);
 
 // The constants here are chosen to be similar to the constants for the Matrix
-// key export format[1].
-// [1] https://spec.matrix.org/v1.15/client-server-api/#key-export-format
+// key export format[1]. [1]
+// https://spec.matrix.org/v1.15/client-server-api/#key-export-format
 const KEYFILE: &str = "seshat-index.key";
 // 16 byte random salt.
 const SALT_SIZE: usize = 16;
@@ -128,8 +128,8 @@ impl IntoTvError<OpenWriteError> for IoError {
 ///     ciphertext = AES256-CTR(iv, store_key)
 /// ```
 ///
-/// A MAC of the encrypted ciphertext will be created using
-/// the derived MAC key and [HMAC-SHA256][hmac]:
+/// A MAC of the encrypted ciphertext will be created using the derived MAC key
+/// and [HMAC-SHA256][hmac]:
 ///
 /// ```text
 ///     mac = HMAC-SHA256(mac_key, version || iv || salt || ciphertext)
@@ -191,26 +191,25 @@ impl EncryptedMmapDirectory {
         Ok(EncryptedMmapDirectory { mmap_dir, encryption_key, mac_key })
     }
     /// Open a encrypted mmap directory. If the directory is empty a new
-    ///   directory key will be generated and encrypted with the given
-    /// passphrase.
+    /// directory key will be generated and encrypted with the given passphrase.
     ///
     /// If a new store is created, this method will randomly generated a new
-    ///   store key and encrypted using the given passphrase.
+    /// store key and encrypted using the given passphrase.
     ///
     /// # Arguments
     ///
-    /// * `path` - The path where the directory should reside in.
-    /// * `passphrase` - The passphrase that was used to encrypt our directory
+    /// - `path` - The path where the directory should reside in.
+    /// - `passphrase` - The passphrase that was used to encrypt our directory
     ///   or the one that will be used to encrypt our directory.
-    /// * `key_derivation_count` - The number of iterations that our key
+    /// - `key_derivation_count` - The number of iterations that our key
     ///   derivation function should use. Can't be lower than 1, should be
     ///   chosen as high as possible, depending on how much time is acceptable
     ///   for the caller to wait. Is only used when a new store is created. The
     ///   count will be stored with the store key.
     ///
     /// Returns an error if the path does not exist, if it is not a directory or
-    ///   if there was an error when trying to decrypt the directory key e.g.
-    /// the   given passphrase was incorrect.
+    /// if there was an error when trying to decrypt the directory key e.g. the
+    /// given passphrase was incorrect.
     pub fn open_or_create<P: AsRef<Path>>(
         path: P,
         passphrase: &str,
@@ -253,12 +252,12 @@ impl EncryptedMmapDirectory {
     ///
     /// # Arguments
     ///
-    /// * `path` - The path where the directory should reside in.
-    /// * `passphrase` - The passphrase that was used to encrypt our directory.
+    /// - `path` - The path where the directory should reside in.
+    /// - `passphrase` - The passphrase that was used to encrypt our directory.
     ///
     /// Returns an error if the path does not exist, if it is not a directory or
-    ///   if there was an error when trying to decrypt the directory key e.g.
-    /// the   given passphrase was incorrect.
+    /// if there was an error when trying to decrypt the directory key e.g. the
+    /// given passphrase was incorrect.
     // This isn't currently used anywhere, but it will make sense if the
     // EncryptedMmapDirectory gets upstreamed.
     #[allow(dead_code)]
@@ -276,15 +275,15 @@ impl EncryptedMmapDirectory {
         EncryptedMmapDirectory::new(store_key, path.as_ref())
     }
 
-    /// Change the passphrase that is used to encrypt the store key.
-    /// This will decrypt and re-encrypt the store key using the new passphrase.
+    /// Change the passphrase that is used to encrypt the store key. This will
+    /// decrypt and re-encrypt the store key using the new passphrase.
     ///
     /// # Arguments
     ///
-    /// * `path` - The path where the directory resides in.
-    /// * `old_passphrase` - The currently used passphrase.
-    /// * `new_passphrase` - The passphrase that should be used from now on.
-    /// * `new_key_derivation_count` - The key derivation count that should be
+    /// - `path` - The path where the directory resides in.
+    /// - `old_passphrase` - The currently used passphrase.
+    /// - `new_passphrase` - The passphrase that should be used from now on.
+    /// - `new_key_derivation_count` - The key derivation count that should be
     ///   used for the re-encrypted store key.
     #[allow(dead_code)] // already implemented and will almost certainly be used.
     pub fn change_passphrase<P: AsRef<Path>>(
@@ -351,10 +350,10 @@ impl EncryptedMmapDirectory {
         let pbkdf_count = key_file.read_u32::<BigEndian>()?;
         key_file.read_exact(&mut expected_mac)?;
 
-        // Our key will be AES encrypted in CTR mode meaning the ciphertext
-        // will have the same size as the plaintext. Read at most KEY_SIZE
-        // bytes here so we don't end up filling up memory unnecessarily if
-        // someone modifies the file.
+        // Our key will be AES encrypted in CTR mode meaning the ciphertext will
+        // have the same size as the plaintext. Read at most KEY_SIZE bytes here
+        // so we don't end up filling up memory unnecessarily if someone
+        // modifies the file.
         key_file.take(KEY_SIZE as u64).read_to_end(&mut encrypted_key)?;
 
         if version[0] != VERSION {

@@ -114,8 +114,8 @@ impl ToWidgetRequest for NotifyOpenIdChanged {
     type ResponseData = OpenIdResponse;
 }
 
-/// Notify the widget that we received a new Matrix event.
-/// This is a "response" to the widget subscribing to the events in the room.
+/// Notify the widget that we received a new Matrix event. This is a "response"
+/// to the widget subscribing to the events in the room.
 #[derive(Serialize)]
 #[serde(transparent)]
 pub(crate) struct NotifyNewMatrixEvent(pub(crate) Raw<AnyTimelineEvent>);
@@ -125,8 +125,8 @@ impl ToWidgetRequest for NotifyNewMatrixEvent {
     type ResponseData = Empty;
 }
 
-/// Notify the widget that room state has changed.
-/// This is a "response" to the widget subscribing to the events in the room.
+/// Notify the widget that room state has changed. This is a "response" to the
+/// widget subscribing to the events in the room.
 #[derive(Serialize)]
 pub(crate) struct NotifyStateUpdate {
     pub(super) state: Vec<Raw<AnyStateEvent>>,
@@ -140,8 +140,8 @@ impl ToWidgetRequest for NotifyStateUpdate {
 #[derive(Deserialize)]
 pub(crate) struct Empty {}
 
-/// Notify the widget that we received a new Matrix to-device message.
-/// This is a "response" to the widget subscribing to the to-device messages.
+/// Notify the widget that we received a new Matrix to-device message. This is a
+/// "response" to the widget subscribing to the to-device messages.
 #[derive(Serialize)]
 #[serde(transparent)]
 pub(crate) struct NotifyNewToDeviceMessage(pub(crate) Raw<AnyToDeviceEvent>);

@@ -251,8 +251,8 @@ async fn test_event_with_context() -> Result<()> {
     }
 
     {
-        // Next query: target event with a context of 3 events. There
-        // should be some previous and next tokens.
+        // Next query: target event with a context of 3 events. There should be
+        // some previous and next tokens.
         let response = room.event_with_context(&event_id, false, uint!(3), None).await?;
 
         let target = response
@@ -284,8 +284,8 @@ async fn test_event_with_context() -> Result<()> {
         assert_event_matches_msg(&next_events[7], "19");
 
         {
-            // Synapse is pranking us here, pretending there might be other events
-            // afterwards.
+            // Synapse is pranking us here, pretending there might be other
+            // events afterwards.
             let next_messages = room
                 .messages(
                     MessagesOptions::forward().from(Some(next_messages.end.unwrap().as_str())),
@@ -462,7 +462,8 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
         let send_result = bob_room.send(RoomMessageEventContent::text_plain("hi Alyx!")).await?;
         let original_event_id = send_result.response.event_id;
 
-        // Bob edits that message they sent, and adds intentional mentions in the edit.
+        // Bob edits that message they sent, and adds intentional mentions in
+        // the edit.
         let mentions = Mentions::with_user_ids([alice_user_id.to_owned()]);
         let send_edit_result = bob_room
             .send(
@@ -544,8 +545,8 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
 
     // The unread counts should be incorrect.
 
-    // Only 1 message: the edit has clear info that it's an edit.
-    // TODO: we should probably *not* trust it?
+    // Only 1 message: the edit has clear info that it's an edit. TODO: we
+    // should probably _not_ trust it?
     assert_eq!(room2.num_unread_messages(), 1);
     assert_eq!(room2.num_unread_mentions(), 0); // This should be 1 (after decryption).
     // By default, all 1:1 messages are notifications.
@@ -578,9 +579,9 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
     assert_eq!(room2.num_unread_messages(), 1);
     // 1 intentional mention \o/
     assert_eq!(room2.num_unread_mentions(), 1);
-    // Both events count for notifications.
-    // TODO: Either the original or the edit should count, but not both, as they
-    // will often result in a single consolidated item in the UI (#6282).
+    // Both events count for notifications. TODO: Either the original or the
+    // edit should count, but not both, as they will often result in a single
+    // consolidated item in the UI (#6282).
     assert_eq!(room2.num_unread_notifications(), 2);
 
     Ok(())
@@ -589,10 +590,11 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
 #[tokio::test]
 async fn test_latest_event_few_rooms() -> Result<()> {
     // Test plan:
+    //
     // - Create a user
     // - Create two rooms
-    //  - one room with a message;
-    //  - one room with a message and a reaction to it.
+    // - one room with a message;
+    // - one room with a message and a reaction to it.
     // - Create another client for that same user, and sync.
     // - Check that each room has their own latest event.
 
@@ -730,8 +732,8 @@ async fn test_latest_event_few_rooms() -> Result<()> {
     debug!("Running check for second client, room1");
     assert_latest_event_is_remote_event(&room1, &mut room1_sub, &room1_msg_event_id).await;
 
-    // Test passes if we uncomment this line, since more events will be fetched from
-    // the server and there will be a latest event update.
+    // Test passes if we uncomment this line, since more events will be fetched
+    // from the server and there will be a latest event update.
     room2.event_cache().await?.0.pagination().run_backwards_until(100).await?;
 
     //warn!("Subscribing to rooms on second client…");
@@ -774,6 +776,7 @@ async fn test_latest_event_few_rooms() -> Result<()> {
 #[tokio::test]
 async fn test_invite_declined_and_later_accepted() -> Result<()> {
     // Test plan:
+    //
     // 1. Alice creates a room
     // 2. Alice invites Bob
     // 3. Bob declines the invite

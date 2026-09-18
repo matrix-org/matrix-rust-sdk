@@ -57,9 +57,8 @@ pub(crate) struct BackupClientState {
     /// Whether a key storage backup exists on the server, as far as we know.
     ///
     /// This is `None` if we have not asked the server yet, and `Some`
-    /// otherwise. This value is not always up-to-date: if the backup status
-    /// on the server was changed by some other client, we will have a old
-    /// value.
+    /// otherwise. This value is not always up-to-date: if the backup status on
+    /// the server was changed by some other client, we will have a old value.
     pub(super) backup_exists_on_server: RwLock<Option<bool>>,
 }
 
@@ -71,16 +70,15 @@ impl BackupClientState {
     }
 
     /// Ask whether the key storage backup exists on the server. Returns `None`
-    /// if we haven't checked. Note that this value will be out-of-date if
-    /// some other client changed the state since the last time we checked.
+    /// if we haven't checked. Note that this value will be out-of-date if some
+    /// other client changed the state since the last time we checked.
     pub(crate) fn backup_exists_on_server(&self) -> Option<bool> {
         *self.backup_exists_on_server.read().unwrap()
     }
 
     /// Clear out the cached value indicating whether a key storage backup
-    /// exists on the server, meaning that the code in
-    /// [`super::Backups`] will repopulate it when needed
-    /// with an up-to-date value.
+    /// exists on the server, meaning that the code in [`super::Backups`] will
+    /// repopulate it when needed with an up-to-date value.
     pub(crate) fn clear_backup_exists_on_server(&self) {
         *self.backup_exists_on_server.write().unwrap() = None;
     }
@@ -110,9 +108,9 @@ impl Default for BackupClientState {
 /// Backups will be enabled automatically if we receive the backup recovery key
 /// either from:
 ///
-/// * Another device using `m.secret.send`[[2]], which usually happens after
+/// - Another device using `m.secret.send`[[2]], which usually happens after
 ///   completing interactive verification.
-/// * Secret storage[[3]], which is done by calling the
+/// - Secret storage[[3]], which is done by calling the
 ///   [`SecretStore::import_secrets()`] method.
 ///
 /// [1]: https://spec.matrix.org/v1.8/client-server-api/#recovery-key
@@ -133,19 +131,18 @@ pub enum BackupState {
     /// A new backup is being created by this [`Client`]. This state will be
     /// entered if you call the [`Backups::create()`] method.
     Creating,
-    /// An existing backup is being enabled for use by this [`Client`]. We
-    /// will enter this state if we have received a backup recovery key.
+    /// An existing backup is being enabled for use by this [`Client`]. We will
+    /// enter this state if we have received a backup recovery key.
     Enabling,
     /// An existing backup will be enabled to be used by this [`Client`] after
-    /// the client has been restored. This state happens every time a
-    /// [`Client`] is restored after we'd previously enabled a backup.
+    /// the client has been restored. This state happens every time a [`Client`]
+    /// is restored after we'd previously enabled a backup.
     Resuming,
     /// The backup is enabled and room keys are actively being backed up.
     Enabled,
     /// Room keys are currently being downloaded. This state will only happen
-    /// after an `Enabling` state. The [`Client`] will attempt to download
-    /// all room keys from the backup before transitioning into the
-    /// `Enabled` state.
+    /// after an `Enabling` state. The [`Client`] will attempt to download all
+    /// room keys from the backup before transitioning into the `Enabled` state.
     Downloading,
     /// The backup is being disabled and deleted from the server. This state
     /// will happen when you call the [`Backups::disable()`] method. After it

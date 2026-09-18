@@ -173,9 +173,9 @@ impl Room {
     /// Get the unread notification counts computed server-side.
     ///
     /// Note: these might be incorrect for encrypted rooms, since the server
-    /// doesn't know which events are relevant standalone messages or not,
-    /// nor can it inspect mentions. If you need more precise counts for
-    /// encrypted rooms, consider using the client-side computed counts in
+    /// doesn't know which events are relevant standalone messages or not, nor
+    /// can it inspect mentions. If you need more precise counts for encrypted
+    /// rooms, consider using the client-side computed counts in
     /// [`Self::num_unread_messages`], [`Self::num_unread_notifications`] and
     /// [`Self::num_unread_mentions`].
     pub fn unread_notification_counts(&self) -> UnreadNotificationsCount {
@@ -214,8 +214,8 @@ impl Room {
 
     /// Check if the room states have been synced
     ///
-    /// States might be missing if we have only seen the room_id of this Room
-    /// so far, for example as the response for a `create_room` request without
+    /// States might be missing if we have only seen the room_id of this Room so
+    /// far, for example as the response for a `create_room` request without
     /// being synced yet.
     ///
     /// Returns true if the state is fully synced, false otherwise.
@@ -327,11 +327,11 @@ impl Room {
     /// If this room is a direct message, get the members that we're sharing the
     /// room with.
     ///
-    /// *Note*: The member list might have been modified in the meantime and
-    /// the targets might not even be in the room anymore. This setting should
-    /// only be considered as guidance. We leave members in this list to allow
-    /// us to re-find a DM with a user even if they have left, since we may
-    /// want to re-invite them.
+    /// _Note_: The member list might have been modified in the meantime and the
+    /// targets might not even be in the room anymore. This setting should only
+    /// be considered as guidance. We leave members in this list to allow us to
+    /// re-find a DM with a user even if they have left, since we may want to
+    /// re-invite them.
     pub fn direct_targets(&self) -> HashSet<OwnedDirectUserIdentifier> {
         self.info.read().base_info.dm_targets.clone()
     }
@@ -475,8 +475,8 @@ impl Room {
         self.store.get_user_ids(self.room_id(), RoomMemberships::JOIN).await
     }
 
-    /// The user IDs of this room's heroes, as stored, for cheaply checking
-    /// hero membership without loading their global profiles.
+    /// The user IDs of this room's heroes, as stored, for cheaply checking hero
+    /// membership without loading their global profiles.
     #[cfg(feature = "unstable-msc4426")]
     pub(crate) fn hero_user_ids(&self) -> Vec<OwnedUserId> {
         self.info.read().heroes().iter().map(|hero| hero.user_id.clone()).collect()
@@ -508,7 +508,8 @@ impl Room {
             return Vec::new();
         }
 
-        // Return with empty profile fields when the user status feature is disabled.
+        // Return with empty profile fields when the user status feature is
+        // disabled.
         #[cfg(not(feature = "unstable-msc4426"))]
         {
             heroes.into_iter().map(RoomHeroWithProfile::from).collect()
@@ -601,8 +602,8 @@ impl Room {
         self.info.read().recency_stamp
     }
 
-    /// Get a `Stream` of loaded pinned events for this room.
-    /// If no pinned events are found a single empty `Vec` will be returned.
+    /// Get a `Stream` of loaded pinned events for this room. If no pinned
+    /// events are found a single empty `Vec` will be returned.
     pub fn pinned_event_ids_stream(&self) -> impl Stream<Item = Vec<OwnedEventId>> + use<> {
         self.info
             .subscribe()
@@ -615,8 +616,8 @@ impl Room {
     }
 
     /// Computes and stores the list of service members that are either in a
-    /// joined or invited state in this room, checking the service member
-    /// list against the locally available room members.
+    /// joined or invited state in this room, checking the service member list
+    /// against the locally available room members.
     pub async fn update_active_service_members(&self) -> StoreResult<Option<Vec<RoomMember>>> {
         if let Some(service_members) = self.service_members() {
             let mut found = Vec::new();
@@ -885,7 +886,8 @@ mod tests {
         assert!(heroes[0].status.is_none());
         assert!(heroes[0].call.is_none());
 
-        // Store a global profile carrying an `m.status` and `m.call` for the hero.
+        // Store a global profile carrying an `m.status` and `m.call` for the
+        // hero.
         let mut call = CallProfileField::new();
         call.call_joined_ts = Some(SecondsSinceUnixEpoch(1_700_000_000u32.into()));
         let mut changes = StateChanges::default();

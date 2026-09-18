@@ -34,8 +34,10 @@ metadata! {
     },
 }
 
-/// The HTTP request body for downloading and scanning unencrypted media.
-/// Spec: <https://github.com/element-hq/matrix-content-scanner-python/blob/main/docs/api.md#get-_matrixmedia_proxyunstabledownloadservernamemediaid>
+/// The HTTP request body for downloading and scanning unencrypted media. Spec:
+/// [https://github.com/element-hq/matrix-content-scanner-python/blob/main/docs/api.md#get-_matrixmedia_proxyunstabledownloadservernamemediaid][https-github-com-element-hq-matrix-content-scanner-python-blob-main-docs-api-md-get-matrixmedia-proxyunstabledownloadservernamemediaid]
+///
+/// [https-github-com-element-hq-matrix-content-scanner-python-blob-main-docs-api-md-get-matrixmedia-proxyunstabledownloadservernamemediaid]: https://github.com/element-hq/matrix-content-scanner-python/blob/main/docs/api.md#get-_matrixmedia_proxyunstabledownloadservernamemediaid
 #[derive(Debug, Clone)]
 pub(crate) struct DownloadAndScanMediaRequest {
     scanner_url: String,

@@ -84,8 +84,7 @@ impl Message {
         self.msgtype.body()
     }
 
-    /// Get the edit state of this message (has been edited: `true` /
-    /// `false`).
+    /// Get the edit state of this message (has been edited: `true` / `false`).
     pub fn is_edited(&self) -> bool {
         self.edited
     }

@@ -67,8 +67,7 @@ impl<'a, R: ?Sized> UploadEncryptedFile<'a, R> {
         self
     }
 
-    /// Get a subscriber to observe the progress of sending the request
-    /// body.
+    /// Get a subscriber to observe the progress of sending the request body.
     pub fn subscribe_to_send_progress(&self) -> Subscriber<TransmissionProgress> {
         self.send_progress.subscribe()
     }
@@ -89,8 +88,8 @@ where
             let mut buf = Vec::new();
             encryptor.read_to_end(&mut buf)?;
 
-            // Override the reasonable upload timeout value, based on the size of the
-            // encrypted payload.
+            // Override the reasonable upload timeout value, based on the size
+            // of the encrypted payload.
             let request_config =
                 request_config.map(|config| config.timeout(Media::reasonable_upload_timeout(&buf)));
 

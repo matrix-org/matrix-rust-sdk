@@ -29,8 +29,8 @@ impl SpaceGraphNode {
     }
 }
 
-/// A graph structure representing a space hierarchy. Contains functionality
-/// for mapping parent-child relationships between rooms, removing cycles and
+/// A graph structure representing a space hierarchy. Contains functionality for
+/// mapping parent-child relationships between rooms, removing cycles and
 /// retrieving top-level parents/roots.
 #[derive(Debug)]
 pub(super) struct SpaceGraph {
@@ -99,8 +99,8 @@ impl SpaceGraph {
 
     /// Returns the subtree of the given node in a bottom-up order.
     ///
-    /// Does a BFS starting from the given node tracking the visited nodes
-    /// and returning them in the reverse order.
+    /// Does a BFS starting from the given node tracking the visited nodes and
+    /// returning them in the reverse order.
     pub(super) fn flattened_bottom_up_subtree(&self, node_id: &RoomId) -> Vec<OwnedRoomId> {
         if !self.has_node(node_id) {
             return Vec::new();
@@ -297,19 +297,9 @@ mod tests {
     }
 
     fn vehicle_graph() -> SpaceGraph {
-        // Vehicles
-        // ├── Shared
-        // │   ├── Bus
-        // │   └── Train
-        // ├── Personal
-        // │   ├── Car
-        // │   ├── Bicycle
-        // │   │   ├── Road
-        // │   │   ├── Gravel
-        // │   │   └── Mountain
-        // │   └── Helicopter
-        // └── Cargo
-        //     └── Plane
+        // Vehicles ├── Shared │ ├── Bus │ └── Train ├── Personal │ ├── Car │
+        // ├── Bicycle │ │ ├── Road │ │ ├── Gravel │ │ └── Mountain │ └──
+        // Helicopter └── Cargo └── Plane
 
         let mut graph = SpaceGraph::new();
 

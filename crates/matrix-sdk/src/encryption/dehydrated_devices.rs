@@ -126,14 +126,13 @@ pub enum DehydratedDeviceError {
     #[error(transparent)]
     Crypto(#[from] DehydrationError),
 
-    /// Importing room keys from a rehydrated device's to-device events
-    /// failed.
+    /// Importing room keys from a rehydrated device's to-device events failed.
     #[error(transparent)]
     Olm(#[from] OlmError),
 
-    /// The to-device drain during rehydration stopped before the server's
-    /// queue was exhausted; the dehydrated device was left in place so a
-    /// retry can resume the drain.
+    /// The to-device drain during rehydration stopped before the server's queue
+    /// was exhausted; the dehydrated device was left in place so a retry can
+    /// resume the drain.
     #[error(
         "the to-device drain stopped after {to_device_events} events with more still queued; the dehydrated device was kept so a retry can resume"
     )]
@@ -173,14 +172,14 @@ fn pickle_key_secret_name() -> SecretName {
 /// background rotation failures the task would otherwise swallow.
 #[derive(Clone, Debug)]
 pub enum DehydratedDeviceEvent {
-    /// A fresh dehydrated device was constructed in the local crypto
-    /// store, before the upload PUT.
+    /// A fresh dehydrated device was constructed in the local crypto store,
+    /// before the upload PUT.
     Created {
         /// Device ID assigned to the new dehydrated device.
         device_id: OwnedDeviceId,
     },
-    /// The dehydrated device announced by the preceding
-    /// [`Self::Created`] event was accepted by the homeserver.
+    /// The dehydrated device announced by the preceding [`Self::Created`] event
+    /// was accepted by the homeserver.
     Uploaded {
         /// Device ID of the dehydrated device now visible on the server.
         device_id: OwnedDeviceId,
@@ -215,8 +214,8 @@ pub enum DehydratedDeviceEvent {
         /// Human-readable description of the failure.
         error: String,
     },
-    /// A scheduled rotation tick failed; the rotation task remains
-    /// scheduled and will retry at the next tick.
+    /// A scheduled rotation tick failed; the rotation task remains scheduled
+    /// and will retry at the next tick.
     RotationError {
         /// Human-readable description of the failure.
         error: String,
@@ -225,8 +224,8 @@ pub enum DehydratedDeviceEvent {
 
 /// Process-wide state for the dehydrated-devices manager.
 ///
-/// Held inside [`crate::encryption::EncryptionData`] so the event sender
-/// and any in-flight rotation task survive across
+/// Held inside [`crate::encryption::EncryptionData`] so the event sender and
+/// any in-flight rotation task survive across
 /// `Client::encryption().dehydrated_devices()` calls.
 pub(crate) struct DehydratedDevicesState {
     event_sender: broadcast::Sender<DehydratedDeviceEvent>,
@@ -258,18 +257,18 @@ struct DrainOutcome {
     room_keys_imported: usize,
     to_device_events: usize,
 
-    /// Whether the drain stopped defensively (batch cap or a repeated
-    /// cursor) with events potentially still queued on the server.
+    /// Whether the drain stopped defensively (batch cap or a repeated cursor)
+    /// with events potentially still queued on the server.
     truncated: bool,
 }
 
 impl DehydratedDevices {
     /// Subscribe to the stream of [`DehydratedDeviceEvent`]s.
     ///
-    /// Each call returns a fresh stream. If a subscriber is slow enough to
-    /// fall behind the channel's buffer, it receives a
-    /// [`BroadcastStreamRecvError`] reporting the number of skipped events
-    /// and the stream continues from the most recent event.
+    /// Each call returns a fresh stream. If a subscriber is slow enough to fall
+    /// behind the channel's buffer, it receives a [`BroadcastStreamRecvError`]
+    /// reporting the number of skipped events and the stream continues from the
+    /// most recent event.
     ///
     /// # Example
     ///
@@ -301,8 +300,8 @@ impl DehydratedDevices {
 
     /// Return whether the homeserver advertises dehydrated-device support.
     ///
-    /// Probes by issuing `GET /dehydrated_device` and inspecting the errcode
-    /// of the response:
+    /// Probes by issuing `GET /dehydrated_device` and inspecting the errcode of
+    /// the response:
     ///
     /// - `M_UNRECOGNIZED` means the server does not understand the endpoint.
     /// - `M_NOT_FOUND` or a successful response means the server understands
@@ -326,16 +325,16 @@ impl DehydratedDevices {
     /// Create a fresh dehydrated device and upload it to the homeserver.
     ///
     /// The pickle key is used by [vodozemac] to encrypt the private parts of
-    /// the device. The application is responsible for safely storing the
-    /// pickle key (typically in Secret Storage so future sessions can
-    /// rehydrate the device).
+    /// the device. The application is responsible for safely storing the pickle
+    /// key (typically in Secret Storage so future sessions can rehydrate the
+    /// device).
     ///
     /// # Arguments
     ///
-    /// * `display_name` - Optional human-readable name uploaded as the
+    /// - `display_name` - Optional human-readable name uploaded as the
     ///   dehydrated device's `initial_device_display_name`. Defaults to
     ///   `"Dehydrated device"`.
-    /// * `pickle_key` - 32-byte key used to encrypt the dehydrated device.
+    /// - `pickle_key` - 32-byte key used to encrypt the dehydrated device.
     ///
     /// # Example
     ///
@@ -383,20 +382,19 @@ impl DehydratedDevices {
 
     /// Rehydrate the dehydrated device currently on the server, if any.
     ///
-    /// Downloads the dehydrated device, decrypts it with `pickle_key`,
-    /// drains all queued to-device events to import their room keys, and
-    /// finally deletes the device from the server.
+    /// Downloads the dehydrated device, decrypts it with `pickle_key`, drains
+    /// all queued to-device events to import their room keys, and finally
+    /// deletes the device from the server.
     ///
     /// Returns `Ok(false)` if the server reports no dehydrated device
-    /// (`M_NOT_FOUND`) or does not implement the endpoint
-    /// (`M_UNRECOGNIZED`). Returns `Ok(true)` once the rehydration cycle
-    /// has completed end to end.
+    /// (`M_NOT_FOUND`) or does not implement the endpoint (`M_UNRECOGNIZED`).
+    /// Returns `Ok(true)` once the rehydration cycle has completed end to end.
     ///
-    /// If the drain stops defensively before the server's queue is
-    /// exhausted, the device is left on the server and
+    /// If the drain stops defensively before the server's queue is exhausted,
+    /// the device is left on the server and
     /// [`DehydratedDeviceError::DrainTruncated`] is returned. Calling this
-    /// method again restarts the drain from the beginning of the queue;
-    /// room keys imported by the earlier attempt import idempotently.
+    /// method again restarts the drain from the beginning of the queue; room
+    /// keys imported by the earlier attempt import idempotently.
     ///
     /// # Example
     ///
@@ -457,9 +455,9 @@ impl DehydratedDevices {
             to_device_events: drained.to_device_events,
         });
 
-        // Key import already succeeded; if the post-drain delete fails, log
-        // it but do not let the failure masquerade as a rehydration error.
-        // The next create() call will replace the device anyway.
+        // Key import already succeeded; if the post-drain delete fails, log it
+        // but do not let the failure masquerade as a rehydration error. The
+        // next create() call will replace the device anyway.
         if let Err(e) = self.delete_device().await {
             warn!(device_id = ?downloaded.device_id, error = %e, "Post-rehydration delete failed; the next rotation will replace the device");
         }
@@ -469,8 +467,8 @@ impl DehydratedDevices {
 
     /// Cache the pickle key in the local crypto store.
     ///
-    /// Subsequent rehydration attempts can then resolve the key from the
-    /// cache without an account-data round-trip.
+    /// Subsequent rehydration attempts can then resolve the key from the cache
+    /// without an account-data round-trip.
     #[instrument(skip_all)]
     pub(crate) async fn cache_key(
         &self,
@@ -486,8 +484,8 @@ impl DehydratedDevices {
 
     /// Return the pickle key currently cached in the local crypto store.
     ///
-    /// `Ok(None)` if no key has been cached. The returned key matches the
-    /// last value persisted via [`cache_key`](Self::cache_key) or
+    /// `Ok(None)` if no key has been cached. The returned key matches the last
+    /// value persisted via [`cache_key`](Self::cache_key) or
     /// [`reset_key`](Self::reset_key); it is not fetched from Secret Storage.
     #[instrument(skip_all)]
     pub(crate) async fn cached_key(
@@ -513,8 +511,8 @@ impl DehydratedDevices {
 
     /// Return whether the pickle key is stored in the given Secret Storage.
     ///
-    /// The key is looked up by the account-data event type
-    /// `org.matrix.msc3814` (the unstable name reserved by MSC3814).
+    /// The key is looked up by the account-data event type `org.matrix.msc3814`
+    /// (the unstable name reserved by MSC3814).
     ///
     /// # Example
     ///
@@ -537,9 +535,9 @@ impl DehydratedDevices {
     /// Generate a new random pickle key, persist it in Secret Storage, and
     /// cache it in the local crypto store.
     ///
-    /// The previous key (if any) is overwritten in both places. Any
-    /// dehydrated device that was encrypted with the previous key becomes
-    /// unrehydratable until rotated.
+    /// The previous key (if any) is overwritten in both places. Any dehydrated
+    /// device that was encrypted with the previous key becomes unrehydratable
+    /// until rotated.
     ///
     /// # Example
     ///
@@ -648,9 +646,9 @@ impl DehydratedDevices {
 
     /// Stop the scheduled dehydrated-device rotation, if any.
     ///
-    /// Has no effect when no rotation is scheduled. Existing dehydrated
-    /// devices on the server are left in place; pair with
-    /// [`Self::delete`] to clean those up.
+    /// Has no effect when no rotation is scheduled. Existing dehydrated devices
+    /// on the server are left in place; pair with [`Self::delete`] to clean
+    /// those up.
     pub fn stop(&self) {
         self.state().rotation_task.lock().take();
     }
@@ -719,8 +717,8 @@ impl DehydratedDevices {
 
     /// Delete the current dehydrated device, if one exists.
     ///
-    /// Also stops any scheduled rotation, so the next tick will not
-    /// immediately recreate the device the caller just asked to remove.
+    /// Also stops any scheduled rotation, so the next tick will not immediately
+    /// recreate the device the caller just asked to remove.
     ///
     /// Returns `Ok(())` silently if no dehydrated device is on the server or
     /// the server does not implement the endpoint.
@@ -789,8 +787,8 @@ impl DehydratedDevices {
     }
 
     /// Drain every queued to-device event from the dehydrated device's
-    /// server-side buffer, feeding each batch through the rehydrated
-    /// machine so the room keys are imported.
+    /// server-side buffer, feeding each batch through the rehydrated machine so
+    /// the room keys are imported.
     ///
     /// An empty batch or an absent cursor ends the drain cleanly; the two
     /// defensive stops (batch cap, repeated cursor) mark the returned

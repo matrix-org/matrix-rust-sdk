@@ -79,8 +79,8 @@ impl IndexeddbEventCacheStore {
     }
 
     /// Initializes a new transaction on the underlying IndexedDB database and
-    /// returns a handle which can be used to combine database operations
-    /// into an atomic unit.
+    /// returns a handle which can be used to combine database operations into
+    /// an atomic unit.
     pub fn transaction<'a>(
         &'a self,
         stores: &[&str],
@@ -172,8 +172,8 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             IdbTransactionMode::Readwrite,
         )?;
 
-        // Test whether necessary components of an event are present
-        // in the underlying structure
+        // Test whether necessary components of an event are present in the
+        // underlying structure
         let is_complete_event = |event: &Event| {
             let Some(event_id) = event.event_id() else {
                 error!("Found event with no ID");
@@ -320,13 +320,13 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<Vec<ChunkMetadata>, IndexeddbEventCacheStoreError> {
-        // TODO: This call could possibly take a very long time and the
-        // amount of time increases linearly with the number of chunks
-        // it needs to load from the database. This will likely require
-        // some refactoring to deal with performance issues.
+        // TODO: This call could possibly take a very long time and the amount
+        // of time increases linearly with the number of chunks it needs to load
+        // from the database. This will likely require some refactoring to deal
+        // with performance issues.
         //
-        // For details on the performance penalties associated with this
-        // call, see https://github.com/matrix-org/matrix-rust-sdk/pull/5407.
+        // For details on the performance penalties associated with this call,
+        // see https://github.com/matrix-org/matrix-rust-sdk/pull/5407.
         //
         // For how this was improved in the SQLite implementation, see
         // https://github.com/matrix-org/matrix-rust-sdk/pull/5382.
@@ -376,19 +376,20 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         // have a next chunk.
         match transaction.get_chunk_by_next_chunk_id(linked_chunk_id, None).await {
             Err(TransactionError::ItemIsNotUnique) => {
-                // If there are multiple chunks that do not have a next chunk, that
-                // means we have more than one last chunk, which means that we have
-                // more than one list in the room.
+                // If there are multiple chunks that do not have a next chunk,
+                // that means we have more than one last chunk, which means that
+                // we have more than one list in the room.
                 Err(IndexeddbEventCacheStoreError::ChunksContainDisjointLists)
             }
             Err(e) => {
-                // There was some error querying IndexedDB, but it is not necessarily
-                // a violation of our data constraints.
+                // There was some error querying IndexedDB, but it is not
+                // necessarily a violation of our data constraints.
                 Err(e.into())
             }
             Ok(None) => {
-                // If there is no chunk without a next chunk, that means every chunk
-                // points to another chunk, which means that we have a cycle in our list.
+                // If there is no chunk without a next chunk, that means every
+                // chunk points to another chunk, which means that we have a
+                // cycle in our list.
                 Err(IndexeddbEventCacheStoreError::ChunksContainCycle)
             }
             Ok(Some(last_chunk)) => {
@@ -514,7 +515,8 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     for linked_chunk_id in
                         [LinkedChunkId::Room(room_id), LinkedChunkId::PinnedEvents(room_id)]
                     {
-                        // Remove all the items, gaps and events about the current `LinkedChunkId`.
+                        // Remove all the items, gaps and events about the
+                        // current `LinkedChunkId`.
                         transaction.delete_chunks_by_linked_chunk_id(linked_chunk_id).await?;
                         transaction.delete_gaps_by_linked_chunk_id(linked_chunk_id).await?;
                         transaction.delete_events_by_linked_chunk_id(linked_chunk_id).await?;
@@ -526,7 +528,8 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     for thread in transaction.get_threads_by_room_id(room_id).await? {
                         let linked_chunk_id = thread.linked_chunk();
 
-                        // Remove all the items, gaps and events about the current `LinkedChunkId`.
+                        // Remove all the items, gaps and events about the
+                        // current `LinkedChunkId`.
                         transaction.delete_chunks_by_linked_chunk_id(linked_chunk_id).await?;
                         transaction.delete_gaps_by_linked_chunk_id(linked_chunk_id).await?;
                         transaction.delete_events_by_linked_chunk_id(linked_chunk_id).await?;
@@ -603,12 +606,13 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                         };
                         match event.linked_chunk_id() {
                             LinkedChunkId::Room(_) => {
-                                // Prioritize events that come from a room linked chunk
+                                // Prioritize events that come from a room
+                                // linked chunk
                                 related_events.insert(event_id.to_owned(), event);
                             }
                             _ => {
-                                // Remove position information from events that come
-                                // from any other type of linked chunk
+                                // Remove position information from events that
+                                // come from any other type of linked chunk
                                 related_events
                                     .entry(event_id.to_owned())
                                     .or_insert_with(|| event.into_out_of_band_event());
@@ -624,7 +628,8 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     };
                     match event.linked_chunk_id() {
                         LinkedChunkId::Room(_) => {
-                            // Prioritize events that come from a room linked chunk
+                            // Prioritize events that come from a room linked
+                            // chunk
                             related_events.insert(event_id.to_owned(), event);
                         }
                         _ => {
@@ -656,8 +661,8 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     ) -> Result<Vec<Event>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
-        // TODO: Make this more efficient so we don't load all events and filter them
-        // here. We should instead only load the relevant events.
+        // TODO: Make this more efficient so we don't load all events and filter
+        // them here. We should instead only load the relevant events.
 
         let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
         transaction

@@ -117,8 +117,8 @@ pub fn ruma_response_to_json<ResponseType: OutgoingResponse>(
 #[derive(Debug)] // required to be able to return TestResult from #[test] fns
 pub enum TestError {}
 
-// If this was just `T: Debug`, it would conflict with
-// the `impl From<T> for T` in `std`.
+// If this was just `T: Debug`, it would conflict with the `impl From<T> for T`
+// in `std`.
 //
 // Adding a dummy `Display` bound works around this.
 impl<T: fmt::Display + fmt::Debug> From<T> for TestError {

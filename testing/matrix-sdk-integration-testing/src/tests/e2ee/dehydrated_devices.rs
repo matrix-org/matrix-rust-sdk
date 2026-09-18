@@ -45,8 +45,8 @@ use crate::helpers::TestClientBuilder;
 /// Direct `create` → `rehydrate` round trip without involving Secret Storage.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_dehydrated_device_direct_round_trip() -> Result<()> {
-    // Cross-signing must be bootstrapped: a dehydrated device upload signs
-    // the device keys with the local self-signing key.
+    // Cross-signing must be bootstrapped: a dehydrated device upload signs the
+    // device keys with the local self-signing key.
     let encryption_settings =
         EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
 
@@ -75,8 +75,8 @@ async fn test_dehydrated_device_direct_round_trip() -> Result<()> {
     let mut saw_rehydration_completed = false;
     let mut saw_deleted = false;
 
-    // Rehydrate first to emit the matching events; observe both lifecycles
-    // off the same stream in one drain.
+    // Rehydrate first to emit the matching events; observe both lifecycles off
+    // the same stream in one drain.
     assert!(dehydrated.rehydrate(&pickle_key).await?);
 
     timeout(
@@ -121,8 +121,8 @@ async fn test_dehydrated_device_direct_round_trip() -> Result<()> {
     Ok(())
 }
 
-/// Full `start` lifecycle with Recovery wired up: the pickle key is
-/// resolved out of Secret Storage rather than supplied by the caller.
+/// Full `start` lifecycle with Recovery wired up: the pickle key is resolved
+/// out of Secret Storage rather than supplied by the caller.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_dehydrated_device_start_via_recovery() -> Result<()> {
     let encryption_settings = EncryptionSettings {

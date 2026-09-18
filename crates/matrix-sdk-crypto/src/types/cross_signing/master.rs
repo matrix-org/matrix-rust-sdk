@@ -96,7 +96,7 @@ impl MasterPubkey {
     ///
     /// # Arguments
     ///
-    /// * `subkey` - The subkey that should be checked for a valid signature.
+    /// - `subkey` - The subkey that should be checked for a valid signature.
     ///
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.

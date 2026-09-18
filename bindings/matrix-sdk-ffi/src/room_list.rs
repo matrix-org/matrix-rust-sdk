@@ -213,24 +213,24 @@ impl RoomList {
 
         // The following code deserves a bit of explanation.
         // `matrix_sdk_ui::room_list_service::RoomList::entries_with_dynamic_adapters`
-        // returns a `Stream` with a lifetime bounds to its `self` (`RoomList`). This is
-        // problematic here as this `Stream` is returned as part of
-        // `RoomListEntriesWithDynamicAdaptersResult` but it is not possible to store
-        // `RoomList` with it inside the `Future` that is run inside the `TaskHandle`
-        // that consumes this `Stream`. We have a lifetime issue: `RoomList` doesn't
-        // live long enough!
+        // returns a `Stream` with a lifetime bounds to its `self` (`RoomList`).
+        // This is problematic here as this `Stream` is returned as part of
+        // `RoomListEntriesWithDynamicAdaptersResult` but it is not possible to
+        // store `RoomList` with it inside the `Future` that is run inside the
+        // `TaskHandle` that consumes this `Stream`. We have a lifetime issue:
+        // `RoomList` doesn't live long enough!
         //
         // To solve this issue, the trick is to store the `RoomList` inside the
-        // `RoomListEntriesWithDynamicAdaptersResult`. Alright, but then we have another
-        // lifetime issue! `RoomList` cannot move inside this struct because it is
-        // borrowed by `entries_with_dynamic_adapters`. Indeed, the struct is built
-        // after the `Stream` is obtained.
+        // `RoomListEntriesWithDynamicAdaptersResult`. Alright, but then we have
+        // another lifetime issue! `RoomList` cannot move inside this struct
+        // because it is borrowed by `entries_with_dynamic_adapters`. Indeed,
+        // the struct is built after the `Stream` is obtained.
         //
-        // To solve this issue, we need to build the struct field by field, starting
-        // with `this`, and use a reference to `this` to call
+        // To solve this issue, we need to build the struct field by field,
+        // starting with `this`, and use a reference to `this` to call
         // `entries_with_dynamic_adapters`. This is unsafe because a couple of
-        // invariants must hold, but all this is legal and correct if the invariants are
-        // properly fulfilled.
+        // invariants must hold, but all this is legal and correct if the
+        // invariants are properly fulfilled.
 
         // Create the struct result with uninitialized fields.
         let mut result = MaybeUninit::<RoomListEntriesWithDynamicAdaptersResult>::uninit();
@@ -238,28 +238,29 @@ impl RoomList {
 
         // Initialize the first field `this`.
         //
-        // SAFETY: `ptr` is correctly aligned, this is guaranteed by `MaybeUninit`.
+        // SAFETY: `ptr` is correctly aligned, this is guaranteed by
+        // `MaybeUninit`.
         unsafe {
             addr_of_mut!((*ptr).this).write(this);
         }
 
         // Get a reference to `this`. It is only borrowed, it's not moved.
         let this =
-            // SAFETY: `ptr` is correctly aligned, the `this` field is correctly aligned,
-            // is dereferenceable and points to a correctly initialized value as done
-            // in the previous line.
+            // SAFETY: `ptr` is correctly aligned, the `this` field is correctly
+            // aligned, is dereferenceable and points to a correctly initialized
+            // value as done in the previous line.
             unsafe { addr_of_mut!((*ptr).this).as_ref() }
                 // SAFETY: `this` contains a non null value.
                 .unwrap();
 
-        // Now we can create `entries_stream` and `dynamic_entries_controller` by
-        // borrowing `this`, which is going to live long enough since it will live as
-        // long as `entries_stream` and `dynamic_entries_controller`.
+        // Now we can create `entries_stream` and `dynamic_entries_controller`
+        // by borrowing `this`, which is going to live long enough since it will
+        // live as long as `entries_stream` and `dynamic_entries_controller`.
         let (entries_stream, dynamic_entries_controller) =
             this.inner.entries_with_dynamic_adapters(page_size.try_into().unwrap());
 
-        // FFI dance to make those values consumable by foreign language, nothing fancy
-        // here, that's the real code for this method.
+        // FFI dance to make those values consumable by foreign language,
+        // nothing fancy here, that's the real code for this method.
         let dynamic_entries_controller =
             Arc::new(RoomListDynamicEntriesController::new(dynamic_entries_controller));
 
@@ -298,8 +299,8 @@ impl RoomList {
 
         // The result is complete, let's return it!
         //
-        // SAFETY: `result` is fully initialized, all its fields have received a valid
-        // value.
+        // SAFETY: `result` is fully initialized, all its fields have received a
+        // valid value.
         Arc::new(unsafe { result.assume_init() })
     }
 
@@ -334,8 +335,8 @@ pub struct RoomListLoadingStateResult {
 
 #[derive(uniffi::Enum)]
 pub enum RoomListServiceState {
-    // Name it `Initial` instead of `Init`, otherwise it creates a keyword conflict in Swift
-    // as of 2023-08-21.
+    // Name it `Initial` instead of `Init`, otherwise it creates a keyword
+    // conflict in Swift as of 2023-08-21.
     Initial,
     SettingUp,
     Recovering,
@@ -504,8 +505,8 @@ pub enum RoomListEntriesDynamicFilterKind {
     NonSpace,
     Space,
     NonLeft,
-    // Not { filter: RoomListEntriesDynamicFilterKind } - requires recursive enum
-    // support in uniffi https://github.com/mozilla/uniffi-rs/issues/396
+    // Not { filter: RoomListEntriesDynamicFilterKind } - requires recursive
+    // enum support in uniffi https://github.com/mozilla/uniffi-rs/issues/396
     Joined,
     ReadReceipts { expect: ReadReceiptsCategory },
     Favourite,

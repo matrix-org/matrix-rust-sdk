@@ -126,8 +126,8 @@ impl SecureChannel {
     }
 }
 
-/// An SecureChannel that is yet to be confirmed as with the [`CheckCode`].
-/// Same deal as for the [`SecureChannel`], not used for now.
+/// An SecureChannel that is yet to be confirmed as with the [`CheckCode`]. Same
+/// deal as for the [`SecureChannel`], not used for now.
 pub(super) struct AlmostEstablishedSecureChannel {
     secure_channel: EstablishedSecureChannel,
 }
@@ -170,10 +170,10 @@ impl EstablishedSecureChannel {
 
             let client = HttpClient::new(client, RequestConfig::short_retry());
 
-            // Let's establish an outbound ECIES channel, the other side won't know that
-            // it's talking to us, the device that scanned the QR code, until it
-            // receives and successfully decrypts the initial message. We're here encrypting
-            // the `LOGIN_INITIATE_MESSAGE`.
+            // Let's establish an outbound ECIES channel, the other side won't
+            // know that it's talking to us, the device that scanned the QR
+            // code, until it receives and successfully decrypts the initial
+            // message. We're here encrypting the `LOGIN_INITIATE_MESSAGE`.
             let (crypto_channel, encoded_message) = {
                 let ecies = Ecies::new();
 
@@ -184,18 +184,19 @@ impl EstablishedSecureChannel {
                 (ChannelType::Ecies(ecies), message.encode())
             };
 
-            // The other side has crated a rendezvous channel, we're going to connect to it
-            // and send this initial encrypted message through it. The initial message on
-            // the rendezvous channel will have an empty body, so we can just
-            // drop it.
+            // The other side has crated a rendezvous channel, we're going to
+            // connect to it and send this initial encrypted message through it.
+            // The initial message on the rendezvous channel will have an empty
+            // body, so we can just drop it.
             let mut channel = match qr_code_data.intent_data() {
                 QrCodeIntentData::Msc4108 { rendezvous_url, .. } => {
                     let InboundChannelCreationResult { channel, .. } =
                         RendezvousChannel::create_inbound(client, rendezvous_url).await?;
                     channel
                 }
-                // TODO: We need to support the new rendezvous channel type and HPKE for the crypto
-                // channel when we encounter this QR code variant.
+                // TODO: We need to support the new rendezvous channel type and
+                // HPKE for the crypto channel when we encounter this QR code
+                // variant.
                 QrCodeIntentData::Msc4388 { .. } => return Err(Error::UnsupportedQrCodeType),
             };
 
@@ -204,16 +205,17 @@ impl EstablishedSecureChannel {
                      INITIATE message"
             );
 
-            // Now we're sending the encrypted message through the rendezvous channel to the
-            // other side.
+            // Now we're sending the encrypted message through the rendezvous
+            // channel to the other side.
             channel.send(encoded_message).await?;
 
             trace!("Waiting for the LOGIN OK message");
 
             let (response, channel) = match crypto_channel {
                 ChannelType::Ecies(ecies) => {
-                    // We can create our EstablishedSecureChannel struct now and use the
-                    // convenient helpers which transparently decrypt on receival.
+                    // We can create our EstablishedSecureChannel struct now and
+                    // use the convenient helpers which transparently decrypt on
+                    // receival.
                     let crypto_channel = EstablishedCryptoChannel::Ecies(ecies);
                     let mut channel = Self { channel, crypto_channel };
 

@@ -70,9 +70,9 @@ enum SwiftCommand {
         #[clap(long)]
         watchos_deployment_target: Option<String>,
 
-        /// Build the targets one by one instead of passing all of them
-        /// to cargo in one go, which makes it hang on lesser devices like plain
-        /// Apple Silicon M1s
+        /// Build the targets one by one instead of passing all of them to cargo
+        /// in one go, which makes it hang on lesser devices like plain Apple
+        /// Silicon M1s
         #[clap(long)]
         sequentially: bool,
     },
@@ -96,8 +96,9 @@ impl SwiftArgs {
                 watchos_deployment_target,
                 sequentially,
             } => {
-                // The dev profile seems to cause crashes on some platforms so we default to
-                // reldbg (https://github.com/matrix-org/matrix-rust-sdk/issues/4009)
+                // The dev profile seems to cause crashes on some platforms so
+                // we default to reldbg
+                // (https://github.com/matrix-org/matrix-rust-sdk/issues/4009)
                 let profile =
                     profile.as_deref().unwrap_or(if release { "small-release" } else { "reldbg" });
                 build_xcframework(
@@ -403,8 +404,9 @@ fn build_targets(
 ) -> Result<HashMap<Platform, Vec<Utf8PathBuf>>> {
     let sh = sh();
 
-    // Note: `push_env` stores environment variables and returns a RAII guard that
-    // will restore the environment variable to its previous value when dropped.
+    // Note: `push_env` stores environment variables and returns a RAII guard
+    // that will restore the environment variable to its previous value when
+    // dropped.
     let _env_guard1 =
         sh.push_env("CARGO_TARGET_AARCH64_APPLE_IOS_RUSTFLAGS", "-Clinker=/usr/bin/clang");
     let _env_guard2 = sh.push_env("AARCH64_APPLE_IOS_CC", "/usr/bin/clang");
@@ -457,8 +459,8 @@ fn build_targets(
         }
     }
 
-    // a hashmap of platform to array, where each array contains all the paths for
-    // that platform.
+    // a hashmap of platform to array, where each array contains all the paths
+    // for that platform.
     let mut platform_build_paths = HashMap::new();
     for target in targets {
         let path = build_path_for_target(target, profile)?;
@@ -487,8 +489,8 @@ fn localize_private_symbols(library: &Utf8Path, target: &Target) -> Result<()> {
 
     std::fs::write(&symbols_list, PRIVATE_SYMBOL_PATTERNS.join("\n") + "\n")?;
 
-    // Everything belonging to a crate that touches the private symbols has to be
-    // merged: a crate's codegen units share hidden symbols, which can't bind
+    // Everything belonging to a crate that touches the private symbols has to
+    // be merged: a crate's codegen units share hidden symbols, which can't bind
     // across the merge. Every other object is left alone, keeping the
     // subsections that let consumers dead strip the library function by
     // function when they link it statically.
@@ -550,9 +552,9 @@ fn private_symbol_crates(library: &Utf8Path) -> Result<HashSet<String>> {
     let sh = sh();
     let prefix = format!("{library}:");
     // `nm` is noisy about the objects it has nothing to say about: it warns and
-    // exits non-zero for those carrying no symbols, and errors on the ones built
-    // by a newer LLVM than Xcode's, all of them runtime crates that can't be
-    // using the private symbols anyway.
+    // exits non-zero for those carrying no symbols, and errors on the ones
+    // built by a newer LLVM than Xcode's, all of them runtime crates that can't
+    // be using the private symbols anyway.
     let symbols = cmd!(sh, "nm -A -g {library}").ignore_status().ignore_stderr().read()?;
 
     Ok(symbols

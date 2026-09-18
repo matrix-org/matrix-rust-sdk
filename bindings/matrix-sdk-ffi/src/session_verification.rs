@@ -97,8 +97,9 @@ impl SessionVerificationController {
 
     /// Set this particular request as the currently active one and register for
     /// events pertaining it.
-    /// * `sender_id` - The user requesting verification.
-    /// * `flow_id` - - The ID that uniquely identifies the verification flow.
+    ///
+    /// - `sender_id` - The user requesting verification.
+    /// - `flow_id` - - The ID that uniquely identifies the verification flow.
     pub async fn acknowledge_verification_request(
         &self,
         sender_id: String,
@@ -257,10 +258,10 @@ impl SessionVerificationController {
                 return;
             }
         } else if !cross_signing_status.as_ref().is_some_and(|status| status.has_self_signing) {
-            // Signing one of our own devices needs the private self-signing key. Not
-            // having it is only fine while we are the session that is about to be
-            // verified. If we are already verified the flow could only fail, so
-            // don't surface the request at all.
+            // Signing one of our own devices needs the private self-signing
+            // key. Not having it is only fine while we are the session that is
+            // about to be verified. If we are already verified the flow could
+            // only fail, so don't surface the request at all.
             let we_are_verified = self
                 .encryption
                 .get_own_device()
@@ -421,8 +422,8 @@ impl SessionVerificationController {
                     break;
                 }
                 SasState::Cancelled(_cancel_info) => {
-                    // TODO: The cancel_info is usable, we should tell the user why we were
-                    // cancelled.
+                    // TODO: The cancel_info is usable, we should tell the user
+                    // why we were cancelled.
                     if let Some(current_delegate) = Self::current_delegate(&delegate) {
                         current_delegate.did_cancel()
                     }

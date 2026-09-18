@@ -68,8 +68,8 @@ pub struct PinnedEventsCacheState {
     ///
     /// This linked chunk also contains related events. The events are sorted in
     /// the chronological order (oldest to newest), since it would be otherwise
-    /// impossible to order them correctly, given that we fetch their
-    /// relations over time.
+    /// impossible to order them correctly, given that we fetch their relations
+    /// over time.
     chunk: EventLinkedChunk,
 
     /// Update sender for this pinned events cache.
@@ -105,7 +105,8 @@ impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
     ) -> Result<Vec<VectorDiff<Event>>> {
         match preprocessing {
             ReloadPreprocessing::ForgetAll => {
-                // Clear the `LinkedChunk` and broadcast the updates to the store.
+                // Clear the `LinkedChunk` and broadcast the updates to the
+                // store.
                 self.state.chunk.reset();
                 self.propagate_changes().await?;
             }
@@ -113,8 +114,8 @@ impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
             ReloadPreprocessing::None => {}
         }
 
-        // The task will notice there is a desynchronisation and will reload from
-        // network.
+        // The task will notice there is a desynchronisation and will reload
+        // from network.
         self.reload_from_storage().await?;
 
         Ok(self.state.chunk.updates_as_vector_diffs())
@@ -136,15 +137,16 @@ impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
         .await?;
 
         if all_duplicates {
-            // If all events are duplicates, we don't need to do anything; ignore
-            // the new events.
+            // If all events are duplicates, we don't need to do anything;
+            // ignore the new events.
             return Ok(());
         }
 
         // Remove the old duplicated events.
         //
-        // We don't have to worry about the removals can change the position of the
-        // existing events, because we are pushing all _new_ `events` at the back.
+        // We don't have to worry about the removals can change the position of
+        // the existing events, because we are pushing all _new_ `events` at the
+        // back.
         self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids).await?;
 
         // We've found new relations; append them to the linked chunk.
@@ -164,8 +166,8 @@ impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
 
     /// Remove events by their position, in `EventLinkedChunk`.
     ///
-    /// This method is purposely isolated because it must ensure that
-    /// positions are sorted appropriately or it can be disastrous.
+    /// This method is purposely isolated because it must ensure that positions
+    /// are sorted appropriately or it can be disastrous.
     #[instrument(skip_all)]
     pub async fn remove_events(
         &mut self,
@@ -206,16 +208,15 @@ impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
 
     /// Apply some updates that are effective only on the store itself.
     ///
-    /// This method should be used only for updates that happen *outside*
-    /// the in-memory linked chunk. Such updates must be applied
-    /// onto the persistent storage.
+    /// This method should be used only for updates that happen _outside_ the
+    /// in-memory linked chunk. Such updates must be applied onto the persistent
+    /// storage.
     async fn apply_store_only_updates(&mut self, updates: Vec<Update<Event, Gap>>) -> Result<()> {
         self.send_updates_to_store(updates).await
     }
 
-    /// If the given event is a redaction, try to retrieve the
-    /// to-be-redacted event in the chunk, and replace it by the
-    /// redacted form.
+    /// If the given event is a redaction, try to retrieve the to-be-redacted
+    /// event in the chunk, and replace it by the redacted form.
     #[instrument(skip_all)]
     async fn maybe_apply_new_redaction(&mut self, event: &Event) -> Result<()> {
         let Some(event_id) =
@@ -245,9 +246,12 @@ impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
             &self.room_version_rules.redaction,
         ) {
             // It's safe to cast `redacted_event` here:
-            // - either the event was an `AnyTimelineEvent` cast to `AnySyncTimelineEvent`
-            //   when calling .raw(), so it's still one under the hood.
-            // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
+            //
+            // - either the event was an `AnyTimelineEvent` cast to
+            //   `AnySyncTimelineEvent` when calling .raw(), so it's still one
+            //   under the hood.
+            // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this
+            //   case.
             target_event.replace_raw(redacted_event.cast_unchecked());
 
             self.replace_event_at(location, target_event.clone()).await?;
@@ -266,10 +270,10 @@ impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
 
     /// Replaces a single event, be it saved in memory or in the store.
     ///
-    /// If it was saved in memory, this will emit a notification to
-    /// observers that a single item has been replaced. Otherwise,
-    /// such a notification is not emitted, because observers are
-    /// unlikely to observe the store updates directly.
+    /// If it was saved in memory, this will emit a notification to observers
+    /// that a single item has been replaced. Otherwise, such a notification is
+    /// not emitted, because observers are unlikely to observe the store updates
+    /// directly.
     pub async fn replace_event_at(
         &mut self,
         location: EventLocation,
@@ -281,8 +285,8 @@ impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
                     .chunk
                     .replace_event_at(position, new_event)
                     .expect("should have been a valid position of an item");
-                // We just changed the in-memory representation; synchronize this with
-                // the store.
+                // We just changed the in-memory representation; synchronize
+                // this with the store.
                 self.propagate_changes().await?;
             }
             EventLocation::Store => {
@@ -322,8 +326,8 @@ impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
         let (last_chunk, chunk_id_gen) = self.store.load_last_chunk(linked_chunk_id).await?;
 
         let Some(last_chunk) = last_chunk else {
-            // No pinned events stored, make sure the in-memory linked chunk is sync'd (i.e.
-            // empty), and return.
+            // No pinned events stored, make sure the in-memory linked chunk is
+            // sync'd (i.e. empty), and return.
             if self.state.chunk.events().next().is_some() {
                 self.state.chunk.reset();
                 self.notify_subscribers(EventsOrigin::Sync);
@@ -516,8 +520,8 @@ impl PinnedEventsCache {
     ) -> Result<()> {
         let mut state = self.inner.state.write().await?;
 
-        // Drain the updates to the store, events have already been updated before
-        // calling this method.
+        // Drain the updates to the store, events have already been updated
+        // before calling this method.
         let _ = state.state.chunk.store_updates().take();
 
         if state.state.chunk.replace_utds(resolved_events) {
@@ -566,8 +570,8 @@ impl PinnedEventsCache {
                 }
             };
 
-            // Replace the whole linked chunk with those new events, and propagate updates
-            // to the observers.
+            // Replace the whole linked chunk with those new events, and
+            // propagate updates to the observers.
             match inner.state.write().await {
                 Ok(mut guard) => {
                     guard.replace_all_events(events).await.unwrap_or_else(|err| {
@@ -589,7 +593,8 @@ impl PinnedEventsCache {
                     warn!("error when reloading pinned events from storage, at start: {err}");
                 });
 
-                // Compare the initial list of pinned events to the one in the linked chunk.
+                // Compare the initial list of pinned events to the one in the
+                // linked chunk.
                 let actual_pinned_events = room.pinned_event_ids().unwrap_or_default();
                 let reloaded_set =
                     guard.state.current_event_ids().into_iter().collect::<BTreeSet<_>>();
@@ -653,13 +658,13 @@ impl PinnedEventsCache {
     }
 
     /// Loads the pinned events in this room, using the cache first and then
-    /// requesting the event from the homeserver if it couldn't be found.
-    /// This method will perform as many concurrent requests for events as
+    /// requesting the event from the homeserver if it couldn't be found. This
+    /// method will perform as many concurrent requests for events as
     /// `max_concurrent_requests` allows, to avoid overwhelming the server.
     ///
     /// Returns `None` if the list of pinned events hasn't changed since the
-    /// previous time we loaded them. May return an error if there was an
-    /// issue fetching the full events.
+    /// previous time we loaded them. May return an error if there was an issue
+    /// fetching the full events.
     async fn reload_pinned_events(room: Room) -> Result<Option<Vec<Event>>> {
         let (max_events_to_load, max_concurrent_requests) = {
             let client = room.client();
@@ -724,15 +729,16 @@ impl PinnedEventsCache {
         }
 
         if loaded_events.is_empty() {
-            // If the list of loaded events is empty, we ran into an error to load *all* the
-            // pinned events, which needs to be reported to the caller.
+            // If the list of loaded events is empty, we ran into an error to
+            // load _all_ the pinned events, which needs to be reported to the
+            // caller.
             return Err(EventCacheError::UnableToLoadPinnedEvents);
         }
 
-        // Since we have all the events and their related events, we can't nicely sort
-        // them, since we've lost all ordering information from using /event or
-        // /relations. Resort to sorting using chronological ordering (oldest ->
-        // newest).
+        // Since we have all the events and their related events, we can't
+        // nicely sort them, since we've lost all ordering information from
+        // using /event or /relations. Resort to sorting using chronological
+        // ordering (oldest -> newest).
         loaded_events.sort_by(compare_pinned_items);
 
         Ok(Some(loaded_events))

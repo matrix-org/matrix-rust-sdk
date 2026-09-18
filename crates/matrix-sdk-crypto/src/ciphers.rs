@@ -72,7 +72,7 @@ impl HmacSha256Mac {
 
 /// Keys used for our combination of AES-CTR-256 and HMAC-SHA-256.
 ///
-/// ⚠️  This struct provides low-level cryptographic primitives.
+/// ⚠️ This struct provides low-level cryptographic primitives.
 ///
 /// This combination is, as of now, used in the following places:
 ///
@@ -142,9 +142,9 @@ impl AesHmacSha2Key {
     /// Encrypt the given plaintext and return the ciphertext and the
     /// initialization vector.
     ///
-    /// ⚠️  This method is a low-level cryptographic primitive.
+    /// ⚠️ This method is a low-level cryptographic primitive.
     ///
-    /// This method does not provide authenticity. You *must* call the
+    /// This method does not provide authenticity. You _must_ call the
     /// [`AesHmacSha2Key::create_mac_tag()`] method after the encryption step to
     /// create a authentication tag.
     pub(crate) fn encrypt(&self, plaintext: Vec<u8>) -> (Vec<u8>, [u8; IV_SIZE]) {
@@ -158,13 +158,13 @@ impl AesHmacSha2Key {
     /// or the ciphertext depending on whether the data stream is the ciphertext
     /// or the plaintext, respectively.
     ///
-    /// ⚠️  This method is a low-level cryptographic primitive.
+    /// ⚠️ This method is a low-level cryptographic primitive.
     ///
-    /// If this method is encrypting a plaintext, you *must* ensure that the
-    /// initialization vector is unique across all calls to this method for
-    /// a given key.
+    /// If this method is encrypting a plaintext, you _must_ ensure that the
+    /// initialization vector is unique across all calls to this method for a
+    /// given key.
     ///
-    /// This method does not provide authenticity. You *must* call the
+    /// This method does not provide authenticity. You _must_ call the
     /// [`AesHmacSha2Key::create_mac_tag()`] method after the encryption step to
     /// create a authentication tag or the [`AesHmacSha2Key::verify_mac()`]
     /// method before decrypting.
@@ -182,11 +182,11 @@ impl AesHmacSha2Key {
 
     /// Create an authentication tag for the given ciphertext.
     ///
-    /// ⚠️  This method is a low-level cryptographic primitive.
+    /// ⚠️ This method is a low-level cryptographic primitive.
     ///
-    /// This method *must* be called after a call to
-    /// [`AesHmacSha2Key::encrypt()`]. The authentication tag must be
-    /// provided besides the ciphertext for a decryption attempt.
+    /// This method _must_ be called after a call to
+    /// [`AesHmacSha2Key::encrypt()`]. The authentication tag must be provided
+    /// besides the ciphertext for a decryption attempt.
     pub(crate) fn create_mac_tag(&self, ciphertext: &[u8]) -> HmacSha256Mac {
         let mut mac = [0u8; 32];
         let mac_array = Array::cast_from_core_mut(&mut mac);
@@ -202,10 +202,10 @@ impl AesHmacSha2Key {
 
     /// Verify an authentication tag for the given, encrypted, message.
     ///
-    /// You *must* use this method to compare the authentication tags. This
+    /// You _must_ use this method to compare the authentication tags. This
     /// method provides a constant-time comparison for the authentication tags.
     ///
-    /// This method *must* be called before a call to
+    /// This method _must_ be called before a call to
     /// [`AesHmacSha2Key::decrypt()`].
     pub(crate) fn verify_mac(&self, message: &[u8], mac: &[u8; MAC_SIZE]) -> Result<(), MacError> {
         let mac_array = Array::cast_from_core(mac);
@@ -219,7 +219,7 @@ impl AesHmacSha2Key {
 
     /// Decrypt the given ciphertext and return the decrypted plaintext.
     ///
-    /// The method does not provide authenticity. You *must* call the
+    /// The method does not provide authenticity. You _must_ call the
     /// [`AesHmacSha2Key::verify_mac()`] method before the decryption step to
     /// verify the authentication tag.
     pub(crate) fn decrypt(
@@ -256,11 +256,10 @@ impl AesHmacSha2Key {
     }
 
     /// The spec tells us to set bit 63 to 0 in some cases for some reason, I'm
-    /// not sure why, but fine:
-    ///     Generate 16 random bytes, set bit 63 to 0 (in order to work around
-    ///     differences in AES-CTR implementations), and use this as the AES
-    ///     initialization vector. This becomes the iv property, encoded using
-    ///     base64[1].
+    /// not sure why, but fine: Generate 16 random bytes, set bit 63 to 0 (in
+    /// order to work around differences in AES-CTR implementations), and use
+    /// this as the AES initialization vector. This becomes the iv property,
+    /// encoded using base64[1].
     ///
     /// [1]: https://spec.matrix.org/v1.8/client-server-api/#msecret_storagev1aes-hmac-sha2
     fn clamp_iv(iv: [u8; 16]) -> [u8; IV_SIZE] {

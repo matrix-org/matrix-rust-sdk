@@ -21,8 +21,8 @@ use wiremock::{
 
 use crate::{event_factory::EventFactory, test_json};
 
-/// Mount a Mock on the given server to handle the `GET
-/// /rooms/.../state/m.room.encryption` endpoint with an option whether it
+/// Mount a Mock on the given server to handle the
+/// `GET /rooms/.../state/m.room.encryption` endpoint with an option whether it
 /// should return an encryption event or not.
 pub async fn mock_encryption_state(server: &MockServer, is_encrypted: bool) {
     let builder = Mock::given(method("GET"))

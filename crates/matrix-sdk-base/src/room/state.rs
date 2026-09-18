@@ -57,8 +57,8 @@ impl From<&MembershipState> for RoomState {
 bitflags! {
     /// Room state filter as a bitset.
     ///
-    /// Note that [`RoomStateFilter::empty()`] doesn't filter the results and
-    /// is equivalent to [`RoomStateFilter::all()`].
+    /// Note that [`RoomStateFilter::empty()`] doesn't filter the results and is
+    /// equivalent to [`RoomStateFilter::all()`].
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     pub struct RoomStateFilter: u16 {
         /// The room is in a joined state.

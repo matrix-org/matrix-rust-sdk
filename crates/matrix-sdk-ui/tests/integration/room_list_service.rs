@@ -460,8 +460,8 @@ async fn test_sync_all_states() -> Result<(), Error> {
         [server, room_list, sync]
         states = Running => Running,
         assert pos Some("2"),
-        // Still no long-polling because the list isn't fully-loaded,
-        // but it's about to be!
+        // Still no long-polling because the list isn't fully-loaded, but it's
+        // about to be!
         assert timeout Some(0),
         assert request >= {
             "conn_id": "room-list",
@@ -1011,8 +1011,8 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
 async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     let (_, server, room_list) = new_room_list_service().await?;
 
-    // Let's stop the sync before actually syncing (we never know!).
-    // We get an error, obviously.
+    // Let's stop the sync before actually syncing (we never know!). We get an
+    // error, obviously.
     assert!(room_list.stop_sync().is_err());
 
     let sync = room_list.sync();
@@ -1250,7 +1250,8 @@ async fn test_loading_states() -> Result<(), Error> {
         // Wait on Tokio to run all the tasks. Necessary only when testing.
         yield_now().await;
 
-        // There is a loading state update because the number of rooms has been updated.
+        // There is a loading state update because the number of rooms has been
+        // updated.
         assert_next_matches!(
             all_rooms_loading_state,
             RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(12) }
@@ -1297,7 +1298,8 @@ async fn test_loading_states() -> Result<(), Error> {
         let sync = room_list.sync();
         pin_mut!(sync);
 
-        // The loading state is loaded! Indeed, there is data loaded from the cache.
+        // The loading state is loaded! Indeed, there is data loaded from the
+        // cache.
         assert_next_matches!(
             all_rooms_loading_state,
             RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(12) }
@@ -1390,8 +1392,8 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         },
     };
 
-    // Ensure the dynamic entries' stream is pending because there is no filter set
-    // yet.
+    // Ensure the dynamic entries' stream is pending because there is no filter
+    // set yet.
     assert_pending!(dynamic_entries_stream);
 
     // Now, let's define a filter.
@@ -1493,8 +1495,8 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         },
     };
 
-    // Assert the dynamic entries.
-    // It's pushed on the front because rooms are sorted by recency.
+    // Assert the dynamic entries. It's pushed on the front because rooms are
+    // sorted by recency.
     assert_entries_batch! {
         [dynamic_entries_stream]
         push front [ "!r1:bar.org" ];
@@ -1749,9 +1751,8 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         },
     };
 
-    // Assert the dynamic entries.
-    // `!r0:bar.org` has a new state event. The room must move in the room list
-    // because it has the highest recency.
+    // Assert the dynamic entries. `!r0:bar.org` has a new state event. The room
+    // must move in the room list because it has the highest recency.
     assert_entries_batch! {
         [dynamic_entries_stream]
         pop back;
@@ -1858,8 +1859,8 @@ async fn test_room_sorting() -> Result<(), Error> {
         },
     };
 
-    // Ensure the dynamic entries' stream is pending because there is no filter set
-    // yet.
+    // Ensure the dynamic entries' stream is pending because there is no filter
+    // set yet.
     assert_pending!(stream);
 
     // Now, let's define a filter.
@@ -1881,7 +1882,7 @@ async fn test_room_sorting() -> Result<(), Error> {
     // Now we have:
     //
     // | index | room ID | recency | name |
-    // |-------|---------|---------|------|
+    // | ----- | ------- | ------- | ---- |
     // | 0     | !r4     | 5       |      |
     // | 1     | !r3     | 4       |      |
     // | 2     | !r1     | 3       | Aaa  |
@@ -2004,7 +2005,7 @@ async fn test_room_sorting() -> Result<(), Error> {
     // Now we have:
     //
     // | index | room ID | recency | name |
-    // |-------|---------|---------|------|
+    // | ----- | ------- | ------- | ---- |
     // | 0     | !r2     | 9       |      |
     // | 1     | !r0     | 7       | Bbb  |
     // | 2     | !r1     | 6       | Aaa  |
@@ -2073,7 +2074,7 @@ async fn test_room_sorting() -> Result<(), Error> {
     // Now we have:
     //
     // | index | room ID | recency | name |
-    // |-------|---------|---------|------|
+    // | ----- | ------- | ------- | ---- |
     // | 0     | !r2     | 9       |      |
     // | 1     | !r6     | 8       |      |
     // | 2     | !r0     | 7       | Bbb  |
@@ -2106,7 +2107,7 @@ async fn test_room_sorting() -> Result<(), Error> {
     // Now we have:
     //
     // | index | room ID | recency | name |
-    // |-------|---------|---------|------|
+    // | ----- | ------- | ------- | ---- |
     // | 0     | !r3     | 10      |      |
     // | 1     | !r2     | 9       |      |
     // | 2     | !r6     | 8       |      |
@@ -2197,8 +2198,8 @@ async fn test_room() -> Result<(), Error> {
     // Room has not received a name from sliding sync, then it's calculated.
     assert_eq!(room1.cached_display_name(), Some(RoomDisplayName::Empty));
 
-    // Room has not received an avatar from sliding sync, then it's calculated, but
-    // there is nothing to calculate from, so there is no URL.
+    // Room has not received an avatar from sliding sync, then it's calculated,
+    // but there is nothing to calculate from, so there is no URL.
     assert_eq!(room1.avatar_url(), None);
 
     sync_then_assert_request_and_fake_response! {
@@ -2349,8 +2350,8 @@ async fn test_room_subscription() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        // strict comparison (with `=`) because we want to ensure
-        // the exact shape of `room_subscriptions`.
+        // strict comparison (with `=`) because we want to ensure the exact
+        // shape of `room_subscriptions`.
         assert request = {
             "conn_id": "room-list",
             "lists": {
@@ -2425,8 +2426,8 @@ async fn test_room_subscription() -> Result<(), Error> {
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
-        // strict comparison (with `=`) because we want to ensure
-        // the exact shape of `room_subscriptions`.
+        // strict comparison (with `=`) because we want to ensure the exact
+        // shape of `room_subscriptions`.
         assert request = {
             "conn_id": "room-list",
             "lists": {
@@ -2664,7 +2665,8 @@ async fn test_remove_and_reset_room_subscriptions() -> Result<(), Error> {
 
     room_list.reset_and_add_room_subscriptions(&[room_id_0, room_id_1]).await;
 
-    // `set_room_subscriptions` would have kept the members of `room_id_1` synced.
+    // `set_room_subscriptions` would have kept the members of `room_id_1`
+    // synced.
     assert!(!room_1.are_members_synced());
 
     sync_then_assert_request_and_fake_response! {
@@ -2967,8 +2969,8 @@ async fn test_room_latest_event() -> Result<(), Error> {
     let room = room_list.room(room_id)?;
     let timeline = room.timeline_builder().build().await.unwrap();
 
-    // We could subscribe to the room —with `RoomList::set_room_subscriptions`— to
-    // automatically listen to the latest event updates, but we will do it
+    // We could subscribe to the room —with `RoomList::set_room_subscriptions`—
+    // to automatically listen to the latest event updates, but we will do it
     // manually here (so that we can ignore the subscription thingies).
     let latest_events = client.latest_events().await;
     latest_events.listen_to_room(room_id).await.unwrap();
@@ -3051,8 +3053,8 @@ async fn test_sync_indicator() -> Result<(), Error> {
 
         // Request 1.
         {
-            // The state transitions into `Init`. The `SyncIndicator` stays in `Hide` as
-            // nothing is happening yet.
+            // The state transitions into `Init`. The `SyncIndicator` stays in
+            // `Hide` as nothing is happening yet.
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Hide,
@@ -3064,8 +3066,8 @@ async fn test_sync_indicator() -> Result<(), Error> {
 
         // Request 2.
         {
-            // The state transitions into `SettingUp`. The `SyncIndicator` must be `Show` as
-            // the service has now been started.
+            // The state transitions into `SettingUp`. The `SyncIndicator` must
+            // be `Show` as the service has now been started.
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Show,
@@ -3077,7 +3079,8 @@ async fn test_sync_indicator() -> Result<(), Error> {
 
         // Request 3.
         {
-            // The state transitions into `Running`. The `SyncIndicator` must be `Hide`.
+            // The state transitions into `Running`. The `SyncIndicator` must be
+            // `Hide`.
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Hide,
@@ -3089,7 +3092,8 @@ async fn test_sync_indicator() -> Result<(), Error> {
 
         // Request 4.
         {
-            // The state transitions into `Error`. The `SyncIndicator` must be `Show`.
+            // The state transitions into `Error`. The `SyncIndicator` must be
+            // `Show`.
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Show,
@@ -3101,7 +3105,8 @@ async fn test_sync_indicator() -> Result<(), Error> {
 
         // Request 5.
         {
-            // The state transitions into `Recovering`. The `SyncIndicator` must be `Hide`.
+            // The state transitions into `Recovering`. The `SyncIndicator` must
+            // be `Hide`.
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Hide,
@@ -3235,7 +3240,8 @@ async fn test_multiple_timeline_init() {
         .await;
 
     let task = {
-        // Get a RoomListService::Room, initialize the timeline, start a pagination.
+        // Get a RoomListService::Room, initialize the timeline, start a
+        // pagination.
         let room = room_list.room(room_id).unwrap();
 
         let timeline = room.timeline_builder().build().await.unwrap();
@@ -3259,16 +3265,17 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
     let server = MatrixMockServer::new().await;
 
     {
-        // The first time, don't advertise support for MSC4306; the extension will NOT
-        // enabled in this case, despite the client requesting it.
+        // The first time, don't advertise support for MSC4306; the extension
+        // will NOT enabled in this case, despite the client requesting it.
         server
             .mock_versions()
             .ok()
             .named("/versions, first time")
-            // This used to be a `mock_once()`, but we're not caching the versions in the
-            // `RoomListService::new()` method anymore, so we're now doing a couple more requests
-            // for this. The sync will want to know about the `/versions` once it tries to build
-            // the request path.
+            // This used to be a `mock_once()`, but we're not caching the
+            // versions in the `RoomListService::new()` method anymore, so we're
+            // now doing a couple more requests for this. The sync will want to
+            // know about the `/versions` once it tries to build the request
+            // path.
             .up_to_n_times(3)
             .expect(3..)
             .mount()

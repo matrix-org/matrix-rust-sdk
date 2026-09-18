@@ -29,8 +29,8 @@ use crate::x509::{
     x509_verify::RawX509Verifier,
 };
 
-/// An enum of possible errors that can occur while instantiating
-/// a [`RustRawX509Verifier`].
+/// An enum of possible errors that can occur while instantiating a
+/// [`RustRawX509Verifier`].
 #[derive(Error, Debug)]
 pub enum RustX509VerifyError {
     /// There was an error parsing the certificate
@@ -114,8 +114,8 @@ impl RawX509Verifier for RustRawX509Verifier {
             .iter()
             // Filter for entries with the right signature scheme
             .filter(|item| item.0 == rustls_signature_scheme)
-            // Filter for entries with a non-empty list of algorithm implementations, and get the
-            // first such implementation
+            // Filter for entries with a non-empty list of algorithm
+            // implementations, and get the first such implementation
             .filter_map(|item| item.1.first().copied())
             .next()
         else {

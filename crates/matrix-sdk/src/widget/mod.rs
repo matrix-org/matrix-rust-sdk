@@ -149,17 +149,18 @@ impl WidgetDriver {
         // Create a channel so that we can conveniently send all messages to it.
         //
         // It will receive:
+        //
         // - all incoming messages from the widget
         // - all responses from the Matrix driver
         // - all events from the Matrix driver, if subscribed
         let (incoming_msg_tx, incoming_msg_rx) = unbounded_channel();
 
-        // Forward all of the incoming messages from the widget.
-        // TODO: This spawns a detached task, it would be nice to have an owner for this
-        // task. One way to achieve this if `WidgetDriver::run()` returns a handle that
-        // we can drop which will clean up the task and the channels. It's not too bad,
-        // since canelling `run()` will drop the sender this task listens which finishes
-        // the task.
+        // Forward all of the incoming messages from the widget. TODO: This
+        // spawns a detached task, it would be nice to have an owner for this
+        // task. One way to achieve this if `WidgetDriver::run()` returns a
+        // handle that we can drop which will clean up the task and the
+        // channels. It's not too bad, since canelling `run()` will drop the
+        // sender this task listens which finishes the task.
         spawn({
             let incoming_msg_tx = incoming_msg_tx.clone();
             let mut from_widget_rx = self.from_widget_rx;
@@ -171,9 +172,9 @@ impl WidgetDriver {
             }
         });
 
-        // Create the widget API machine. The widget machine will process messages it
-        // receives from the widget and convert it into actions the `MatrixDriver` will
-        // then execute on.
+        // Create the widget API machine. The widget machine will process
+        // messages it receives from the widget and convert it into actions the
+        // `MatrixDriver` will then execute on.
         let (mut widget_machine, initial_actions) = WidgetMachine::new(
             self.settings.widget_id().to_owned(),
             room.room_id().to_owned(),
@@ -186,7 +187,8 @@ impl WidgetDriver {
         let stream = UnboundedReceiverStream::new(incoming_msg_rx)
             .flat_map(|message| tokio_stream::iter(widget_machine.process(message)));
 
-        // Let's combine our set of initial actions with the stream of received actions.
+        // Let's combine our set of initial actions with the stream of received
+        // actions.
         let mut combined = tokio_stream::iter(initial_actions).chain(stream);
 
         let to_widget_tx = self.to_widget_tx;
@@ -247,9 +249,9 @@ impl WidgetDriver {
 
                     MatrixDriverRequestData::SendEvent(req) => {
                         let SendEventRequest { event_type, state_key, content, delay } = req;
-                        // The widget api action does not use the unstable prefix:
-                        // `org.matrix.msc4140.delay` so we
-                        // cannot use the `DelayParameters` here and need to convert
+                        // The widget api action does not use the unstable
+                        // prefix: `org.matrix.msc4140. delay` so we cannot use
+                        // the `DelayParameters` here and need to convert
                         // manually.
                         let delay_event_parameter = delay.map(|d| DelayParameters::Timeout {
                             timeout: Duration::from_millis(d),
@@ -289,7 +291,8 @@ impl WidgetDriver {
                         .map(MatrixDriverResponse::RtcTransportsReceived),
                 };
 
-                // Forward the Matrix driver response to the incoming message stream.
+                // Forward the Matrix driver response to the incoming message
+                // stream.
                 incoming_msg_tx
                     .send(IncomingMessage::MatrixDriverResponse { request_id, response })
                     .map_err(|_| ())?;

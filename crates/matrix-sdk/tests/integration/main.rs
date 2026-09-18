@@ -50,8 +50,8 @@ mod widget;
 
 matrix_sdk_test_utils::init_tracing_for_tests!();
 
-/// Mount a Mock on the given server to handle the `GET /sync` endpoint with
-/// an optional `since` param that returns a 200 status code with the given
+/// Mount a Mock on the given server to handle the `GET /sync` endpoint with an
+/// optional `since` param that returns a 200 status code with the given
 /// response body.
 async fn mock_sync(server: &MockServer, response_body: impl Serialize, since: Option<String>) {
     let mut builder = Mock::given(method("GET"))

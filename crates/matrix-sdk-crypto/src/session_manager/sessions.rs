@@ -174,8 +174,8 @@ impl SessionManager {
         Ok(())
     }
 
-    /// Get a key claiming request for the user/device pairs that we are
-    /// missing Olm sessions for.
+    /// Get a key claiming request for the user/device pairs that we are missing
+    /// Olm sessions for.
     ///
     /// Returns None if no key claiming request needs to be sent out.
     ///
@@ -277,7 +277,8 @@ impl SessionManager {
         }
 
         if tracing::level_enabled!(tracing::Level::DEBUG) {
-            // Reformat the map to skip the encryption algorithm, which isn't very useful.
+            // Reformat the map to skip the encryption algorithm, which isn't
+            // very useful.
             let missing_session_devices_by_user = missing_session_devices_by_user
                 .iter()
                 .map(|(user_id, devices)| (user_id, devices.keys().collect::<BTreeSet<_>>()))
@@ -307,8 +308,8 @@ impl SessionManager {
             ))
         };
 
-        // stash the details of the request so that we can refer to it when handling the
-        // response
+        // stash the details of the request so that we can refer to it when
+        // handling the response
         *(self.current_key_claim_request.write()) = result.clone();
         Ok(result)
     }
@@ -321,16 +322,16 @@ impl SessionManager {
     /// requested but is not present in the response.
     ///
     /// As per [spec], if a user/device pair does not have any one-time keys on
-    /// the homeserver, the server will just omit the user/device pair from
-    /// the response:
+    /// the homeserver, the server will just omit the user/device pair from the
+    /// response:
     ///
     /// > If the homeserver could be reached, but the user or device was
-    /// > unknown, no failure is recorded. Instead, the corresponding user
-    /// > or device is missing from the one_time_keys result.
+    /// > unknown, no failure is recorded. Instead, the corresponding user or
+    /// > device is missing from the one_time_keys result.
     ///
     /// The user/device pairs which are missing from the response are going to
-    /// be put in the failures cache so we don't retry to claim a one-time
-    /// key right away next time the user tries to send a message.
+    /// be put in the failures cache so we don't retry to claim a one-time key
+    /// right away next time the user tries to send a message.
     ///
     /// [spec]: https://spec.matrix.org/unstable/client-server-api/#post_matrixclientv3keysclaim
     fn handle_otk_exhaustion_failure(
@@ -348,8 +349,8 @@ impl SessionManager {
             let expected_request_id = guard.as_ref().map(|e| e.0.as_ref());
 
             if Some(request_id) == expected_request_id {
-                // We have a confirmed match. Clear the expectation, but hang onto the details
-                // of the request.
+                // We have a confirmed match. Clear the expectation, but hang
+                // onto the details of the request.
                 guard.take().map(|(_, request)| request)
             } else {
                 warn!(
@@ -361,8 +362,9 @@ impl SessionManager {
             }
         };
 
-        // If we were able to pair this response with a request, look for devices that
-        // were present in the request but did not elicit a successful response.
+        // If we were able to pair this response with a request, look for
+        // devices that were present in the request but did not elicit a
+        // successful response.
         if let Some(request) = request {
             let devices_in_response: BTreeSet<_> = one_time_keys
                 .iter()
@@ -388,8 +390,9 @@ impl SessionManager {
             let missing_devices: BTreeSet<_> = devices_in_request
                 .difference(&devices_in_response)
                 .filter(|(user_id, _)| {
-                    // Skip over users whose homeservers were in the "failed servers" list: we don't
-                    // want to mark individual devices as broken *as well as* the server.
+                    // Skip over users whose homeservers were in the "failed
+                    // servers" list: we don't want to mark individual devices
+                    // as broken _as well as_ the server.
                     !failed_servers.contains(user_id.server_name())
                 })
                 .collect();
@@ -420,17 +423,18 @@ impl SessionManager {
     ///
     /// # Arguments
     ///
-    /// * `request_id` - The unique id of the request that was sent out. This is
+    /// - `request_id` - The unique id of the request that was sent out. This is
     ///   needed to couple the response with the sent out request.
     ///
-    /// * `response` - The response containing the claimed one-time keys.
+    /// - `response` - The response containing the claimed one-time keys.
     #[instrument(skip(self, response))]
     pub async fn receive_keys_claim_response(
         &self,
         request_id: &TransactionId,
         response: &KeysClaimResponse,
     ) -> OlmResult<()> {
-        // Collect the (user_id, device_id, device_key_id) triple for logging reasons.
+        // Collect the (user_id, device_id, device_key_id) triple for logging
+        // reasons.
         let one_time_keys: BTreeMap<_, BTreeMap<_, BTreeSet<_>>> = response
             .one_time_keys
             .iter()
@@ -458,8 +462,8 @@ impl SessionManager {
             .collect();
         let successful_servers = response.one_time_keys.keys().map(|u| u.server_name());
 
-        // Add the user/device pairs that don't have any one-time keys to the failures
-        // cache.
+        // Add the user/device pairs that don't have any one-time keys to the
+        // failures cache.
         self.handle_otk_exhaustion_failure(request_id, &failed_servers, &one_time_keys);
         // Add the failed servers to the failures cache.
         self.failures.extend(failed_servers);
@@ -474,8 +478,8 @@ impl SessionManager {
     ///
     /// # Arguments
     ///
-    ///  * `device_map` - a map from (user ID, device ID) pairs to key object,
-    ///    for each device we should create a session for.
+    /// - `device_map` - a map from (user ID, device ID) pairs to key object,
+    ///   for each device we should create a session for.
     pub(crate) async fn create_sessions(&self, response: &KeysClaimResponse) -> OlmResult<()> {
         struct SessionInfo {
             session_id: String,
@@ -721,8 +725,8 @@ mod tests {
     async fn test_session_creation_waits_for_keys_query() {
         let (manager, identity_manager) = session_manager_test_helper().await;
 
-        // start a `/keys/query` request. At this point, we are only interested in our
-        // own devices.
+        // start a `/keys/query` request. At this point, we are only interested
+        // in our own devices.
         let (key_query_txn_id, key_query_request) =
             identity_manager.users_for_key_query().await.unwrap().pop_first().unwrap();
         info!("Initial key query: {:?}", key_query_request);
@@ -742,8 +746,8 @@ mod tests {
                 .unwrap();
         }
 
-        // ... and start off an attempt to get the missing sessions. This should block
-        // for now.
+        // ... and start off an attempt to get the missing sessions. This should
+        // block for now.
         let missing_sessions_task = {
             let manager = manager.clone();
             let bob_user_id = bob.user_id().to_owned();
@@ -805,8 +809,8 @@ mod tests {
         );
         identity_manager.receive_keys_query_response(&key_query_txn_id, &response).await.unwrap();
 
-        // Now, an attempt to get the missing sessions should now *not* block. We use a
-        // timeout so that we can detect the call blocking.
+        // Now, an attempt to get the missing sessions should now _not_ block.
+        // We use a timeout so that we can detect the call blocking.
         let result = tokio::time::timeout(
             Duration::from_millis(10),
             manager.get_missing_sessions(iter::once(other_user_id.as_ref())),
@@ -975,14 +979,14 @@ mod tests {
         let (manager, _identity_manager) = session_manager_test_helper().await;
         manager.store.save_device_data(&[alice_device]).await.unwrap();
 
-        // Since we don't have a session with Alice yet, the machine will try to claim
-        // some keys for alice.
+        // Since we don't have a session with Alice yet, the machine will try to
+        // claim some keys for alice.
         let (txn_id, users_for_key_claim) =
             manager.get_missing_sessions(iter::once(alice)).await.unwrap().unwrap();
         assert!(users_for_key_claim.one_time_keys.contains_key(alice));
 
-        // We receive a response with an invalid one-time key, this will mark Alice as
-        // timed out.
+        // We receive a response with an invalid one-time key, this will mark
+        // Alice as timed out.
         manager.receive_keys_claim_response(&txn_id, &response).await.unwrap();
         // Since alice is timed out, we won't claim keys for her.
         assert!(manager.get_missing_sessions(iter::once(alice)).await.unwrap().is_none());
@@ -997,7 +1001,8 @@ mod tests {
             .or_insert_with(BTreeMap::new)
             .insert(alice_account.device_id().to_owned(), one_time);
 
-        // Now we expire Alice's timeout, and receive a valid one-time key for her.
+        // Now we expire Alice's timeout, and receive a valid one-time key for
+        // her.
         manager
             .failed_devices
             .write()

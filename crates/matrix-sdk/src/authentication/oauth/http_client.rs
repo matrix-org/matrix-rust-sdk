@@ -93,8 +93,8 @@ pub(super) fn check_http_response_json_content_type<T: ErrorResponse + 'static>(
 
     if content_type
         .to_str()
-        // Check only the beginning of the content type, because there might be extra
-        // parameters, like a charset.
+        // Check only the beginning of the content type, because there might be
+        // extra parameters, like a charset.
         .is_ok_and(|ct| ct.to_lowercase().starts_with(mime::APPLICATION_JSON.essence_str()))
     {
         Ok(())

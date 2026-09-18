@@ -619,8 +619,8 @@ async fn test_event() {
     let room = server
         .sync_room(
             &client,
-            // We need the member event and power levels locally so the push rules processor
-            // works.
+            // We need the member event and power levels locally so the push
+            // rules processor works.
             JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
                 .add_state_event(f.member(user_id!("@example:localhost")).display_name("example"))
                 .add_state_event(f.default_power_levels()),
@@ -898,8 +898,8 @@ async fn test_is_dm_using_matrix_spec() {
         .await;
 
     let room = server.sync_joined_room(&client, room_id).await;
-    // Room has direct targets, so it's considered direct and a DM using the spec
-    // definition.
+    // Room has direct targets, so it's considered direct and a DM using the
+    // spec definition.
     assert!(room.compute_is_dm().await.unwrap());
 
     // We mock the m.direct account data with no targets

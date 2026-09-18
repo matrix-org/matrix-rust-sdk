@@ -53,7 +53,8 @@ pub fn replace_properties(url: &mut Url, props: QueryProperties) {
         (CLIENT_ID, encode(&props.client_id).into()),
     ]
     .map(|to_replace| {
-        // It's safe to unwrap here since we know all replace strings start with `$`
+        // It's safe to unwrap here since we know all replace strings start with
+        // `$`
         (to_replace.0.get(1..).unwrap(), to_replace.1)
     });
 
@@ -67,7 +68,8 @@ pub fn replace_properties(url: &mut Url, props: QueryProperties) {
         let mut section_added = false;
         for (old, new) in &replace_map {
             section.split_once(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '_'));
-            // It's safe to unwrap here since we know all replace strings start with `$`
+            // It's safe to unwrap here since we know all replace strings start
+            // with `$`
             if section.starts_with(old) {
                 result.push_str(new);
                 if let Some(rest) = section.get(old.len()..) {

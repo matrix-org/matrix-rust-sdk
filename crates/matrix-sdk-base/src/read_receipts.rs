@@ -55,10 +55,10 @@ pub struct ReadReceipts {
     /// Read receipts that haven't been matched to their event.
     ///
     /// This might mean that the read receipt is in the past further than we
-    /// recall (i.e. before the first event we've ever cached), or in the
-    /// future (i.e. the event is lagging behind because of federation).
+    /// recall (i.e. before the first event we've ever cached), or in the future
+    /// (i.e. the event is lagging behind because of federation).
     ///
-    /// Note: this contains event ids of the event *targets* of the receipts,
+    /// Note: this contains event ids of the event _targets_ of the receipts,
     /// not the event ids of the receipt events themselves.
     #[serde(default = "new_nonempty_ring_buffer")]
     pub pending: RingBuffer<OwnedEventId>,
@@ -77,7 +77,7 @@ impl Default for ReadReceipts {
 }
 
 fn new_nonempty_ring_buffer() -> RingBuffer<OwnedEventId> {
-    // 10 pending read receipts per room should be enough for everyone.
-    // SAFETY: `unwrap` is safe because 10 is not zero.
+    // 10 pending read receipts per room should be enough for everyone. SAFETY:
+    // `unwrap` is safe because 10 is not zero.
     RingBuffer::new(NonZeroUsize::new(10).unwrap())
 }

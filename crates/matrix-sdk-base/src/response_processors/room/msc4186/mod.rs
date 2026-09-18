@@ -176,8 +176,8 @@ pub async fn update_any_room(
 
     match (room_info.state(), maybe_room_update_kind) {
         (RoomState::Joined, None) => {
-            // Ephemeral events are added separately, because we might not
-            // have a room subsection in the response, yet we may have receipts for
+            // Ephemeral events are added separately, because we might not have
+            // a room subsection in the response, yet we may have receipts for
             // that room.
             let ephemeral = Vec::new();
 
@@ -241,8 +241,8 @@ fn membership(
     //
     // Let's find out.
     if let Some(state_events) = invite_state_events {
-        // We need to find the membership event since it could be for either an invited
-        // or knocked room.
+        // We need to find the membership event since it could be for either an
+        // invited or knocked room.
         let own_membership = state_events.iter_mut().find_map(|raw_event| {
             if raw_event.event_type == StateEventType::RoomMember
                 && raw_event.state_key == user_id.as_str()
@@ -286,23 +286,23 @@ fn membership(
             }
         }
     }
-    // No invite state events. We assume this is a joined room for the moment. See this block to
-    // learn more.
+    // No invite state events. We assume this is a joined room for the moment.
+    // See this block to learn more.
     else {
         let room = store.get_or_create_room(room_id, RoomState::Joined);
         let mut room_info = room.clone_info();
 
-        // We default to considering this room joined if it's not an invite. If it's
-        // actually left (and we remembered to request membership events in our sync
-        // request), then we can find this out from the events in required_state by
-        // calling handle_own_room_membership.
+        // We default to considering this room joined if it's not an invite. If
+        // it's actually left (and we remembered to request membership events in
+        // our sync request), then we can find this out from the events in
+        // required_state by calling handle_own_room_membership.
         room_info.mark_as_joined();
 
-        // We don't need to do this in a v2 sync, because the membership of a room can
-        // be figured out by whether the room is in the `join`, `leave` etc. property.
-        // In sliding sync we only have `invite_state`, `required_state` and `timeline`,
-        // so we must process `required_state` and `timeline` looking for relevant
-        // membership events.
+        // We don't need to do this in a v2 sync, because the membership of a
+        // room can be figured out by whether the room is in the `join`, `leave`
+        // etc. property. In sliding sync we only have `invite_state`,
+        // `required_state` and `timeline`, so we must process `required_state`
+        // and `timeline` looking for relevant membership events.
         state_events::sync::own_membership_and_update_room_state(
             context,
             user_id,
@@ -335,8 +335,8 @@ fn properties(
         JsOption::Undefined => {}
     }
 
-    // Sliding sync doesn't have a room summary, nevertheless it contains the joined
-    // and invited member counts, in addition to the heroes.
+    // Sliding sync doesn't have a room summary, nevertheless it contains the
+    // joined and invited member counts, in addition to the heroes.
     if let Some(count) = room_response.joined_count {
         room_info.update_joined_member_count(count.into());
     }
@@ -369,9 +369,9 @@ fn properties(
         if room_info.recency_stamp.as_ref() != Some(&recency_stamp) {
             room_info.update_recency_stamp(recency_stamp);
 
-            // If it's not a new room, let's emit a `RECENCY_STAMP` update.
-            // For a new room, the room will appear as new, so we don't care about this
-            // update.
+            // If it's not a new room, let's emit a `RECENCY_STAMP` update. For
+            // a new room, the room will appear as new, so we don't care about
+            // this update.
             if !is_new_room {
                 context
                     .room_info_notable_updates

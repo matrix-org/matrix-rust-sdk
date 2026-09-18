@@ -51,9 +51,9 @@ pub struct SearchResult {
     /// A list of search results.
     ///
     /// Each entry contains the search score and the ID of the event that
-    /// matched the search query. The list may be incomplete because the
-    /// search results are paginated; use [`SearchResult::total_count`] to
-    /// determine the total number of matching results.
+    /// matched the search query. The list may be incomplete because the search
+    /// results are paginated; use [`SearchResult::total_count`] to determine
+    /// the total number of matching results.
     pub events: Vec<(f32, OwnedEventId)>,
 }
 
@@ -105,8 +105,8 @@ impl IndexableEvent {
         mut timestamp: Option<MilliSecondsSinceUnixEpoch>,
         body: String,
     ) -> Self {
-        // Tantivy will transform the number of milliseconds to nanoseconds
-        // by multiplying by 1_000_000 [1]. If the number of milliseconds is too
+        // Tantivy will transform the number of milliseconds to nanoseconds by
+        // multiplying by 1_000_000 [1]. If the number of milliseconds is too
         // big, the multiplication will overflow.
         //
         // To avoid this panic, we cap the number of milliseconds to a maximum
@@ -132,15 +132,15 @@ pub enum RoomIndexOperation {
     /// `MatrixSearchIndexSchema::deletion_key()` matches this event id.
     Remove(OwnedEventId),
     /// Replace all documents in the index where
-    /// `MatrixSearchIndexSchema::deletion_key()` matches this event id with
-    /// the new event.
+    /// `MatrixSearchIndexSchema::deletion_key()` matches this event id with the
+    /// new event.
     Edit(OwnedEventId, IndexableEvent),
     /// Do nothing.
     Noop,
 }
 
-/// A struct that holds all data pertaining to a particular room's
-/// message index.
+/// A struct that holds all data pertaining to a particular room's message
+/// index.
 pub struct RoomIndex {
     index: Index,
     schema: RoomMessageSchema,
@@ -212,16 +212,15 @@ impl RoomIndex {
         Ok(last_commit_opstamp)
     }
 
-    /// Commit added events to [`RoomIndex`] and
-    /// update searchers so that they reflect the state of the last
-    /// `.commit()`.
+    /// Commit added events to [`RoomIndex`] and update searchers so that they
+    /// reflect the state of the last `.commit()`.
     ///
     /// Every commit should be rapidly reflected on your `IndexReader` and you
     /// should not need to call `reload()` at all.
     ///
     /// This automatic reload can take 10s of milliseconds to kick in however,
-    /// and in unit tests it can be nice to deterministically force the
-    /// reload of searchers.
+    /// and in unit tests it can be nice to deterministically force the reload
+    /// of searchers.
     fn commit_and_reload(&mut self, writer: &mut SearchIndexWriter) -> Result<OpStamp, IndexError> {
         debug!(
             "RoomIndex: committing and reloading: uncommitted: {:?}, {:?}",
@@ -232,13 +231,12 @@ impl RoomIndex {
         Ok(last_commit_opstamp)
     }
 
-    /// Search the [`RoomIndex`] for some query. Returns a list of
-    /// results with a maximum given length. If `pagination_offset` is
-    /// set then the results will start there, i.e.
+    /// Search the [`RoomIndex`] for some query. Returns a list of results with
+    /// a maximum given length. If `pagination_offset` is set then the results
+    /// will start there, i.e.
     ///
-    /// if `max_number_of_results = 3` and `pagination_offset = 10`
-    /// (and there are a surplus of results)
-    /// then this will return results `11, 12, 13`
+    /// if `max_number_of_results = 3` and `pagination_offset = 10` (and there
+    /// are a surplus of results) then this will return results `11, 12, 13`
     pub fn search(
         &self,
         query: &str,
@@ -323,10 +321,9 @@ impl RoomIndex {
         }
 
         // Uncommitted documents added in this same batch also get deleted by
-        // the term above, so reconcile them too. Otherwise `contains`
-        // would still report them as present and a subsequent re-add
-        // (e.g. from an edit) would be wrongly skipped, leaving the
-        // document deleted.
+        // the term above, so reconcile them too. Otherwise `contains` would
+        // still report them as present and a subsequent re-add (e.g. from an
+        // edit) would be wrongly skipped, leaving the document deleted.
         let uncommitted: Vec<_> = self
             .uncommitted_adds
             .iter()
@@ -834,8 +831,7 @@ mod tests {
 
         // An original and its edit arriving in the same batch produce an `Add`
         // and an `Edit` of the same document. The `Edit`'s removal must not
-        // drop the document added earlier in the same uncommitted
-        // batch.
+        // drop the document added earlier in the same uncommitted batch.
         index.bulk_execute(vec![
             RoomIndexOperation::Add(edit.clone()),
             RoomIndexOperation::Edit(original_id.to_owned(), edit),

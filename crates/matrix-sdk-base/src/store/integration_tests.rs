@@ -1517,8 +1517,8 @@ impl StateStoreIntegrationTests for DynStateStore {
             assert_ne!(pending[i].transaction_id, txn0);
         }
 
-        // Now add one event for two other rooms, remove one of the events, and then
-        // query all the rooms which have outstanding unsent events.
+        // Now add one event for two other rooms, remove one of the events, and
+        // then query all the rooms which have outstanding unsent events.
 
         // Add one event for room2.
         let room_id2 = room_id!("!test_send_queue_two:localhost");
@@ -1612,8 +1612,8 @@ impl StateStoreIntegrationTests for DynStateStore {
         )
         .await?;
 
-        // The requests should be ordered from higher priority to lower, and when equal,
-        // should use the insertion order instead.
+        // The requests should be ordered from higher priority to lower, and
+        // when equal, should use the insertion order instead.
         let pending = self.load_send_queue_requests(room_id).await?;
 
         assert_eq!(pending.len(), 3);
@@ -1726,8 +1726,8 @@ impl StateStoreIntegrationTests for DynStateStore {
         // It worked.
         assert!(self.load_dependent_queued_requests(room_id).await?.is_empty());
 
-        // Now, inserting a dependent event and removing the original send queue event
-        // will NOT remove the dependent event.
+        // Now, inserting a dependent event and removing the original send queue
+        // event will NOT remove the dependent event.
         let txn1 = TransactionId::new();
         let event1 =
             SerializableEventContent::new(&RoomMessageEventContent::text_plain("hey2").into())?;
@@ -1844,8 +1844,8 @@ impl StateStoreIntegrationTests for DynStateStore {
         {
             let mut all_rooms = self.get_room_infos(&RoomLoadSettings::All).await?;
 
-            // (We need to sort by `room_id` so that the test is stable across all
-            // `StateStore` implementations).
+            // (We need to sort by `room_id` so that the test is stable across
+            // all `StateStore` implementations).
             all_rooms.sort_by(|a, b| a.room_id.cmp(&b.room_id));
 
             assert_eq!(all_rooms.len(), 2);
@@ -1989,7 +1989,8 @@ impl StateStoreIntegrationTests for DynStateStore {
             event_id!("$t6"),
         ];
         // Helper for building the input for `upsert_thread_subscriptions()`,
-        // which is of the type: Vec<(&RoomId, &EventId, StoredThreadSubscription)>
+        // which is of the type: Vec<(&RoomId, &EventId,
+        // StoredThreadSubscription)>
         let build_subscription_updates = |subs: &[StoredThreadSubscription]| {
             threads
                 .iter()
@@ -2243,7 +2244,8 @@ impl StateStoreIntegrationTests for DynStateStore {
 /// You need to provide a `async fn get_store() -> StoreResult<impl StateStore>`
 /// providing a fresh store on the same level you invoke the macro.
 ///
-/// ## Usage Example:
+/// ## Usage example
+///
 /// ```no_run
 /// # use matrix_sdk_base::store::{
 /// #    StateStore,

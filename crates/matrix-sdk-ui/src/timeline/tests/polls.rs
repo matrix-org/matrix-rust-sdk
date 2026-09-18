@@ -114,8 +114,8 @@ async fn test_multiple_end_events_are_discarded() {
 
     let first_end_time = results.end_time.unwrap();
 
-    // Another poll end event arrives, but it should be discarded
-    // and therefore the poll's end time should not change
+    // Another poll end event arrives, but it should be discarded and therefore
+    // the poll's end time should not change
     timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
     let results = timeline.poll_state().await.results();
     assert_eq!(results.end_time.unwrap(), first_end_time);

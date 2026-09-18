@@ -80,8 +80,8 @@ pub mod oauth;
 use super::client::MockClientBuilder;
 use crate::{Client, OwnedServerName, Room, SlidingSyncBuilder, room::IncludeRelations};
 
-/// Structure used to store the crypto keys uploaded to the server.
-/// They will be served back to clients when requested.
+/// Structure used to store the crypto keys uploaded to the server. They will be
+/// served back to clients when requested.
 #[derive(Debug, Default)]
 struct Keys {
     device: BTreeMap<OwnedUserId, BTreeMap<String, Raw<DeviceKeys>>>,
@@ -103,17 +103,17 @@ struct Keys {
 ///
 /// It works like this:
 ///
-/// * start by saying which endpoint you'd like to mock, e.g.
+/// - start by saying which endpoint you'd like to mock, e.g.
 ///   [`Self::mock_room_send()`]. This returns a specialized [`MockEndpoint`]
 ///   data structure, with its own impl. For this example, it's
 ///   `MockEndpoint<RoomSendEndpoint>`.
-/// * configure the response on the endpoint-specific mock data structure. For
+/// - configure the response on the endpoint-specific mock data structure. For
 ///   instance, if you want the sending to result in a transient failure, call
 ///   [`MockEndpoint::error500`]; if you want it to succeed and return the event
 ///   `$42`, call [`MockEndpoint::ok()`]. It's still possible to call
 ///   [`MockEndpoint::respond_with()`], as we do with wiremock MockBuilder, for
 ///   maximum flexibility when the helpers aren't sufficient.
-/// * once the endpoint's response is configured, for any mock builder, you get
+/// - once the endpoint's response is configured, for any mock builder, you get
 ///   a [`MatrixMock`]; this is a plain [`wiremock::Mock`] with the server
 ///   curried, so one doesn't have to pass it around when calling
 ///   [`MatrixMock::mount()`] or [`MatrixMock::mount_as_scoped()`]. As such, it
@@ -168,8 +168,8 @@ pub struct MatrixMockServer {
     /// Make this mock server capable of mocking real end to end communications
     keys: Arc<Mutex<Keys>>,
 
-    /// For crypto API end-points to work we need to be able to recognise
-    /// what client is doing the request by mapping the token to the user_id
+    /// For crypto API end-points to work we need to be able to recognise what
+    /// client is doing the request by mapping the token to the user_id
     token_to_user_id_map: Arc<Mutex<BTreeMap<String, OwnedUserId>>>,
     token_counter: AtomicU32,
 }
@@ -242,16 +242,23 @@ impl MatrixMockServer {
     ///
     /// ```
     /// # tokio_test::block_on(async {
-    /// use matrix_sdk::{ruma::{room_id, event_id}, test_utils::mocks::MatrixMockServer};
+    /// use matrix_sdk::{
+    ///     ruma::{event_id, room_id},
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
     /// use matrix_sdk_test::LeftRoomBuilder;
     ///
     /// let mock_server = MatrixMockServer::new().await;
     /// let client = mock_server.client_builder().build().await;
     ///
     /// let left_room = mock_server
-    ///     .sync_room(&client, LeftRoomBuilder::new(room_id!("!room_id:localhost")))
+    ///     .sync_room(
+    ///         &client,
+    ///         LeftRoomBuilder::new(room_id!("!room_id:localhost")),
+    ///     )
     ///     .await;
     /// # anyhow::Ok(()) });
+    /// ```
     pub async fn sync_room(&self, client: &Client, room_data: impl Into<AnyRoomBuilder>) -> Room {
         let any_room = room_data.into();
         let room_id = any_room.room_id().to_owned();
@@ -292,6 +299,7 @@ impl MatrixMockServer {
     ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
     ///     .await;
     /// # anyhow::Ok(()) });
+    /// ```
     pub async fn sync_joined_room(&self, client: &Client, room_id: &RoomId) -> Room {
         self.sync_room(client, JoinedRoomBuilder::new(room_id)).await
     }
@@ -410,7 +418,7 @@ impl MatrixMockServer {
 
     /// Creates a prebuilt mock for sending an event in a room.
     ///
-    /// Note: works with *any* room.
+    /// Note: works with _any_ room.
     ///
     /// # Examples
     ///
@@ -455,8 +463,7 @@ impl MatrixMockServer {
     ///
     /// Similar to: [`MatrixMockServer::mock_room_send`]
     ///
-    /// Note: works with *any* room.
-    /// Note: works with *any* event type.
+    /// Note: works with _any_ room. Note: works with _any_ event type.
     ///
     /// ```
     /// # tokio_test::block_on(async {
@@ -500,7 +507,7 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, RoomSendStateEndpoint::default()).expect_default_access_token()
     }
 
-    /// Creates a prebuilt mock for asking whether *a* room is encrypted or not.
+    /// Creates a prebuilt mock for asking whether _a_ room is encrypted or not.
     ///
     /// Note: Applies to all rooms.
     ///
@@ -901,6 +908,7 @@ impl MatrixMockServer {
     /// Creates a prebuilt mock for the `/sendToDevice` endpoint.
     ///
     /// This mock can be used to simulate sending to-device messages in tests.
+    ///
     /// # Examples
     ///
     /// ```
@@ -1189,8 +1197,8 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, DeleteDehydratedDeviceEndpoint).expect_any_access_token()
     }
 
-    /// Creates a prebuilt mock for the MSC3814 endpoint that fetches the
-    /// queued to-device events for a dehydrated device.
+    /// Creates a prebuilt mock for the MSC3814 endpoint that fetches the queued
+    /// to-device events for a dehydrated device.
     #[cfg(feature = "e2e-encryption")]
     pub fn mock_dehydrated_device_events(
         &self,
@@ -1231,7 +1239,8 @@ impl MatrixMockServer {
 
     /// Create a prebuilt mock for the endpoint used to get the related events.
     pub fn mock_room_relations(&self) -> MockEndpoint<'_, RoomRelationsEndpoint> {
-        // Routing happens in the final method ok(), since it can get complicated.
+        // Routing happens in the final method ok(), since it can get
+        // complicated.
         let mock = Mock::given(method("GET"));
         self.mock_endpoint(mock, RoomRelationsEndpoint::default()).expect_default_access_token()
     }
@@ -1867,9 +1876,9 @@ impl MatrixMock<'_> {
     /// Set an expectation on the number of times this [`MatrixMock`] should
     /// match in the current test case.
     ///
-    /// Expectations are verified when the server is shutting down: if
-    /// the expectation is not satisfied, the [`MatrixMockServer`] will panic
-    /// and the `error_message` is shown.
+    /// Expectations are verified when the server is shutting down: if the
+    /// expectation is not satisfied, the [`MatrixMockServer`] will panic and
+    /// the `error_message` is shown.
     ///
     /// By default, no expectation is set for [`MatrixMock`]s.
     pub fn expect<T: Into<Times>>(self, num_calls: T) -> Self {
@@ -1879,8 +1888,8 @@ impl MatrixMock<'_> {
     /// Assign a name to your mock.
     ///
     /// The mock name will be used in error messages (e.g. if the mock
-    /// expectation is not satisfied) and debug logs to help you identify
-    /// what failed.
+    /// expectation is not satisfied) and debug logs to help you identify what
+    /// failed.
     pub fn named(self, name: impl Into<String>) -> Self {
         Self { mock: self.mock.named(name), ..self }
     }
@@ -1910,10 +1919,10 @@ impl MatrixMock<'_> {
     /// Set the priority of this [`MatrixMock`].
     ///
     /// When several mocks match the same request, the one with the highest
-    /// priority (i.e. the lowest value, 1 being the highest and 255 the
-    /// lowest) responds to it. This is useful to mock the same endpoint
-    /// differently for the first and the subsequent requests, by combining it
-    /// with [`Self::up_to_n_times`].
+    /// priority (i.e. the lowest value, 1 being the highest and 255 the lowest)
+    /// responds to it. This is useful to mock the same endpoint differently for
+    /// the first and the subsequent requests, by combining it with
+    /// [`Self::up_to_n_times`].
     pub fn with_priority(self, priority: u8) -> Self {
         Self { mock: self.mock.with_priority(priority), ..self }
     }
@@ -1921,8 +1930,8 @@ impl MatrixMock<'_> {
     /// Mount a [`MatrixMock`] on the attached server.
     ///
     /// The [`MatrixMock`] will remain active until the [`MatrixMockServer`] is
-    /// shut down. If you want to control or limit how long your
-    /// [`MatrixMock`] stays active, check out [`Self::mount_as_scoped`].
+    /// shut down. If you want to control or limit how long your [`MatrixMock`]
+    /// stays active, check out [`Self::mount_as_scoped`].
     pub async fn mount(self) {
         self.mock.mount(self.server).await;
     }
@@ -2053,6 +2062,7 @@ impl<'a, T> MockEndpoint<'a, T> {
     /// with error 500.
     ///
     /// # Examples
+    ///
     /// ```
     /// # tokio_test::block_on(async {
     /// use matrix_sdk::{ruma::{room_id, event_id}, test_utils::mocks::MatrixMockServer};
@@ -2126,6 +2136,7 @@ impl<'a, T> MockEndpoint<'a, T> {
     /// is too large).
     ///
     /// # Examples
+    ///
     /// ```
     /// # tokio_test::block_on(async {
     /// use matrix_sdk::{ruma::{room_id, event_id}, test_utils::mocks::MatrixMockServer};
@@ -2212,6 +2223,7 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// `body` parameter.
     ///
     /// # Examples
+    ///
     /// ```
     /// # tokio_test::block_on(async {
     /// use matrix_sdk::{
@@ -2298,8 +2310,8 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// ```
     pub fn for_type(self, event_type: MessageLikeEventType) -> Self {
         Self {
-            // Note: we already defined a path when constructing the mock builder, but this one
-            // ought to be more specialized.
+            // Note: we already defined a path when constructing the mock
+            // builder, but this one ought to be more specialized.
             mock: self
                 .mock
                 .and(path_regex(format!(r"^/_matrix/client/v3/rooms/.*/send/{event_type}",))),
@@ -2309,9 +2321,10 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
 
     /// Ensures the event was sent as a delayed event.
     ///
-    /// See also [the MSC](https://github.com/matrix-org/matrix-spec-proposals/pull/4140).
+    /// See also
+    /// [the MSC](https://github.com/matrix-org/matrix-spec-proposals/pull/4140).
     ///
-    /// Note: works with *any* room.
+    /// Note: works with _any_ room.
     ///
     /// # Examples
     ///
@@ -2379,6 +2392,7 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// sent with the given event id.
     ///
     /// # Examples
+    ///
     /// ```
     /// # tokio_test::block_on(async {
     /// use matrix_sdk::{ruma::{room_id, event_id}, test_utils::mocks::MatrixMockServer};
@@ -2422,6 +2436,7 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// in-flight simultaneously.
     ///
     /// # Examples
+    ///
     /// ```
     /// # tokio_test::block_on(async {
     /// use std::time::Duration;
@@ -2588,6 +2603,7 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     /// `body` parameter.
     ///
     /// # Examples
+    ///
     /// ```
     /// # tokio_test::block_on(async {
     /// use matrix_sdk::{
@@ -2640,7 +2656,7 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
 
     /// Ensures that the send endpoint request uses a specific event type.
     ///
-    /// Note: works with *any* room.
+    /// Note: works with _any_ room.
     ///
     /// # Examples
     ///
@@ -2693,16 +2709,18 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     /// ```
     pub fn for_type(mut self, event_type: StateEventType) -> Self {
         self.endpoint.event_type = Some(event_type);
-        // Note: we may have already defined a path, but this one ought to be more
-        // specialized (unless for_key/for_type were called multiple times).
+        // Note: we may have already defined a path, but this one ought to be
+        // more specialized (unless for_key/for_type were called multiple
+        // times).
         Self { mock: self.mock.and(path_regex(Self::generate_path_regexp(&self.endpoint))), ..self }
     }
 
     /// Ensures the event was sent as a delayed event.
     ///
-    /// See also [the MSC](https://github.com/matrix-org/matrix-spec-proposals/pull/4140).
+    /// See also
+    /// [the MSC](https://github.com/matrix-org/matrix-spec-proposals/pull/4140).
     ///
-    /// Note: works with *any* room.
+    /// Note: works with _any_ room.
     ///
     /// # Examples
     ///
@@ -2763,7 +2781,6 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
         }
     }
 
-    ///
     /// ```
     /// # tokio_test::block_on(async {
     /// use matrix_sdk::{
@@ -2818,8 +2835,9 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     /// ```
     pub fn for_key(mut self, state_key: String) -> Self {
         self.endpoint.state_key = Some(state_key);
-        // Note: we may have already defined a path, but this one ought to be more
-        // specialized (unless for_key/for_type were called multiple times).
+        // Note: we may have already defined a path, but this one ought to be
+        // more specialized (unless for_key/for_type were called multiple
+        // times).
         Self { mock: self.mock.and(path_regex(Self::generate_path_regexp(&self.endpoint))), ..self }
     }
 
@@ -2827,6 +2845,7 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     /// sent with the given event id.
     ///
     /// # Examples
+    ///
     /// ```
     /// # tokio_test::block_on(async {
     /// use matrix_sdk::{ruma::{room_id, event_id}, test_utils::mocks::MatrixMockServer};
@@ -2998,6 +3017,7 @@ impl<'a> MockEndpoint<'a, EncryptionStateEndpoint> {
     ///     "The room should be marked as state encrypted."
     /// );
     /// # anyhow::Ok(()) });
+    /// ```
     #[cfg(feature = "experimental-encrypted-state-events")]
     pub fn state_encrypted(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(
@@ -3078,8 +3098,8 @@ impl<'a> MockEndpoint<'a, RoomEventEndpoint> {
     pub fn ok(self, event: TimelineEvent) -> MatrixMock<'a> {
         let event_path = if self.endpoint.match_event_id {
             let event_id = event.event_id().expect("an event id is required");
-            // The event id should begin with `$`, which would be taken as the end of the
-            // regex so we need to escape it
+            // The event id should begin with `$`, which would be taken as the
+            // end of the regex so we need to escape it
             event_id.as_str().replace("$", "\\$")
         } else {
             // Event is at the end, so no need to add anything.
@@ -3187,8 +3207,8 @@ impl<'a> MockEndpoint<'a, RoomEventContextEndpoint> {
     pub fn ok(self, response: RoomContextResponseTemplate) -> MatrixMock<'a> {
         let event_path = if self.endpoint.match_event_id {
             let event_id = response.event.event_id().expect("an event id is required");
-            // The event id should begin with `$`, which would be taken as the end of the
-            // regex so we need to escape it
+            // The event id should begin with `$`, which would be taken as the
+            // end of the regex so we need to escape it
             event_id.as_str().replace("$", "\\$")
         } else {
             // Event is at the end, so no need to add anything.
@@ -3305,12 +3325,11 @@ impl<'a> MockEndpoint<'a, UploadEndpoint> {
     }
 
     /// Returns a upload endpoint that emulates success, i.e. the media has been
-    /// uploaded to the media server and can be accessed using the given
-    /// event has been sent with the given [`MxcUri`].
+    /// uploaded to the media server and can be accessed using the given event
+    /// has been sent with the given [`MxcUri`].
     ///
     /// The uploaded content is captured and can be accessed using the returned
-    /// [`Receiver`]. The [`Receiver`] is valid only for a single media
-    /// upload.
+    /// [`Receiver`]. The [`Receiver`] is valid only for a single media upload.
     ///
     /// # Examples
     ///
@@ -3354,8 +3373,8 @@ impl<'a> MockEndpoint<'a, UploadEndpoint> {
     }
 
     /// Returns a upload endpoint that emulates success, i.e. the media has been
-    /// uploaded to the media server and can be accessed using the given
-    /// event has been sent with the given [`MxcUri`].
+    /// uploaded to the media server and can be accessed using the given event
+    /// has been sent with the given [`MxcUri`].
     pub fn ok(self, mxc_id: &MxcUri) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "content_uri": mxc_id
@@ -3714,8 +3733,7 @@ impl<'a> MockEndpoint<'a, RoomSummaryEndpoint> {
 pub struct SetRoomPinnedEventsEndpoint;
 
 impl<'a> MockEndpoint<'a, SetRoomPinnedEventsEndpoint> {
-    /// Returns a successful response with a given event id.
-    /// id.
+    /// Returns a successful response with a given event id. id.
     pub fn ok(self, event_id: OwnedEventId) -> MatrixMock<'a> {
         self.ok_with_event_id(event_id)
     }
@@ -3931,8 +3949,8 @@ impl<'a> MockEndpoint<'a, GetDehydratedDeviceEndpoint> {
         })))
     }
 
-    /// Returns a 404 response with `M_NOT_FOUND`, signalling that no device
-    /// is currently dehydrated for the user.
+    /// Returns a 404 response with `M_NOT_FOUND`, signalling that no device is
+    /// currently dehydrated for the user.
     pub fn not_found(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(404).set_body_json(json!({
             "errcode": "M_NOT_FOUND",
@@ -3991,8 +4009,8 @@ impl<'a> MockEndpoint<'a, DeleteDehydratedDeviceEndpoint> {
     }
 }
 
-/// A prebuilt mock for the MSC3814
-/// `POST /dehydrated_device/{device_id}/events` request.
+/// A prebuilt mock for the MSC3814 `POST /dehydrated_device/{device_id}/events`
+/// request.
 #[cfg(feature = "e2e-encryption")]
 pub struct DehydratedDeviceEventsEndpoint;
 
@@ -4008,15 +4026,15 @@ impl<'a> MockEndpoint<'a, DehydratedDeviceEventsEndpoint> {
     }
 
     /// Constrain the mock to only match requests whose `next_batch` body field
-    /// equals the given token. Pair with [`Self::match_missing_next_batch`]
-    /// for the initial request in a paginated flow.
+    /// equals the given token. Pair with [`Self::match_missing_next_batch`] for
+    /// the initial request in a paginated flow.
     pub fn match_next_batch(mut self, token: &str) -> Self {
         self.mock = self.mock.and(body_partial_json(json!({ "next_batch": token })));
         self
     }
 
-    /// Constrain the mock to only match requests whose body has no
-    /// `next_batch` field (i.e. the first call in a paginated flow).
+    /// Constrain the mock to only match requests whose body has no `next_batch`
+    /// field (i.e. the first call in a paginated flow).
     pub fn match_missing_next_batch(mut self) -> Self {
         self.mock = self.mock.and(body_json(json!({})));
         self
@@ -4168,8 +4186,8 @@ fn global_account_data_mock_builder(
         .and(path_regex(format!(r"^/_matrix/client/v3/user/{user_id}/account_data/{event_type}",)))
 }
 
-/// A prebuilt mock for a `GET
-/// /_matrix/client/v3/user/{userId}/account_data/io.element.recent_emoji`
+/// A prebuilt mock for a
+/// `GET /_matrix/client/v3/user/{userId}/account_data/io.element.recent_emoji`
 /// request, which fetches the recently used emojis in the account data.
 #[cfg(feature = "experimental-element-recent-emojis")]
 pub struct GetRecentEmojisEndpoint;
@@ -4188,8 +4206,8 @@ impl<'a> MockEndpoint<'a, GetRecentEmojisEndpoint> {
     }
 }
 
-/// A prebuilt mock for a `PUT
-/// /_matrix/client/v3/user/{userId}/account_data/io.element.recent_emoji`
+/// A prebuilt mock for a
+/// `PUT /_matrix/client/v3/user/{userId}/account_data/io.element.recent_emoji`
 /// request, which updates the recently used emojis in the account data.
 #[cfg(feature = "experimental-element-recent-emojis")]
 pub struct UpdateRecentEmojisEndpoint {
@@ -4217,8 +4235,7 @@ impl<'a> MockEndpoint<'a, UpdateRecentEmojisEndpoint> {
     }
 
     /// Returns a mock for a successful update of the recent emojis account data
-    /// event. The request body contents should match the provided emoji
-    /// list.
+    /// event. The request body contents should match the provided emoji list.
     #[cfg(feature = "experimental-element-recent-emojis")]
     pub fn ok(self, user_id: &UserId) -> MatrixMock<'a> {
         let mock =
@@ -4228,9 +4245,10 @@ impl<'a> MockEndpoint<'a, UpdateRecentEmojisEndpoint> {
     }
 }
 
-/// A prebuilt mock for a `GET
-/// /_matrix/client/v3/user/{userId}/account_data/m.secret_storage.default_key`
-/// request, which fetches the ID of the default secret storage key.
+/// A prebuilt mock for a
+/// `GET /_matrix/client/v3/user/{userId}/account_data/m.secret_storage.
+/// default_key` request, which fetches the ID of the default secret storage
+/// key.
 #[cfg(feature = "e2e-encryption")]
 pub struct GetDefaultSecretStorageKeyEndpoint;
 
@@ -4250,9 +4268,9 @@ impl<'a> MockEndpoint<'a, GetDefaultSecretStorageKeyEndpoint> {
     }
 }
 
-/// A prebuilt mock for a `GET
-/// /_matrix/client/v3/user/{userId}/account_data/m.secret_storage.key.{keyId}`
-/// request, which fetches information about a secret storage key.
+/// A prebuilt mock for a
+/// `GET /_matrix/client/v3/user/{userId}/account_data/m.secret_storage.key.
+/// {keyId}` request, which fetches information about a secret storage key.
 #[cfg(feature = "e2e-encryption")]
 pub struct GetSecretStorageKeyEndpoint;
 
@@ -4276,8 +4294,8 @@ impl<'a> MockEndpoint<'a, GetSecretStorageKeyEndpoint> {
     }
 }
 
-/// A prebuilt mock for a `GET
-/// /_matrix/client/v3/user/{userId}/account_data/m.cross_signing.master`
+/// A prebuilt mock for a
+/// `GET /_matrix/client/v3/user/{userId}/account_data/m.cross_signing.master`
 /// request, which fetches information about the master signing key.
 #[cfg(feature = "e2e-encryption")]
 pub struct GetMasterSigningKeyEndpoint;
@@ -4453,7 +4471,7 @@ impl<'a> MockEndpoint<'a, LoginEndpoint> {
     ///
     /// # Arguments
     ///
-    /// * `response` - The response that the mock server sends on POST /login
+    /// - `response` - The response that the mock server sends on POST /login
     ///   requests.
     ///
     /// # Returns
@@ -4558,9 +4576,9 @@ pub struct LoginResponseTemplate200 {
 
     /// The lifetime of the access token, in milliseconds. Once the access token
     /// has expired a new access token can be obtained by using the provided
-    /// refresh token. If no refresh token is provided, the client will need
-    /// to re-log in to obtain a new access token. If not given, the client
-    /// can assume that the access token will not expire.
+    /// refresh token. If no refresh token is provided, the client will need to
+    /// re-log in to obtain a new access token. If not given, the client can
+    /// assume that the access token will not expire.
     expires_in: Option<Duration>,
 
     /// A refresh token for the account. This token can be used to obtain a new
@@ -4859,8 +4877,8 @@ impl ThreadSubscriptionMatchers {
     }
 }
 
-/// A prebuilt mock for `GET
-/// /client/*/rooms/{room_id}/threads/{thread_root}/subscription`
+/// A prebuilt mock for
+/// `GET /client/*/rooms/{room_id}/threads/{thread_root}/subscription`
 #[derive(Default)]
 pub struct RoomGetThreadSubscriptionEndpoint {
     matchers: ThreadSubscriptionMatchers,
@@ -4887,8 +4905,8 @@ impl<'a> MockEndpoint<'a, RoomGetThreadSubscriptionEndpoint> {
     }
 }
 
-/// A prebuilt mock for `PUT
-/// /client/*/rooms/{room_id}/threads/{thread_root}/subscription`
+/// A prebuilt mock for
+/// `PUT /client/*/rooms/{room_id}/threads/{thread_root}/subscription`
 #[derive(Default)]
 pub struct RoomPutThreadSubscriptionEndpoint {
     matchers: ThreadSubscriptionMatchers,
@@ -4932,8 +4950,8 @@ impl<'a> MockEndpoint<'a, RoomPutThreadSubscriptionEndpoint> {
     }
 }
 
-/// A prebuilt mock for `DELETE
-/// /client/*/rooms/{room_id}/threads/{thread_root}/subscription`
+/// A prebuilt mock for
+/// `DELETE /client/*/rooms/{room_id}/threads/{thread_root}/subscription`
 #[derive(Default)]
 pub struct RoomDeleteThreadSubscriptionEndpoint {
     matchers: ThreadSubscriptionMatchers,
@@ -4959,8 +4977,8 @@ impl<'a> MockEndpoint<'a, RoomDeleteThreadSubscriptionEndpoint> {
     }
 }
 
-/// A prebuilt mock for `PUT
-/// /_matrix/client/v3/pushrules/global/{kind}/{ruleId}/enabled`.
+/// A prebuilt mock for
+/// `PUT /_matrix/client/v3/pushrules/global/{kind}/{ruleId}/enabled`.
 pub struct EnablePushRuleEndpoint;
 
 impl<'a> MockEndpoint<'a, EnablePushRuleEndpoint> {
@@ -4970,8 +4988,8 @@ impl<'a> MockEndpoint<'a, EnablePushRuleEndpoint> {
     }
 }
 
-/// A prebuilt mock for `PUT
-/// /_matrix/client/v3/pushrules/global/{kind}/{ruleId}/actions`.
+/// A prebuilt mock for
+/// `PUT /_matrix/client/v3/pushrules/global/{kind}/{ruleId}/actions`.
 pub struct SetPushRulesActionsEndpoint;
 
 impl<'a> MockEndpoint<'a, SetPushRulesActionsEndpoint> {
@@ -4981,8 +4999,8 @@ impl<'a> MockEndpoint<'a, SetPushRulesActionsEndpoint> {
     }
 }
 
-/// A prebuilt mock for `PUT
-/// /_matrix/client/v3/pushrules/global/{kind}/{ruleId}`.
+/// A prebuilt mock for
+/// `PUT /_matrix/client/v3/pushrules/global/{kind}/{ruleId}`.
 pub struct SetPushRulesEndpoint;
 
 impl<'a> MockEndpoint<'a, SetPushRulesEndpoint> {
@@ -4992,8 +5010,8 @@ impl<'a> MockEndpoint<'a, SetPushRulesEndpoint> {
     }
 }
 
-/// A prebuilt mock for `DELETE
-/// /_matrix/client/v3/pushrules/global/{kind}/{ruleId}`.
+/// A prebuilt mock for
+/// `DELETE /_matrix/client/v3/pushrules/global/{kind}/{ruleId}`.
 pub struct DeletePushRulesEndpoint;
 
 impl<'a> MockEndpoint<'a, DeletePushRulesEndpoint> {
@@ -5165,8 +5183,8 @@ impl<'a> MockEndpoint<'a, GetHierarchyEndpoint> {
     }
 }
 
-/// A prebuilt mock for `PUT
-/// /_matrix/client/v3/rooms/{roomId}/state/m.space.child/{stateKey}`
+/// A prebuilt mock for
+/// `PUT /_matrix/client/v3/rooms/{roomId}/state/m.space.child/{stateKey}`
 pub struct SetSpaceChildEndpoint;
 
 impl<'a> MockEndpoint<'a, SetSpaceChildEndpoint> {
@@ -5182,8 +5200,8 @@ impl<'a> MockEndpoint<'a, SetSpaceChildEndpoint> {
     }
 }
 
-/// A prebuilt mock for `PUT
-/// /_matrix/client/v3/rooms/{roomId}/state/m.space.parent/{stateKey}`
+/// A prebuilt mock for
+/// `PUT /_matrix/client/v3/rooms/{roomId}/state/m.space.parent/{stateKey}`
 pub struct SetSpaceParentEndpoint;
 
 impl<'a> MockEndpoint<'a, SetSpaceParentEndpoint> {

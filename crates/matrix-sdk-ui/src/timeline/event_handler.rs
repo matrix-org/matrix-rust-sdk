@@ -132,7 +132,7 @@ pub(super) struct TimelineEventContext {
 
     /// If the event represents a new item, should it be added to the timeline?
     ///
-    /// This controls whether a new timeline *may* be added. If the update kind
+    /// This controls whether a new timeline _may_ be added. If the update kind
     /// is about an update to an existing timeline item (redaction, edit,
     /// reaction, etc.), it's always handled by default.
     pub(super) should_add_new_items: bool,
@@ -198,8 +198,8 @@ pub(super) enum TimelineAction {
     /// Add a new timeline item.
     ///
     /// This enqueues adding a new item to the timeline (i.e. push to the items
-    /// array in its state). The item may be filtered out, and thus not
-    /// added later.
+    /// array in its state). The item may be filtered out, and thus not added
+    /// later.
     AddItem {
         /// The content of the item we want to add.
         content: TimelineItemContent,
@@ -208,8 +208,8 @@ pub(super) enum TimelineAction {
     /// Handle an aggregation to another event.
     ///
     /// The event the aggregation is related to might not be included in the
-    /// timeline, in which case it will be stashed somewhere, until we see
-    /// the related event.
+    /// timeline, in which case it will be stashed somewhere, until we see the
+    /// related event.
     HandleAggregation {
         /// To which other event does this aggregation apply to?
         related_event: OwnedEventId,
@@ -275,8 +275,8 @@ impl TimelineAction {
                             &unable_to_decrypt_info,
                         );
 
-                        // Let the hook know that we ran into an unable-to-decrypt that is added to
-                        // the timeline.
+                        // Let the hook know that we ran into an
+                        // unable-to-decrypt that is added to the timeline.
                         if let Some(hook) = unable_to_decrypt_hook_manager {
                             hook.on_utd(
                                 ev.event_id(),
@@ -293,10 +293,12 @@ impl TimelineAction {
                             )),
                         ))]
                     } else {
-                        // If we get here, it means that some part of the code has created a
-                        // `TimelineEvent` containing an `m.room.encrypted` event without
-                        // decrypting it. Possibly this means that encryption has not been
-                        // configured. We treat it the same as any other message-like event.
+                        // If we get here, it means that some part of the code
+                        // has created a `TimelineEvent` containing an
+                        // `m.room.encrypted` event without decrypting it.
+                        // Possibly this means that encryption has not been
+                        // configured. We treat it the same as any other
+                        // message-like event.
                         vec![Self::from_content(
                             AnyMessageLikeEventContent::RoomEncrypted(content),
                             in_reply_to,
@@ -338,10 +340,10 @@ impl TimelineAction {
                 },
                 AnySyncStateEvent::BeaconInfo(ev) => match ev {
                     SyncStateEvent::Original(ev) => {
-                        // Check the `live` field directly, not `is_live()` which
-                        // considers timeout. We want to create a timeline item for any
-                        // beacon_info that was started as live, regardless of whether
-                        // the timeout has since expired.
+                        // Check the `live` field directly, not `is_live()`
+                        // which considers timeout. We want to create a timeline
+                        // item for any beacon_info that was started as live,
+                        // regardless of whether the timeout has since expired.
                         if ev.content.live {
                             let add_item_action =
                                 Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent {
@@ -373,13 +375,14 @@ impl TimelineAction {
                             actions.extend(handle_aggregation_action);
                             actions
                         } else {
-                            // A non-live beacon_info is a stop event: it should update the
-                            // existing live item from the same sender rather than creating a
-                            // new timeline item.
+                            // A non-live beacon_info is a stop event: it should
+                            // update the existing live item from the same
+                            // sender rather than creating a new timeline item.
                             let event_id = ev.event_id.clone();
                             vec![Self::HandleAggregation {
-                                // There is no explicit relates_to on a beacon_info state event;
-                                // the target is identified by sender in handle_beacon_stop.
+                                // There is no explicit relates_to on a
+                                // beacon_info state event; the target is
+                                // identified by sender in handle_beacon_stop.
                                 related_event: event_id.clone(),
                                 kind: HandleAggregationKind::BeaconStop {
                                     own_id: TimelineEventItemId::EventId(event_id),
@@ -624,8 +627,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     ///     - Contains a message that is already in the timeline but was now
     ///       decrypted.
     ///
-    /// `raw_event` is only needed to determine the cause of any UTDs,
-    /// so if we know this is not a UTD it can be None.
+    /// `raw_event` is only needed to determine the cause of any UTDs, so if we
+    /// know this is not a UTD it can be None.
     #[instrument(skip_all, fields(txn_id, event_id, position))]
     pub(super) async fn handle_event(
         mut self,
@@ -760,7 +763,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             aggregation,
             &self.meta.room_version_rules,
         ) {
-            // Update all events that replied to this message with the edited content.
+            // Update all events that replied to this message with the edited
+            // content.
             Self::maybe_update_responses(
                 self.meta,
                 self.items,
@@ -770,7 +774,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
     }
 
-    /// Apply a reaction to a *remote* event.
+    /// Apply a reaction to a _remote_ event.
     ///
     /// Reactions to local events are applied in
     /// [`crate::timeline::TimelineController::handle_local_echo`].
@@ -845,8 +849,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let aggregation = Aggregation::new(own_id, AggregationKind::BeaconStop { content });
 
         let Some(target_event_id) = target_event_id else {
-            // The live start item hasn't arrived yet (or the content doesn't match).
-            // Stash the stop so it can be applied when the matching start item arrives.
+            // The live start item hasn't arrived yet (or the content doesn't
+            // match). Stash the stop so it can be applied when the matching
+            // start item arrives.
             trace!(
                 "no matching live beacon_info item found for {sender}; \
                  stashing stop event to apply when the start item arrives"
@@ -894,8 +899,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         // If it's an aggregation that's being redacted, handle it here.
         if self.handle_aggregation_redaction(redacted.clone()) {
-            // When we have raw timeline items, we should not return here anymore, as we
-            // might need to redact the raw item as well.
+            // When we have raw timeline items, we should not return here
+            // anymore, as we might need to redact the raw item as well.
             return;
         }
 
@@ -911,8 +916,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             &self.meta.room_version_rules,
         );
 
-        // Even if the redacted event wasn't in the timeline, we can always update
-        // responses with a placeholder "redacted" embedded item.
+        // Even if the redacted event wasn't in the timeline, we can always
+        // update responses with a placeholder "redacted" embedded item.
         let embedded_event = EmbeddedEvent {
             content: TimelineItemContent::MsgLike(MsgLikeContent::redacted()),
             sender: self.ctx.sender.clone(),
@@ -1098,7 +1103,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 let all_remote_events = self.items.all_remote_events();
                 let event_index = *event_index;
 
-                // Look for the closest `timeline_item_index` at the left of `event_index`.
+                // Look for the closest `timeline_item_index` at the left of
+                // `event_index`.
                 let timeline_item_index = all_remote_events
                     .range(0..=event_index)
                     .rev()
@@ -1106,16 +1112,17 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     // The new `timeline_item_index` is the previous + 1.
                     .map(|timeline_item_index| timeline_item_index + 1);
 
-                // No index? Look for the closest `timeline_item_index` at the right of
-                // `event_index`.
+                // No index? Look for the closest `timeline_item_index` at the
+                // right of `event_index`.
                 let timeline_item_index = timeline_item_index.or_else(|| {
                     all_remote_events
                         .range(event_index + 1..)
                         .find_map(|event_meta| event_meta.timeline_item_index)
                 });
 
-                // Still no index? Well, it means there is no existing `timeline_item_index`
-                // so we are inserting at the last non-local item position as a fallback.
+                // Still no index? Well, it means there is no existing
+                // `timeline_item_index` so we are inserting at the last
+                // non-local item position as a fallback.
                 let timeline_item_index = timeline_item_index.unwrap_or_else(|| {
                     self.items
                         .iter_remotes_region()
@@ -1124,8 +1131,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                             timeline_item.as_event().map(|_| timeline_item_index + 1)
                         })
                         .unwrap_or_else(|| {
-                            // There is no remote timeline item, so we could insert at the start of
-                            // the remotes region.
+                            // There is no remote timeline item, so we could
+                            // insert at the start of the remotes region.
                             self.items.first_remotes_region_index()
                         })
                 });
@@ -1160,8 +1167,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                         timeline_item.as_event().map(|_| timeline_item_index + 1)
                     })
                     .unwrap_or_else(|| {
-                        // There is no remote timeline item, so we could insert at the start of
-                        // the remotes region.
+                        // There is no remote timeline item, so we could insert
+                        // at the start of the remotes region.
                         self.items.first_remotes_region_index()
                     });
 
@@ -1170,21 +1177,24 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     .all_remote_events()
                     .last_index()
                     // The last remote event is necessarily associated to this
-                    // timeline item, see the contract of this method. Let's fallback to a similar
-                    // value as `timeline_item_index` instead of panicking.
+                    // timeline item, see the contract of this method. Let's
+                    // fallback to a similar value as `timeline_item_index`
+                    // instead of panicking.
                     .or_else(|| {
                         error!(?event_id, "Failed to read the last event index from `AllRemoteEvents`: at least one event must be present");
 
                         Some(0)
                     });
 
-                // Try to keep precise insertion semantics here, in this exact order:
+                // Try to keep precise insertion semantics here, in this exact
+                // order:
                 //
-                // * _push back_ when the new item is inserted after all items (the assumption
-                // being that this is the hot path, because most of the time new events
-                // come from the sync),
-                // * _push front_ when the new item is inserted at index 0,
-                // * _insert_ otherwise.
+                // - _push back_ when the new item is inserted after all items
+                //   (the assumption
+                // being that this is the hot path, because most of the time new
+                // events come from the sync),
+                // - _push front_ when the new item is inserted at index 0,
+                // - _insert_ otherwise.
 
                 if timeline_item_index == self.items.len() {
                     trace!("Adding new remote timeline item at the back");
@@ -1206,10 +1216,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 position: TimelineItemPosition::UpdateAt { timeline_item_index: idx },
                 ..
             } => {
-                // The event cache redacts the raw event independently of the aggregations
-                // system, which reaches us here as an `UpdateAt`. If the item is already
-                // redacted (via the aggregations system, applied earlier in the diff batch),
-                // skip it to avoid a spurious duplicate update.
+                // The event cache redacts the raw event independently of the
+                // aggregations system, which reaches us here as an `UpdateAt`.
+                // If the item is already redacted (via the aggregations system,
+                // applied earlier in the diff batch), skip it to avoid a
+                // spurious duplicate update.
                 let already_redacted = item.content().is_redacted()
                     && self.items[*idx]
                         .as_event()
@@ -1220,7 +1231,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 } else {
                     trace!("Updating timeline item at position {idx}");
 
-                    // Update all events that replied to this previously encrypted message.
+                    // Update all events that replied to this previously
+                    // encrypted message.
                     Self::maybe_update_responses(
                         self.meta,
                         self.items,
@@ -1258,12 +1270,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             // Is this the same as previously?
             if let Some(prev_event_id) = &self.meta.active_rtc_notification_event_id {
                 if Some(prev_event_id.as_ref()) == last_notification.event_id() {
-                    // then no changes, the newest rtc_notification event have not change
+                    // then no changes, the newest rtc_notification event have
+                    // not change
                     return;
                 }
 
-                // They are different, clean the old event
-                // Find the previous notification item and clear its active_members
+                // They are different, clean the old event Find the previous
+                // notification item and clear its active_members
                 if let Some((idx, prev_item)) =
                     rfind_event_item(self.items, |it: &EventTimelineItem| {
                         it.event_id() == Some(prev_event_id)
@@ -1312,8 +1325,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 let new_timeline_item = TimelineItem::new(updated_event_item, internal_id);
                 self.items.replace(idx, new_timeline_item);
 
-                // Update the active_rtc_notification_event_id so that this event gets any new
-                // updates of call membership
+                // Update the active_rtc_notification_event_id so that this
+                // event gets any new updates of call membership
                 self.meta.active_rtc_notification_event_id =
                     last_notification.event_id().map(ToOwned::to_owned);
             }
@@ -1333,7 +1346,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         transaction_id: Option<&TransactionId>,
         recycled_timeline_id: Option<TimelineUniqueId>,
     ) -> Arc<TimelineItem> {
-        // Detect a local timeline item that matches `event_id` or `transaction_id`.
+        // Detect a local timeline item that matches `event_id` or
+        // `transaction_id`.
         if let Some((local_timeline_item_index, local_timeline_item)) = items
             // Iterate the locals region.
             .iter_locals_region()
@@ -1349,8 +1363,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     // A duplicate local event timeline item has been found!
                     Some((nth, event_timeline_item))
                 } else {
-                    // This local event timeline is not the one we are looking for. Continue our
-                    // search.
+                    // This local event timeline is not the one we are looking
+                    // for. Continue our search.
                     None
                 }
             })
@@ -1368,7 +1382,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             let recycled = items.remove(local_timeline_item_index);
             TimelineItem::new(new_item, recycled.internal_id.clone())
         } else {
-            // We haven't found a matching local item to recycle; create a new item.
+            // We haven't found a matching local item to recycle; create a new
+            // item.
             meta.new_timeline_item_with_internal_id(new_item, recycled_timeline_id)
         }
     }
@@ -1420,13 +1435,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     }
 }
 
-/// Transfer `TimelineDetails` that weren't available on the original
-/// item and have been fetched separately (only `reply_to` for
-/// now) from `old_item` to `item`, given two items for an event
-/// that was re-received.
+/// Transfer `TimelineDetails` that weren't available on the original item and
+/// have been fetched separately (only `reply_to` for now) from `old_item` to
+/// `item`, given two items for an event that was re-received.
 ///
-/// `old_item` *should* always be a local timeline item usually, but it
-/// can be a remote timeline item.
+/// `old_item` _should_ always be a local timeline item usually, but it can be a
+/// remote timeline item.
 fn transfer_details(new_item: &mut EventTimelineItem, old_item: &EventTimelineItem) {
     let TimelineItemContent::MsgLike(new_msglike) = &mut new_item.content else {
         return;

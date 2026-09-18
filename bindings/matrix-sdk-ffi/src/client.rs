@@ -321,8 +321,8 @@ pub trait RoomAccountDataListener: SyncOutsideWasm + SendOutsideWasm {
 
 /// A listener for notifications generated from sync responses.
 ///
-/// This is called during sync for each event that triggers a notification
-/// based on the user's push rules.
+/// This is called during sync for each event that triggers a notification based
+/// on the user's push rules.
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait SyncNotificationListener: SyncOutsideWasm + SendOutsideWasm {
     /// Called when a notifying event is received during sync.
@@ -399,8 +399,8 @@ struct ClientDelegateData {
     /// The delegate itself, that will receive the callbacks.
     delegate: Arc<dyn ClientDelegate>,
 
-    // The background task error listener task, that will forward errors occurring in background
-    // jobs to the delegate.
+    // The background task error listener task, that will forward errors
+    // occurring in background jobs to the delegate.
     _background_error_listener_task: Arc<AbortOnDrop<()>>,
 }
 
@@ -516,6 +516,7 @@ impl Client {
     /// Pause the client for background suspension.
     ///
     /// This method:
+    ///
     /// 1. Disables all send queues (prevents new message sends).
     /// 2. Pauses all database stores, waiting for in-flight operations and
     ///    releasing all connections and file locks.
@@ -527,7 +528,7 @@ impl Client {
     /// Call this before the app is suspended to avoid `0xdead10cc` kills.
     /// Typically called from
     /// [`applicationDidEnterBackground`](https://developer.apple.com/documentation/uikit/uiapplicationdelegate/applicationdidenterbackground(_:))
-    /// or an equivalent SwiftUI lifecycle event, *after* stopping the
+    /// or an equivalent SwiftUI lifecycle event, _after_ stopping the
     /// `matrix_sdk_ui::sync_service::SyncService`.
     pub async fn pause(&self) -> Result<(), ClientError> {
         Ok(self.inner.pause().await?)
@@ -618,9 +619,10 @@ impl Client {
         Ok(())
     }
 
-    /// Login using JWT
-    /// This is an implementation of the custom_login https://docs.rs/matrix-sdk/latest/matrix_sdk/matrix_auth/struct.MatrixAuth.html#method.login_custom
-    /// For more information on logging in with JWT: https://element-hq.github.io/synapse/latest/jwt.html
+    /// Login using JWT This is an implementation of the custom_login
+    /// https://docs.rs/matrix-sdk/latest/matrix_sdk/matrix_auth/struct.MatrixAuth.html#method.login_custom
+    /// For more information on logging in with JWT:
+    /// https://element-hq.github.io/synapse/latest/jwt.html
     pub async fn custom_login_with_jwt(
         &self,
         jwt: String,
@@ -691,29 +693,31 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `oauth_configuration` - The configuration used to load the credentials
+    /// - `oauth_configuration` - The configuration used to load the credentials
     ///   of the client if it is already registered with the authorization
     ///   server, or register the client and store its credentials if it isn't.
     ///
-    /// * `prompt` - The desired user experience in the web UI. No value means
+    /// - `prompt` - The desired user experience in the web UI. No value means
     ///   that the user wishes to login into an existing account, and a value of
     ///   `Create` means that the user wishes to register a new account.
     ///
-    /// * `login_hint` - A generic login hint that an identity provider can use
+    /// - `login_hint` - A generic login hint that an identity provider can use
     ///   to pre-fill the login form. The format of this hint is not restricted
-    ///   by the spec as external providers all have their own way to handle the hint.
-    ///   However, it should be noted that when providing a user ID as a hint
-    ///   for MAS (with no upstream provider), then the format to use is defined
-    ///   by [MSC4198]: https://github.com/matrix-org/matrix-spec-proposals/pull/4198
+    ///   by the spec as external providers all have their own way to handle the
+    ///   hint. However, it should be noted that when providing a user ID as a
+    ///   hint for MAS (with no upstream provider), then the format to use is
+    ///   defined by [MSC4198]:
+    ///   https://github.com/matrix-org/matrix-spec-proposals/pull/4198
     ///
-    /// * `device_id` - The unique ID that will be associated with the session.
+    /// - `device_id` - The unique ID that will be associated with the session.
     ///   If not set, a random one will be generated. It can be an existing
     ///   device ID from a previous login call. Note that this should be done
     ///   only if the client also holds the corresponding encryption keys.
     ///
-    /// * `additional_scopes` - Additional scopes to request from the
-    ///   authorization server, e.g. "urn:matrix:client:com.example.msc9999.foo".
-    ///   The scopes for API access and the device ID according to the
+    /// - `additional_scopes` - Additional scopes to request from the
+    ///   authorization server, e.g.
+    ///   "urn:matrix:client:com.example.msc9999.foo". The scopes for API access
+    ///   and the device ID according to the
     ///   [specification](https://spec.matrix.org/v1.15/client-server-api/#allocated-scope-tokens)
     ///   are always requested.
     pub async fn url_for_oauth(
@@ -771,7 +775,7 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `oauth_configuration` - The data to restore or register the client
+    /// - `oauth_configuration` - The data to restore or register the client
     ///   with the server.
     pub fn new_login_with_qr_code_handler(
         self: Arc<Self>,
@@ -837,12 +841,12 @@ impl Client {
         self.inner.send_queue().enable_upload_progress(enable);
     }
 
-    /// Subscribe to the global send queue update reporter, at the
-    /// client-wide level.
+    /// Subscribe to the global send queue update reporter, at the client-wide
+    /// level.
     ///
     /// The given listener will be immediately called with
-    /// `RoomSendQueueUpdate::NewLocalEvent` for each local echo existing in
-    /// the queue.
+    /// `RoomSendQueueUpdate::NewLocalEvent` for each local echo existing in the
+    /// queue.
     pub async fn subscribe_to_send_queue_updates(
         &self,
         listener: Box<dyn SendQueueRoomUpdateListener>,
@@ -893,8 +897,9 @@ impl Client {
         let mut subscriber = q.subscribe_errors();
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            // Respawn tasks for rooms that had unsent events. At this point we've just
-            // created the subscriber, so it'll be notified about errors.
+            // Respawn tasks for rooms that had unsent events. At this point
+            // we've just created the subscriber, so it'll be notified about
+            // errors.
             q.respawn_tasks_for_rooms_with_unsent_requests().await;
 
             loop {
@@ -962,7 +967,8 @@ impl Client {
     ) -> Arc<TaskHandle> {
         macro_rules! observe {
             ($t:ty, $cb: expr) => {{
-                // Using an Arc here is mandatory or else the subscriber will never trigger
+                // Using an Arc here is mandatory or else the subscriber will
+                // never trigger
                 let observer =
                     Arc::new(self.inner.observe_events::<RumaGlobalAccountDataEvent<$t>, ()>());
 
@@ -1033,7 +1039,8 @@ impl Client {
     ) -> Result<Arc<TaskHandle>, ClientError> {
         macro_rules! observe {
             ($t:ty, $cb: expr) => {{
-                // Using an Arc here is mandatory or else the subscriber will never trigger
+                // Using an Arc here is mandatory or else the subscriber will
+                // never trigger
                 let observer =
                     Arc::new(self.inner.observe_room_events::<RumaRoomAccountDataEvent<$t>, ()>(
                         &RoomId::parse(&room_id)?,
@@ -1085,10 +1092,11 @@ impl Client {
 
     /// Register a handler for notifications generated from sync responses.
     ///
-    /// The handler will be called during sync for each event that triggers
-    /// a notification based on the user's push rules.
+    /// The handler will be called during sync for each event that triggers a
+    /// notification based on the user's push rules.
     ///
     /// The handler receives:
+    ///
     /// - The notification with push actions and event data
     /// - The room ID where the notification occurred
     ///
@@ -1146,9 +1154,8 @@ impl Client {
 
     /// Empty the well-known cache.
     ///
-    /// Since the SDK caches the well-known, it's possible to have a stale
-    /// entry in the cache. This functions makes it possible to force reset
-    /// it.
+    /// Since the SDK caches the well-known, it's possible to have a stale entry
+    /// in the cache. This functions makes it possible to force reset it.
     pub async fn reset_well_known(&self) -> Result<(), ClientError> {
         Ok(self.inner.reset_well_known().await?)
     }
@@ -1188,8 +1195,8 @@ impl Client {
         }
 
         /// MediaFileHandle uses SdkMediaFileHandle which requires an
-        /// intermediate TempFile which is not available on wasm
-        /// platforms due to lack of an accessible file system.
+        /// intermediate TempFile which is not available on wasm platforms due
+        /// to lack of an accessible file system.
         #[cfg(target_family = "wasm")]
         Err(ClientError::Generic {
             msg: "get_media_file is not supported on wasm platforms".to_owned(),
@@ -1314,8 +1321,8 @@ impl Client {
             });
         }
 
-        // UTDs detected before this duration may be reclassified as "late decryption"
-        // events (or discarded, if they get decrypted fast enough).
+        // UTDs detected before this duration may be reclassified as "late
+        // decryption" events (or discarded, if they get decrypted fast enough).
         const UTD_HOOK_GRACE_PERIOD: Duration = Duration::from_secs(60);
 
         let mut utd_hook_manager = UtdHookManager::new(
@@ -1392,8 +1399,8 @@ impl Client {
 
     /// Updates the user's avatar using the provided MXC url.
     pub async fn set_avatar_url(&self, url: String) -> Result<(), ClientError> {
-        // MxcUri can't just be instantiated, serde deserialization seems to be the only
-        // way
+        // MxcUri can't just be instantiated, serde deserialization seems to be
+        // the only way
         let mxc = serde_json::from_str::<OwnedMxcUri>(&url)?;
         // Validate the newly generated MxcUri
         mxc.validate().map_err(ClientError::from_err)?;
@@ -1544,9 +1551,8 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `url` - The URL to generate a preview for.
-    ///
-    /// * `ts` - The preferred point in time to return a preview for, as a Unix
+    /// - `url` - The URL to generate a preview for.
+    /// - `ts` - The preferred point in time to return a preview for, as a Unix
     ///   timestamp in milliseconds. Deprecated since Matrix 1.11; pass `None`.
     pub async fn get_url_preview(
         &self,
@@ -1638,13 +1644,13 @@ impl Client {
 
     /// The URL of the server.
     ///
-    /// Not to be confused with the `Self::homeserver`. `server` is usually
-    /// the server part in a user ID, e.g. with `@mnt_io:matrix.org`, here
+    /// Not to be confused with the `Self::homeserver`. `server` is usually the
+    /// server part in a user ID, e.g. with `@mnt_io:matrix.org`, here
     /// `matrix.org` is the server, whilst `matrix-client.matrix.org` is the
     /// homeserver (at the time of writing — 2024-08-28).
     ///
-    /// This value is optional depending on how the `Client` has been built.
-    /// If it's been built from a homeserver URL directly, we don't know the
+    /// This value is optional depending on how the `Client` has been built. If
+    /// it's been built from a homeserver URL directly, we don't know the
     /// server. However, if the `Client` has been built from a server URL or
     /// name, then the homeserver has been discovered, and we know both.
     pub fn server(&self) -> Option<String> {
@@ -1669,8 +1675,8 @@ impl Client {
     /// receipts on each room's latest event.
     ///
     /// This is a best-effort operation — per-room errors are logged and
-    /// skipped. Receipts are sent unthreaded, which per the Matrix spec
-    /// covers all events in a room including those inside threads.
+    /// skipped. Receipts are sent unthreaded, which per the Matrix spec covers
+    /// all events in a room including those inside threads.
     ///
     /// This is useful to mitigate backend led wrong iOS app badges and work
     /// around https://github.com/element-hq/element-x-ios/issues/3151
@@ -1706,7 +1712,8 @@ impl Client {
                     );
                 }
             } else {
-                // Room has no events; just clear any stale explicit unread flag.
+                // Room has no events; just clear any stale explicit unread
+                // flag.
                 if let Err(err) = sdk_room.set_unread_flag(false).await {
                     warn!(
                         "mark_all_rooms_as_read: failed to clear unread flag for {}: {err}",
@@ -1723,13 +1730,12 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The ID of the room to get.
+    /// - `room_id` - The ID of the room to get.
     ///
     /// # Returns
     ///
-    /// A `Result` containing an optional room, or a `ClientError`.
-    /// This method will not initialize the room's timeline or populate it with
-    /// events.
+    /// A `Result` containing an optional room, or a `ClientError`. This method
+    /// will not initialize the room's timeline or populate it with events.
     pub fn get_room(&self, room_id: String) -> Result<Option<Arc<Room>>, ClientError> {
         let room_id = RoomId::parse(room_id)?;
         let sdk_room = self.inner.get_room(&room_id);
@@ -1810,11 +1816,11 @@ impl Client {
     /// Start a sync v2 loop.
     ///
     /// This is an alternative to [`Client::sync_service`] (which uses Sliding
-    /// Sync / MSC4186). It works with any homeserver, including older
-    /// Synapse versions that do not support Sliding Sync.
+    /// Sync / MSC4186). It works with any homeserver, including older Synapse
+    /// versions that do not support Sliding Sync.
     ///
-    /// Returns a `TaskHandle` that can be used to cancel the sync loop.
-    /// The listener is called after each successful sync response.
+    /// Returns a `TaskHandle` that can be used to cancel the sync loop. The
+    /// listener is called after each successful sync response.
     pub fn sync_v2(
         &self,
         settings: SyncSettingsV2,
@@ -1845,8 +1851,8 @@ impl Client {
 
     /// Perform a single sync v2 call.
     ///
-    /// This is useful for performing an initial sync or a one-shot sync
-    /// without entering a continuous loop.
+    /// This is useful for performing an initial sync or a one-shot sync without
+    /// entering a continuous loop.
     pub async fn sync_once_v2(
         &self,
         settings: SyncSettingsV2,
@@ -1934,9 +1940,9 @@ impl Client {
     /// Join a room by its ID or alias.
     ///
     /// When supplying the room's ID, you can also supply a list of server names
-    /// for the homeserver to find the room. Typically these server names
-    /// come from a permalink's `via` parameters, or from resolving a room's
-    /// alias into an ID.
+    /// for the homeserver to find the room. Typically these server names come
+    /// from a permalink's `via` parameters, or from resolving a room's alias
+    /// into an ID.
     pub async fn join_room_by_id_or_alias(
         &self,
         room_id_or_alias: String,
@@ -2008,9 +2014,9 @@ impl Client {
 
     /// Given a room id, get the preview of a room, to interact with it.
     ///
-    /// The list of `via_servers` must be a list of servers that know
-    /// about the room and can resolve it, and that may appear as a `via`
-    /// parameter in e.g. a permalink URL. This list can be empty.
+    /// The list of `via_servers` must be a list of servers that know about the
+    /// room and can resolve it, and that may appear as a `via` parameter in
+    /// e.g. a permalink URL. This list can be empty.
     pub async fn get_room_preview_from_room_id(
         &self,
         room_id: String,
@@ -2024,8 +2030,8 @@ impl Client {
             .collect::<Result<Vec<_>, _>>()
             .context("at least one `via` server name is invalid")?;
 
-        // The `into()` call below doesn't work if I do `(&room_id).into()`, so I let
-        // rustc win that one fight.
+        // The `into()` call below doesn't work if I do `(&room_id).into()`, so
+        // I let rustc win that one fight.
         let room_id: &RoomId = &room_id;
 
         let room_preview = self.inner.get_room_preview(room_id.into(), via_servers).await?;
@@ -2041,8 +2047,8 @@ impl Client {
         let room_alias =
             RoomAliasId::parse(&room_alias).context("room_alias is not a valid room alias")?;
 
-        // The `into()` call below doesn't work if I do `(&room_id).into()`, so I let
-        // rustc win that one fight.
+        // The `into()` call below doesn't work if I do `(&room_id).into()`, so
+        // I let rustc win that one fight.
         let room_alias: &RoomAliasId = &room_alias;
 
         let room_preview = self.inner.get_room_preview(room_alias.into(), Vec::new()).await?;
@@ -2063,19 +2069,19 @@ impl Client {
         )))
     }
 
-    /// Lets the user know whether this is an `m.login.password` based
-    /// auth and if the account can actually be deactivated
+    /// Lets the user know whether this is an `m.login.password` based auth and
+    /// if the account can actually be deactivated
     pub fn can_deactivate_account(&self) -> bool {
         matches!(self.inner.auth_api(), Some(AuthApi::Matrix(_)))
     }
 
-    /// Deactivate this account definitively.
-    /// Similarly to `encryption::reset_identity` this
-    /// will only work with password-based authentication (`m.login.password`)
+    /// Deactivate this account definitively. Similarly to
+    /// `encryption::reset_identity` this will only work with password-based
+    /// authentication (`m.login.password`)
     ///
     /// # Arguments
     ///
-    /// * `auth_data` - This request uses the [User-Interactive Authentication
+    /// - `auth_data` - This request uses the [User-Interactive Authentication
     ///   API][uiaa]. The first request needs to set this to `None` and will
     ///   always fail and the same request needs to be made but this time with
     ///   some `auth_data` provided.
@@ -2096,6 +2102,7 @@ impl Client {
     /// Checks if a room alias is not in use yet.
     ///
     /// Returns:
+    ///
     /// - `Ok(true)` if the room alias is available.
     /// - `Ok(false)` if it's not (the resolve alias request returned a `404`
     ///   status code).
@@ -2125,15 +2132,15 @@ impl Client {
     /// calling it.
     ///
     /// In particular, if a [`SyncService`] is running, it must be passed here
-    /// as a parameter, or stopped before calling this method. Ideally, the
-    /// send queues should have been disabled and must all be inactive (i.e.
-    /// not sending events); this method will disable them, but it might not
-    /// be enough if the queues are still processing events.
+    /// as a parameter, or stopped before calling this method. Ideally, the send
+    /// queues should have been disabled and must all be inactive (i.e. not
+    /// sending events); this method will disable them, but it might not be
+    /// enough if the queues are still processing events.
     ///
-    /// After the method returns, the Client will be in an unstable
-    /// state, and it is required that the caller reinstantiates a new
-    /// Client instance, be it via dropping the previous and re-creating it,
-    /// restarting their application, or any other similar means.
+    /// After the method returns, the Client will be in an unstable state, and
+    /// it is required that the caller reinstantiates a new Client instance, be
+    /// it via dropping the previous and re-creating it, restarting their
+    /// application, or any other similar means.
     ///
     /// - This will get rid of the backing state store file, if provided.
     /// - This will empty all the room's persisted event caches, so all rooms
@@ -2150,14 +2157,15 @@ impl Client {
                 sync_service.inner.expire_sessions().await;
             }
 
-            // Disable the send queues, as they might read and write to the state store.
-            // Events being send might still be active, and cause errors if
-            // processing finishes, so this will only minimize damage. Since
-            // this method should only be called in exceptional cases, this has
-            // been deemed acceptable.
+            // Disable the send queues, as they might read and write to the
+            // state store. Events being send might still be active, and cause
+            // errors if processing finishes, so this will only minimize damage.
+            // Since this method should only be called in exceptional cases,
+            // this has been deemed acceptable.
             self.inner.send_queue().set_enabled(false).await;
 
-            // Clean up the media cache according to the current media retention policy.
+            // Clean up the media cache according to the current media retention
+            // policy.
             self.inner
                 .media_store()
                 .lock()
@@ -2167,10 +2175,10 @@ impl Client {
                 .await
                 .map_err(Error::from)?;
 
-            // Clear all the room chunks. It's important to *not* call
-            // `EventCacheStore::clear_all_events` here, because there might be live
-            // observers of the linked chunks, and that would cause some very bad state
-            // mismatch.
+            // Clear all the room chunks. It's important to _not_ call
+            // `EventCacheStore::clear_all_events` here, because there might be
+            // live observers of the linked chunks, and that would cause some
+            // very bad state mismatch.
             self.inner.event_cache().clear_all_rooms().await?;
 
             // Delete the state store file, if it exists.
@@ -2178,11 +2186,12 @@ impl Client {
             if let Some(store_path) = &self.store_path {
                 debug!("Removing the state store: {}", store_path.display());
 
-                // The state store and the crypto store both live in the same store path, so we
-                // can't blindly delete the directory.
+                // The state store and the crypto store both live in the same
+                // store path, so we can't blindly delete the directory.
                 //
-                // Delete the state store SQLite file, as well as the write-ahead log (WAL) and
-                // shared-memory (SHM) files, if they exist.
+                // Delete the state store SQLite file, as well as the
+                // write-ahead log (WAL) and shared-memory (SHM) files, if they
+                // exist.
 
                 for file_name in [
                     PathBuf::from(STATE_STORE_DATABASE_NAME),
@@ -2265,8 +2274,8 @@ impl Client {
 
     /// Get server vendor information from the federation API.
     ///
-    /// This method retrieves information about the server's name and version
-    /// by calling the `/_matrix/federation/v1/version` endpoint.
+    /// This method retrieves information about the server's name and version by
+    /// calling the `/_matrix/federation/v1/version` endpoint.
     pub async fn server_vendor_info(&self) -> Result<matrix_sdk::ServerVendorInfo, ClientError> {
         Ok(self.inner.server_vendor_info(None).await?)
     }
@@ -2299,8 +2308,8 @@ impl Client {
         Ok(())
     }
 
-    /// Get the media previews timeline display policy
-    /// currently stored in the cache.
+    /// Get the media previews timeline display policy currently stored in the
+    /// cache.
     pub async fn get_media_preview_display_policy(
         &self,
     ) -> Result<Option<MediaPreviews>, ClientError> {
@@ -2320,8 +2329,8 @@ impl Client {
         Ok(())
     }
 
-    /// Get the invite request avatars display policy
-    /// currently stored in the cache.
+    /// Get the invite request avatars display policy currently stored in the
+    /// cache.
     pub async fn get_invite_avatars_display_policy(
         &self,
     ) -> Result<Option<InviteAvatars>, ClientError> {
@@ -2353,9 +2362,9 @@ impl Client {
     /// are processed.
     ///
     /// Note this method should be used sparingly since using callback
-    /// interfaces is expensive, as well as keeping them alive for a long
-    /// time. Usages of this method should be short-lived and dropped as
-    /// soon as possible.
+    /// interfaces is expensive, as well as keeping them alive for a long time.
+    /// Usages of this method should be short-lived and dropped as soon as
+    /// possible.
     pub async fn subscribe_to_room_info(
         &self,
         room_id: String,
@@ -2416,13 +2425,12 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `event_type` - The type of the to-device event to send.
-    ///
-    /// * `recipients` - The devices to send the message to, as a `user id ->
+    /// - `event_type` - The type of the to-device event to send.
+    /// - `recipients` - The devices to send the message to, as a `user id ->
     ///   device ids` map. The special device id `"*"` targets every device of
     ///   that user we know about.
     ///
-    /// * `content` - The content of the to-device event, as a JSON string,
+    /// - `content` - The content of the to-device event, as a JSON string,
     ///   encrypted for and sent to every recipient.
     ///
     /// The returned value contains details of any recipients that did not
@@ -2475,10 +2483,10 @@ impl Client {
 
     /// Subscribe to the custom to-device messages received by this client.
     ///
-    /// The listener is called with every to-device message whose type is one
-    /// of `event_types`, or with every custom to-device message if
-    /// `event_types` is empty. A message that was sent encrypted is delivered
-    /// decrypted, along with its encryption info.
+    /// The listener is called with every to-device message whose type is one of
+    /// `event_types`, or with every custom to-device message if `event_types`
+    /// is empty. A message that was sent encrypted is delivered decrypted,
+    /// along with its encryption info.
     ///
     /// The to-device traffic the SDK uses for its own crypto machinery and the
     /// messages it could not decrypt are never delivered.
@@ -2508,12 +2516,12 @@ impl Client {
 /// The outcome of a [`Client::send_encrypted_to_device_message`] call.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct SendToDeviceOutcome {
-    /// The devices that did not receive the message, as a `user id -> device
-    /// ids` map.
+    /// The devices that did not receive the message, as a
+    /// `user id -> device ids` map.
     ///
     /// A device can end up in here because it is unknown to us, or because
-    /// encrypting the message for it failed. An empty map means every
-    /// recipient was served.
+    /// encrypting the message for it failed. An empty map means every recipient
+    /// was served.
     pub failures: HashMap<String, Vec<String>>,
 }
 
@@ -2529,7 +2537,7 @@ pub trait ToDeviceMessageListener: SyncOutsideWasm + SendOutsideWasm {
 pub struct ToDeviceMessage {
     /// The type of the message.
     pub event_type: String,
-    /// The user id that *claims* to have sent this message.
+    /// The user id that _claims_ to have sent this message.
     ///
     /// This is unauthenticated. For an encrypted message, trust
     /// `encryption_info.sender_id` instead, which is cryptographically
@@ -2803,8 +2811,9 @@ pub struct UserProfile {
 
     /// Set when the user is in a call (MSC4426 `m.call` profile field).
     ///
-    /// `None` means the user is not in a call. `Some(UserCall { call_joined_ts:
-    /// None })` means the user is in a call but the join time wasn't recorded.
+    /// `None` means the user is not in a call.
+    /// `Some(UserCall { call_joined_ts: None })` means the user is in a call
+    /// but the join time wasn't recorded.
     pub call: Option<UserCall>,
 }
 
@@ -2857,8 +2866,8 @@ impl From<&search_users::v3::User> for UserProfile {
 impl Client {
     /// Set the current user's status (MSC4426 `m.status` profile field).
     ///
-    /// Replaces any existing status. Use [`Self::clear_user_status`] to
-    /// remove it.
+    /// Replaces any existing status. Use [`Self::clear_user_status`] to remove
+    /// it.
     pub async fn set_user_status(&self, status: UserStatus) -> Result<(), ClientError> {
         self.inner.account().set_status(status.emoji, status.text).await?;
         Ok(())
@@ -2939,8 +2948,8 @@ pub enum RoomLoadSettings {
     /// `BaseStateStore`.
     All,
 
-    /// Load a single room from the `StateStore` into the in-memory state
-    /// store `BaseStateStore`.
+    /// Load a single room from the `StateStore` into the in-memory state store
+    /// `BaseStateStore`.
     ///
     /// Please, be careful with this option. Read the documentation of
     /// [`RoomLoadSettings`].
@@ -3433,7 +3442,8 @@ pub enum OAuthPrompt {
     /// The Authorization Server should prompt the End-User to create a user
     /// account.
     ///
-    /// Defined in [Initiating User Registration via OpenID Connect](https://openid.net/specs/openid-connect-prompt-create-1_0.html).
+    /// Defined in
+    /// [Initiating User Registration via OpenID Connect](https://openid.net/specs/openid-connect-prompt-create-1_0.html).
     Create,
 
     /// The Authorization Server should prompt the End-User for
@@ -3496,8 +3506,8 @@ pub enum JoinRule {
     Restricted { rules: Vec<AllowRule> },
 
     /// Users can join the room if they are invited, or if they meet any of the
-    /// conditions described in a set of [`AllowRule`]s, or they can request
-    /// an invite to the room.
+    /// conditions described in a set of [`AllowRule`]s, or they can request an
+    /// invite to the room.
     KnockRestricted { rules: Vec<AllowRule> },
 
     /// A custom join rule, up for interpretation by the consumer.
@@ -3822,8 +3832,8 @@ mod tests {
         // a Client is garbage-collected on the Hermes JS thread.
         drop(sdk_client);
 
-        // Simulate Hermes GC on the JS thread (a non-tokio thread).
-        // Without `AsyncRuntimeDropped` wrapping `Client.inner` this SIGABRT.
+        // Simulate Hermes GC on the JS thread (a non-tokio thread). Without
+        // `AsyncRuntimeDropped` wrapping `Client.inner` this SIGABRT.
         std::thread::spawn(move || drop(ffi_client))
             .join()
             .expect("Client::drop panicked on a non-tokio thread");
@@ -3873,7 +3883,8 @@ mod tests {
 
         let user_id = ruma::user_id!("@user:example.com");
 
-        // A display name with avatar/status/call explicitly set as `null` JSON values.
+        // A display name with avatar/status/call explicitly set as `null` JSON
+        // values.
         let mut profile = RumaUserProfile::new();
         profile
             .set(ProfileFieldName::DisplayName.as_str().to_owned(), serde_json::json!("Example"));

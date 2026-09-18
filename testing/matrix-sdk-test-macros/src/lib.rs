@@ -27,10 +27,11 @@ pub fn async_test(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     // on the more complicated case, where we have some `->`-Result-Arrow
     // `wasm_bindgen_test` doesn't yet support
+    //
     // - see https://github.com/rustwasm/wasm-bindgen/issues/2565 -
-    // we split the attribution into to functions: one with the original
-    // to be attributed for non-wasm, and then a second outer-wrapper function
-    // that calls the first in wasm32 cases.
+    // we split the attribution into to functions: one with the original to be
+    // attributed for non-wasm, and then a second outer-wrapper function that
+    // calls the first in wasm32 cases.
 
     let attrs = r#"
         #[cfg_attr(not(target_family = "wasm"), tokio::test)]

@@ -62,8 +62,8 @@ pub fn build_ruleset(rule_list: Vec<(RuleKind, &RoomId, bool)>) -> Ruleset {
 pub fn server_default_ruleset_with_legacy_mentions() -> Ruleset {
     let mut ruleset = get_server_default_ruleset();
 
-    // In the tests we don't care about the order, so we just add them to the end of
-    // the lists.
+    // In the tests we don't care about the order, so we just add them to the
+    // end of the lists.
     ruleset.content.insert(contains_user_name_push_rule());
     ruleset.override_.insert(contains_display_name_push_rule());
     ruleset.override_.insert(room_notif_push_rule());

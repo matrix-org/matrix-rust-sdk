@@ -147,8 +147,8 @@ mod tests {
             .event(encryption_content)
             .state_key("")
             .event_id(event_id!("$1234_1"))
-            // we can simply use now here since this will be dropped when using a MinimalStateEvent
-            // in the roomInfo
+            // we can simply use now here since this will be dropped when using
+            // a MinimalStateEvent in the roomInfo
             .server_ts(timestamp(0))
             .into();
         receive_state_events(&room, vec![encryption_event]);

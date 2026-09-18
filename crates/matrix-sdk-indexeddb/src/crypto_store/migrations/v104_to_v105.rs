@@ -43,8 +43,8 @@ pub(crate) async fn data_migrate(name: &str, _: &SafeEncodeSerializer) -> Result
 /// Upgrade database without any real schema change, bumping from v104 to v105.
 pub(crate) async fn schema_bump(name: &str) -> Result<(), OpenDbError> {
     do_schema_upgrade(name, 105, |_, _| {
-        // Bump the version number to 105 to demonstrate that we have
-        // made data changes
+        // Bump the version number to 105 to demonstrate that we have made data
+        // changes
         Ok(())
     })
     .await

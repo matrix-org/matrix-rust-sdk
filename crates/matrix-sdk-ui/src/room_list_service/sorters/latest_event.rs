@@ -23,10 +23,10 @@ fn cmp(
 ) -> Ordering {
     // We want latest events representing unsent events to come firsts. When
     // there is a remote latest event or no latest event, we don't want to sort
-    // them.
-    // NOTE: This is the same as a.cmp(b).reverse() for booleans.
+    // them. NOTE: This is the same as a.cmp(b).reverse() for booleans.
     match are_latest_events_unsent(left, right) {
         // `false` and `false`, i.e.:
+        //
         // - `None` == `None`.
         // - `None` == `Remote`.
         // - `Remote` == `None`.
@@ -34,16 +34,19 @@ fn cmp(
         (false, false) => Ordering::Equal,
 
         // `false` and `true`, i.e.:
+        //
         // - `None` > `Local*`.
         // - `Remote` > `Local*`.
         (false, true) => Ordering::Greater,
 
         // `true` and `false`, i.e.:
+        //
         // - `Local*` < `None`.
         // - `Local*` < `Remote`.
         (true, false) => Ordering::Less,
 
         // `true` and `true`, i.e.:
+        //
         // - `Local*` == `Local*`
         (true, true) => Ordering::Equal,
     }
@@ -56,8 +59,8 @@ pub fn new_sorter() -> impl Sorter {
         // Be careful. This method is called **a lot** in the context of a
         // sorter. Using `Room::latest_event` would be dramatic as it returns a
         // clone of the `LatestEventValue`. It's better to use the more specific
-        // method `Room::latest_event_is_unsent`, where the value is cached
-        // in `RoomListItem`.
+        // method `Room::latest_event_is_unsent`, where the value is cached in
+        // `RoomListItem`.
         (left.cached_latest_event_is_unsent, right.cached_latest_event_is_unsent)
     };
 

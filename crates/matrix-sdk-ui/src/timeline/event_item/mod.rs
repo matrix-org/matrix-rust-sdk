@@ -86,9 +86,9 @@ pub struct EventTimelineItem {
     /// event is currently being sent or has been received from the server.
     pub(super) content: TimelineItemContent,
     /// If a redaction for this event is currently being sent but the server
-    /// hasn't yet acknowledged it via its remote echo, the data
-    /// before redaction. This applies to all sorts of timeline items, including
-    /// state events. If no redaction is in flight, None.
+    /// hasn't yet acknowledged it via its remote echo, the data before
+    /// redaction. This applies to all sorts of timeline items, including state
+    /// events. If no redaction is in flight, None.
     pub(super) unredacted_item: Option<UnredactedEventTimelineItem>,
     /// Send state of our own pending redaction of this event, if any.
     pub(super) redaction_send_state: Option<EventSendState>,
@@ -136,8 +136,8 @@ pub(crate) enum TimelineItemHandle<'a> {
 
 /// A single revision in the edit history of a message.
 ///
-/// Created on-demand by querying the Event Cache for all `m.replace`
-/// relations targeting a particular event.
+/// Created on-demand by querying the Event Cache for all `m.replace` relations
+/// targeting a particular event.
 #[derive(Clone, Debug)]
 pub struct EditRevision {
     /// The timeline item content after this revision.
@@ -273,8 +273,8 @@ impl EventTimelineItem {
     /// Get the unique identifier of this item.
     ///
     /// Returns the transaction ID for a local echo item that has not been sent
-    /// and the event ID for a local echo item that has been sent or a
-    /// remote item.
+    /// and the event ID for a local echo item that has been sent or a remote
+    /// item.
     pub fn identifier(&self) -> TimelineEventItemId {
         match &self.kind {
             EventTimelineItemKind::Local(local) => local.identifier(),
@@ -298,8 +298,8 @@ impl EventTimelineItem {
     /// server.
     ///
     /// Even if this is a local event, this can be `Some(_)` as the event ID can
-    /// be known not just from the remote echo via `sync_events`, but also
-    /// from the response of the send request that created the event.
+    /// be known not just from the remote echo via `sync_events`, but also from
+    /// the response of the send request that created the event.
     pub fn event_id(&self) -> Option<&EventId> {
         match &self.kind {
             EventTimelineItemKind::Local(local_event) => local_event.event_id(),
@@ -361,8 +361,8 @@ impl EventTimelineItem {
     /// Get the timestamp of this item.
     ///
     /// If this event hasn't been echoed back by the server yet, returns the
-    /// time the local event was created. Otherwise, returns the origin
-    /// server timestamp.
+    /// time the local event was created. Otherwise, returns the origin server
+    /// timestamp.
     pub fn timestamp(&self) -> MilliSecondsSinceUnixEpoch {
         self.timestamp
     }
@@ -377,8 +377,8 @@ impl EventTimelineItem {
 
     /// Flag indicating this timeline item can be edited by the current user.
     pub fn is_editable(&self) -> bool {
-        // Steps here should be in sync with [`EventTimelineItem::edit_info`] and
-        // [`Timeline::edit_poll`].
+        // Steps here should be in sync with [`EventTimelineItem::edit_info`]
+        // and [`Timeline::edit_poll`].
 
         if !self.is_own() {
             // In theory could work, but it's hard to compute locally.
@@ -439,16 +439,16 @@ impl EventTimelineItem {
             return TimelineEventShieldState::None;
         }
 
-        // A live-location item originates from a `beacon_info` *state* event,
-        // which cannot be encrypted (except with `experimental-encrypted-state-events`
-        // flag). The actual location updates (`beacon` message-like events)
-        // *are* encrypted.
+        // A live-location item originates from a `beacon_info` _state_ event,
+        // which cannot be encrypted (except with
+        // `experimental-encrypted-state-events` flag). The actual location
+        // updates (`beacon` message-like events) _are_ encrypted.
         //
         // When there are no beacons yet we return `None` (the state event
-        // itself is inherently unencrypted, so no warning is warranted).
-        // Once at least one beacon has been aggregated, we derive the shield
-        // from the *last* beacon's encryption info so the UI accurately
-        // reflects the authenticity of the most recent location update.
+        // itself is inherently unencrypted, so no warning is warranted). Once
+        // at least one beacon has been aggregated, we derive the shield from
+        // the _last_ beacon's encryption info so the UI accurately reflects the
+        // authenticity of the most recent location update.
         if let Some(live_location) = self.content().as_live_location_state() {
             return match live_location.latest_location() {
                 None => TimelineEventShieldState::None,
@@ -489,8 +489,8 @@ impl EventTimelineItem {
         } else if self.content.is_message() {
             true
         } else if self.content().as_live_location_state().is_some() {
-            // Live location sharing session (MSC3489) events are state events, not always
-            // displayed in a timeline, so can't be replied to.
+            // Live location sharing session (MSC3489) events are state events,
+            // not always displayed in a timeline, so can't be replied to.
             false
         } else {
             self.latest_json().is_some()
@@ -500,8 +500,7 @@ impl EventTimelineItem {
     /// Get the raw JSON representation of the initial event (the one that
     /// caused this timeline item to be created).
     ///
-    /// Returns `None` if this event hasn't been echoed back by the server
-    /// yet.
+    /// Returns `None` if this event hasn't been echoed back by the server yet.
     pub fn original_json(&self) -> Option<&Raw<AnySyncTimelineEvent>> {
         match &self.kind {
             EventTimelineItemKind::Local(_) => None,
@@ -619,9 +618,9 @@ impl EventTimelineItem {
         }
     }
 
-    /// Create a clone of the current item, with data restored from the
-    /// item's unredacted_item field (if it was previously set by a call to
-    /// the `redact(...)` method).
+    /// Create a clone of the current item, with data restored from the item's
+    /// unredacted_item field (if it was previously set by a call to the
+    /// `redact(...)` method).
     pub(super) fn unredact(&self) -> Self {
         let Some(unredacted_item) = &self.unredacted_item else { return self.clone() };
         let kind = match &self.kind {
@@ -678,6 +677,7 @@ impl EventTimelineItem {
     ///
     /// This function provides that feature with the following
     /// behavior/limitations:
+    ///
     /// - ignores leading and trailing white spaces
     /// - fails texts bigger than 5 graphemes for performance reasons
     /// - checks the body only for [`MessageType::Text`]
@@ -687,10 +687,12 @@ impl EventTimelineItem {
     /// - all other message types will not match
     ///
     /// # Examples
-    /// # fn render_timeline_item(timeline_item: TimelineItem) {
-    /// if timeline_item.contains_only_emojis() {
-    ///     // e.g. increase the font size
-    /// }
+    ///
+    /// # Fn render_timeline_item(timeline_item: TimelineItem) {
+    ///
+    /// if timeline_item.contains_only_emojis() { // e.g. increase the font
+    /// size }
+    ///
     /// # }
     ///
     /// See `test_emoji_detection` for more examples.
@@ -858,8 +860,8 @@ pub enum EventItemOrigin {
 #[derive(Clone, Debug)]
 pub struct ReactionInfo {
     pub timestamp: MilliSecondsSinceUnixEpoch,
-    /// Send state of the reaction when it's one of our own local echoes;
-    /// `None` when it came from the server.
+    /// Send state of the reaction when it's one of our own local echoes; `None`
+    /// when it came from the server.
     pub send_state: Option<EventSendState>,
 }
 

@@ -58,7 +58,8 @@ async fn test_history_share_on_invite() -> Result<()> {
 /// share the encryption history, even when "exclude insecure devices" is
 /// enabled.
 ///
-/// Regression test for https://github.com/matrix-org/matrix-rust-sdk/issues/5613
+/// Regression test for
+/// https://github.com/matrix-org/matrix-rust-sdk/issues/5613
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_history_share_on_invite_exclude_insecure_devices() -> Result<()> {
     test_history_share_on_invite_helper(true).await
@@ -107,15 +108,15 @@ async fn test_history_share_on_invite_helper(exclude_insecure_devices: bool) -> 
     // Alice invites Bob to the room
     alice_room.invite_user_by_id(bob.user_id().unwrap()).await?;
 
-    // Alice is done. Bob has been invited and the room key bundle should have been
-    // sent out. Let's log her out, so we know that this feature works even when the
-    // sender device has been deleted (and to reduce the amount of noise in the
-    // logs).
+    // Alice is done. Bob has been invited and the room key bundle should have
+    // been sent out. Let's log her out, so we know that this feature works even
+    // when the sender device has been deleted (and to reduce the amount of
+    // noise in the logs).
     alice_sync_service.stop().await;
     alice.logout().instrument(alice_span.clone()).await?;
 
-    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770: Bob needs a copy of
-    // Alice's identity.
+    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770:
+    // Bob needs a copy of Alice's identity.
     bob.encryption()
         .request_user_identity(alice.user_id().unwrap())
         .instrument(bob_span.clone())
@@ -157,8 +158,8 @@ async fn test_history_share_on_invite_helper(exclude_insecure_devices: bool) -> 
         "The decrypted event should match the message Alice has sent"
     );
 
-    // We should be able to find the event using the high level timeline API, and
-    // inspect who forwarded us the keys to decrypt.
+    // We should be able to find the event using the high level timeline API,
+    // and inspect who forwarded us the keys to decrypt.
 
     let alice_id = alice.user_id().unwrap();
     let alice_display_name =
@@ -218,8 +219,8 @@ async fn test_history_share_on_invite_pin_violation() -> Result<()> {
     alice.encryption().wait_for_e2ee_initialization_tasks().await;
     alice_sync_service.start().await;
 
-    // Bob first creates a room so we can get hold of Alice's identity and verify
-    // it.
+    // Bob first creates a room so we can get hold of Alice's identity and
+    // verify it.
 
     let bob = TestClientBuilder::new("bob")
         .encryption_settings(encryption_settings)
@@ -243,8 +244,8 @@ async fn test_history_share_on_invite_pin_violation() -> Result<()> {
         .await?;
     bob_room.enable_encryption().await?;
 
-    // We invite Alice and try to send a message. This will force a /keys/query to
-    // fetch the identity.
+    // We invite Alice and try to send a message. This will force a /keys/query
+    // to fetch the identity.
     bob_room.invite_user_by_id(alice_user_id).await?;
     bob_room.send(RoomMessageEventContent::text_plain("Hello Alice")).await?;
 
@@ -298,8 +299,8 @@ async fn test_history_share_on_invite_pin_violation() -> Result<()> {
         .await
         .expect("We should be able to get the identity stream");
 
-    // Alice will reset her identity, once Bob sees that a reset happened, Bob will
-    // mark the identity to be in a pin violation.
+    // Alice will reset her identity, once Bob sees that a reset happened, Bob
+    // will mark the identity to be in a pin violation.
     info!("Alice is resetting the identity");
 
     let reset_future = async {
@@ -333,8 +334,8 @@ async fn test_history_share_on_invite_pin_violation() -> Result<()> {
     // Alice invites Bob to the room
     alice_room.invite_user_by_id(bob.user_id().unwrap()).instrument(alice_span.clone()).await?;
 
-    // Alice is done. Bob has been invited and the room key bundle should have been
-    // sent out. Let's stop syncing so the logs contain less noise.
+    // Alice is done. Bob has been invited and the room key bundle should have
+    // been sent out. Let's stop syncing so the logs contain less noise.
     alice_sync_service.stop().await;
 
     // Let's wait for the bundle to arrive.
@@ -389,21 +390,21 @@ async fn test_history_share_on_invite_pin_violation() -> Result<()> {
 ///
 /// In this scenario we have four separate users:
 ///
-///  1. Alice and Bob share a room, where the history visibility is set to
+/// 1. Alice and Bob share a room, where the history visibility is set to
 ///    "shared".
-///  2. Bob sends a message. This will be "shareable".
-///  3. Alice changes the history viz to "joined".
-///  4. Alice changes the history viz back to "shared", but Bob doesn't (yet)
-///     receive the memo.
-///  5. Bob sends a second message; the key is "unshareable" because Bob still
-///     thinks the history viz is "joined".
-///  6. Bob syncs, and sends a third message; the key is now "shareable".
-///  7. Alice invites Charlie.
-///  8. Charlie joins the room. He should see Bob's first message; the second
-///     should have an appropriate withheld code from Alice; the third should be
-///     decryptable.
-///  9. Charlie invites Derek.
-///  10. Derek joins the room, and sees the same as Charlie.
+/// 2. Bob sends a message. This will be "shareable".
+/// 3. Alice changes the history viz to "joined".
+/// 4. Alice changes the history viz back to "shared", but Bob doesn't (yet)
+///    receive the memo.
+/// 5. Bob sends a second message; the key is "unshareable" because Bob still
+///    thinks the history viz is "joined".
+/// 6. Bob syncs, and sends a third message; the key is now "shareable".
+/// 7. Alice invites Charlie.
+/// 8. Charlie joins the room. He should see Bob's first message; the second
+///    should have an appropriate withheld code from Alice; the third should be
+///    decryptable.
+/// 9. Charlie invites Derek.
+/// 10. Derek joins the room, and sees the same as Charlie.
 ///
 /// This tests correct "withheld" code handling, even with transitive invites.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -507,8 +508,8 @@ async fn test_transitive_history_share_with_withhelds() -> Result<()> {
     // 7. Alice invites Charlie.
     alice_room.invite_user_by_id(charlie.user_id().unwrap()).instrument(alice_span.clone()).await?;
 
-    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770: Charlie needs a copy of
-    // Alice's identity.
+    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770:
+    // Charlie needs a copy of Alice's identity.
     charlie
         .encryption()
         .request_user_identity(alice.user_id().unwrap())
@@ -537,8 +538,8 @@ async fn test_transitive_history_share_with_withhelds() -> Result<()> {
         .instrument(charlie_span.clone())
         .await?;
 
-    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770: Derek needs a copy of
-    // Charlie's identity.
+    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770:
+    // Derek needs a copy of Charlie's identity.
     derek
         .encryption()
         .request_user_identity(charlie.user_id().unwrap())
@@ -555,8 +556,8 @@ async fn test_transitive_history_share_with_withhelds() -> Result<()> {
 
     let derek_timeline = derek_room.timeline().await?;
 
-    // As for Charlie: events 1 and 3 should be decryptable; 2 should be "history
-    // not shared".
+    // As for Charlie: events 1 and 3 should be decryptable; 2 should be
+    // "history not shared".
     derek.sync_once().instrument(derek_span.clone()).await?;
     assert_event_received(&derek_timeline, &event_id_1, "Event 1").await;
     assert_event_received(&derek_timeline, &event_id_3, "Event 3").await;
@@ -567,13 +568,13 @@ async fn test_transitive_history_share_with_withhelds() -> Result<()> {
 
 /// Test megolm session merging with history sharing
 ///
-///  1. Alice and Bob share a room
-///  2. Bob sends a message
-///  3. Alice invites Charlie, sharing the history
-///  4. Charlie can see Bob's message, but the sender is unauthenticated.
-///  5. Bob sends another message (on the same session)
-///  6. Charlie can now decrypt both of Bob's messages, with authenticated
-///     sender.
+/// 1. Alice and Bob share a room
+/// 2. Bob sends a message
+/// 3. Alice invites Charlie, sharing the history
+/// 4. Charlie can see Bob's message, but the sender is unauthenticated.
+/// 5. Bob sends another message (on the same session)
+/// 6. Charlie can now decrypt both of Bob's messages, with authenticated
+///    sender.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_history_sharing_session_merging() -> Result<()> {
     let alice_span = tracing::info_span!("alice");
@@ -641,8 +642,8 @@ async fn test_history_sharing_session_merging() -> Result<()> {
     // 3. Alice invites Charlie.
     alice_room.invite_user_by_id(charlie.user_id().unwrap()).instrument(alice_span.clone()).await?;
 
-    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770: Charlie needs a copy of
-    // Alice's identity.
+    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770:
+    // Charlie needs a copy of Alice's identity.
     charlie
         .encryption()
         .request_user_identity(alice.user_id().unwrap())
@@ -680,7 +681,8 @@ async fn test_history_sharing_session_merging() -> Result<()> {
         .expect("Bob should see Charlie in the room");
     let event_id_2 = bob_send_test_event("Event 2").await;
 
-    // 6. Charlie can now decrypt both of Bob's messages, with authenticated sender
+    // 6. Charlie can now decrypt both of Bob's messages, with authenticated
+    //    sender
     let mut charlie_room_stream = charlie.encryption().room_keys_received_stream().await.unwrap();
     charlie.sync_once().instrument(charlie_span.clone()).await?;
 
@@ -763,8 +765,8 @@ async fn test_history_share_on_invite_no_forwarder_info_for_normal_events() -> R
     // Alice invites Bob to the room
     alice_room.invite_user_by_id(bob.user_id().unwrap()).await?;
 
-    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770: Bob needs a copy of
-    // Alice's identity.
+    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770:
+    // Bob needs a copy of Alice's identity.
     bob.encryption()
         .request_user_identity(alice.user_id().unwrap())
         .instrument(bob_span.clone())
@@ -804,8 +806,8 @@ async fn test_history_share_on_invite_no_forwarder_info_for_normal_events() -> R
         "The decrypted event should match the message Alice has sent"
     );
 
-    // We should be able to find the event using the high level timeline API, and
-    // inspect who forwarded us the keys to decrypt.
+    // We should be able to find the event using the high level timeline API,
+    // and inspect who forwarded us the keys to decrypt.
 
     let alice_id = alice.user_id().unwrap();
     let alice_display_name =
@@ -833,8 +835,8 @@ async fn test_history_share_on_invite_no_forwarder_info_for_normal_events() -> R
         &alice_display_name
     );
 
-    // Alice sends a second message, which Bob should receive, but have no forwarder
-    // info for as it was sent as part of a session they already have.
+    // Alice sends a second message, which Bob should receive, but have no
+    // forwarder info for as it was sent as part of a session they already have.
 
     let event_id = alice_room
         .send(RoomMessageEventContent::text_plain("I said Hello, Bob"))
@@ -899,8 +901,8 @@ async fn test_history_share_on_invite_downloads_backup_keys() -> Result<()> {
     alice_a.logout().instrument(alice_a_span.clone()).await?;
     alice_b.sync_once().instrument(alice_b_span.clone()).await?;
 
-    // Alice attempts to decrypt the message on her second device, which should fail
-    // as she has not downloaded the key from her backup.
+    // Alice attempts to decrypt the message on her second device, which should
+    // fail as she has not downloaded the key from her backup.
     let alice_b_room = alice_b
         .get_room(&room_id)
         .expect("We should be able to fetch the room from Alice's second device");
@@ -929,8 +931,8 @@ async fn test_history_share_on_invite_downloads_backup_keys() -> Result<()> {
         .instrument(alice_b_span.clone())
         .await?;
 
-    // ... which should trigger a download from key backup, allowing her to decrypt
-    // the message.
+    // ... which should trigger a download from key backup, allowing her to
+    // decrypt the message.
 
     let alice_b_event = alice_b_room
         .event(&event_id, None)
@@ -946,8 +948,8 @@ async fn test_history_share_on_invite_downloads_backup_keys() -> Result<()> {
     // Alice is done, let's log her out.
     alice_b.logout().instrument(alice_b_span.clone()).await?;
 
-    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770: Bob needs a copy of
-    // Alice's identity.
+    // Workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5770:
+    // Bob needs a copy of Alice's identity.
     bob.encryption()
         .request_user_identity(alice_b.user_id().unwrap())
         .instrument(bob_span.clone())
@@ -1082,8 +1084,8 @@ async fn test_history_share_on_invite_respects_history_visibility() -> Result<()
         "Bob should be aware of the history visibility change before inviting Charlie"
     );
 
-    // Store Charlie's bundle stream before invite so we can check nothing arrives
-    // later.
+    // Store Charlie's bundle stream before invite so we can check nothing
+    // arrives later.
     let charlie_bundle_stream = charlie
         .encryption()
         .historic_room_key_stream()
@@ -1171,8 +1173,8 @@ async fn test_room_key_is_rotated_on_leave() -> Result<()> {
     // rotation.
     bob.sync_once().instrument(bob_span.clone()).await?;
 
-    // 5. Bob sends M2. Because key rotation should have been performed, this should
-    //    be using a fresh session that hasn't been shared with Charlie.
+    // 5. Bob sends M2. Because key rotation should have been performed, this
+    //    should be using a fresh session that hasn't been shared with Charlie.
     let (event_id_b, event_m2_session_id) = send_m2(&bob_room, &bob_span).await?;
 
     assert_ne!(event_m1_session_id, event_m2_session_id, "Session was not rotated");
@@ -1234,8 +1236,8 @@ async fn test_room_key_is_rotated_on_ban() -> Result<()> {
     // rotation.
     bob.sync_once().instrument(bob_span.clone()).await?;
 
-    // 5. Bob sends M2. Because key rotation should have been performed, this should
-    //    be using a fresh session that hasn't been shared with Charlie.
+    // 5. Bob sends M2. Because key rotation should have been performed, this
+    //    should be using a fresh session that hasn't been shared with Charlie.
     let (event_id_b, event_m2_session_id) = send_m2(&bob_room, &bob_span).await?;
 
     assert_ne!(event_m1_session_id, event_m2_session_id, "Session was not rotated");
@@ -1438,8 +1440,8 @@ async fn test_history_share_on_invite_room_key_rotation_with_shutdown() -> Resul
     // 5. Charlie leaves the room.
     charlie_room.leave().instrument(charlie_span.clone()).await?;
 
-    // 6. Bob starts back up, and syncs to learn about Charlie's departure, which
-    //    should trigger key rotation.
+    // 6. Bob starts back up, and syncs to learn about Charlie's departure,
+    //    which should trigger key rotation.
     let bob = SyncTokenAwareClient::new(
         TestClientBuilder::new("bob")
             .use_sqlite_dir(bob_sqlite_dir.path())
@@ -1457,8 +1459,8 @@ async fn test_history_share_on_invite_room_key_rotation_with_shutdown() -> Resul
 
     let bob_room = bob.join_room_by_id(alice_room.room_id()).instrument(bob_span.clone()).await?;
 
-    // 7. Bob sends M2. Because key rotation should have been performed, this should
-    //    be using a fresh session that hasn't been shared with Charlie.
+    // 7. Bob sends M2. Because key rotation should have been performed, this
+    //    should be using a fresh session that hasn't been shared with Charlie.
     let event_id_b = bob_room
         .send(RoomMessageEventContent::text_plain("Charlie is mean!"))
         .into_future()
@@ -1497,8 +1499,8 @@ async fn test_history_share_on_invite_room_key_rotation_with_shutdown() -> Resul
 ///
 /// # Arguments
 ///
-/// * `username` - The username for the client.
-/// * `exclude_insecure_devices` - A boolean indicating whether to exclude
+/// - `username` - The username for the client.
+/// - `exclude_insecure_devices` - A boolean indicating whether to exclude
 ///   insecure devices.
 async fn create_encryption_enabled_client(
     username: &str,
@@ -1618,8 +1620,8 @@ async fn assert_utd_with_withheld_code(
         MsgLikeContent { kind: MsgLikeKind::UnableToDecrypt(encrypted), .. } = msg_like_content
     );
     assert_let!(EncryptedMessage::MegolmV1AesSha2 { cause, .. } = encrypted);
-    // It should be reported in the UI as a regular "You don't have access to this
-    // event".
+    // It should be reported in the UI as a regular "You don't have access to
+    // this event".
     assert_eq!(UtdCause::SentBeforeWeJoined, *cause);
 
     // The timeline interface doesn't expose the raw withheld code, so call

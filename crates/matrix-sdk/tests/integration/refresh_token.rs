@@ -133,8 +133,8 @@ async fn test_register_refresh_token() {
             "refresh_token": true,
         })))
         .respond_with(
-            // Successful registration response is the same as for login,
-            // if `inhibit_login` is `false`.
+            // Successful registration response is the same as for login, if
+            // `inhibit_login` is `false`.
             ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN_WITH_REFRESH_TOKEN),
         )
         .mount(&server)
@@ -767,8 +767,8 @@ async fn test_oauth_handle_refresh_tokens_without_versions() {
         .mount()
         .await;
 
-    // If we do not provide an access token, all is fine as the endpoint does not
-    // require one.
+    // If we do not provide an access token, all is fine as the endpoint does
+    // not require one.
     server
         .mock_versions()
         .expect_missing_access_token()
@@ -874,9 +874,9 @@ async fn test_supported_versions_handle_refresh_token() {
     //
     // 1. Call the GET /versions endpoint with the expired access token.
     // 2. Try to refresh the token:
-    //   a. Call the GET /versions endpoint without an access token to get the
+    //   1. Call the GET /versions endpoint without an access token to get the
     //      server metadata.
-    //   b. Call the refresh token endpoint.
+    //   2. Call the refresh token endpoint.
     // 3. Call the GET /versions endpoint again with the new access token.
     assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
 
@@ -915,8 +915,8 @@ async fn test_refresh_token_not_handled_supported_versions_not_cached() {
 
     let client = server.client_builder().no_server_versions().build().await;
 
-    // We need to use an endpoint that doesn't require authentication, so it doesn't
-    // try to refresh the token.
+    // We need to use an endpoint that doesn't require authentication, so it
+    // doesn't try to refresh the token.
     let oauth_server = server.oauth();
     oauth_server.mock_server_metadata().ok().expect(1).named("server_metadata").mount().await;
 

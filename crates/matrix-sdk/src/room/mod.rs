@@ -303,8 +303,8 @@ impl PushContext {
 
 macro_rules! make_media_type {
     ($t:ty, $content_type: ident, $filename: ident, $source: ident, $caption: ident, $info: ident, $thumbnail: ident) => {{
-        // If caption is set, use it as body, and filename as the file name; otherwise,
-        // body is the filename, and the filename is not set.
+        // If caption is set, use it as body, and filename as the file name;
+        // otherwise, body is the filename, and the filename is not set.
         // https://github.com/matrix-org/matrix-spec-proposals/blob/main/proposals/2530-body-as-caption.md
         let (body, formatted, filename) = match $caption {
             Some(TextMessageEventContent { body, formatted, .. }) => (body, formatted, Some($filename)),
@@ -391,16 +391,15 @@ impl Room {
     /// Create a new `Room`
     ///
     /// # Arguments
-    /// * `client` - The client used to make requests.
     ///
-    /// * `room` - The underlying room.
+    /// - `client` - The client used to make requests.
+    /// - `room` - The underlying room.
     pub(crate) fn new(client: Client, room: BaseRoom) -> Self {
         Self { inner: room, client }
     }
 
-    /// Leave this room.
-    /// If the room was in [`RoomState::Invited`] state, it'll also be forgotten
-    /// automatically.
+    /// Leave this room. If the room was in [`RoomState::Invited`] state, it'll
+    /// also be forgotten automatically.
     ///
     /// Only invited and joined rooms can be left.
     #[doc(alias = "reject_invitation")]
@@ -417,21 +416,22 @@ impl Room {
             );
         }
 
-        // If the room was in Invited state we should also forget it when declining the
-        // invite.
+        // If the room was in Invited state we should also forget it when
+        // declining the invite.
         let should_forget = matches!(self.state(), RoomState::Invited);
 
         let request = leave_room::v3::Request::new(self.inner.room_id().to_owned());
         let response = self.client.send(request).await;
 
-        // The server can return with an error that is acceptable to ignore. Let's find
-        // which one.
+        // The server can return with an error that is acceptable to ignore.
+        // Let's find which one.
         if let Err(error) = response {
             #[allow(clippy::collapsible_match)]
             let ignore_error = if let Some(error) = error.client_api_error_kind() {
                 match error {
-                    // The user is trying to leave a room but doesn't have permissions to do so.
-                    // Let's consider the user has left the room.
+                    // The user is trying to leave a room but doesn't have
+                    // permissions to do so. Let's consider the user has left
+                    // the room.
                     ErrorKind::Forbidden => true,
                     _ => false,
                 }
@@ -461,13 +461,12 @@ impl Room {
         (Ok(()), self)
     }
 
-    /// Leave this room and all predecessors.
-    /// If any room was in [`RoomState::Invited`] state, it'll also be forgotten
-    /// automatically.
+    /// Leave this room and all predecessors. If any room was in
+    /// [`RoomState::Invited`] state, it'll also be forgotten automatically.
     ///
-    /// Only invited and joined rooms can be left.
-    /// Will return an error if the current room fails to leave but
-    /// will only warn if a predecessor fails to leave.
+    /// Only invited and joined rooms can be left. Will return an error if the
+    /// current room fails to leave but will only warn if a predecessor fails to
+    /// leave.
     pub async fn leave(&self) -> Result<()> {
         let mut rooms: Vec<Room> = vec![self.clone()];
         let mut current_room = self;
@@ -547,13 +546,12 @@ impl Room {
 
     /// Gets the avatar of this room, if set.
     ///
-    /// Returns the avatar.
-    /// If a thumbnail is requested no guarantee on the size of the image is
-    /// given.
+    /// Returns the avatar. If a thumbnail is requested no guarantee on the size
+    /// of the image is given.
     ///
     /// # Arguments
     ///
-    /// * `format` - The desired format of the avatar.
+    /// - `format` - The desired format of the avatar.
     ///
     /// # Examples
     ///
@@ -672,7 +670,8 @@ impl Room {
                     .into_iter()
                     .filter(|user_id| *user_id != own_user_id)
                     .collect();
-                // Ignore the result. It can only fail if there are no listeners.
+                // Ignore the result. It can only fail if there are no
+                // listeners.
                 let _ = sender.send(typing_user_ids);
             }
         });
@@ -698,9 +697,10 @@ impl Room {
         let mut room_updates = self.subscribe_to_updates();
 
         stream! {
-            // Emit the current state first. We subscribed to the room updates before
-            // reading it, so a change happening in between isn't missed; it may be
-            // reported twice instead, which is harmless for a snapshot.
+            // Emit the current state first. We subscribed to the room updates
+            // before reading it, so a change happening in between isn't missed;
+            // it may be reported twice instead, which is harmless for a
+            // snapshot.
             yield room.get_state_events(event_type.clone()).await;
 
             loop {
@@ -710,8 +710,9 @@ impl Room {
                             continue;
                         }
                     }
-                    // Sync responses were missed because they weren't consumed fast
-                    // enough; a fresh snapshot catches up on all of them at once.
+                    // Sync responses were missed because they weren't consumed
+                    // fast enough; a fresh snapshot catches up on all of them
+                    // at once.
                     Err(broadcast::error::RecvError::Lagged(_)) => {}
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
@@ -726,11 +727,11 @@ impl Room {
     ///
     /// The returned receiver will receive a new vector of
     /// [`IdentityStatusChange`] each time a /keys/query response shows a
-    /// changed identity for a member of this room, or a sync shows a change
-    /// to the membership of an affected user. (Changes to the current user are
-    /// not directly included, but some changes to the current user's identity
-    /// can trigger changes to how we see other users' identities, which
-    /// will be included.)
+    /// changed identity for a member of this room, or a sync shows a change to
+    /// the membership of an affected user. (Changes to the current user are not
+    /// directly included, but some changes to the current user's identity can
+    /// trigger changes to how we see other users' identities, which will be
+    /// included.)
     ///
     /// The first item in the stream provides the current state of the room:
     /// each member of the room who is not in "pinned" or "verified" state will
@@ -800,7 +801,8 @@ impl Room {
         event: Raw<AnyTimelineEvent>,
         push_ctx: Option<&PushContext>,
     ) -> TimelineEvent {
-        // If we have either an encrypted message-like or state event, try to decrypt.
+        // If we have either an encrypted message-like or state event, try to
+        // decrypt.
         match event.deserialize_as::<AnySyncTimelineEvent>() {
             Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
                 SyncMessageLikeEvent::Original(_),
@@ -862,8 +864,7 @@ impl Room {
     /// it's enabled, or fetch it from the homeserver.
     ///
     /// When running the request against the homeserver, it uses the given
-    /// [`RequestConfig`] if provided, or the client's default one
-    /// otherwise.
+    /// [`RequestConfig`] if provided, or the client's default one otherwise.
     pub async fn load_or_fetch_event(
         &self,
         event_id: &EventId,
@@ -887,8 +888,8 @@ impl Room {
         //
         // 1. This method might not be called by the Event Cache and thus
         //    mustn't interfere with it,
-        // 2. Depending on how the event is saved in the
-        //    Event Cache, it can create deadlocks (see
+        // 2. Depending on how the event is saved in the Event Cache, it can
+        //    create deadlocks (see
         //    https://github.com/matrix-org/matrix-rust-sdk/pull/6629).
         // 3. If the Event Cache calls this method, it is very likely that the
         //    event will be saved permanently in the database later on, so
@@ -899,8 +900,8 @@ impl Room {
     }
 
     /// Try to load the event and its relations from the
-    /// [`EventCache`][crate::event_cache], if it's enabled, or fetch it
-    /// from the homeserver.
+    /// [`EventCache`][crate::event_cache], if it's enabled, or fetch it from
+    /// the homeserver.
     ///
     /// You can control which types of related events are retrieved using
     /// `filter`. A `None` value will retrieve any type of related event.
@@ -910,8 +911,7 @@ impl Room {
     /// relations from the homeserver.
     ///
     /// When running any request against the homeserver, it uses the given
-    /// [`RequestConfig`] if provided, or the client's default one
-    /// otherwise.
+    /// [`RequestConfig`] if provided, or the client's default one otherwise.
     ///
     /// Returns a tuple formed of the event and a vector of its relations (that
     /// can be empty).
@@ -922,12 +922,14 @@ impl Room {
         request_config: Option<RequestConfig>,
     ) -> Result<(TimelineEvent, Vec<TimelineEvent>)> {
         let fetch_relations = async || {
-            // If there's only a single filter, we can use a more efficient request,
-            // specialized on the filter type.
+            // If there's only a single filter, we can use a more efficient
+            // request, specialized on the filter type.
             //
             // Otherwise, we need to get all the relations:
+            //
             // - either because no filters implies we fetch all relations,
-            // - or because there are multiple filters and we must filter out manually.
+            // - or because there are multiple filters and we must filter out
+            //   manually.
             let include_relations = if let Some(filter) = &filter
                 && filter.len() == 1
             {
@@ -948,7 +950,8 @@ impl Room {
                 match self.relations(event_id.to_owned(), opts.clone()).await {
                     Ok(relations) => {
                         if let Some(filter) = filter.as_ref() {
-                            // Manually filter out the relation types we're interested in.
+                            // Manually filter out the relation types we're
+                            // interested in.
                             events.extend(relations.chunk.into_iter().filter_map(|ev| {
                                 let (rel_type, _) = extract_relation(ev.raw())?;
                                 filter
@@ -976,16 +979,16 @@ impl Room {
             }
         };
 
-        // First, try to load the event *and* its relations from the event cache, all at
-        // once.
+        // First, try to load the event _and_ its relations from the event
+        // cache, all at once.
         let event_cache = match self.event_cache().await {
             Ok((event_cache, drop_handles)) => {
                 if let Some((event, mut relations)) =
                     event_cache.find_event_with_relations(event_id, filter.clone()).await?
                 {
                     if relations.is_empty() {
-                        // The event cache doesn't have any relations for this event, try to fetch
-                        // them from the server instead.
+                        // The event cache doesn't have any relations for this
+                        // event, try to fetch them from the server instead.
                         relations = fetch_relations().await;
                     }
 
@@ -1003,8 +1006,8 @@ impl Room {
             }
         };
 
-        // Fetch the event from the server. A failure here is fatal, as we must return
-        // the target event.
+        // Fetch the event from the server. A failure here is fatal, as we must
+        // return the target event.
         let event = self.event(event_id, request_config).await?;
 
         // DO NOT save the event in the Event Cache!
@@ -1020,8 +1023,8 @@ impl Room {
             return Ok((event, relations));
         }
 
-        // We couldn't find the relations in the event cache; fetch them from the
-        // server.
+        // We couldn't find the relations in the event cache; fetch them from
+        // the server.
         Ok((event, fetch_relations().await))
     }
 
@@ -1092,7 +1095,8 @@ impl Room {
                     )
                     .await?;
 
-                // That's a large `Future`. Let's `Box::pin` to reduce its size on the stack.
+                // That's a large `Future`. Let's `Box::pin` to reduce its size
+                // on the stack.
                 Box::pin(self.client.base_client().receive_all_members(
                     self.room_id(),
                     &request,
@@ -1135,8 +1139,8 @@ impl Room {
                     Err(err) => return Err(err.into()),
                 };
 
-                // Persist the event and the fact that we requested it from the server in
-                // `RoomInfo`.
+                // Persist the event and the fact that we requested it from the
+                // server in `RoomInfo`.
                 self.update_and_save_room_info(|mut room_info| {
                     room_info.mark_encryption_state_synced();
                     room_info.set_encryption_event(response);
@@ -1226,7 +1230,7 @@ impl Room {
 
     /// Get a specific member of this room.
     ///
-    /// *Note*: This method will fetch the members from the homeserver if the
+    /// _Note_: This method will fetch the members from the homeserver if the
     /// member list isn't synchronized due to member lazy loading. Because of
     /// that it might panic if it isn't run on a tokio thread.
     ///
@@ -1235,7 +1239,7 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user that should be fetched out of the
+    /// - `user_id` - The ID of the user that should be fetched out of the
     ///   store.
     pub async fn get_member(&self, user_id: &UserId) -> Result<Option<RoomMember>> {
         self.sync_members().await?;
@@ -1244,7 +1248,7 @@ impl Room {
 
     /// Get a specific member of this room.
     ///
-    /// *Note*: This method will not fetch the members from the homeserver if
+    /// _Note_: This method will not fetch the members from the homeserver if
     /// the member list isn't synchronized due to member lazy loading. Thus,
     /// members could be missing.
     ///
@@ -1253,7 +1257,7 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user that should be fetched out of the
+    /// - `user_id` - The ID of the user that should be fetched out of the
     ///   store.
     pub async fn get_member_no_sync(&self, user_id: &UserId) -> Result<Option<RoomMember>> {
         Ok(self
@@ -1265,12 +1269,12 @@ impl Room {
 
     /// Get members for this room, with the given memberships.
     ///
-    /// *Note*: This method will fetch the members from the homeserver if the
+    /// _Note_: This method will fetch the members from the homeserver if the
     /// member list isn't synchronized due to member lazy loading. Because of
     /// that it might panic if it isn't run on a tokio thread.
     ///
-    /// Use [members_no_sync()](#method.members_no_sync) if you want a
-    /// method that doesn't do any requests.
+    /// Use [members_no_sync()](#method.members_no_sync) if you want a method
+    /// that doesn't do any requests.
     pub async fn members(&self, memberships: RoomMemberships) -> Result<Vec<RoomMember>> {
         self.sync_members().await?;
         self.members_no_sync(memberships).await
@@ -1278,12 +1282,12 @@ impl Room {
 
     /// Get members for this room, with the given memberships.
     ///
-    /// *Note*: This method will not fetch the members from the homeserver if
+    /// _Note_: This method will not fetch the members from the homeserver if
     /// the member list isn't synchronized due to member lazy loading. Thus,
     /// members could be missing.
     ///
-    /// Use [members()](#method.members) if you want to ensure to always get
-    /// the full member list.
+    /// Use [members()](#method.members) if you want to ensure to always get the
+    /// full member list.
     pub async fn members_no_sync(&self, memberships: RoomMemberships) -> Result<Vec<RoomMember>> {
         Ok(self
             .inner
@@ -1313,7 +1317,7 @@ impl Room {
 
     /// Sets the display name of the current user within this room.
     ///
-    /// *Note*: This is different to [`crate::Account::set_display_name`] which
+    /// _Note_: This is different to [`crate::Account::set_display_name`] which
     /// updates the user's display name across all of their rooms.
     pub async fn set_own_member_display_name(
         &self,
@@ -1538,8 +1542,8 @@ impl Room {
             // Check whether the parent recognizes this room as its child
             .map(|(state_key, sender): (OwnedRoomId, OwnedUserId)| async move {
                 let Some(parent_room) = self.client.get_room(&state_key) else {
-                    // We are not in the room, cannot check if the relationship is reciprocal
-                    // TODO: try peeking into the room
+                    // We are not in the room, cannot check if the relationship
+                    // is reciprocal TODO: try peeking into the room
                     return Ok(ParentSpace::Unverifiable(state_key));
                 };
                 // Get the m.space.child state of the parent with this room's id
@@ -1550,8 +1554,8 @@ impl Room {
                 {
                     match child_event.deserialize() {
                         Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(_))) => {
-                            // There is a valid m.space.child in the parent pointing to
-                            // this room
+                            // There is a valid m.space.child in the parent
+                            // pointing to this room
                             return Ok(ParentSpace::Reciprocal(parent_room));
                         }
                         Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => {}
@@ -1564,13 +1568,13 @@ impl Room {
                         }
                     }
                     // Otherwise the event is either invalid or redacted. If
-                    // redacted it would be missing the
-                    // `via` key, thereby invalidating that end of the
-                    // relationship: https://spec.matrix.org/v1.8/client-server-api/#mspacechild
+                    // redacted it would be missing the `via` key, thereby
+                    // invalidating that end of the relationship:
+                    // https://spec.matrix.org/v1.8/client-server-api/#mspacechild
                 }
 
-                // No reciprocal m.space.child found, let's check if the sender has the
-                // power to set it
+                // No reciprocal m.space.child found, let's check if the sender
+                // has the power to set it
                 let Some(member) = parent_room.get_member(&sender).await? else {
                     // Sender is not even in the parent room
                     return Ok(ParentSpace::Illegitimate(parent_room));
@@ -1650,6 +1654,7 @@ impl Room {
     /// Set the given account data event for this room.
     ///
     /// # Example
+    ///
     /// ```
     /// # async {
     /// # let room: matrix_sdk::Room = todo!();
@@ -1682,6 +1687,7 @@ impl Room {
     /// Set the given raw account data event in this room.
     ///
     /// # Example
+    ///
     /// ```
     /// # async {
     /// # let room: matrix_sdk::Room = todo!();
@@ -1725,9 +1731,9 @@ impl Room {
     /// Returns the [`create_tag::v3::Response`] from the server.
     ///
     /// # Arguments
-    /// * `tag` - The tag to add or update.
     ///
-    /// * `tag_info` - Information about the tag, generally containing the
+    /// - `tag` - The tag to add or update.
+    /// - `tag_info` - Information about the tag, generally containing the
     ///   `order` parameter.
     ///
     /// # Examples
@@ -1770,7 +1776,8 @@ impl Room {
     /// Returns the [`delete_tag::v3::Response`] from the server.
     ///
     /// # Arguments
-    /// * `tag` - The tag to remove.
+    ///
+    /// - `tag` - The tag to remove.
     pub async fn remove_tag(&self, tag: TagName) -> Result<delete_tag::v3::Response> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
         let request = delete_tag::v3::Request::new(
@@ -1788,8 +1795,8 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `is_favourite` - Whether to mark this room as favourite.
-    /// * `tag_order` - The order of the tag if any.
+    /// - `is_favourite` - Whether to mark this room as favourite.
+    /// - `tag_order` - The order of the tag if any.
     pub async fn set_is_favourite(&self, is_favourite: bool, tag_order: Option<f64>) -> Result<()> {
         if is_favourite {
             let tag_info = assign!(TagInfo::new(), { order: tag_order });
@@ -1812,8 +1819,8 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `is_low_priority` - Whether to mark this room as low_priority or not.
-    /// * `tag_order` - The order of the tag if any.
+    /// - `is_low_priority` - Whether to mark this room as low_priority or not.
+    /// - `tag_order` - The order of the tag if any.
     pub async fn set_is_low_priority(
         &self,
         is_low_priority: bool,
@@ -1836,11 +1843,12 @@ impl Room {
     /// Sets whether this room is a DM.
     ///
     /// When setting this room as DM, it will be marked as DM for all active
-    /// members of the room. When unsetting this room as DM, it will be
-    /// unmarked as DM for all users, not just the members.
+    /// members of the room. When unsetting this room as DM, it will be unmarked
+    /// as DM for all users, not just the members.
     ///
     /// # Arguments
-    /// * `is_direct` - Whether to mark this room as direct.
+    ///
+    /// - `is_direct` - Whether to mark this room as direct.
     pub async fn set_is_direct(&self, is_direct: bool) -> Result<()> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
 
@@ -1883,7 +1891,8 @@ impl Room {
     /// Tries to decrypt a room event.
     ///
     /// # Arguments
-    /// * `event` - The room event to be decrypted.
+    ///
+    /// - `event` - The room event to be decrypted.
     ///
     /// Returns the decrypted event. In the case of a decryption error, returns
     /// a `TimelineEvent` representing the decryption error.
@@ -1926,7 +1935,8 @@ impl Room {
     /// Tries to decrypt a room event.
     ///
     /// # Arguments
-    /// * `event` - The room event to be decrypted.
+    ///
+    /// - `event` - The room event to be decrypted.
     ///
     /// Returns the decrypted event. In the case of a decryption error, returns
     /// a `TimelineEvent` representing the decryption error.
@@ -1960,8 +1970,8 @@ impl Room {
                     .encryption()
                     .backups()
                     .maybe_download_room_key(self.room_id().to_owned(), event.clone());
-                // Cast safety: Anything that can be cast to EncryptedEvent must be a timeline
-                // event.
+                // Cast safety: Anything that can be cast to EncryptedEvent must
+                // be a timeline event.
                 Ok(TimelineEvent::from_utd(event.clone().cast_unchecked(), utd_info))
             }
         }
@@ -1976,8 +1986,9 @@ impl Room {
     /// now verified.
     ///
     /// # Arguments
-    /// * `session_id` - The ID of the Megolm session to get information for.
-    /// * `sender` - The (claimed) sender of the event where the session was
+    ///
+    /// - `session_id` - The ID of the Megolm session to get information for.
+    /// - `sender` - The (claimed) sender of the event where the session was
     ///   used.
     #[cfg(feature = "e2e-encryption")]
     pub async fn get_encryption_info(
@@ -2051,10 +2062,10 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The `UserId` of the user that should be kicked out of the
+    /// - `user_id` - The `UserId` of the user that should be kicked out of the
     ///   room.
     ///
-    /// * `reason` - Optional reason why the room member is being kicked out.
+    /// - `reason` - Optional reason why the room member is being kicked out.
     #[instrument(skip_all)]
     pub async fn kick_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
         let request = assign!(
@@ -2081,9 +2092,10 @@ impl Room {
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
         self.client.send(request).await?;
 
-        // Force a future room members reload before sending any event to prevent UTDs
-        // that can happen when some event is sent after a room member has been invited
-        // but before the /sync request could fetch the membership change event.
+        // Force a future room members reload before sending any event to
+        // prevent UTDs that can happen when some event is sent after a room
+        // member has been invited but before the /sync request could fetch the
+        // membership change event.
         self.mark_members_missing();
 
         Ok(())
@@ -2100,9 +2112,10 @@ impl Room {
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
         self.client.send(request).await?;
 
-        // Force a future room members reload before sending any event to prevent UTDs
-        // that can happen when some event is sent after a room member has been invited
-        // but before the /sync request could fetch the membership change event.
+        // Force a future room members reload before sending any event to
+        // prevent UTDs that can happen when some event is sent after a room
+        // member has been invited but before the /sync request could fetch the
+        // membership change event.
         self.mark_members_missing();
 
         Ok(())
@@ -2111,14 +2124,13 @@ impl Room {
     /// Activate typing notice for this room.
     ///
     /// The typing notice remains active for 4s. It can be deactivate at any
-    /// point by setting typing to `false`. If this method is called while
-    /// the typing notice is active nothing will happen. This method can be
-    /// called on every key stroke, since it will do nothing while typing is
-    /// active.
+    /// point by setting typing to `false`. If this method is called while the
+    /// typing notice is active nothing will happen. This method can be called
+    /// on every key stroke, since it will do nothing while typing is active.
     ///
     /// # Arguments
     ///
-    /// * `typing` - Whether the user is typing or has stopped typing.
+    /// - `typing` - Whether the user is typing or has stopped typing.
     ///
     /// # Examples
     ///
@@ -2152,8 +2164,8 @@ impl Room {
         {
             if typing_time.elapsed() > TYPING_NOTICE_RESEND_TIMEOUT {
                 // We always reactivate the typing notice if typing is true or
-                // we may need to deactivate it if it's
-                // currently active if typing is false
+                // we may need to deactivate it if it's currently active if
+                // typing is false
                 typing || typing_time.elapsed() <= TYPING_NOTICE_TIMEOUT
             } else {
                 // Only send a request when we need to deactivate typing
@@ -2205,15 +2217,15 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `receipt_type` - The type of the receipt to set. Note that it is
+    /// - `receipt_type` - The type of the receipt to set. Note that it is
     ///   possible to set the fully-read marker although it is technically not a
     ///   receipt.
     ///
-    /// * `thread` - The thread where this receipt should apply, if any. Note
+    /// - `thread` - The thread where this receipt should apply, if any. Note
     ///   that this must be [`ReceiptThread::Unthreaded`] when sending a
     ///   [`ReceiptType::FullyRead`][create_receipt::v3::ReceiptType::FullyRead].
     ///
-    /// * `event_id` - The `EventId` of the event to set the receipt on.
+    /// - `event_id` - The `EventId` of the event to set the receipt on.
     #[instrument(skip_all)]
     pub async fn send_single_receipt(
         &self,
@@ -2221,8 +2233,8 @@ impl Room {
         thread: ReceiptThread,
         event_id: OwnedEventId,
     ) -> Result<()> {
-        // Since the receipt type and the thread aren't Hash/Ord, flatten then as a
-        // string key.
+        // Since the receipt type and the thread aren't Hash/Ord, flatten then
+        // as a string key.
         let request_key = format!("{}|{}", receipt_type, thread.as_str().unwrap_or("<unthreaded>"));
 
         self.client
@@ -2230,7 +2242,8 @@ impl Room {
             .locks
             .read_receipt_deduplicated_handler
             .run((request_key, event_id.clone()), async {
-                // We will unset the unread flag if we send an unthreaded receipt.
+                // We will unset the unread flag if we send an unthreaded
+                // receipt.
                 let is_unthreaded = thread == ReceiptThread::Unthreaded;
 
                 let mut request = create_receipt::v3::Request::new(
@@ -2299,8 +2312,8 @@ impl Room {
             }
             self.send_state_event(content).await?;
 
-            // Spin on the sync beat event, since the first sync we receive might not
-            // include the encryption event.
+            // Spin on the sync beat event, since the first sync we receive
+            // might not include the encryption event.
             //
             // TODO do we want to return an error here if we time out? This
             // could be quite useful if someone wants to enable encryption and
@@ -2308,7 +2321,8 @@ impl Room {
             let res = timeout(
                 async {
                     loop {
-                        // Listen for sync events, then check if the encryption state is known.
+                        // Listen for sync events, then check if the encryption
+                        // state is known.
                         self.client.inner.sync_beat.listen().await;
                         let _state_store_lock =
                             self.client.base_client().state_store_lock().lock().await;
@@ -2344,10 +2358,10 @@ impl Room {
                 return Ok(());
             }
 
-            // If after waiting for multiple syncs, we don't have the encryption state we
-            // expect, assume the local encryption state is incorrect; this will
-            // cause the SDK to re-request it later for confirmation, instead of
-            // assuming it's sync'd and correct (and not encrypted).
+            // If after waiting for multiple syncs, we don't have the encryption
+            // state we expect, assume the local encryption state is incorrect;
+            // this will cause the SDK to re-request it later for confirmation,
+            // instead of assuming it's sync'd and correct (and not encrypted).
             debug!("still not marked as encrypted, marking encryption state as missing");
 
             self.update_and_save_room_info_with_store_guard(&store_guard, |mut info| {
@@ -2368,8 +2382,8 @@ impl Room {
     /// encryption.
     ///
     /// A sync needs to be received to update the local room state. This method
-    /// will wait for a sync to be received, this might time out if no
-    /// sync loop is running or if the server is slow.
+    /// will wait for a sync to be received, this might time out if no sync loop
+    /// is running or if the server is slow.
     ///
     /// # Examples
     ///
@@ -2405,8 +2419,8 @@ impl Room {
     /// encryption.
     ///
     /// A sync needs to be received to update the local room state. This method
-    /// will wait for a sync to be received, this might time out if no
-    /// sync loop is running or if the server is slow.
+    /// will wait for a sync to be received, this might time out if no sync loop
+    /// is running or if the server is slow.
     ///
     /// # Examples
     ///
@@ -2465,9 +2479,8 @@ impl Room {
 
                 let response = self.share_room_key().await;
 
-                // If one of the responses failed invalidate the group
-                // session as using it would end up in undecryptable
-                // messages.
+                // If one of the responses failed invalidate the group session
+                // as using it would end up in undecryptable messages.
                 if let Err(r) = response {
                     let machine = self.client.olm_machine().await;
                     if let Some(machine) = machine.as_ref() {
@@ -2535,7 +2548,7 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `content` - The content of the message event.
+    /// - `content` - The content of the message event.
     ///
     /// # Examples
     ///
@@ -2610,8 +2623,8 @@ impl Room {
             .map(|tracked| (tracked.user_id, tracked.dirty))
             .collect();
 
-        // A member has no unknown devices iff it was tracked *and* the tracking is
-        // not considered dirty.
+        // A member has no unknown devices iff it was tracked _and_ the tracking
+        // is not considered dirty.
         let members_with_unknown_devices =
             members.iter().filter(|member| tracked.get(*member).is_none_or(|dirty| *dirty));
 
@@ -2643,9 +2656,8 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `event_type` - The type of the event.
-    ///
-    /// * `content` - The content of the event as a raw JSON value. The argument
+    /// - `event_type` - The type of the event.
+    /// - `content` - The content of the event as a raw JSON value. The argument
     ///   type can be `serde_json::Value`, but also other raw JSON types; for
     ///   the full list check the documentation of
     ///   [`IntoRawMessageLikeEventContent`].
@@ -2682,23 +2694,21 @@ impl Room {
     /// Send an attachment to this room.
     ///
     /// This will upload the given data that the reader produces using the
-    /// [`upload()`] method and post an event to the given room.
-    /// If the room is encrypted and the encryption feature is enabled the
-    /// upload will be encrypted.
+    /// [`upload()`] method and post an event to the given room. If the room is
+    /// encrypted and the encryption feature is enabled the upload will be
+    /// encrypted.
     ///
-    /// This is a convenience method that calls the
-    /// [`upload()`] and afterwards the [`send()`].
+    /// This is a convenience method that calls the [`upload()`] and afterwards
+    /// the [`send()`].
     ///
     /// # Arguments
-    /// * `filename` - The file name.
     ///
-    /// * `content_type` - The type of the media, this will be used as the
+    /// - `filename` - The file name.
+    /// - `content_type` - The type of the media, this will be used as the
     /// content-type header.
-    ///
-    /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
+    /// - `reader` - A `Reader` that will be used to fetch the raw bytes of the
     /// media.
-    ///
-    /// * `config` - Metadata and configuration for the attachment.
+    /// - `config` - Metadata and configuration for the attachment.
     ///
     /// # Examples
     ///
@@ -2749,20 +2759,19 @@ impl Room {
     /// [`send()`](#method.send).
     ///
     /// # Arguments
-    /// * `filename` - The file name.
     ///
-    /// * `content_type` - The type of the media, this will be used as the
+    /// - `filename` - The file name.
+    /// - `content_type` - The type of the media, this will be used as the
     ///   content-type header.
     ///
-    /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
+    /// - `reader` - A `Reader` that will be used to fetch the raw bytes of the
     ///   media.
     ///
-    /// * `config` - Metadata and configuration for the attachment.
-    ///
-    /// * `send_progress` - An observable to transmit forward progress about the
+    /// - `config` - Metadata and configuration for the attachment.
+    /// - `send_progress` - An observable to transmit forward progress about the
     ///   upload.
     ///
-    /// * `store_in_cache` - A boolean defining whether the uploaded media will
+    /// - `store_in_cache` - A boolean defining whether the uploaded media will
     ///   be stored in the cache immediately after a successful upload.
     #[instrument(skip_all)]
     pub(super) async fn prepare_and_send_attachment<'a>(
@@ -2801,8 +2810,8 @@ impl Room {
                 .media()
                 .upload_plain_media_and_thumbnail(
                     content_type,
-                    // TODO: get rid of this clone; wait for Ruma to use `Bytes` or something
-                    // similar.
+                    // TODO: get rid of this clone; wait for Ruma to use `Bytes`
+                    // or something similar.
                     data.clone(),
                     thumbnail,
                     send_progress,
@@ -2820,8 +2829,8 @@ impl Room {
         if store_in_cache {
             let media_store_lock_guard = self.client.media_store().lock().await?;
 
-            // A failure to cache shouldn't prevent the whole upload from finishing
-            // properly, so only log errors during caching.
+            // A failure to cache shouldn't prevent the whole upload from
+            // finishing properly, so only log errors during caching.
 
             debug!("caching the media");
             let request =
@@ -2869,8 +2878,8 @@ impl Room {
             .await?;
 
         // With extra content, the event is sent raw so the custom fields can be
-        // included; fields of the media event itself take precedence over
-        // extra fields with the same name.
+        // included; fields of the media event itself take precedence over extra
+        // fields with the same name.
         if let Some(extra_content) = extra_content.filter(|extra| !extra.is_empty()) {
             let serde_json::Value::Object(mut object) = serde_json::to_value(&content)
                 .map_err(|error| Error::UnknownError(Box::new(error)))?
@@ -2934,8 +2943,9 @@ impl Room {
             content = content.add_mentions(mentions);
         }
         if let Some(reply) = reply {
-            // Since we just created the event, there is no relation attached to it. Thus,
-            // it is safe to add the reply relation without overriding anything.
+            // Since we just created the event, there is no relation attached to
+            // it. Thus, it is safe to add the reply relation without overriding
+            // anything.
             content = self.make_reply_event(content.into(), reply).await?;
         }
         Ok(content)
@@ -2961,9 +2971,8 @@ impl Room {
     /// Issue a `power_levels` state event request to the server, changing the
     /// given UserId -> Int levels. May fail if the `power_levels` aren't
     /// locally known yet or the server rejects the state event update, e.g.
-    /// because of insufficient permissions. Neither permissions to update
-    /// nor whether the data might be stale is checked prior to issuing the
-    /// request.
+    /// because of insufficient permissions. Neither permissions to update nor
+    /// whether the data might be stale is checked prior to issuing the request.
     pub async fn update_power_levels(
         &self,
         updates: Vec<(&UserId, Int)>,
@@ -3050,8 +3059,9 @@ impl Room {
     /// Sets the new avatar url for this room.
     ///
     /// # Arguments
-    /// * `avatar_url` - The owned Matrix uri that represents the avatar
-    /// * `info` - The optional image info that can be provided for the avatar
+    ///
+    /// - `avatar_url` - The owned Matrix uri that represents the avatar
+    /// - `info` - The optional image info that can be provided for the avatar
     pub async fn set_avatar_url(
         &self,
         url: &MxcUri,
@@ -3074,9 +3084,10 @@ impl Room {
     /// Uploads a new avatar for this room.
     ///
     /// # Arguments
-    /// * `mime` - The mime type describing the data
-    /// * `data` - The data representation of the avatar
-    /// * `info` - The optional image info provided for the avatar, the blurhash
+    ///
+    /// - `mime` - The mime type describing the data
+    /// - `data` - The data representation of the avatar
+    /// - `info` - The optional image info provided for the avatar, the blurhash
     ///   and the mimetype will always be updated
     pub async fn upload_avatar(
         &self,
@@ -3103,7 +3114,7 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `content` - The content of the state event.
+    /// - `content` - The content of the state event.
     ///
     /// # Examples
     ///
@@ -3152,15 +3163,15 @@ impl Room {
     /// [`send_state_event_for_key`][Self::send_state_event_for_key].
     ///
     /// If the experimental state event encryption feature is enabled, this
-    /// method will transparently encrypt the event if this room is
-    /// encrypted (except if the event type is considered critical for the room
-    /// to function, as outlined in [MSC4362][msc4362]).
+    /// method will transparently encrypt the event if this room is encrypted
+    /// (except if the event type is considered critical for the room to
+    /// function, as outlined in [MSC4362][msc4362]).
     ///
     /// Returns the parsed response from the server.
     ///
     /// # Arguments
     ///
-    /// * `content` - The content of the state event.
+    /// - `content` - The content of the state event.
     ///
     /// # Examples
     ///
@@ -3211,9 +3222,8 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `content` - The content of the state event.
-    ///
-    /// * `state_key` - A unique key which defines the overwriting semantics for
+    /// - `content` - The content of the state event.
+    /// - `state_key` - A unique key which defines the overwriting semantics for
     ///   this piece of room state.
     ///
     /// # Examples
@@ -3267,17 +3277,16 @@ impl Room {
     /// this room, the event will be encrypted.
     ///
     /// If the experimental state event encryption feature is enabled, this
-    /// method will transparently encrypt the event if this room is
-    /// encrypted (except if the event type is considered critical for the room
-    /// to function, as outlined in [MSC4362][msc4362]).
+    /// method will transparently encrypt the event if this room is encrypted
+    /// (except if the event type is considered critical for the room to
+    /// function, as outlined in [MSC4362][msc4362]).
     ///
     /// Returns the parsed response from the server.
     ///
     /// # Arguments
     ///
-    /// * `content` - The content of the state event.
-    ///
-    /// * `state_key` - A unique key which defines the overwriting semantics for
+    /// - `content` - The content of the state event.
+    /// - `state_key` - A unique key which defines the overwriting semantics for
     ///   this piece of room state.
     ///
     /// # Examples
@@ -3331,12 +3340,10 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `event_type` - The type of the event that we're sending out.
-    ///
-    /// * `state_key` - A unique key which defines the overwriting semantics for
+    /// - `event_type` - The type of the event that we're sending out.
+    /// - `state_key` - A unique key which defines the overwriting semantics for
     /// this piece of room state. This value is often a zero-length string.
-    ///
-    /// * `content` - The content of the event as a raw JSON value. The argument
+    /// - `content` - The content of the event as a raw JSON value. The argument
     ///   type can be `serde_json::Value`, but also other raw JSON types; for
     ///   the full list check the documentation of [`IntoRawStateEventContent`].
     ///
@@ -3382,20 +3389,18 @@ impl Room {
     /// Send a raw room state event to the homeserver.
     ///
     /// If the experimental state event encryption feature is enabled, this
-    /// method will transparently encrypt the event if this room is
-    /// encrypted (except if the event type is considered critical for the room
-    /// to function, as outlined in [MSC4362][msc4362]).
+    /// method will transparently encrypt the event if this room is encrypted
+    /// (except if the event type is considered critical for the room to
+    /// function, as outlined in [MSC4362][msc4362]).
     ///
     /// Returns the parsed response from the server.
     ///
     /// # Arguments
     ///
-    /// * `event_type` - The type of the event that we're sending out.
-    ///
-    /// * `state_key` - A unique key which defines the overwriting semantics for
+    /// - `event_type` - The type of the event that we're sending out.
+    /// - `state_key` - A unique key which defines the overwriting semantics for
     /// this piece of room state. This value is often a zero-length string.
-    ///
-    /// * `content` - The content of the event as a raw JSON value. The argument
+    /// - `content` - The content of the event as a raw JSON value. The argument
     ///   type can be `serde_json::Value`, but also other raw JSON types; for
     ///   the full list check the documentation of [`IntoRawStateEventContent`].
     ///
@@ -3441,11 +3446,9 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `event_id` - The ID of the event to redact
-    ///
-    /// * `reason` - The reason for the event being redacted.
-    ///
-    /// * `txn_id` - A unique ID that can be attached to this event as
+    /// - `event_id` - The ID of the event to redact
+    /// - `reason` - The reason for the event being redacted.
+    /// - `txn_id` - A unique ID that can be attached to this event as
     /// its transaction ID. If not given one is created for the message.
     ///
     /// # Examples
@@ -3483,8 +3486,8 @@ impl Room {
 
     /// Get a list of servers that should know this room.
     ///
-    /// Uses the synced members of the room and the suggested [routing
-    /// algorithm] from the Matrix spec.
+    /// Uses the synced members of the room and the suggested
+    /// [routing algorithm] from the Matrix spec.
     ///
     /// Returns at most three servers.
     ///
@@ -3500,6 +3503,7 @@ impl Room {
         });
 
         // Filter out server names that:
+        //
         // - Are blocked due to server ACLs
         // - Are IP addresses
         let members: Vec<_> = self
@@ -3562,7 +3566,7 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `join` - Whether the user should join the room.
+    /// - `join` - Whether the user should join the room.
     ///
     /// [routing]: https://spec.matrix.org/v1.3/appendices/#routing
     pub async fn matrix_permalink(&self, join: bool) -> Result<MatrixUri> {
@@ -3578,13 +3582,13 @@ impl Room {
     ///
     /// We try to use the synced members in the room for [routing] the room ID.
     ///
-    /// *Note*: This method does not check if the given event ID is actually
+    /// _Note_: This method does not check if the given event ID is actually
     /// part of this room. It needs to be checked before calling this method
     /// otherwise the permalink won't work.
     ///
     /// # Arguments
     ///
-    /// * `event_id` - The ID of the event.
+    /// - `event_id` - The ID of the event.
     ///
     /// [routing]: https://spec.matrix.org/v1.3/appendices/#routing
     pub async fn matrix_to_event_permalink(
@@ -3601,13 +3605,13 @@ impl Room {
     ///
     /// We try to use the synced members in the room for [routing] the room ID.
     ///
-    /// *Note*: This method does not check if the given event ID is actually
+    /// _Note_: This method does not check if the given event ID is actually
     /// part of this room. It needs to be checked before calling this method
     /// otherwise the permalink won't work.
     ///
     /// # Arguments
     ///
-    /// * `event_id` - The ID of the event.
+    /// - `event_id` - The ID of the event.
     ///
     /// [routing]: https://spec.matrix.org/v1.3/appendices/#routing
     pub async fn matrix_event_permalink(
@@ -3624,11 +3628,9 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `receipt_type` - The type of receipt to get.
-    ///
-    /// * `receipt_thread` - The thread a receipt applies to.
-    ///
-    /// * `user_id` - The ID of the user.
+    /// - `receipt_type` - The type of receipt to get.
+    /// - `receipt_thread` - The thread a receipt applies to.
+    /// - `user_id` - The ID of the user.
     ///
     /// Returns the ID of the event on which the receipt applies and the
     /// receipt.
@@ -3648,11 +3650,9 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `receipt_type` - The type of receipt to get.
-    ///
-    /// * `receipt_thread` - The thread a receipt applies to.
-    ///
-    /// * `event_id` - The ID of the event.
+    /// - `receipt_type` - The type of receipt to get.
+    /// - `receipt_thread` - The thread a receipt applies to.
+    /// - `event_id` - The ID of the event.
     ///
     /// Returns a list of IDs of users who have sent a receipt for the event and
     /// the corresponding receipts.
@@ -3702,8 +3702,8 @@ impl Room {
             Ok(power_levels) => Some(power_levels.into()),
             Err(error) => {
                 if matches!(room_info.state(), RoomState::Joined) {
-                    // It's normal to not have the power levels in a non-joined room, so don't log
-                    // the error if the room is not joined
+                    // It's normal to not have the power levels in a non-joined
+                    // room, so don't log the error if the room is not joined
                     error!("Could not compute power levels for push conditions: {error}");
                 }
                 None
@@ -3737,15 +3737,15 @@ impl Room {
         Ok(Some(ctx))
     }
 
-    /// Retrieves a [`PushContext`] that can be used to compute the push
-    /// actions for events.
+    /// Retrieves a [`PushContext`] that can be used to compute the push actions
+    /// for events.
     pub async fn push_context(&self) -> Result<Option<PushContext>> {
         self.push_context_internal(self.client.enabled_thread_subscriptions().await?).await
     }
 
     /// Retrieves a [`PushContext`] that can be used to compute the push actions
-    /// for events, with a choice to include thread subscriptions or not,
-    /// based on the extra `with_threads_subscriptions` parameter.
+    /// for events, with a choice to include thread subscriptions or not, based
+    /// on the extra `with_threads_subscriptions` parameter.
     #[instrument(skip(self))]
     pub(crate) async fn push_context_internal(
         &self,
@@ -3809,19 +3809,20 @@ impl Room {
             return Err(Error::InsufficientData);
         };
 
-        let sender_member =
-            if let Some(member) = self.get_member_no_sync(member.event().sender()).await? {
-                // If the sender room member info is already available, return it
-                Some(member)
-            } else if self.are_members_synced() {
-                // The room members are synced and we couldn't find the sender info
-                None
-            } else if self.sync_members().await.is_ok() {
-                // Try getting the sender room member info again after syncing
-                self.get_member_no_sync(member.event().sender()).await?
-            } else {
-                None
-            };
+        let sender_member = if let Some(member) =
+            self.get_member_no_sync(member.event().sender()).await?
+        {
+            // If the sender room member info is already available, return it
+            Some(member)
+        } else if self.are_members_synced() {
+            // The room members are synced and we couldn't find the sender info
+            None
+        } else if self.sync_members().await.is_ok() {
+            // Try getting the sender room member info again after syncing
+            self.get_member_no_sync(member.event().sender()).await?
+        } else {
+            None
+        };
 
         Ok(RoomMemberWithSenderInfo { room_member: member, sender_info: sender_member })
     }
@@ -3848,12 +3849,13 @@ impl Room {
         let request = forget_room::v3::Request::new(room_id.to_owned());
         let _response = self.client.send(request).await?;
 
-        // If it was a DM, remove the room from the `m.direct` global account data.
+        // If it was a DM, remove the room from the `m.direct` global account
+        // data.
         if self.inner.direct_targets_length() != 0
             && let Err(e) = self.set_is_direct(false).await
         {
-            // It is not important whether we managed to remove the room, it will not have
-            // any consequences, so just log the error.
+            // It is not important whether we managed to remove the room, it
+            // will not have any consequences, so just log the error.
             warn!(?room_id, "failed to remove room from m.direct account data: {e}");
         }
 
@@ -3889,10 +3891,10 @@ impl Room {
         } else if let Ok(is_encrypted) =
             self.latest_encryption_state().await.map(|state| state.is_encrypted())
         {
-            // Otherwise, if encrypted status is available, get the default mode for this
-            // type of room.
-            // From the point of view of notification settings, a `one-to-one` room is one
-            // that involves exactly two people.
+            // Otherwise, if encrypted status is available, get the default mode
+            // for this type of room. From the point of view of notification
+            // settings, a `one-to-one` room is one that involves exactly two
+            // people.
             let is_one_to_one = IsOneToOne::from(self.active_members_count() == 2);
             let default_mode = notification_settings
                 .get_default_room_notification_mode(IsEncrypted::from(is_encrypted), is_one_to_one)
@@ -3908,11 +3910,10 @@ impl Room {
     /// The result is cached for fast and non-async call. To read the cached
     /// result, use
     /// [`matrix_sdk_base::Room::cached_user_defined_notification_mode`].
-    //
     // Note for maintainers:
     //
-    // The fact the result is cached is an important property. If you change that in
-    // the future, please review all calls to this method.
+    // The fact the result is cached is an important property. If you change
+    // that in the future, please review all calls to this method.
     pub async fn user_defined_notification_mode(&self) -> Option<RoomNotificationMode> {
         if !matches!(self.state(), RoomState::Joined) {
             return None;
@@ -3935,9 +3936,9 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `event_id` - The ID of the event to report.
-    /// * `score` - The score to rate this content.
-    /// * `reason` - The reason the content is being reported.
+    /// - `event_id` - The ID of the event to report.
+    /// - `score` - The score to rate this content.
+    /// - `reason` - The reason the content is being reported.
     ///
     /// # Errors
     ///
@@ -3964,12 +3965,12 @@ impl Room {
         Ok(self.client.send(request).await?)
     }
 
-    /// Reports a room as inappropriate to the server.
-    /// The caller is not required to be joined to the room to report it.
+    /// Reports a room as inappropriate to the server. The caller is not
+    /// required to be joined to the room to report it.
     ///
     /// # Arguments
     ///
-    /// * `reason` - The reason the room is being reported.
+    /// - `reason` - The reason the room is being reported.
     ///
     /// # Errors
     ///
@@ -4039,9 +4040,9 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `duration_millis` - The duration for which the live location is
+    /// - `duration_millis` - The duration for which the live location is
     ///   shared, in milliseconds.
-    /// * `description` - An optional description for the live location share.
+    /// - `description` - An optional description for the live location share.
     ///
     /// # Errors
     ///
@@ -4070,8 +4071,8 @@ impl Room {
     ///
     /// # Errors
     ///
-    /// Returns an error if the room is not joined, if the beacon information
-    /// is redacted or stripped, if the state event is not found, or if the
+    /// Returns an error if the room is not joined, if the beacon information is
+    /// redacted or stripped, if the state event is not found, or if the
     /// existing beacon is no longer live.
     pub async fn stop_live_location_share(
         &self,
@@ -4092,13 +4093,13 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `geo_uri` - The geo URI of the location beacon.
+    /// - `geo_uri` - The geo URI of the location beacon.
     ///
     /// # Errors
     ///
-    /// Returns an error if the room is not joined, if the beacon information
-    /// is redacted or stripped, if the location share is no longer live,
-    /// or if the state event is not found.
+    /// Returns an error if the room is not joined, if the beacon information is
+    /// redacted or stripped, if the location share is no longer live, or if the
+    /// state event is not found.
     pub async fn send_location_beacon(
         &self,
         geo_uri: String,
@@ -4136,8 +4137,8 @@ impl Room {
         Ok(())
     }
 
-    /// Retrieve the `ComposerDraft` stored in the state store for this room
-    /// and given thread, if any.
+    /// Retrieve the `ComposerDraft` stored in the state store for this room and
+    /// given thread, if any.
     pub async fn load_composer_draft(
         &self,
         thread_root: Option<&EventId>,
@@ -4150,8 +4151,8 @@ impl Room {
         Ok(data.and_then(|d| d.into_composer_draft()))
     }
 
-    /// Remove the `ComposerDraft` stored in the state store for this room
-    /// and given thread, if any.
+    /// Remove the `ComposerDraft` stored in the state store for this room and
+    /// given thread, if any.
     pub async fn clear_composer_draft(&self, thread_root: Option<&EventId>) -> Result<()> {
         self.client
             .state_store()
@@ -4188,10 +4189,11 @@ impl Room {
 
     /// Subscribe to knock requests in this `Room`.
     ///
-    /// The current requests to join the room will be emitted immediately
-    /// when subscribing.
+    /// The current requests to join the room will be emitted immediately when
+    /// subscribing.
     ///
     /// A new set of knock requests will be emitted whenever:
+    ///
     /// - A new member event is received.
     /// - A knock request is marked as seen.
     /// - A sync is gappy (limited), so room membership information may be
@@ -4216,14 +4218,15 @@ impl Room {
 
         let mut room_info_stream = self.subscribe_info();
 
-        // Spawn a task that will clean up the seen knock request ids when updated room
-        // members are received
+        // Spawn a task that will clean up the seen knock request ids when
+        // updated room members are received
         let clear_seen_ids_handle = spawn({
             let this = self.clone();
             async move {
                 let mut member_updates_stream = this.room_member_updates_sender.subscribe();
                 while member_updates_stream.recv().await.is_ok() {
-                    // If room members were updated, try to remove outdated seen knock request ids
+                    // If room members were updated, try to remove outdated seen
+                    // knock request ids
                     if let Err(err) = this.remove_outdated_seen_knock_requests_ids().await {
                         warn!("Failed to remove seen knock requests: {err}")
                     }
@@ -4242,8 +4245,8 @@ impl Room {
             let mut seen_ids = current_seen_ids.clone();
 
             loop {
-                // This is equivalent to a combine stream operation, triggering a new emission
-                // when any of the branches changes
+                // This is equivalent to a combine stream operation, triggering
+                // a new emission when any of the branches changes
                 tokio::select! {
                     Some((event, _)) = requests_stream.next() => {
                         if let Some(event) = event.as_original() {
@@ -4257,8 +4260,8 @@ impl Room {
                                     MembershipChange::KnockRetracted
                                 )
                             } else {
-                                // If we can't calculate the membership change, assume we need to
-                                // emit updated values
+                                // If we can't calculate the membership change,
+                                // assume we need to emit updated values
                                 true
                             };
 
@@ -4288,8 +4291,9 @@ impl Room {
                     }
 
                     Some(room_info) = room_info_stream.next() => {
-                        // We need to emit new items when we may have missing room members:
-                        // this usually happens after a gappy (limited) sync
+                        // We need to emit new items when we may have missing
+                        // room members: this usually happens after a gappy
+                        // (limited) sync
                         if !room_info.are_members_synced() {
                             match this.get_current_join_requests(&seen_ids).await {
                                 Ok(requests) => yield requests,
@@ -4335,11 +4339,13 @@ impl Room {
     /// algorithm. Use [`Self::effective_retention_with_server_config`] to
     /// supply a pre-fetched server config and avoid a network call.
     ///
-    /// Returns `Ok(None)` if the homeserver does not implement MSC1763.
-    /// A homeserver that does not implement this endpoint also does not
-    /// purge events on its own, so we don't apply retention limits locally.
+    /// Returns `Ok(None)` if the homeserver does not implement MSC1763. A
+    /// homeserver that does not implement this endpoint also does not purge
+    /// events on its own, so we don't apply retention limits locally.
     ///
-    /// See [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763) for more info.
+    /// See
+    /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+    /// for more info.
     pub async fn effective_retention(&self) -> Result<Option<RoomRetentionEventContent>> {
         let config = match self.client.get_retention_configuration().await {
             Ok(config) => config,
@@ -4370,7 +4376,9 @@ impl Room {
     /// Prefer this over [`Self::effective_retention`] when computing the policy
     /// for multiple rooms in the same pass, to avoid redundant network calls.
     ///
-    /// See [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763) for more info.
+    /// See
+    /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+    /// for more info.
     pub fn effective_retention_with_server_config(
         &self,
         config: &get_retention_configuration::unstable::Response,
@@ -4380,8 +4388,8 @@ impl Room {
         };
 
         fn clamp(value: Option<Duration>, limits: &Option<LifetimeLimits>) -> Option<Duration> {
-            // No limit for this property: per MSC1763, use the room's value as-is,
-            // whether it has a value or not
+            // No limit for this property: per MSC1763, use the room's value
+            // as-is, whether it has a value or not
             let Some(limits) = limits else { return value };
             let Some(value) = value else {
                 // A value is not set, fall back to the minimum limit (which may
@@ -4412,10 +4420,10 @@ impl Room {
 
         // The two bounds are clamped independently against separate limits, so
         // they can still conflict (min_lifetime > max_lifetime). MSC1763 treats
-        // `max_lifetime` as a MUST (mandatory purge deadline) and `min_lifetime`
-        // as a SHOULD (retention floor), so we should honor the `max_lifetime`
-        // as having a greater priority and cap `min_lifetime` as such, in the
-        // event of this overlap.
+        // `max_lifetime` as a MUST (mandatory purge deadline) and
+        // `min_lifetime` as a SHOULD (retention floor), so we should honor the
+        // `max_lifetime` as having a greater priority and cap `min_lifetime` as
+        // such, in the event of this overlap.
         let min_lifetime = min_lifetime.map(|min| {
             let Some(max) = max_lifetime else { return min };
             if min > max {
@@ -4449,8 +4457,8 @@ impl Room {
     /// Since this client-server API is paginated, the return type may include a
     /// token used to resuming back-pagination into the list of results, in
     /// [`ThreadRoots::prev_batch_token`]. This token can be fed back into
-    /// [`ListThreadsOptions::from`] to continue the pagination
-    /// from the previous position.
+    /// [`ListThreadsOptions::from`] to continue the pagination from the
+    /// previous position.
     pub async fn list_threads(&self, opts: ListThreadsOptions) -> Result<ThreadRoots> {
         let request = opts.into_request(self.room_id());
 
@@ -4547,10 +4555,11 @@ impl Room {
 
             Err(err) => {
                 if let Some(ErrorKind::ConflictingUnsubscription) = err.client_api_error_kind() {
-                    // In this case: the server indicates that the user unsubscribed *after* the
-                    // event ID we've used in an automatic subscription; don't
-                    // save the subscription state in the database, as the
-                    // previous one should be more correct.
+                    // In this case: the server indicates that the user
+                    // unsubscribed _after_ the event ID we' ve used in an
+                    // automatic subscription; don't save the subscription state
+                    // in the database, as the previous one should be more
+                    // correct.
                     trace!("Thread subscription skipped: {err}");
                     Ok(())
                 } else {
@@ -4572,11 +4581,12 @@ impl Room {
         automatic: Option<OwnedEventId>,
     ) -> Result<()> {
         if let Some(prev_sub) = self.load_or_fetch_thread_subscription(thread_root).await? {
-            // If we have a previous subscription, we should only send the new one if it's
-            // manual and the previous one was automatic.
+            // If we have a previous subscription, we should only send the new
+            // one if it's manual and the previous one was automatic.
             if !prev_sub.automatic || automatic.is_some() {
-                // Either we had already a manual subscription, or we had an automatic one and
-                // the new one is automatic too: nothing to do!
+                // Either we had already a manual subscription, or we had an
+                // automatic one and the new one is automatic too: nothing to
+                // do!
                 return Ok(());
             }
         }
@@ -4773,8 +4783,8 @@ impl Room {
 
     /// Checks if the current room is a DM in a synchronous way, without
     /// actually checking any local stores. Note this can be either a cached or
-    /// an approximate value, since some important data may be unavailable
-    /// and we may need to make some assumptions.
+    /// an approximate value, since some important data may be unavailable and
+    /// we may need to make some assumptions.
     pub fn is_dm(&self) -> bool {
         // Note: this value may be wrong for invited rooms.
         let is_direct = self.direct_targets_length() == 1;
@@ -4784,12 +4794,13 @@ impl Room {
                 is_direct
             }
             DmRoomDefinition::TwoMembers => {
-                // If there is a single target and at most 2 active members, it's a DM.
-                // Try getting the calculated active service members count from the room info.
+                // If there is a single target and at most 2 active members,
+                // it's a DM. Try getting the calculated active service members
+                // count from the room info.
                 let active_service_member_count =
                     self.active_service_members_count().unwrap_or_else(|| {
-                        // Otherwise just use an approximated value based on the service members
-                        // count.
+                        // Otherwise just use an approximated value based on the
+                        // service members count.
                         self.service_members().map(|members| members.len()).unwrap_or_default()
                             as u64
                     });
@@ -5092,8 +5103,8 @@ mod tests {
         // Step 1, preshare the room keys.
         room.preshare_room_key().await.unwrap();
 
-        // Step 2, force lock invalidation by pretending another client obtained the
-        // lock.
+        // Step 2, force lock invalidation by pretending another client obtained
+        // the lock.
         {
             let client = Client::builder()
                 .homeserver_url("http://localhost:1234")
@@ -5125,8 +5136,8 @@ mod tests {
         let olm = client.olm_machine().await;
         let olm = olm.as_ref().expect("Olm machine wasn't started");
 
-        // Now pretend we're encrypting an event; the olm machine shouldn't rely on
-        // caching the outgoing session before.
+        // Now pretend we're encrypting an event; the olm machine shouldn't rely
+        // on caching the outgoing session before.
         let _encrypted_content = olm
             .encrypt_room_event_raw(room.room_id(), "test-event", &message_like_event_content!({}))
             .await
@@ -5698,7 +5709,8 @@ mod tests {
 
     #[async_test]
     async fn test_effective_retention_server_room_override() {
-        // Server per-room override should win even if room has its own state event.
+        // Server per-room override should win even if room has its own state
+        // event.
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let room = room_with_retention(

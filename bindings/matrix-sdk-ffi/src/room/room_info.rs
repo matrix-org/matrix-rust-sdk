@@ -101,8 +101,8 @@ pub struct RoomInfo {
     /// "Interesting" messages received in that room, independently of the
     /// notification settings.
     num_unread_messages: u64,
-    /// Events that will notify the user, according to their
-    /// notification settings.
+    /// Events that will notify the user, according to their notification
+    /// settings.
     num_unread_notifications: u64,
     /// Events causing mentions/highlights for the user, according to their
     /// notification settings.

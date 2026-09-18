@@ -31,8 +31,10 @@ pub mod public_server_key;
 pub mod scan;
 
 /// The HTTP response content for a successful request to download and scan
-/// media.
-/// Spec: <https://github.com/element-hq/matrix-content-scanner-python/blob/main/docs/api.md>
+/// media. Spec:
+/// [https://github.com/element-hq/matrix-content-scanner-python/blob/main/docs/api.md][https-github-com-element-hq-matrix-content-scanner-python-blob-main-docs-api-md]
+///
+/// [https-github-com-element-hq-matrix-content-scanner-python-blob-main-docs-api-md]: https://github.com/element-hq/matrix-content-scanner-python/blob/main/docs/api.md
 #[derive(Debug, Deserialize)]
 pub struct DownloadAndScanMediaResponse {
     /// The content that was previously uploaded.
