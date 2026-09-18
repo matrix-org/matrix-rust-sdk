@@ -1731,6 +1731,7 @@ impl From<SdkDraftAttachment> for DraftAttachment {
                         thumbnail_info,
                         thumbnail_source: None,
                         blurhash,
+                        circle: None,
                     },
                     source: UploadSource::Data { bytes: data, filename: value.filename },
                     thumbnail_source,
