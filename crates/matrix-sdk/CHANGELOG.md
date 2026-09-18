@@ -215,6 +215,10 @@ All notable changes to this project will be documented in this file.
   computed unread notification counts across all joined rooms, counting rooms
   marked as unread by hand as one each.
   ([#7002](https://github.com/matrix-org/matrix-rust-sdk/pulls/7002))
+- Add `Client::send_encrypted_to_device` (behind the
+  `experimental-send-custom-to-device` feature) to Olm-encrypt a custom
+  to-device message and send it to a set of recipient devices.
+  ([#6981](https://github.com/matrix-org/matrix-rust-sdk/pulls/6981))
 
 ### Changed
 
