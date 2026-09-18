@@ -730,7 +730,7 @@ impl Aggregations {
                             return Ok(true);
                         }
                         let item = cowed.to_mut();
-                        if let Some(kind) = item.unedited_kind.take()
+                        if let Some(kind) = item.unedited_kind.take().map(|kind| *kind)
                             && let TimelineItemContent::MsgLike(content) = &item.content
                         {
                             // A poll's votes live in the state an edit carries over, so
@@ -1108,7 +1108,7 @@ fn edit_item(
                 edit_json,
             );
             if is_local_echo && item.edit_send_state.is_none() {
-                new_item.unedited_kind = Some(MsgLikeKind::Message(msg.clone()));
+                new_item.unedited_kind = Some(Box::new(MsgLikeKind::Message(msg.clone())));
             }
             *item = Cow::Owned(new_item);
         }
@@ -1126,7 +1126,7 @@ fn edit_item(
                     edit_json,
                 );
                 if is_local_echo && item.edit_send_state.is_none() {
-                    new_item.unedited_kind = Some(MsgLikeKind::Poll(poll_state.clone()));
+                    new_item.unedited_kind = Some(Box::new(MsgLikeKind::Poll(poll_state.clone())));
                 }
                 *item = Cow::Owned(new_item);
             } else {

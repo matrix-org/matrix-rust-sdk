@@ -97,7 +97,7 @@ pub struct EventTimelineItem {
     /// The reactions of the event, grouped by key and then by sender.
     pub(super) reactions: ReactionsByKeyBySender,
     /// The message before our pending edits, put back if they're all dropped.
-    pub(super) unedited_kind: Option<MsgLikeKind>,
+    pub(super) unedited_kind: Option<Box<MsgLikeKind>>,
     /// The kind of event timeline item, local or remote.
     pub(super) kind: EventTimelineItemKind,
     /// Whether or not the event belongs to an encrypted room.
