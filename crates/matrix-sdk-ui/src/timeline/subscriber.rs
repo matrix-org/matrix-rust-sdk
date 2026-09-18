@@ -143,8 +143,9 @@ pub mod skip {
 
             // Initial states: no items are present.
             if previous_number_of_items == 0 {
-                // Adjust the count to provide a maximum number of initial items. We want to
-                // skip the first items until we get a certain number of items to display.
+                // Adjust the count to provide a maximum number of initial
+                // items. We want to skip the first items until
+                // we get a certain number of items to display.
                 //
                 // | `next_number_of_items` | `MAX…` | output | will display |
                 // |------------------------|--------|--------|--------------|
@@ -156,13 +157,16 @@ pub mod skip {
             }
             // Not the initial state: there are items.
             else {
-                // There are less items than before. Shift to the left `count` by the difference
-                // between `previous_number_of_items` and `next_number_of_items` to keep the
-                // same number of items in the stream as much as possible.
+                // There are less items than before. Shift to the left `count`
+                // by the difference
+                // between `previous_number_of_items` and `next_number_of_items`
+                // to keep the same number of items in the
+                // stream as much as possible.
                 //
-                // This is not a backwards pagination, it cannot “go below 0”, however this is
-                // necessary to handle the case where the timeline is cleared and
-                // the number of items becomes 0 for example.
+                // This is not a backwards pagination, it cannot “go below 0”,
+                // however this is necessary to handle the case
+                // where the timeline is cleared and the number
+                // of items becomes 0 for example.
                 if next_number_of_items < previous_number_of_items {
                     current_count.saturating_sub(previous_number_of_items - next_number_of_items)
                 }
@@ -194,8 +198,9 @@ pub mod skip {
         ) -> (usize, Option<usize>) {
             let current_count = self.count.get();
 
-            // We skip the values from the start of the timeline; paginating backwards means
-            // we have to reduce the count until reaching 0.
+            // We skip the values from the start of the timeline; paginating
+            // backwards means we have to reduce the count until
+            // reaching 0.
             //
             // | `current_count` | `page_size` | output         |
             // |-----------------|-------------|----------------|
@@ -205,9 +210,10 @@ pub mod skip {
             // | 0               | 20          | (0, Some(20))  |
             //                                    ^  ^^^^^^^^
             //                                    |  |
-            //                                    |  it needs 20 items to fulfill the
-            //                                    |  page size
-            //                                    count becomes 0
+            //                                    |  it needs 20 items to
+            // fulfill the                                    |
+            // page size                                    count
+            // becomes 0
             //
             if current_count >= page_size {
                 (current_count - page_size, None)
@@ -225,12 +231,14 @@ pub mod skip {
         ///
         /// [`Skip`]: eyeball_im_util::vector::Skip
         #[allow(unused)] // this is not used yet because only a live timeline is using it, but as soon as
-        // other kind of timelines will use it, we would need it, it's better to have
-        // this in case of; everything is tested, the logic is made more robust.
+        // other kind of timelines will use it, we would need it, it's better to
+        // have this in case of; everything is tested, the logic is made
+        // more robust.
         pub fn compute_next_when_paginating_forwards(&self, _page_size: usize) -> usize {
-            // Nothing to do, the count remains unchanged as we skip the first values, not
-            // the last values; paginating forwards will add items at the end, not at the
-            // start of the timeline.
+            // Nothing to do, the count remains unchanged as we skip the first
+            // values, not the last values; paginating forwards will
+            // add items at the end, not at the start of the
+            // timeline.
             self.count.get()
         }
 
@@ -268,8 +276,8 @@ pub mod skip {
             assert_eq!(count, 0);
             skip_count.count.set(count);
 
-            // Add 5 new items. The count stays at 0 because we don't want to skip the
-            // previous items.
+            // Add 5 new items. The count stays at 0 because we don't want to
+            // skip the previous items.
             let previous_number_of_items = next_number_of_items;
             let next_number_of_items = previous_number_of_items + 5;
             let count = skip_count.compute_next(previous_number_of_items, next_number_of_items);
@@ -284,15 +292,17 @@ pub mod skip {
             assert_eq!(count, 0);
             skip_count.count.set(count);
 
-            // Remove a certain number of items. The count stays at 0 because it was
-            // previously 0, no items are skipped, nothing to adjust.
+            // Remove a certain number of items. The count stays at 0 because it
+            // was previously 0, no items are skipped, nothing to
+            // adjust.
             let previous_number_of_items = next_number_of_items;
             let next_number_of_items = previous_number_of_items - 4;
             let count = skip_count.compute_next(previous_number_of_items, next_number_of_items);
             assert_eq!(count, 0);
             skip_count.count.set(count);
 
-            // Remove all items. The count goes to 0 (regardless it was 0 before).
+            // Remove all items. The count goes to 0 (regardless it was 0
+            // before).
             let previous_number_of_items = next_number_of_items;
             let next_number_of_items = 0;
             let count = skip_count.compute_next(previous_number_of_items, next_number_of_items);
@@ -310,8 +320,8 @@ pub mod skip {
             assert_eq!(count, 10);
             skip_count.count.set(count);
 
-            // Add 5 new items. The count stays at 10 because we don't want to skip the
-            // previous items.
+            // Add 5 new items. The count stays at 10 because we don't want to
+            // skip the previous items.
             let previous_number_of_items = next_number_of_items;
             let next_number_of_items = previous_number_of_items + 5;
             let count = skip_count.compute_next(previous_number_of_items, next_number_of_items);
@@ -326,15 +336,16 @@ pub mod skip {
             assert_eq!(count, 10);
             skip_count.count.set(count);
 
-            // Remove a certain number of items. The count is reduced by 5 so that the same
-            // number of items are presented.
+            // Remove a certain number of items. The count is reduced by 5 so
+            // that the same number of items are presented.
             let previous_number_of_items = next_number_of_items;
             let next_number_of_items = previous_number_of_items - 4;
             let count = skip_count.compute_next(previous_number_of_items, next_number_of_items);
             assert_eq!(count, 6);
             skip_count.count.set(count);
 
-            // Remove all items. The count goes to 0 (regardless it was 6 before).
+            // Remove all items. The count goes to 0 (regardless it was 6
+            // before).
             let previous_number_of_items = next_number_of_items;
             let next_number_of_items = 0;
             let count = skip_count.compute_next(previous_number_of_items, next_number_of_items);
@@ -352,8 +363,8 @@ pub mod skip {
             assert_eq!(count, 0);
             skip_count.count.set(count);
 
-            // Add 30 new items. The count stays at 0 because we don't want to skip the
-            // previous items.
+            // Add 30 new items. The count stays at 0 because we don't want to
+            // skip the previous items.
             let previous_number_of_items = next_number_of_items;
             let next_number_of_items = previous_number_of_items + 30;
             let count = skip_count.compute_next(previous_number_of_items, next_number_of_items);
@@ -389,14 +400,16 @@ pub mod skip {
 
             let page_size = 20;
 
-            // Paginate backwards. The count shifts by `page_size`, and the page is full.
+            // Paginate backwards. The count shifts by `page_size`, and the page
+            // is full.
             let (count, needs) = skip_count.compute_next_when_paginating_backwards(page_size);
             assert_eq!(count, 10);
             assert_eq!(needs, None);
             skip_count.count.set(count);
 
-            // Paginate backwards. The count shifts by `page_size` but reaches 0 before the
-            // page becomes full. It needs 10 more items to fulfill the page.
+            // Paginate backwards. The count shifts by `page_size` but reaches 0
+            // before the page becomes full. It needs 10 more items
+            // to fulfill the page.
             let (count, needs) = skip_count.compute_next_when_paginating_backwards(page_size);
             assert_eq!(count, 0);
             assert_eq!(needs, Some(10));
@@ -413,8 +426,8 @@ pub mod skip {
             assert_eq!(count, 0);
             skip_count.count.set(count);
 
-            // Add 30 new items. The count stays at 0 because we don't want to skip the
-            // previous items.
+            // Add 30 new items. The count stays at 0 because we don't want to
+            // skip the previous items.
             let previous_number_of_items = next_number_of_items;
             let next_number_of_items = previous_number_of_items + 30;
             let count = skip_count.compute_next(previous_number_of_items, next_number_of_items);

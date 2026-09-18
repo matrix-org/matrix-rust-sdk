@@ -89,8 +89,8 @@ where
             let mut buf = Vec::new();
             encryptor.read_to_end(&mut buf)?;
 
-            // Override the reasonable upload timeout value, based on the size of the
-            // encrypted payload.
+            // Override the reasonable upload timeout value, based on the size
+            // of the encrypted payload.
             let request_config =
                 request_config.map(|config| config.timeout(Media::reasonable_upload_timeout(&buf)));
 

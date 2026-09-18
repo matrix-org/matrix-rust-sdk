@@ -70,8 +70,9 @@ async fn test_an_utd_from_the_event_cache_as_an_initial_item_is_decrypted() {
         //
         // 1. a chunk of 1 item
         //
-        // The item is an encrypted event! It has been stored before having a chance to
-        // be decrypted. Damn. We want to see if decryption will trigger automatically.
+        // The item is an encrypted event! It has been stored before having a
+        // chance to be decrypted. Damn. We want to see if decryption
+        // will trigger automatically.
         event_cache_store
             .as_clean()
             .unwrap()
@@ -210,9 +211,9 @@ async fn test_an_utd_from_the_event_cache_as_a_paginated_item_is_decrypted() {
         // 1. a chunk of 1 item
         // 2. a chunk of 1 item
         //
-        // The older item is an encrypted event! It has been stored before having a
-        // chance to be decrypted. Damn. We want to see if decryption will trigger
-        // automatically.
+        // The older item is an encrypted event! It has been stored before
+        // having a chance to be decrypted. Damn. We want to see if
+        // decryption will trigger automatically.
         event_cache_store
             .as_clean()
             .unwrap()
@@ -316,8 +317,8 @@ async fn test_an_utd_from_the_event_cache_as_a_paginated_item_is_decrypted() {
     // Now we can paginate to load the UTD!
     let reached_start = timeline.paginate_backwards(1).await.unwrap();
 
-    // We have reached the start of the timeline. Not really part of this test, but
-    // let's test everything :-).
+    // We have reached the start of the timeline. Not really part of this test,
+    // but let's test everything :-).
     assert!(reached_start);
 
     assert_next_matches_with_timeout!(updates_stream, 250, updates => {
@@ -328,8 +329,8 @@ async fn test_an_utd_from_the_event_cache_as_a_paginated_item_is_decrypted() {
         });
     });
 
-    // Now, let's look at the updates. We must observe an update reflecting the UTD
-    // has entered the `Timeline`.
+    // Now, let's look at the updates. We must observe an update reflecting the
+    // UTD has entered the `Timeline`.
     assert_next_matches_with_timeout!(updates_stream, 250, updates => {
         assert_eq!(updates.len(), 2, "Expecting 2 updates from the `Timeline`");
 

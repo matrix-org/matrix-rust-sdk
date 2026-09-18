@@ -289,8 +289,9 @@ impl StoreCipher {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn import(passphrase: &str, encrypted: &[u8]) -> Result<Self, Error> {
-        // Our old export format used serde_json for the serialization format. Let's
-        // first try the new format and if that fails, try the old one.
+        // Our old export format used serde_json for the serialization format.
+        // Let's first try the new format and if that fails, try the old
+        // one.
         let encrypted: EncryptedStoreCipher =
             if let Ok(deserialized) = rmp_serde::from_slice(encrypted) {
                 deserialized
@@ -344,15 +345,16 @@ impl StoreCipher {
 
         let mut key = match &encrypted.kdf_info {
             KdfInfo::None => {
-                // We used to be able to call this method only with a 32-byte array. If we call
-                // this method with a smaller key and the `None` KDF info, then there's a
+                // We used to be able to call this method only with a 32-byte
+                // array. If we call this method with a smaller
+                // key and the `None` KDF info, then there's a
                 // mismatch between how the export was used.
                 if key.len() != 32 {
                     return Err(Error::KdfMismatch);
                 }
 
-                // To avoid borrower issues between the two branches we copy the key here to
-                // take ownership over it.
+                // To avoid borrower issues between the two branches we copy the
+                // key here to take ownership over it.
                 let mut key_copy = Box::new([0u8; 32]);
                 key_copy.copy_from_slice(key);
 
@@ -946,8 +948,8 @@ mod tests {
 
         assert_eq!(value, decrypted_value);
 
-        // Can't use assert matches here since we don't have a Debug implementation for
-        // StoreCipher.
+        // Can't use assert matches here since we don't have a Debug
+        // implementation for StoreCipher.
         match StoreCipher::import_with_key(&[0u8; 32], &encrypted) {
             Err(Error::KdfMismatch) => {}
             _ => panic!(

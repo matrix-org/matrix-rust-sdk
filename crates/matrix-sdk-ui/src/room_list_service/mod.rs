@@ -205,10 +205,11 @@ impl RoomListService {
         }
 
         if share_pos {
-            // The e2ee extensions aren't enabled in this sliding sync instance, and this is
-            // the only one that could be used from a different process. So it's
-            // fine to enable position sharing (i.e. reloading it from disk),
-            // since it's always exclusively owned by the current process.
+            // The e2ee extensions aren't enabled in this sliding sync instance,
+            // and this is the only one that could be used from a
+            // different process. So it's fine to enable position
+            // sharing (i.e. reloading it from disk), since it's
+            // always exclusively owned by the current process.
             debug!("Enabling `share_pos` for the room list sliding sync");
             builder = builder.share_pos();
         }
@@ -237,8 +238,10 @@ impl RoomListService {
                         is_invite: None,
                     })))
                     .requires_timeout(move |request_generator| {
-                        // We want Sliding Sync to apply the poll + network timeout —i.e. to do the
-                        // long-polling— in some particular cases. Let's define them.
+                        // We want Sliding Sync to apply the poll + network
+                        // timeout —i.e. to do the
+                        // long-polling— in some particular cases. Let's define
+                        // them.
                         match observable_state.get() {
                             // These are the states where we want an immediate response from the
                             // server, with no long-polling.
@@ -381,10 +384,10 @@ impl RoomListService {
 
         // Usually, when the session expires, it leads the state to be `Error`,
         // thus some actions (like refreshing the lists) are executed. However,
-        // if the sync loop has been stopped manually, the state is `Terminated`, and
-        // when the session is forced to expire, the state remains `Terminated`, thus
-        // the actions aren't executed as expected. Consequently, let's update the
-        // state.
+        // if the sync loop has been stopped manually, the state is
+        // `Terminated`, and when the session is forced to expire, the
+        // state remains `Terminated`, thus the actions aren't executed
+        // as expected. Consequently, let's update the state.
         if let State::Terminated { from } = self.state_machine.get() {
             self.state_machine.set(State::Error { from });
         }
@@ -483,7 +486,8 @@ impl RoomListService {
     /// [listen_to_room]: matrix_sdk::latest_events::LatestEvents::listen_to_room
     /// [`LatestEventValue`]: matrix_sdk::latest_events::LatestEventValue
     pub async fn set_room_subscriptions(&self, room_ids: &[&RoomId]) {
-        // Read the state before the await: the state machine can drift meanwhile.
+        // Read the state before the await: the state machine can drift
+        // meanwhile.
         let cancel_in_flight_request = self.must_cancel_in_flight_request();
 
         self.listen_to_latest_events(room_ids).await;
@@ -507,7 +511,8 @@ impl RoomListService {
     /// Contrary to [`Self::set_room_subscriptions`], the members of every room
     /// of `room_ids` are marked as missing, so that they are re-fetched.
     pub async fn reset_and_add_room_subscriptions(&self, room_ids: &[&RoomId]) {
-        // Read the state before the await: the state machine can drift meanwhile.
+        // Read the state before the await: the state machine can drift
+        // meanwhile.
         let cancel_in_flight_request = self.must_cancel_in_flight_request();
 
         self.listen_to_latest_events(room_ids).await;

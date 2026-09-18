@@ -294,8 +294,9 @@ impl SpaceRoomList {
                     None => PaginationToken::HitEnd,
                 };
 
-                // The space is part of the /hierarchy response. Partition the room array
-                // so we can use its details but also filter it out of the room list
+                // The space is part of the /hierarchy response. Partition the
+                // room array so we can use its details but also
+                // filter it out of the room list
                 let (space, children): (Vec<_>, Vec<_>) =
                     result.rooms.into_iter().partition(|f| f.summary.room_id == self.space_id);
 
@@ -463,7 +464,8 @@ mod tests {
 
         let room_list = space_service.space_room_list(parent_space_id.to_owned()).await;
 
-        // The space parent is known to the client and should be populated accordingly
+        // The space parent is known to the client and should be populated
+        // accordingly
         assert_let!(Some(parent_space) = room_list.space());
         assert_eq!(parent_space.children_count, 2);
 
@@ -661,7 +663,8 @@ mod tests {
 
         let room_list = space_service.space_room_list(parent_space_id.to_owned()).await;
 
-        // The parent space is known to the client and should be populated accordingly
+        // The parent space is known to the client and should be populated
+        // accordingly
         assert_let!(Some(parent_space) = room_list.space());
         assert_eq!(parent_space.children_count, 2);
     }
@@ -796,7 +799,8 @@ mod tests {
         let (_, rooms_subscriber) = room_list.subscribe_to_room_updates().await;
         pin_mut!(rooms_subscriber);
 
-        // Mock a /hierarchy response where one child is suggested and the other is not.
+        // Mock a /hierarchy response where one child is suggested and the other
+        // is not.
         let children_state = vec![
             json!({
                 "type": "m.space.child",
@@ -879,7 +883,8 @@ mod tests {
     async fn test_room_list_sorting() {
         let mut children_state = HashMap::<OwnedRoomId, HierarchySpaceChildEvent>::new();
 
-        // Rooms not present in the `children_state` should be sorted by their room ID
+        // Rooms not present in the `children_state` should be sorted by their
+        // room ID
         assert_eq!(
             SpaceRoomList::compare_rooms(
                 &make_space_room(owned_room_id!("!Luana:a.b"), None, None, &mut children_state),
@@ -898,8 +903,8 @@ mod tests {
             Ordering::Greater
         );
 
-        // Rooms without an order provided through the `children_state` should be
-        // sorted by their `m.space.child` `origin_server_ts`
+        // Rooms without an order provided through the `children_state` should
+        // be sorted by their `m.space.child` `origin_server_ts`
         assert_eq!(
             SpaceRoomList::compare_rooms(
                 &make_space_room(owned_room_id!("!Luana:a.b"), None, Some(1), &mut children_state),

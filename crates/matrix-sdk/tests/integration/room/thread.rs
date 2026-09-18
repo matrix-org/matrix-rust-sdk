@@ -42,8 +42,8 @@ async fn test_subscribe_thread() {
     let subscription = room.fetch_thread_subscription(root_id.clone()).await.unwrap().unwrap();
     assert_eq!(subscription, ThreadSubscription { automatic: true });
 
-    // If I try to get a subscription for a thread event that's unknown, I get no
-    // `ThreadSubscription`, not an error.
+    // If I try to get a subscription for a thread event that's unknown, I get
+    // no `ThreadSubscription`, not an error.
     let subscription =
         room.fetch_thread_subscription(owned_event_id!("$another_root")).await.unwrap();
     assert!(subscription.is_none());
@@ -65,8 +65,8 @@ async fn test_subscribe_thread() {
     let subscription = room.fetch_thread_subscription(root_id.clone()).await.unwrap();
     assert_matches!(subscription, None);
 
-    // Subscribing automatically to the thread may also return a `M_SKIPPED` error
-    // that should be non-fatal.
+    // Subscribing automatically to the thread may also return a `M_SKIPPED`
+    // error that should be non-fatal.
     server
         .mock_room_put_thread_subscription()
         .match_room_id(room_id.to_owned())
@@ -91,9 +91,9 @@ async fn test_subscribe_thread_if_needed() {
     let room_id = room_id!("!test:example.org");
     let room = server.sync_joined_room(&client, room_id).await;
 
-    // If there's no prior subscription, the function `subscribe_thread_if_needed`
-    // will automatically subscribe to the thread, whether the new subscription
-    // is automatic or not.
+    // If there's no prior subscription, the function
+    // `subscribe_thread_if_needed` will automatically subscribe to the
+    // thread, whether the new subscription is automatic or not.
     for (root_id, automatic) in [
         (owned_event_id!("$root"), None),
         (owned_event_id!("$woot"), Some(owned_event_id!("$woot"))),
@@ -168,16 +168,16 @@ async fn test_subscribe_thread_if_needed() {
             .mount()
             .await;
 
-        // No-op! (The PUT endpoint hasn't been mocked, so this would result in a 404 if
-        // it were trying to hit it.)
+        // No-op! (The PUT endpoint hasn't been mocked, so this would result in
+        // a 404 if it were trying to hit it.)
         room.subscribe_thread_if_needed(&root_id, automatic).await.unwrap();
     }
 }
 
 #[async_test]
 async fn test_thread_push_rule_is_triggered_for_subscribed_threads() {
-    // This test checks that the evaluation of push rules for threads will correctly
-    // call `Room::fetch_thread_subscription` for threads.
+    // This test checks that the evaluation of push rules for threads will
+    // correctly call `Room::fetch_thread_subscription` for threads.
 
     let server = MatrixMockServer::new().await;
     let client = server
@@ -226,8 +226,8 @@ async fn test_thread_push_rule_is_triggered_for_subscribed_threads() {
         .mount()
         .await;
 
-    // Given an event in the thread I'm subscribed to, the push rule evaluation will
-    // trigger the thread subscription endpoint,
+    // Given an event in the thread I'm subscribed to, the push rule evaluation
+    // will trigger the thread subscription endpoint,
     let event =
         f.text_msg("hello to you too!").in_thread(&thread_root_id, &thread_root_id).into_raw_sync();
 
@@ -235,8 +235,8 @@ async fn test_thread_push_rule_is_triggered_for_subscribed_threads() {
     let actions = push_context.for_event(&event).await;
     assert!(actions.iter().any(|action| action.should_notify()));
 
-    // But for a thread that I haven't subscribed to (i.e. the endpoint returns 404,
-    // because it's not set up), no actions are returned.
+    // But for a thread that I haven't subscribed to (i.e. the endpoint returns
+    // 404, because it's not set up), no actions are returned.
     let another_thread_root_id = event_id!("$another_root");
     let event = f
         .text_msg("bonjour à vous également !")
@@ -249,9 +249,9 @@ async fn test_thread_push_rule_is_triggered_for_subscribed_threads() {
 
 #[async_test]
 async fn test_thread_push_rules_and_notification_modes() {
-    // This test checks that, given a combination of a global notification mode, and
-    // a room notification mode, we do get notifications for thread events according
-    // to the subscriptions.
+    // This test checks that, given a combination of a global notification mode,
+    // and a room notification mode, we do get notifications for thread
+    // events according to the subscriptions.
 
     let server = MatrixMockServer::new().await;
     let client = server
@@ -324,7 +324,8 @@ async fn test_thread_push_rules_and_notification_modes() {
 
     // If room mode = AllMessages,
     settings.set_room_notification_mode(room_id, RoomNotificationMode::AllMessages).await.unwrap();
-    // Ack the push rules change via sync, for it to be applied in the push context.
+    // Ack the push rules change via sync, for it to be applied in the push
+    // context.
     let ruleset = settings.ruleset().await;
     server
         .mock_sync()
@@ -364,7 +365,8 @@ async fn test_thread_push_rules_and_notification_modes() {
         })
         .await;
 
-    // The thread event will not trigger a notification, as the room has been muted.
+    // The thread event will not trigger a notification, as the room has been
+    // muted.
     let actions = room.push_context().await.unwrap().unwrap().traced_for_event(&event).await;
     assert!(!actions.iter().any(|action| action.should_notify()));
 
@@ -380,7 +382,8 @@ async fn test_thread_push_rules_and_notification_modes() {
 
     // If room mode = AllMessages,
     settings.set_room_notification_mode(room_id, RoomNotificationMode::AllMessages).await.unwrap();
-    // Ack the push rules change via sync, for it to be applied in the push context.
+    // Ack the push rules change via sync, for it to be applied in the push
+    // context.
     let ruleset = settings.ruleset().await;
     server
         .mock_sync()
@@ -398,7 +401,8 @@ async fn test_thread_push_rules_and_notification_modes() {
         .set_room_notification_mode(room_id, RoomNotificationMode::MentionsAndKeywordsOnly)
         .await
         .unwrap();
-    // Ack the push rules change via sync, for it to be applied in the push context.
+    // Ack the push rules change via sync, for it to be applied in the push
+    // context.
     let ruleset = settings.ruleset().await;
     server
         .mock_sync()
@@ -413,7 +417,8 @@ async fn test_thread_push_rules_and_notification_modes() {
 
     // If room mode = mute,
     settings.set_room_notification_mode(room_id, RoomNotificationMode::Mute).await.unwrap();
-    // Ack the push rules change via sync, for it to be applied in the push context.
+    // Ack the push rules change via sync, for it to be applied in the push
+    // context.
     let ruleset = settings.ruleset().await;
     server
         .mock_sync()
@@ -422,7 +427,8 @@ async fn test_thread_push_rules_and_notification_modes() {
         })
         .await;
 
-    // The thread event will not trigger a notification, as the room has been muted.
+    // The thread event will not trigger a notification, as the room has been
+    // muted.
     let actions = room.push_context().await.unwrap().unwrap().traced_for_event(&event).await;
     assert!(!actions.iter().any(|action| action.should_notify()));
 }

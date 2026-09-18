@@ -163,12 +163,13 @@ impl SyncTaskSupervisor {
 
         let wait_for_termination_report = async {
             loop {
-                // Since we didn't empty the channel when entering the offline mode in fear that
-                // we might miss a report with the
-                // `TerminationOrigin::Supervisor` origin and the channel might contain stale
-                // reports from one of the sync services, in case both of them have sent a
-                // report, let's ignore all reports we receive from the sync
-                // services.
+                // Since we didn't empty the channel when entering the offline
+                // mode in fear that we might miss a report with
+                // the `TerminationOrigin::Supervisor` origin
+                // and the channel might contain stale
+                // reports from one of the sync services, in case both of them
+                // have sent a report, let's ignore all reports
+                // we receive from the sync services.
                 let report =
                     receiver.recv().await.unwrap_or_else(TerminationReport::supervisor_error);
 
@@ -185,20 +186,24 @@ impl SyncTaskSupervisor {
 
         let wait_to_be_online = async move {
             loop {
-                // Encountering network failures when sending a request which has with no retry
-                // limit set in the `RequestConfig` are treated as permanent failures and our
+                // Encountering network failures when sending a request which
+                // has with no retry limit set in the
+                // `RequestConfig` are treated as permanent failures and our
                 // exponential backoff doesn't kick in.
                 //
-                // Let's set a retry limit so network failures are retried as well.
+                // Let's set a retry limit so network failures are retried as
+                // well.
                 let request_config = RequestConfig::default().retry_limit(5);
 
-                // We're in an infinite loop, but our request sending already has an exponential
-                // backoff set up. This will kick in for any request errors that we consider to
-                // be transient. Common network errors (timeouts, DNS failures) or any server
-                // error in the 5xx range of HTTP errors are considered to be transient.
+                // We're in an infinite loop, but our request sending already
+                // has an exponential backoff set up. This will
+                // kick in for any request errors that we consider to
+                // be transient. Common network errors (timeouts, DNS failures)
+                // or any server error in the 5xx range of HTTP
+                // errors are considered to be transient.
                 //
-                // Still, as a precaution, we're going to sleep here for a while in the Error
-                // case.
+                // Still, as a precaution, we're going to sleep here for a while
+                // in the Error case.
                 match client.fetch_server_versions(Some(request_config)).await {
                     Ok(_) => break,
                     Err(_) => sleep(Duration::from_millis(100)).await,
@@ -236,13 +241,14 @@ impl SyncTaskSupervisor {
         let state = inner.state.clone();
         let termination_sender = sender.clone();
 
-        // When we first start, and don't use offline mode, we want to acquire the sync
-        // permit before we enter a future that might be polled at a later time,
-        // this means that the permit will be acquired as soon as this future,
-        // the one the `spawn_supervisor_task` function creates, is awaited.
+        // When we first start, and don't use offline mode, we want to acquire
+        // the sync permit before we enter a future that might be polled
+        // at a later time, this means that the permit will be acquired
+        // as soon as this future, the one the `spawn_supervisor_task`
+        // function creates, is awaited.
         //
-        // In other words, once `sync_service.start().await` is finished, the permit
-        // will be in the acquired state.
+        // In other words, once `sync_service.start().await` is finished, the
+        // permit will be in the acquired state.
         let mut sync_permit_guard =
             MaybeAcquiredPermit::Acquired(encryption_sync_permit.clone().lock_owned().await);
 
@@ -266,20 +272,22 @@ impl SyncTaskSupervisor {
                     report
                 } else {
                     info!("internal channel has been closed?");
-                    // We should still stop the child tasks in the unlikely scenario that our
-                    // receiver died.
+                    // We should still stop the child tasks in the unlikely
+                    // scenario that our receiver died.
                     TerminationReport::supervisor_error()
                 };
 
-                // If one service failed, make sure to request stopping the other one.
+                // If one service failed, make sure to request stopping the
+                // other one.
                 let (stop_room_list, stop_encryption) = match &report.origin {
                     TerminationOrigin::EncryptionSync => (true, false),
                     TerminationOrigin::RoomList => (false, true),
                     TerminationOrigin::Supervisor => (true, true),
                 };
 
-                // Stop both services, and wait for the streams to properly finish: at some
-                // point they'll return `None` and will exit their infinite loops, and their
+                // Stop both services, and wait for the streams to properly
+                // finish: at some point they'll return `None`
+                // and will exit their infinite loops, and their
                 // tasks will gracefully terminate.
 
                 if stop_room_list {
@@ -449,9 +457,11 @@ impl SyncTaskSupervisor {
         match self.termination_sender.send(TerminationReport::supervisor()).await {
             Ok(_) => {
                 let _ = self.task.await.inspect_err(|err| {
-                    // A `JoinError` indicates that the task was already dead, either because it got
-                    // cancelled or because it panicked. We only cancel the task in the Err branch
-                    // below and the task shouldn't be able to panic.
+                    // A `JoinError` indicates that the task was already dead,
+                    // either because it got cancelled or
+                    // because it panicked. We only cancel the task in the Err
+                    // branch below and the task shouldn't
+                    // be able to panic.
                     //
                     // So let's log an error and return.
                     error!("The supervisor task has stopped unexpectedly: {err:?}");
@@ -459,8 +469,9 @@ impl SyncTaskSupervisor {
             }
             Err(err) => {
                 error!("Couldn't send the termination report to the supervisor task: {err}");
-                // Let's abort the task if it won't shut down properly, otherwise we would have
-                // left it as a detached task.
+                // Let's abort the task if it won't shut down properly,
+                // otherwise we would have left it as a detached
+                // task.
                 self.task.abort();
             }
         }
@@ -512,7 +523,8 @@ impl SyncServiceInner {
     async fn stop(&mut self) {
         trace!("pausing sync service");
 
-        // Remove the supervisor from our state and request the tasks to be shutdown.
+        // Remove the supervisor from our state and request the tasks to be
+        // shutdown.
         if let Some(supervisor) = self.supervisor.take() {
             supervisor.shutdown().await;
         } else {
@@ -629,7 +641,8 @@ impl SyncService {
     pub async fn start(&self) {
         let mut inner = self.inner.lock().await;
 
-        // Only (re)start the tasks if it's stopped or if we're in the offline mode.
+        // Only (re)start the tasks if it's stopped or if we're in the offline
+        // mode.
         match inner.state.get() {
             // If we're already running, there's nothing to do.
             State::Running => {}
@@ -675,8 +688,8 @@ impl SyncService {
     /// the sessions on the server as well.
     #[instrument(skip_all)]
     pub async fn expire_sessions(&self) {
-        // First, stop the sync service if it was running; it's a no-op if it was
-        // already stopped.
+        // First, stop the sync service if it was running; it's a no-op if it
+        // was already stopped.
         self.stop().await;
 
         // Expire the room list sync session.

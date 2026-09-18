@@ -35,8 +35,8 @@ async fn test_own_verification() {
     // Have Alice bootstrap cross-signing.
     bootstrap_cross_signing(&alice).await;
 
-    // The local device is considered verified by default, we need a keys query to
-    // run
+    // The local device is considered verified by default, we need a keys query
+    // to run
     let own_device = alice.encryption().get_device(&user_id, &device_id).await.unwrap().unwrap();
     assert!(own_device.is_verified());
     assert!(!own_device.is_deleted());

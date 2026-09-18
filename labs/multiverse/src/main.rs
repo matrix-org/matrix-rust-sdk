@@ -230,8 +230,8 @@ impl App {
             all_rooms,
         ));
 
-        // This will sync (with encryption) until an error happens or the program is
-        // stopped.
+        // This will sync (with encryption) until an error happens or the
+        // program is stopped.
         sync_service.start().await;
 
         let status = Status::new();
@@ -330,7 +330,8 @@ impl App {
                 let (items, stream) = timeline.subscribe().await;
                 let items = Arc::new(Mutex::new(items));
 
-                // Spawn a timeline task that will listen to all the timeline item changes.
+                // Spawn a timeline task that will listen to all the timeline
+                // item changes.
                 let i = items.clone();
                 let timeline_task = spawn(async move {
                     pin_mut!(stream);
@@ -831,7 +832,8 @@ impl App {
     async fn run(&mut self, terminal: DefaultTerminal) -> Result<()> {
         self.render_loop(terminal).await?;
 
-        // At this point the user has exited the loop, so shut down the application.
+        // At this point the user has exited the loop, so shut down the
+        // application.
         ratatui::restore();
         execute!(stdout(), DisableMouseCapture)?;
 
@@ -847,8 +849,8 @@ impl Widget for &mut App {
             Layout::vertical([Constraint::Length(2), Constraint::Min(0), Constraint::Length(1)]);
         let [header_area, rest_area, status_area] = vertical.areas(area);
 
-        // Create two chunks with equal horizontal screen space. One for the list and
-        // the other for the info block.
+        // Create two chunks with equal horizontal screen space. One for the
+        // list and the other for the info block.
         let horizontal =
             Layout::horizontal([Constraint::Percentage(25), Constraint::Percentage(75)]);
         let [room_list_area, room_view_area] = horizontal.areas(rest_area);

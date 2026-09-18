@@ -107,47 +107,54 @@ impl StateLock {
 
         // Only one call at a time to `read` is allowed.
         //
-        // Why? Because in case the cross-process lock over the store is dirty, we need
-        // to upgrade the read lock over the state to a write lock.
+        // Why? Because in case the cross-process lock over the store is dirty,
+        // we need to upgrade the read lock over the state to a write
+        // lock.
         //
         // ## Upgradable read lock
         //
-        // One may argue that this upgrades can be done with an _upgradable read lock_
-        // [^1] [^2]. We don't want to use this solution: an upgradable read lock is
-        // basically a mutex because we are losing the shared access property, i.e.
-        // having multiple read locks at the same time. This is an important property to
-        // hold for performance concerns.
+        // One may argue that this upgrades can be done with an _upgradable read
+        // lock_ [^1] [^2]. We don't want to use this solution: an
+        // upgradable read lock is basically a mutex because we are
+        // losing the shared access property, i.e. having multiple read
+        // locks at the same time. This is an important property to hold
+        // for performance concerns.
         //
         // ## Downgradable write lock
         //
-        // One may also argue we could first obtain a write lock over the state from the
-        // beginning, thus removing the need to upgrade the read lock to a write lock.
-        // The write lock is then downgraded to a read lock once the dirty is cleaned
-        // up. It can potentially create a deadlock in the following situation:
+        // One may also argue we could first obtain a write lock over the state
+        // from the beginning, thus removing the need to upgrade the
+        // read lock to a write lock. The write lock is then downgraded
+        // to a read lock once the dirty is cleaned up. It can
+        // potentially create a deadlock in the following situation:
         //
-        // - `read` is called once, it takes a write lock, then downgrades it to a read
-        //   lock: the guard is kept alive somewhere,
-        // - `read` is called again, and waits to obtain the write lock, which is
-        //   impossible as long as the guard from the previous call is not dropped.
+        // - `read` is called once, it takes a write lock, then downgrades it to
+        //   a read lock: the guard is kept alive somewhere,
+        // - `read` is called again, and waits to obtain the write lock, which
+        //   is impossible as long as the guard from the previous call is not
+        //   dropped.
         //
         // ## “Atomic” read and write
         //
-        // One may finally argue to first obtain a read lock over the state, then drop
-        // it if the cross-process lock over the store is dirty, and immediately obtain
-        // a write lock (which can later be downgraded to a read lock). The problem is
-        // that this write lock is async: anything can happen between the drop and the
-        // new lock acquisition, and it's not possible to pause the runtime in the
-        // meantime.
+        // One may finally argue to first obtain a read lock over the state,
+        // then drop it if the cross-process lock over the store is
+        // dirty, and immediately obtain a write lock (which can later
+        // be downgraded to a read lock). The problem is that this write
+        // lock is async: anything can happen between the drop and the
+        // new lock acquisition, and it's not possible to pause the runtime in
+        // the meantime.
         //
         // ## Semaphore with 1 permit, aka a Mutex
         //
-        // The chosen idea is to allow only one execution at a time of this method: it
-        // becomes a critical section. That way we are free to “upgrade” the read lock
-        // by dropping it and obtaining a new write lock. All callers to this method are
-        // waiting, so nothing can happen in the meantime.
+        // The chosen idea is to allow only one execution at a time of this
+        // method: it becomes a critical section. That way we are free
+        // to “upgrade” the read lock by dropping it and obtaining a new
+        // write lock. All callers to this method are waiting, so
+        // nothing can happen in the meantime.
         //
-        // Note that it doesn't conflict with the `write` method because this latter
-        // immediately obtains a write lock, which avoids any conflict with this method.
+        // Note that it doesn't conflict with the `write` method because this
+        // latter immediately obtains a write lock, which avoids any
+        // conflict with this method.
         //
         // [^1]: https://docs.rs/lock_api/0.4.14/lock_api/struct.RwLock.html#method.upgradable_read
         // [^2]: https://docs.rs/async-lock/3.4.1/async_lock/struct.RwLock.html#method.upgradable_read
@@ -167,8 +174,9 @@ impl StateLock {
                 }
             }
             EventCacheStoreLockState::Dirty(store_guard) => {
-                // Drop the read lock, and take a write lock to modify the state.
-                // This is safe because only one reader at a time (see
+                // Drop the read lock, and take a write lock to modify the
+                // state. This is safe because only one reader
+                // at a time (see
                 // `Self::state_lock_upgrade_mutex`) is allowed.
                 drop(state_guard);
 
@@ -186,7 +194,8 @@ impl StateLock {
 
                 trace!("Lock acquired (from dirty)");
 
-                // Downgrade the write guard to a read guard, and map it into a cache state.
+                // Downgrade the write guard to a read guard, and map it into a
+                // cache state.
                 guard.downgrade()
             }
         })

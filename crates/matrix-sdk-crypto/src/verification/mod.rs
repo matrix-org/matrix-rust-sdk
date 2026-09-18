@@ -91,20 +91,22 @@ pub fn format_emojis(emojis: [Emoji; 7]) -> String {
 
     let center_emoji = |emoji: &str| -> String {
         const EMOJI_WIDTH: usize = 2;
-        // These are emojis that need VARIATION-SELECTOR-16 (U+FE0F) so that they are
-        // rendered with coloured glyphs. For these, we need to add an extra
-        // space after them so that they are rendered properly in terminals.
+        // These are emojis that need VARIATION-SELECTOR-16 (U+FE0F) so that
+        // they are rendered with coloured glyphs. For these, we need to
+        // add an extra space after them so that they are rendered
+        // properly in terminals.
         const VARIATION_SELECTOR_EMOJIS: [&str; 7] = ["☁️", "❤️", "☂️", "✏️", "✂️", "☎️", "✈️"];
 
-        // Hack to make terminals behave properly when one of the above is printed.
+        // Hack to make terminals behave properly when one of the above is
+        // printed.
         let emoji = if VARIATION_SELECTOR_EMOJIS.contains(&emoji) {
             format!("{emoji} ")
         } else {
             emoji.to_owned()
         };
 
-        // This is a trick to account for the fact that emojis are wider than other
-        // monospace characters.
+        // This is a trick to account for the fact that emojis are wider than
+        // other monospace characters.
         let placeholder = ".".repeat(EMOJI_WIDTH);
 
         format!("{placeholder:^12}").replace(&placeholder, &emoji)
@@ -650,9 +652,11 @@ impl IdentitiesBeingVerified {
 
                     (Some(identity), should_request_secrets)
                 } else {
-                    // Note, this is normal. For example, if we're an existing device in a device
-                    // verification, we don't need to verify our identity: instead the verification
-                    // process should verify the new device.
+                    // Note, this is normal. For example, if we're an existing
+                    // device in a device verification, we
+                    // don't need to verify our identity: instead the
+                    // verification process should verify
+                    // the new device.
                     debug!(
                         user_id = ?self.other_user_id(),
                         "The interactive verification process didn't verify \
@@ -718,9 +722,10 @@ impl IdentitiesBeingVerified {
 
             Ok(Some(device))
         } else {
-            // Note, this is normal. For example, if we're a new device in a QR code device
-            // verification, we'll verify the master key but not (directly) the
-            // remote device. Likewise, in a QR code identity verification, we'll verify the
+            // Note, this is normal. For example, if we're a new device in a QR
+            // code device verification, we'll verify the master key
+            // but not (directly) the remote device. Likewise, in a
+            // QR code identity verification, we'll verify the
             // master key of the remote user but not (directly) their device.
             debug!(
                 user_id = ?device.user_id(),

@@ -97,8 +97,9 @@ fn apply_changes(
                 let user_ids: Vec<String> =
                     event.content.ignored_users.keys().map(|id| id.to_string()).collect();
 
-                // Try to only trigger the observable if the ignored user list has changed,
-                // from the previous time we've seen it. If we couldn't load the previous event
+                // Try to only trigger the observable if the ignored user list
+                // has changed, from the previous time we've
+                // seen it. If we couldn't load the previous event
                 // for any reason, always trigger.
                 if let Some(prev_user_ids) =
                     previous_ignored_user_list.and_then(|raw| raw.deserialize().ok()).map(|event| {

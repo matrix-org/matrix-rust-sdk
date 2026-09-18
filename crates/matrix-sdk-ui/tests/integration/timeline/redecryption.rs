@@ -83,9 +83,9 @@ async fn test_redecryption(
 
     let bob_room = bob.get_room(room_id).expect("Bob should have access to the invited room");
 
-    // Alice will send a single event to the room, but this will trigger a to-device
-    // message containing the room key to be sent as well. We capture both the event
-    // and the to-device message.
+    // Alice will send a single event to the room, but this will trigger a
+    // to-device message containing the room key to be sent as well. We
+    // capture both the event and the to-device message.
 
     let event_id = event_id!("$some_id");
     let (event_receiver, mock) =

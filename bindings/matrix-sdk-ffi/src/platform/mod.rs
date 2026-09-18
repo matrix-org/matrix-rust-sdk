@@ -563,8 +563,9 @@ impl TracingConfiguration {
 
                     // Add a Sentry layer to the tracing subscriber.
                     //
-                    // Pass custom event and span filters, which will ignore anything, if the Sentry
-                    // support has been globally disabled, or if the statement doesn't include a
+                    // Pass custom event and span filters, which will ignore
+                    // anything, if the Sentry support has been
+                    // globally disabled, or if the statement doesn't include a
                     // `sentry` field set to `true`.
                     let sentry_layer = sentry_tracing::layer()
                         .event_filter({
@@ -631,10 +632,11 @@ impl TracingConfiguration {
 }
 
 fn build_tracing_filter(config: &TracingConfiguration) -> String {
-    // We are intentionally not setting a global log level because we don't want to
-    // risk third party crates logging sensitive information.
+    // We are intentionally not setting a global log level because we don't want
+    // to risk third party crates logging sensitive information.
     // As such we need to make sure that panics will be properly logged.
-    // On 2025-01-08, `log_panics` uses the `panic` target, at the error log level.
+    // On 2025-01-08, `log_panics` uses the `panic` target, at the error log
+    // level.
     let mut filters = vec!["panic=error".to_owned()];
 
     let global_level = config.log_level;
@@ -644,10 +646,12 @@ fn build_tracing_filter(config: &TracingConfiguration) -> String {
             // If the target is immutable, keep the log level.
             *default_level
         } else if config.trace_log_packs.iter().any(|pack| pack.targets().contains(target)) {
-            // If a log pack includes that target, set the associated log level to TRACE.
+            // If a log pack includes that target, set the associated log level
+            // to TRACE.
             LogLevel::Trace
         } else if *default_level > global_level {
-            // If the default level is more verbose than the global level, keep the default.
+            // If the default level is more verbose than the global level, keep
+            // the default.
             *default_level
         } else {
             // Otherwise, use the global level.
@@ -712,7 +716,8 @@ pub fn enable_sentry_logging(enabled: bool) {
             warn!("Sentry logging is not enabled");
         }
     } else {
-        // Can't use log statements here, since logging hasn't been enabled yet 🧠
+        // Can't use log statements here, since logging hasn't been enabled yet
+        // 🧠
         eprintln!("Logging hasn't been enabled yet");
     };
 }
@@ -771,7 +776,8 @@ fn setup_lightweight_tokio_runtime() {
         let num_available_cores =
             std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
 
-        // The number of worker threads will be either that or 4, whichever is smaller.
+        // The number of worker threads will be either that or 4, whichever is
+        // smaller.
         let num_worker_threads = num_available_cores.min(4);
 
         // Chosen by a fair dice roll.

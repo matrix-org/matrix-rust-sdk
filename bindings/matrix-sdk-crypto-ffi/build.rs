@@ -20,18 +20,19 @@ fn setup_x86_64_android_workaround() {
     let target_os = env::var("CARGO_CFG_TARGET_OS").expect("CARGO_CFG_TARGET_OS not set");
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").expect("CARGO_CFG_TARGET_ARCH not set");
     if target_arch == "x86_64" && target_os == "android" {
-        // Configure rust to statically link against the `libclang_rt.builtins` supplied
-        // with clang.
+        // Configure rust to statically link against the `libclang_rt.builtins`
+        // supplied with clang.
 
-        // cargo-ndk sets CC_x86_64-linux-android to the path to `clang`, within the
-        // Android NDK.
+        // cargo-ndk sets CC_x86_64-linux-android to the path to `clang`, within
+        // the Android NDK.
         let clang_path = PathBuf::from(
             env::var("CC_x86_64-linux-android").expect("CC_x86_64-linux-android not set"),
         );
 
         // clang_path should now look something like
-        // `.../sdk/ndk/28.0.12674087/toolchains/llvm/prebuilt/linux-x86_64/bin/clang`.
-        // We strip `/bin/clang` from the end to get the toolchain path.
+        // `.../sdk/ndk/28.0.12674087/toolchains/llvm/prebuilt/linux-x86_64/bin/
+        // clang`. We strip `/bin/clang` from the end to get the
+        // toolchain path.
         let toolchain_path = clang_path
             .ancestors()
             .nth(2)
@@ -44,7 +45,8 @@ fn setup_x86_64_android_workaround() {
         println!("cargo:rustc-link-search={toolchain_path}/lib/clang/{clang_version}/lib/linux/");
         println!("cargo:rustc-link-lib=static=clang_rt.builtins-x86_64-android");
 
-        // Ensure we re-run this build script if the location of the toolchain changes.
+        // Ensure we re-run this build script if the location of the toolchain
+        // changes.
         println!("cargo:rerun-if-env-changed=CC_x86_64-linux-android");
     }
 }

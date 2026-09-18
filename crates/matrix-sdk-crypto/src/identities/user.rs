@@ -89,8 +89,8 @@ impl UserIdentity {
                 Self::Own(OwnUserIdentity { inner: i, verification_machine, store })
             }
             UserIdentityData::Other(i) => {
-                // X509Verifier holds an Arc so cloning it gives us a reference to the single
-                // underlying RustRawX509Verifier
+                // X509Verifier holds an Arc so cloning it gives us a reference
+                // to the single underlying RustRawX509Verifier
                 #[cfg(feature = "experimental-x509-identity-verification")]
                 let x509_verifier = store.x509_verifier().cloned();
 
@@ -524,7 +524,8 @@ impl OtherUserIdentity {
     ///   [`OtherUserIdentity::withdraw_verification`].
     pub fn has_verification_violation(&self) -> bool {
         if !self.inner.was_previously_verified() {
-            // If that identity has never been verified it cannot be in violation.
+            // If that identity has never been verified it cannot be in
+            // violation.
             return false;
         }
 
@@ -906,8 +907,8 @@ impl OtherUserIdentityData {
     /// reported to the user. In order to remove this notice users have to
     /// verify again or to withdraw the verification requirement.
     pub fn withdraw_verification(&self) {
-        // We also pin when we withdraw, since withdrawing implicitly acknowledges
-        // the identity change
+        // We also pin when we withdraw, since withdrawing implicitly
+        // acknowledges the identity change
         self.pin();
         self.previously_verified.store(false, Ordering::SeqCst)
     }
@@ -949,10 +950,10 @@ impl OtherUserIdentityData {
     ) -> Result<bool, SignatureError> {
         master_key.verify_subkey(&self_signing_key)?;
 
-        // We update the identity with the new master and self signing key, but we keep
-        // the previous pinned master key.
-        // This identity will have a pin violation until the new master key is pinned
-        // (see `has_pin_violation()`).
+        // We update the identity with the new master and self signing key, but
+        // we keep the previous pinned master key.
+        // This identity will have a pin violation until the new master key is
+        // pinned (see `has_pin_violation()`).
         let pinned_master_key = self.pinned_master_key.read().clone();
 
         // Check if the new master_key is signed by our own **verified**
@@ -1506,8 +1507,8 @@ pub(crate) mod testing {
             .expect("There should be a user signing key")
             .0;
 
-        // Add the signature from the SignatureUploadRequest to their master key, under
-        // our user ID
+        // Add the signature from the SignatureUploadRequest to their master
+        // key, under our user ID
         their_msk.signatures.add_signature(
             my_user_id.to_owned(),
             my_user_signing_key_id.to_owned(),
@@ -1816,8 +1817,8 @@ pub(crate) mod tests {
         let usage = user_signing_key_json.get_mut("usage").unwrap();
         *usage = json!([]);
 
-        // It should now be impossible to deserialize the keys into their corresponding
-        // high-level cross-signing key structs.
+        // It should now be impossible to deserialize the keys into their
+        // corresponding high-level cross-signing key structs.
         assert_matches!(serde_json::from_value::<MasterPubkey>(master_key_json.clone()), Err(_));
         assert_matches!(
             serde_json::from_value::<SelfSigningPubkey>(self_signing_key_json.clone()),
@@ -2069,15 +2070,15 @@ pub(crate) mod tests {
         let own_keys = DataSet::own_keys_query_response_2();
         machine.mark_request_as_sent(&TransactionId::new(), &own_keys).await.unwrap();
 
-        // That should give an identity that is no longer verified, with a verification
-        // violation.
+        // That should give an identity that is no longer verified, with a
+        // verification violation.
         let own_identity = machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap();
         assert!(!own_identity.is_verified());
         assert!(own_identity.was_previously_verified());
         assert!(own_identity.has_verification_violation());
 
-        // Now check that we can withdraw verification for our own identity, and that it
-        // becomes valid again.
+        // Now check that we can withdraw verification for our own identity, and
+        // that it becomes valid again.
         own_identity.withdraw_verification().await.unwrap();
 
         assert!(!own_identity.is_verified());
@@ -2216,8 +2217,8 @@ pub(crate) mod tests {
         let user_id = user_id!("@own_user:localhost");
         let account = Account::with_device_id(user_id, device_id!("DEV123"));
 
-        // We create three signers with different validity periods: an "old" signer, a
-        // "current" signer, and a "new" signer
+        // We create three signers with different validity periods: an "old"
+        // signer, a "current" signer, and a "new" signer
         let (x509_signer_old, x509_signer_current, x509_signer_new) =
             crate::x509::tests::signers_with_different_validity();
 

@@ -51,13 +51,15 @@ impl Builder {
         own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
     ) -> Option<LatestEventValue> {
-        // If we are computing a value from the Event Cache, it's because we have
-        // received an update from the Event Cache. This update falls in two categories:
-        // either an event has been added or updated, or the room has been emptied (via
+        // If we are computing a value from the Event Cache, it's because we
+        // have received an update from the Event Cache. This update
+        // falls in two categories: either an event has been added or
+        // updated, or the room has been emptied (via
         // `EventCache::clear_all_rooms` for example).
         //
-        // We consider the room has been emptied by default. If we are able to scan at
-        // least one in-memory event, we consider the room has not been emptied.
+        // We consider the room has been emptied by default. If we are able to
+        // scan at least one in-memory event, we consider the room has
+        // not been emptied.
         let mut room_has_been_emptied = true;
         let mut current_value_must_be_erased = false;
 
@@ -203,8 +205,10 @@ impl Builder {
                                     content: serialized_event_content.clone(),
                                 };
 
-                                // If a local previous `LatestEventValue` exists and has been marked
-                                // as “cannot be sent”, it means the new `LatestEventValue` must
+                                // If a local previous `LatestEventValue` exists
+                                // and has been marked
+                                // as “cannot be sent”, it means the new
+                                // `LatestEventValue` must
                                 // also be marked as “cannot be sent”.
                                 let value =
                                     if let Some((_, LatestEventValue::LocalCannotBeSent(_))) =
@@ -253,9 +257,11 @@ impl Builder {
                 {
                     buffer_of_values_for_local_events.remove(position);
 
-                    // We have cancelled a local value. If there is no more local values, and if
-                    // there is no candidate for the Event Cache, we must generate some value, here
-                    // `LatestEventValue::None`, to erase any existing value.
+                    // We have cancelled a local value. If there is no more
+                    // local values, and if there is no
+                    // candidate for the Event Cache, we must generate some
+                    // value, here `LatestEventValue::None`,
+                    // to erase any existing value.
                     Some(LatestEventValue::None)
                 } else {
                     None
@@ -286,12 +292,14 @@ impl Builder {
                 {
                     let (_, value) = buffer_of_values_for_local_events.remove(position);
 
-                    // The sent event is the last of the buffer. Let's compute a proper “detached”
-                    // one if and only if the sent one was the last local one: not from the buffer,
+                    // The sent event is the last of the buffer. Let's compute a
+                    // proper “detached” one if and only if
+                    // the sent one was the last local one: not from the buffer,
                     // not from the Event Cache!.
                     if buffer_of_values_for_local_events.last().is_none() {
-                        // Try to resolve to a remote value from the event cache first. The remote
-                        // echo might already have been processed before we get here.
+                        // Try to resolve to a remote value from the event cache
+                        // first. The remote echo might
+                        // already have been processed before we get here.
                         if let Ok(Some(_)) = room_event_cache.find_event(event_id).await
                             && let Some(latest_event_value) = Self::new_remote(
                                 room_event_cache,
@@ -380,12 +388,14 @@ impl Builder {
             // was recoverable.
             RoomSendQueueUpdate::SendError { transaction_id, is_recoverable, .. } => {
                 if *is_recoverable {
-                    // If the room send queue error is recoverable, the send queue may retry to send
-                    // it in a short while, so the event should still be considered
+                    // If the room send queue error is recoverable, the send
+                    // queue may retry to send it in a short
+                    // while, so the event should still be considered
                     // sending. Leave it to that, at this point.
                     buffer_of_values_for_local_events.mark_is_sending_from(transaction_id);
                 } else {
-                    // If the error isn't recoverable, mark as a true "cannot be sent".
+                    // If the error isn't recoverable, mark as a true "cannot be
+                    // sent".
                     buffer_of_values_for_local_events.mark_cannot_be_sent_from(transaction_id);
                 }
 
@@ -721,8 +731,9 @@ fn filter_any_message_like_event_content(
             // Not all relations are accepted. Let's filter them.
             match relates_to {
                 Some(Relation::Replacement(Replacement { event_id, .. })) => {
-                    // Edits are suitable as latest events if and only if the targeted event is also
-                    // suitable. Let's remember this edit, and the associated
+                    // Edits are suitable as latest events if and only if the
+                    // targeted event is also suitable. Let'
+                    // s remember this edit, and the associated
                     // targeted event ID.
                     filter_continue_with_edit(event_id)
                 }
@@ -746,8 +757,8 @@ fn filter_any_message_like_event_content(
         }) => {
             // A redaction is not suitable.
             //
-            // However, this redaction targets the current `LatestEventValue`! It means the
-            // current value must be erased.
+            // However, this redaction targets the current `LatestEventValue`!
+            // It means the current value must be erased.
             if redacts.as_ref() == current_value_event_id {
                 filter_continue_with_erasing()
             } else {
@@ -784,8 +795,8 @@ fn filter_any_sync_state_event(
                         None => false,
                     };
 
-                    // The current user can act on the knock changes, so they should be
-                    // displayed
+                    // The current user can act on the knock changes, so they
+                    // should be displayed
                     if can_accept_or_decline_knocks {
                         return filter_break();
                     }
@@ -798,13 +809,14 @@ fn filter_any_sync_state_event(
                 | MembershipChange::Invited
                 | MembershipChange::InvitationAccepted
                 | MembershipChange::KnockAccepted => {
-                    // This member _is_ the current user, not someone else! This is a valid state
-                    // event:
+                    // This member _is_ the current user, not someone else! This
+                    // is a valid state event:
                     //
-                    // - the user is joining a room (for the first time or again): we want a
-                    //   `LatestEventValue` to get a first value!
-                    // - the user is being invited: we want a `LatestEventValue` to represent the
-                    //   invitation!
+                    // - the user is joining a room (for the first time or
+                    //   again): we want a `LatestEventValue` to get a first
+                    //   value!
+                    // - the user is being invited: we want a `LatestEventValue`
+                    //   to represent the invitation!
                     if member.state_key.deref() == own_user_id {
                         filter_break()
                     } else {
@@ -902,8 +914,8 @@ mod filter_tests {
         let event_id = event_id!("$ev0");
         let event = event_factory.redaction(event_id).into_event();
 
-        // `current_value_event_id` is `None`, it cannot be used to decide whether the
-        // current value must be erased.
+        // `current_value_event_id` is `None`, it cannot be used to decide
+        // whether the current value must be erased.
         {
             let current_value_event_id = None;
 
@@ -916,8 +928,8 @@ mod filter_tests {
             );
         }
 
-        // `current_value_event_id` is `Some(_)`, but the redaction event doesn't target
-        // this event ID.
+        // `current_value_event_id` is `Some(_)`, but the redaction event
+        // doesn't target this event ID.
         {
             let current_value_event_id = Some(owned_event_id!("$ev1"));
 
@@ -930,8 +942,9 @@ mod filter_tests {
             );
         }
 
-        // `current_value_event_id` is `Some(_)`, and the redaction event does target
-        // this event ID: great, the current value must be erased!
+        // `current_value_event_id` is `Some(_)`, and the redaction event does
+        // target this event ID: great, the current value must be
+        // erased!
         {
             let current_value_event_id = Some(event_id.to_owned());
 
@@ -1138,9 +1151,9 @@ mod filter_tests {
             );
         }
 
-        // Cannot accept. Can decline. But with an other user ID with at least the same
-        // levels, i.e. the current user cannot kick another user with the same
-        // or higher levels.
+        // Cannot accept. Can decline. But with an other user ID with at least
+        // the same levels, i.e. the current user cannot kick another
+        // user with the same or higher levels.
         {
             room_power_levels.users.insert(user_id.to_owned(), 5.into());
             room_power_levels.users.insert(other_user_id.to_owned(), 5.into());
@@ -2086,8 +2099,8 @@ mod builder_tests {
         // Initial state.
         let current_value = LatestEventValue::Remote(remote_room_message(event_id, "hello"));
 
-        // Compute a new remote value: with no candidate, but it's a `m.room.redaction`
-        // that erases `current_value`!
+        // Compute a new remote value: with no candidate, but it's a
+        // `m.room.redaction` that erases `current_value`!
         //
         // No candidate is found, so it SHOULD BE a `None`, but since we found a
         // `m.room.redaction` targeting our `current_value`, it MUST BE a
@@ -2146,8 +2159,8 @@ mod builder_tests {
         // Initial state.
         let current_value = LatestEventValue::Remote(remote_room_message(event_id, "hello"));
 
-        // Compute a new remote value: with a candidate, and a `m.room.redaction`
-        // that erases `current_value`!
+        // Compute a new remote value: with a candidate, and a
+        // `m.room.redaction` that erases `current_value`!
         //
         // A candidate is found, so it MUST BE a
         // `Some(LatestEventValue::Remote(_))`, whatever the `current_value`
@@ -2735,7 +2748,8 @@ mod builder_tests {
             )
         };
 
-        // Receiving another `NewLocalEvent`, ensuring it's pushed back in the buffer.
+        // Receiving another `NewLocalEvent`, ensuring it's pushed back in the
+        // buffer.
         {
             let transaction_id = OwnedTransactionId::from("txnid1");
             let content = new_local_echo_content(&room_send_queue, &transaction_id, "B");
@@ -2780,8 +2794,8 @@ mod builder_tests {
         };
 
         // Receiving a `SendError` targeting the first event. The
-        // `LatestEventValue` must change to indicate it “cannot be sent”, because the
-        // error is unrecoverable.
+        // `LatestEventValue` must change to indicate it “cannot be sent”,
+        // because the error is unrecoverable.
         let previous_value = {
             let update = RoomSendQueueUpdate::SendError {
                 transaction_id: transaction_id_0.clone(),
@@ -2789,8 +2803,8 @@ mod builder_tests {
                 is_recoverable: false,
             };
 
-            // The `LatestEventValue` has changed, it still matches the latest local
-            // event but it's marked as “cannot be sent”.
+            // The `LatestEventValue` has changed, it still matches the latest
+            // local event but it's marked as “cannot be sent”.
             let value = assert_local_value_matches_room_message_with_body!(
                 Builder::new_local(&update, &mut buffer, &room_event_cache, previous_value, user_id, None).await,
                 LatestEventValue::LocalCannotBeSent => with body = "A"
@@ -2802,9 +2816,9 @@ mod builder_tests {
             value
         };
 
-        // Receiving another `NewLocalEvent`, ensuring it's pushed back in the buffer,
-        // and as a `LocalCannotBeSent` because the previous value is itself
-        // `LocalCannotBeSent`.
+        // Receiving another `NewLocalEvent`, ensuring it's pushed back in the
+        // buffer, and as a `LocalCannotBeSent` because the previous
+        // value is itself `LocalCannotBeSent`.
         {
             let transaction_id = OwnedTransactionId::from("txnid1");
             let content = new_local_echo_content(&room_send_queue, &transaction_id, "B");
@@ -2849,8 +2863,8 @@ mod builder_tests {
             (transaction_id, value)
         };
 
-        // Receiving one `NewLocalEvent` with content of kind react! This time, it is
-        // ignored.
+        // Receiving one `NewLocalEvent` with content of kind react! This time,
+        // it is ignored.
         {
             let transaction_id = OwnedTransactionId::from("txnid1");
             let content = LocalEchoContent::React {
@@ -2925,8 +2939,8 @@ mod builder_tests {
                 transaction_id: transaction_id_1.clone(),
             };
 
-            // The `LatestEventValue` hasn't changed, it still matches the latest local
-            // event.
+            // The `LatestEventValue` hasn't changed, it still matches the
+            // latest local event.
             let value = assert_local_value_matches_room_message_with_body!(
                 Builder::new_local(&update, &mut buffer, &room_event_cache, previous_value, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "C"
@@ -2937,15 +2951,16 @@ mod builder_tests {
             value
         };
 
-        // Receiving a `CancelledLocalEvent` targeting the second (so the last) event.
-        // The `LatestEventValue` must point to the first local event.
+        // Receiving a `CancelledLocalEvent` targeting the second (so the last)
+        // event. The `LatestEventValue` must point to the first local
+        // event.
         let previous_value = {
             let update = RoomSendQueueUpdate::CancelledLocalEvent {
                 transaction_id: transaction_id_2.clone(),
             };
 
-            // The `LatestEventValue` has changed, it matches the previous (so the first)
-            // local event.
+            // The `LatestEventValue` has changed, it matches the previous (so
+            // the first) local event.
             let value = assert_local_value_matches_room_message_with_body!(
                 Builder::new_local(&update, &mut buffer, &room_event_cache, previous_value, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "A"
@@ -2956,10 +2971,10 @@ mod builder_tests {
             value
         };
 
-        // Receiving a `CancelledLocalEvent` targeting the first (so the last) event.
-        // The `LatestEventValue` cannot be computed from the send queue and will
-        // fallback to the event cache. The event cache is empty in this case, so we get
-        // nothing.
+        // Receiving a `CancelledLocalEvent` targeting the first (so the last)
+        // event. The `LatestEventValue` cannot be computed from the
+        // send queue and will fallback to the event cache. The event
+        // cache is empty in this case, so we get nothing.
         {
             let update =
                 RoomSendQueueUpdate::CancelledLocalEvent { transaction_id: transaction_id_0 };
@@ -3015,16 +3030,16 @@ mod builder_tests {
             value.unwrap()
         };
 
-        // Receiving a `SentEvent` targeting the first event. The `LatestEventValue`
-        // must not change.
+        // Receiving a `SentEvent` targeting the first event. The
+        // `LatestEventValue` must not change.
         let previous_value = {
             let update = RoomSendQueueUpdate::SentEvent {
                 transaction_id: transaction_id_0.clone(),
                 event_id: owned_event_id!("$ev0"),
             };
 
-            // The `LatestEventValue` hasn't changed, it still matches the latest local
-            // event.
+            // The `LatestEventValue` hasn't changed, it still matches the
+            // latest local event.
             let value = assert_local_value_matches_room_message_with_body!(
                 Builder::new_local(&update, &mut buffer, &room_event_cache, previous_value, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "B"
@@ -3035,9 +3050,9 @@ mod builder_tests {
             value
         };
 
-        // Receiving a `SentEvent` targeting the first event. The `LatestEventValue`
-        // hasn't changed, this is still this event, but the status has changed to
-        // `LocalHasBeenSent`.
+        // Receiving a `SentEvent` targeting the first event. The
+        // `LatestEventValue` hasn't changed, this is still this event,
+        // but the status has changed to `LocalHasBeenSent`.
         {
             let expected_event_id = event_id!("$ev1");
             let update = RoomSendQueueUpdate::SentEvent {
@@ -3108,8 +3123,8 @@ mod builder_tests {
                 new_content,
             };
 
-            // The `LatestEventValue` hasn't changed, it still matches the latest local
-            // event.
+            // The `LatestEventValue` hasn't changed, it still matches the
+            // latest local event.
             let value = assert_local_value_matches_room_message_with_body!(
                 Builder::new_local(&update, &mut buffer, &room_event_cache, previous_value, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "B"
@@ -3120,8 +3135,8 @@ mod builder_tests {
             value
         };
 
-        // Receiving a `ReplacedLocalEvent` targeting the second (so the last) event.
-        // The `LatestEventValue` is changing.
+        // Receiving a `ReplacedLocalEvent` targeting the second (so the last)
+        // event. The `LatestEventValue` is changing.
         {
             let transaction_id = &transaction_id_1;
             let LocalEchoContent::Event { serialized_event: new_content, .. } =
@@ -3135,8 +3150,8 @@ mod builder_tests {
                 new_content,
             };
 
-            // The `LatestEventValue` has changed, it still matches the latest local
-            // event but with its new content.
+            // The `LatestEventValue` has changed, it still matches the latest
+            // local event but with its new content.
             assert_local_value_matches_room_message_with_body!(
                 Builder::new_local(&update, &mut buffer, &room_event_cache, previous_value, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "B."
@@ -3174,9 +3189,10 @@ mod builder_tests {
             value
         };
 
-        // Receiving a `ReplacedLocalEvent` targeting the first event. Sadly, the new
-        // event cannot be mapped to a `LatestEventValue`! The first event is removed
-        // from the buffer, and the `LatestEventValue` becomes `None` because there is
+        // Receiving a `ReplacedLocalEvent` targeting the first event. Sadly,
+        // the new event cannot be mapped to a `LatestEventValue`! The
+        // first event is removed from the buffer, and the
+        // `LatestEventValue` becomes `None` because there is
         // no other alternative.
         {
             let new_content = SerializableEventContent::new(&AnyMessageLikeEventContent::Reaction(
@@ -3252,8 +3268,8 @@ mod builder_tests {
                 new_content,
             };
 
-            // The `LatestEventValue` has changed, it still matches the latest local
-            // event but with its new content.
+            // The `LatestEventValue` has changed, it still matches the latest
+            // local event but with its new content.
             assert_local_value_matches_room_message_with_body!(
                 Builder::new_local(&update, &mut buffer, &room_event_cache, previous_value.clone(), user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "B"
@@ -3276,8 +3292,8 @@ mod builder_tests {
                 new_content,
             };
 
-            // The `LatestEventValue` has changed, it still matches the latest local
-            // event but with its new content.
+            // The `LatestEventValue` has changed, it still matches the latest
+            // local event but with its new content.
             assert_local_value_matches_room_message_with_body!(
                 Builder::new_local(&update, &mut buffer, &room_event_cache, previous_value, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "C"
@@ -3321,8 +3337,8 @@ mod builder_tests {
         };
 
         // Receiving a `SendError` targeting the first event. The
-        // `LatestEventValue` must change to indicate it “cannot be sent”, because the
-        // error is unrecoverable.
+        // `LatestEventValue` must change to indicate it “cannot be sent”,
+        // because the error is unrecoverable.
         let previous_value = {
             let update = RoomSendQueueUpdate::SendError {
                 transaction_id: transaction_id_0.clone(),
@@ -3330,8 +3346,8 @@ mod builder_tests {
                 is_recoverable: false,
             };
 
-            // The `LatestEventValue` has changed, it still matches the latest local
-            // event but it's marked as “cannot be sent”.
+            // The `LatestEventValue` has changed, it still matches the latest
+            // local event but it's marked as “cannot be sent”.
             let value = assert_local_value_matches_room_message_with_body!(
                 Builder::new_local(&update, &mut buffer, &room_event_cache, previous_value, user_id, None).await,
                 LatestEventValue::LocalCannotBeSent => with body = "B"
@@ -3344,17 +3360,17 @@ mod builder_tests {
             value
         };
 
-        // Receiving a `SentEvent` targeting the first event. The `LatestEventValue`
-        // must change: since an event has been sent, the following events are now
-        // “is sending”.
+        // Receiving a `SentEvent` targeting the first event. The
+        // `LatestEventValue` must change: since an event has been sent,
+        // the following events are now “is sending”.
         {
             let update = RoomSendQueueUpdate::SentEvent {
                 transaction_id: transaction_id_0.clone(),
                 event_id: owned_event_id!("$ev0"),
             };
 
-            // The `LatestEventValue` has changed, it still matches the latest local
-            // event but it's “is sending”.
+            // The `LatestEventValue` has changed, it still matches the latest
+            // local event but it's “is sending”.
             assert_local_value_matches_room_message_with_body!(
                 Builder::new_local(&update, &mut buffer, &room_event_cache, previous_value, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "B"
@@ -3399,8 +3415,9 @@ mod builder_tests {
         };
 
         // Receiving a `SendError` targeting the first event. The
-        // `LatestEventValue` doesn't change, because the sending error is recoverable
-        // (and thus will be retried soon, or as soon as network comes back).
+        // `LatestEventValue` doesn't change, because the sending error is
+        // recoverable (and thus will be retried soon, or as soon as
+        // network comes back).
         let previous_value = {
             let update = RoomSendQueueUpdate::SendError {
                 transaction_id: transaction_id_0.clone(),
@@ -3408,8 +3425,8 @@ mod builder_tests {
                 is_recoverable: true,
             };
 
-            // The `LatestEventValue` still matches the latest local event and should still
-            // be marked as a local being sent.
+            // The `LatestEventValue` still matches the latest local event and
+            // should still be marked as a local being sent.
             let value = assert_local_value_matches_room_message_with_body!(
                 Builder::new_local(&update, &mut buffer, &room_event_cache, previous_value, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "B"
@@ -3422,17 +3439,17 @@ mod builder_tests {
             value
         };
 
-        // Receiving a `SentEvent` targeting the first event. The `LatestEventValue`
-        // must change: since an event has been sent, the following events are now
-        // “is sending”.
+        // Receiving a `SentEvent` targeting the first event. The
+        // `LatestEventValue` must change: since an event has been sent,
+        // the following events are now “is sending”.
         {
             let update = RoomSendQueueUpdate::SentEvent {
                 transaction_id: transaction_id_0.clone(),
                 event_id: owned_event_id!("$ev0"),
             };
 
-            // The `LatestEventValue` has changed, it still matches the latest local
-            // event but it's “is sending”.
+            // The `LatestEventValue` has changed, it still matches the latest
+            // local event but it's “is sending”.
             assert_local_value_matches_room_message_with_body!(
                 Builder::new_local(&update, &mut buffer, &room_event_cache, previous_value, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "B"
@@ -3477,8 +3494,8 @@ mod builder_tests {
         };
 
         // Receiving a `SendError` targeting the first event. The
-        // `LatestEventValue` must change to indicate it “cannot be sent”, because the
-        // error is unrecoverable.
+        // `LatestEventValue` must change to indicate it “cannot be sent”,
+        // because the error is unrecoverable.
         let previous_value = {
             let update = RoomSendQueueUpdate::SendError {
                 transaction_id: transaction_id_0.clone(),
@@ -3486,8 +3503,8 @@ mod builder_tests {
                 is_recoverable: false,
             };
 
-            // The `LatestEventValue` has changed, it still matches the latest local
-            // event but it's marked as “cannot be sent”.
+            // The `LatestEventValue` has changed, it still matches the latest
+            // local event but it's marked as “cannot be sent”.
             let value = assert_local_value_matches_room_message_with_body!(
                 Builder::new_local(&update, &mut buffer, &room_event_cache, previous_value, user_id, None).await,
                 LatestEventValue::LocalCannotBeSent => with body = "B"
@@ -3500,14 +3517,15 @@ mod builder_tests {
             value
         };
 
-        // Receiving a `RetryEvent` targeting the first event. The `LatestEventValue`
-        // must change: this local event and its following must be “is sending”.
+        // Receiving a `RetryEvent` targeting the first event. The
+        // `LatestEventValue` must change: this local event and its
+        // following must be “is sending”.
         {
             let update =
                 RoomSendQueueUpdate::RetryEvent { transaction_id: transaction_id_0.clone() };
 
-            // The `LatestEventValue` has changed, it still matches the latest local
-            // event but it's “is sending”.
+            // The `LatestEventValue` has changed, it still matches the latest
+            // local event but it's “is sending”.
             assert_local_value_matches_room_message_with_body!(
                 Builder::new_local(&update, &mut buffer, &room_event_cache, previous_value, user_id, None).await,
                 LatestEventValue::LocalIsSending => with body = "B"
@@ -3725,9 +3743,10 @@ mod builder_tests {
         };
         assert_eq!(buffer.buffer.len(), 1);
 
-        // Step 2: The SentEvent update arrives. The buffer is now empty but the remote
-        // echo has already been processed and the event was added to the cache. The
-        // builder should resolve to LatestEventValue::Remote.
+        // Step 2: The SentEvent update arrives. The buffer is now empty but the
+        // remote echo has already been processed and the event was
+        // added to the cache. The builder should resolve to
+        // LatestEventValue::Remote.
         assert_remote_value_matches_room_message_with_body!(
             Builder::new_local(
                 &RoomSendQueueUpdate::SentEvent {

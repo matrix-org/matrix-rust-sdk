@@ -46,7 +46,8 @@ pub fn from_last_chunk<const CAP: usize, Item, Gap>(
 
     // Create the `LinkedChunk` from a single chunk.
     {
-        // Take the `previous` chunk and consider it becomes the `lazy_previous`.
+        // Take the `previous` chunk and consider it becomes the
+        // `lazy_previous`.
         let lazy_previous = chunk.previous.take();
 
         // Transform the `RawChunk` into a `Chunk`.
@@ -104,7 +105,8 @@ where
             return Err(LazyLoaderError::MissingNextChunk { id: new_first_chunk.identifier });
         };
 
-        // New chunk has a next chunk, and it is the first chunk of the `LinkedChunk`.
+        // New chunk has a next chunk, and it is the first chunk of the
+        // `LinkedChunk`.
         if next_chunk != expected_next_chunk {
             return Err(LazyLoaderError::CannotConnectTwoChunks {
                 new_chunk: new_first_chunk.identifier,
@@ -112,8 +114,8 @@ where
             });
         }
 
-        // Same check as before, but in reverse: the first chunk has a `lazy_previous`
-        // to the new first chunk.
+        // Same check as before, but in reverse: the first chunk has a
+        // `lazy_previous` to the new first chunk.
         if first_chunk.lazy_previous() != Some(new_first_chunk.identifier) {
             return Err(LazyLoaderError::CannotConnectTwoChunks {
                 new_chunk: first_chunk.identifier,
@@ -146,8 +148,8 @@ where
             first_chunk.lazy_previous = None;
             unsafe { new_first_chunk.as_mut() }.lazy_previous = lazy_previous;
 
-            // Link one way: `new_first_chunk` becomes the previous chunk of the first
-            // chunk.
+            // Link one way: `new_first_chunk` becomes the previous chunk of the
+            // first chunk.
             first_chunk.previous = Some(new_first_chunk);
         }
 
@@ -159,8 +161,8 @@ where
             // `new_first_chunk` becomes the new first chunk.
             *links.first_chunk_mut_ptr() = new_first_chunk;
 
-            // Link the other way: `old_first_chunk` becomes the next chunk of the first
-            // chunk.
+            // Link the other way: `old_first_chunk` becomes the next chunk of
+            // the first chunk.
             links.first_chunk_mut().next = Some(old_first_chunk);
 
             debug_assert!(
@@ -168,9 +170,10 @@ where
                 "The new first chunk is not supposed to have a previous chunk"
             );
 
-            // Update the last chunk. If it's `Some(_)`, no need to update the last chunk
-            // pointer. If it's `None`, it means we had only one chunk; now we have two, the
-            // last chunk is the `old_first_chunk`.
+            // Update the last chunk. If it's `Some(_)`, no need to update the
+            // last chunk pointer. If it's `None`, it means we had
+            // only one chunk; now we have two, the last chunk is
+            // the `old_first_chunk`.
             if links.last.is_none() {
                 links.last = Some(old_first_chunk);
             }
@@ -224,9 +227,10 @@ where
     Gap: Clone,
 {
     let Some(mut chunk) = chunk else {
-        // This is equivalent to clearing the linked chunk, and overriding the chunk ID
-        // generator afterwards. But, if there was no chunks in the DB, the generator
-        // should be reset too, so it's entirely equivalent to a clear.
+        // This is equivalent to clearing the linked chunk, and overriding the
+        // chunk ID generator afterwards. But, if there was no chunks in
+        // the DB, the generator should be reset too, so it's entirely
+        // equivalent to a clear.
         linked_chunk.clear();
         return Ok(());
     };
@@ -267,8 +271,8 @@ where
     unsafe { linked_chunk.links.replace_with(chunk_ptr) };
 
     if let Some(updates) = linked_chunk.updates.as_mut() {
-        // Clear the previous updates, as we're about to insert a clear they would be
-        // useless.
+        // Clear the previous updates, as we're about to insert a clear they
+        // would be useless.
         updates.clear_pending();
         updates.push(Update::Clear);
 
@@ -292,8 +296,8 @@ where
     }
 
     // Sort by `next` so that the search for the next chunk is faster (it should
-    // come first). The chunk with the biggest next chunk identifier comes first.
-    // Chunk with no next chunk comes last.
+    // come first). The chunk with the biggest next chunk identifier comes
+    // first. Chunk with no next chunk comes last.
     chunks.sort_by_key(|item| Reverse(item.next));
 
     let last_chunk = chunks
@@ -322,10 +326,10 @@ where
 
     let first_chunk = linked_chunk.links.first_chunk();
 
-    // It is expected that **all chunks** are passed to this function. If there was
-    // a previous chunk, `insert_new_first_chunk` has erased it and moved it to
-    // `lazy_previous`. Hence, let's check both (the former condition isn't
-    // necessary, but better be robust).
+    // It is expected that **all chunks** are passed to this function. If there
+    // was a previous chunk, `insert_new_first_chunk` has erased it and
+    // moved it to `lazy_previous`. Hence, let's check both (the former
+    // condition isn't necessary, but better be robust).
     if first_chunk.previous().is_some() || first_chunk.lazy_previous.is_some() {
         return Err(LazyLoaderError::ChunkIsNotFirst { id: first_chunk.identifier() });
     }
@@ -864,12 +868,12 @@ mod tests {
     fn test_from_all_chunks_success() {
         let cid0 = ChunkIdentifier::new(0);
         let cid1 = ChunkIdentifier::new(1);
-        // Note: cid2 is missing on purpose, to confirm that it's fine to have holes in
-        // the chunk id space.
+        // Note: cid2 is missing on purpose, to confirm that it's fine to have
+        // holes in the chunk id space.
         let cid3 = ChunkIdentifier::new(3);
 
-        // Check that we can successfully create a linked chunk, independently of the
-        // order in which chunks are added.
+        // Check that we can successfully create a linked chunk, independently
+        // of the order in which chunks are added.
         //
         // The final chunk will contain [cid0 <-> cid1 <-> cid3], in this order.
 
@@ -935,7 +939,8 @@ mod tests {
         // The linked chunk had 5 items.
         assert_eq!(lc.num_items(), 5);
 
-        // Now, if we add a new chunk, its identifier should be the previous one we used
+        // Now, if we add a new chunk, its identifier should be the previous one
+        // we used
         // + 1.
         lc.push_gap_back('h');
 
@@ -947,8 +952,8 @@ mod tests {
     fn test_from_all_chunks_chunk_too_large() {
         let cid0 = ChunkIdentifier::new(0);
 
-        // Adding a chunk with 4 items will fail, because the max capacity specified in
-        // the builder generics is 3.
+        // Adding a chunk with 4 items will fail, because the max capacity
+        // specified in the builder generics is 3.
         let res = from_all_chunks::<3, char, ()>(vec![RawChunk {
             previous: None,
             identifier: cid0,

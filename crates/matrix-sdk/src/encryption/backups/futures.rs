@@ -115,9 +115,10 @@ impl<'a> IntoFuture for WaitForSteadyState<'a> {
 
                 let mut ret = Ok(());
 
-                // TODO: Do we want to be smart here and remember the count when we started
-                // waiting and prevent the total from increasing, in case new room
-                // keys arrive after we started waiting.
+                // TODO: Do we want to be smart here and remember the count when
+                // we started waiting and prevent the total from
+                // increasing, in case new room keys arrive
+                // after we started waiting.
                 while let Some(state) = progress_stream.next().await {
                     trace!(?state, "Update state while waiting for the backup steady state");
 

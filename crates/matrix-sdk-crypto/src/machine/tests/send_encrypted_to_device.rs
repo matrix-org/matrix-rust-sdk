@@ -684,8 +684,8 @@ async fn create_and_share_session_without_sender_data(
         .await
         .unwrap();
 
-    // In future, we might want to save the session to the store, to better match
-    // the behaviour of the real implementation. See
+    // In future, we might want to save the session to the store, to better
+    // match the behaviour of the real implementation. See
     // `GroupSessionManager::share_room_key` for inspiration on how to do that.
 
     let bob_device = alice

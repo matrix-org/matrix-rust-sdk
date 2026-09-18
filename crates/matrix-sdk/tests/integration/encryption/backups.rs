@@ -647,8 +647,8 @@ async fn test_incremental_upload_of_keys() -> TestResult {
 
     let backups = client.encryption().backups();
 
-    // This is the call we want to check. The newly created outbound session should
-    // be uploaded to backup.
+    // This is the call we want to check. The newly created outbound session
+    // should be uploaded to backup.
     mount_and_assert_called_once(
         &server,
         "PUT",
@@ -722,8 +722,8 @@ async fn test_incremental_upload_of_keys_sliding_sync() -> TestResult {
 
     let backups = client.encryption().backups();
 
-    // This is the call we want to check. The newly created outbound session should
-    // be uploaded to backup.
+    // This is the call we want to check. The newly created outbound session
+    // should be uploaded to backup.
     let (endpoint_called_sender, endpoint_called_receiver) = std::sync::mpsc::channel();
     Mock::given(method("PUT"))
         .and(path("_matrix/client/unstable/room_keys/keys"))
@@ -806,8 +806,8 @@ async fn test_incremental_upload_of_keys_sliding_sync() -> TestResult {
 
     // Wait for the endpoint to be called, at most for 10 seconds.
     //
-    // Don't plain use `recv_timeout()` on the main task, since this would prevent
-    // forward progress of the wiremock code.
+    // Don't plain use `recv_timeout()` on the main task, since this would
+    // prevent forward progress of the wiremock code.
     timeout(
         spawn_blocking(move || endpoint_called_receiver.recv().unwrap()),
         Duration::from_secs(10),
@@ -1467,7 +1467,8 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
 
     init_client_secret_storage_and_backup(&client, &server).await;
 
-    // Create an outbound group session which we will use to encrypt a test event.
+    // Create an outbound group session which we will use to encrypt a test
+    // event.
     let sender_identity_keys = IdentityKeys {
         ed25519: Ed25519SecretKey::new().public_key(),
         curve25519: Curve25519PublicKey::from(&Curve25519SecretKey::new()),
@@ -1479,8 +1480,8 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
         matrix_sdk_base::crypto::EncryptionSettings::default(),
     )?;
 
-    // Export the `OutboundGroupSession` to an `InboundGroupSession`, and export it
-    // to the backup. We do this now, at ratchet index 0.
+    // Export the `OutboundGroupSession` to an `InboundGroupSession`, and export
+    // it to the backup. We do this now, at ratchet index 0.
     let inbound_group_session = inbound_session_from_outbound_session(
         sender_identity_keys.ed25519,
         room_id,
@@ -1499,7 +1500,8 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
     )?;
     mock_get_event(room_id, event_id, encrypted_event_content, &server).await;
 
-    // Now, import the megolm session into the client's store, at ratchet index 1.
+    // Now, import the megolm session into the client's store, at ratchet index
+    // 1.
     {
         let inbound_group_session = inbound_session_from_outbound_session(
             sender_identity_keys.ed25519,

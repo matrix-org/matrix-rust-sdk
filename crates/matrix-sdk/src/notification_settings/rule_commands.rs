@@ -115,10 +115,12 @@ impl RuleCommands {
         enabled: bool,
     ) -> Result<(), NotificationSettingsError> {
         if rule_id == PredefinedOverrideRuleId::IsRoomMention.as_str() {
-            // Handle specific case for `PredefinedOverrideRuleId::IsRoomMention`
+            // Handle specific case for
+            // `PredefinedOverrideRuleId::IsRoomMention`
             self.set_room_mention_enabled(enabled)
         } else if rule_id == PredefinedOverrideRuleId::IsUserMention.as_str() {
-            // Handle specific case for `PredefinedOverrideRuleId::IsUserMention`
+            // Handle specific case for
+            // `PredefinedOverrideRuleId::IsUserMention`
             self.set_user_mention_enabled(enabled)
         } else {
             self.set_enabled_internal(kind, rule_id, enabled)
@@ -145,7 +147,8 @@ impl RuleCommands {
                 PredefinedContentRuleId::ContainsUserName.as_str(),
                 enabled,
             ) {
-                // This rule has been removed from the spec, so it's fine if it wasn't found.
+                // This rule has been removed from the spec, so it's fine if it
+                // wasn't found.
                 if !err.is_rule_not_found() {
                     return Err(err);
                 }
@@ -157,7 +160,8 @@ impl RuleCommands {
                 PredefinedOverrideRuleId::ContainsDisplayName.as_str(),
                 enabled,
             ) {
-                // This rule has been removed from the spec, so it's fine if it wasn't found.
+                // This rule has been removed from the spec, so it's fine if it
+                // wasn't found.
                 if !err.is_rule_not_found() {
                     return Err(err);
                 }
@@ -185,7 +189,8 @@ impl RuleCommands {
             PredefinedOverrideRuleId::RoomNotif.as_str(),
             enabled,
         ) {
-            // This rule has been removed from the spec, so it's fine if it wasn't found.
+            // This rule has been removed from the spec, so it's fine if it
+            // wasn't found.
             if !err.is_rule_not_found() {
                 return Err(err);
             }
@@ -332,14 +337,15 @@ mod tests {
 
         let mut rule_commands = RuleCommands::new(ruleset);
 
-        // Deletion should fail if an attempt is made to delete a rule that does not
-        // exist.
+        // Deletion should fail if an attempt is made to delete a rule that does
+        // not exist.
         assert_matches!(
             rule_commands.delete_rule(RuleKind::Room, room_id.to_string()),
             Err(RemovePushRuleError::NotFound) => {}
         );
 
-        // Deletion should fail if an attempt is made to delete a default server rule.
+        // Deletion should fail if an attempt is made to delete a default server
+        // rule.
         assert_matches!(
             rule_commands.delete_rule(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention.to_string()),
             Err(RemovePushRuleError::ServerDefault) => {}
@@ -548,7 +554,8 @@ mod tests {
         let mut ruleset = get_server_default_ruleset();
         let mut rule_commands = RuleCommands::new(ruleset.clone());
 
-        // Starting with an empty action list for `PredefinedUnderrideRuleId::Message`.
+        // Starting with an empty action list for
+        // `PredefinedUnderrideRuleId::Message`.
         ruleset
             .set_actions(RuleKind::Underride, PredefinedUnderrideRuleId::Message, vec![])
             .unwrap();

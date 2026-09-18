@@ -241,8 +241,9 @@ impl WidgetMachine {
 
                 match &mut self.pending_state_updates {
                     Some(InitialStateUpdate { postponed_updates, .. }) => {
-                        // This state update is racing with the read requests used to calculate the
-                        // initial state; postpone it
+                        // This state update is racing with the read requests
+                        // used to calculate the initial
+                        // state; postpone it
                         postponed_updates.push(state);
                         Vec::new()
                     }
@@ -629,8 +630,8 @@ impl WidgetMachine {
         raw_request: Raw<FromWidgetRequest>,
         result: Result<impl Serialize, FromWidgetErrorResponse>,
     ) -> Action {
-        // we do not want tho expose this to never allow sending arbitrary errors.
-        // Errors always need to be `FromWidgetErrorResponse`.
+        // we do not want tho expose this to never allow sending arbitrary
+        // errors. Errors always need to be `FromWidgetErrorResponse`.
         #[instrument(skip_all)]
         fn send_response_data(
             raw_request: Raw<FromWidgetRequest>,
@@ -644,8 +645,8 @@ impl WidgetMachine {
                 serde_json::to_string(&object)
             };
 
-            // SAFETY: we expect the raw request to be a valid JSON map, to which we add a
-            // new field.
+            // SAFETY: we expect the raw request to be a valid JSON map, to
+            // which we add a new field.
             let serialized = f().expect("error when attaching response to incoming request");
 
             Action::SendToWidget(serialized)
@@ -724,10 +725,10 @@ impl WidgetMachine {
         &mut self,
         events: Vec<Raw<AnyStateEvent>>,
     ) -> Option<Vec<Action>> {
-        // Pull the updates struct out of the machine temporarily so that we can match
-        // on it in one place, mutate it, and still be able to call
-        // `send_to_widget_request` later in this block (which borrows the machine
-        // mutably)
+        // Pull the updates struct out of the machine temporarily so that we can
+        // match on it in one place, mutate it, and still be able to
+        // call `send_to_widget_request` later in this block (which
+        // borrows the machine mutably)
         match self.pending_state_updates.take() {
             None => {
                 error!(
@@ -741,22 +742,26 @@ impl WidgetMachine {
                 updates.initial_state.push(events);
 
                 if updates.initial_state.len() != updates.request_count {
-                    // Not all of the initial state requests have completed yet; put the updates
-                    // struct back so we can continue accumulating the initial state.
+                    // Not all of the initial state requests have completed yet;
+                    // put the updates struct back so we can
+                    // continue accumulating the initial state.
                     self.pending_state_updates = Some(updates);
                     return None;
                 }
 
-                // The initial state is complete; combine the data and push it to the widget in
-                // a single action.
+                // The initial state is complete; combine the data and push it
+                // to the widget in a single action.
                 let initial =
                     self.send_state_update(updates.initial_state.into_iter().flatten().collect());
-                // Also flush any state updates that had been postponed until after the initial
-                // state push. We deliberately do not bundle these updates into a single action,
-                // since they might contain some repeated updates to the same room state entry
-                // which could confuse the widget if included in the same `events` array. It's
-                // easiest to let the widget process each update sequentially rather than put
-                // effort into coalescing them - this is for an edge case after all.
+                // Also flush any state updates that had been postponed until
+                // after the initial state push. We deliberately
+                // do not bundle these updates into a single action,
+                // since they might contain some repeated updates to the same
+                // room state entry which could confuse the
+                // widget if included in the same `events` array. It's
+                // easiest to let the widget process each update sequentially
+                // rather than put effort into coalescing them -
+                // this is for an edge case after all.
                 let postponed = updates
                     .postponed_updates
                     .into_iter()
@@ -801,13 +806,13 @@ impl WidgetMachine {
             .collect();
 
         if !state_filters.is_empty() {
-            // Begin accumulating the initial state to be pushed to the widget. Since this
-            // widget driver currently doesn't implement capability
-            // renegotiation, we can be sure that we aren't overwriting another
-            // in-progress update.
+            // Begin accumulating the initial state to be pushed to the widget.
+            // Since this widget driver currently doesn't implement
+            // capability renegotiation, we can be sure that we
+            // aren't overwriting another in-progress update.
             if self.pending_state_updates.is_some() {
-                // Or so we should be. Let's at least log something if we ever break that
-                // invariant.
+                // Or so we should be. Let's at least log something if we ever
+                // break that invariant.
                 error!("Another initial state update is in progress; overwriting it");
             }
             self.pending_state_updates = Some(InitialStateUpdate {
@@ -817,9 +822,9 @@ impl WidgetMachine {
             })
         }
 
-        // For each room state filter that the widget has been approved to read, fire
-        // off a request to the driver to determine the initial values of the
-        // matching room state entries
+        // For each room state filter that the widget has been approved to read,
+        // fire off a request to the driver to determine the initial
+        // values of the matching room state entries
         let initial_state_actions = state_filters.iter().flat_map(|filter| {
             self.send_matrix_driver_request(match filter {
                 StateEventFilter::WithType(event_type) => ReadStateRequest {
@@ -836,8 +841,10 @@ impl WidgetMachine {
                     machine
                         .process_read_initial_state_response(result.unwrap_or_else(|e| {
                             error!("Reading initial room state failed: {e}");
-                            // Pretend that we just got an empty response so the initial state
-                            // update won't be completely blocked on this one bit of missing data
+                            // Pretend that we just got an empty response so the
+                            // initial state
+                            // update won't be completely blocked on this one
+                            // bit of missing data
                             Vec::new()
                         }))
                         .unwrap_or_default()
@@ -883,8 +890,8 @@ impl WidgetMachine {
     fn negotiate_capabilities(&mut self) -> Vec<Action> {
         let mut actions = Vec::new();
 
-        // XXX: This branch appears to be accounting for capability **re**negotiation
-        // (MSC2974), which isn't implemented yet
+        // XXX: This branch appears to be accounting for capability
+        // **re**negotiation (MSC2974), which isn't implemented yet
         if matches!(&self.capabilities, CapabilitiesState::Negotiated(c) if !c.read.is_empty()) {
             actions.push(Action::Unsubscribe);
         }

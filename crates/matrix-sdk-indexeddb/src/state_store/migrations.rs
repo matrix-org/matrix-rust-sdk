@@ -164,30 +164,31 @@ pub async fn upgrade_inner_db(
 ) -> Result<Database> {
     let mut db = Database::open(name).await?;
 
-    // Even if the web-sys bindings expose the version as a f64, the IndexedDB API
-    // works with an unsigned integer.
+    // Even if the web-sys bindings expose the version as a f64, the IndexedDB
+    // API works with an unsigned integer.
     // See <https://github.com/rustwasm/wasm-bindgen/issues/1149>
     let mut old_version = db.version() as u32;
 
     if old_version < CURRENT_DB_VERSION {
-        // This is a hack, we need to open the database a first time to get the current
-        // version.
-        // The indexed_db_futures crate doesn't let us access the transaction so we
-        // can't migrate data inside the `onupgradeneeded` callback. Instead we see if
-        // we need to migrate some data before the upgrade, then let the store process
-        // the upgrade.
+        // This is a hack, we need to open the database a first time to get the
+        // current version.
+        // The indexed_db_futures crate doesn't let us access the transaction so
+        // we can't migrate data inside the `onupgradeneeded` callback.
+        // Instead we see if we need to migrate some data before the
+        // upgrade, then let the store process the upgrade.
         // See <https://github.com/Alorel/rust-indexed-db/issues/20>
         let has_store_cipher = store_cipher.is_some();
 
-        // Inside the `onupgradeneeded` callback we would know whether it's a new DB
-        // because the old version would be set to 0, here it is already set to 1 so we
-        // check if the stores exist.
+        // Inside the `onupgradeneeded` callback we would know whether it's a
+        // new DB because the old version would be set to 0, here it is
+        // already set to 1 so we check if the stores exist.
         if old_version == 1 && db.object_store_names().next().is_none() {
             old_version = 0;
         }
 
-        // Upgrades to v1 and v2 (re)create empty stores, while the other upgrades
-        // change data that is already in the stores, so we use exclusive branches here.
+        // Upgrades to v1 and v2 (re)create empty stores, while the other
+        // upgrades change data that is already in the stores, so we use
+        // exclusive branches here.
         if old_version == 0 {
             let migration = OngoingMigration {
                 create_stores: ALL_STORES.iter().copied().collect(),
@@ -264,8 +265,9 @@ pub async fn upgrade_inner_db(
             .with_on_upgrade_needed(
                 move |evt: VersionChangeEvent, _: &Transaction<'_>| -> Result<(), Error> {
                     // Sanity check.
-                    // There should be no upgrade needed since the database should have already been
-                    // upgraded to the latest version.
+                    // There should be no upgrade needed since the database
+                    // should have already been upgraded to
+                    // the latest version.
                     panic!(
                         "Opening database that was not fully upgraded: \
                      DB version: {}; latest version: {CURRENT_DB_VERSION}",
@@ -584,8 +586,8 @@ async fn migrate_to_v5(db: Database, store_cipher: Option<&StoreCipher>) -> Resu
 
 /// Remove the old user IDs stores and populate the new ones.
 async fn migrate_to_v6(db: Database, store_cipher: Option<&StoreCipher>) -> Result<Database> {
-    // We only have joined and invited user IDs in the old store, so instead we will
-    // use the room member events to populate the new store.
+    // We only have joined and invited user IDs in the old store, so instead we
+    // will use the room member events to populate the new store.
     let tx = db
         .transaction([
             keys::ROOM_STATE,

@@ -1087,8 +1087,8 @@ mod tests {
             let now = SecondsSinceUnixEpoch::now();
             session.creation_time = SecondsSinceUnixEpoch(now.get() - uint!(1800));
 
-            // Then the session is expired: the feature flag has prevented us enforcing a
-            // minimum
+            // Then the session is expired: the feature flag has prevented us
+            // enforcing a minimum
             assert!(session.expired());
         }
 
@@ -1103,8 +1103,8 @@ mod tests {
 
             // When we send no messages
 
-            // Then the session is not expired: we are protected against this nonsensical
-            // setup
+            // Then the session is not expired: we are protected against this
+            // nonsensical setup
             assert!(!session.expired());
         }
 
@@ -1126,8 +1126,8 @@ mod tests {
                 )
                 .await;
 
-            // Then the session is expired: we treated rotation_period_msgs=0 as if it were
-            // =1
+            // Then the session is expired: we treated rotation_period_msgs=0 as
+            // if it were =1
             assert!(session.expired());
 
             Ok(())
@@ -1152,8 +1152,8 @@ mod tests {
             // When we have sent >= 10K messages
             session.message_count.store(10_000, Ordering::SeqCst);
 
-            // Then it is considered expired: we enforce a maximum of 10K messages before
-            // rotation.
+            // Then it is considered expired: we enforce a maximum of 10K
+            // messages before rotation.
             assert!(session.expired());
         }
 

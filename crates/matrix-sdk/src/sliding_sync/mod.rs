@@ -199,14 +199,15 @@ impl SlidingSync {
     ) {
         let mut room_subscriptions = self.inner.room_subscriptions.write().unwrap();
 
-        // Remove the subscriptions to the rooms that are not in `room_ids` anymore.
+        // Remove the subscriptions to the rooms that are not in `room_ids`
+        // anymore.
         let number_of_subscriptions_before = room_subscriptions.len();
         room_subscriptions.retain(|room_id, _| room_ids.contains(&room_id.as_ref()));
         let a_subscription_has_been_removed =
             room_subscriptions.len() != number_of_subscriptions_before;
 
-        // Add the subscriptions to the rooms that aren't subscribed yet, and refresh
-        // the settings of the ones that already are.
+        // Add the subscriptions to the rooms that aren't subscribed yet, and
+        // refresh the settings of the ones that already are.
         let a_subscription_has_been_added_or_updated = upsert_room_subscriptions(
             &mut room_subscriptions,
             &self.inner.client,
@@ -214,8 +215,8 @@ impl SlidingSync {
             settings,
         );
 
-        // The in-flight request must be cancelled as soon as the set of subscriptions
-        // has changed.
+        // The in-flight request must be cancelled as soon as the set of
+        // subscriptions has changed.
         if cancel_in_flight_request
             && (a_subscription_has_been_added_or_updated || a_subscription_has_been_removed)
         {
@@ -324,17 +325,19 @@ impl SlidingSync {
 
         // Transform a Sliding Sync Response to a `SyncResponse`.
         //
-        // We may not need the `sync_response` in the future (once `SyncResponse` will
-        // move to Sliding Sync, i.e. to `http::Response`), but processing the
-        // `sliding_sync_response` is vital, so it must be done somewhere; for now it
+        // We may not need the `sync_response` in the future (once
+        // `SyncResponse` will move to Sliding Sync, i.e. to
+        // `http::Response`), but processing the `sliding_sync_response`
+        // is vital, so it must be done somewhere; for now it
         // happens here.
 
         let sync_response = {
             let _timer = timer!("response processor");
 
             let response_processor = {
-                // Take the lock to synchronise accesses to the state store, to avoid concurrent
-                // sliding syncs overwriting each other's room infos.
+                // Take the lock to synchronise accesses to the state store, to
+                // avoid concurrent sliding syncs overwriting
+                // each other's room infos.
                 let state_store_guard = {
                     let _timer = timer!("acquiring the `state_store_lock`");
 
@@ -346,8 +349,9 @@ impl SlidingSync {
 
                 // Process thread subscriptions if they're available.
                 //
-                // It's important to do this *before* handling the room responses, so that
-                // notifications can be properly generated based on the thread subscriptions,
+                // It's important to do this *before* handling the room
+                // responses, so that notifications can be
+                // properly generated based on the thread subscriptions,
                 // for the events in threads we've subscribed to.
                 if self.is_thread_subscriptions_enabled() {
                     response_processor
@@ -367,8 +371,8 @@ impl SlidingSync {
                         .await?
                 }
 
-                // Only handle the room's subsection of the response, if this sliding sync was
-                // configured to do so.
+                // Only handle the room's subsection of the response, if this
+                // sliding sync was configured to do so.
                 if must_process_rooms_response {
                     response_processor
                         .handle_room_response(
@@ -398,12 +402,14 @@ impl SlidingSync {
 
                 updated_rooms.extend(sliding_sync_response.rooms.keys().cloned());
 
-                // There might be other rooms that were only mentioned in the sliding sync
-                // extensions part of the response, and thus would result in rooms present in
-                // the `sync_response.joined`. Mark them as updated too.
+                // There might be other rooms that were only mentioned in the
+                // sliding sync extensions part of the response,
+                // and thus would result in rooms present in the
+                // `sync_response.joined`. Mark them as updated too.
                 //
-                // Since we've removed rooms that were in the room subsection from
-                // `sync_response.rooms.joined`, the remaining ones aren't already present in
+                // Since we've removed rooms that were in the room subsection
+                // from `sync_response.rooms.joined`, the
+                // remaining ones aren't already present in
                 // `updated_rooms` and wouldn't cause any duplicates.
                 updated_rooms.extend(sync_response.rooms.joined.keys().cloned());
 
@@ -420,8 +426,9 @@ impl SlidingSync {
                 let mut updated_lists = Vec::with_capacity(sliding_sync_response.lists.len());
                 let mut lists = self.inner.lists.write().await;
 
-                // Iterate on known lists, not on lists in the response. Rooms may have been
-                // updated that were not involved in any list update.
+                // Iterate on known lists, not on lists in the response. Rooms
+                // may have been updated that were not involved
+                // in any list update.
                 for (name, list) in lists.iter_mut() {
                     if let Some(updates) = sliding_sync_response.lists.get(name) {
                         let maximum_number_of_rooms: u32 =
@@ -481,10 +488,11 @@ impl SlidingSync {
         // Collect the `pos`.
         //
         // Wait on the `position` mutex to be available. It means no request nor
-        // response is running. The `position` mutex is released whether the response
-        // has been fully handled successfully, in this case the `pos` is updated, or
-        // the response handling has failed, in this case the `pos` hasn't been updated
-        // and the same `pos` will be used for this new request.
+        // response is running. The `position` mutex is released whether the
+        // response has been fully handled successfully, in this case
+        // the `pos` is updated, or the response handling has failed, in
+        // this case the `pos` hasn't been updated and the same `pos`
+        // will be used for this new request.
         let mut position_guard = {
             debug!("Waiting to acquire the `position` lock");
 
@@ -503,11 +511,13 @@ impl SlidingSync {
             None
         };
 
-        // Update pos: either the one restored from the database, if any and the sliding
-        // sync was configured so, or read it from the memory cache.
+        // Update pos: either the one restored from the database, if any and the
+        // sliding sync was configured so, or read it from the memory
+        // cache.
         let pos = if self.inner.share_pos {
             if let Some(fields) = &restored_fields {
-                // Override the memory one with the database one, for consistency.
+                // Override the memory one with the database one, for
+                // consistency.
                 if fields.pos != position_guard.pos {
                     info!(
                         "Pos from previous request ('{:?}') was different from \
@@ -524,14 +534,15 @@ impl SlidingSync {
             position_guard.pos.clone()
         };
 
-        // When the client sends a request with no `pos`, MSC4186 returns no device
-        // lists updates, as it only returns changes since the provided `pos`
-        // (which is `null` in this case); this is in line with sync v2.
+        // When the client sends a request with no `pos`, MSC4186 returns no
+        // device lists updates, as it only returns changes since the
+        // provided `pos` (which is `null` in this case); this is in
+        // line with sync v2.
         //
-        // Therefore, with MSC4186, the device list cache must be marked as to be
-        // re-downloaded if the `since` token is `None`, otherwise it's easy to miss
-        // device lists updates that happened between the previous request and the new
-        // “initial” request.
+        // Therefore, with MSC4186, the device list cache must be marked as to
+        // be re-downloaded if the `since` token is `None`, otherwise
+        // it's easy to miss device lists updates that happened between
+        // the previous request and the new “initial” request.
         #[cfg(feature = "e2e-encryption")]
         if pos.is_none() && self.is_e2ee_enabled() {
             info!("Marking all tracked users as dirty");
@@ -543,8 +554,8 @@ impl SlidingSync {
 
         // Configure the timeout.
         //
-        // The `timeout` query is necessary when all lists require it. Please see
-        // [`SlidingSyncList::requires_timeout`].
+        // The `timeout` query is necessary when all lists require it. Please
+        // see [`SlidingSyncList::requires_timeout`].
         let timeout = match timeout {
             PollTimeout::None => None,
             PollTimeout::Some(timeout) => Some(Duration::from_secs(timeout.into())),
@@ -602,11 +613,13 @@ impl SlidingSync {
         let requested_required_states = RequestedRequiredStates::from(&request);
         let request = self.inner.client.send(request).with_request_config(request_config);
 
-        // Send the request and get a response with end-to-end encryption support.
+        // Send the request and get a response with end-to-end encryption
+        // support.
         //
-        // Sending the `/sync` request out when end-to-end encryption is enabled means
-        // that we need to also send out any outgoing e2ee related request out
-        // coming from the `OlmMachine::outgoing_requests()` method.
+        // Sending the `/sync` request out when end-to-end encryption is enabled
+        // means that we need to also send out any outgoing e2ee related
+        // request out coming from the `OlmMachine::outgoing_requests()`
+        // method.
 
         #[cfg(feature = "e2e-encryption")]
         let response = {
@@ -616,16 +629,18 @@ impl SlidingSync {
                 // 1. Send the sliding sync request and get a response,
                 // 2. Send the E2EE requests.
                 //
-                // We don't want to use a `join` or `try_join` because we want to fail if and
-                // only if sending the sliding sync request fails. Failing to send the E2EE
+                // We don't want to use a `join` or `try_join` because we want
+                // to fail if and only if sending the sliding
+                // sync request fails. Failing to send the E2EE
                 // requests should just result in a log.
                 //
-                // We also want to give the priority to sliding sync request. E2EE requests are
-                // sent concurrently to the sliding sync request, but the priority is on waiting
+                // We also want to give the priority to sliding sync request.
+                // E2EE requests are sent concurrently to the
+                // sliding sync request, but the priority is on waiting
                 // a sliding sync response.
                 //
-                // If sending sliding sync request fails, the sending of E2EE requests must be
-                // aborted as soon as possible.
+                // If sending sliding sync request fails, the sending of E2EE
+                // requests must be aborted as soon as possible.
 
                 let client = self.inner.client.clone();
                 let e2ee_uploads = spawn(
@@ -643,8 +658,9 @@ impl SlidingSync {
                 // Wait on the sliding sync request success or failure early.
                 let response = request.await?;
 
-                // At this point, if `request` has been resolved successfully, we wait on
-                // `e2ee_uploads`. It did run concurrently, so it should not be blocking for too
+                // At this point, if `request` has been resolved successfully,
+                // we wait on `e2ee_uploads`. It did run
+                // concurrently, so it should not be blocking for too
                 // long. Otherwise —if `request` has failed— `e2ee_uploads` has
                 // been dropped, so aborted.
                 e2ee_uploads.await.map_err(|error| Error::JoinError {
@@ -658,13 +674,15 @@ impl SlidingSync {
             }
         };
 
-        // Send the request and get a response _without_ end-to-end encryption support.
+        // Send the request and get a response _without_ end-to-end encryption
+        // support.
         #[cfg(not(feature = "e2e-encryption"))]
         let response = request.await?;
 
         debug!("Received response");
 
-        // At this point, the request has been sent, and a response has been received.
+        // At this point, the request has been sent, and a response has been
+        // received.
         //
         // We must ensure the handling of the response cannot be stopped/
         // cancelled. It must be done entirely, otherwise we can have
@@ -675,14 +693,14 @@ impl SlidingSync {
         // future that cannot be cancelled by anything.
         let this = self.clone();
 
-        // Spawn a new future to ensure that the code inside this future cannot be
-        // cancelled if this method is cancelled.
+        // Spawn a new future to ensure that the code inside this future cannot
+        // be cancelled if this method is cancelled.
         let future = async move {
             debug!("Start handling response");
 
             // In case the task running this future is detached, we must
-            // ensure responses are handled one at a time. At this point we still own
-            // `position_guard`, so we're fine.
+            // ensure responses are handled one at a time. At this point we
+            // still own `position_guard`, so we're fine.
 
             // Handle the response.
             let updates = this
@@ -692,7 +710,8 @@ impl SlidingSync {
             this.cache_to_storage(&position_guard).await?;
 
             // Release the position guard lock.
-            // It means that other responses can be generated and then handled later.
+            // It means that other responses can be generated and then handled
+            // later.
             drop(position_guard);
 
             debug!("Done handling response");
@@ -725,8 +744,8 @@ impl SlidingSync {
 
     /// Should we process the room's subpart of a response?
     async fn must_process_rooms_response(&self) -> bool {
-        // We consider that we must, if there's any room subscription or there's any
-        // list.
+        // We consider that we must, if there's any room subscription or there's
+        // any list.
         !self.inner.room_subscriptions.read().unwrap().is_empty()
             || !self.inner.lists.read().await.is_empty()
     }
@@ -856,16 +875,16 @@ impl SlidingSync {
             position.pos = None;
 
             // Propagate to disk.
-            // Note: this propagates both the sliding sync state and the cached lists'
-            // state to disk.
+            // Note: this propagates both the sliding sync state and the cached
+            // lists' state to disk.
             if let Err(err) = self.cache_to_storage(&position).await {
                 warn!("Failed to invalidate cached sliding sync state: {err}");
             }
         }
 
         {
-            // Clear all room subscriptions: we don't want to resend all room subscriptions
-            // when the session will restart.
+            // Clear all room subscriptions: we don't want to resend all room
+            // subscriptions when the session will restart.
             self.inner.room_subscriptions.write().unwrap().clear();
         }
     }
@@ -1108,8 +1127,8 @@ mod tests {
         let client = logged_in_client(None).await;
         let own_user_id = client.user_id().expect("client should be logged in").to_owned();
 
-        // Given a stored global profile for the current user, received through a
-        // previous sync.
+        // Given a stored global profile for the current user, received through
+        // a previous sync.
         let mut response = http::Response::new("0".to_owned());
 
         let mut profile_changes = UserProfileChanges::new();
@@ -1249,8 +1268,8 @@ mod tests {
         let room0 = sliding_sync.inner.client.get_room(room_id_0).unwrap();
 
         // Members aren't synced.
-        // We need to make them synced, so that we can test that subscribing to a room
-        // make members not synced. That's a desired feature.
+        // We need to make them synced, so that we can test that subscribing to
+        // a room make members not synced. That's a desired feature.
         assert!(room0.are_members_synced().not());
 
         {
@@ -1279,8 +1298,8 @@ mod tests {
 
         sliding_sync.add_room_subscriptions(&[room_id_0, room_id_1], None, true);
 
-        // OK, we have subscribed to some rooms. Let's check on `room0` if members are
-        // now marked as not synced.
+        // OK, we have subscribed to some rooms. Let's check on `room0` if
+        // members are now marked as not synced.
         assert!(room0.are_members_synced().not());
 
         {
@@ -1438,8 +1457,9 @@ mod tests {
         assert_eq!(timeline_limit_of_room_0(), Some(10u32.into()));
         assert!(internal_channel.try_recv().is_err());
 
-        // Resubscribe with new settings: they must be applied, and the in-flight
-        // request must be cancelled so that they are sent right away.
+        // Resubscribe with new settings: they must be applied, and the
+        // in-flight request must be cancelled so that they are sent
+        // right away.
         sliding_sync.set_room_subscriptions(&[room_id_0], settings(42), true);
 
         assert_eq!(timeline_limit_of_room_0(), Some(42u32.into()));
@@ -1464,8 +1484,8 @@ mod tests {
 
         let mut internal_channel = sliding_sync.inner.internal_channel.subscribe();
 
-        // A first-ever subscription: nothing is removed, but a subscription is added,
-        // so the in-flight request must be cancelled.
+        // A first-ever subscription: nothing is removed, but a subscription is
+        // added, so the in-flight request must be cancelled.
         sliding_sync.set_room_subscriptions(&[room_id_0], None, true);
 
         assert_matches!(
@@ -1520,7 +1540,8 @@ mod tests {
             Ok(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
         );
 
-        // All the subscriptions are removed: the in-flight request must be cancelled.
+        // All the subscriptions are removed: the in-flight request must be
+        // cancelled.
         sliding_sync.reset_and_add_room_subscriptions(&[], None, true);
 
         assert!(sliding_sync.inner.room_subscriptions.read().unwrap().is_empty());
@@ -1581,8 +1602,8 @@ mod tests {
         let room0 = sliding_sync.inner.client.get_room(room_id_0).unwrap();
 
         // Members aren't synced.
-        // We need to make them synced, so that we can test that subscribing to a room
-        // make members not synced. That's a desired feature.
+        // We need to make them synced, so that we can test that subscribing to
+        // a room make members not synced. That's a desired feature.
         assert!(room0.are_members_synced().not());
 
         {
@@ -1611,8 +1632,8 @@ mod tests {
 
         sliding_sync.set_room_subscriptions(&[room_id_0, room_id_1], None, true);
 
-        // OK, we have subscribed to some rooms. Let's check on `room0` if members are
-        // now marked as not synced.
+        // OK, we have subscribed to some rooms. Let's check on `room0` if
+        // members are now marked as not synced.
         assert!(room0.are_members_synced().not());
 
         // Both resubscribed rooms are subscribed.
@@ -1747,7 +1768,8 @@ mod tests {
         assert!(lists.contains_key("foo"));
         assert!(lists.contains_key("bar"));
 
-        // this test also ensures that Tokio is not panicking when calling `add_list`.
+        // this test also ensures that Tokio is not panicking when calling
+        // `add_list`.
 
         Ok(())
     }
@@ -1817,9 +1839,10 @@ mod tests {
         }
     }
 
-    // With MSC4186, with the `e2ee` extension enabled, if a request has no `pos`,
-    // all the tracked users by the `OlmMachine` must be marked as dirty, i.e.
-    // `/key/query` requests must be sent. See the code to see the details.
+    // With MSC4186, with the `e2ee` extension enabled, if a request has no
+    // `pos`, all the tracked users by the `OlmMachine` must be marked as
+    // dirty, i.e. `/key/query` requests must be sent. See the code to see
+    // the details.
     //
     // This test is asserting that.
     #[async_test]
@@ -1836,8 +1859,9 @@ mod tests {
         let bob = user_id!("@bob:localhost");
         let me = user_id!("@example:localhost");
 
-        // Track and mark users are not dirty, so that we can check they are “dirty”
-        // after that. Dirty here means that a `/key/query` must be sent.
+        // Track and mark users are not dirty, so that we can check they are
+        // “dirty” after that. Dirty here means that a `/key/query` must
+        // be sent.
         {
             let olm_machine = client.olm_machine().await;
             let olm_machine = olm_machine.as_ref().unwrap();
@@ -2003,8 +2027,8 @@ mod tests {
         let sync = sliding_sync.sync();
         pin_mut!(sync);
 
-        // Sync goes well, and then the position is saved both into the internal memory
-        // and the database.
+        // Sync goes well, and then the position is saved both into the internal
+        // memory and the database.
         let next = sync.next().await;
         assert_matches!(next, Some(Ok(_update_summary)));
 
@@ -2014,13 +2038,13 @@ mod tests {
             .await?
             .expect("must have restored fields");
 
-        // While it has been saved into the database, it's not necessarily going to be
-        // used later!
+        // While it has been saved into the database, it's not necessarily going
+        // to be used later!
         assert_eq!(restored_fields.pos.as_deref(), Some("0"));
 
-        // Now, even if we mess with the position stored in the database, the sliding
-        // sync instance isn't configured to reload the stream position from the
-        // database, so it won't be changed.
+        // Now, even if we mess with the position stored in the database, the
+        // sliding sync instance isn't configured to reload the stream
+        // position from the database, so it won't be changed.
         {
             let other_sync = client.sliding_sync("forgetful-sync")?.build().await?;
 
@@ -2037,8 +2061,8 @@ mod tests {
             assert_eq!(request.pos.as_deref(), Some("0"));
         }
 
-        // Recreating a sliding sync with the same ID doesn't preload the pos, if not
-        // asked to.
+        // Recreating a sliding sync with the same ID doesn't preload the pos,
+        // if not asked to.
         {
             let sliding_sync = client.sliding_sync("forgetful-sync")?.build().await?;
             assert!(sliding_sync.inner.position.lock().await.pos.is_none());
@@ -2092,8 +2116,8 @@ mod tests {
         let sync = sliding_sync.sync();
         pin_mut!(sync);
 
-        // Sync goes well, and then the position is saved both into the internal memory
-        // and the database.
+        // Sync goes well, and then the position is saved both into the internal
+        // memory and the database.
         let next = sync.next().await;
         assert_matches!(next, Some(Ok(_update_summary)));
 
@@ -2103,8 +2127,8 @@ mod tests {
             .await?
             .expect("must have restored fields");
 
-        // While it has been saved into the database, it's not necessarily going to be
-        // used later!
+        // While it has been saved into the database, it's not necessarily going
+        // to be used later!
         assert_eq!(restored_fields.pos.as_deref(), Some("0"));
 
         // Another process modifies the stream position under our feet...
@@ -2133,8 +2157,8 @@ mod tests {
             assert_eq!(request.pos.as_deref(), Some("42"));
         }
 
-        // Invalidating the session will remove the in-memory value AND the database
-        // value.
+        // Invalidating the session will remove the in-memory value AND the
+        // database value.
         sliding_sync.expire_session().await;
 
         {
@@ -2314,8 +2338,8 @@ mod tests {
             };
         }
 
-        // Simulate a response that only changes the marked unread state of the room to
-        // true
+        // Simulate a response that only changes the marked unread state of the
+        // room to true
 
         let server_response = make_mark_unread_response("1", room_id.clone(), true, false);
 
@@ -2507,8 +2531,8 @@ mod tests {
             })
         });
 
-        // Don't process non-encryption events if the sliding sync is configured for
-        // encryption only.
+        // Don't process non-encryption events if the sliding sync is configured
+        // for encryption only.
 
         let sliding_sync = client
             .sliding_sync("test")?
@@ -2546,8 +2570,8 @@ mod tests {
         // Room events haven't.
         assert!(client.get_room(&room).is_none());
 
-        // Conversely, only process room lists events if the sliding sync was configured
-        // as so.
+        // Conversely, only process room lists events if the sliding sync was
+        // configured as so.
         let client = logged_in_client(Some(server.uri())).await;
 
         let sliding_sync = client
@@ -2654,8 +2678,8 @@ mod tests {
             .build()
             .await?;
 
-        // Spawn two requests in parallel. Before #2430, this lead to a deadlock and the
-        // test would never terminate.
+        // Spawn two requests in parallel. Before #2430, this lead to a deadlock
+        // and the test would never terminate.
         let requests = join_all([sliding_sync.sync_once(), sliding_sync.sync_once()]);
 
         for result in requests.await {
@@ -2780,8 +2804,8 @@ mod tests {
 
         let (request, _, _) = sliding_sync.generate_sync_request().await?;
 
-        // Zero list means sliding sync is fully loaded, so there is a timeout to wait
-        // on new update to pop.
+        // Zero list means sliding sync is fully loaded, so there is a timeout
+        // to wait on new update to pop.
         assert!(request.timeout.is_some());
 
         Ok(())

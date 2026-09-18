@@ -716,8 +716,8 @@ async fn test_abort_unblocks_the_rest_of_the_queue() {
     let timeline = room.timeline().await.unwrap();
     let (_, mut stream) = timeline.subscribe().await;
 
-    // The first message wedges. The success mock is only mounted further down, so a
-    // request sneaking past the wedge fails loudly.
+    // The first message wedges. The success mock is only mounted further down,
+    // so a request sneaking past the wedge fails loudly.
     server.mock_room_send().error_too_large().mock_once().mount().await;
 
     timeline.send(RoomMessageEventContent::text_plain("first").into()).await.unwrap();

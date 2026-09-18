@@ -82,7 +82,8 @@ impl From<matrix_sdk::Error> for ClientError {
                     match &api_error.body {
                         ErrorBody::Standard(StandardErrorBody { kind, message, .. }) => {
                             let Ok(ffi_error_kind) = kind.clone().try_into() else {
-                                // We couldn't parse the API error, so we return a generic one
+                                // We couldn't parse the API error, so we return
+                                // a generic one
                                 // instead
                                 return (*http_error).into();
                             };
@@ -891,8 +892,8 @@ impl TryFrom<RumaApiErrorKind> for ErrorKind {
                 })
             }
             RumaApiErrorKind::_Custom(_) => {
-                // There is no way to map the extra values since they're private, so we omit
-                // them
+                // There is no way to map the extra values since they're
+                // private, so we omit them
                 Ok(ErrorKind::Custom { errcode: value.errcode().to_string() })
             }
             // In any other case, return it as the mapping not being yet implemented

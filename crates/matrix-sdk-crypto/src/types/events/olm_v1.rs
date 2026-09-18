@@ -645,8 +645,8 @@ mod tests {
     fn sender_device_keys_are_deserialized_unstable() {
         let (sender_device_keys_json, sender_device_keys) = sender_device_keys();
 
-        // Given JSON for a room key event with sender_device_keys using the unstable
-        // prefix
+        // Given JSON for a room key event with sender_device_keys using the
+        // unstable prefix
         let mut event_json = room_key_event();
         event_json
             .as_object_mut()

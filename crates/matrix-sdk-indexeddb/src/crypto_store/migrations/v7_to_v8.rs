@@ -83,7 +83,8 @@ pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) 
             );
 
             if new_key != old_key {
-                // We have found an entry that is stored under the incorrect old key
+                // We have found an entry that is stored under the incorrect old
+                // key
 
                 // Delete the old entry under the wrong key
                 cursor.delete()?;
@@ -91,10 +92,11 @@ pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) 
                 // Check for an existing entry with the new key
                 let new_value = store.get::<JsValue, _, _>(&new_key).await?;
 
-                // If we found an existing entry, it is more up-to-date, so we don't need to do
-                // anything more.
+                // If we found an existing entry, it is more up-to-date, so we
+                // don't need to do anything more.
 
-                // If we didn't find an existing entry, we must create one with the correct key
+                // If we didn't find an existing entry, we must create one with
+                // the correct key
                 if new_value.is_none() {
                     store
                         .add(&serde_wasm_bindgen::to_value(&idb_object)?)
@@ -120,8 +122,8 @@ pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) 
 /// Perform the schema upgrade v7 to v8, Just bumping the schema version.
 pub(crate) async fn schema_bump(name: &str) -> Result<(), OpenDbError> {
     do_schema_upgrade(name, 8, |_, _| {
-        // Just bump the version number to 8 to demonstrate that we have run the data
-        // changes from prepare_data_for_v8.
+        // Just bump the version number to 8 to demonstrate that we have run the
+        // data changes from prepare_data_for_v8.
         Ok(())
     })
     .await

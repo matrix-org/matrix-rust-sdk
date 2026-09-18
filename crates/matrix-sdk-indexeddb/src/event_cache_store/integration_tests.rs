@@ -30,9 +30,9 @@ pub async fn test_linked_chunk_update_is_a_transaction(store: IndexeddbEventCach
     ];
     store.handle_linked_chunk_updates(linked_chunk_id, updates).await.unwrap_err();
 
-    // If the updates have been handled transactionally, then no new chunks should
-    // have been added; failure of the second update leads to the first one being
-    // rolled back.
+    // If the updates have been handled transactionally, then no new chunks
+    // should have been added; failure of the second update leads to the
+    // first one being rolled back.
     let chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
     assert!(chunks.is_empty());
 }

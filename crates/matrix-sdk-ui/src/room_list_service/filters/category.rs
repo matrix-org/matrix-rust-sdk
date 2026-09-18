@@ -166,18 +166,18 @@ mod tests {
             .build()
             .await;
 
-        // The room has 2 members, but it has no direct targets, so it should not be
-        // considered a `People` room.
+        // The room has 2 members, but it has no direct targets, so it should
+        // not be considered a `People` room.
         let room = setup_room(&client, &server, 0, 2).await;
         assert!(matches(&room, RoomCategory::People).not());
 
-        // The room has 2 members, but it has several direct targets, so it should not
-        // be considered a `People` room.
+        // The room has 2 members, but it has several direct targets, so it
+        // should not be considered a `People` room.
         let room = setup_room(&client, &server, 42, 2).await;
         assert!(matches(&room, RoomCategory::People).not());
 
-        // The room has 2 members and a single target, so it should be considered a
-        // `People` room.
+        // The room has 2 members and a single target, so it should be
+        // considered a `People` room.
         let room = setup_room(&client, &server, 1, 2).await;
         assert!(matches(&room, RoomCategory::People));
 

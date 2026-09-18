@@ -947,7 +947,8 @@ impl OlmMachine {
                 },
             },
             AlgorithmInfo::OlmV1Curve25519AesSha2 { .. } => {
-                // cannot happen because `decrypt_room_event` would have fail to decrypt olm for
+                // cannot happen because `decrypt_room_event` would have fail to
+                // decrypt olm for
                 // a room (EventError::UnsupportedAlgorithm)
                 panic!("Unsupported olm algorithm in room")
             }

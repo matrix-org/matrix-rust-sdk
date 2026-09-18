@@ -28,8 +28,8 @@ pub async fn update_for_rooms(
     let _timer = timer!(tracing::Level::TRACE, "display_name::update_for_rooms");
 
     for room in room_updates.iter_all_room_ids().filter_map(|room_id| state_store.room(room_id)) {
-        // Compute the display name. If it's different, let's register the `RoomInfo` in
-        // the `StateChanges`.
+        // Compute the display name. If it's different, let's register the
+        // `RoomInfo` in the `StateChanges`.
         if let Ok(UpdatedRoomDisplayName::New(_)) = room.compute_display_name().await {
             let room_id = room.room_id().to_owned();
 

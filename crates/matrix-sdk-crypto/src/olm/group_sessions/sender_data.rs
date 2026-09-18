@@ -269,7 +269,8 @@ impl SenderData {
 
         match (device_owner, master_key) {
             (Some(device_owner), Some(master_key)) => {
-                // We have user_id and master_key for the user sending the to-device message.
+                // We have user_id and master_key for the user sending the
+                // to-device message.
                 let master_key = Box::new(master_key);
                 let known_sender_data = KnownSenderData { user_id, device_id, master_key };
                 if sender_device.is_cross_signing_trusted() {
@@ -282,8 +283,9 @@ impl SenderData {
             }
 
             (_, _) => {
-                // Surprisingly, there was no key in the MasterPubkey. We did not expect this:
-                // treat it as if the device was not signed by this master key.
+                // Surprisingly, there was no key in the MasterPubkey. We did
+                // not expect this: treat it as if the device
+                // was not signed by this master key.
                 //
                 error!("MasterPubkey for user {user_id} does not contain any keys!");
                 Self::device_info(sender_device.as_device_keys().clone())
@@ -496,8 +498,9 @@ mod tests {
 
     #[test]
     fn deserializing_unknown_device_with_extra_retry_info_ignores_it() {
-        // Previously, SenderData contained `retry_details` but it is no longer needed -
-        // just check that we are able to deserialize even if it is present.
+        // Previously, SenderData contained `retry_details` but it is no longer
+        // needed - just check that we are able to deserialize even if
+        // it is present.
         let json = r#"
             {
                 "UnknownDevice":{
@@ -720,11 +723,13 @@ mod tests {
 
     #[test]
     fn test_sender_known_data_migration_with_efficient_bytes_array() {
-        // This is an serialized PickledInboundGroupSession as rmp_serde will generate.
+        // This is an serialized PickledInboundGroupSession as rmp_serde will
+        // generate.
         //
-        // This export usse a more efficient serialization format for bytes. This was
-        // exported when the `KnownSenderData` master_key was serialized as an byte
-        // array instead of a base64 encoded string.
+        // This export usse a more efficient serialization format for bytes.
+        // This was exported when the `KnownSenderData` master_key was
+        // serialized as an byte array instead of a base64 encoded
+        // string.
         const SERIALIZED_B64: &str = "\
             iaZwaWNrbGWEr2luaXRpYWxfcmF0Y2hldIKlaW5uZXLcAIABYMzfSnBRzMlPKF1uKjYbzLtkzNJ4RcylzN0HzP\
             9DzON1Tm05zO7M2MzFQsy9Acz9zPnMqDvM4syQzNrMzxF5KzbM4sy9zPUbBWfM7m4/zJzM18zDzMESKgfMkE7M\

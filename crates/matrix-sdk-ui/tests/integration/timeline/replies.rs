@@ -1242,10 +1242,10 @@ async fn test_send_reply_enforce_thread_is_reply() {
 
 #[async_test]
 async fn test_send_reply_with_event_id_that_is_redacted() {
-    // This test checks if is possible to reply to a redacted event that is not in
-    // the timeline. The event id will go through a process where the event is
-    // fetched and the content will be extracted and deserialised to be used in
-    // the reply.
+    // This test checks if is possible to reply to a redacted event that is not
+    // in the timeline. The event id will go through a process where the
+    // event is fetched and the content will be extracted and deserialised
+    // to be used in the reply.
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 

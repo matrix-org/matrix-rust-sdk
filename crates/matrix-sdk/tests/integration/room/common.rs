@@ -898,8 +898,8 @@ async fn test_is_dm_using_matrix_spec() {
         .await;
 
     let room = server.sync_joined_room(&client, room_id).await;
-    // Room has direct targets, so it's considered direct and a DM using the spec
-    // definition.
+    // Room has direct targets, so it's considered direct and a DM using the
+    // spec definition.
     assert!(room.compute_is_dm().await.unwrap());
 
     // We mock the m.direct account data with no targets

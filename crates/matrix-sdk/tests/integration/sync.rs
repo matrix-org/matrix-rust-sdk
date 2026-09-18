@@ -176,8 +176,8 @@ async fn test_receive_room_encryption_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event because the event handlers only care about the type,
-    // but not the deserialized one since it fails to deserialize.
+    // We receive the raw event because the event handlers only care about the
+    // type, but not the deserialized one since it fails to deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_state_key.json().get());
     assert_pending!(event_subscriber);
@@ -309,8 +309,8 @@ async fn test_receive_room_avatar_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event because the event handlers only care about the type,
-    // but not the deserialized one since it fails to deserialize.
+    // We receive the raw event because the event handlers only care about the
+    // type, but not the deserialized one since it fails to deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_state_key.json().get());
     assert_pending!(event_subscriber);
@@ -442,8 +442,8 @@ async fn test_receive_room_name_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event because the event handlers only care about the type,
-    // but not the deserialized one since it fails to deserialize.
+    // We receive the raw event because the event handlers only care about the
+    // type, but not the deserialized one since it fails to deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_state_key.json().get());
     assert_pending!(event_subscriber);
@@ -528,8 +528,8 @@ async fn test_receive_room_create_event_via_sync() {
         )
         .await;
 
-    // The room info didn't change because it never changes after being set, and the
-    // invalid state event is in the store.
+    // The room info didn't change because it never changes after being set, and
+    // the invalid state event is in the store.
     assert_eq!(room.create_content().unwrap().room_version, RoomVersionId::V12);
     assert_matches!(
         room.get_state_event_static::<RoomCreateEventContent>().await,
@@ -544,8 +544,8 @@ async fn test_receive_room_create_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_pending!(event_subscriber);
 
-    // We checked that the create content is immutable, now let us try again with a
-    // new room to see if the event would even be accepted.
+    // We checked that the create content is immutable, now let us try again
+    // with a new room to see if the event would even be accepted.
     let room_id = room_id!("!def");
     let room = server.sync_joined_room(&client, room_id).await;
 
@@ -617,8 +617,8 @@ async fn test_receive_room_create_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event because the event handlers only care about the type,
-    // but not the deserialized one since it fails to deserialize.
+    // We receive the raw event because the event handlers only care about the
+    // type, but not the deserialized one since it fails to deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_state_key.json().get());
     assert_pending!(event_subscriber);
@@ -752,8 +752,8 @@ async fn test_receive_room_history_visibility_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event because the event handlers only care about the type,
-    // but not the deserialized one since it fails to deserialize.
+    // We receive the raw event because the event handlers only care about the
+    // type, but not the deserialized one since it fails to deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_state_key.json().get());
     assert_pending!(event_subscriber);
@@ -838,8 +838,8 @@ async fn test_receive_room_guest_access_event_via_sync() {
         )
         .await;
 
-    // The room info reverted to the default and the invalid state event is in the
-    // store.
+    // The room info reverted to the default and the invalid state event is in
+    // the store.
     assert_eq!(room.guest_access(), GuestAccess::Forbidden);
     assert_matches!(
         room.get_state_event_static::<RoomGuestAccessEventContent>().await,
@@ -885,8 +885,8 @@ async fn test_receive_room_guest_access_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event because the event handlers only care about the type,
-    // but not the deserialized one since it fails to deserialize.
+    // We receive the raw event because the event handlers only care about the
+    // type, but not the deserialized one since it fails to deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_state_key.json().get());
     assert_pending!(event_subscriber);
@@ -1018,8 +1018,8 @@ async fn test_receive_room_join_rules_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event because the event handlers only care about the type,
-    // but not the deserialized one since it fails to deserialize.
+    // We receive the raw event because the event handlers only care about the
+    // type, but not the deserialized one since it fails to deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_state_key.json().get());
     assert_pending!(event_subscriber);
@@ -1155,8 +1155,8 @@ async fn test_receive_room_canonical_alias_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event because the event handlers only care about the type,
-    // but not the deserialized one since it fails to deserialize.
+    // We receive the raw event because the event handlers only care about the
+    // type, but not the deserialized one since it fails to deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_state_key.json().get());
     assert_pending!(event_subscriber);
@@ -1289,8 +1289,8 @@ async fn test_receive_room_topic_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event because the event handlers only care about the type,
-    // but not the deserialized one since it fails to deserialize.
+    // We receive the raw event because the event handlers only care about the
+    // type, but not the deserialized one since it fails to deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_state_key.json().get());
     assert_pending!(event_subscriber);
@@ -1429,8 +1429,8 @@ async fn test_receive_room_tombstone_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event because the event handlers only care about the type,
-    // but not the deserialized one since it fails to deserialize.
+    // We receive the raw event because the event handlers only care about the
+    // type, but not the deserialized one since it fails to deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_state_key.json().get());
     assert_pending!(event_subscriber);
@@ -1562,8 +1562,8 @@ async fn test_receive_room_power_levels_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event because the event handlers only care about the type,
-    // but not the deserialized one since it fails to deserialize.
+    // We receive the raw event because the event handlers only care about the
+    // type, but not the deserialized one since it fails to deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_state_key.json().get());
     assert_pending!(event_subscriber);
@@ -1696,8 +1696,8 @@ async fn test_receive_room_pinned_events_event_via_sync() {
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
 
-    // We receive the raw event because the event handlers only care about the type,
-    // but not the deserialized one since it fails to deserialize.
+    // We receive the raw event because the event handlers only care about the
+    // type, but not the deserialized one since it fails to deserialize.
     let (raw_event, _) = assert_ready!(raw_event_subscriber);
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_state_key.json().get());
     assert_pending!(event_subscriber);
@@ -2437,8 +2437,8 @@ async fn test_update_active_service_members() {
         )
         .await;
 
-    // We check the active human and service members: no service members and 2 human
-    // members
+    // We check the active human and service members: no service members and 2
+    // human members
     let active_members = room.members_no_sync(RoomMemberships::ACTIVE).await.unwrap();
     assert_eq!(active_members.len(), 2);
     assert_eq!(room.service_members().unwrap().len(), 2);
@@ -2457,8 +2457,8 @@ async fn test_update_active_service_members() {
         )
         .await;
 
-    // We check the active human and service members: 1 service member and 2 human
-    // members
+    // We check the active human and service members: 1 service member and 2
+    // human members
     let active_members = room.members_no_sync(RoomMemberships::ACTIVE).await.unwrap();
     assert_eq!(active_members.len(), 3);
     assert_eq!(room.service_members().unwrap().len(), 2);
@@ -2477,8 +2477,8 @@ async fn test_update_active_service_members() {
         )
         .await;
 
-    // We check the active human and service members: 2 service member and 2 human
-    // members The active service members match the member hints
+    // We check the active human and service members: 2 service member and 2
+    // human members The active service members match the member hints
     let active_members = room.members_no_sync(RoomMemberships::ACTIVE).await.unwrap();
     assert_eq!(active_members.len(), 4);
     assert_eq!(room.service_members().unwrap().len(), 2);
@@ -2500,8 +2500,8 @@ async fn test_update_active_service_members() {
         )
         .await;
 
-    // We check the active human and service members: 1 service member and 2 human
-    // members again
+    // We check the active human and service members: 1 service member and 2
+    // human members again
     let active_members = room.members_no_sync(RoomMemberships::ACTIVE).await.unwrap();
     assert_eq!(active_members.len(), 3);
     assert_eq!(room.service_members().unwrap().len(), 2);

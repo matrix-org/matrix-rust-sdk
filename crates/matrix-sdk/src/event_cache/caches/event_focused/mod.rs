@@ -144,13 +144,13 @@ impl EventFocusedCacheState {
 
         let result = self.reload_impl().await?;
 
-        // Empty the updates_as_vector_diffs(), since it's impossible for an observer to
-        // have subscribed to this cache yet, since this code is part of the constructor
-        // flow.
+        // Empty the updates_as_vector_diffs(), since it's impossible for an
+        // observer to have subscribed to this cache yet, since this
+        // code is part of the constructor flow.
         //
-        // If we didn't empty those, such initial updates would be duplicated, since the
-        // subscriber would get the full initial list of events as diffs and as a set of
-        // initial events.
+        // If we didn't empty those, such initial updates would be duplicated,
+        // since the subscriber would get the full initial list of
+        // events as diffs and as a set of initial events.
         let _ = self.chunk.updates_as_vector_diffs();
 
         Ok(result)
@@ -198,8 +198,8 @@ impl EventFocusedCacheState {
                 let mut thread_root =
                     focused_event.and_then(|event| extract_thread_root(event.raw()));
 
-                // If there's no thread root, consider that the focused event itself is the
-                // thread root.
+                // If there's no thread root, consider that the focused event
+                // itself is the thread root.
                 if thread_root.is_none() {
                     thread_root = Some(self.focused_event_id.clone());
                 }
@@ -226,9 +226,9 @@ impl EventFocusedCacheState {
         if let Some(root_id) = thread_root {
             trace!(thread_root = %root_id, "focused event is part of a thread, setting up thread pagination");
 
-            // Check if the thread root is included in the response. Start from the
-            // beginning, since it's more likely to be around there, in that
-            // case.
+            // Check if the thread root is included in the response. Start from
+            // the beginning, since it's more likely to be around
+            // there, in that case.
             let includes_root =
                 result.events.iter().any(|event| event.event_id() == Some(&root_id));
 
@@ -353,7 +353,8 @@ impl EventFocusedCacheState {
 
         // Find the gap at the front (backward pagination token).
         let Some((gap_id, gap)) = self.first_chunk_as_gap() else {
-            // No gap at front means we've already hit the start of the timeline.
+            // No gap at front means we've already hit the start of the
+            // timeline.
             trace!("no front gap found, already at timeline start");
             return Ok(PaginationResult { events: Vec::new(), hit_end_of_timeline: true });
         };
@@ -371,8 +372,8 @@ impl EventFocusedCacheState {
             }
         };
 
-        // Events are in the reverse order, per the API contracts defined in the two
-        // fetch methods.
+        // Events are in the reverse order, per the API contracts defined in the
+        // two fetch methods.
         events.reverse();
 
         let hit_end = new_token.is_none();
@@ -668,10 +669,11 @@ impl EventFocusedCache {
     ) -> Result<()> {
         let mut state = self.inner.write().await?;
 
-        // `Redecryptor` tried to resolve the events partly based on in-store events.
-        // Because this cache doesn't persist anything in the store, `Redecryptor` is
-        // unable to resolve some events present here. To address that, let's try to
-        // resolve events here with the current `EventLinkedChunk`.
+        // `Redecryptor` tried to resolve the events partly based on in-store
+        // events. Because this cache doesn't persist anything in the
+        // store, `Redecryptor` is unable to resolve some events present
+        // here. To address that, let's try to resolve events here with
+        // the current `EventLinkedChunk`.
         let new_resolved_events = resolved_events.try_resolve_events(&state.chunk);
 
         if state.chunk.replace_utds(&new_resolved_events) {

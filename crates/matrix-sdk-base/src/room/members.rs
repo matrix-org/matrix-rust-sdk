@@ -68,7 +68,8 @@ impl Room {
     /// Mark this Room as still missing member information.
     pub fn mark_members_missing(&self) {
         self.info.update_if(|info| {
-            // notify observable subscribers only if the previous value was false
+            // notify observable subscribers only if the previous value was
+            // false
             mem::replace(&mut info.members_synced, false)
         })
     }

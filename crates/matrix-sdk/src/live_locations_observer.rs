@@ -214,8 +214,8 @@ impl LiveLocationsObserver {
         let beacon_info_event_id = &event.content.relates_to.event_id;
         let mut shares = shares.lock();
         if let Some(idx) = shares.iter().position(|s| s.beacon_id == *beacon_info_event_id) {
-            // Check if beacon info is still live, if not, remove the share and ignore the
-            // beacon event.
+            // Check if beacon info is still live, if not, remove the share and
+            // ignore the beacon event.
             let mut share = shares[idx].clone();
             if !share.beacon_info.is_live() {
                 shares.remove(idx);

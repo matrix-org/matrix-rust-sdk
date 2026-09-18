@@ -107,9 +107,10 @@ impl LatestEvent {
         power_levels: Option<&RoomPowerLevels>,
     ) -> NeedMoreEvents {
         if self.buffer_of_values_for_local_events.is_empty().not() {
-            // At least one `LatestEventValue` exists for local events (i.e. coming from the
-            // send queue). In this case, we don't overwrite the current value with a newly
-            // computed one from the event cache.
+            // At least one `LatestEventValue` exists for local events (i.e.
+            // coming from the send queue). In this case, we don't
+            // overwrite the current value with a newly computed one
+            // from the event cache.
             return NeedMoreEvents::No;
         }
 
@@ -164,23 +165,32 @@ impl LatestEvent {
         room: Room,
         reasons: RoomInfoNotableUpdateReasons,
     ) {
-        // If the `RoomInfo` has been updated due to a change of the own membership.
+        // If the `RoomInfo` has been updated due to a change of the own
+        // membership.
         if reasons.contains(RoomInfoNotableUpdateReasons::MEMBERSHIP) {
             let new_value = match room.state() {
                 // If the room' state is `Invited`, it means the current user has been recently
                 // invited to this room.
                 RoomState::Invited => {
-                    // Short: Let's not update a `RemoteInvite` to another `RemoteInvite`.
+                    // Short: Let's not update a `RemoteInvite` to another
+                    // `RemoteInvite`.
                     //
-                    // Long: An invite room is only constituted of stripped-state events. These
-                    // events do not have an `origin_server_ts` field. It means we cannot compute
-                    // the timestamp of the `LatestEventValue`. To workaround this, we set the
-                    // timestamp to `now()`. See `Builder::new_remote_for_invite` to learn more.
-                    // If an invite room receives a new event, its `LatestEventValue`'s timestamp
-                    // will be updated to `now()`, which will make the room bumps to the top of the
-                    // room list for example. This is not an acceptable behaviour because it can be
-                    // an “attack vector”, i.e. a way to annoy people with spammy invites. That's
-                    // why, once a `RemoteInvite` has been computed, we do not refresh it.
+                    // Long: An invite room is only constituted of
+                    // stripped-state events. These
+                    // events do not have an `origin_server_ts` field. It means
+                    // we cannot compute the timestamp of
+                    // the `LatestEventValue`. To workaround this, we set the
+                    // timestamp to `now()`. See
+                    // `Builder::new_remote_for_invite` to learn more.
+                    // If an invite room receives a new event, its
+                    // `LatestEventValue`'s timestamp
+                    // will be updated to `now()`, which will make the room
+                    // bumps to the top of the room list for
+                    // example. This is not an acceptable behaviour because it
+                    // can be an “attack vector”, i.e. a way
+                    // to annoy people with spammy invites. That's
+                    // why, once a `RemoteInvite` has been computed, we do not
+                    // refresh it.
                     if matches!(
                         self.current_value.read().await.deref(),
                         LatestEventValue::RemoteInvite { .. }
@@ -216,16 +226,17 @@ impl LatestEvent {
     /// been found, we want to latest event value to be `None`, so that it is
     /// erased correctly.
     async fn update(&mut self, new_value: LatestEventValue) {
-        // Ideally, we would set `new_value` if and only if it is different from the
-        // previous value. However, `LatestEventValue` cannot implement `PartialEq` at
-        // the time of writing (2025-12-12). So we are only updating if:
+        // Ideally, we would set `new_value` if and only if it is different from
+        // the previous value. However, `LatestEventValue` cannot
+        // implement `PartialEq` at the time of writing (2025-12-12). So
+        // we are only updating if:
         //
         // - if `LatestEventValue` and the previous value aren't `None`,
         // - if the event IDs are different.
         //
-        // We must be careful when comparing the event IDs: `None` and `Local*` have no
-        // event ID, we can't compare them at this point. Hence the `match` statement to
-        // have a fine-grained decision.
+        // We must be careful when comparing the event IDs: `None` and `Local*`
+        // have no event ID, we can't compare them at this point. Hence
+        // the `match` statement to have a fine-grained decision.
         {
             let mut guard = self.current_value.write().await;
             let previous_value = guard.deref();
@@ -257,7 +268,8 @@ impl LatestEvent {
             if do_update {
                 ObservableWriteGuard::set(&mut guard, new_value.clone());
 
-                // Release the write guard over the current value before hitting the store.
+                // Release the write guard over the current value before hitting
+                // the store.
                 drop(guard);
 
                 self.store(new_value).await;
@@ -559,8 +571,9 @@ mod tests_latest_event {
         latest_event.update(LatestEventValue::LocalIsSending(local_room_message("foo"))).await;
         assert_next_matches!(stream, LatestEventValue::LocalIsSending(_));
 
-        // An invite computed from stripped state events has no event ID either, but
-        // both values are obviously different: this must not be ignored.
+        // An invite computed from stripped state events has no event ID either,
+        // but both values are obviously different: this must not be
+        // ignored.
         latest_event
             .update(LatestEventValue::RemoteInvite {
                 event_id: None,
@@ -665,7 +678,8 @@ mod tests_latest_event {
 
         let mut latest_event = LatestEvent::new(&weak_room, None);
 
-        // First, let's create a `LatestEventValue` from the event cache. It must work.
+        // First, let's create a `LatestEventValue` from the event cache. It
+        // must work.
         {
             latest_event.update_with_event_cache(&room_event_cache, user_id, None).await;
 
@@ -704,8 +718,8 @@ mod tests_latest_event {
             );
         }
 
-        // Fourth, let's a `LatestEventValue` from the send queue. It must stay the
-        // same, but now the local event is sent.
+        // Fourth, let's a `LatestEventValue` from the send queue. It must stay
+        // the same, but now the local event is sent.
         {
             let update = RoomSendQueueUpdate::SentEvent {
                 transaction_id,
@@ -720,8 +734,8 @@ mod tests_latest_event {
             );
         }
 
-        // Finally, let's create a `LatestEventValue` from the event cache. _Now_ it's
-        // possible, because there is no more local events.
+        // Finally, let's create a `LatestEventValue` from the event cache.
+        // _Now_ it's possible, because there is no more local events.
         {
             latest_event.update_with_event_cache(&room_event_cache, user_id, None).await;
 
@@ -905,8 +919,8 @@ mod tests_latest_event {
             }
         }
 
-        // Reload the client with the same store config, and see the `LatestEventValue`
-        // is inside the `RoomInfo`.
+        // Reload the client with the same store config, and see the
+        // `LatestEventValue` is inside the `RoomInfo`.
         {
             let client = server
                 .client_builder()

@@ -208,7 +208,8 @@ impl HomeserverCapabilities {
         let mut capabilities_guard = match capabilities_cache.refresh_lock.try_lock() {
             Ok(guard) => guard,
             Err(_) => {
-                // There is already a refresh in progress, wait for it to finish.
+                // There is already a refresh in progress, wait for it to
+                // finish.
                 let guard = capabilities_cache.refresh_lock.lock().await;
 
                 if let Err(error) = guard.as_ref() {
@@ -223,7 +224,8 @@ impl HomeserverCapabilities {
                     return Ok(value.into_data());
                 }
 
-                // The data wasn't cached or has expired, we need to make another request.
+                // The data wasn't cached or has expired, we need to make
+                // another request.
                 guard
             }
         };
@@ -292,8 +294,8 @@ impl HomeserverCapabilities {
     /// [Matrix spec]: https://spec.matrix.org/latest/client-server-api/#mprofile_fields-capability
     async fn homeserver_supports_extended_profile_fields(&self) -> crate::Result<bool> {
         let supported_versions = self.client.supported_versions().await?;
-        // If the homeserver supports the endpoint to delete profile fields, it supports
-        // extended profile fields.
+        // If the homeserver supports the endpoint to delete profile fields, it
+        // supports extended profile fields.
         Ok(delete_profile_field::v3::Request::PATH_BUILDER.is_supported(&supported_versions))
     }
 }
@@ -358,8 +360,8 @@ mod tests {
             .mount()
             .await;
 
-        // Check the values we get are not updated without a refresh, they're loaded
-        // from the cache
+        // Check the values we get are not updated without a refresh, they're
+        // loaded from the cache
         assert!(capabilities.can_change_password().await.expect("checking capabilities failed"));
 
         // Do another refresh to make sure we get the updated values
@@ -393,8 +395,8 @@ mod tests {
         // Check the values we get are updated
         assert!(capabilities.can_change_displayname().await.expect("checking capabilities failed"));
 
-        // Now revert the previous mock so we can check we're getting the cached value
-        // instead of this one
+        // Now revert the previous mock so we can check we're getting the cached
+        // value instead of this one
         let mut expected_capabilities = Capabilities::default();
         let mut profile_fields = ProfileFieldsCapability::new(true);
         profile_fields.disallowed = Some(vec![ProfileFieldName::DisplayName]);
@@ -406,8 +408,8 @@ mod tests {
             .mount()
             .await;
 
-        // Check the values we get are not updated without a refresh, they're loaded
-        // from the cache
+        // Check the values we get are not updated without a refresh, they're
+        // loaded from the cache
         assert!(capabilities.can_change_displayname().await.expect("checking capabilities failed"));
 
         // Force an expiry of the data.
@@ -420,7 +422,8 @@ mod tests {
         // Call a method to trigger a cache refresh background task.
         capabilities.homeserver_capabilities_cached().await.unwrap().unwrap();
 
-        // We wait for the task to finish, the endpoint should have been called again.
+        // We wait for the task to finish, the endpoint should have been called
+        // again.
         sleep(Duration::from_secs(1)).await;
         assert_matches!(client.inner.caches.homeserver_capabilities.value(), CachedValue::Cached(value) if !value.has_expired());
     }
@@ -430,8 +433,8 @@ mod tests {
     async fn test_deprecated_profile_fields_capabilities() {
         let server = MatrixMockServer::new().await;
 
-        // The user can only set the display name but not the avatar url or extended
-        // profile fields.
+        // The user can only set the display name but not the avatar url or
+        // extended profile fields.
         let mut capabilities = Capabilities::new();
         capabilities.profile_fields.take();
         capabilities.set_displayname = SetDisplayNameCapability::new(true);
@@ -444,9 +447,9 @@ mod tests {
             .mount()
             .await;
 
-        // Client with Matrix 1.12 that did not support extended profile fields yet.
-        // Because there is no `m.profile_fields` capability, we rely on the legacy
-        // profile capabilities.
+        // Client with Matrix 1.12 that did not support extended profile fields
+        // yet. Because there is no `m.profile_fields` capability, we
+        // rely on the legacy profile capabilities.
         let client =
             server.client_builder().server_versions(vec![MatrixVersion::V1_12]).build().await;
         let capabilities_api = client.homeserver_capabilities();
@@ -467,8 +470,8 @@ mod tests {
                 .enabled
         );
 
-        // Client with Matrix 1.16 that added support for extended profile fields, the
-        // deprecated profile capabilities are ignored.
+        // Client with Matrix 1.16 that added support for extended profile
+        // fields, the deprecated profile capabilities are ignored.
         let client =
             server.client_builder().server_versions(vec![MatrixVersion::V1_16]).build().await;
         let capabilities_api = client.homeserver_capabilities();
@@ -509,9 +512,9 @@ mod tests {
             .mount()
             .await;
 
-        // Client with Matrix 1.12 that did not support extended profile fields yet.
-        // However, because there is an `m.profile_fields` capability, we still rely on
-        // it.
+        // Client with Matrix 1.12 that did not support extended profile fields
+        // yet. However, because there is an `m.profile_fields`
+        // capability, we still rely on it.
         let client =
             server.client_builder().server_versions(vec![MatrixVersion::V1_12]).build().await;
         let capabilities_api = client.homeserver_capabilities();
@@ -532,8 +535,8 @@ mod tests {
                 .enabled
         );
 
-        // Client with Matrix 1.16 that added support for extended profile fields, only
-        // the `m.profile_fields` capability is used too.
+        // Client with Matrix 1.16 that added support for extended profile
+        // fields, only the `m.profile_fields` capability is used too.
         let client =
             server.client_builder().server_versions(vec![MatrixVersion::V1_16]).build().await;
         let capabilities_api = client.homeserver_capabilities();
@@ -574,9 +577,9 @@ mod tests {
             .mount()
             .await;
 
-        // Client with Matrix 1.12 that did not support extended profile fields yet.
-        // However, because there is an `m.profile_fields` capability, we still rely on
-        // it.
+        // Client with Matrix 1.12 that did not support extended profile fields
+        // yet. However, because there is an `m.profile_fields`
+        // capability, we still rely on it.
         let client =
             server.client_builder().server_versions(vec![MatrixVersion::V1_12]).build().await;
         let capabilities_api = client.homeserver_capabilities();
@@ -597,8 +600,8 @@ mod tests {
                 .enabled
         );
 
-        // Client with Matrix 1.16 that added support for extended profile fields, only
-        // the `m.profile_fields` capability is used too.
+        // Client with Matrix 1.16 that added support for extended profile
+        // fields, only the `m.profile_fields` capability is used too.
         let client =
             server.client_builder().server_versions(vec![MatrixVersion::V1_16]).build().await;
         let capabilities_api = client.homeserver_capabilities();
@@ -641,9 +644,9 @@ mod tests {
             .mount()
             .await;
 
-        // Client with Matrix 1.12 that did not support extended profile fields yet.
-        // However, because there is an `m.profile_fields` capability, we still rely on
-        // it.
+        // Client with Matrix 1.12 that did not support extended profile fields
+        // yet. However, because there is an `m.profile_fields`
+        // capability, we still rely on it.
         let client =
             server.client_builder().server_versions(vec![MatrixVersion::V1_12]).build().await;
         let capabilities_api = client.homeserver_capabilities();
@@ -664,8 +667,8 @@ mod tests {
                 .enabled
         );
 
-        // Client with Matrix 1.16 that added support for extended profile fields, only
-        // the `m.profile_fields` capability is used too.
+        // Client with Matrix 1.16 that added support for extended profile
+        // fields, only the `m.profile_fields` capability is used too.
         let client =
             server.client_builder().server_versions(vec![MatrixVersion::V1_16]).build().await;
         let capabilities_api = client.homeserver_capabilities();

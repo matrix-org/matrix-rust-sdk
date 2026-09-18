@@ -1543,11 +1543,12 @@ impl_state_store!({
     }
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
-        // All the stores which use a RoomId as their key (and nothing additional).
+        // All the stores which use a RoomId as their key (and nothing
+        // additional).
         let direct_stores = [keys::ROOM_INFOS, keys::ROOM_SEND_QUEUE, keys::DEPENDENT_SEND_QUEUE];
 
-        // All the stores which use a RoomId as the first part of their key, but may
-        // have some additional data in the key.
+        // All the stores which use a RoomId as the first part of their key, but
+        // may have some additional data in the key.
         let prefixed_stores = [
             keys::PROFILES,
             keys::DISPLAY_NAMES,
@@ -1616,8 +1617,8 @@ impl_state_store!({
 
         let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
 
-        // We store an encoded vector of the queued requests, with their transaction
-        // ids.
+        // We store an encoded vector of the queued requests, with their
+        // transaction ids.
 
         // Reload the previous vector for this room, or create an empty one.
         let prev = obj.get(&encoded_key).await?;
@@ -1663,8 +1664,8 @@ impl_state_store!({
 
         let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
 
-        // We store an encoded vector of the queued requests, with their transaction
-        // ids.
+        // We store an encoded vector of the queued requests, with their
+        // transaction ids.
 
         // Reload the previous vector for this room, or create an empty one.
         let prev = obj.get(&encoded_key).await?;
@@ -1708,8 +1709,8 @@ impl_state_store!({
 
         let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
 
-        // We store an encoded vector of the queued requests, with their transaction
-        // ids.
+        // We store an encoded vector of the queued requests, with their
+        // transaction ids.
 
         // Reload the previous vector for this room.
         if let Some(val) = obj.get(&encoded_key).await? {
@@ -1734,8 +1735,8 @@ impl_state_store!({
     async fn load_send_queue_requests(&self, room_id: &RoomId) -> Result<Vec<QueuedRequest>> {
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
-        // We store an encoded vector of the queued requests, with their transaction
-        // ids.
+        // We store an encoded vector of the queued requests, with their
+        // transaction ids.
         let prev = self
             .inner
             .transaction(keys::ROOM_SEND_QUEUE)
@@ -2014,7 +2015,8 @@ impl_state_store!({
                 let previous: PersistedThreadSubscription =
                     self.deserialize_value(&previous_value)?;
 
-                // If the previous status is the same as the new one, don't do anything.
+                // If the previous status is the same as the new one, don't do
+                // anything.
                 if new == previous {
                     continue;
                 }

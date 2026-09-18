@@ -39,8 +39,8 @@ impl UnableToDecryptHook for UtdHook {
     fn on_utd(&self, info: SdkUnableToDecryptInfo) {
         const IGNORE_UTD_PERIOD: Duration = Duration::from_secs(4);
 
-        // UTDs that have been decrypted in the `IGNORE_UTD_PERIOD` are just ignored and
-        // not considered UTDs.
+        // UTDs that have been decrypted in the `IGNORE_UTD_PERIOD` are just
+        // ignored and not considered UTDs.
         if let Some(duration) = &info.time_to_decrypt
             && *duration < IGNORE_UTD_PERIOD
         {

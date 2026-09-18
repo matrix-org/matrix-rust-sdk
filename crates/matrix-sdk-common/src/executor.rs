@@ -115,7 +115,8 @@ mod sys {
 
         fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
             if self.abort_handle.is_aborted() {
-                // The future has been aborted. It is not possible to poll it again.
+                // The future has been aborted. It is not possible to poll it
+                // again.
                 Poll::Ready(Err(JoinError::Cancelled))
             } else if let Some(handle) = self.remote_handle.as_mut() {
                 Pin::new(handle).poll(cx).map(Ok)
@@ -136,8 +137,8 @@ mod sys {
         let future = Abortable::new(future, abort_registration);
 
         wasm_bindgen_futures::spawn_local(async {
-            // Poll the future, and ignore the result (either it's `Ok(())`, or it's
-            // `Err(Aborted)`).
+            // Poll the future, and ignore the result (either it's `Ok(())`, or
+            // it's `Err(Aborted)`).
             let _ = future.await;
         });
 

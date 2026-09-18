@@ -110,8 +110,8 @@ impl LatestEvents {
         let registered_rooms =
             Arc::new(RegisteredRooms::new(weak_client, &event_cache, &latest_event_queue_sender));
 
-        // The task listening to the event cache, the send queue, and the room infos
-        // updates.
+        // The task listening to the event cache, the send queue, and the room
+        // infos updates.
         let listen_task_handle = spawn(listen_to_updates_task(
             registered_rooms.clone(),
             event_cache,
@@ -288,11 +288,12 @@ impl RegisteredRooms {
             // Insert the new `RoomLatestEvents`.
             rooms.insert(room_id.to_owned(), room_latest_events);
 
-            // If the `LatestEventValue` restored by `RoomLatestEvents` is of kind `None`,
-            // let's try to re-compute it without waiting on the Event Cache (so the sync
-            // usually) or the Send Queue. Maybe the system has migrated to a new version
-            // and the `LatestEventValue` has been erased, while it is still possible to
-            // compute a correct value.
+            // If the `LatestEventValue` restored by `RoomLatestEvents` is of
+            // kind `None`, let's try to re-compute it without
+            // waiting on the Event Cache (so the sync usually) or
+            // the Send Queue. Maybe the system has migrated to a new version
+            // and the `LatestEventValue` has been erased, while it is still
+            // possible to compute a correct value.
             if is_latest_event_value_none {
                 let _ = latest_event_queue_sender
                     .send(LatestEventQueueUpdate::EventCache { room_id: room_id.to_owned() });
@@ -308,7 +309,8 @@ impl RegisteredRooms {
             Some(thread_id) => {
                 let mut rooms = self.rooms.write().await;
 
-                // The `RoomLatestEvents` doesn't exist. Let's create and insert it.
+                // The `RoomLatestEvents` doesn't exist. Let's create and insert
+                // it.
                 if rooms.contains_key(room_id).not() {
                     create_and_insert_room_latest_events(
                         room_id,
@@ -322,8 +324,9 @@ impl RegisteredRooms {
                 if let Some(room_latest_event) = rooms.get(room_id) {
                     let mut room_latest_event = room_latest_event.write().await;
 
-                    // In `RoomLatestEvents`, the `LatestEvent` for this thread doesn't exist. Let's
-                    // create and insert it.
+                    // In `RoomLatestEvents`, the `LatestEvent` for this thread
+                    // doesn't exist. Let's create and
+                    // insert it.
                     if room_latest_event.has_thread(thread_id).not() {
                         room_latest_event.create_and_insert_latest_event_for_thread(thread_id);
                     }
@@ -599,7 +602,8 @@ async fn compute_latest_events(
             let room_latest_events = room_latest_events.write().await;
 
             // Release the lock on `registered_rooms`.
-            // It is possible because `room_latest_events` is an owned lock guard.
+            // It is possible because `room_latest_events` is an owned lock
+            // guard.
             drop(rooms);
 
             ControlFlow::Break(room_latest_events)
@@ -893,7 +897,8 @@ mod tests {
             assert!(latest_event_queue_receiver.is_empty());
         }
 
-        // New event cache update, but this time, the `LatestEvents` is listening to it.
+        // New event cache update, but this time, the `LatestEvents` is
+        // listening to it.
         {
             registered_rooms.write().await.insert(
                 room_id.clone(),
@@ -969,7 +974,8 @@ mod tests {
             assert!(latest_event_queue_receiver.is_empty());
         }
 
-        // New send queue update, but this time, the `LatestEvents` is listening to it.
+        // New send queue update, but this time, the `LatestEvents` is listening
+        // to it.
         {
             registered_rooms.write().await.insert(
                 room_id.clone(),
@@ -1048,7 +1054,8 @@ mod tests {
             assert!(latest_event_queue_receiver.is_empty());
         }
 
-        // New room info update, but this time, the `LatestEvents` is listening to it.
+        // New room info update, but this time, the `LatestEvents` is listening
+        // to it.
         {
             registered_rooms.write().await.insert(
                 room_id.clone(),
@@ -1103,8 +1110,8 @@ mod tests {
             .await
             .insert(room_id.clone(), With::inner(RoomLatestEvents::new(weak_room, event_cache)));
 
-        // - `RoomInfoNotableUpdateReasons::LATEST_EVENT` is forbidden, otherwise it
-        //   could create loops.
+        // - `RoomInfoNotableUpdateReasons::LATEST_EVENT` is forbidden,
+        //   otherwise it could create loops.
         // - Other reasons are ignored, except
         //   `RoomInfoNotableUpdateReasons::MEMBERSHIP`.
         for reason in {
@@ -1283,9 +1290,10 @@ mod tests {
             )
             .await;
 
-        // The event cache has received its update from the sync. It has emitted a
-        // generic update, which has been received by `LatestEvents` tasks, up to the
-        // `compute_latest_events` which has updated the latest event value.
+        // The event cache has received its update from the sync. It has emitted
+        // a generic update, which has been received by `LatestEvents`
+        // tasks, up to the `compute_latest_events` which has updated
+        // the latest event value.
         assert_matches!(
             latest_event_stream.next().await,
             Some(LatestEventValue::Remote(RemoteLatestEventValue { kind: TimelineEventKind::PlainText { event }, .. })) => {
@@ -1387,7 +1395,8 @@ mod tests {
         let room_1 = client.base_client().get_or_create_room(&room_id_1, RoomState::Joined);
 
         // Set up the rooms.
-        // `room_0` always has a `LatestEventValue::None` as its the default value.
+        // `room_0` always has a `LatestEventValue::None` as its the default
+        // value.
         let mut room_info_1 = room_0.clone_info();
         room_info_1.set_latest_event(LatestEventValue::LocalIsSending(local_room_message("foo")));
         room_1.update_room_info(|_| (room_info_1, Default::default())).await;
@@ -1472,8 +1481,9 @@ mod tests {
                 )
                 .await;
 
-            // The room has received its update from the sync. It has emitted a room info
-            // update, which has been received by `LatestEvents` tasks, up to the
+            // The room has received its update from the sync. It has emitted a
+            // room info update, which has been received by
+            // `LatestEvents` tasks, up to the
             // `compute_latest_events` which has updated the latest event value.
             assert_matches!(
                 latest_event_stream.next().await,
@@ -1503,10 +1513,12 @@ mod tests {
                 )
                 .await;
 
-            // The room has received its update from the sync. It has emitted a room info
-            // update, which has been received by `LatestEvents` tasks, up to the
-            // `compute_latest_events` which has NOT updated the latest event value because
-            // a previous `RemoteInvite` was already computed.
+            // The room has received its update from the sync. It has emitted a
+            // room info update, which has been received by
+            // `LatestEvents` tasks, up to the
+            // `compute_latest_events` which has NOT updated the latest event
+            // value because a previous `RemoteInvite` was already
+            // computed.
             assert!(timeout(Duration::from_secs(1), latest_event_stream.next()).await.is_err());
 
             assert_pending!(latest_event_stream);
@@ -1528,8 +1540,9 @@ mod tests {
                 )
                 .await;
 
-            // The event cache has received its update from the sync. It has emitted a
-            // generic update, which has been received by `LatestEvents` tasks, up to the
+            // The event cache has received its update from the sync. It has
+            // emitted a generic update, which has been received by
+            // `LatestEvents` tasks, up to the
             // `compute_latest_events` which has updated the latest event value.
             assert_matches!(
                 latest_event_stream.next().await,

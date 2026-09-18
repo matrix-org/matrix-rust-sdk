@@ -97,13 +97,13 @@ impl QrCodeData {
         // 5. Two bytes for the length of the rendezvous ID, a u16 in big-endian
         //    encoding.
         // 6. The UTF-8 encoded string containing the rendezvous ID.
-        // 7. Two bytes for the length of the server base URL, a u16 in big-endian
-        //    encoding.
+        // 7. Two bytes for the length of the server base URL, a u16 in
+        //    big-endian encoding.
         // 8. The UTF-8 encoded string containing the server base URL.
         let mut reader = Cursor::new(bytes);
 
-        // 1. Let's get the prefix first and double check if this QR code is intended
-        //    for the QR code login mechanism.
+        // 1. Let's get the prefix first and double check if this QR code is
+        //    intended for the QR code login mechanism.
         let mut prefix = [0u8; PREFIX.len()];
         reader.read_exact(&mut prefix)?;
 
@@ -118,8 +118,8 @@ impl QrCodeData {
         let qr_type = reader.read_u8()?;
 
         if qr_type == TYPE {
-            // 3. The intent is the next one to parse, we return an error immediately if the
-            //    intent isn't 0x00 or 0x01.
+            // 3. The intent is the next one to parse, we return an error
+            //    immediately if the intent isn't 0x00 or 0x01.
             let intent = QrCodeIntent::try_from(reader.read_u8()?)?;
 
             // 4. Let's get the public key and convert it to our strongly typed
@@ -199,8 +199,8 @@ mod test {
         0x2E, 0x6F, 0x72, 0x67,
     ];
 
-    // Test vector for the QR code data, copied from the MSC, with the intent set to
-    // login
+    // Test vector for the QR code data, copied from the MSC, with the intent
+    // set to login
     const QR_CODE_DATA_LOGIN: &[u8] = &[
         0x49, 0x4F, 0x5F, 0x45, 0x4C, 0x45, 0x4D, 0x45, 0x4E, 0x54, 0x5F, 0x4D, 0x53, 0x43, 0x34,
         0x33, 0x38, 0x38, 0x03, 0x00, 0xd8, 0x86, 0x68, 0x6a, 0xb2, 0x19, 0x7b, 0x78, 0x0e, 0x30,

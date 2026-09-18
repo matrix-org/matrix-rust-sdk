@@ -109,23 +109,25 @@ impl Backups {
             // Create a new backup recovery key.
             let decryption_key = BackupDecryptionKey::new();
 
-            // Get the info about the new backup key, this needs to be uploaded to the
-            // homeserver[1].
+            // Get the info about the new backup key, this needs to be uploaded
+            // to the homeserver[1].
             //
-            // We need to sign the `RoomKeyBackupInfo` so other clients which might want
-            // to start using the backup without having access to the
-            // `BackupDecryptionKey` can do so, as per [spec]:
+            // We need to sign the `RoomKeyBackupInfo` so other clients which
+            // might want to start using the backup without having
+            // access to the `BackupDecryptionKey` can do so, as per
+            // [spec]:
             //
-            // Clients must only store keys in backups after they have ensured that the
-            // `auth_data` has not been tampered with. This can be done either by:
+            // Clients must only store keys in backups after they have ensured
+            // that the `auth_data` has not been tampered with. This
+            // can be done either by:
             //
-            //  * checking that it is signed by the user's master cross-signing key or by a
-            //    verified device belonging to the same user, or
-            //  * by deriving the public key from a private key that it obtained from a
-            //    trusted source. Trusted sources for the private key include the user
-            //    entering the key, retrieving the key stored in secret storage, or
-            //    obtaining the key via secret sharing from a verified device belonging to
-            //    the same user.
+            //  * checking that it is signed by the user's master cross-signing
+            //    key or by a verified device belonging to the same user, or
+            //  * by deriving the public key from a private key that it obtained
+            //    from a trusted source. Trusted sources for the private key
+            //    include the user entering the key, retrieving the key stored
+            //    in secret storage, or obtaining the key via secret sharing
+            //    from a verified device belonging to the same user.
             //
             //
             // [1]: https://spec.matrix.org/v1.8/client-server-api/#post_matrixclientv3room_keysversion
@@ -141,13 +143,15 @@ impl Backups {
             let response = self.client.send(request).await?;
             let version = response.version;
 
-            // Reset any state we might have had before the new backup was created.
-            // TODO: This should remove the old stored key and version.
+            // Reset any state we might have had before the new backup was
+            // created. TODO: This should remove the old stored key
+            // and version.
             olm_machine.backup_machine().disable_backup().await?;
 
             let backup_key = decryption_key.megolm_v1_public_key();
 
-            // Save the newly created keys and the version we received from the server.
+            // Save the newly created keys and the version we received from the
+            // server.
             olm_machine
                 .backup_machine()
                 .save_decryption_key(Some(decryption_key), Some(version.to_owned()))
@@ -172,8 +176,9 @@ impl Backups {
                 }
 
                 // We can ignore errors here because the only way this function
-                // fails is if the secret is not found.  But we saved the decryption
-                // key above, so this will never happen.
+                // fails is if the secret is not found.  But we saved the
+                // decryption key above, so this will never
+                // happen.
                 let _ = olm_machine.push_secret_to_verified_devices(SecretName::RecoveryKey).await;
             }
 
@@ -215,7 +220,8 @@ impl Backups {
 
         self.set_state(BackupState::Disabling);
 
-        // Create a future so we can catch errors and go back to the `Unknown` state.
+        // Create a future so we can catch errors and go back to the `Unknown`
+        // state.
         let future = async {
             let olm_machine = self.client.olm_machine().await;
             let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
@@ -278,7 +284,8 @@ impl Backups {
 
         self.set_state(BackupState::Disabling);
 
-        // Create a future so we can catch errors and go back to the `Unknown` state.
+        // Create a future so we can catch errors and go back to the `Unknown`
+        // state.
         let future = async {
             while let Some(response) = self.get_current_version().await? {
                 self.delete_backup_from_server(response.version).await?;
@@ -431,8 +438,8 @@ impl Backups {
             return Ok(cached_value);
         }
 
-        // Otherwise, delegate to fetch_exists_on_server. (It will update the cached
-        // value for us.)
+        // Otherwise, delegate to fetch_exists_on_server. (It will update the
+        // cached value for us.)
         self.fetch_exists_on_server().await
     }
 
@@ -479,7 +486,8 @@ impl Backups {
                 get_backup_keys_for_room::v3::Request::new(version.clone(), room_id.to_owned());
             let response = self.client.send(request).await?;
 
-            // Transform response to standard format (map of room ID -> room key).
+            // Transform response to standard format (map of room ID -> room
+            // key).
             let response = get_backup_keys::v3::Response::new(BTreeMap::from([(
                 room_id.to_owned(),
                 RoomKeyBackup::new(response.sessions),
@@ -517,7 +525,8 @@ impl Backups {
                 );
                 let response = self.client.send(request).await?;
 
-                // Transform response to standard format (map of room ID -> room key).
+                // Transform response to standard format (map of room ID -> room
+                // key).
                 let response = get_backup_keys::v3::Response::new(BTreeMap::from([(
                     room_id.to_owned(),
                     RoomKeyBackup::new(BTreeMap::from([(
@@ -674,9 +683,9 @@ impl Backups {
             }
         };
 
-        // If the request succeeded, the backup is gone. If it failed, we are not really
-        // sure what the backup state is. Either way, clear the cache so we check next
-        // time we need to know.
+        // If the request succeeded, the backup is gone. If it failed, we are
+        // not really sure what the backup state is. Either way, clear
+        // the cache so we check next time we need to know.
         self.client.inner.e2ee.backup_state.clear_backup_exists_on_server();
 
         ret
@@ -729,7 +738,8 @@ impl Backups {
                                 "A new backup version was found on the server, disabling backups."
                             );
 
-                            // TODO: If we're verified and there are other devices besides us,
+                            // TODO: If we're verified and there are other
+                            // devices besides us,
                             // request the new backup key over `m.secret.send`.
 
                             self.handle_deleted_backup_version(olm_machine).await?;
@@ -807,8 +817,9 @@ impl Backups {
     ) -> Result<bool, EnableBackupError> {
         let _guard = self.client.locks().backup_modify_lock.lock().await;
 
-        // Create a future here which allows us to catch any failure that might happen
-        // so we can later on fall back to the correct `BackupState`.
+        // Create a future here which allows us to catch any failure that might
+        // happen so we can later on fall back to the correct
+        // `BackupState`.
         let future = async {
             self.set_state(BackupState::Enabling);
 
@@ -839,8 +850,9 @@ impl Backups {
             if stored_keys.backup_version.as_ref() == Some(&current_version.version)
                 && self.are_enabled().await
             {
-                // If we already have a backup enabled which is using the currently active
-                // backup version, do nothing but tell the caller using the return value that
+                // If we already have a backup enabled which is using the
+                // currently active backup version, do nothing
+                // but tell the caller using the return value that
                 // backups are enabled.
                 Ok(true)
             } else if decryption_key.backup_key_matches(&backup_info) {
@@ -849,8 +861,9 @@ impl Backups {
                      key and enabling backups."
                 );
 
-                // We're enabling a new backup, reset the `backed_up` flags on the room keys and
-                // remove any key/version we might have.
+                // We're enabling a new backup, reset the `backed_up` flags on
+                // the room keys and remove any key/version we
+                // might have.
                 backup_machine.disable_backup().await?;
 
                 let backup_key = decryption_key.megolm_v1_public_key();
@@ -865,12 +878,14 @@ impl Backups {
                     .await?;
                 backup_machine.enable_backup_v1(backup_key).await?;
 
-                // If the user has set up the client to download any room keys, do so now. This
-                // is not really useful in a real scenario since the API to
-                // download room keys is not paginated.
+                // If the user has set up the client to download any room keys,
+                // do so now. This is not really useful in a
+                // real scenario since the API to download room
+                // keys is not paginated.
                 //
-                // You need to download all room keys at once, parse a potentially huge JSON
-                // response and decrypt all the room keys found in the backup.
+                // You need to download all room keys at once, parse a
+                // potentially huge JSON response and decrypt
+                // all the room keys found in the backup.
                 //
                 // This doesn't work for any sizeable account.
                 if self.client.inner.e2ee.encryption_settings.backup_download_strategy
@@ -978,11 +993,12 @@ impl Backups {
         let olm_machine = self.client.olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
 
-        // Let us first check if we have a stored backup recovery key and a backup
-        // version.
+        // Let us first check if we have a stored backup recovery key and a
+        // backup version.
         if !self.resume_backup_from_stored_backup_key(olm_machine).await? {
-            // We didn't manage to enable backups from a stored backup recovery key, let us
-            // check our secret inbox. Perhaps we can find a valid key there.
+            // We didn't manage to enable backups from a stored backup recovery
+            // key, let us check our secret inbox. Perhaps we can
+            // find a valid key there.
             self.maybe_resume_from_secret_inbox(olm_machine).await?;
         }
 
@@ -995,10 +1011,10 @@ impl Backups {
     pub(crate) async fn secret_send_event_handler(_: ToDeviceSecretSendEvent, client: Client) {
         let olm_machine = client.olm_machine().await;
 
-        // TODO: Because of our crude multi-process support, which reloads the whole
-        // [`OlmMachine`] the `secrets_stream` might stop giving you updates. Once
-        // that's fixed, stop listening to individual secret send events and
-        // listen to the secrets stream.
+        // TODO: Because of our crude multi-process support, which reloads the
+        // whole [`OlmMachine`] the `secrets_stream` might stop giving
+        // you updates. Once that's fixed, stop listening to individual
+        // secret send events and listen to the secrets stream.
         if let Some(olm_machine) = olm_machine.as_ref() {
             if let Err(e) =
                 client.encryption().backups().maybe_resume_from_secret_inbox(olm_machine).await
@@ -1222,8 +1238,8 @@ mod test {
             .mount()
             .await;
 
-        // Given there is a backup decryption key waiting in the secrets inbox, which is
-        // consistent with the public key
+        // Given there is a backup decryption key waiting in the secrets inbox,
+        // which is consistent with the public key
         queue_backup_decryption_key_secret(client, &backup_decryption_key.to_base64()).await;
 
         // When we resume backups
@@ -1259,8 +1275,8 @@ mod test {
             .mount()
             .await;
 
-        // Given there is a backup decryption key waiting in the secrets inbox, but it
-        // doesn't match the public backup key
+        // Given there is a backup decryption key waiting in the secrets inbox,
+        // but it doesn't match the public backup key
         queue_backup_decryption_key_secret(client, &backup_decryption_key.to_base64()).await;
 
         // When we attempt to resume backups
@@ -1269,8 +1285,8 @@ mod test {
         // Then no error is returned ...
         assert_matches!(res, Ok(_));
 
-        // ... even though the backup setup failed because the decryption keys were
-        // inconsistent
+        // ... even though the backup setup failed because the decryption keys
+        // were inconsistent
         assert_eq!(backups.state(), BackupState::Unknown);
     }
 
@@ -1280,7 +1296,8 @@ mod test {
         let client = server.client_builder().build().await;
         let backups = client.encryption().backups();
 
-        // Given an invalid backup decryption key is waiting in the secrets inbox
+        // Given an invalid backup decryption key is waiting in the secrets
+        // inbox
         queue_backup_decryption_key_secret(client, "not valid base64").await;
 
         // When we attempt to resume backups

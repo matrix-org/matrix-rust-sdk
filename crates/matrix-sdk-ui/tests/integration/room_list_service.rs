@@ -1250,7 +1250,8 @@ async fn test_loading_states() -> Result<(), Error> {
         // Wait on Tokio to run all the tasks. Necessary only when testing.
         yield_now().await;
 
-        // There is a loading state update because the number of rooms has been updated.
+        // There is a loading state update because the number of rooms has been
+        // updated.
         assert_next_matches!(
             all_rooms_loading_state,
             RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(12) }
@@ -1297,7 +1298,8 @@ async fn test_loading_states() -> Result<(), Error> {
         let sync = room_list.sync();
         pin_mut!(sync);
 
-        // The loading state is loaded! Indeed, there is data loaded from the cache.
+        // The loading state is loaded! Indeed, there is data loaded from the
+        // cache.
         assert_next_matches!(
             all_rooms_loading_state,
             RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(12) }
@@ -1390,8 +1392,8 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         },
     };
 
-    // Ensure the dynamic entries' stream is pending because there is no filter set
-    // yet.
+    // Ensure the dynamic entries' stream is pending because there is no filter
+    // set yet.
     assert_pending!(dynamic_entries_stream);
 
     // Now, let's define a filter.
@@ -1858,8 +1860,8 @@ async fn test_room_sorting() -> Result<(), Error> {
         },
     };
 
-    // Ensure the dynamic entries' stream is pending because there is no filter set
-    // yet.
+    // Ensure the dynamic entries' stream is pending because there is no filter
+    // set yet.
     assert_pending!(stream);
 
     // Now, let's define a filter.
@@ -2197,8 +2199,8 @@ async fn test_room() -> Result<(), Error> {
     // Room has not received a name from sliding sync, then it's calculated.
     assert_eq!(room1.cached_display_name(), Some(RoomDisplayName::Empty));
 
-    // Room has not received an avatar from sliding sync, then it's calculated, but
-    // there is nothing to calculate from, so there is no URL.
+    // Room has not received an avatar from sliding sync, then it's calculated,
+    // but there is nothing to calculate from, so there is no URL.
     assert_eq!(room1.avatar_url(), None);
 
     sync_then_assert_request_and_fake_response! {
@@ -2664,7 +2666,8 @@ async fn test_remove_and_reset_room_subscriptions() -> Result<(), Error> {
 
     room_list.reset_and_add_room_subscriptions(&[room_id_0, room_id_1]).await;
 
-    // `set_room_subscriptions` would have kept the members of `room_id_1` synced.
+    // `set_room_subscriptions` would have kept the members of `room_id_1`
+    // synced.
     assert!(!room_1.are_members_synced());
 
     sync_then_assert_request_and_fake_response! {
@@ -2967,9 +2970,9 @@ async fn test_room_latest_event() -> Result<(), Error> {
     let room = room_list.room(room_id)?;
     let timeline = room.timeline_builder().build().await.unwrap();
 
-    // We could subscribe to the room —with `RoomList::set_room_subscriptions`— to
-    // automatically listen to the latest event updates, but we will do it
-    // manually here (so that we can ignore the subscription thingies).
+    // We could subscribe to the room —with `RoomList::set_room_subscriptions`—
+    // to automatically listen to the latest event updates, but we will do
+    // it manually here (so that we can ignore the subscription thingies).
     let latest_events = client.latest_events().await;
     latest_events.listen_to_room(room_id).await.unwrap();
 
@@ -3051,8 +3054,8 @@ async fn test_sync_indicator() -> Result<(), Error> {
 
         // Request 1.
         {
-            // The state transitions into `Init`. The `SyncIndicator` stays in `Hide` as
-            // nothing is happening yet.
+            // The state transitions into `Init`. The `SyncIndicator` stays in
+            // `Hide` as nothing is happening yet.
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Hide,
@@ -3064,8 +3067,8 @@ async fn test_sync_indicator() -> Result<(), Error> {
 
         // Request 2.
         {
-            // The state transitions into `SettingUp`. The `SyncIndicator` must be `Show` as
-            // the service has now been started.
+            // The state transitions into `SettingUp`. The `SyncIndicator` must
+            // be `Show` as the service has now been started.
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Show,
@@ -3077,7 +3080,8 @@ async fn test_sync_indicator() -> Result<(), Error> {
 
         // Request 3.
         {
-            // The state transitions into `Running`. The `SyncIndicator` must be `Hide`.
+            // The state transitions into `Running`. The `SyncIndicator` must be
+            // `Hide`.
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Hide,
@@ -3089,7 +3093,8 @@ async fn test_sync_indicator() -> Result<(), Error> {
 
         // Request 4.
         {
-            // The state transitions into `Error`. The `SyncIndicator` must be `Show`.
+            // The state transitions into `Error`. The `SyncIndicator` must be
+            // `Show`.
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Show,
@@ -3101,7 +3106,8 @@ async fn test_sync_indicator() -> Result<(), Error> {
 
         // Request 5.
         {
-            // The state transitions into `Recovering`. The `SyncIndicator` must be `Hide`.
+            // The state transitions into `Recovering`. The `SyncIndicator` must
+            // be `Hide`.
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Hide,
@@ -3235,7 +3241,8 @@ async fn test_multiple_timeline_init() {
         .await;
 
     let task = {
-        // Get a RoomListService::Room, initialize the timeline, start a pagination.
+        // Get a RoomListService::Room, initialize the timeline, start a
+        // pagination.
         let room = room_list.room(room_id).unwrap();
 
         let timeline = room.timeline_builder().build().await.unwrap();
@@ -3259,8 +3266,9 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
     let server = MatrixMockServer::new().await;
 
     {
-        // The first time, don't advertise support for MSC4306; the extension will NOT
-        // enabled in this case, despite the client requesting it.
+        // The first time, don't advertise support for MSC4306; the extension
+        // will NOT enabled in this case, despite the client requesting
+        // it.
         server
             .mock_versions()
             .ok()

@@ -218,8 +218,9 @@ impl NotificationSettings {
         if let Err(error) =
             self.set_underride_push_rule_actions(poll_start_rule_id, actions.clone()).await
         {
-            // The poll start event rules are currently unstable so they might not be found
-            // on every homeserver. Let's ignore this error for the moment.
+            // The poll start event rules are currently unstable so they might
+            // not be found on every homeserver. Let's ignore this
+            // error for the moment.
             if let NotificationSettingsError::RuleNotFound(rule_id) = &error {
                 debug!("Unable to update poll start push rule: rule `{rule_id}` not found");
             } else {
@@ -338,8 +339,8 @@ impl NotificationSettings {
             .filter(|(kind, rule_id)| kind != &new_rule_kind || rule_id != new_rule_id)
             .collect();
 
-        // Build the command list to delete all other custom rules, with the exception
-        // of the newly inserted rule.
+        // Build the command list to delete all other custom rules, with the
+        // exception of the newly inserted rule.
         let mut rule_commands = RuleCommands::new(rules.ruleset);
         rule_commands.insert_rule(new_rule_kind.clone(), room_id, notify)?;
         for (kind, rule_id) in custom_rules {
@@ -407,8 +408,8 @@ impl NotificationSettings {
                 self.delete_user_defined_room_rules(room_id).await
             }
         } else {
-            // This is the default mode, create a custom rule to unmute this room by setting
-            // the mode to `AllMessages`
+            // This is the default mode, create a custom rule to unmute this
+            // room by setting the mode to `AllMessages`
             self.set_room_notification_mode(room_id, RoomNotificationMode::AllMessages).await
         }
     }
@@ -715,7 +716,8 @@ mod tests {
         let client = logged_in_client(Some(server.uri())).await;
         let room_id = get_test_room_id();
 
-        // Initialize with a muted `Room` rule to be in `MentionsAndKeywordsOnly`
+        // Initialize with a muted `Room` rule to be in
+        // `MentionsAndKeywordsOnly`
         let settings = from_insert_rules(&client, vec![(RuleKind::Room, &room_id, false)]);
         assert_eq!(
             settings.get_user_defined_room_notification_mode(&room_id).await.unwrap(),
@@ -763,8 +765,8 @@ mod tests {
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
 
-        // The default mode must be `MentionsAndKeywords` if the corresponding Underride
-        // rule doesn't notify
+        // The default mode must be `MentionsAndKeywords` if the corresponding
+        // Underride rule doesn't notify
         let mut ruleset = get_server_default_ruleset();
         ruleset.set_actions(
             RuleKind::Underride,
@@ -778,8 +780,8 @@ mod tests {
             RoomNotificationMode::MentionsAndKeywordsOnly
         );
 
-        // The default mode must be `MentionsAndKeywords` if the corresponding Underride
-        // rule is disabled
+        // The default mode must be `MentionsAndKeywords` if the corresponding
+        // Underride rule is disabled
         ruleset.set_enabled(RuleKind::Underride, PredefinedUnderrideRuleId::RoomOneToOne, false)?;
 
         let settings = NotificationSettings::new(client, ruleset);
@@ -969,10 +971,11 @@ mod tests {
         Mock::given(method("DELETE"))
             .and(path_regex(r"_matrix/client/r0/pushrules/global/room/.*"))
             .and(move |_: &wiremock::Request| {
-                // Make sure that the PUT is executed before the DELETE, so that the following
-                // sync results will give the following transitions:
-                // `AllMessages` -> `AllMessages` -> `Mute` by sending the
-                // DELETE before the PUT, we would have `AllMessages` ->
+                // Make sure that the PUT is executed before the DELETE, so that
+                // the following sync results will give the
+                // following transitions: `AllMessages` ->
+                // `AllMessages` -> `Mute` by sending the DELETE
+                // before the PUT, we would have `AllMessages` ->
                 // `Default` -> `Mute`
 
                 let put_was_called = put_was_called.load(Ordering::SeqCst);
@@ -991,11 +994,12 @@ mod tests {
 
         let room_id = get_test_room_id();
 
-        // Set the initial state to `AllMessages` by setting a `Room` rule that notifies
+        // Set the initial state to `AllMessages` by setting a `Room` rule that
+        // notifies
         let settings = from_insert_rules(&client, vec![(RuleKind::Room, &room_id, true)]);
 
-        // Set the new mode to `Mute`, this will add a new `Override` rule without
-        // action and remove the `Room` rule.
+        // Set the new mode to `Mute`, this will add a new `Override` rule
+        // without action and remove the `Room` rule.
         settings.set_room_notification_mode(&room_id, RoomNotificationMode::Mute).await?;
 
         assert_eq!(
@@ -1018,7 +1022,8 @@ mod tests {
 
         let room_id = get_test_room_id();
 
-        // Set the initial state to `AllMessages` by setting a `Room` rule that notifies
+        // Set the initial state to `AllMessages` by setting a `Room` rule that
+        // notifies
         let settings = from_insert_rules(&client, vec![(RuleKind::Room, &room_id, true)]);
 
         assert_eq!(
@@ -1050,7 +1055,8 @@ mod tests {
 
         let room_id = get_test_room_id();
 
-        // Set the initial state to `AllMessages` by setting a `Room` rule that notifies
+        // Set the initial state to `AllMessages` by setting a `Room` rule that
+        // notifies
         let settings = from_insert_rules(&client, vec![(RuleKind::Room, &room_id, true)]);
 
         assert_eq!(
@@ -1235,8 +1241,8 @@ mod tests {
             }
         );
 
-        // and the new mode returned by `get_default_room_notification_mode()` should
-        // reflect the change.
+        // and the new mode returned by `get_default_room_notification_mode()`
+        // should reflect the change.
         assert_matches!(
             settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::No).await,
             RoomNotificationMode::MentionsAndKeywordsOnly
@@ -1293,8 +1299,8 @@ mod tests {
             }
         );
 
-        // and the new mode returned by `get_default_room_notification_mode()` should
-        // reflect the change.
+        // and the new mode returned by `get_default_room_notification_mode()`
+        // should reflect the change.
         assert_matches!(
             settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::Yes).await,
             RoomNotificationMode::MentionsAndKeywordsOnly
@@ -1337,8 +1343,8 @@ mod tests {
             )
             .await?;
 
-        // The new mode returned should be `AllMessages` which means that the disabled
-        // rule (`RoomOneToOne`) has been enabled.
+        // The new mode returned should be `AllMessages` which means that the
+        // disabled rule (`RoomOneToOne`) has been enabled.
         assert_matches!(
             settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::Yes).await,
             RoomNotificationMode::AllMessages
@@ -1612,8 +1618,8 @@ mod tests {
             )
             .await?;
 
-        // the new mode returned by `get_default_room_notification_mode()` should
-        // reflect the change.
+        // the new mode returned by `get_default_room_notification_mode()`
+        // should reflect the change.
         assert_matches!(
             settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::No).await,
             RoomNotificationMode::MentionsAndKeywordsOnly

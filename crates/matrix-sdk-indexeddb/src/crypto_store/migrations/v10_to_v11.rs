@@ -44,9 +44,9 @@ pub(crate) async fn data_migrate(
         return Ok(());
     };
 
-    // backup_key_v1 was only ever serialized with the legacy format. Also, it's a
-    // string, so if we use `deserialize_value` on it, it will be incorrectly
-    // handled as a new-format object.
+    // backup_key_v1 was only ever serialized with the legacy format. Also, it's
+    // a string, so if we use `deserialize_value` on it, it will be
+    // incorrectly handled as a new-format object.
     let bv: String = serializer.deserialize_legacy_value(bv)?;
 
     // Re-serialize as new format, then store in the new field.
@@ -59,7 +59,7 @@ pub(crate) async fn data_migrate(
 
 /// Perform the schema upgrade v10 to v11, just bumping the schema version.
 pub(crate) async fn schema_bump(name: &str) -> crate::crypto_store::Result<(), OpenDbError> {
-    // Just bump the version number to 11 to demonstrate that we have run the data
-    // changes from data_migrate.
+    // Just bump the version number to 11 to demonstrate that we have run the
+    // data changes from data_migrate.
     do_schema_upgrade(name, 11, |_, _| Ok(())).await
 }

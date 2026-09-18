@@ -231,7 +231,8 @@ pub(crate) trait SqliteAsyncConnExt {
             return Err(error.into());
         } else {
             trace!("VACUUM complete");
-            // Once vacuumed, truncate the WAL file again to purge the copied DB contents.
+            // Once vacuumed, truncate the WAL file again to purge the copied DB
+            // contents.
             self.wal_checkpoint().await;
         }
 
@@ -609,27 +610,36 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
                 Secret::PassPhrase(passphrase) => StoreCipher::import(passphrase, &encrypted)?,
                 Secret::Key(key) => StoreCipher::import_with_key(key.as_slice(), &encrypted)?,
                 Secret::HighEntropyPassPhrase { key, base64_variant } => {
-                    // Element X apps used the passphrase-based secret variant even though the
-                    // underlying secret was a randomly generated key.
+                    // Element X apps used the passphrase-based secret variant
+                    // even though the underlying secret was
+                    // a randomly generated key.
                     //
-                    // The `HighEntropyPassPhrase` variant was introduced to migrate these cipher
-                    // exports from a passphrase-based setup to a key-based setup.
+                    // The `HighEntropyPassPhrase` variant was introduced to
+                    // migrate these cipher exports from a
+                    // passphrase-based setup to a key-based setup.
                     //
-                    // We first attempt to decrypt the cipher using the provided high-entropy
-                    // passphrase as a key. If this results in a KDF mismatch, it indicates that
-                    // the export was originally encrypted with the high-entropy passphrase being
-                    // used as a passphrase instead.
+                    // We first attempt to decrypt the cipher using the provided
+                    // high-entropy passphrase as a key. If
+                    // this results in a KDF mismatch, it indicates that
+                    // the export was originally encrypted with the high-entropy
+                    // passphrase being used as a passphrase
+                    // instead.
                     //
-                    // In that case, we re-encrypt the cipher using the key-based setup. On the next
-                    // import attempt, `import_with_key()` can then decrypt it successfully.
+                    // In that case, we re-encrypt the cipher using the
+                    // key-based setup. On the next
+                    // import attempt, `import_with_key()` can then decrypt it
+                    // successfully.
                     match StoreCipher::import_with_key(key.as_slice(), &encrypted) {
                         Ok(cipher) => cipher,
                         Err(matrix_sdk_store_encryption::Error::KdfMismatch) => {
-                            // EX generated a byte array for a key but converted it into a string by
-                            // base64 encoding it to use it as a passphrase. So let's do that as
+                            // EX generated a byte array for a key but converted
+                            // it into a string by
+                            // base64 encoding it to use it as a passphrase. So
+                            // let's do that as
                             // well.
                             //
-                            // Funnily enough, iOS used padded base64, while Android used unpadded.
+                            // Funnily enough, iOS used padded base64, while
+                            // Android used unpadded.
                             let mut base64_passphrase = match base64_variant {
                                 crate::Base64Variant::Unpadded => base64_encode(key),
                                 crate::Base64Variant::Padded => {

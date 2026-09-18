@@ -156,10 +156,11 @@ mod tests {
 
     #[test]
     fn test_extract_thread_root() {
-        // No event factory in this crate :( There would be a dependency cycle with the
-        // `matrix-sdk-test` crate if we tried to use it here.
+        // No event factory in this crate :( There would be a dependency cycle
+        // with the `matrix-sdk-test` crate if we tried to use it here.
 
-        // We can extract the thread root from a regular message that contains one.
+        // We can extract the thread root from a regular message that contains
+        // one.
         let thread_root = event_id!("$thread_root_event_id:example.com");
         let event = Raw::new(&json!({
             "event_id": "$eid:example.com",
@@ -182,8 +183,8 @@ mod tests {
         let observed_relation = extract_relation(&event).unwrap();
         assert_eq!(observed_relation, (RelationType::Thread, thread_root.to_owned()));
 
-        // If the event doesn't have a content for some reason (redacted), it returns
-        // None.
+        // If the event doesn't have a content for some reason (redacted), it
+        // returns None.
         let event = Raw::new(&json!({
             "event_id": "$eid:example.com",
             "type": "m.room.message",
@@ -197,7 +198,8 @@ mod tests {
         assert_matches!(observed_thread_root, None);
         assert_matches!(extract_relation(&event), None);
 
-        // If the event has a content but with no `m.relates_to` field, it returns None.
+        // If the event has a content but with no `m.relates_to` field, it
+        // returns None.
         let event = Raw::new(&json!({
             "event_id": "$eid:example.com",
             "type": "m.room.message",
@@ -214,7 +216,8 @@ mod tests {
         assert_matches!(observed_thread_root, None);
         assert_matches!(extract_relation(&event), None);
 
-        // If the event has a relation, but it's not a thread reply, it returns None.
+        // If the event has a relation, but it's not a thread reply, it returns
+        // None.
         let event = Raw::new(&json!({
             "event_id": "$eid:example.com",
             "type": "m.room.message",
@@ -274,7 +277,8 @@ mod tests {
 
         assert!(extract_bundled_thread(&event).is_some());
 
-        // When there's not a bundled thread summary, we can assert it with certainty.
+        // When there's not a bundled thread summary, we can assert it with
+        // certainty.
         let event = Raw::new(&json!({
             "event_id": "$eid:example.com",
             "type": "m.room.message",
@@ -286,7 +290,8 @@ mod tests {
 
         assert!(extract_bundled_thread(&event).is_none());
 
-        // When there's a bundled replace, we can assert there's no thread summary.
+        // When there's a bundled replace, we can assert there's no thread
+        // summary.
         let event = Raw::new(&json!({
             "event_id": "$eid:example.com",
             "type": "m.room.message",

@@ -73,8 +73,8 @@ impl X509Verifier {
         };
 
         for sig in this_user_sigs.values().flatten() {
-            // `this_user_sigs` can and will contain non-X.509 signatures, which we should
-            // ignore.
+            // `this_user_sigs` can and will contain non-X.509 signatures, which
+            // we should ignore.
             if let Signature::X509(sig) = sig
                 && self
                     .verify_x509_signature(user_id, &msg, sig)
@@ -106,8 +106,8 @@ impl X509Verifier {
         let res: RawX509SignatureAndFirstCertificate =
             sig.try_into().map_err(X509SignatureVerificationError::RawSignatureParseError)?;
 
-        // Before we pass over to the X.509 certificate verifier, check that the leaf
-        // certificate is valid for the given user_id.
+        // Before we pass over to the X.509 certificate verifier, check that the
+        // leaf certificate is valid for the given user_id.
         if !cert_contains_user_id_or_equivalent_email(user_id, &res.leaf_cert) {
             tracing::warn!(?user_id, "Verifying certificate user ID or email failed");
             return Err(X509SignatureVerificationError::BadUserIdOrEmail);
@@ -169,15 +169,16 @@ pub trait RawX509Verifier: Debug + Send + Sync {
 }
 
 fn map_user_id_to_email(user_id: &UserId) -> String {
-    // TODO RAV: this is not a reliable way to map from user_ids to email addresses.
+    // TODO RAV: this is not a reliable way to map from user_ids to email
+    // addresses.
     format!("{}@{}", user_id.localpart(), user_id.server_name())
 }
 
 /// Search this certificate's Subject Alternative Name for a URI that matches
 /// the format of a Matrix URI that contains a valid Matrix user ID.
 fn get_user_id_from_certificate(certificate: &Certificate) -> Option<OwnedUserId> {
-    // If we have no SAN or SAN is not understood here, we definitely can't find a
-    // user ID.
+    // If we have no SAN or SAN is not understood here, we definitely can't find
+    // a user ID.
     let Ok(Some((_, san))) = certificate.tbs_certificate.get::<SubjectAltName>() else {
         return None;
     };
@@ -337,7 +338,8 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_can_verify_cert_containing_email_in_dn() {
-        // Given a cert containing the email address in the Subject Distinguished Name
+        // Given a cert containing the email address in the Subject
+        // Distinguished Name
         let (cert, signing_key) =
             cert_and_key_with_email_in_subject_distinguished_name("alice@localhost");
 

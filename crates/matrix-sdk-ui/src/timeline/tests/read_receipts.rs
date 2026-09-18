@@ -709,7 +709,8 @@ async fn test_implicit_read_receipt_before_explicit_read_receipt() {
     // Test a timeline in this order:
     // 1. $alice_event: sent by alice, has no explicit read receipts.
     // 2. $bob_event: sent by bob, has no explicit read receipts.
-    // 3. $carol_event: sent by carol, has the explicit read receipts of all users.
+    // 3. $carol_event: sent by carol, has the explicit read receipts of all
+    //    users.
     let room_id = room_id!("!room:localhost");
     let alice_event_id = owned_event_id!("$alice_event");
     let bob_event_id = owned_event_id!("$bob_event");

@@ -273,7 +273,8 @@ impl ThreadListService {
 
         let mut pagination_token = self.token.lock().await;
 
-        // Build the options for this page, using the current token if we have one.
+        // Build the options for this page, using the current token if we have
+        // one.
         let from = match &*pagination_token {
             PaginationToken::HasMore(token) => Some(token.clone()),
             _ => None,
@@ -283,7 +284,8 @@ impl ThreadListService {
 
         match self.load_thread_list(opts).await {
             Ok(thread_list) => {
-                // Update the pagination token based on whether there are more pages.
+                // Update the pagination token based on whether there are more
+                // pages.
                 *pagination_token = match &thread_list.prev_batch_token {
                     Some(token) => PaginationToken::HasMore(token.clone()),
                     None => PaginationToken::HitEnd,
@@ -405,7 +407,8 @@ impl ThreadListService {
                 let new_events = Self::collect_events_from_diffs(timeline_diffs.diffs);
 
                 for event in new_events {
-                    // Check if this event has a thread relation pointing to a known root.
+                    // Check if this event has a thread relation pointing to a
+                    // known root.
                     let Some(thread_root) = extract_thread_root(event.raw()) else { continue };
 
                     // Find the position of this thread root in our list.
@@ -415,12 +418,14 @@ impl ThreadListService {
                     };
 
                     if let Some(index) = position {
-                        // Build the latest event representation from the raw event.
+                        // Build the latest event representation from the raw
+                        // event.
                         if let Some(latest_event) = Self::build_event(room, event).await {
                             let mut guard = items.lock();
 
-                            // Re-check the position — the vector may have changed while
-                            // we were awaiting the profile lookup above.
+                            // Re-check the position — the vector may have
+                            // changed while we were
+                            // awaiting the profile lookup above.
                             if index < guard.len()
                                 && guard[index].root_event.event_id == thread_root
                             {

@@ -122,11 +122,12 @@ async fn make_reply_event<S: EventSource>(
 
     // [The specification](https://spec.matrix.org/v1.10/client-server-api/#user-and-room-mentions) says:
     //
-    // > Users should not add their own Matrix ID to the `m.mentions` property as
+    // > Users should not add their own Matrix ID to the `m.mentions` property
+    // > as
     // > outgoing messages cannot self-notify.
     //
-    // If the replied to event has been written by the current user, let's toggle to
-    // `AddMentions::No`.
+    // If the replied to event has been written by the current user, let's
+    // toggle to `AddMentions::No`.
     let mention_the_sender =
         if own_user_id == event.sender() { AddMentions::No } else { reply.add_mentions };
 

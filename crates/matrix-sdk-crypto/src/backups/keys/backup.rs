@@ -107,8 +107,9 @@ impl MegolmV1BackupKey {
     ) -> Result<KeyBackupData, vodozemac::pk_encryption::Error> {
         let pk = PkEncryption::from_key(self.inner.key);
 
-        // The forwarding chains don't mean much, we only care whether we received the
-        // session directly from the creator of the session or not.
+        // The forwarding chains don't mean much, we only care whether we
+        // received the session directly from the creator of the session
+        // or not.
         let forwarded_count = (session.has_been_imported() as u8).into();
         let first_message_index = session.first_known_index().into();
 

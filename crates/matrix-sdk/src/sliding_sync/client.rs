@@ -192,7 +192,8 @@ impl SlidingSyncResponseProcessor {
             )
             .await?
         {
-            // Some new keys might have been received, so trigger a backup if needed.
+            // Some new keys might have been received, so trigger a backup if
+            // needed.
             self.client.encryption().backups().maybe_trigger_backup();
 
             to_device_events
@@ -274,8 +275,8 @@ async fn update_in_memory_caches(
 ) {
     let _timer = timer!(tracing::Level::TRACE, "update_in_memory_caches");
 
-    // If the push rules have changed, update the cached notification mode for *all*
-    // the joined rooms.
+    // If the push rules have changed, update the cached notification mode for
+    // *all* the joined rooms.
     if response.account_data.iter().any(|event| {
         event
             .get_field::<GlobalAccountDataEventType>("type")
@@ -295,8 +296,8 @@ async fn update_in_memory_caches(
             }
         }
     } else {
-        // Otherwise, precompute the cached user-defined notification mode only for the
-        // newly joined rooms.
+        // Otherwise, precompute the cached user-defined notification mode only
+        // for the newly joined rooms.
 
         // We'll compute the rules only once, lazily, if needs be.
         let mut rules = None;
@@ -312,14 +313,16 @@ async fn update_in_memory_caches(
                 continue;
             };
 
-            // Reuse the previous `Rules` instance, or compute it once and for all.
+            // Reuse the previous `Rules` instance, or compute it once and for
+            // all.
             let rules = if let Some(rules) = &mut rules {
                 rules
             } else {
                 rules.insert(client.notification_settings().await.rules().await.clone())
             };
 
-            // Define an initial value for the cached user-defined notification mode.
+            // Define an initial value for the cached user-defined notification
+            // mode.
             if let Some(mode) = rules.get_user_defined_room_notification_mode(room.room_id()) {
                 room.update_cached_user_defined_notification_mode(mode);
             }
@@ -336,8 +339,9 @@ async fn handle_receipts_extension(
 ) -> Result<()> {
     let _timer = timer!(tracing::Level::TRACE, "handle_receipts_extension");
 
-    // We need to compute read receipts for each joined room that has received an
-    // update, or from each room that has received a receipt ephemeral event.
+    // We need to compute read receipts for each joined room that has received
+    // an update, or from each room that has received a receipt ephemeral
+    // event.
     let room_ids = BTreeSet::from_iter(
         sync_response
             .rooms
@@ -438,8 +442,8 @@ mod tests {
         let client = MockClientBuilder::new(None).build().await;
         let available_versions = client.available_sliding_sync_versions().await;
 
-        // `.well-known` and `/versions` aren't available. It's impossible to find any
-        // versions.
+        // `.well-known` and `/versions` aren't available. It's impossible to
+        // find any versions.
         assert!(available_versions.is_empty());
     }
 
@@ -579,8 +583,9 @@ mod tests {
         );
 
         // Mock a sync response.
-        // Even if the room doesn't appear in the response, its notification mode will
-        // be updated immediately if a new `m.push_rules` is received.
+        // Even if the room doesn't appear in the response, its notification
+        // mode will be updated immediately if a new `m.push_rules` is
+        // received.
         {
             let server_response = assign!(http::Response::new("0".to_owned()), {
                 extensions: assign!(http::response::Extensions::default(), {
@@ -728,8 +733,8 @@ mod tests {
         );
         assert!(room_info_notable_update_stream.is_empty());
 
-        // When I send sliding sync response containing a couple of events with no read
-        // receipt.
+        // When I send sliding sync response containing a couple of events with
+        // no read receipt.
         let room_id = room_id!("!r:e.uk");
         let f = EventFactory::new().room(room_id).sender(user_id!("@u:h.uk"));
         let events = vec![
@@ -775,8 +780,8 @@ mod tests {
             }
         );
 
-        // At some point, we receive an update for the `LATEST_EVENT` too, since this is
-        // enabled by default.
+        // At some point, we receive an update for the `LATEST_EVENT` too, since
+        // this is enabled by default.
         assert_matches!(
             room_info_notable_update_stream.recv().await,
             Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {

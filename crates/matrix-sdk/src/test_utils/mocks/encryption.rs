@@ -124,16 +124,16 @@ impl MatrixMockServer {
         alice.update_tracked_users_for_testing([bob_user_id]).instrument(alice_span.clone()).await;
 
         // let bob be aware of Alice keys in order to be able to decrypt custom
-        // to-device (the device keys check are deferred for `m.room.key` so this is not
-        // needed for sending room messages for example).
+        // to-device (the device keys check are deferred for `m.room.key` so
+        // this is not needed for sending room messages for example).
         bob.update_tracked_users_for_testing([alice_user_id]).instrument(bob_span.clone()).await;
 
         // Have Alice and Bob upload their signed device keys.
         self.mock_sync().ok_and_run(alice, |_x| {}).instrument(alice_span.clone()).await;
         self.mock_sync().ok_and_run(bob, |_x| {}).instrument(bob_span).await;
 
-        // Run a sync so we do send outgoing requests, including the /keys/query for
-        // getting bob's identity.
+        // Run a sync so we do send outgoing requests, including the /keys/query
+        // for getting bob's identity.
         self.mock_sync().ok_and_run(alice, |_x| {}).instrument(alice_span).await;
     }
 
@@ -175,7 +175,8 @@ impl MatrixMockServer {
         // Have Bob track Carl, so she queries his keys later.
         bob.update_tracked_users_for_testing([carl.user_id().unwrap()]).await;
 
-        // Have Alice and Bob upload their signed device keys, and download Carl's keys.
+        // Have Alice and Bob upload their signed device keys, and download
+        // Carl's keys.
         {
             self.mock_sync().ok_and_run(alice, |_| {}).await;
             self.mock_sync().ok_and_run(bob, |_| {}).await;
@@ -590,7 +591,8 @@ fn mock_keys_upload(
             let mut keys = keys.lock().unwrap();
             let devices = keys.device.entry(new_device_keys.user_id.clone()).or_default();
 
-            // Either merge signatures if an entry is already present, or insert a new one.
+            // Either merge signatures if an entry is already present, or insert
+            // a new one.
             if let Some(device_keys) = devices.get_mut(&key_id) {
                 let mut existing = device_keys.deserialize().unwrap();
 
@@ -616,8 +618,8 @@ fn mock_keys_upload(
 
         if let Some(otks) = params.one_time_keys {
             // We need a trick to find out what userId|device this OTK is for.
-            // This is not part of the payload, a real server uses the access token(?)
-            // Let's look at the signatures to find out
+            // This is not part of the payload, a real server uses the access
+            // token(?) Let's look at the signatures to find out
             for (key_id, raw_otk) in otks {
                 let otk = raw_otk.deserialize().unwrap();
                 match otk {
@@ -750,8 +752,8 @@ fn mock_keys_signature_upload(keys: Arc<Mutex<Keys>>) -> impl Fn(&Request) -> Re
                 }
 
                 // Otherwise, try to find a field in keys.device.
-                // Either merge signatures if an entry is already present, or insert a new
-                // entry.
+                // Either merge signatures if an entry is already present, or
+                // insert a new entry.
                 let known_devices = keys.device.entry(user.clone()).or_default();
                 let device_keys = known_devices
                     .get_mut(key_id)

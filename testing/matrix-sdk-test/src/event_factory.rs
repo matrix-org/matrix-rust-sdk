@@ -344,8 +344,8 @@ where
         let map = json.as_object_mut().unwrap();
 
         if self.format.has_sender() {
-            // Use the `sender` preferably, or resort to the `redacted_because` sender if
-            // none has been set.
+            // Use the `sender` preferably, or resort to the `redacted_because`
+            // sender if none has been set.
             let sender = self
                 .sender
                 .or_else(|| Some(self.unsigned.as_ref()?.redacted_because.as_ref()?.sender.clone())).expect("the sender must be known when building the JSON for a non read-receipt or global event");
@@ -367,10 +367,12 @@ where
 
         if self.format.has_event_id() && !self.no_event_id {
             let event_id = self.event_id.unwrap_or_else(|| {
-                // Compute a hash of the event to use it as the event ID, similar to how a
-                // server would. This is a little bit different since a server would redact the
-                // event before hashing, but at least the event ID construction will be
-                // deterministic and have the same format as in recent room versions.
+                // Compute a hash of the event to use it as the event ID,
+                // similar to how a server would. This is a
+                // little bit different since a server would redact the
+                // event before hashing, but at least the event ID construction
+                // will be deterministic and have the same
+                // format as in recent room versions.
                 let bytes = serde_json::to_vec(&map).unwrap();
                 EventId::new_v2_or_v3(&base64_sha256_hash(&bytes)).unwrap()
             });
@@ -1109,7 +1111,8 @@ impl EventFactory {
         &self,
         service_members: BTreeSet<OwnedUserId>,
     ) -> EventBuilder<MemberHintsEventContent> {
-        // The `m.member_hints` event always has an empty state key, so let's set it.
+        // The `m.member_hints` event always has an empty state key, so let's
+        // set it.
         self.event(MemberHintsEventContent::new(service_members)).state_key("")
     }
 
@@ -1201,7 +1204,8 @@ impl EventFactory {
         poll_question: impl Into<String>,
         answers: Vec<impl Into<String>>,
     ) -> EventBuilder<UnstablePollStartEventContent> {
-        // PollAnswers 'constructor' is not public, so we need to deserialize them
+        // PollAnswers 'constructor' is not public, so we need to deserialize
+        // them
         let answers: Vec<UnstablePollAnswer> = answers
             .into_iter()
             .enumerate()
@@ -1223,7 +1227,8 @@ impl EventFactory {
         poll_question: impl Into<String>,
         answers: Vec<impl Into<String>>,
     ) -> EventBuilder<ReplacementUnstablePollStartEventContent> {
-        // PollAnswers 'constructor' is not public, so we need to deserialize them
+        // PollAnswers 'constructor' is not public, so we need to deserialize
+        // them
         let answers: Vec<UnstablePollAnswer> = answers
             .into_iter()
             .enumerate()

@@ -278,7 +278,8 @@ mod tests {
         pin_mut!(results_stream);
         assert_pending!(results_stream);
 
-        // The next page is empty, so the end is reached and nothing more is emitted.
+        // The next page is empty, so the end is reached and nothing more is
+        // emitted.
         search.paginate().await.unwrap();
 
         assert_pending!(results_stream);
@@ -328,10 +329,12 @@ mod tests {
         pin_mut!(results_stream);
         assert_pending!(results_stream);
 
-        // Changing the query clears the previous results and loads the new ones.
+        // Changing the query clears the previous results and loads the new
+        // ones.
         search.set_query("banana".to_owned()).await.unwrap();
 
-        // The subscriber observes the clear followed by the new page in one batch.
+        // The subscriber observes the clear followed by the new page in one
+        // batch.
         assert_next_matches!(results_stream, diffs => {
             assert_let!([VectorDiff::Clear, VectorDiff::Append { values }] = diffs.as_slice());
             assert_eq!(values.len(), 1);

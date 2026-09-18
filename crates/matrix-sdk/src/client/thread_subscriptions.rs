@@ -216,13 +216,14 @@ impl ThreadSubscriptionCatchup {
         guard: &GuardedStoreAccess,
         token: Option<ThreadSubscriptionCatchupToken>,
     ) -> Result<()> {
-        // Note: saving an empty tokens list will mark the thread subscriptions list as
-        // not outdated.
+        // Note: saving an empty tokens list will mark the thread subscriptions
+        // list as not outdated.
         let mut tokens = guard.load_catchup_tokens().await?.unwrap_or_default();
 
         if let Some(token) = token {
-            // Gappy syncs on a busy account can cause the same catchup token to be sent
-            // repeatedly. We dedupe the tokens here to prevent duplicate catchup requests.
+            // Gappy syncs on a busy account can cause the same catchup token to
+            // be sent repeatedly. We dedupe the tokens here to
+            // prevent duplicate catchup requests.
             if tokens.contains(&token) {
                 trace!(?token, "Skipping duplicate catchup token");
             } else {
@@ -299,7 +300,8 @@ impl ThreadSubscriptionCatchup {
 
             match client.send(req).await {
                 Ok(resp) => {
-                    // Precompute the updates so we don't hold the guard for too long.
+                    // Precompute the updates so we don't hold the guard for too
+                    // long.
                     let updates = build_subscription_updates(&resp.subscribed, &resp.unsubscribed);
 
                     let guard = this
@@ -322,8 +324,8 @@ impl ThreadSubscriptionCatchup {
                         }
                     }
 
-                    // Refresh the tokens, as the list might have changed while we sent the
-                    // request.
+                    // Refresh the tokens, as the list might have changed while
+                    // we sent the request.
                     let mut tokens = match guard.load_catchup_tokens().await {
                         Ok(tokens) => tokens.unwrap_or_default(),
                         Err(err) => {
@@ -338,12 +340,14 @@ impl ThreadSubscriptionCatchup {
                     };
 
                     if let Some(next_batch) = resp.end {
-                        // If the response contained a next batch token, reuse the same catchup
-                        // token entry, so the `to` value remains the same.
+                        // If the response contained a next batch token, reuse
+                        // the same catchup token entry,
+                        // so the `to` value remains the same.
                         tokens[index] =
                             ThreadSubscriptionCatchupToken { from: next_batch, to: last.to };
                     } else {
-                        // No next batch, we can remove this token from the list.
+                        // No next batch, we can remove this token from the
+                        // list.
                         tokens.remove(index);
                     }
 

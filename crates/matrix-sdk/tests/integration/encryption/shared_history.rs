@@ -287,8 +287,8 @@ async fn test_shared_history_crash_before_import() {
     let bob_user_id = user_id!("@bob:localhost");
     let bob_device_id = device_id!("BOBDEVICE");
 
-    // Use a common store path for Bob so we can persist invite acceptance details
-    // over the crash.
+    // Use a common store path for Bob so we can persist invite acceptance
+    // details over the crash.
     let bob_sqlite_path = tempdir().unwrap();
     let encryption_settings =
         EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
@@ -444,8 +444,8 @@ async fn test_room_key_rotation_on_gappy_sync_v3() {
     let alice_factory = EventFactory::new().room(room_id).sender(alice_id);
     let bob_factory = EventFactory::new().room(room_id).sender(bob_id);
 
-    // Alice and Bob are in a room. Since this is the first sync, Alice should load
-    // the member list.
+    // Alice and Bob are in a room. Since this is the first sync, Alice should
+    // load the member list.
     matrix_mock_server
         .mock_get_members()
         .ok(vec![alice_factory.member(alice_id).into_raw()])
@@ -485,8 +485,8 @@ async fn test_room_key_rotation_on_gappy_sync_v3() {
     // Bob leaves, but we get a gappy sync. Alice should fully reload the room
     // member list.
     //
-    // (Note: any update to the membership, even a Join, will trigger a reload of
-    // the room member list and discard the session.)
+    // (Note: any update to the membership, even a Join, will trigger a reload
+    // of the room member list and discard the session.)
     matrix_mock_server
         .mock_get_members()
         .ok(vec![alice_factory.member(alice_id).into_raw()])

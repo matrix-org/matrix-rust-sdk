@@ -75,8 +75,8 @@ impl SlidingSyncList {
     {
         self.inner.set_sync_mode(sync_mode.into());
 
-        // When the sync mode is changed, the sync loop must skip over any work in its
-        // iteration and jump to the next iteration.
+        // When the sync mode is changed, the sync loop must skip over any work
+        // in its iteration and jump to the next iteration.
         self.inner.internal_channel_send_if_possible(
             SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
         );
@@ -162,8 +162,9 @@ impl SlidingSyncList {
     ///   server.
     #[instrument(skip(self), fields(name = self.name()))]
     pub(super) fn update(&mut self, maximum_number_of_rooms: Option<u32>) -> Result<bool, Error> {
-        // Make sure to update the generator state first; ordering matters because
-        // `update_room_list` observes the latest ranges in the response.
+        // Make sure to update the generator state first; ordering matters
+        // because `update_room_list` observes the latest ranges in the
+        // response.
         if let Some(maximum_number_of_rooms) = maximum_number_of_rooms {
             self.inner.update_request_generator_state(maximum_number_of_rooms)?;
         }
@@ -273,7 +274,8 @@ impl SlidingSyncListInner {
     /// Update the state to the next request, and return it.
     fn next_request(&self) -> Result<http::request::List, Error> {
         let ranges = {
-            // Use a dedicated scope to ensure the lock is released before continuing.
+            // Use a dedicated scope to ensure the lock is released before
+            // continuing.
             let mut request_generator = self.request_generator.write().unwrap();
             request_generator.generate_next_ranges(self.maximum_number_of_rooms.get())?
         };

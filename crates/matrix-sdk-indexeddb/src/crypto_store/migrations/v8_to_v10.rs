@@ -47,8 +47,8 @@ pub(crate) async fn schema_add(name: &str) -> Result<(), OpenDbError> {
         )?;
 
         // See https://github.com/element-hq/element-web/issues/26892#issuecomment-1906336076
-        // for the plan concerning this property and index. At time of writing, it is
-        // unused, and needs_backup is still used.
+        // for the plan concerning this property and index. At time of writing,
+        // it is unused, and needs_backup is still used.
         add_nonunique_index(
             &object_store,
             keys::INBOUND_GROUP_SESSIONS_BACKED_UP_TO_INDEX,

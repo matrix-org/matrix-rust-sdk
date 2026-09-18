@@ -118,10 +118,10 @@ async fn test_rtc_members_update_last_only() {
         .await;
 
     // ===========
-    // ASSERT: As per requirement only the latest notification item in the timeline
-    // should have the active call info. So ensure the oldest notification item
-    // is cleared and that the new one has the previously known info
-    // ===========
+    // ASSERT: As per requirement only the latest notification item in the
+    // timeline should have the active call info. So ensure the oldest
+    // notification item is cleared and that the new one has the previously
+    // known info ===========
 
     // The notification is first added
     assert_next_matches!(

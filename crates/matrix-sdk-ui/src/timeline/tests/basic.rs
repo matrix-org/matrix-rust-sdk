@@ -221,8 +221,8 @@ async fn test_room_member() {
     assert_matches!(profile.avatar_url_change(), Some(_));
 
     {
-        // No avatar or display name in the new room member event content, but it's
-        // possible to get the previous one using the getters.
+        // No avatar or display name in the new room member event content, but
+        // it's possible to get the previous one using the getters.
         timeline
             .handle_live_event(
                 f.member(&ALICE).membership(MembershipState::Leave).previous(
@@ -359,7 +359,8 @@ async fn test_internal_id_reuse() {
     assert_eq!(event3.as_event().unwrap().sender(), *CAROL);
     assert_eq!(event3.unique_id().0, "2");
 
-    // Then, handle a deduplication (removal then reinsertion of the same event).
+    // Then, handle a deduplication (removal then reinsertion of the same
+    // event).
     timeline
         .controller
         .handle_remote_events_with_diffs(
@@ -659,7 +660,7 @@ async fn test_latest_event_id_in_main_timeline() {
     assert_eq!(items.len(), 1);
     assert_let!(Some(latest_event_id) = timeline.controller.latest_event_id().await);
 
-    // But the latest event in the live timeline is still the reaction, since the
-    // threaded event is not part of the live timeline
+    // But the latest event in the live timeline is still the reaction, since
+    // the threaded event is not part of the live timeline
     assert_eq!(reaction_event_id, latest_event_id);
 }

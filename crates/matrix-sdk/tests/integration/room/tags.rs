@@ -117,8 +117,8 @@ async fn test_set_favourite_on_low_priority_room() {
     assert!(room.is_favourite().not());
     assert!(room.is_low_priority());
 
-    // Server will be called to set the room as favourite, and to unset the room as
-    // low priority.
+    // Server will be called to set the room as favourite, and to unset the room
+    // as low priority.
     mock_tag_api(&server, TagName::Favorite, TagOperation::Set, 1).await;
     mock_tag_api(&server, TagName::LowPriority, TagOperation::Remove, 1).await;
 
@@ -190,8 +190,8 @@ async fn test_set_low_priority_on_favourite_room() {
     assert!(room.is_favourite());
     assert!(room.is_low_priority().not());
 
-    // Server will be called to set the room as favourite, and to unset the room as
-    // low priority.
+    // Server will be called to set the room as favourite, and to unset the room
+    // as low priority.
     mock_tag_api(&server, TagName::LowPriority, TagOperation::Set, 1).await;
     mock_tag_api(&server, TagName::Favorite, TagOperation::Remove, 1).await;
 

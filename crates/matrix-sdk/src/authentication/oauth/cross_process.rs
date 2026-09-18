@@ -33,9 +33,9 @@ impl SessionHash {
             res.push('x');
         }
         for &c in &self.0 {
-            // We don't really care about little vs big endianness, since we only need a
-            // stable format, so we pick one: little endian (print high bits
-            // first).
+            // We don't really care about little vs big endianness, since we
+            // only need a stable format, so we pick one: little
+            // endian (print high bits first).
             res.push(CHARS[(c >> 4) as usize]);
             res.push(CHARS[(c & 0b1111) as usize]);
         }
@@ -79,13 +79,13 @@ impl CrossProcessRefreshManager {
     pub async fn spin_lock(
         &self,
     ) -> Result<CrossProcessRefreshLockGuard, CrossProcessRefreshLockError> {
-        // Acquire the intra-process mutex, to avoid multiple requests across threads in
-        // the current process.
+        // Acquire the intra-process mutex, to avoid multiple requests across
+        // threads in the current process.
         trace!("Waiting for intra-process lock...");
         let prev_hash = self.known_session_hash.clone().lock_owned().await;
 
-        // Acquire the cross-process mutex, to avoid multiple requests across different
-        // processus.
+        // Acquire the cross-process mutex, to avoid multiple requests across
+        // different processus.
         trace!("Waiting for inter-process lock...");
         let store_guard = self
             .store_lock
@@ -205,9 +205,10 @@ impl CrossProcessRefreshLockGuard {
         if let Some(db_hash) = &self.db_hash
             && new_hash != *db_hash
         {
-            // That should never happen, unless we got into an impossible situation!
-            // In this case, we assume the value returned by the callback is always
-            // correct, so override that in the database too.
+            // That should never happen, unless we got into an impossible
+            // situation! In this case, we assume the value returned
+            // by the callback is always correct, so override that
+            // in the database too.
             tracing::error!("error: DB and trusted disagree. Overriding in DB.");
             self.save_in_database(&new_hash).await?;
         }
@@ -356,8 +357,8 @@ mod tests {
         );
 
         {
-            // The cross process lock has been correctly updated, and the next attempt to
-            // take it won't result in a mismatch.
+            // The cross process lock has been correctly updated, and the next
+            // attempt to take it won't result in a mismatch.
             let xp_manager =
                 oauth.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
             let guard = xp_manager.spin_lock().await?;
@@ -372,8 +373,9 @@ mod tests {
 
     #[async_test]
     async fn test_refresh_access_token_twice() -> anyhow::Result<()> {
-        // This tests that refresh token works, and that it doesn't cause multiple token
-        // refreshes whenever one spawns two refreshes around the same time.
+        // This tests that refresh token works, and that it doesn't cause
+        // multiple token refreshes whenever one spawns two refreshes
+        // around the same time.
 
         let server = MatrixMockServer::new().await;
 
@@ -409,8 +411,8 @@ mod tests {
         }
 
         {
-            // The cross process lock has been correctly updated, and the next attempt to
-            // take it won't result in a mismatch.
+            // The cross process lock has been correctly updated, and the next
+            // attempt to take it won't result in a mismatch.
             let xp_manager =
                 oauth.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
             let guard = xp_manager.spin_lock().await?;
@@ -450,8 +452,8 @@ mod tests {
             .restore_session(mock_session(prev_tokens.clone()), RoomLoadSettings::default())
             .await?;
 
-        // Create a second client, without restoring it, to test that a token update
-        // before restoration doesn't cause new issues.
+        // Create a second client, without restoring it, to test that a token
+        // update before restoration doesn't cause new issues.
         let unrestored_client = server
             .client_builder()
             .on_builder(|builder| builder.sqlite_store(&tmp_dir, None))
@@ -462,8 +464,8 @@ mod tests {
         unrestored_oauth.enable_cross_process_refresh_lock("unrestored_client".to_owned()).await?;
 
         {
-            // Create a third client that will run a refresh while the others two are doing
-            // nothing.
+            // Create a third client that will run a refresh while the others
+            // two are doing nothing.
             let client3 = server
                 .client_builder()
                 .on_builder(|builder| builder.sqlite_store(&tmp_dir, None))
@@ -477,14 +479,14 @@ mod tests {
                 .restore_session(mock_session(prev_tokens.clone()), RoomLoadSettings::default())
                 .await?;
 
-            // Run a refresh in the second client; this will invalidate the tokens from the
-            // first token.
+            // Run a refresh in the second client; this will invalidate the
+            // tokens from the first token.
             oauth3.refresh_access_token().await?;
 
             assert_eq!(client3.session_tokens(), Some(next_tokens.clone()));
 
-            // Reading from the cross-process lock for the second client only shows the new
-            // tokens.
+            // Reading from the cross-process lock for the second client only
+            // shows the new tokens.
             let xp_manager =
                 oauth3.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
             let guard = xp_manager.spin_lock().await?;
@@ -495,7 +497,8 @@ mod tests {
         }
 
         {
-            // Restoring the client that was not restored yet will work Just Fine.
+            // Restoring the client that was not restored yet will work Just
+            // Fine.
             let oauth = unrestored_oauth;
 
             unrestored_client.set_session_callbacks(
@@ -525,8 +528,8 @@ mod tests {
         }
 
         {
-            // The cross process lock has been correctly updated, and the next attempt to
-            // take it will result in a mismatch.
+            // The cross process lock has been correctly updated, and the next
+            // attempt to take it will result in a mismatch.
             let xp_manager =
                 oauth.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
             let guard = xp_manager.spin_lock().await?;
@@ -595,8 +598,8 @@ mod tests {
         oauth.logout().await.unwrap();
 
         {
-            // The cross process lock has been correctly updated, and all the hashes are
-            // empty after a logout.
+            // The cross process lock has been correctly updated, and all the
+            // hashes are empty after a logout.
             let xp_manager =
                 oauth.ctx().cross_process_token_refresh_manager.get().context("must have lock")?;
             let guard = xp_manager.spin_lock().await?;
@@ -635,10 +638,11 @@ mod tests {
         let server = MatrixMockServer::new().await;
         let oauth_server = server.oauth();
 
-        // The token endpoint behaves like a rotating MAS. Only the first exchange
-        // succeeds and rotates the token: that one is the NSE's refresh, which the
-        // app is suspended through. Any later exchange presents the token that
-        // rotation consumed, and is rejected with `invalid_grant`.
+        // The token endpoint behaves like a rotating MAS. Only the first
+        // exchange succeeds and rotates the token: that one is the
+        // NSE's refresh, which the app is suspended through. Any later
+        // exchange presents the token that rotation consumed, and is
+        // rejected with `invalid_grant`.
         oauth_server
             .mock_token()
             .ok_with_tokens("1234", "ZYXWV") // == mock_session_tokens_with_refresh()
@@ -648,9 +652,9 @@ mod tests {
             .await;
         oauth_server.mock_token().invalid_grant().with_priority(2).mount().await;
 
-        // The app's (first) metadata request is delayed, to keep its refresh parked
-        // until after the NSE has rotated the token. The NSE's own request is
-        // answered immediately.
+        // The app's (first) metadata request is delayed, to keep its refresh
+        // parked until after the NSE has rotated the token. The NSE's
+        // own request is answered immediately.
         oauth_server
             .mock_server_metadata()
             .with_delay(Duration::from_secs(1))
@@ -661,8 +665,8 @@ mod tests {
             .await;
         oauth_server.mock_server_metadata().ok().with_priority(2).mount().await;
 
-        // The app and the NSE are two clients over one shared sqlite store, both
-        // restored with the same (prev) session.
+        // The app and the NSE are two clients over one shared sqlite store,
+        // both restored with the same (prev) session.
         let tmp_dir = tempfile::tempdir().unwrap();
 
         let app = server
@@ -705,13 +709,14 @@ mod tests {
         )
         .unwrap();
 
-        // Start the app's refresh; it takes the lock and then parks in the delayed
-        // `server_metadata()` request.
+        // Start the app's refresh; it takes the lock and then parks in the
+        // delayed `server_metadata()` request.
         let app_oauth = app.oauth();
         let app_refresh = tokio::spawn(async move { app_oauth.refresh_access_token().await });
 
-        // Wait until the app has actually issued that request — by then it holds the
-        // lock and, in the buggy ordering, has already captured the refresh token.
+        // Wait until the app has actually issued that request — by then it
+        // holds the lock and, in the buggy ordering, has already
+        // captured the refresh token.
         let mut waited = Duration::ZERO;
         while !server
             .received_requests()
@@ -725,17 +730,19 @@ mod tests {
             waited += Duration::from_millis(10);
         }
 
-        // "Suspend" the app: blocking the current-thread runtime freezes every task,
-        // including the one renewing the lease, so the 500ms lock lease lapses.
+        // "Suspend" the app: blocking the current-thread runtime freezes every
+        // task, including the one renewing the lease, so the 500ms lock
+        // lease lapses.
         thread::sleep(Duration::from_millis(700));
 
-        // The NSE steals the lapsed lock and refreshes, rotating prev -> next and
-        // consuming the prev token at the server.
+        // The NSE steals the lapsed lock and refreshes, rotating prev -> next
+        // and consuming the prev token at the server.
         nse.oauth().refresh_access_token().await.unwrap();
         assert_eq!(nse.session_tokens(), Some(mock_session_tokens_with_refresh()));
 
         // The app resumes when its metadata delay elapses. It must notice the
-        // rotation and recover, rather than exchange the token it captured earlier.
+        // rotation and recover, rather than exchange the token it captured
+        // earlier.
         let app_refresh = app_refresh.await.expect("the app refresh task shouldn't panic");
 
         assert!(

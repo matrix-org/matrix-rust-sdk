@@ -570,8 +570,9 @@ impl ClientBuilder {
         {
             let mut certificates = Vec::new();
             for certificate in builder.additional_root_certificates {
-                // We don't really know what type of certificate we may get here, so let's try
-                // first one type, then the other.
+                // We don't really know what type of certificate we may get
+                // here, so let's try first one type, then the
+                // other.
                 match Certificate::from_der(&certificate) {
                     Ok(cert) => {
                         certificates.push(cert);
@@ -670,8 +671,8 @@ impl ClientBuilder {
 
             use matrix_sdk_base::crypto::x509::X509SignatureSigningError;
 
-            // Wrap the provided RawX509Signer impl in a shim which converts the arguments
-            // and results.
+            // Wrap the provided RawX509Signer impl in a shim which converts the
+            // arguments and results.
             #[derive(Debug)]
             struct X509SignImpl(Arc<dyn RawX509Signer>);
 
@@ -706,8 +707,8 @@ impl ClientBuilder {
         if let Some(x509_verify) = builder.raw_x509_verifier {
             use matrix_sdk_base::crypto::x509::X509SignatureVerificationError;
 
-            // Wrap the provided RawX509Verifier impl in a shim which converts the
-            // arguments.
+            // Wrap the provided RawX509Verifier impl in a shim which converts
+            // the arguments.
             #[derive(Debug)]
             struct X509VerifyImpl(Arc<dyn RawX509Verifier>);
             impl matrix_sdk_base::crypto::x509::RawX509Verifier for X509VerifyImpl {

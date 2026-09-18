@@ -72,8 +72,8 @@ pub(super) async fn room_updates_task(
             }
 
             Err(RecvError::Lagged(num_skipped)) => {
-                // Forget everything we know; we could have missed events, and we have
-                // no way to reconcile at the moment!
+                // Forget everything we know; we could have missed events, and
+                // we have no way to reconcile at the moment!
                 // TODO: implement Smart Matching™,
                 warn!(num_skipped, "Lagged behind room updates, clearing all rooms");
                 if let Err(err) = inner.clear_all_rooms().await {
@@ -353,8 +353,9 @@ async fn handle_thread_subscriber_send_queue_update(
             if let Some(thread_root) = extract_thread_root_from_content(new_content.into_raw().0) {
                 events_being_sent.insert(transaction_id, thread_root);
             } else {
-                // It could be that the event isn't part of a thread anymore; handle that by
-                // removing the pending transaction id.
+                // It could be that the event isn't part of a thread anymore;
+                // handle that by removing the pending
+                // transaction id.
                 events_being_sent.remove(&transaction_id);
             }
             return true;
@@ -364,7 +365,8 @@ async fn handle_thread_subscriber_send_queue_update(
             if let Some(thread_root) = events_being_sent.remove(&transaction_id) {
                 (thread_root, event_id)
             } else {
-                // We don't know about the event that has been sent, so ignore it.
+                // We don't know about the event that has been sent, so ignore
+                // it.
                 trace!(%transaction_id, "received a sent event that we didn't know about, ignoring");
                 return true;
             }
@@ -378,7 +380,8 @@ async fn handle_thread_subscriber_send_queue_update(
         }
     };
 
-    // And if we've found such a mention, subscribe to the thread up to this event.
+    // And if we've found such a mention, subscribe to the thread up to this
+    // event.
     trace!(thread = %thread_root, up_to = %subscribe_up_to, "found a new thread to subscribe to");
 
     if let Err(err) = room.subscribe_thread_if_needed(&thread_root, Some(subscribe_up_to)).await {
@@ -427,13 +430,13 @@ async fn handle_thread_subscriber_linked_chunk_update(
         return true;
     }
 
-    // This `PushContext` is going to be used to compute whether an in-thread event
-    // would trigger a mention.
+    // This `PushContext` is going to be used to compute whether an in-thread
+    // event would trigger a mention.
     //
     // Of course, we're not interested in an in-thread event causing a mention,
     // because it's part of a thread we've subscribed to. So the
-    // `PushContext` must not include the check for thread subscriptions (otherwise
-    // it would be impossible to subscribe to new threads).
+    // `PushContext` must not include the check for thread subscriptions
+    // (otherwise it would be impossible to subscribe to new threads).
 
     let with_thread_subscriptions = false;
 
@@ -453,8 +456,8 @@ async fn handle_thread_subscriber_linked_chunk_update(
     let mut subscribe_up_to = None;
 
     // Find if there's an event that would trigger a mention for the current
-    // user, iterating from the end of the new events towards the oldest, so we can
-    // find the most recent event to subscribe to.
+    // user, iterating from the end of the new events towards the oldest, so we
+    // can find the most recent event to subscribe to.
     for ev in new_events.rev() {
         if push_context.for_event(ev.raw()).await.into_iter().any(|action| action.should_notify()) {
             let Some(event_id) = ev.event_id() else {

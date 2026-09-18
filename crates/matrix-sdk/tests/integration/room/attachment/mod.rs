@@ -154,9 +154,9 @@ async fn test_room_attachment_send_wrong_info() {
 
     mock.mock_authenticated_media_config().ok_default().mount().await;
 
-    // Note: this mock is NOT called because the height and width are lost, because
-    // we're trying to send the attachment as an image, while we provide a
-    // `VideoInfo`.
+    // Note: this mock is NOT called because the height and width are lost,
+    // because we're trying to send the attachment as an image, while we
+    // provide a `VideoInfo`.
     //
     // So long for static typing.
 
@@ -278,8 +278,8 @@ async fn test_room_attachment_send_info_thumbnail() {
     // The event was sent.
     assert_eq!(response.event_id, expected_event_id);
 
-    // The media is immediately cached in the cache store, so we don't need to set
-    // up another mock endpoint for getting the media.
+    // The media is immediately cached in the cache store, so we don't need to
+    // set up another mock endpoint for getting the media.
     let reloaded = client.media().get_media_content(&media_request, true).await.unwrap();
     assert_eq!(reloaded, b"Hello world");
 
@@ -300,7 +300,8 @@ async fn test_room_attachment_send_info_thumbnail() {
         .await
         .unwrap_err();
 
-    // But it is not found when requesting it as a thumbnail with a different size.
+    // But it is not found when requesting it as a thumbnail with a different
+    // size.
     let thumbnail_request = MediaRequestParameters {
         source: MediaSource::Plain(thumbnail_mxc),
         format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(uint!(42), uint!(1337))),

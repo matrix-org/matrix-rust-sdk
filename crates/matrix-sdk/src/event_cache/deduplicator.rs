@@ -38,15 +38,15 @@ pub async fn filter_duplicate_events(
     linked_chunk: &EventLinkedChunk,
     mut new_events: Vec<Event>,
 ) -> Result<DeduplicationOutcome, EventCacheError> {
-    // Remove all events with no ID, or that are duplicated among the new events,
-    // i.e. `new_events` contains duplicated events in itself (e.g. `[$e0, $e1,
-    // $e0]`, here `$e0` is duplicated).
+    // Remove all events with no ID, or that are duplicated among the new
+    // events, i.e. `new_events` contains duplicated events in itself (e.g.
+    // `[$e0, $e1, $e0]`, here `$e0` is duplicated).
     {
         let mut event_ids = BTreeSet::new();
 
         new_events.retain(|event| {
-            // Only keep events with IDs, and those for which `insert` returns `true`
-            // (meaning they were not in the set).
+            // Only keep events with IDs, and those for which `insert` returns
+            // `true` (meaning they were not in the set).
             event.event_id().is_some_and(|event_id| event_ids.insert(event_id.to_owned()))
         });
     }
@@ -59,8 +59,8 @@ pub async fn filter_duplicate_events(
         )
         .await?;
 
-    // Separate duplicated events in two collections: ones that are in-memory, ones
-    // that are in the store.
+    // Separate duplicated events in two collections: ones that are in-memory,
+    // ones that are in the store.
     let (in_memory_duplicated_event_ids, in_store_duplicated_event_ids) = {
         // Collect all in-memory chunk identifiers.
         let in_memory_chunk_identifiers =
@@ -192,8 +192,8 @@ mod tests {
         let event_id_4 = owned_event_id!("$ev4");
 
         // `event_0` and `event_1` are in the store.
-        // `event_2` and `event_3` is in the store, but also in memory: it's loaded in
-        // memory from the store.
+        // `event_2` and `event_3` is in the store, but also in memory: it's
+        // loaded in memory from the store.
         // `event_4` is nowhere, it's new.
         let event_0 = timeline_event(&event_id_0);
         let event_1 = timeline_event(&event_id_1);
@@ -242,9 +242,9 @@ mod tests {
         let event_cache_store_guard = event_cache_store.as_clean().unwrap();
 
         {
-            // When presenting with only duplicate events, some of them in the in-memory
-            // chunk, all of them in the store, we should return all of them as
-            // duplicates.
+            // When presenting with only duplicate events, some of them in the
+            // in-memory chunk, all of them in the store, we should
+            // return all of them as duplicates.
 
             let mut linked_chunk = EventLinkedChunk::new();
             linked_chunk.push_events([event_1.clone(), event_2.clone(), event_3.clone()]);
@@ -298,8 +298,8 @@ mod tests {
             (event_id_3, Position::new(ChunkIdentifier::new(0), 1))
         );
 
-        // From these 4 events, 2 are duplicated and live in the store only, they have
-        // not been loaded in memory.
+        // From these 4 events, 2 are duplicated and live in the store only,
+        // they have not been loaded in memory.
         //
         // Note that events are sorted by their descending position.
         assert_eq!(outcome.in_store_duplicated_event_ids.len(), 2);

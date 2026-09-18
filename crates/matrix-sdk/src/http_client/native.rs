@@ -51,8 +51,8 @@ impl HttpClient {
         // some functions split out so they only get compiled once,
         // not monomorphized per request type
         fn make_backoff(config: &RequestConfig) -> ExponentialBuilder {
-            // These values were picked because we used to use the `backoff` crate, those
-            // were defined here: https://docs.rs/backoff/0.4.0/backoff/default/index.html
+            // These values were picked because we used to use the `backoff`
+            // crate, those were defined here: https://docs.rs/backoff/0.4.0/backoff/default/index.html
             let mut backoff = ExponentialBuilder::new()
                 .with_min_delay(Duration::from_millis(500))
                 .with_max_delay(Duration::from_secs(60))
@@ -65,8 +65,9 @@ impl HttpClient {
             }
 
             if let Some(max_times) = config.retry_limit {
-                // Backon behaves a bit differently to our own handcrafted max retry logic.
-                // We were counting from one while `backon` counts from zero.
+                // Backon behaves a bit differently to our own handcrafted max
+                // retry logic. We were counting from one while
+                // `backon` counts from zero.
                 backoff = backoff.with_max_times(max_times.saturating_sub(1))
             }
 
@@ -94,13 +95,14 @@ impl HttpClient {
                 .record("response_size", response_size.display().si_short().to_string())
                 .record("request_duration", tracing::field::debug(request_duration));
 
-            // Record interesting headers. If you add more headers, ensure they're not
-            // confidential.
+            // Record interesting headers. If you add more headers, ensure
+            // they're not confidential.
             for (header_name, header_value) in response.headers() {
                 let header_name = header_name.as_str().to_lowercase();
 
-                // Header added in case of OAuth 2.0 authentication failure, so we can correlate
-                // failures with a Sentry event emitted by the OAuth 2.0 authentication server.
+                // Header added in case of OAuth 2.0 authentication failure, so
+                // we can correlate failures with a Sentry event
+                // emitted by the OAuth 2.0 authentication server.
                 if header_name == "x-sentry-event-id" {
                     tracing::Span::current()
                         .record("sentry_event_id", header_value.to_str().unwrap_or("<???>"));
@@ -116,12 +118,15 @@ impl HttpClient {
         ) -> Option<Duration> {
             match err.retry_kind() {
                 RetryKind::Transient { retry_after } => {
-                    // This bit is somewhat tricky but it's necessary so we respect the
-                    // `max_times` limit from `backon`.
+                    // This bit is somewhat tricky but it's necessary so we
+                    // respect the `max_times` limit from
+                    // `backon`.
                     //
-                    // The exponential backoff in `backon` is implemented as an iterator that
-                    // returns `None` when we hit the `max_times` limit; if it returned `None`,
-                    // that means we ran out of attempts. So it's necessary to only override
+                    // The exponential backoff in `backon` is implemented as an
+                    // iterator that returns `None` when we
+                    // hit the `max_times` limit; if it returned `None`,
+                    // that means we ran out of attempts. So it's necessary to
+                    // only override
                     // the `backon_suggested_timeout` if it's `Some`.
                     if backon_suggested_timeout.is_some() {
                         retry_after.or(backon_suggested_timeout)
@@ -131,9 +136,11 @@ impl HttpClient {
                 }
                 RetryKind::Permanent => None,
                 RetryKind::NetworkFailure => {
-                    // If we ran into a network failure, only retry if there's some retry limit
-                    // associated to this request's configuration; otherwise, we would end up
-                    // running an infinite loop of network requests in offline mode.
+                    // If we ran into a network failure, only retry if there's
+                    // some retry limit associated to this
+                    // request's configuration; otherwise, we would end up
+                    // running an infinite loop of network requests in offline
+                    // mode.
                     if has_retry_limit { backon_suggested_timeout } else { None }
                 }
             }

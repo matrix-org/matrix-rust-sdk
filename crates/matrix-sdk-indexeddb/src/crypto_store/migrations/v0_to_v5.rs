@@ -30,10 +30,11 @@ use crate::crypto_store::{
 pub(crate) async fn schema_add(name: &str) -> Result<(), OpenDbError> {
     do_schema_upgrade(name, 5, |tx, old_version| {
         let db = tx.db();
-        // An old_version of 1 could either mean actually the first version of the
-        // schema, or a completely empty schema that has been created with a
-        // call to `Database::open` with no explicit "version". So, to determine
-        // if we need to create the V1 stores, we actually check if the schema is empty.
+        // An old_version of 1 could either mean actually the first version of
+        // the schema, or a completely empty schema that has been
+        // created with a call to `Database::open` with no explicit
+        // "version". So, to determine if we need to create the V1
+        // stores, we actually check if the schema is empty.
         if db.object_store_names().next().is_none() {
             schema_add_v1(db)?;
         }

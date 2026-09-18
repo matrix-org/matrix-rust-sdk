@@ -129,8 +129,8 @@ pub async fn open_and_upgrade_db(
 
     let old_version = db_version(name).await?;
 
-    // If the database version is too new, bail out. We assume that schema updates
-    // all the way up to `MAX_SUPPORTED_SCHEMA_VERSION` will be
+    // If the database version is too new, bail out. We assume that schema
+    // updates all the way up to `MAX_SUPPORTED_SCHEMA_VERSION` will be
     // backwards-compatible.
     if old_version > MAX_SUPPORTED_SCHEMA_VERSION {
         return Err(IndexeddbCryptoStoreError::SchemaTooNewError {
@@ -220,9 +220,10 @@ pub async fn open_and_upgrade_db(
     // If you add more migrations here, you'll need to update
     // `tests::EXPECTED_SCHEMA_VERSION`.
 
-    // NOTE: IF YOU MAKE A BREAKING CHANGE TO THE SCHEMA, BUMP THE SCHEMA VERSION TO
-    // SOMETHING HIGHER THAN `MAX_SUPPORTED_SCHEMA_VERSION`! (And then bump
-    // `MAX_SUPPORTED_SCHEMA_VERSION` itself to the next multiple of 10).
+    // NOTE: IF YOU MAKE A BREAKING CHANGE TO THE SCHEMA, BUMP THE SCHEMA
+    // VERSION TO SOMETHING HIGHER THAN `MAX_SUPPORTED_SCHEMA_VERSION`! (And
+    // then bump `MAX_SUPPORTED_SCHEMA_VERSION` itself to the next multiple
+    // of 10).
 
     // Open and return the DB (we know it's at the latest version)
     Ok(Database::open(name).await?)
@@ -256,8 +257,8 @@ where
     let db = Database::open(name)
         .with_version(version)
         .with_on_upgrade_needed(move |evt, tx| {
-            // Even if the web-sys bindings expose the version as a f64, the IndexedDB API
-            // works with an unsigned integer.
+            // Even if the web-sys bindings expose the version as a f64, the
+            // IndexedDB API works with an unsigned integer.
             // See <https://github.com/rustwasm/wasm-bindgen/issues/1149>
             let old_version = evt.old_version() as u32;
 
@@ -329,8 +330,8 @@ mod tests {
     async fn test_count_lots_of_sessions_v8() {
         let cipher = Arc::new(StoreCipher::new().unwrap());
         let serializer = SafeEncodeSerializer::new(Some(cipher.clone()));
-        // Session keys are slow to create, so make one upfront and use it for every
-        // session
+        // Session keys are slow to create, so make one upfront and use it for
+        // every session
         let session_key = create_session_key();
 
         // Create lots of InboundGroupSessionIndexedDbObject2 objects
@@ -374,8 +375,8 @@ mod tests {
     async fn test_count_lots_of_sessions_v10() {
         let serializer = SafeEncodeSerializer::new(Some(Arc::new(StoreCipher::new().unwrap())));
 
-        // Session keys are slow to create, so make one upfront and use it for every
-        // session
+        // Session keys are slow to create, so make one upfront and use it for
+        // every session
         let session_key = create_session_key();
 
         // Create lots of InboundGroupSessionIndexedDbObject objects
@@ -601,7 +602,8 @@ mod tests {
         let store =
             IndexeddbCryptoStore::open_with_store_cipher(&db_prefix, store_cipher).await.unwrap();
 
-        // Then I can find the sessions using their keys and their info is correct
+        // Then I can find the sessions using their keys and their info is
+        // correct
         let fetched_backed_up_session = store
             .get_inbound_group_session(room_id, backed_up_session.session_id())
             .await
@@ -623,8 +625,8 @@ mod tests {
         // For v10: they have the backed_up_to property and it is indexed
         assert_matches_v10_schema(&db_name, &store, &fetched_backed_up_session).await;
 
-        // For v12: they have the session_id, sender_key and sender_data_type properties
-        // and they are indexed
+        // For v12: they have the session_id, sender_key and sender_data_type
+        // properties and they are indexed
         assert_matches_v12_schema(&db_name, &store, &fetched_backed_up_session).await;
     }
 
@@ -747,8 +749,8 @@ mod tests {
         session_entries: &[&InboundGroupSession],
     ) {
         // Schema V7 migrated the inbound group sessions to a new format.
-        // To test, first create a database and populate it with the *old* style of
-        // entry.
+        // To test, first create a database and populate it with the *old* style
+        // of entry.
         let db = create_v5_db(&db_name).await.unwrap();
 
         let serializer = SafeEncodeSerializer::new(store_cipher.clone());
@@ -766,15 +768,15 @@ mod tests {
                 serializer.encode_key(old_keys::INBOUND_GROUP_SESSIONS_V1, (room_id, session_id));
             let pickle = session.pickle().await;
 
-            // Serialize the session with the old style of serialization, since that's what
-            // we used at the time.
+            // Serialize the session with the old style of serialization, since
+            // that's what we used at the time.
             let serialized_session = serialize_value_as_legacy(&store_cipher, &pickle);
             sessions.put(&serialized_session).with_key(key).build().unwrap();
         }
         txn.commit().await.unwrap();
 
-        // now close our DB, reopen it properly, and check that we can still read our
-        // data.
+        // now close our DB, reopen it properly, and check that we can still
+        // read our data.
         db.close();
     }
 
@@ -1068,8 +1070,8 @@ mod tests {
         // Open, and close, the store at the regular version.
         IndexeddbCryptoStore::open_with_store_cipher(&db_prefix, None).await.unwrap();
 
-        // Now upgrade to the given version, keeping a record of the previous version so
-        // that we can double-check it.
+        // Now upgrade to the given version, keeping a record of the previous
+        // version so that we can double-check it.
         let old_version: Rc<Cell<Option<u32>>> = Rc::new(Cell::new(None));
         let old_version2 = old_version.clone();
 
@@ -1102,7 +1104,8 @@ mod tests {
         value: &T,
     ) -> JsValue {
         if let Some(cipher) = &store_cipher {
-            // Old-style serialization/encryption. First JSON-serialize into a byte array...
+            // Old-style serialization/encryption. First JSON-serialize into a
+            // byte array...
             let data = serde_json::to_vec(&value).unwrap();
             // ... then encrypt...
             let encrypted = cipher.encrypt_value_data(data).unwrap();

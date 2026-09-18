@@ -67,8 +67,8 @@ async fn test_multiple_clients_share_crypto_state() -> Result<()> {
     // And given they are both in an encrypted room together
     let room_id = create_encrypted_room(&alice_main, &bob).await;
 
-    // And given both alices have an Olm session with bob (because they received a
-    // message from him)
+    // And given both alices have an Olm session with bob (because they received
+    // a message from him)
     {
         let _span = span!(Level::INFO, "msg1_from_bob").entered();
 
@@ -90,8 +90,8 @@ async fn test_multiple_clients_share_crypto_state() -> Result<()> {
     }
 
     // Then the NSE process can still receive messages from bob.
-    // (This means that the NSE process must have notice that its Olm machine was
-    // out-of-date and refreshed it from the DB.)
+    // (This means that the NSE process must have notice that its Olm machine
+    // was out-of-date and refreshed it from the DB.)
     {
         let _span = span!(Level::INFO, "msg3_from_bob").entered();
 
@@ -188,12 +188,14 @@ impl ClientWrapper {
         let encrypted_events_clone2 = encrypted_events.clone();
         let events_clone2 = events.clone();
         client.add_event_handler(|_ev: ToDeviceRoomKeyEvent, client: Client| async move {
-            // Whenever we received any room key, attempt to decrypt all existing encrypted
-            // events. This could be more efficient, but it does the job.
+            // Whenever we received any room key, attempt to decrypt all
+            // existing encrypted events. This could be more
+            // efficient, but it does the job.
             let evts = encrypted_events_clone2.lock().unwrap().clone();
             for (event, room_id) in evts.iter() {
                 if let Some((event_id, content)) = decrypt_event(&client, room_id, event).await {
-                    // If we did decrypt an event, remember it in our list of events we've seen
+                    // If we did decrypt an event, remember it in our list of
+                    // events we've seen
                     events_clone2.lock().unwrap().push((event_id, content));
                 }
             }
@@ -230,8 +232,8 @@ impl ClientWrapper {
 
             room.send_state_event(content).await.expect("Failed to send state event");
 
-            // Give the sync loop time to run, to be fairly sure the encryption event is
-            // received
+            // Give the sync loop time to run, to be fairly sure the encryption
+            // event is received
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     }

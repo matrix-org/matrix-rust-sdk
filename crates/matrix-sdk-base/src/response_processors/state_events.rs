@@ -141,7 +141,8 @@ pub mod sync {
                         room_info.handle_state_event(&mut raw_event);
                     } else {
                         // Do not add the event to `room_info`.
-                        // Do not add the event to `context.state_changes.state`.
+                        // Do not add the event to
+                        // `context.state_changes.state`.
                         continue;
                     }
                 }
@@ -233,9 +234,9 @@ pub mod sync {
         state_events: &mut [RawStateEventWithKeys<AnySyncStateEvent>],
         room_info: &mut RoomInfo,
     ) {
-        // Start from the last event; the first membership event we see in that order is
-        // the last in the regular order, so that's the only one we need to
-        // consider.
+        // Start from the last event; the first membership event we see in that
+        // order is the last in the regular order, so that's the only
+        // one we need to consider.
         if let Some(member) = state_events.iter_mut().rev().find_map(|event| {
             // Find the event that updates the current user's membership.
             if event.event_type == StateEventType::RoomMember
@@ -365,9 +366,9 @@ pub mod stripped {
         user_id: &UserId,
         raw_state_events: &[RawStateEventWithKeys<AnyStrippedStateEvent>],
     ) {
-        // Start from the last event; the first membership event we see in that order is
-        // the last in the regular order, so that's the only one we need to
-        // consider.
+        // Start from the last event; the first membership event we see in that
+        // order is the last in the regular order, so that's the only
+        // one we need to consider.
         if raw_state_events.iter().rev().any(|raw_event| {
             // Find the event that updates the current user's membership.
             raw_event.event_type == StateEventType::RoomMember
@@ -416,9 +417,9 @@ pub fn validate_create_event_predecessor(
     };
 
     loop {
-        // We must check immediately if the `predecessor_room_id` is in `already_seen`
-        // in case of a room is created and marks itself as its predecessor in a single
-        // sync.
+        // We must check immediately if the `predecessor_room_id` is in
+        // `already_seen` in case of a room is created and marks itself
+        // as its predecessor in a single sync.
         if already_seen.contains(&predecessor_room_id) {
             // Ahhh, there is a loop with `m.room.create` events!
             // We remove the predecessor so that we don't process it later.
@@ -478,8 +479,9 @@ pub fn is_tombstone_event_valid(
     let mut successor_room_id = tombstone.replacement_room.clone();
 
     loop {
-        // We must check immediately if the `successor_room_id` is in `already_seen` in
-        // case of a room is created and tombstones itself in a single sync.
+        // We must check immediately if the `successor_room_id` is in
+        // `already_seen` in case of a room is created and tombstones
+        // itself in a single sync.
         if already_seen.contains(AsRef::<RoomId>::as_ref(&successor_room_id)) {
             // Ahhh, there is a loop with `m.room.tombstone` events!
             error!(?room_id, ?tombstone, "`m.room.tombstone` event is invalid, it creates a loop");
@@ -488,7 +490,8 @@ pub fn is_tombstone_event_valid(
 
         already_seen.insert(successor_room_id.clone());
 
-        // Where is the successor room? Check in `room_infos` and then in `state_store`.
+        // Where is the successor room? Check in `room_infos` and then in
+        // `state_store`.
         let Some(next_successor_room_id) = context
             .state_changes
             .room_infos
@@ -800,8 +803,8 @@ mod tests {
         let sender = user_id!("@mnt_io:matrix.org");
         let event_factory = EventFactory::new().sender(sender);
         let mut response_builder = SyncResponseBuilder::new();
-        // The room IDs are important because `SyncResponseBuilder` stores them in a
-        // `HashMap`, so they are going to be “shuffled”.
+        // The room IDs are important because `SyncResponseBuilder` stores them
+        // in a `HashMap`, so they are going to be “shuffled”.
         let room_id_0 = room_id!("!r1");
         let room_id_1 = room_id!("!r0");
         let room_id_2 = room_id!("!r2");
@@ -853,7 +856,8 @@ mod tests {
                 )
                 .build_sync_response();
 
-            // At this point, we can check that `response` contains misordered room updates.
+            // At this point, we can check that `response` contains misordered
+            // room updates.
             {
                 let mut rooms = response.rooms.join.keys();
 
@@ -1150,9 +1154,10 @@ mod tests {
 
         // Room 0, room 1 and room 2.
         //
-        // Doing that in one sync, it's the only way to create such loop (otherwise it
-        // implies overwriting the `m.room.create` event, or not setting it first, then
-        // setting it later… anyway, it works in one sync)
+        // Doing that in one sync, it's the only way to create such loop
+        // (otherwise it implies overwriting the `m.room.create` event,
+        // or not setting it first, then setting it later… anyway, it
+        // works in one sync)
         {
             let response = response_builder
                 .add_joined_room(
@@ -1205,8 +1210,8 @@ mod tests {
             // The sync doesn't fail but…
             assert!(client.receive_sync_response(response).await.is_ok());
 
-            // … the state event for room 2 -> room 0 has not been saved, but room 0 <- room
-            // 2 has been saved.
+            // … the state event for room 2 -> room 0 has not been saved, but
+            // room 0 <- room 2 has been saved.
             let room_0 = client.get_room(room_id_0).unwrap();
 
             assert_eq!(

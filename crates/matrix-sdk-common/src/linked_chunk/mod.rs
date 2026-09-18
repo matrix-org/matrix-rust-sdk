@@ -218,8 +218,8 @@ impl<const CAP: usize, Item, Gap> Ends<CAP, Item, Gap> {
 
     /// Lazily get an mutable pointer to the first chunk.
     fn first_chunk_mut_ptr(&mut self) -> &mut NonNull<Chunk<CAP, Item, Gap>> {
-        // `OnceLock::get_or_init_mut` is unstable. We can fake it by using a combo of
-        // `get_or_init` + `get_mut`.
+        // `OnceLock::get_or_init_mut` is unstable. We can fake it by using a
+        // combo of `get_or_init` + `get_mut`.
         let _ = self.first_chunk_ptr();
 
         self.first
@@ -233,23 +233,23 @@ impl<const CAP: usize, Item, Gap> Ends<CAP, Item, Gap> {
 
     /// Get the first chunk, as an immutable reference.
     fn first_chunk(&self) -> &Chunk<CAP, Item, Gap> {
-        // SAFETY: The pointer to the first chunk has been correctly initialised and is
-        // convertible to a reference.
+        // SAFETY: The pointer to the first chunk has been correctly initialised
+        // and is convertible to a reference.
         unsafe { self.first_chunk_ptr().as_ref() }
     }
 
     /// Get the first chunk, as a mutable reference.
     fn first_chunk_mut(&mut self) -> &mut Chunk<CAP, Item, Gap> {
-        // SAFETY: The pointer to the first chunk has been correctly initialised and is
-        // convertible to a mutable reference.
+        // SAFETY: The pointer to the first chunk has been correctly initialised
+        // and is convertible to a mutable reference.
         unsafe { self.first_chunk_mut_ptr().as_mut() }
     }
 
     /// Get the latest chunk, as an immutable reference.
     fn latest_chunk(&self) -> &Chunk<CAP, Item, Gap> {
         if let Some(last) = &self.last {
-            // SAFETY: The pointer to the last chunk has been correctly initialised and is
-            // convertible to a reference.
+            // SAFETY: The pointer to the last chunk has been correctly
+            // initialised and is convertible to a reference.
             unsafe { last.as_ref() }
         } else {
             self.first_chunk()
@@ -259,8 +259,9 @@ impl<const CAP: usize, Item, Gap> Ends<CAP, Item, Gap> {
     /// Get the latest chunk, as a mutable reference.
     fn latest_chunk_mut(&mut self) -> &mut Chunk<CAP, Item, Gap> {
         if let Some(last) = &mut self.last {
-            // SAFETY: The pointer to the last chunk has been correctly initialised and is
-            // convertible to a mutable reference.
+            // SAFETY: The pointer to the last chunk has been correctly
+            // initialised and is convertible to a mutable
+            // reference.
             unsafe { last.as_mut() }
         } else {
             self.first_chunk_mut()
@@ -296,8 +297,8 @@ impl<const CAP: usize, Item, Gap> Ends<CAP, Item, Gap> {
     /// Drop all the chunks, the first chunk will be created lazily with the
     /// identifier [`ChunkIdentifierGenerator::FIRST_IDENTIFIER`].
     fn clear(&mut self) {
-        // Loop over all chunks, from the last to the first chunk, and drop them.
-        // Take the latest chunk.
+        // Loop over all chunks, from the last to the first chunk, and drop
+        // them. Take the latest chunk.
         let mut current_chunk_ptr = self.last.or_else(|| self.first.get().copied());
 
         // As long as we have another chunk…
@@ -408,8 +409,8 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
         // “Clear” `self.updates`.
         if let Some(updates) = self.updates.as_mut() {
-            // Clear the previous updates, as we're about to insert a clear they would be
-            // useless.
+            // Clear the previous updates, as we're about to insert a clear they
+            // would be useless.
             updates.clear_pending();
             updates.push(Update::Clear);
         }
@@ -437,12 +438,12 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
         debug_assert!(last_chunk.is_last_chunk(), "`last_chunk` must be… the last chunk");
 
-        // We need to update `self.links.last` if and only if `last_chunk` _is not_ the
-        // first chunk, and _is_ the last chunk (ensured by the `debug_assert!`
-        // above).
+        // We need to update `self.links.last` if and only if `last_chunk` _is
+        // not_ the first chunk, and _is_ the last chunk (ensured by the
+        // `debug_assert!` above).
         if !last_chunk.is_first_chunk() {
-            // Maybe `last_chunk` is the same as the previous `self.links.last` chunk, but
-            // it's OK.
+            // Maybe `last_chunk` is the same as the previous `self.links.last`
+            // chunk, but it's OK.
             self.links.last = Some(last_chunk.as_ptr());
         }
     }
@@ -539,11 +540,11 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             }
         };
 
-        // We need to update `self.links.last` if and only if `chunk` _is not_ the first
-        // chunk, and _is_ the last chunk.
+        // We need to update `self.links.last` if and only if `chunk` _is not_
+        // the first chunk, and _is_ the last chunk.
         if !chunk.is_first_chunk() && chunk.is_last_chunk() {
-            // Maybe `chunk` is the same as the previous `self.links.last` chunk, but it's
-            // OK.
+            // Maybe `chunk` is the same as the previous `self.links.last`
+            // chunk, but it's OK.
             self.links.last = Some(chunk.as_ptr());
         }
 
@@ -594,8 +595,9 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
                 chunk_ptr = Some(chunk.as_ptr());
 
-                // We need to update `self.links.last` if and only if `chunk` _is_ the last
-                // chunk. The new last chunk is the chunk before `chunk`.
+                // We need to update `self.links.last` if and only if `chunk`
+                // _is_ the last chunk. The new last chunk is
+                // the chunk before `chunk`.
                 if chunk.is_last_chunk() {
                     self.links.last = chunk.previous;
                 }
@@ -609,8 +611,9 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
             // Re-box the chunk, and let Rust do its job.
             //
-            // SAFETY: `chunk` is unlinked and not borrowed anymore. `LinkedChunk` doesn't
-            // use it anymore, it's a leak. It is time to re-`Box` it and drop it.
+            // SAFETY: `chunk` is unlinked and not borrowed anymore.
+            // `LinkedChunk` doesn't use it anymore, it's a leak. It
+            // is time to re-`Box` it and drop it.
             let _chunk_boxed = unsafe { Box::from_raw(chunk_ptr.as_ptr()) };
         }
 
@@ -643,7 +646,8 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                     return Err(Error::InvalidItemIndex { index: item_index });
                 }
 
-                // Avoid one spurious clone by notifying about the update *before* applying it.
+                // Avoid one spurious clone by notifying about the update
+                // *before* applying it.
                 if let Some(updates) = self.updates.as_mut() {
                     updates.push(Update::ReplaceItem {
                         at: Position(chunk_identifier, item_index),
@@ -681,8 +685,9 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             }
 
             ChunkContent::Items(current_items) => {
-                // If `item_index` is 0, we don't want to split the current items chunk to
-                // insert a new gap chunk, otherwise it would create an empty current items
+                // If `item_index` is 0, we don't want to split the current
+                // items chunk to insert a new gap chunk,
+                // otherwise it would create an empty current items
                 // chunk. Let's handle this case in particular.
                 if item_index == 0 {
                     let chunk_was_first = chunk.is_first_chunk();
@@ -698,12 +703,14 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
                     // `chunk` was the first: let's update `self.links.first`.
                     //
-                    // If `chunk` was not the first but was the last, there is nothing to do,
-                    // `self.links.last` is already up-to-date.
+                    // If `chunk` was not the first but was the last, there is
+                    // nothing to do, `self.links.last` is
+                    // already up-to-date.
                     if chunk_was_first {
                         *self.links.first_chunk_mut_ptr() = new_chunk_ptr;
 
-                        // `chunk` was the first __and__ the last: let's set `self.links.last`.
+                        // `chunk` was the first __and__ the last: let's set
+                        // `self.links.last`.
                         if chunk_was_last {
                             self.links.last = Some(chunk_ptr);
                         }
@@ -759,11 +766,11 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             }
         };
 
-        // We need to update `self.links.last` if and only if `chunk` _is not_ the first
-        // chunk, and _is_ the last chunk.
+        // We need to update `self.links.last` if and only if `chunk` _is not_
+        // the first chunk, and _is_ the last chunk.
         if !chunk.is_first_chunk() && chunk.is_last_chunk() {
-            // Maybe `chunk` is the same as the previous `self.links.last` chunk, but it's
-            // OK.
+            // Maybe `chunk` is the same as the previous `self.links.last`
+            // chunk, but it's OK.
             self.links.last = Some(chunk.as_ptr());
         }
 
@@ -818,8 +825,9 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             self.links.last = previous_ptr;
         }
 
-        // SAFETY: `chunk` is unlinked and not borrowed anymore. `LinkedChunk` doesn't
-        // use it anymore, it's a leak. It is time to re-`Box` it and drop it.
+        // SAFETY: `chunk` is unlinked and not borrowed anymore. `LinkedChunk`
+        // doesn't use it anymore, it's a leak. It is time to re-`Box`
+        // it and drop it.
         let _chunk_boxed = unsafe { Box::from_raw(chunk_ptr.as_ptr()) };
 
         // Return the first position of the next chunk, if any.
@@ -890,8 +898,8 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                 *self.links.first_chunk_mut_ptr() = new_chunk_ptr;
             }
 
-            // Update `self.links.last` if the gap (so the new) chunk was (is) the last
-            // chunk.
+            // Update `self.links.last` if the gap (so the new) chunk was (is)
+            // the last chunk.
             if let Some(last_chunk_ptr) = maybe_last_chunk_ptr {
                 self.links.last = Some(last_chunk_ptr);
             }
@@ -901,8 +909,9 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
         // Re-box the chunk, and let Rust do its job.
         //
-        // SAFETY: `chunk` is unlinked and not borrowed anymore. `LinkedChunk` doesn't
-        // use it anymore, it's a leak. It is time to re-`Box` it and drop it.
+        // SAFETY: `chunk` is unlinked and not borrowed anymore. `LinkedChunk`
+        // doesn't use it anymore, it's a leak. It is time to re-`Box`
+        // it and drop it.
         let _chunk_boxed = unsafe { Box::from_raw(chunk_ptr.as_ptr()) };
 
         Ok(
@@ -1130,7 +1139,8 @@ impl<const CAP: usize, Item, Gap> Drop for LinkedChunk<CAP, Item, Gap> {
         // Calling `Self::clear` would be an error as we don't want to emit an
         // `Update::Clear` when `self` is dropped. Instead, we only care about
         // freeing memory correctly. Rust can take care of everything except the
-        // pointers in `self.links`, hence the specific call to `self.links.clear()`.
+        // pointers in `self.links`, hence the specific call to
+        // `self.links.clear()`.
         self.links.clear();
     }
 }
@@ -1659,9 +1669,10 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
     fn unlink(&mut self, updates: Option<&mut ObservableUpdates<Item, Gap>>) {
         let previous_ptr = self.previous;
         let next_ptr = self.next;
-        // If `self` is not the first, `lazy_previous` might be set on its previous
-        // chunk. Otherwise, if `lazy_previous` is set on `self`, it means it's the
-        // first chunk and it must be moved onto the next chunk.
+        // If `self` is not the first, `lazy_previous` might be set on its
+        // previous chunk. Otherwise, if `lazy_previous` is set on
+        // `self`, it means it's the first chunk and it must be moved
+        // onto the next chunk.
         let lazy_previous = self.lazy_previous.take();
 
         if let Some(previous) = self.previous_mut() {
@@ -2257,8 +2268,9 @@ mod tests {
         {
             let pos_e = linked_chunk.item_position(|item| *item == 'e').unwrap();
 
-            // Insert 4 elements, so that it overflows the chunk capacity. It's important to
-            // see whether chunks are correctly updated and linked.
+            // Insert 4 elements, so that it overflows the chunk capacity. It's
+            // important to see whether chunks are correctly updated
+            // and linked.
             linked_chunk.insert_items_at(pos_e, ['w', 'x', 'y', 'z'])?;
 
             assert_items_eq!(
@@ -2433,8 +2445,9 @@ mod tests {
         // Insert inside the last chunk.
         let pos_e = linked_chunk.item_position(|item| *item == 'e').unwrap();
 
-        // Insert 4 elements, so that it overflows the chunk capacity. It's important to
-        // see whether chunks are correctly updated and linked.
+        // Insert 4 elements, so that it overflows the chunk capacity. It's
+        // important to see whether chunks are correctly updated and
+        // linked.
         linked_chunk.insert_items_at(pos_e, ['w', 'x', 'y', 'z'])?;
 
         assert_items_eq!(
@@ -2684,8 +2697,8 @@ mod tests {
         // Ignore previous updates.
         let _ = linked_chunk.updates().unwrap().take();
 
-        // Remove the last item of the middle chunk, 3 times. The chunk is empty after
-        // that. The chunk is removed.
+        // Remove the last item of the middle chunk, 3 times. The chunk is empty
+        // after that. The chunk is removed.
         {
             let position_of_f = linked_chunk.item_position(|item| *item == 'f').unwrap();
             let removed_item = linked_chunk.remove_item_at(position_of_f)?;
@@ -2719,8 +2732,9 @@ mod tests {
             );
         }
 
-        // Remove the first item of the first chunk, 3 times. The chunk is empty after
-        // that. The chunk is NOT removed because it's the first chunk.
+        // Remove the first item of the first chunk, 3 times. The chunk is empty
+        // after that. The chunk is NOT removed because it's the first
+        // chunk.
         {
             let first_position = linked_chunk.item_position(|item| *item == 'a').unwrap();
             let removed_item = linked_chunk.remove_item_at(first_position)?;
@@ -2751,8 +2765,8 @@ mod tests {
             );
         }
 
-        // Remove the first item of the middle chunk, 3 times. The chunk is empty after
-        // that. The chunk is removed.
+        // Remove the first item of the middle chunk, 3 times. The chunk is
+        // empty after that. The chunk is removed.
         {
             let first_position = linked_chunk.item_position(|item| *item == 'g').unwrap();
             let removed_item = linked_chunk.remove_item_at(first_position)?;
@@ -2784,8 +2798,8 @@ mod tests {
             );
         }
 
-        // Remove the last item of the last chunk, twice. The chunk is empty after that.
-        // The chunk is removed.
+        // Remove the last item of the last chunk, twice. The chunk is empty
+        // after that. The chunk is removed.
         {
             let position_of_k = linked_chunk.item_position(|item| *item == 'k').unwrap();
             let removed_item = linked_chunk.remove_item_at(position_of_k)?;
@@ -2812,7 +2826,8 @@ mod tests {
             );
         }
 
-        // Add a couple more items, delete one, add a gap, and delete more items.
+        // Add a couple more items, delete one, add a gap, and delete more
+        // items.
         {
             linked_chunk.push_items_back(['a', 'b', 'c', 'd']);
 
@@ -2826,7 +2841,8 @@ mod tests {
                 Err(Error::InvalidItemIndex { index: 3 })
             );
 
-            // Delete at an out-of-bound position (way after `c`), that is invalid.
+            // Delete at an out-of-bound position (way after `c`), that is
+            // invalid.
             assert_matches!(
                 linked_chunk.remove_item_at(Position(ChunkIdentifier(0), 42)),
                 Err(Error::InvalidItemIndex { index: 42 })
@@ -2932,14 +2948,15 @@ mod tests {
             );
         }
 
-        // Insert at the beginning of a chunk. The targeted chunk is the first chunk.
-        // `Ends::first` and `Ends::last` may be updated differently.
+        // Insert at the beginning of a chunk. The targeted chunk is the first
+        // chunk. `Ends::first` and `Ends::last` may be updated
+        // differently.
         {
             let position_of_a = linked_chunk.item_position(|item| *item == 'a').unwrap();
             linked_chunk.insert_gap_at((), position_of_a)?;
 
-            // A new empty chunk is NOT created, i.e. `['a']` is not split into `[]` +
-            // `['a']` because it's a waste of space.
+            // A new empty chunk is NOT created, i.e. `['a']` is not split into
+            // `[]` + `['a']` because it's a waste of space.
             assert_items_eq!(linked_chunk, [-] ['a'] [-] ['b', 'c'] ['d', 'e', 'f']);
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
@@ -2952,8 +2969,9 @@ mod tests {
             );
         }
 
-        // Insert at the beginning of a chunk. The targeted chunk is not the first
-        // chunk. `Ends::first` and `Ends::last` may be updated differently.
+        // Insert at the beginning of a chunk. The targeted chunk is not the
+        // first chunk. `Ends::first` and `Ends::last` may be updated
+        // differently.
         {
             let position_of_d = linked_chunk.item_position(|item| *item == 'd').unwrap();
             linked_chunk.insert_gap_at((), position_of_d)?;
@@ -3027,8 +3045,9 @@ mod tests {
 
         // Insert in an existing gap.
         {
-            // It is impossible to get the item position inside a gap. It's only possible if
-            // the item position is crafted by hand or is outdated.
+            // It is impossible to get the item position inside a gap. It's only
+            // possible if the item position is crafted by hand or
+            // is outdated.
             let position_of_a_gap = Position(ChunkIdentifier(2), 0);
             assert_matches!(
                 linked_chunk.insert_gap_at((), position_of_a_gap),
@@ -3364,8 +3383,8 @@ mod tests {
         assert!(chunks.next().is_none());
     }
 
-    // Test `LinkedChunk::clear`. This test creates a `LinkedChunk` with `new` to
-    // avoid creating too much confusion with `Update`s. The next test
+    // Test `LinkedChunk::clear`. This test creates a `LinkedChunk` with `new`
+    // to avoid creating too much confusion with `Update`s. The next test
     // `test_clear_emit_an_update_clear` uses `new_with_update_history` and only
     // test `Update::Clear`.
     #[test]
@@ -3397,8 +3416,8 @@ mod tests {
 
         assert_eq!(Arc::strong_count(&item), 1);
         assert_eq!(Arc::strong_count(&gap), 1);
-        // One chunk because the first chunk is created lazily, which happens when
-        // iterating over the chunks.
+        // One chunk because the first chunk is created lazily, which happens
+        // when iterating over the chunks.
         assert_eq!(linked_chunk.chunks().filter(|chunk| chunk.is_items()).count(), 1);
         assert_eq!(linked_chunk.chunks().filter(|chunk| chunk.is_gap()).count(), 0);
         assert_eq!(linked_chunk.num_items(), 0);
@@ -3453,8 +3472,8 @@ mod tests {
         // When clearing an already clear linked chunk…
         linked_chunk.clear();
 
-        // … we see only `Clear` without `NewItemsChunk`, i.e. the first chunk is NOT
-        // created lazily!
+        // … we see only `Clear` without `NewItemsChunk`, i.e. the first chunk
+        // is NOT created lazily!
         assert_eq!(linked_chunk.updates().unwrap().take(), &[Clear]);
     }
 
@@ -3513,8 +3532,8 @@ mod tests {
             marker: PhantomData,
         };
 
-        // Insert items in the first loaded chunk (chunk 1), with an overflow to a new
-        // chunk.
+        // Insert items in the first loaded chunk (chunk 1), with an overflow to
+        // a new chunk.
         {
             linked_chunk.push_items_back(['a', 'b', 'c', 'd']);
 
@@ -3577,7 +3596,8 @@ mod tests {
                 assert!(chunks.next().is_none());
             }
 
-            // In the updates, we observe that the new gap **has** a previous chunk!
+            // In the updates, we observe that the new gap **has** a previous
+            // chunk!
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
                 &[NewGapChunk {
@@ -3683,7 +3703,8 @@ mod tests {
                 assert!(chunks.next().is_none());
             }
 
-            // In the updates, we observe that the new gap **has** a previous chunk!
+            // In the updates, we observe that the new gap **has** a previous
+            // chunk!
             assert_eq!(
                 linked_chunk.updates().unwrap().take(),
                 &[NewGapChunk {

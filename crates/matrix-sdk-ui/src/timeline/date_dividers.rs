@@ -120,11 +120,12 @@ impl DateDividerAdjuster {
         // `Remove(i)` followed by a `Replace((i+1) -1)`, which wouldn't do what
         // we want, if running in reverse order.
         //
-        // Also note that we can remove a few items at position J, then later decide to
-        // replace/remove an item (in `handle_event`) at position I, with I<J. That
-        // would break the above invariant (that operations happen in
-        // non-decreasing order of the indices), so we must record the insert
-        // position for an operation related to the previous item.
+        // Also note that we can remove a few items at position J, then later
+        // decide to replace/remove an item (in `handle_event`) at
+        // position I, with I<J. That would break the above invariant
+        // (that operations happen in non-decreasing order of the
+        // indices), so we must record the insert position for an
+        // operation related to the previous item.
 
         let mut prev_item: Option<PrevItemDesc<'_>> = None;
         let mut latest_event_ts = None;
@@ -132,8 +133,8 @@ impl DateDividerAdjuster {
         for (i, item) in items.iter_remotes_and_locals_regions() {
             match item.kind() {
                 TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(ts)) => {
-                    // Record what the last alive item pair is only if we haven't removed the date
-                    // divider.
+                    // Record what the last alive item pair is only if we
+                    // haven't removed the date divider.
                     if !self.handle_date_divider(i, *ts, prev_item.as_ref().map(|desc| desc.item)) {
                         prev_item = Some(PrevItemDesc {
                             item_index: i,
@@ -160,13 +161,13 @@ impl DateDividerAdjuster {
             }
         }
 
-        // Also chase trailing date dividers explicitly, by iterating from the end to
-        // the start. Since they wouldn't be the prev_item of anything, we
-        // wouldn't analyze them in the previous loop.
+        // Also chase trailing date dividers explicitly, by iterating from the
+        // end to the start. Since they wouldn't be the prev_item of
+        // anything, we wouldn't analyze them in the previous loop.
         for (i, item) in items.iter_remotes_and_locals_regions().rev() {
             if item.is_date_divider() {
-                // The item is a trailing date divider: remove it, if it wasn't already
-                // scheduled for deletion.
+                // The item is a trailing date divider: remove it, if it wasn't
+                // already scheduled for deletion.
                 if !self
                     .ops
                     .iter()
@@ -174,8 +175,9 @@ impl DateDividerAdjuster {
                 {
                     trace!("removing trailing date divider @ {i}");
 
-                    // Find the index at which to insert the removal operation. It must be before
-                    // any other operation on a bigger index, to maintain the
+                    // Find the index at which to insert the removal operation.
+                    // It must be before any other operation
+                    // on a bigger index, to maintain the
                     // non-decreasing invariant.
                     let index =
                         self.ops.iter().position(|op| op.index() > i).unwrap_or(self.ops.len());
@@ -190,8 +192,8 @@ impl DateDividerAdjuster {
             }
         }
 
-        // Only record the initial state if we've enabled the trace log level, and not
-        // otherwise.
+        // Only record the initial state if we've enabled the trace log level,
+        // and not otherwise.
         let initial_state = if event_enabled!(Level::TRACE) {
             Some(
                 items
@@ -226,8 +228,8 @@ impl DateDividerAdjuster {
         prev_item: Option<&Arc<TimelineItem>>,
     ) -> bool {
         let Some(prev_item) = prev_item else {
-            // No interesting item prior to the date divider: it must be the first one,
-            // nothing to do.
+            // No interesting item prior to the date divider: it must be the
+            // first one, nothing to do.
             return false;
         };
 
@@ -235,8 +237,8 @@ impl DateDividerAdjuster {
             TimelineItemKind::Event(event) => {
                 // This date divider is preceded by an event.
                 if self.is_same_date_divider_group_as(event.timestamp(), ts) {
-                    // The event has the same date as the date divider: remove the current date
-                    // divider.
+                    // The event has the same date as the date divider: remove
+                    // the current date divider.
                     trace!("removing date divider following event with same timestamp @ {i}");
                     self.ops.push(DateDividerOperation::Remove(i));
                     return true;
@@ -245,7 +247,8 @@ impl DateDividerAdjuster {
 
             TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(_)) => {
                 trace!("removing duplicate date divider @ {i}");
-                // This date divider is preceded by another one: remove the current one.
+                // This date divider is preceded by another one: remove the
+                // current one.
                 self.ops.push(DateDividerOperation::Remove(i));
                 return true;
             }
@@ -268,8 +271,8 @@ impl DateDividerAdjuster {
         latest_event_ts: Option<MilliSecondsSinceUnixEpoch>,
     ) {
         let Some(PrevItemDesc { item_index, insert_op_at, item }) = prev_item_desc else {
-            // The event was the first item, so there wasn't any date divider before it:
-            // insert one.
+            // The event was the first item, so there wasn't any date divider
+            // before it: insert one.
             trace!("inserting the first date divider @ {}", i);
             self.ops.push(DateDividerOperation::Insert(i, ts));
             return;
@@ -277,8 +280,8 @@ impl DateDividerAdjuster {
 
         match item.kind() {
             TimelineItemKind::Event(prev_event) => {
-                // The event is preceded by another event. If they're not the same date,
-                // insert a date divider.
+                // The event is preceded by another event. If they're not the
+                // same date, insert a date divider.
                 let prev_ts = prev_event.timestamp();
 
                 if !self.is_same_date_divider_group_as(prev_ts, ts) {
@@ -295,12 +298,13 @@ impl DateDividerAdjuster {
 
                 // The event is preceded by a date divider.
                 if timestamp_to_date(*prev_ts) != event_date {
-                    // The date divider is wrong. Should we replace it with the correct value, or
-                    // remove it entirely?
+                    // The date divider is wrong. Should we replace it with the
+                    // correct value, or remove it entirely?
                     if let Some(last_event_ts) = latest_event_ts
                         && timestamp_to_date(last_event_ts) == event_date
                     {
-                        // There's a previous event with the same date: remove the divider.
+                        // There's a previous event with the same date: remove
+                        // the divider.
                         trace!(
                             "removed date divider @ {item_index} between two events \
                                  that have the same date"
@@ -309,8 +313,8 @@ impl DateDividerAdjuster {
                         return;
                     }
 
-                    // There's no previous event or there's one with a different date: replace
-                    // the current divider.
+                    // There's no previous event or there's one with a different
+                    // date: replace the current divider.
                     trace!("replacing date divider @ {item_index} with new timestamp from event");
                     self.ops.insert(insert_op_at, DateDividerOperation::Replace(item_index, ts));
                 }
@@ -406,17 +410,20 @@ impl DateDividerAdjuster {
         };
 
         // Assert invariants.
-        // 1. The timeline starts with a date divider, if it's not only virtual items.
+        // 1. The timeline starts with a date divider, if it's not only virtual
+        //    items.
         {
             let mut i = items.first_remotes_region_index();
             while let Some(item) = items.get(i) {
                 if let Some(virt) = item.as_virtual() {
                     if matches!(virt, VirtualTimelineItem::DateDivider(_)) {
-                        // We found a date divider among the first virtual items: stop here.
+                        // We found a date divider among the first virtual
+                        // items: stop here.
                         break;
                     }
                 } else {
-                    // We found an event, but we didn't have a date divider: report an error.
+                    // We found an event, but we didn't have a date divider:
+                    // report an error.
                     report.errors.push(DateDividerInsertError::FirstItemNotDateDivider);
                     break;
                 }
@@ -464,7 +471,8 @@ impl DateDividerAdjuster {
                         );
                     }
 
-                    // There is a date divider before us, and it's the same date as our timestamp.
+                    // There is a date divider before us, and it's the same date
+                    // as our timestamp.
                     if let Some(prev_ts) = prev_date_divider_ts {
                         if !self.is_same_date_divider_group_as(prev_ts, ts) {
                             report.errors.push(
@@ -496,8 +504,8 @@ impl DateDividerAdjuster {
             }
         }
 
-        // 5. If there was a read marker at the beginning, there should be one at the
-        //    end.
+        // 5. If there was a read marker at the beginning, there should be one
+        //    at the end.
         if let Some(state) = &report.initial_state
             && state.iter().any(|item| item.is_read_marker())
             && !report

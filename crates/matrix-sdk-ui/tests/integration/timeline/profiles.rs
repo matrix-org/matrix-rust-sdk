@@ -36,9 +36,10 @@ async fn test_user_profile_after_being_banned() {
     let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
     let timeline = Arc::new(room.timeline().await.unwrap());
 
-    // Build a simple timeline with Bob joining the room, Alice accepting an invite,
-    // sending some messages, and then getting banned by Bob. Alice's profile should
-    // be unavailable after the ban, while Bob's profile should be unaffected.
+    // Build a simple timeline with Bob joining the room, Alice accepting an
+    // invite, sending some messages, and then getting banned by Bob.
+    // Alice's profile should be unavailable after the ban, while Bob's
+    // profile should be unaffected.
     server
         .sync_room(
             &client,
@@ -107,8 +108,9 @@ async fn test_user_profile_after_leaving() {
     let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
     let timeline = Arc::new(room.timeline().await.unwrap());
 
-    // Build a simple timeline with Bob joining the room, Alice accepting an invite
-    // and sending a message, Bob sending a message, and Alice leaving
+    // Build a simple timeline with Bob joining the room, Alice accepting an
+    // invite and sending a message, Bob sending a message, and Alice
+    // leaving
     server
         .sync_room(
             &client,
@@ -146,8 +148,8 @@ async fn test_user_profile_after_leaving() {
     // Date divider + 5 events
     assert_eq!(timeline_items.len(), 6);
 
-    // Alice's profile, and therefore display name, should be still available after
-    // she left the room.
+    // Alice's profile, and therefore display name, should be still available
+    // after she left the room.
     let alice_event = timeline_items[4].as_event().unwrap();
     let alice_profile = alice_event.sender_profile();
     // Was this event sent by Alice?

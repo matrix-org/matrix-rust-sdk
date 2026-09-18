@@ -265,8 +265,8 @@ impl MatrixDriver {
         let drop_guard = self.room.client().event_handler_drop_guard(handle);
 
         // The receiver will get a combination of state and message like events.
-        // These always come from the timeline (rather than the state section of the
-        // sync).
+        // These always come from the timeline (rather than the state section of
+        // the sync).
         EventReceiver { rx, _drop_guard: drop_guard }
     }
 
@@ -279,8 +279,9 @@ impl MatrixDriver {
     /// dropped, forwarding will be stopped.
     pub(crate) fn to_device_events(&self) -> impl Stream<Item = Raw<AnyToDeviceEvent>> + use<> {
         let room = self.room.clone();
-        // Every custom to-device type: the widget machine filters by capability. The
-        // SDK's internal crypto traffic is already left out.
+        // Every custom to-device type: the widget machine filters by
+        // capability. The SDK's internal crypto traffic is already left
+        // out.
         let messages = room.client().subscribe_to_custom_to_device_messages(vec![]);
 
         stream! {
@@ -363,11 +364,12 @@ impl MatrixDriver {
             BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>,
         >,
     ) -> Result<SendToDeviceEventResponse> {
-        // TODO: block this at the negotiation stage, no reason to let widget believe
-        // they can do that
+        // TODO: block this at the negotiation stage, no reason to let widget
+        // believe they can do that
         if is_internal_to_device_type(&event_type) {
             warn!("Widget tried to send internal to-device message <{}>, ignoring", event_type);
-            // Silently return a success response, the widget will not receive the message
+            // Silently return a success response, the widget will not receive
+            // the message
             return Ok(Default::default());
         }
 
@@ -390,10 +392,11 @@ impl MatrixDriver {
 
         trace!("Sending to-device message in encrypted room <{}>", self.room.room_id());
 
-        // The widget-api uses a [user -> device -> content] map, but the SDK API
-        // sends a given content to multiple recipients. Let's convert the [user ->
-        // device -> content] to a [content -> user -> devices] map so that each
-        // distinct content is encrypted and sent once.
+        // The widget-api uses a [user -> device -> content] map, but the SDK
+        // API sends a given content to multiple recipients. Let's
+        // convert the [user -> device -> content] to a [content -> user
+        // -> devices] map so that each distinct content is encrypted
+        // and sent once.
         let mut content_to_recipients_map: BTreeMap<
             &str,
             BTreeMap<OwnedUserId, Vec<DeviceIdOrAllDevices>>,

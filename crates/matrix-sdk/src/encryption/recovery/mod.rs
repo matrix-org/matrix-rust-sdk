@@ -304,9 +304,9 @@ impl Recovery {
 
         // Why oh why, can't we delete account data events?
         //
-        // Alright, let's attempt to "delete" the content of our current default key,
-        // for this we first need to check if there is a default key, then
-        // deserialize the content and find out the key ID.
+        // Alright, let's attempt to "delete" the content of our current default
+        // key, for this we first need to check if there is a default
+        // key, then deserialize the content and find out the key ID.
         //
         // Then we finally set the event to an empty JSON content.
         if let Ok(Some(default_event)) =
@@ -357,9 +357,9 @@ impl Recovery {
     /// ```
     #[instrument(skip_all)]
     pub fn reset_key(&self) -> Reset<'_> {
-        // TODO: Should this only be possible if we're in the RecoveryState::Enabled
-        // state? Otherwise we'll create a new secret store but won't be able to
-        // upload all the secrets.
+        // TODO: Should this only be possible if we're in the
+        // RecoveryState::Enabled state? Otherwise we'll create a new
+        // secret store but won't be able to upload all the secrets.
         Reset::new(self)
     }
 
@@ -445,7 +445,8 @@ impl Recovery {
         let cross_signing_reset_handle = self.client.encryption().reset_cross_signing().await?;
 
         if let Some(handle) = cross_signing_reset_handle {
-            // Authentication required, backups will be re-enabled after the reset
+            // Authentication required, backups will be re-enabled after the
+            // reset
             Ok(Some(IdentityResetHandle {
                 client: self.client.clone(),
                 cross_signing_reset_handle: handle,
@@ -577,8 +578,8 @@ impl Recovery {
 
     /// Did we correctly set up cross-signing and backups?
     async fn all_known_secrets_available(&self) -> Result<bool> {
-        // Cross-signing state is fine if we have all the private cross-signing keys, as
-        // indicated in the status.
+        // Cross-signing state is fine if we have all the private cross-signing
+        // keys, as indicated in the status.
         let cross_signing_complete = self
             .client
             .encryption()
@@ -589,8 +590,8 @@ impl Recovery {
             return Ok(false);
         }
 
-        // The backup state is fine if we have backups enabled locally, or if backups
-        // have been marked as disabled.
+        // The backup state is fine if we have backups enabled locally, or if
+        // backups have been marked as disabled.
         if self.client.encryption().backups().are_enabled().await {
             Ok(true)
         } else {
@@ -599,9 +600,9 @@ impl Recovery {
     }
 
     async fn should_auto_enable_backups(&self) -> Result<bool> {
-        // If we didn't already enable backups, we don't see a backup version on the
-        // server, and finally if backups have not been marked to be explicitly
-        // disabled, then we can automatically enable them.
+        // If we didn't already enable backups, we don't see a backup version on
+        // the server, and finally if backups have not been marked to be
+        // explicitly disabled, then we can automatically enable them.
         Ok(self.client.inner.e2ee.encryption_settings.auto_enable_backups
             && !self.client.encryption().backups().are_enabled().await
             && !self.client.encryption().backups().fetch_exists_on_server().await?
@@ -671,8 +672,8 @@ impl Recovery {
     async fn mark_backup_as_enabled(&self) -> Result<()> {
         self.client.account().set_account_data(KeyBackupContent { enabled: true }).await?;
 
-        // Unstable prefix: will be removed when sufficient time has passed for clients
-        // to use the stable prefix.
+        // Unstable prefix: will be removed when sufficient time has passed for
+        // clients to use the stable prefix.
         self.client.account().set_account_data(BackupDisabledContent { disabled: false }).await?;
 
         Ok(())
@@ -733,7 +734,8 @@ impl Recovery {
                 if let Some(client) = weak.get() {
                     match update {
                         Ok(update) => {
-                            // The recovery state only cares about these two states, the
+                            // The recovery state only cares about these two
+                            // states, the
                             // intermediate states that tell us that
                             // we're creating a backup are not interesting.
                             if matches!(update, BackupState::Unknown | BackupState::Enabled) {
@@ -745,7 +747,8 @@ impl Recovery {
                             }
                         }
                         Err(_) => {
-                            // We missed some updates, let's update our state in case something
+                            // We missed some updates, let's update our state in
+                            // case something
                             // changed.
                             client.encryption().recovery().update_recovery_state_no_fail().await;
                         }
@@ -762,9 +765,10 @@ impl Recovery {
         if let Some(user_id) = self.client.user_id()
             && response.master_keys.contains_key(user_id)
         {
-            // TODO: This is unnecessarily expensive, we could let the crypto crate notify
-            // us that our private keys got erased... But, the OlmMachine
-            // gets recreated and... You know the drill by now...
+            // TODO: This is unnecessarily expensive, we could let the crypto
+            // crate notify us that our private keys got erased...
+            // But, the OlmMachine gets recreated and... You know
+            // the drill by now...
             self.update_recovery_state_no_fail().await;
         }
     }

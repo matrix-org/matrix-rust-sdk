@@ -98,7 +98,8 @@ impl X509Signer {
         // them have a strictly earlier expiry, so we return `true`.
         for sig in this_user_sigs.values() {
             if let Ok(Signature::X509(sig)) = sig {
-                // We get the earliest expiry date from all the certificates in the signature.
+                // We get the earliest expiry date from all the certificates in
+                // the signature.
                 let data: cms::signed_data::SignedData =
                     match sig.get_signature().content.decode_as() {
                         Ok(res) => res,
@@ -235,8 +236,8 @@ mod tests {
         cert_params.use_authority_key_identifier_extension = true;
         cert_params.custom_extensions.push(subject_key_identifier_extension(&signing_key));
 
-        // We create three signers with different validity dates: an "old" signer, a
-        // "current" signer, and a "new" signer.
+        // We create three signers with different validity dates: an "old"
+        // signer, a "current" signer, and a "new" signer.
         let (x509_signer_old, x509_signer_current, x509_signer_new) =
             crate::x509::tests::signers_with_different_validity();
 

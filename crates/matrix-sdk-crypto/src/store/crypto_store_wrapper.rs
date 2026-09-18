@@ -63,8 +63,8 @@ impl CryptoStoreWrapper {
         let room_keys_received_sender = broadcast::Sender::new(10);
         let room_keys_withheld_received_sender = broadcast::Sender::new(10);
         let secrets_broadcaster = broadcast::Sender::new(10);
-        // The identities broadcaster is responsible for user identities as well as
-        // devices, that's why we increase the capacity here.
+        // The identities broadcaster is responsible for user identities as well
+        // as devices, that's why we increase the capacity here.
         let identities_broadcaster = broadcast::Sender::new(20);
         let historic_room_key_bundles_broadcaster = broadcast::Sender::new(10);
 
@@ -105,9 +105,9 @@ impl CryptoStoreWrapper {
             })
             .collect();
 
-        // If our own identity verified status changes we need to do some checks on
-        // other identities. So remember the verification status before
-        // processing the changes
+        // If our own identity verified status changes we need to do some checks
+        // on other identities. So remember the verification status
+        // before processing the changes
         let own_identity_was_verified_before_change = self
             .store
             .get_user_identity(self.user_id.as_ref())
@@ -178,26 +178,29 @@ impl CryptoStoreWrapper {
         }
 
         if !devices.is_empty() || !identities.is_empty() {
-            // Mapping the devices and user identities from the read-only variant to one's
-            // that contain side-effects requires our own identity. This is
-            // guaranteed to be up-to-date since we just persisted it.
+            // Mapping the devices and user identities from the read-only
+            // variant to one's that contain side-effects requires
+            // our own identity. This is guaranteed to be up-to-date
+            // since we just persisted it.
             let maybe_own_identity =
                 self.store.get_user_identity(&self.user_id).await?.and_then(|i| i.into_own());
 
-            // If our identity was not verified before the change and is now, that means
-            // this could impact the verification chain of other known
-            // identities.
+            // If our identity was not verified before the change and is now,
+            // that means this could impact the verification chain
+            // of other known identities.
             if let Some(own_identity_after) = maybe_own_identity.as_ref() {
-                // Only do this if our identity is passing from not verified to verified,
-                // the previously_verified can only change in that case.
+                // Only do this if our identity is passing from not verified to
+                // verified, the previously_verified can only
+                // change in that case.
                 let own_identity_is_verified = own_identity_after.is_verified();
 
                 if !own_identity_was_verified_before_change && own_identity_is_verified {
                     debug!(
                         "Own identity is now verified, check all known identities for verification status changes"
                     );
-                    // We need to review all the other identities to see if they are verified now
-                    // and mark them as such
+                    // We need to review all the other identities to see if they
+                    // are verified now and mark them as
+                    // such
                     self.check_all_identities_and_update_was_previously_verified_flag_if_needed(
                         own_identity_after,
                     )

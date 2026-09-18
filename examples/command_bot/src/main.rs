@@ -33,8 +33,8 @@ async fn login_and_sync(
     username: String,
     password: String,
 ) -> anyhow::Result<()> {
-    // Note that when encryption is enabled, you should use a persistent store to be
-    // able to restore the session with a working encryption setup.
+    // Note that when encryption is enabled, you should use a persistent store
+    // to be able to restore the session with a working encryption setup.
     // See the `persist_session` example.
     let client = Client::builder().homeserver_url(homeserver_url).build().await.unwrap();
     client
@@ -48,8 +48,9 @@ async fn login_and_sync(
     // An initial sync to set up state and so our bot doesn't respond to old
     // messages.
     let response = client.sync_once(SyncSettings::default()).await.unwrap();
-    // add our CommandBot to be notified of incoming messages, we do this after the
-    // initial sync to avoid responding to messages before the bot was running.
+    // add our CommandBot to be notified of incoming messages, we do this after
+    // the initial sync to avoid responding to messages before the bot was
+    // running.
     client.add_event_handler(on_room_message);
 
     // since we called `sync_once` before we entered our sync loop we must pass

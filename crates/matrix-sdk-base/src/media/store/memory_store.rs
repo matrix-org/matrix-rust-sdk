@@ -77,7 +77,8 @@ const NUMBER_OF_MEDIAS: NonZeroUsize = NonZeroUsize::new(20).unwrap();
 
 impl Default for MemoryMediaStore {
     fn default() -> Self {
-        // Given that the store is empty, we won't need to clean it up right away.
+        // Given that the store is empty, we won't need to clean it up right
+        // away.
         let last_media_cleanup_time = SystemTime::now();
         let media_service = MediaService::new();
         media_service.restore(None, Some(last_media_cleanup_time));
@@ -181,7 +182,8 @@ impl MediaStore for MemoryMediaStore {
             .filter_map(|(position, media_content)| (media_content.uri == uri).then_some(position))
             .collect::<Vec<_>>();
 
-        // Iterate in reverse-order so that positions stay valid after first removals.
+        // Iterate in reverse-order so that positions stay valid after first
+        // removals.
         for position in positions.into_iter().rev() {
             inner.media.remove(position);
         }
@@ -303,8 +305,8 @@ impl MediaStoreInner for MemoryMediaStore {
         let mut inner = self.inner.write().unwrap();
         let expected_key = request.unique_key();
 
-        // First get the content out of the buffer, we are going to put it back at the
-        // end.
+        // First get the content out of the buffer, we are going to put it back
+        // at the end.
         let Some(index) = inner.media.iter().position(|media| media.key == expected_key) else {
             return Ok(None);
         };
@@ -351,10 +353,12 @@ impl MediaStoreInner for MemoryMediaStore {
             });
         }
 
-        // Finally, if the cache size is too big, remove old items until it fits.
+        // Finally, if the cache size is too big, remove old items until it
+        // fits.
         if let Some(max_cache_size) = policy.max_cache_size {
-            // Reverse the iterator because in case the cache size is overflowing, we want
-            // to count the number of old items to remove. Items are sorted by last access
+            // Reverse the iterator because in case the cache size is
+            // overflowing, we want to count the number of old items
+            // to remove. Items are sorted by last access
             // and old items are at the start.
             let (_, items_to_remove) = inner.media.iter().enumerate().rev().fold(
                 (0u64, Vec::with_capacity(NUMBER_OF_MEDIAS.into())),
@@ -368,16 +372,19 @@ impl MediaStoreInner for MemoryMediaStore {
                         // We have not reached the max cache size yet.
                         if let Some(sum) = cache_size.checked_add(content.data.len() as u64) {
                             cache_size = sum;
-                            // Start removing items if we have exceeded the max cache size.
+                            // Start removing items if we have exceeded the max
+                            // cache size.
                             cache_size > max_cache_size
                         } else {
-                            // The cache size is overflowing, remove the remaining items, since the
+                            // The cache size is overflowing, remove the
+                            // remaining items, since the
                             // max cache size cannot be bigger than
                             // usize::MAX.
                             true
                         }
                     } else {
-                        // We have reached the max cache size already, just remove it.
+                        // We have reached the max cache size already, just
+                        // remove it.
                         true
                     };
 
@@ -389,8 +396,8 @@ impl MediaStoreInner for MemoryMediaStore {
                 },
             );
 
-            // The indexes are already in reverse order so we can just iterate in that order
-            // to remove them starting by the end.
+            // The indexes are already in reverse order so we can just iterate
+            // in that order to remove them starting by the end.
             for index in items_to_remove {
                 inner.media.remove(index);
             }

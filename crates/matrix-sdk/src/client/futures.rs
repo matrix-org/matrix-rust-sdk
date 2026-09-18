@@ -100,7 +100,8 @@ where
             e: &HttpError,
             client: &Client,
         ) -> HttpResult<RetryRequest> {
-            // An `M_UNKNOWN_TOKEN` error can potentially be fixed with a token refresh.
+            // An `M_UNKNOWN_TOKEN` error can potentially be fixed with a token
+            // refresh.
             let Some(ErrorKind::UnknownToken(unknown_token_data)) = e.client_api_error_kind()
             else {
                 return Ok(RetryRequest::No);
@@ -108,7 +109,8 @@ where
 
             trace!("Token refresh: Unknown token error received.");
 
-            // If automatic token refresh isn't supported, there is nothing more to do.
+            // If automatic token refresh isn't supported, there is nothing more
+            // to do.
             if !client.inner.auth_ctx.handle_refresh_tokens {
                 trace!("Token refresh: Automatic refresh disabled.");
                 client.broadcast_unknown_token(unknown_token_data);
@@ -120,7 +122,8 @@ where
                 match &refresh_error {
                     RefreshTokenError::RefreshTokenRequired => {
                         trace!("Token refresh: The session doesn't have a refresh token.");
-                        // Refreshing access tokens is not supported by this `Session`, ignore.
+                        // Refreshing access tokens is not supported by this
+                        // `Session`, ignore.
                         client.broadcast_unknown_token(unknown_token_data);
                         Ok(RetryRequest::No)
                     }
@@ -136,7 +139,8 @@ where
                                     "Token refresh: OAuth 2.0 refresh_token rejected \
                                          with invalid grant"
                                 );
-                                // The refresh was denied, signal to sign out the user.
+                                // The refresh was denied, signal to sign out
+                                // the user.
                                 client.broadcast_unknown_token(unknown_token_data);
                             }
                             _ => {
@@ -150,8 +154,9 @@ where
 
                     _ => {
                         trace!("Token refresh: Token refresh failed.");
-                        // This isn't necessarily correct, but matches the behaviour when
-                        // implementing OAuth 2.0.
+                        // This isn't necessarily correct, but matches the
+                        // behaviour when implementing
+                        // OAuth 2.0.
                         client.broadcast_unknown_token(unknown_token_data);
                         Err(HttpError::RefreshToken(refresh_error))
                     }

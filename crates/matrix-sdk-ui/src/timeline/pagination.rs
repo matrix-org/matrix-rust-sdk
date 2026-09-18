@@ -37,12 +37,15 @@ impl super::Timeline {
                         );
                     }
                     None => {
-                        // We could adjust the skip count to a lower value, while passing the
-                        // requested number of events. We *may* have reached the start of the
-                        // timeline, but since we're fulfilling the caller's request, assume it's
-                        // not the case and return false here. A subsequent call will go to the
-                        // `Some()` arm of this match, and cause a call to the event cache's
-                        // pagination.
+                        // We could adjust the skip count to a lower value,
+                        // while passing the
+                        // requested number of events. We *may* have reached the
+                        // start of the timeline, but
+                        // since we're fulfilling the caller's request, assume
+                        // it's not the case and return
+                        // false here. A subsequent call will go to the
+                        // `Some()` arm of this match, and cause a call to the
+                        // event cache's pagination.
                         return Ok(false);
                     }
                 }

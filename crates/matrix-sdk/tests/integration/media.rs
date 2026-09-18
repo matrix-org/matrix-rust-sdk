@@ -157,8 +157,8 @@ async fn test_get_media_file_no_auth() {
 
 #[async_test]
 async fn test_get_media_file_with_auth_matrix_1_11() {
-    // The server must advertise support for v1.11 or newer for authenticated media
-    // support, so we make the request instead of assuming.
+    // The server must advertise support for v1.11 or newer for authenticated
+    // media support, so we make the request instead of assuming.
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().no_server_versions().build().await;
 
@@ -227,8 +227,9 @@ async fn test_get_media_file_with_auth_matrix_1_11() {
 
 #[async_test]
 async fn test_get_media_file_with_auth_matrix_stable_feature() {
-    // The server must advertise support for the stable feature for authenticated
-    // media support, so we make the request instead of assuming.
+    // The server must advertise support for the stable feature for
+    // authenticated media support, so we make the request instead of
+    // assuming.
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().no_server_versions().build().await;
 
@@ -430,8 +431,8 @@ async fn test_get_media_preview_empty_response_no_auth() {
 #[async_test]
 async fn test_get_media_preview_disabled_by_server() {
     // Homeservers may disable URL previews entirely, in which case the endpoint
-    // is not routed at all and answers `M_UNRECOGNIZED`. That must surface as an
-    // error rather than being mistaken for "no preview available".
+    // is not routed at all and answers `M_UNRECOGNIZED`. That must surface as
+    // an error rather than being mistaken for "no preview available".
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().no_server_versions().build().await;
 

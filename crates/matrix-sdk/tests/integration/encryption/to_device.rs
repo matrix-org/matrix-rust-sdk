@@ -81,7 +81,8 @@ async fn test_encrypt_and_send_to_device() {
     let sent_messages = sent_messages.lock();
     assert_eq!(sent_messages.len(), 1, "a single to-device request should have been sent");
 
-    // The message must have been encrypted for Bob's device, and for nobody else.
+    // The message must have been encrypted for Bob's device, and for nobody
+    // else.
     assert_eq!(
         recipients_of(&sent_messages[0]),
         BTreeMap::from([(
@@ -325,7 +326,8 @@ async fn test_send_encrypted_to_device() {
     let sent_messages = sent_messages.lock();
     assert_eq!(sent_messages.len(), 1, "a single to-device request should have been sent");
 
-    // The message must have been sent to the requested device, and to nobody else.
+    // The message must have been sent to the requested device, and to nobody
+    // else.
     assert_eq!(
         recipients_of(&sent_messages[0]),
         BTreeMap::from([(

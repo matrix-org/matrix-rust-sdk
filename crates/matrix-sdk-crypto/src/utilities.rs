@@ -44,9 +44,9 @@ const ISO8601_WITH_MILLIS: iso8601::EncodedConfig = iso8601::Config::DEFAULT
 pub fn timestamp_to_iso8601(ts: MilliSecondsSinceUnixEpoch) -> Option<String> {
     let nanos_since_epoch = i128::from(ts.get()) * 1_000_000;
 
-    // OffsetDateTime has a max year of 9999, whereas MilliSecondsSinceUnixEpoch has
-    // a max year of 285427, so `from_unix_timestamp_nanos` can overflow for very
-    // large timestamps. (The Y10K problem!)
+    // OffsetDateTime has a max year of 9999, whereas MilliSecondsSinceUnixEpoch
+    // has a max year of 285427, so `from_unix_timestamp_nanos` can overflow
+    // for very large timestamps. (The Y10K problem!)
     let dt = OffsetDateTime::from_unix_timestamp_nanos(nanos_since_epoch).ok()?;
 
     // SAFETY: `format` can fail if:

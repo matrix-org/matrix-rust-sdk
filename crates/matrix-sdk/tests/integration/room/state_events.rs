@@ -50,8 +50,8 @@ async fn test_subscribe_to_state_events() {
     let bob = owned_user_id!("@bob:localhost");
     let f = EventFactory::new().room(room_id);
 
-    // Alice joins the call. The sync also carries a state event of another type,
-    // which is not part of the snapshot.
+    // Alice joins the call. The sync also carries a state event of another
+    // type, which is not part of the snapshot.
     server
         .sync_room(
             &client,
@@ -115,8 +115,8 @@ async fn test_subscribe_to_state_events_yields_one_snapshot_per_sync() {
     let alice = owned_user_id!("@alice:localhost");
     let f = EventFactory::new().room(room_id);
 
-    // Alice joins the call from two devices in the same sync: a single snapshot,
-    // with both memberships.
+    // Alice joins the call from two devices in the same sync: a single
+    // snapshot, with both memberships.
     server
         .sync_room(
             &client,
@@ -148,8 +148,8 @@ async fn test_subscribe_to_state_events_ignores_the_timeline() {
 
     let f = EventFactory::new().room(room_id);
 
-    // A call membership that only appears in the timeline updates the room state,
-    // but is not what this subscription reports.
+    // A call membership that only appears in the timeline updates the room
+    // state, but is not what this subscription reports.
     server
         .sync_room(
             &client,
