@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.19.1](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.1) - 2026-09-18
+
+No significant changes.
+
 ## [0.19.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.0) - 2026-09-16
 
 ### Removed
@@ -167,6 +171,10 @@ All notable changes to this project will be documented in this file.
   can raise the timeouts applied while fetching notifications.
   `Client::notification_client` is unchanged and keeps using the defaults.
   ([#7023](https://github.com/matrix-org/matrix-rust-sdk/pull/7023))
+- Add `Client::sendEncryptedToDeviceMessage` and `SendToDeviceOutcome` to
+  Olm-encrypt a custom to-device message and send it to a set of recipient
+  devices, reporting the devices that could not be reached.
+  ([#6981](https://github.com/matrix-org/matrix-rust-sdk/pulls/6981))
 
 ### Changed
 

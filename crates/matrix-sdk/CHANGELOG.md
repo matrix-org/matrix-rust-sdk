@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.19.1](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.1) - 2026-09-18
+
+### Fixed
+
+- The inlined HTML script that extracts and renders Mermaid diagrams in the
+  rustdoc has been included in the published crate source. Previously they were
+  not, and the script was referenced in the rustdoc with a path relative to the
+  monorepo root, which failed to resolve when individual crates are published,
+  thus breaking rustdoc build on docs.rs.
+  ([#7058](https://github.com/matrix-org/matrix-rust-sdk/pulls/7058))
+
 ## [0.19.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.0) - 2026-09-16
 
 ### Removed
@@ -215,6 +226,10 @@ All notable changes to this project will be documented in this file.
   computed unread notification counts across all joined rooms, counting rooms
   marked as unread by hand as one each.
   ([#7002](https://github.com/matrix-org/matrix-rust-sdk/pull/7002))
+- Add `Client::send_encrypted_to_device` (behind the
+  `experimental-send-custom-to-device` feature) to Olm-encrypt a custom
+  to-device message and send it to a set of recipient devices.
+  ([#6981](https://github.com/matrix-org/matrix-rust-sdk/pulls/6981))
 
 ### Changed
 
@@ -223,7 +238,7 @@ All notable changes to this project will be documented in this file.
   `events: Vec<Raw<AnySyncEphemeralRoomEvent>>` but a single
   `event: ReceiptEventContent`.
 
-  In the same vain, `ThreadEventCacheUpdate` is introduced! Thus,
+  In the same vein, `ThreadEventCacheUpdate` is introduced! Thus,
   `ThreadEventCache::subscribe` no longer returns a
   `Subscriber<TimelineVectorDiffs>` but a `Subscriber<ThreadEventCacheUpdate>`.
   The `TimelineVectorDiffs` can be found in
