@@ -1,6 +1,6 @@
-use std::{collections::BTreeMap, ops::Not as _, time::Duration};
+use std::{assert_matches, collections::BTreeMap, ops::Not as _, time::Duration};
 
-use assert_matches2::{assert_let, assert_matches};
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt, pin_mut};
 use matrix_sdk::{
@@ -368,7 +368,7 @@ async fn test_room_update_channel() {
 
     assert_eq!(updates.account_data.len(), 1);
     assert_eq!(updates.ephemeral.len(), 1);
-    assert_matches!(updates.state, State::Before(state_events));
+    assert_let!(State::Before(state_events) = updates.state);
     assert_eq!(state_events.len(), 9);
 
     assert!(updates.timeline.limited);
@@ -399,7 +399,7 @@ async fn test_subscribe_all_room_updates() {
         let (room_id, update) = left.iter().next().unwrap();
 
         assert_eq!(room_id, *MIXED_LEFT_ROOM_ID);
-        assert_matches!(&update.state, State::Before(state_events));
+        assert_let!(State::Before(state_events) = &update.state);
         assert!(state_events.is_empty());
         assert_eq!(update.timeline.events.len(), 1);
         assert!(update.account_data.is_empty());
@@ -415,7 +415,7 @@ async fn test_subscribe_all_room_updates() {
 
         assert_eq!(update.account_data.len(), 1);
         assert_eq!(update.ephemeral.len(), 1);
-        assert_matches!(&update.state, State::Before(state_events));
+        assert_let!(State::Before(state_events) = &update.state);
         assert_eq!(state_events.len(), 1);
 
         assert!(update.timeline.limited);
@@ -1898,7 +1898,7 @@ async fn test_logout() {
     // This returns an error because it requires a HTTPS server URI, or to be able
     // to call `OAuth::insecure_rewrite_https_to_http()`, but at least we are
     // testing the OAuth branch inside `Client::logout()`.
-    assert_matches!(res, Err(Error::OAuth(oauth_error)));
+    assert_let!(Err(Error::OAuth(oauth_error)) = res);
     assert_matches!(*oauth_error, OAuthError::Logout(OAuthTokenRevocationError::Url(_)));
 }
 
@@ -1942,7 +1942,7 @@ async fn test_room_sync_state_after() {
     assert_let!(RoomUpdate::Joined { updates, .. } = update);
 
     // We received the `state_after`.
-    assert_matches!(updates.state, State::After(state_events));
+    assert_let!(State::After(state_events) = updates.state);
     assert_eq!(state_events.len(), 5);
     assert_eq!(updates.timeline.events.len(), 2);
 

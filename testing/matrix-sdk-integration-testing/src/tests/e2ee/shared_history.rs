@@ -1,7 +1,7 @@
-use std::{ops::Deref, sync::Arc, time::Duration};
+use std::{assert_matches, ops::Deref, sync::Arc, time::Duration};
 
 use anyhow::Result;
-use assert_matches2::{assert_let, assert_matches};
+use assert_matches2::assert_let;
 use assign::assign;
 use eyeball_im::VectorDiff;
 use futures::{FutureExt, StreamExt, future, pin_mut};

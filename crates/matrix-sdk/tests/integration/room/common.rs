@@ -1,6 +1,6 @@
-use std::{collections::BTreeMap, iter, ops::Not, time::Duration};
+use std::{assert_matches, collections::BTreeMap, iter, ops::Not, time::Duration};
 
-use assert_matches2::{assert_let, assert_matches};
+use assert_matches2::assert_let;
 use js_int::uint;
 use matrix_sdk::{
     RoomDisplayName, RoomMemberships,
@@ -289,10 +289,7 @@ async fn test_state_event_getting() {
         .deserialize()
         .unwrap();
 
-    assert_matches::assert_matches!(
-        encryption_event.as_sync(),
-        Some(AnySyncStateEvent::RoomEncryption(_))
-    );
+    assert_matches!(encryption_event.as_sync(), Some(AnySyncStateEvent::RoomEncryption(_)));
 }
 
 #[async_test]

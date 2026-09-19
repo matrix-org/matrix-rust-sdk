@@ -1,4 +1,5 @@
-use assert_matches2::assert_matches;
+use std::assert_matches;
+
 use futures_util::FutureExt;
 use matrix_sdk::{
     Client,
