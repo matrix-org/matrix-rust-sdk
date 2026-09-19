@@ -53,6 +53,15 @@ pub trait PresenceListener: SendOutsideWasm + SyncOutsideWasm {
 
 #[matrix_sdk_ffi_macros::export]
 impl Client {
+    pub async fn set_presence_with_status(
+        &self,
+        presence: PresenceState,
+        status_msg: Option<String>,
+        immediate: bool,
+    ) -> Result<(), ClientError> {
+        Ok(self.inner.set_presence(presence.into(), status_msg, immediate).await?)
+    }
+
     pub async fn get_user_presence(&self, user_id: String) -> Result<UserPresence, ClientError> {
         let user_id = UserId::parse(user_id)?;
         let response = self.inner.send(get_presence::v3::Request::new(user_id.clone())).await?;
@@ -91,7 +100,7 @@ mod tests {
     use tokio::{sync::mpsc, time::timeout};
     use wiremock::{
         Mock, ResponseTemplate,
-        matchers::{header, method, path_regex},
+        matchers::{body_json, header, method, path_regex},
     };
 
     use super::*;
@@ -144,6 +153,31 @@ mod tests {
         assert_eq!(presence.status_msg.as_deref(), Some("At lunch"));
         assert_eq!(presence.last_active_ago, Some(Duration::from_millis(12345)));
         assert_eq!(presence.currently_active, Some(false));
+    }
+
+    #[tokio::test]
+    async fn publishes_presence_with_an_existing_status_message() {
+        let server = MatrixMockServer::new().await;
+        let sdk_client = server
+            .client_builder()
+            .on_builder(|builder| {
+                builder.cross_process_store_config(CrossProcessLockConfig::SingleProcess)
+            })
+            .build()
+            .await;
+        let client = Client::new(sdk_client, None, None).await.unwrap();
+        Mock::given(method("PUT"))
+            .and(path_regex(r"^/_matrix/client/(r0|v3)/presence/.*/status$"))
+            .and(header("authorization", "Bearer 1234"))
+            .and(body_json(json!({"presence": "unavailable", "status_msg": "At lunch"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .mount(server.server())
+            .await;
+        client
+            .set_presence_with_status(PresenceState::Unavailable, Some("At lunch".into()), true)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
