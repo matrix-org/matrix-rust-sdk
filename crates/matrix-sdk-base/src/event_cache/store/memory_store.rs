@@ -337,6 +337,32 @@ impl EventCacheStore for MemoryStore {
         Ok(deduplicated.into_values().collect())
     }
 
+    async fn find_events_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        cutoff_ms: u64,
+    ) -> Result<Vec<(Event, Position)>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+
+        let results = inner
+            .events
+            .items(room_id)
+            .filter_map(|(linked_chunk_id, (event, position))| {
+                // Only include events in the room's linked chunk (not threads).
+                if !matches!(linked_chunk_id.as_ref(), LinkedChunkId::Room(_)) {
+                    return None;
+                }
+                // Only include events with a position.
+                let position = position?;
+                // Only include events older than the cutoff.
+                let ts = u64::from(event.timestamp()?.get());
+                (ts < cutoff_ms).then_some((event.clone(), position))
+            })
+            .collect();
+
+        Ok(results)
+    }
+
     async fn get_room_events(
         &self,
         room_id: &RoomId,

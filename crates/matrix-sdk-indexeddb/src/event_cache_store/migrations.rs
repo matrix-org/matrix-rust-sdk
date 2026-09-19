@@ -21,10 +21,10 @@ use thiserror::Error;
 
 /// The current version and keys used in the database.
 pub mod current {
-    use super::{Version, v8};
+    use super::{Version, v9};
 
-    pub const VERSION: Version = Version::V8;
-    pub use v8::keys;
+    pub const VERSION: Version = Version::V9;
+    pub use v9::keys;
 }
 
 /// Opens a connection to the IndexedDB database and takes care of upgrading it
@@ -68,6 +68,8 @@ pub enum Version {
     V7 = 7,
     /// Version 8 of the database, for details see [`v8`].
     V8 = 8,
+    /// Version 9 of the database, for details see [`v9`].
+    V9 = 9,
 }
 
 impl Version {
@@ -82,7 +84,8 @@ impl Version {
             Self::V5 => v5::upgrade(transaction).map(Some),
             Self::V6 => v6::upgrade(transaction).map(Some),
             Self::V7 => v7::upgrade(transaction).map(Some),
-            Self::V8 => Ok(None),
+            Self::V8 => v8::upgrade(transaction).map(Some),
+            Self::V9 => Ok(None),
         }
     }
 }
@@ -105,6 +108,7 @@ impl TryFrom<u32> for Version {
             6 => Ok(Version::V6),
             7 => Ok(Version::V7),
             8 => Ok(Version::V8),
+            9 => Ok(Version::V9),
             v => Err(UnknownVersionError(v)),
         }
     }
@@ -501,6 +505,104 @@ pub mod v8 {
 
         let events = transaction.object_store(keys::EVENTS)?;
         events.clear()?;
+
+        let threads = transaction.object_store(keys::THREADS)?;
+        threads.clear()?;
+
+        Ok(())
+    }
+
+    /// Upgrade database from `v8` to `v9`
+    pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
+        v9::update_events_object_store(transaction)?;
+        v9::empty_event_cache(transaction)?;
+        Ok(Version::V9)
+    }
+}
+
+mod v9 {
+    use indexed_db_futures::Build;
+
+    pub mod keys {
+        // Re-use all the same keys from `v8`.
+        pub use super::super::v8::keys::*;
+
+        // Add new keys.
+        pub const EVENTS_TIMESTAMP: &str = "events_timestamp";
+        pub const EVENTS_TIMESTAMP_KEY_PATH: &str = "timestamp";
+    }
+    use super::*;
+
+    /// Adds an index on the events object store tracking each event's
+    /// timestamp, so that events older than a given cutoff can be
+    /// queried and deleted efficiently (e.g. for MSC1763 retention policy
+    /// enforcement).
+    ///
+    /// Note that this operation removes the existing events object store and
+    /// all of its contents, following the same approach as the `v3`
+    /// migration.
+    pub fn update_events_object_store(transaction: &Transaction<'_>) -> Result<(), Error> {
+        remove_events_object_store(transaction)?;
+        create_events_object_store(transaction.db())?;
+        Ok(())
+    }
+
+    /// Remove events object store
+    fn remove_events_object_store(transaction: &Transaction<'_>) -> Result<(), Error> {
+        let object_store = transaction.object_store(keys::EVENTS)?;
+        // Clear the store before deleting it, following
+        // `v3::remove_events_object_store`.
+        object_store.clear()?;
+        transaction.db().delete_object_store(keys::EVENTS)?;
+        Ok(())
+    }
+
+    /// Create an object store for tracking information about events.
+    ///
+    /// * Primary Key - `id`
+    /// * Index - `room` - tracks whether an event is in a given room
+    /// * Index (unique) - `position` - tracks position of an event in linked
+    ///   chunks
+    /// * Index - `relation` - tracks any event to which the given event is
+    ///   related
+    /// * Index - `event_id` - tracks the event id of an event across linked
+    ///   chunks. Carried forward from v8.
+    /// * Index - `timestamp` - tracks the timestamp of an event (from
+    ///   `TimelineEvent::timestamp()`), if known. Events with no known
+    ///   timestamp are not entered into this index at all.
+    fn create_events_object_store(db: &Database) -> Result<(), Error> {
+        let events = db
+            .create_object_store(keys::EVENTS)
+            .with_key_path(keys::EVENTS_KEY_PATH.into())
+            .build()?;
+        let _ =
+            events.create_index(keys::EVENTS_ROOM, keys::EVENTS_ROOM_KEY_PATH.into()).build()?;
+        let _ = events
+            .create_index(keys::EVENTS_POSITION, keys::EVENTS_POSITION_KEY_PATH.into())
+            .with_unique(true)
+            .build()?;
+        let _ = events
+            .create_index(keys::EVENTS_RELATION, keys::EVENTS_RELATION_KEY_PATH.into())
+            .build()?;
+        let _ = events
+            .create_index(keys::EVENTS_EVENT_ID, keys::EVENTS_EVENT_ID_KEY_PATH.into())
+            .build()?;
+        let _ = events
+            .create_index(keys::EVENTS_TIMESTAMP, keys::EVENTS_TIMESTAMP_KEY_PATH.into())
+            .build()?;
+        Ok(())
+    }
+
+    /// The `v8` to `v9` upgrade already empties the events object store as
+    /// part of recreating it with the new index; this also clears the
+    /// dependent `linked_chunks`, `gaps`, and `threads` stores so rooms start
+    /// fresh and properly re-sync, following the same precedent as `v4`/`v6`.
+    pub fn empty_event_cache(transaction: &Transaction<'_>) -> Result<(), Error> {
+        let linked_chunks = transaction.object_store(keys::LINKED_CHUNKS)?;
+        linked_chunks.clear()?;
+
+        let gaps = transaction.object_store(keys::GAPS)?;
+        gaps.clear()?;
 
         let threads = transaction.object_store(keys::THREADS)?;
         threads.clear()?;
