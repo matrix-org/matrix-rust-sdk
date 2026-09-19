@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use assert_matches2::assert_matches;
+use assert_matches2::assert_let;
 use matrix_sdk::{
     config::{SyncSettings, SyncToken},
     sync::Notification,
@@ -91,13 +91,13 @@ async fn test_notifications_joined() {
 
     let (notif_room_id, notification) = assert_ready!(receiver_stream);
     assert_eq!(notif_room_id, room_id);
-    assert_matches!(notification.event, RawAnySyncOrStrippedTimelineEvent::Sync(raw_event));
+    assert_let!(RawAnySyncOrStrippedTimelineEvent::Sync(raw_event) = notification.event);
     let event = raw_event.deserialize().unwrap();
     assert_eq!(event.event_id(), "$aaa");
 
     let (notif_room_id, notification) = assert_ready!(receiver_stream);
     assert_eq!(notif_room_id, room_id);
-    assert_matches!(notification.event, RawAnySyncOrStrippedTimelineEvent::Sync(raw_event));
+    assert_let!(RawAnySyncOrStrippedTimelineEvent::Sync(raw_event) = notification.event);
     let event = raw_event.deserialize().unwrap();
     assert_eq!(event.event_id(), "$bbb");
 
@@ -156,7 +156,7 @@ async fn test_notifications_invite() {
 
     let (notif_room_id, notification) = assert_ready!(receiver_stream);
     assert_eq!(notif_room_id, room_id);
-    assert_matches!(notification.event, RawAnySyncOrStrippedTimelineEvent::Stripped(raw_event));
+    assert_let!(RawAnySyncOrStrippedTimelineEvent::Stripped(raw_event) = notification.event);
     let event = raw_event.deserialize().unwrap();
     assert_eq!(event.event_type(), StateEventType::RoomMember);
     assert_eq!(event.state_key(), user_id);

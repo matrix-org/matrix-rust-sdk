@@ -1,4 +1,5 @@
-use assert_matches2::assert_matches;
+use std::assert_matches;
+
 use matrix_sdk::{
     notification_settings::RoomNotificationMode,
     room::ThreadSubscription,

@@ -1,7 +1,7 @@
-use std::{ops::Not as _, sync::Arc, time::Duration};
+use std::{assert_matches, ops::Not as _, sync::Arc, time::Duration};
 
 use as_variant::as_variant;
-use assert_matches2::{assert_let, assert_matches};
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk::attachment::{GalleryConfig, GalleryItemInfo};
