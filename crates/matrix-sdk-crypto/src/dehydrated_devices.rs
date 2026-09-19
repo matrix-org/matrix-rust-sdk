@@ -52,7 +52,7 @@ use ruma::{
 };
 use thiserror::Error;
 use tracing::{instrument, trace};
-use vodozemac::{DehydratedDeviceError, LibolmPickleError};
+use vodozemac::{DehydratedDeviceError, LibolmPickleError, base64_decode};
 
 use crate::{
     Account, CryptoStoreError, DecryptionSettings, EncryptionSyncChanges, OlmError, OlmMachine,
@@ -63,6 +63,19 @@ use crate::{
     },
     verification::VerificationMachine,
 };
+
+/// The name under which the dehydrated device pickle key (MSC3814) is gossiped
+/// between a user's own verified devices. It matches the Secret Storage
+/// account-data key that clients (e.g. matrix-js-sdk) use to store the same
+/// key, so the two representations stay consistent.
+pub(crate) const DEHYDRATED_DEVICE_PICKLE_KEY_SECRET_NAME: &str = "org.matrix.msc3814";
+
+/// Decode a base64-encoded dehydrated device pickle key (MSC3814), as gossiped
+/// between a user's devices or stored in Secret Storage. Returns `None` if the
+/// payload is not valid base64 or not a valid key.
+pub(crate) fn decode_dehydrated_device_pickle_key(secret: &str) -> Option<DehydratedDeviceKey> {
+    base64_decode(secret).ok().and_then(|bytes| DehydratedDeviceKey::from_slice(&bytes).ok())
+}
 
 /// Error type for device dehydration issues.
 #[derive(Debug, Error)]
@@ -496,6 +509,27 @@ mod tests {
                 .expect("We should be able to convert the to-device event into it's Raw variatn"),
             session,
         )
+    }
+
+    #[test]
+    fn test_decode_dehydrated_device_pickle_key() {
+        use vodozemac::base64_encode;
+
+        use super::decode_dehydrated_device_pickle_key;
+
+        // A valid base64-encoded key decodes back to the same key.
+        let key = DehydratedDeviceKey::new();
+        let decoded =
+            decode_dehydrated_device_pickle_key(&key.to_base64()).expect("the key should decode");
+        assert_eq!(decoded.to_base64(), key.to_base64());
+
+        // Invalid base64 is rejected.
+        assert!(decode_dehydrated_device_pickle_key("not valid base64!").is_none());
+
+        // Valid base64 of the wrong length is rejected.
+        assert!(
+            decode_dehydrated_device_pickle_key(&base64_encode([0u8; 10].as_slice())).is_none()
+        );
     }
 
     #[async_test]
