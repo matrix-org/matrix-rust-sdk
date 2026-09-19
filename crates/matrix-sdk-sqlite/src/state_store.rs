@@ -3020,7 +3020,7 @@ mod migration_tests {
                     room_id,
                     &local_tx,
                     ChildTransactionId::new(),
-                    DependentQueuedRequestKind::RedactEvent,
+                    DependentQueuedRequestKind::RedactEventWithReason { reason: None },
                 )?;
                 add_send_queue_event_v7(&db, txn, &wedge_tx, room_id, true)?;
                 add_send_queue_event_v7(&db, txn, &local_tx, room_id, false)?;
