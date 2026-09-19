@@ -3904,6 +3904,7 @@ dependencies = [
  "url",
  "uuid",
  "vergen-gitcl",
+ "wiremock",
  "zeroize",
  "zxcvbn",
 ]
