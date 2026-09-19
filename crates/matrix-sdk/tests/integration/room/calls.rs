@@ -1,6 +1,8 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    assert_matches,
+    sync::{Arc, Mutex},
+};
 
-use assert_matches2::assert_matches;
 use matrix_sdk::{room::calls::CallError, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{

@@ -1,4 +1,7 @@
-use assert_matches2::assert_matches;
+#[cfg(feature = "unstable-msc4426")]
+use std::assert_matches;
+
+use assert_matches2::assert_let;
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_test::async_test;
 use ruma::{
@@ -109,7 +112,7 @@ async fn test_fetch_profile_field() {
         .fetch_profile_field_of(user_id.to_owned(), ProfileFieldName::TimeZone)
         .await
         .unwrap();
-    assert_matches!(res_value, Some(ProfileFieldValue::TimeZone(res_tz)));
+    assert_let!(Some(ProfileFieldValue::TimeZone(res_tz)) = res_value);
     assert_eq!(res_tz, tz);
     let res_tz =
         account.fetch_profile_field_of_static::<TimeZone>(user_id.to_owned()).await.unwrap();
