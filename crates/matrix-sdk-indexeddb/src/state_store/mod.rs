@@ -20,6 +20,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use futures_util::future::try_join_all;
 use gloo_utils::format::JsValueSerdeExt;
 use growable_bloom_filter::GrowableBloom;
 use indexed_db_futures::{
@@ -1504,6 +1505,59 @@ impl_state_store!({
             .filter_map(Result::ok)
             .filter_map(|f| self.deserialize_value(&f).ok())
             .collect::<Vec<_>>())
+    }
+
+    async fn get_event_room_receipt_events_batch<'a>(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        receipt_thread: &ReceiptThread,
+        event_ids: &'a [OwnedEventId],
+    ) -> Result<BTreeMap<&'a EventId, Vec<(OwnedUserId, Receipt)>>> {
+        if event_ids.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+
+        // Opening a transaction is the expensive part of a read, so the whole
+        // batch goes through a single one. The requests are issued together and
+        // resolved by the transaction in order.
+        let tx = self
+            .inner
+            .transaction(keys::ROOM_EVENT_RECEIPTS)
+            .with_mode(TransactionMode::Readonly)
+            .build()?;
+        let store = tx.object_store(keys::ROOM_EVENT_RECEIPTS)?;
+
+        let requests = event_ids.iter().map(|event_id| {
+            let event_id: &EventId = event_id;
+            let range = match receipt_thread.as_str() {
+                Some(thread_id) => self.encode_to_range(
+                    keys::ROOM_EVENT_RECEIPTS,
+                    (room_id, &receipt_type, thread_id, event_id),
+                ),
+                None => self
+                    .encode_to_range(keys::ROOM_EVENT_RECEIPTS, (room_id, &receipt_type, event_id)),
+            };
+            let store = &store;
+
+            async move {
+                let receipts = store
+                    .get_all()
+                    .with_query(&range)
+                    .await?
+                    .filter_map(Result::ok)
+                    .filter_map(|f| self.deserialize_value(&f).ok())
+                    .collect::<Vec<_>>();
+
+                Ok::<_, IndexeddbStateStoreError>((event_id, receipts))
+            }
+        });
+
+        Ok(try_join_all(requests)
+            .await?
+            .into_iter()
+            .filter(|(_, receipts)| !receipts.is_empty())
+            .collect())
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
