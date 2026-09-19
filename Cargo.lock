@@ -3862,6 +3862,7 @@ name = "matrix-sdk-ffi"
 version = "0.19.1"
 dependencies = [
  "anyhow",
+ "assert_matches2",
  "async-compat",
  "async-trait",
  "chrono",
