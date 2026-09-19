@@ -306,6 +306,14 @@ impl<'a> Transaction<'a> {
         Ok(None)
     }
 
+    pub async fn contains_key<T, K>(&self, key: K) -> Result<bool, TransactionError>
+    where
+        T: Indexed,
+        K: IndexedKey<T> + Serialize + DeserializeOwned,
+    {
+        Ok(!self.get_keys(key).await?.is_empty())
+    }
+
     /// Query IndexedDB for keys that match the given key range. Iterate over
     /// the keys in the given [`direction`](CursorDirection) using a cursor and
     /// fold them into an accumulator while the given function `f` returns
