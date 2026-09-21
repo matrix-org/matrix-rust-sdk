@@ -2,12 +2,12 @@
 
 #![allow(dead_code)]
 
-use assert_matches2::assert_let;
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, store::RoomLoadSettings};
 use ruma::{
     api::MatrixVersion,
     events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, room::message::MessageType},
 };
+use strass::assert_let;
 use url::Url;
 
 pub mod client;
@@ -287,20 +287,20 @@ macro_rules! assert_next_eq_with_timeout {
 #[macro_export]
 macro_rules! assert_decrypted_message_eq {
     ($event:expr, $expected:expr, $($msg:tt)*) => {{
-        assert_matches2::assert_let!($crate::deserialized_responses::TimelineEventKind::Decrypted(decrypted_event) = $event.kind);
+        strass::assert_let!($crate::deserialized_responses::TimelineEventKind::Decrypted(decrypted_event) = $event.kind);
 
         let deserialized_event = decrypted_event
             .event
             .deserialize()
             .expect("We should be able to deserialize the decrypted event");
 
-        assert_matches2::assert_let!(
+        strass::assert_let!(
             $crate::ruma::events::AnyTimelineEvent::MessageLike(deserialized_event) = deserialized_event
         );
 
         let content =
             deserialized_event.original_content().expect("The event should not have been redacted");
-        assert_matches2::assert_let!($crate::ruma::events::AnyMessageLikeEventContent::RoomMessage(content) = content);
+        strass::assert_let!($crate::ruma::events::AnyMessageLikeEventContent::RoomMessage(content) = content);
         assert_eq!(content.body(), $expected, $($msg)*);
     }};
     ($event:expr, $expected:expr) => {{
@@ -339,7 +339,7 @@ macro_rules! assert_decrypted_message_eq {
 #[macro_export]
 macro_rules! assert_let_decrypted_state_event_content {
     ($pat:pat = $event:expr, $($msg:tt)*) => {
-        assert_matches2::assert_let!(
+        strass::assert_let!(
             $crate::deserialized_responses::TimelineEventKind::Decrypted(decrypted_event) =
                 $event.kind,
             "Event was not decrypted"
@@ -353,7 +353,7 @@ macro_rules! assert_let_decrypted_state_event_content {
         let content =
             deserialized_event.original_content().expect("The event should not have been redacted");
 
-        assert_matches2::assert_let!($pat = content, $($msg)*);
+        strass::assert_let!($pat = content, $($msg)*);
     };
     ($pat:pat = $event:expr) => {
         assert_let_decrypted_state_event_content!(
@@ -396,7 +396,7 @@ macro_rules! assert_next_eq_with_timeout_impl {
 #[macro_export]
 macro_rules! assert_let_timeout {
     ($timeout:expr, $pat:pat = $future:expr) => {
-        assert_matches2::assert_let!(Ok($pat) = tokio::time::timeout($timeout, $future).await);
+        strass::assert_let!(Ok($pat) = tokio::time::timeout($timeout, $future).await);
     };
 
     ($pat:pat = $future:expr) => {

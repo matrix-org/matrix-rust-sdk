@@ -440,8 +440,8 @@ scheme_serialization!(
 #[cfg(test)]
 pub(crate) mod tests {
     use assert_matches::assert_matches;
-    use assert_matches2::assert_let;
     use serde_json::{Value, json};
+    use strass::assert_let;
     use vodozemac::Curve25519PublicKey;
 
     use super::{

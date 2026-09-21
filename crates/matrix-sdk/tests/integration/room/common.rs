@@ -1,6 +1,5 @@
 use std::{assert_matches, collections::BTreeMap, iter, ops::Not, time::Duration};
 
-use assert_matches2::assert_let;
 use js_int::uint;
 use matrix_sdk::{
     RoomDisplayName, RoomMemberships,
@@ -23,6 +22,7 @@ use ruma::{
     mxc_uri, owned_room_alias_id, room_id, room_version_id, user_id,
 };
 use serde_json::json;
+use strass::assert_let;
 use wiremock::{
     Mock, ResponseTemplate,
     matchers::{body_json, header, method, path, path_regex},

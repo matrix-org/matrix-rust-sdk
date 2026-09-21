@@ -1357,7 +1357,6 @@ pub enum DmRoomDefinition {
 mod tests {
     use std::collections::HashMap;
 
-    use assert_matches2::assert_let;
     use futures_util::FutureExt as _;
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{
@@ -1378,6 +1377,7 @@ mod tests {
         user_id,
     };
     use serde_json::{json, value::to_raw_value};
+    use strass::assert_let;
 
     use super::{BaseClient, RequestedRequiredStates};
     use crate::{

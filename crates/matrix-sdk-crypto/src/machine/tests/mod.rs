@@ -14,7 +14,6 @@
 
 use std::{assert_matches, collections::BTreeMap, iter, ops::Not, sync::Arc, time::Duration};
 
-use assert_matches2::assert_let;
 use futures_util::{FutureExt, StreamExt, pin_mut};
 use itertools::Itertools;
 use matrix_sdk_common::{
@@ -58,6 +57,7 @@ use ruma::{
 };
 use serde::Deserialize;
 use serde_json::json;
+use strass::assert_let;
 use vodozemac::{
     Ed25519PublicKey, Ed25519SecretKey,
     megolm::{GroupSession, SessionConfig},

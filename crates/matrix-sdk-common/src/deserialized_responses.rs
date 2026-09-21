@@ -1524,7 +1524,6 @@ mod tests {
     use std::{collections::BTreeMap, sync::Arc};
 
     use assert_matches::assert_matches;
-    use assert_matches2::assert_let;
     use insta::{assert_json_snapshot, with_settings};
     use ruma::{
         DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, UInt, event_id,
@@ -1534,6 +1533,7 @@ mod tests {
     };
     use serde::Deserialize;
     use serde_json::json;
+    use strass::assert_let;
 
     use super::{
         AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo, ShieldState,

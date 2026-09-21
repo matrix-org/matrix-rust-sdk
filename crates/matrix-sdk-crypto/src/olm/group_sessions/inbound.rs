@@ -919,7 +919,6 @@ impl TryFrom<&DecryptedForwardedRoomKeyEvent> for InboundGroupSession {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches2::assert_let;
     use insta::{assert_json_snapshot, with_settings};
     use matrix_sdk_test::async_test;
     use ruma::{
@@ -928,6 +927,7 @@ mod tests {
     };
     use serde_json::json;
     use similar_asserts::assert_eq;
+    use strass::assert_let;
     use vodozemac::{
         Curve25519PublicKey, Ed25519PublicKey,
         megolm::{SessionKey, SessionOrdering},

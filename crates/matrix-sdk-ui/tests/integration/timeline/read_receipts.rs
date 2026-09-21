@@ -15,7 +15,6 @@
 use std::ops::Not as _;
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
@@ -44,6 +43,7 @@ use ruma::{
     uint, user_id,
 };
 use serde_json::json;
+use strass::assert_let;
 use stream_assert::{assert_pending, assert_ready};
 use tokio::task::yield_now;
 

@@ -1310,7 +1310,6 @@ pub enum Error {
 mod tests {
     use std::collections::BTreeMap;
 
-    use assert_matches2::assert_let;
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
     use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
     use ruma::{
@@ -1319,6 +1318,7 @@ mod tests {
         events::room::{member::MembershipState, message::RedactedRoomMessageEventContent},
         owned_event_id, owned_room_id, room_id, user_id,
     };
+    use strass::assert_let;
 
     use crate::notification_client::{
         NotificationClient, NotificationItem, NotificationItemsRequest, NotificationProcessSetup,

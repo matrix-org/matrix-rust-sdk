@@ -23,7 +23,6 @@ use std::{
 
 use as_variant::as_variant;
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
     self, Client, assert_next_matches_with_timeout, assert_next_with_timeout,
@@ -45,6 +44,7 @@ use ruma::{
     user_id,
 };
 use serde_json::{json, value::to_raw_value};
+use strass::assert_let;
 use stream_assert::{assert_next_matches, assert_pending};
 use tokio::time::sleep;
 

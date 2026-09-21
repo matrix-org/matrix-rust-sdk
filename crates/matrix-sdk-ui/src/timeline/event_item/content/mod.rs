@@ -943,7 +943,6 @@ impl OtherState {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches2::assert_let;
     use matrix_sdk_test::ALICE;
     use ruma::{
         assign,
@@ -955,6 +954,7 @@ mod tests {
         },
         room_version_rules::RedactionRules,
     };
+    use strass::assert_let;
 
     use super::{MembershipChange, RoomMembershipChange, TimelineItemContent};
 

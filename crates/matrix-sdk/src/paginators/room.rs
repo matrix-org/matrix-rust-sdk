@@ -421,12 +421,12 @@ impl PaginableRoom for Room {
 mod tests {
     use std::sync::{Arc, LazyLock};
 
-    use assert_matches2::assert_let;
     use futures_core::Future;
     use futures_util::FutureExt as _;
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{EventId, RoomId, UInt, UserId, api::Direction, event_id, room_id, uint, user_id};
+    use strass::assert_let;
     use tokio::{
         spawn,
         sync::{Mutex, Notify},

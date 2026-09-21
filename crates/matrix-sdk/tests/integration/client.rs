@@ -1,6 +1,5 @@
 use std::{assert_matches, collections::BTreeMap, ops::Not as _, time::Duration};
 
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt, pin_mut};
 use matrix_sdk::{
@@ -63,6 +62,7 @@ use ruma::{
     uint, user_id,
 };
 use serde_json::{Value as JsonValue, json};
+use strass::assert_let;
 use stream_assert::{assert_next_matches, assert_pending};
 use tempfile::tempdir;
 #[cfg(feature = "sqlite")]

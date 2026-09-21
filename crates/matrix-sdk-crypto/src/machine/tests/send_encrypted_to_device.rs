@@ -14,7 +14,6 @@
 
 use std::assert_matches;
 
-use assert_matches2::assert_let;
 use insta::assert_json_snapshot;
 use matrix_sdk_common::deserialized_responses::{
     AlgorithmInfo, ProcessedToDeviceEvent, ToDeviceUnableToDecryptReason, VerificationLevel,
@@ -26,6 +25,7 @@ use ruma::{
     to_device::DeviceIdOrAllDevices,
 };
 use serde_json::{Value, json, value::to_raw_value};
+use strass::assert_let;
 
 use crate::{
     CrossSigningBootstrapRequests, DecryptionSettings, DeviceData, EncryptionSettings,

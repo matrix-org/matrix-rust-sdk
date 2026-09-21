@@ -993,10 +993,10 @@ pub(crate) mod tests {
     use std::{future, iter, net::SocketAddr, sync::Mutex as StdMutex};
 
     use assert_matches::assert_matches;
-    use assert_matches2::assert_let;
     use matrix_sdk_test::{async_test, test_json};
     use reqwest::dns::{Addrs, Name, Resolve, Resolving};
     use serde_json::{Value as JsonValue, json_internal};
+    use strass::assert_let;
     use url::Url;
     use wiremock::{
         Mock, MockServer, ResponseTemplate,

@@ -311,7 +311,6 @@ mod tests {
     use std::sync::Arc;
     use std::{assert_matches, ops::Not};
 
-    use assert_matches2::assert_let;
     #[cfg(feature = "e2e-encryption")]
     use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
     use matrix_sdk::{HttpError, RumaApiError, test_utils::mocks::MatrixMockServer};
@@ -330,6 +329,7 @@ mod tests {
         serde::Base64,
     };
     use serde::Deserialize;
+    use strass::assert_let;
     use wiremock::{
         Mock, MockServer, ResponseTemplate,
         matchers::{header_exists, method, path, path_regex},

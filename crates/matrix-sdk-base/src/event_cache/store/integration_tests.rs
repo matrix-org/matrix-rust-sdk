@@ -20,7 +20,6 @@ use std::{
 };
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use matrix_sdk_common::{
     deserialized_responses::{
         AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, TimelineEvent, TimelineEventKind,
@@ -46,6 +45,7 @@ use ruma::{
     serde::Raw,
 };
 use serde_json::{Map, Value};
+use strass::assert_let;
 
 use super::{
     super::{Gap, thread::ThreadInfo},

@@ -14,7 +14,6 @@
 
 use std::sync::{Arc, Mutex};
 
-use assert_matches2::assert_let;
 use futures_util::StreamExt;
 use matrix_sdk::{
     Client,
@@ -35,6 +34,7 @@ use matrix_sdk_test::async_test;
 use ruma::{UserId, api::client::uiaa, owned_device_id, user_id};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use strass::assert_let;
 use tokio::spawn;
 use wiremock::{
     Mock, ResponseTemplate,

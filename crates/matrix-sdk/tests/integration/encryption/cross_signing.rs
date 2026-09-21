@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use assert_matches2::assert_let;
 use matrix_sdk::{encryption::CrossSigningResetAuthType, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::async_test;
 use ruma::api::{
@@ -20,6 +19,7 @@ use ruma::api::{
     error::{ErrorKind, StandardErrorBody},
 };
 use similar_asserts::assert_eq;
+use strass::assert_let;
 
 #[async_test]
 async fn test_reset_legacy_auth() {

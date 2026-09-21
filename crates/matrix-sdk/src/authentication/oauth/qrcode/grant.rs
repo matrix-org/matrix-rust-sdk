@@ -423,13 +423,13 @@ impl<'a> IntoFuture for GrantLoginWithGeneratedQrCode<'a> {
 mod test {
     use std::{assert_matches, sync::Arc};
 
-    use assert_matches2::assert_let;
     use futures_util::StreamExt;
     use matrix_sdk_base::crypto::types::SecretsBundle;
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
     use oauth2::{EndUserVerificationUrl, VerificationUriComplete};
     use ruma::{owned_device_id, owned_user_id};
+    use strass::assert_let;
     use tokio::sync::oneshot;
     use tracing::debug;
 

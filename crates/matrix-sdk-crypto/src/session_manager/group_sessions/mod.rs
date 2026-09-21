@@ -1088,7 +1088,6 @@ mod tests {
         sync::Arc,
     };
 
-    use assert_matches2::assert_let;
     use matrix_sdk_common::deserialized_responses::{ProcessedToDeviceEvent, WithheldCode};
     use matrix_sdk_test::{async_test, ruma_response_from_json};
     use ruma::{
@@ -1104,6 +1103,7 @@ mod tests {
         user_id,
     };
     use serde_json::{Value, json};
+    use strass::assert_let;
 
     use crate::{
         DecryptionSettings, EncryptionSettings, LocalTrust, OlmMachine, TrustRequirement,

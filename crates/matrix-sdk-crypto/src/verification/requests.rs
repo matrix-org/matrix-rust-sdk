@@ -1627,7 +1627,6 @@ mod tests {
     use std::time::Duration;
 
     use assert_matches::assert_matches;
-    use assert_matches2::assert_let;
     #[cfg(feature = "qrcode")]
     use matrix_sdk_qrcode::QrVerificationData;
     use matrix_sdk_test::async_test;
@@ -1635,6 +1634,7 @@ mod tests {
         UserId, event_id, events::key::verification::VerificationMethod, owned_event_id,
         owned_room_id, room_id, to_device::DeviceIdOrAllDevices,
     };
+    use strass::assert_let;
 
     use super::VerificationRequest;
     use crate::{

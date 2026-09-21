@@ -162,10 +162,10 @@ pub enum LoginProtocolType {
 
 #[cfg(test)]
 mod test {
-    use assert_matches2::assert_let;
     use matrix_sdk_base::crypto::types::BackupSecrets;
     use serde_json::json;
     use similar_asserts::assert_eq;
+    use strass::assert_let;
 
     use super::*;
 

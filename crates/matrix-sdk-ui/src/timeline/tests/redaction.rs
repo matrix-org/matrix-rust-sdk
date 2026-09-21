@@ -15,7 +15,6 @@
 use std::sync::Arc;
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use imbl::vector;
 use matrix_sdk_base::store::QueueWedgeError;
@@ -28,6 +27,7 @@ use ruma::{
     },
     owned_event_id,
 };
+use strass::assert_let;
 use stream_assert::{assert_next_matches, assert_pending};
 
 use super::TestTimeline;

@@ -342,10 +342,10 @@ pub struct PickledSession {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
     use ruma::{device_id, user_id};
     use serde_json::{self, Value};
+    use strass::assert_let;
     use vodozemac::olm::{OlmMessage, SessionConfig};
 
     use crate::{

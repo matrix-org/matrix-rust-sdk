@@ -22,7 +22,7 @@ testing = [
     "matrix-sdk-base/testing",
     "wiremock",
     "matrix-sdk-test",
-    "assert_matches2",
+    "strass",
 ]
 
 e2e-encryption = [
@@ -103,7 +103,6 @@ experimental-x509-identity-verification = ["e2e-encryption", "matrix-sdk-base/ex
 anyhow = { workspace = true, optional = true }
 anymap2 = { version = "0.13.0", default-features = false }
 as_variant.workspace = true
-assert_matches2 = { workspace = true, optional = true }
 async-stream.workspace = true
 async-trait.workspace = true
 axum = { version = "0.8.9", optional = true }
@@ -150,6 +149,7 @@ serde.workspace = true
 serde_html_form.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+strass = { workspace = true, optional = true }
 tempfile.workspace = true
 thiserror.workspace = true
 tokio-stream = { workspace = true, features = ["sync"] }
@@ -180,7 +180,6 @@ tokio = { workspace = true, features = ["macros"] }
 anyhow.workspace = true
 assert-json-diff.workspace = true
 assert_matches.workspace = true
-assert_matches2.workspace = true
 dirs = "6.0.0"
 futures-executor.workspace = true
 insta.workspace = true
@@ -191,6 +190,7 @@ rand.workspace = true
 reqwest = { workspace = true, features = ["rustls"] }
 serde_urlencoded = "0.7.1"
 similar-asserts.workspace = true
+strass.workspace = true
 stream_assert.workspace = true
 tokio-test = "0.4.5"
 tracing-subscriber = { workspace = true, features = ["env-filter"] }

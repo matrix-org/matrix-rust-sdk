@@ -72,7 +72,7 @@ uniffi = { workspace = true, default-features = false, features = ["build"] }
 vergen-gitcl = { workspace = true, default-features = false, features = ["build"] }
 
 [dev-dependencies]
-assert_matches2.workspace = true
+strass.workspace = true
 tempfile.workspace = true
 
 [lints]

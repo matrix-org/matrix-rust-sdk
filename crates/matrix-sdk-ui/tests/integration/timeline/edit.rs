@@ -16,7 +16,6 @@ use std::time::Duration;
 
 use as_variant::as_variant;
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
@@ -50,6 +49,7 @@ use ruma::{
     owned_event_id, room_id,
     serde::Raw,
 };
+use strass::assert_let;
 use stream_assert::{assert_next_matches, assert_pending};
 use tokio::{task::yield_now, time::sleep};
 

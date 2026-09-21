@@ -1,11 +1,11 @@
 use std::{sync::LazyLock, time::Duration};
 
-use assert_matches2::assert_let;
 use futures_util::StreamExt;
 use matrix_sdk::{Client, config::SyncSettings, room::ParentSpace};
 use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test, test_json};
 use ruma::{RoomId, room_id};
 use serde_json::{Value as JsonValue, json};
+use strass::assert_let;
 use wiremock::{
     Mock, ResponseTemplate,
     matchers::{header, method, path_regex},

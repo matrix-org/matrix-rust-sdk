@@ -788,7 +788,6 @@ pub struct SpaceFilter {
 mod tests {
     use std::collections::BTreeMap;
 
-    use assert_matches2::assert_let;
     use eyeball_im::VectorDiff;
     use futures_util::{StreamExt, pin_mut};
     use matrix_sdk::{room::ParentSpace, test_utils::mocks::MatrixMockServer};
@@ -801,6 +800,7 @@ mod tests {
         owned_room_id, room_id, serde::Raw,
     };
     use serde_json::json;
+    use strass::assert_let;
     use stream_assert::{assert_next_eq, assert_pending};
 
     use super::*;

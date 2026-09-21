@@ -15,7 +15,6 @@
 use std::{fs::File, io::Write as _, path::PathBuf, time::Duration};
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 #[cfg(feature = "unstable-msc4274")]
@@ -48,6 +47,7 @@ use ruma::{
     mxc_uri, room_id, uint,
 };
 use serde_json::json;
+use strass::assert_let;
 use stream_assert::assert_pending;
 use tempfile::TempDir;
 use wiremock::ResponseTemplate;

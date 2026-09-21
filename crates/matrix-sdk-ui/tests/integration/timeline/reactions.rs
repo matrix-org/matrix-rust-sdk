@@ -14,13 +14,13 @@
 
 use std::{assert_matches, time::Duration};
 
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{EventSendState, RoomExt as _};
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
+use strass::assert_let;
 use stream_assert::assert_pending;
 use tokio::time::sleep;
 

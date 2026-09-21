@@ -1,6 +1,5 @@
 use std::{assert_matches, collections::BTreeSet};
 
-use assert_matches2::assert_let;
 use matrix_sdk::{
     deserialized_responses::RawSyncOrStrippedState,
     test_utils::mocks::{AnyRoomBuilder, MatrixMockServer},
@@ -37,6 +36,7 @@ use ruma::{
     user_id,
 };
 use serde_json::json;
+use strass::assert_let;
 use stream_assert::{assert_pending, assert_ready};
 
 #[async_test]

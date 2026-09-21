@@ -15,7 +15,6 @@
 use std::sync::Arc;
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{ALICE, BOB, async_test, sync_timeline_event};
@@ -29,6 +28,7 @@ use ruma::{
     },
     mxc_uri,
 };
+use strass::assert_let;
 use stream_assert::assert_next_matches;
 
 use super::TestTimeline;

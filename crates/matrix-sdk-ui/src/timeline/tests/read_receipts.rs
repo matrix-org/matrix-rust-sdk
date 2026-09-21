@@ -391,11 +391,11 @@ async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
 async fn test_read_receipts_updates_on_message_decryption() {
     use std::io::Cursor;
 
-    use assert_matches2::assert_let;
     use matrix_sdk_base::crypto::decrypt_room_key_export;
     use ruma::events::room::encrypted::{
         EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
     };
+    use strass::assert_let;
 
     use crate::timeline::{EncryptedMessage, TimelineItemContent};
 

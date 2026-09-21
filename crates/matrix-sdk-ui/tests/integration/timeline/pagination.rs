@@ -19,7 +19,6 @@ use std::{
 };
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{
     FutureExt, StreamExt as _,
@@ -38,6 +37,7 @@ use ruma::{
     room_id, user_id,
 };
 use serde_json::{Value as JsonValue, json};
+use strass::assert_let;
 use stream_assert::{assert_next_eq, assert_pending};
 use tokio::{
     spawn,

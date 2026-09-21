@@ -361,7 +361,7 @@ fn test_serialize_session() {
 #[cfg(feature = "e2e-encryption")]
 #[async_test]
 async fn test_login_with_cross_signing_bootstrapping() {
-    use assert_matches2::assert_let;
+    use strass::assert_let;
 
     let server = MockServer::start().await;
 

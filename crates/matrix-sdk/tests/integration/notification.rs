@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use assert_matches2::assert_let;
 use matrix_sdk::{
     config::{SyncSettings, SyncToken},
     sync::Notification,
@@ -17,6 +16,7 @@ use ruma::{
     serde::Raw,
     user_id,
 };
+use strass::assert_let;
 use stream_assert::{assert_pending, assert_ready};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;

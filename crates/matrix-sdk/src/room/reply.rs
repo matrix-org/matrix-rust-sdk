@@ -149,7 +149,6 @@ async fn make_reply_event<S: EventSource>(
 mod tests {
     use std::{assert_matches, collections::BTreeMap};
 
-    use assert_matches2::assert_let;
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
@@ -164,6 +163,7 @@ mod tests {
         user_id,
     };
     use serde_json::json;
+    use strass::assert_let;
 
     use super::{EnforceThread, EventSource, Reply, ReplyError, make_reply_event};
     use crate::{Error, event_cache::EventCacheError};

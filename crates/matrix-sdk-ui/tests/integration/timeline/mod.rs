@@ -15,7 +15,6 @@
 use std::ops::Not;
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
@@ -42,6 +41,7 @@ use ruma::{
     owned_event_id, room_id, user_id,
 };
 use sliding_sync::assert_timeline_stream;
+use strass::assert_let;
 use stream_assert::assert_pending;
 
 mod decryption;
