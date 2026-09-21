@@ -22,6 +22,7 @@ use std::{fmt, sync::Arc};
 
 use eyeball::AsyncLock;
 use matrix_sdk_base::{
+    deserialized_responses::ThreadSummary,
     event_cache::{Event, thread::ThreadInfo},
     read_receipts::ReadReceipts,
     sync::Timeline,
@@ -294,6 +295,15 @@ impl ThreadEventCache {
         }
 
         Ok(())
+    }
+
+    /// Update the [`ThreadSummary`] for this thread, and return a copy of it.
+    pub(in super::super) async fn update_thread_summary(&self) -> Result<Option<ThreadSummary>> {
+        let mut state = self.inner.state.write().await?;
+
+        let maybe_thread_summary = state.update_thread_summary().await?;
+
+        Ok(maybe_thread_summary)
     }
 
     /// Find a single event in this thread.
