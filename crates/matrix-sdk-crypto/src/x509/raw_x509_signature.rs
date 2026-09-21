@@ -116,15 +116,23 @@ impl RawX509Signature {
         };
 
         let signed_data = SignedData {
-            // RFC 5652 § 5.1. SignedData Type IF ((certificates is present) AND
-            // (any certificates with a type of other are present)) OR ((crls is
-            // present) AND (any crls with a type of other are present)) THEN
-            // version MUST be 5 ELSE IF (certificates is present) AND (any
-            // version 2 attribute certificates are present) THEN version MUST
-            // be 4 ELSE IF ((certificates is present) AND (any version 1
-            // attribute certificates are present)) OR (any SignerInfo
-            // structures are version 3) OR (encapContentInfo eContentType is
-            // other than id-data) THEN version MUST be 3 ELSE version MUST be 1
+            // RFC 5652 § 5.1.  SignedData Type
+            // IF ((certificates is present) AND
+            //             (any certificates with a type of other are present)) OR
+            //             ((crls is present) AND
+            //             (any crls with a type of other are present))
+            //          THEN version MUST be 5
+            //          ELSE
+            //             IF (certificates is present) AND
+            //                (any version 2 attribute certificates are present)
+            //             THEN version MUST be 4
+            //             ELSE
+            //                IF ((certificates is present) AND
+            //                   (any version 1 attribute certificates are present)) OR
+            //                   (any SignerInfo structures are version 3) OR
+            //                   (encapContentInfo eContentType is other than id-data)
+            //                THEN version MUST be 3
+            //                ELSE version MUST be 1
             //
             // TL;DR: since our SignerInfo is v3, we need a v3 SignedData.
             version: CmsVersion::V3,
