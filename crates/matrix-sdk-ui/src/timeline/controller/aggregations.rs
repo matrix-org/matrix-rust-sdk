@@ -49,7 +49,8 @@ use matrix_sdk::{
     },
 };
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, TransactionId,
+    UserId,
     events::{
         AnySyncTimelineEvent, beacon_info::BeaconInfoEventContent,
         poll::unstable_start::NewUnstablePollStartEventContentWithoutRelation,
@@ -914,6 +915,45 @@ impl Aggregations {
         } else {
             trace!("couldn't find aggregation's target {target:?} to reflect its send state");
         }
+
+        true
+    }
+
+    /// Replace the content of one of our pending message edits, e.g. once the
+    /// media it carries has been uploaded.
+    ///
+    /// Returns whether a matching edit has been found.
+    pub fn replace_local_edit(
+        &mut self,
+        txn_id: &TransactionId,
+        replacement: Replacement<RoomMessageEventContentWithoutRelation>,
+        items: &mut ObservableItemsTransaction<'_>,
+        rules: &RoomVersionRules,
+    ) -> bool {
+        let from = TimelineEventItemId::TransactionId(txn_id.to_owned());
+
+        let Some(target) = self.inverted_map.get(&from).cloned() else {
+            return false;
+        };
+
+        let Some(found) = self
+            .related_events
+            .get_mut(&target)
+            .and_then(|aggs| aggs.iter_mut().find(|agg| agg.own_id == from))
+        else {
+            return false;
+        };
+
+        let AggregationKind::Edit(PendingEdit { kind: PendingEditKind::RoomMessage(prev), .. }) =
+            &mut found.kind
+        else {
+            return false;
+        };
+
+        *prev = replacement;
+
+        let updated = found.clone();
+        find_item_and_apply_aggregation(self, items, &target, updated, rules);
 
         true
     }
