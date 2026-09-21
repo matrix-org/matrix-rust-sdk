@@ -1475,7 +1475,7 @@ async fn test_mark_as_read_after_threaded_edit() {
     // Let the timeline react to the new events.
     assert_let_timeout!(Some(updates) = stream.next());
     // New thread root, thread summary update + date insertion.
-    assert_eq!(updates.len(), 3);
+    assert_eq!(updates.len(), 4);
 
     server
         .mock_send_receipt(CreateReceiptType::Read)

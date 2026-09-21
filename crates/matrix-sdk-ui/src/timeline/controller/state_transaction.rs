@@ -17,7 +17,8 @@ use std::collections::{HashMap, HashSet};
 use eyeball_im::VectorDiff;
 use itertools::Itertools as _;
 use matrix_sdk::deserialized_responses::{
-    ThreadSummaryStatus, TimelineEvent, TimelineEventKind, UnsignedEventLocation,
+    ThreadSummary as SdkThreadSummary, ThreadSummaryStatus, TimelineEvent, TimelineEventKind,
+    UnsignedEventLocation,
 };
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
@@ -27,10 +28,11 @@ use tracing::{debug, instrument, trace, warn};
 
 use super::{
     super::{
+        TimelineItem,
         controller::ObservableItemsTransactionEntry,
         date_dividers::DateDividerAdjuster,
         event_handler::{Flow, TimelineEventContext, TimelineEventHandler, TimelineItemPosition},
-        event_item::RemoteEventOrigin,
+        event_item::{RemoteEventOrigin, TimelineItemContent},
         traits::RoomDataProvider,
     },
     ObservableItems, ObservableItemsTransaction, TimelineMetadata, TimelineReadReceiptTracking,
@@ -435,6 +437,75 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 
         self.adjust_date_dividers(date_divider_adjuster);
         self.check_invariants();
+    }
+
+    /// Handle an update of the thread summary of a single event that is a
+    /// thread root.
+    pub(super) async fn handle_thread_summary(
+        &mut self,
+        thread_root: OwnedEventId,
+        thread_summary: Option<SdkThreadSummary>,
+        room_data_provider: &P,
+    ) {
+        // First off, let's compute the timeline-flavoured thread summary.
+        let thread_summary =
+            if let Some(SdkThreadSummary { latest_reply, num_replies }) = thread_summary {
+                let latest_reply = if let Some(latest_reply) = latest_reply {
+                    self.fetch_latest_thread_reply(&latest_reply, room_data_provider).await
+                } else {
+                    None
+                };
+
+                Some(ThreadSummary {
+                    latest_event: TimelineDetails::from_initial_value(latest_reply),
+                    num_replies,
+                })
+            } else {
+                None
+            };
+
+        // Next, find the timeline item representing the thread root.
+        let Some((timeline_item_index, event_timeline_item, timeline_item_internal_id)) = self
+            .items
+            // Iterate the remotes and locals timeline items. We don't care
+            // about other regions.
+            .iter_remotes_and_locals_regions()
+            // It's likely the thread root is “recent” 🤞.
+            .rev()
+            // Find the timeline item that is the thread root.
+            .find_map(|(timeline_item_index, timeline_item)| {
+                let event_timeline_item = timeline_item.as_event()?;
+
+                (event_timeline_item.event_id() == Some(&thread_root)).then_some((
+                    timeline_item_index,
+                    event_timeline_item,
+                    &timeline_item.internal_id,
+                ))
+            })
+        else {
+            trace!(
+                "Received a thread summary update, but the thread root is not present in memory"
+            );
+            return;
+        };
+
+        let TimelineItemContent::MsgLike(timeline_item_content) = event_timeline_item.content()
+        else {
+            trace!("The thread root is not of kind `MsgLike`");
+            return;
+        };
+
+        // Next, update the timeline item representing the thread root.
+        let mut timeline_item_content = timeline_item_content.clone();
+        timeline_item_content.thread_summary = thread_summary;
+
+        let new_timeline_item = TimelineItem::new(
+            event_timeline_item.with_content(TimelineItemContent::MsgLike(timeline_item_content)),
+            timeline_item_internal_id.clone(),
+        );
+
+        // Finally, we can update the timeline item!
+        self.items.replace(timeline_item_index, new_timeline_item);
     }
 
     fn check_invariants(&self) {
