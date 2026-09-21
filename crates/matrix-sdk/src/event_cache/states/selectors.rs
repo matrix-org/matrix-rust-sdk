@@ -260,6 +260,13 @@ impl SpecificEventsStateSelector {
     pub fn new(room_id: OwnedRoomId, instance_id: u64) -> Self {
         Self(room_id, instance_id)
     }
+
+    /// Remove the selected state, once its cache is gone.
+    pub(super) fn remove(&self, state: &mut State) {
+        if let Some(state_for_room) = state.by_room.get_mut(&self.0) {
+            state_for_room.specific_events.remove(&self.1);
+        }
+    }
 }
 
 impl CacheState for SpecificEventsStateSelector {

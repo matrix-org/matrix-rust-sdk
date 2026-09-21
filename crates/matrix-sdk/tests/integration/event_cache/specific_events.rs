@@ -12,7 +12,7 @@ use ruma::{
     EventId, OwnedEventId, event_id, events::room::message::RoomMessageEventContentWithoutRelation,
     room_id,
 };
-use tokio::sync::broadcast::Receiver;
+use tokio::sync::broadcast::{Receiver, error::RecvError};
 
 fn room_id() -> &'static ruma::RoomId {
     room_id!("!galette:saucisse.bzh")
@@ -291,6 +291,57 @@ async fn test_specific_events_set_event_ids_reloads_when_the_set_changes() {
     assert_eq!(event_ids(&cache.events().await.unwrap().into()), [event_id!("$second")]);
     cache.set_event_ids(vec![event_id!("$second").to_owned()]).await.unwrap();
     assert_no_update(&mut subscriber).await;
+}
+
+#[async_test]
+async fn test_specific_events_cache_is_forgotten_once_dropped() {
+    let f = EventFactory::new().room(room_id()).sender(*ALICE);
+
+    let server = MatrixMockServer::new().await;
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(f.text_msg("target").event_id(event_id!("$target")).server_ts(1).into_event())
+        .mount()
+        .await;
+
+    let client = subscribed_client(&server).await;
+
+    let (cache, _drop_handles) = client
+        .event_cache()
+        .specific_events(room_id(), vec![event_id!("$target").to_owned()])
+        .await
+        .unwrap();
+    let (events, mut subscriber) = cache.subscribe().await.unwrap();
+    let mut events: Vector<Event> = events.into();
+
+    // As long as a handle is alive, the cache follows sync.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id()).add_timeline_event(
+                f.reaction(event_id!("$target"), "👍").event_id(event_id!("$first_reaction")),
+            ),
+        )
+        .await;
+    apply_next_updates(&mut subscriber, &mut events).await;
+    assert_eq!(event_ids(&events), [event_id!("$target"), event_id!("$first_reaction")]);
+
+    // Once the last handle is dropped, the next sync forgets the cache and its
+    // state: the update channel closes instead of delivering the reaction.
+    drop(cache);
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id()).add_timeline_event(
+                f.reaction(event_id!("$target"), "🎉").event_id(event_id!("$second_reaction")),
+            ),
+        )
+        .await;
+    assert!(matches!(
+        timeout(subscriber.recv(), Duration::from_secs(3)).await,
+        Ok(Err(RecvError::Closed))
+    ));
 }
 
 #[async_test]

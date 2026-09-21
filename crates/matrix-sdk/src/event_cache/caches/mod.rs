@@ -72,12 +72,11 @@ pub(super) struct Caches {
 
     /// All the [`SpecificEventsCache`], created on demand.
     ///
+    /// They are held weakly: a cache lives as long as the caller keeps a handle
+    /// on it, see [`Self::live_specific_events`].
+    ///
     /// [`SpecificEventsCache`]: specific_events::SpecificEventsCache
-    //
-    // TODO: caches are kept alive for the lifetime of the room's caches;
-    // an eviction strategy (e.g. dropping caches nobody subscribes to
-    // anymore) is to be discussed.
-    pub specific_events: Arc<RwLock<Vec<specific_events::SpecificEventsCache>>>,
+    specific_events: Arc<RwLock<Vec<specific_events::WeakSpecificEventsCache>>>,
 
     /// Internals data, used to lazily create caches.
     internals: CachesInternals,
@@ -313,14 +312,46 @@ impl Caches {
         )
         .await?;
 
-        self.specific_events.write().await.push(cache.clone());
+        self.specific_events.write().await.push(cache.downgrade());
 
         Ok(cache)
     }
 
+    /// Return the [`SpecificEventsCache`]s still in use, forgetting the ones
+    /// whose handles have all been dropped, along with their state.
+    ///
+    /// [`SpecificEventsCache`]: specific_events::SpecificEventsCache
+    pub(super) async fn live_specific_events(
+        &self,
+    ) -> Result<Vec<specific_events::SpecificEventsCache>> {
+        let mut live = Vec::new();
+        let mut dropped = Vec::new();
+
+        self.specific_events.write().await.retain(|cache| match cache.upgrade() {
+            Some(cache) => {
+                live.push(cache);
+                true
+            }
+            None => {
+                dropped.push(cache.instance_id());
+                false
+            }
+        });
+
+        for instance_id in dropped {
+            let selector = states::selectors::SpecificEventsStateSelector::new(
+                self.room.room_id().to_owned(),
+                instance_id,
+            );
+            self.internals.state.remove_specific_events(&selector).await?;
+        }
+
+        Ok(live)
+    }
+
     /// Update all the event caches with a [`JoinedRoomUpdate`].
     pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
-        let Self { room, threads: _, pinned_events, event_focused, specific_events, internals } =
+        let Self { room, threads: _, pinned_events, event_focused, specific_events: _, internals } =
             &self;
 
         // This method will compute a `JoinedRoomUpdate` for each cache. The game is to
@@ -425,21 +456,17 @@ impl Caches {
         }
 
         // Specific-events.
-        {
-            let specific_events = specific_events.read().await;
+        for specific_events in self.live_specific_events().await? {
+            let updates = JoinedRoomUpdate {
+                timeline: aggregator::aggregate_timeline_for_pinned_events(
+                    &original_timeline,
+                    &specific_events.state().read().await?.current_event_ids(),
+                    &internals.room_version_rules.redaction,
+                ),
+                ..Default::default()
+            };
 
-            for specific_events in specific_events.iter() {
-                let updates = JoinedRoomUpdate {
-                    timeline: aggregator::aggregate_timeline_for_pinned_events(
-                        &original_timeline,
-                        &specific_events.state().read().await?.current_event_ids(),
-                        &internals.room_version_rules.redaction,
-                    ),
-                    ..Default::default()
-                };
-
-                specific_events.handle_joined_room_update(updates).await?;
-            }
+            specific_events.handle_joined_room_update(updates).await?;
         }
 
         Ok(())
@@ -447,7 +474,7 @@ impl Caches {
 
     /// Update all the event caches with a [`LeftRoomUpdate`].
     pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
-        let Self { room, threads: _, pinned_events, event_focused, specific_events, internals } =
+        let Self { room, threads: _, pinned_events, event_focused, specific_events: _, internals } =
             &self;
 
         // This method will compute a `JoinedRoomUpdate` for each cache. The game is to
@@ -521,21 +548,17 @@ impl Caches {
         }
 
         // Specific-events.
-        {
-            let specific_events = specific_events.read().await;
+        for specific_events in self.live_specific_events().await? {
+            let updates = LeftRoomUpdate {
+                timeline: aggregator::aggregate_timeline_for_pinned_events(
+                    &original_timeline,
+                    &specific_events.state().read().await?.current_event_ids(),
+                    &internals.room_version_rules.redaction,
+                ),
+                ..Default::default()
+            };
 
-            for specific_events in specific_events.iter() {
-                let updates = LeftRoomUpdate {
-                    timeline: aggregator::aggregate_timeline_for_pinned_events(
-                        &original_timeline,
-                        &specific_events.state().read().await?.current_event_ids(),
-                        &internals.room_version_rules.redaction,
-                    ),
-                    ..Default::default()
-                };
-
-                specific_events.handle_left_room_update(updates).await?;
-            }
+            specific_events.handle_left_room_update(updates).await?;
         }
 
         Ok(())
@@ -563,12 +586,8 @@ impl Caches {
         }
 
         // The specific-events caches also only live in memory.
-        {
-            let specific_events = self.specific_events.read().await;
-
-            for specific_events in specific_events.iter() {
-                events.extend(specific_events.events().await?);
-            }
+        for specific_events in self.live_specific_events().await? {
+            events.extend(specific_events.events().await?);
         }
 
         Ok(events.into_iter())
@@ -613,19 +632,15 @@ impl Caches {
             }
         }
 
-        {
-            let specific_events = self.specific_events.read().await;
-
-            for specific_events in specific_events.iter() {
-                events.extend(
-                    specific_events
-                        .events()
-                        .await?
-                        .into_iter()
-                        .filter(|event| event_type == event.kind.event_type().as_deref())
-                        .filter(|event| session_id == event.kind.session_id()),
-                );
-            }
+        for specific_events in self.live_specific_events().await? {
+            events.extend(
+                specific_events
+                    .events()
+                    .await?
+                    .into_iter()
+                    .filter(|event| event_type == event.kind.event_type().as_deref())
+                    .filter(|event| session_id == event.kind.session_id()),
+            );
         }
 
         Ok(events.into_iter())

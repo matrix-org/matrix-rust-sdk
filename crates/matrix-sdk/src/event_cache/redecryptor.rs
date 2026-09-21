@@ -587,7 +587,7 @@ impl EventCache {
 
         // Resolve in-memory UTDs on the specific-events caches.
         {
-            try_join_all(all_caches.specific_events.read().await.iter().map(
+            try_join_all(all_caches.live_specific_events().await?.iter().map(
                 |specific_events_cache| {
                     specific_events_cache.replace_in_memory_utds(&maybe_resolved_events)
                 },

@@ -468,9 +468,11 @@ impl EventCache {
     /// event IDs, loaded together with their reactions and edits and kept up
     /// to date from sync.
     ///
-    /// Each call creates a new cache. It lives in memory only, as long as the
-    /// room's caches do: after [`Self::forget_room`], existing handles stop
-    /// receiving updates.
+    /// Each call creates a new cache. It lives in memory only, for as long as
+    /// the caller keeps the returned handle (or a clone of it): once they are
+    /// all dropped, the cache is forgotten and its subscribers stop receiving
+    /// updates. The same happens to existing handles after
+    /// [`Self::forget_room`].
     pub async fn specific_events(
         &self,
         room_id: &RoomId,

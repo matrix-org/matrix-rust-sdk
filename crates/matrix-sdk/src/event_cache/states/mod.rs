@@ -304,6 +304,17 @@ impl StateLock {
             .then(|| CacheStateLock::new(cache_state_selector, self.clone()))
             .ok_or_else(|| EventCacheError::CacheStateAlreadyExists)
     }
+
+    /// Remove the state of a specific-events cache, once the cache is gone.
+    #[instrument(skip_all)]
+    pub(super) async fn remove_specific_events(
+        &self,
+        cache_state_selector: &selectors::SpecificEventsStateSelector,
+    ) -> Result<()> {
+        cache_state_selector.remove(&mut self.write().await?.state);
+
+        Ok(())
+    }
 }
 
 impl fmt::Debug for StateLock {

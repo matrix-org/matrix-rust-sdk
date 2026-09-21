@@ -29,7 +29,7 @@ use std::{
     collections::BTreeSet,
     fmt,
     sync::{
-        Arc,
+        Arc, Weak,
         atomic::{AtomicU64, Ordering as AtomicOrdering},
     },
 };
@@ -259,8 +259,42 @@ pub struct SpecificEventsCache {
 
 /// The (non-cloneable) details of the `SpecificEventsCache`.
 struct SpecificEventsCacheInner {
+    /// The ID of this instance among the room's specific-events caches.
+    instance_id: u64,
+
     /// State of this `SpecificEventsCache`.
     state: CacheStateLock<SpecificEventsStateSelector>,
+}
+
+/// A weak reference to a [`SpecificEventsCache`].
+///
+/// This is what the room's caches hold, so a cache lives only as long as the
+/// caller keeps a handle on it.
+pub(super) struct WeakSpecificEventsCache {
+    instance_id: u64,
+    inner: Weak<SpecificEventsCacheInner>,
+}
+
+impl WeakSpecificEventsCache {
+    /// The ID of the instance this reference points to, still known once the
+    /// cache is gone.
+    pub(super) fn instance_id(&self) -> u64 {
+        self.instance_id
+    }
+
+    /// Get the cache back, if a handle on it is still alive.
+    pub(super) fn upgrade(&self) -> Option<SpecificEventsCache> {
+        self.inner.upgrade().map(|inner| SpecificEventsCache { inner })
+    }
+}
+
+#[cfg(not(tarpaulin_include))]
+impl fmt::Debug for WeakSpecificEventsCache {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WeakSpecificEventsCache")
+            .field("instance_id", &self.instance_id)
+            .finish_non_exhaustive()
+    }
 }
 
 impl SpecificEventsCache {
@@ -293,7 +327,15 @@ impl SpecificEventsCache {
             )
             .await?;
 
-        Ok(Self { inner: Arc::new(SpecificEventsCacheInner { state: cache_state }) })
+        Ok(Self { inner: Arc::new(SpecificEventsCacheInner { instance_id, state: cache_state }) })
+    }
+
+    /// Get a weak reference to this cache.
+    pub(super) fn downgrade(&self) -> WeakSpecificEventsCache {
+        WeakSpecificEventsCache {
+            instance_id: self.inner.instance_id,
+            inner: Arc::downgrade(&self.inner),
+        }
     }
 
     /// Load the events for the current set of IDs, notifying subscribers of
