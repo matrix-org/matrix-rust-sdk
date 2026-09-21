@@ -204,9 +204,10 @@ impl BaseStateStore {
     pub fn new(inner: Arc<DynStateStore>) -> Self {
         // Create the channel to receive `RoomInfoNotableUpdate`.
         //
-        // Let's consider the channel will receive 5 updates for 100 rooms maximum. This
-        // is unrealistic in practise, as the sync mechanism is pretty unlikely to
-        // trigger such amount of updates, it's a safe value.
+        // Let's consider the channel will receive 5 updates for 100 rooms
+        // maximum. This is unrealistic in practise, as the sync
+        // mechanism is pretty unlikely to trigger such amount of
+        // updates, it's a safe value.
         //
         // Also, note that it must not be zero, because (i) it will panic,
         // (ii) a new user has no room, but can create rooms; remember that the
@@ -941,7 +942,8 @@ mod tests {
             assert_eq!(room_id, room_id_0);
         });
 
-        // The `RoomInfoNotableUpdate` is not derived. Every one has its own channel.
+        // The `RoomInfoNotableUpdate` is not derived. Every one has its own
+        // channel.
         assert!(
             store
                 .room_info_notable_update_sender

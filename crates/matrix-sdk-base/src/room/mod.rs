@@ -508,7 +508,8 @@ impl Room {
             return Vec::new();
         }
 
-        // Return with empty profile fields when the user status feature is disabled.
+        // Return with empty profile fields when the user status feature is
+        // disabled.
         #[cfg(not(feature = "unstable-msc4426"))]
         {
             heroes.into_iter().map(RoomHeroWithProfile::from).collect()
@@ -885,7 +886,8 @@ mod tests {
         assert!(heroes[0].status.is_none());
         assert!(heroes[0].call.is_none());
 
-        // Store a global profile carrying an `m.status` and `m.call` for the hero.
+        // Store a global profile carrying an `m.status` and `m.call` for the
+        // hero.
         let mut call = CallProfileField::new();
         call.call_joined_ts = Some(SecondsSinceUnixEpoch(1_700_000_000u32.into()));
         let mut changes = StateChanges::default();

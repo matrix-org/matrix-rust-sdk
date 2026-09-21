@@ -135,7 +135,8 @@ impl Room {
             DisplayNameOrSummary::DisplayName(display_name) => display_name,
         };
 
-        // Update the cached display name before we return the newly computed value.
+        // Update the cached display name before we return the newly computed
+        // value.
         let mut updated = false;
 
         self.info.update_if(|info| {
@@ -174,8 +175,8 @@ impl Room {
             .saturating_sub(num_service_members);
 
         let num_joined_invited = if self.state() == RoomState::Invited {
-            // when we were invited we don't have a proper summary, we have to do best
-            // guessing
+            // when we were invited we don't have a proper summary, we have to
+            // do best guessing
             heroes.len() as u64 + 1
         } else if summary_member_count == 0 {
             num_joined_invited_guess
@@ -217,17 +218,18 @@ impl Room {
         let own_user_id = self.own_user_id();
         let member_hints = self.get_member_hints().await?;
 
-        // If we have some service members in the heroes, that means that they are also
-        // part of the joined member counts. They shouldn't be so, otherwise
-        // we'll wrongly assume that there are more members in the room than
-        // they are for the "Bob and 2 others" case.
+        // If we have some service members in the heroes, that means that they
+        // are also part of the joined member counts. They shouldn't be
+        // so, otherwise we'll wrongly assume that there are more
+        // members in the room than they are for the "Bob and 2 others"
+        // case.
         let num_service_members = heroes
             .iter()
             .filter(|hero| member_hints.service_members.contains(&hero.user_id))
             .count() as u64;
 
-        // Construct a filter that is specific to this own user id, set of member hints,
-        // and accepts a `RoomHero` type.
+        // Construct a filter that is specific to this own user id, set of
+        // member hints, and accepts a `RoomHero` type.
         let heroes_filter = heroes_filter(own_user_id, &member_hints);
         let heroes_filter = |hero: &&RoomHero| heroes_filter(&hero.user_id);
 
@@ -251,8 +253,8 @@ impl Room {
 
         let num_joined_invited_guess = summary.joined_member_count + summary.invited_member_count;
 
-        // If the summary doesn't provide the number of joined/invited members, let's
-        // guess something.
+        // If the summary doesn't provide the number of joined/invited members,
+        // let's guess something.
         let num_joined_invited_guess = if num_joined_invited_guess == 0 {
             let guess = self
                 .store
@@ -262,7 +264,8 @@ impl Room {
 
             guess.saturating_sub(num_service_members)
         } else {
-            // Otherwise, accept the numbers provided by the summary as the guess.
+            // Otherwise, accept the numbers provided by the summary as the
+            // guess.
             num_joined_invited_guess
         };
 
@@ -277,33 +280,35 @@ impl Room {
     async fn compute_summary(&self) -> StoreResult<ComputedSummary> {
         let member_hints = self.get_member_hints().await?;
 
-        // Construct a filter that is specific to this own user id, set of member hints,
-        // and accepts a `RoomMember` type.
+        // Construct a filter that is specific to this own user id, set of
+        // member hints, and accepts a `RoomMember` type.
         let heroes_filter = heroes_filter(&self.own_user_id, &member_hints);
         let heroes_filter = |u: &RoomMember| heroes_filter(u.user_id());
 
         let mut members = self.members(RoomMemberships::JOIN | RoomMemberships::INVITE).await?;
 
-        // If we have some service members, they shouldn't count to the number of
-        // joined/invited members, otherwise we'll wrongly assume that there are more
-        // members in the room than they are for the "Bob and 2 others" case.
+        // If we have some service members, they shouldn't count to the number
+        // of joined/invited members, otherwise we'll wrongly assume
+        // that there are more members in the room than they are for the
+        // "Bob and 2 others" case.
         let num_service_members = members
             .iter()
             .filter(|member| member_hints.service_members.contains(member.user_id()))
             .count();
 
-        // We can make a good prediction of the total number of joined and invited
-        // members here. This might be incorrect if the database info is
-        // outdated.
+        // We can make a good prediction of the total number of joined and
+        // invited members here. This might be incorrect if the database
+        // info is outdated.
         //
-        // Note: Subtracting here is fine because `num_service_members` is a subset of
-        // `members.len()` due to the above filter operation.
+        // Note: Subtracting here is fine because `num_service_members` is a
+        // subset of `members.len()` due to the above filter operation.
         let num_joined_invited = members.len() - num_service_members;
 
         if num_joined_invited == 0
             || (num_joined_invited == 1 && members[0].user_id() == self.own_user_id)
         {
-            // No joined or invited members, heroes should be banned and left members.
+            // No joined or invited members, heroes should be banned and left
+            // members.
             members = self.members(RoomMemberships::LEAVE | RoomMemberships::BAN).await?;
         }
 
@@ -719,7 +724,8 @@ mod tests {
             RoomDisplayName::Aliased("test".to_owned())
         );
         room.info.update(|info| info.base_info.name = Some(make_name_event()));
-        // Display name wasn't cached when we asked for it above, and name overrides
+        // Display name wasn't cached when we asked for it above, and name
+        // overrides
         assert_eq!(
             room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Named("Test Room".to_owned())
@@ -776,7 +782,8 @@ mod tests {
             RoomDisplayName::Aliased("test".to_owned())
         );
         room.info.update(|info| info.base_info.name = Some(make_name_event()));
-        // Display name wasn't cached when we asked for it above, and name overrides
+        // Display name wasn't cached when we asked for it above, and name
+        // overrides
         assert_eq!(
             room.compute_display_name().await.unwrap().into_inner(),
             RoomDisplayName::Named("Test Room".to_owned())
@@ -1037,8 +1044,8 @@ mod tests {
 
         let f = EventFactory::new().room(room_id!("!test:localhost"));
 
-        // Save members in two batches, so that there's no implied ordering in the
-        // store.
+        // Save members in two batches, so that there's no implied ordering in
+        // the store.
         {
             let members = changes
                 .state
@@ -1135,8 +1142,8 @@ mod tests {
 
         let mut changes = StateChanges::new("".to_owned());
 
-        // Save members in two batches, so that there's no implied ordering in the
-        // store.
+        // Save members in two batches, so that there's no implied ordering in
+        // the store.
         {
             let members = changes
                 .state

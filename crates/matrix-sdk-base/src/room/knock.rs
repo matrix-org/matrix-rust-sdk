@@ -42,8 +42,9 @@ impl Room {
             .await?;
         let mut event_to_user_ids = Vec::with_capacity(member_raw_events.len());
 
-        // Map the list of events ids to their user ids, if they are event ids for knock
-        // membership events. Log an error and continue otherwise.
+        // Map the list of events ids to their user ids, if they are event ids
+        // for knock membership events. Log an error and continue
+        // otherwise.
         for raw_event in member_raw_events {
             let event = raw_event.cast::<RoomMemberEventContent>().deserialize()?;
             match event {
@@ -93,13 +94,14 @@ impl Room {
         let mut ids_to_remove = Vec::new();
 
         for (event_id, user_id) in current_seen_events.iter() {
-            // Check the seen knock request ids against the current room member events for
-            // the room members associated to them
+            // Check the seen knock request ids against the current room member
+            // events for the room members associated to them
             let matching_member = member_events.iter().find(|event| event.user_id() == user_id);
 
             if let Some(member) = matching_member {
                 let member_event_id = member.event_id();
-                // If the member event is not a knock or it's different knock, it's outdated
+                // If the member event is not a knock or it's different knock,
+                // it's outdated
                 if *member.membership() != MembershipState::Knock
                     || member_event_id.is_some_and(|id| id != event_id)
                 {
@@ -138,7 +140,8 @@ impl Room {
         let mut guard = self.seen_knock_request_ids_map.write().await;
         // If there are no loaded request ids yet
         if guard.is_none() {
-            // Load the values from the store and update the shared observable contents
+            // Load the values from the store and update the shared observable
+            // contents
             let updated_seen_ids = self
                 .store
                 .get_kv_data(StateStoreDataKey::SeenKnockRequests(self.room_id()))

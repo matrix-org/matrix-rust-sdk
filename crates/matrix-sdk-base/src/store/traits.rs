@@ -2014,7 +2014,8 @@ pub trait StateStoreExt: StateStore {
             + RedactContent,
         C::Redacted: RedactedStateEventContent,
     {
-        // FIXME: Could be more efficient, if we had streaming store accessor functions
+        // FIXME: Could be more efficient, if we had streaming store accessor
+        // functions
         Ok(self
             .get_state_events(room_id, C::TYPE.into())
             .await?
@@ -2150,8 +2151,8 @@ impl SupportedVersionsResponse {
         let mut supported_versions =
             SupportedVersions::from_parts(&self.versions, &self.unstable_features);
 
-        // We need at least one supported version to be able to make requests, so we
-        // default to Matrix 1.0.
+        // We need at least one supported version to be able to make requests,
+        // so we default to Matrix 1.0.
         if supported_versions.versions.is_empty() {
             supported_versions.versions.insert(MatrixVersion::V1_0);
         }
@@ -2664,12 +2665,14 @@ mod tests {
                 }
             });
 
-            // Try to save changes to the state store while the lock is held by another task
+            // Try to save changes to the state store while the lock is held by
+            // another task
             let save_task =
                 spawn(async move { state_store.save_changes(&StateChanges::default()).await });
 
-            // Ensure that the second task does not progress until the first task has
-            // completed and therefore release the save lock
+            // Ensure that the second task does not progress until the first
+            // task has completed and therefore release the save
+            // lock
             assert_matches!(future::select(lock_task, save_task).await, Either::Left((_, save_task)) => {
                 timeout(Duration::from_millis(100), save_task)
                     .await
@@ -2693,13 +2696,14 @@ mod tests {
                 }
             });
 
-            // Try to remove room from the state store while the lock is held by another
-            // task
+            // Try to remove room from the state store while the lock is held by
+            // another task
             let remove_task =
                 spawn(async move { state_store.remove_room(room_id!("!room")).await });
 
-            // Ensure that the second task does not progress until the first task has
-            // completed and therefore release the save lock
+            // Ensure that the second task does not progress until the first
+            // task has completed and therefore release the save
+            // lock
             assert_matches!(future::select(lock_task, remove_task).await, Either::Left((_, remove_task)) => {
                 timeout(Duration::from_millis(100), remove_task)
                     .await

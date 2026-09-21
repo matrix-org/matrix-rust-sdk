@@ -139,8 +139,8 @@ where
     {
         let position = self.mapping.remove(key)?;
 
-        // Reindex every mapped entry that is after the position we're looking to
-        // remove.
+        // Reindex every mapped entry that is after the position we're looking
+        // to remove.
         for mapped_pos in self.mapping.values_mut().filter(|pos| **pos > position) {
             *mapped_pos = mapped_pos.saturating_sub(1);
         }
