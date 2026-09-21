@@ -25,8 +25,8 @@ pub mod ignore_media_retention_policy {
     use serde::{Deserializer, Serializer};
 
     /// Serializes an [`IgnoreMediaRetentionPolicy`] as a `u8`, where
-    /// [`IgnoreMediaRetentionPolicy::No`] is `0`
-    /// and [`IgnoreMediaRetentionPolicy::Yes`] is `1`.
+    /// [`IgnoreMediaRetentionPolicy::No`] is `0` and
+    /// [`IgnoreMediaRetentionPolicy::Yes`] is `1`.
     ///
     /// Note that this is not serialized as a `bool` because boolean values are
     /// not supported as IndexedDB keys.
@@ -71,8 +71,8 @@ pub mod unix_time {
 
     /// Serializes a [`UnixTime`] as an `i64` which represents an amount of
     /// seconds relative to the [`UNIX_EPOCH`](ruma::time::UNIX_EPOCH).
-    /// [`UnixTime::BeforeEpoch`] is represented as a negative value
-    /// and [`UnixTime::AfterEpoch`] is represented as a positive value.
+    /// [`UnixTime::BeforeEpoch`] is represented as a negative value and
+    /// [`UnixTime::AfterEpoch`] is represented as a positive value.
     pub fn serialize<S>(unix_time: &UnixTime, s: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -87,11 +87,11 @@ pub mod unix_time {
         })
     }
 
-    /// Deserializes an `i64` into a [`UnixTime`]. Negative values represent
-    /// the number of seconds before the [`UNIX_EPOCH`][1] and are deserialized
-    /// into [`UnixTime::BeforeEpoch`]. Positive values represent
-    /// the number of seconds after the [`UNIX_EPOCH`][1] and are deserialized
-    /// into [`UnixTime::AfterEpoch`].
+    /// Deserializes an `i64` into a [`UnixTime`]. Negative values represent the
+    /// number of seconds before the [`UNIX_EPOCH`][1] and are deserialized into
+    /// [`UnixTime::BeforeEpoch`]. Positive values represent the number of
+    /// seconds after the [`UNIX_EPOCH`][1] and are deserialized into
+    /// [`UnixTime::AfterEpoch`].
     ///
     /// [1]: ruma::time::UNIX_EPOCH
     pub fn deserialize<'de, D>(d: D) -> Result<UnixTime, D::Error>
