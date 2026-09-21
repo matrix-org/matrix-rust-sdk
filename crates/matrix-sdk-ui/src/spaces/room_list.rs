@@ -406,9 +406,9 @@ impl SpaceRoomList {
 
 #[cfg(test)]
 mod tests {
-    use std::{cmp::Ordering, collections::HashMap};
+    use std::{assert_matches, cmp::Ordering, collections::HashMap};
 
-    use assert_matches2::{assert_let, assert_matches};
+    use assert_matches2::assert_let;
     use eyeball_im::VectorDiff;
     use futures_util::pin_mut;
     use matrix_sdk::{RoomState, test_utils::mocks::MatrixMockServer};

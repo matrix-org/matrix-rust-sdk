@@ -1239,6 +1239,7 @@ impl Redecryptor {
 #[cfg(test)]
 mod tests {
     use std::{
+        assert_matches,
         collections::BTreeSet,
         sync::{
             Arc,
@@ -1247,7 +1248,7 @@ mod tests {
         time::Duration,
     };
 
-    use assert_matches2::assert_matches;
+    use assert_matches2::assert_let;
     use async_trait::async_trait;
     use eyeball_im::VectorDiff;
     use matrix_sdk_base::{
@@ -1663,7 +1664,7 @@ mod tests {
         // There should be a single new event, and it should be a UTD as we did not
         // receive the room key yet.
         assert_eq!(diffs.len(), 1);
-        assert_matches!(&diffs[0], VectorDiff::Append { values });
+        assert_let!(VectorDiff::Append { values } = &diffs[0]);
         assert_eq!(values.len(), 1);
         assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
 
@@ -1694,7 +1695,7 @@ mod tests {
 
         // It should replace the UTD with a decrypted event.
         assert_eq!(diffs.len(), 1);
-        assert_matches!(&diffs[0], VectorDiff::Set { index, value });
+        assert_let!(VectorDiff::Set { index, value } = &diffs[0]);
         assert_eq!(*index, 0);
         assert_matches!(&value.kind, TimelineEventKind::Decrypted { .. });
 
@@ -1748,7 +1749,7 @@ mod tests {
         // There should be a single new event, and it should be a UTD as we did not
         // receive the room key yet.
         assert_eq!(diffs.len(), 1);
-        assert_matches!(&diffs[0], VectorDiff::Append { values });
+        assert_let!(VectorDiff::Append { values } = &diffs[0]);
         assert_eq!(values.len(), 1);
         assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
 
@@ -1780,7 +1781,7 @@ mod tests {
 
         // It should replace the UTD with a decrypted event.
         assert_eq!(diffs.len(), 1);
-        assert_matches!(&diffs[0], VectorDiff::Set { index: 0, value });
+        assert_let!(VectorDiff::Set { index: 0, value } = &diffs[0]);
         assert_matches!(&value.kind, TimelineEventKind::Decrypted { .. });
 
         let encryption_info = value.encryption_info().unwrap();
@@ -1826,7 +1827,7 @@ mod tests {
         );
 
         assert_eq!(diffs.len(), 1);
-        assert_matches!(&diffs[0], VectorDiff::Set { index: 0, value });
+        assert_let!(VectorDiff::Set { index: 0, value } = &diffs[0]);
         assert_matches!(&value.kind, TimelineEventKind::Decrypted { .. });
         let encryption_info = value.encryption_info().unwrap();
 
@@ -1903,7 +1904,7 @@ mod tests {
         // There should be a single new event, and it should be a UTD as we did not
         // receive the room key yet.
         assert_eq!(diffs.len(), 1);
-        assert_matches!(&diffs[0], VectorDiff::Append { values });
+        assert_let!(VectorDiff::Append { values } = &diffs[0]);
         assert_eq!(values.len(), 1);
         assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
 
@@ -1922,7 +1923,7 @@ mod tests {
 
         // It should replace the UTD with a decrypted event.
         assert_eq!(diffs.len(), 1);
-        assert_matches!(&diffs[0], VectorDiff::Set { index, value });
+        assert_let!(VectorDiff::Set { index, value } = &diffs[0]);
         assert_eq!(*index, 0);
         assert_matches!(&value.kind, TimelineEventKind::Decrypted { .. });
 

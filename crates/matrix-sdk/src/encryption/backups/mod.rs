@@ -1120,9 +1120,8 @@ impl<T: Into<Error>> From<T> for EnableBackupError {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod test {
-    use std::time::Duration;
+    use std::{assert_matches, time::Duration};
 
-    use assert_matches2::assert_matches;
     use matrix_sdk_base::crypto::{
         GossipRequest, GossippedSecret, SecretInfo,
         store::types::Changes,

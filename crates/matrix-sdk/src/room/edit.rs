@@ -284,9 +284,9 @@ pub(crate) fn update_media_caption(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{assert_matches, collections::BTreeMap};
 
-    use assert_matches2::{assert_let, assert_matches};
+    use assert_matches2::assert_let;
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{

@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use assert_matches2::{assert_let, assert_matches};
+use std::assert_matches;
+
+use assert_matches2::assert_let;
 use insta::assert_json_snapshot;
 use matrix_sdk_common::deserialized_responses::{
     AlgorithmInfo, ProcessedToDeviceEvent, ToDeviceUnableToDecryptReason, VerificationLevel,
@@ -97,12 +99,12 @@ async fn test_send_encrypted_to_device() {
 
     assert_eq!(encryption_info.sender, alice.user_id().to_owned());
 
-    assert_matches!(&encryption_info.sender_device, Some(sender_device));
+    let sender_device = encryption_info.sender_device.as_ref().unwrap();
     assert_eq!(sender_device.to_owned(), alice.device_id().to_owned());
 
-    assert_matches!(
-        &encryption_info.algorithm_info,
-        AlgorithmInfo::OlmV1Curve25519AesSha2 { curve25519_public_key_base64 }
+    assert_let!(
+        AlgorithmInfo::OlmV1Curve25519AesSha2 { curve25519_public_key_base64 } =
+            &encryption_info.algorithm_info
     );
     let alice_device =
         alice.get_device(alice.user_id(), alice.device_id(), None).await.unwrap().unwrap();
@@ -152,7 +154,7 @@ async fn test_encrypted_to_device_from_deleted_device() {
     assert_eq!(decrypted_event.event_type().to_string(), custom_event_type.to_owned());
 
     assert_eq!(encryption_info.sender, alice.user_id().to_owned());
-    assert_matches!(&encryption_info.sender_device, Some(sender_device));
+    let sender_device = encryption_info.sender_device.as_ref().unwrap();
     assert_eq!(sender_device.to_owned(), alice.device_id().to_owned());
 }
 
@@ -624,7 +626,7 @@ async fn test_processed_to_device_variants() {
     });
 
     let processed_event = &processed[3];
-    assert_matches!(processed_event, ProcessedToDeviceEvent::UnableToDecrypt { utd_info, .. });
+    assert_let!(ProcessedToDeviceEvent::UnableToDecrypt { utd_info, .. } = processed_event);
     assert_eq!(utd_info.reason, ToDeviceUnableToDecryptReason::DecryptionFailure);
 
     insta::with_settings!({ prepend_module_to_snapshot => false }, {

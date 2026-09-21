@@ -2160,7 +2160,8 @@ impl From<&StrippedRoomMemberEvent> for RoomMember {
 
 #[cfg(test)]
 mod migration_tests {
-    use assert_matches2::assert_matches;
+    use std::assert_matches;
+
     use matrix_sdk_base::store::{QueuedRequestKind, SerializableEventContent};
     use ruma::{
         OwnedRoomId, OwnedTransactionId, TransactionId,

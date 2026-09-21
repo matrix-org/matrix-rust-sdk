@@ -1965,9 +1965,9 @@ impl matrix_sdk_common::cross_process_lock::TryLock for LockableCryptoStore {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, pin::pin};
+    use std::{assert_matches, collections::BTreeMap, pin::pin};
 
-    use assert_matches2::{assert_let, assert_matches};
+    use assert_matches2::assert_let;
     use futures_util::StreamExt;
     use insta::{_macro_support::Content, assert_json_snapshot, internals::ContentPath};
     use matrix_sdk_test::async_test;
@@ -2496,14 +2496,13 @@ mod tests {
         ))
         .unwrap();
 
-        assert_matches!(
-            entry,
+        assert_let!(
             RoomKeyWithheldEntry {
                 sender,
                 content: RoomKeyWithheldContent::MegolmV1AesSha2(
-                    MegolmV1AesSha2WithheldContent::Unauthorised(withheld_content,)
+                    MegolmV1AesSha2WithheldContent::Unauthorised(withheld_content)
                 ),
-            }
+            } = entry
         );
 
         assert_eq!(sender, "@alice:s.co");

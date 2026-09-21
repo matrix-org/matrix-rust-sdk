@@ -282,7 +282,7 @@ impl From<QueryString> for UrlOrQuery {
 #[cfg(test)]
 mod test {
     #[cfg(feature = "markdown")]
-    use assert_matches2::{assert_let, assert_matches};
+    use assert_matches2::assert_let;
     #[cfg(feature = "markdown")]
     use ruma::events::room::message::FormattedBody;
 
@@ -354,7 +354,7 @@ mod test {
     #[test]
     #[cfg(feature = "markdown")]
     fn test_formatted_body_from_nothing_returns_none() {
-        assert_matches!(formatted_body_from(None, None), None);
+        std::assert_matches!(formatted_body_from(None, None), None);
     }
 
     #[test]

@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{assert_matches, sync::Arc};
 
-use assert_matches2::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::assert_next_with_timeout;
 use matrix_sdk_test::{
@@ -475,17 +474,17 @@ async fn test_read_receipts_updates_on_message_decryption() {
     let updates = assert_next_with_timeout!(stream);
 
     // The first event only has Carol's receipt.
-    assert_matches!(&updates[0], VectorDiff::PushBack { value });
+    assert_let!(VectorDiff::PushBack { value } = &updates[0]);
     let clear_event = value.as_event().unwrap();
     assert!(clear_event.content().is_message());
     assert_eq!(clear_event.read_receipts().len(), 1);
     assert!(clear_event.read_receipts().get(*CAROL).is_some());
 
-    assert_matches!(&updates[2], VectorDiff::PushFront { value });
+    assert_let!(VectorDiff::PushFront { value } = &updates[2]);
     assert!(value.is_date_divider());
 
     // The second event is encrypted and only has Bob's receipt.
-    assert_matches!(&updates[1], VectorDiff::PushBack { value });
+    assert_let!(VectorDiff::PushBack { value } = &updates[1]);
     let encrypted_event = value.as_event().unwrap();
 
     assert_let!(
@@ -517,7 +516,7 @@ async fn test_read_receipts_updates_on_message_decryption() {
 
     let updates = assert_next_with_timeout!(stream);
     // The first event now has both receipts.
-    assert_matches!(&updates[0], VectorDiff::Set { index: 1, value });
+    assert_let!(VectorDiff::Set { index: 1, value } = &updates[0]);
     let clear_event = value.as_event().unwrap();
     assert!(clear_event.content().is_message());
     assert_eq!(clear_event.read_receipts().len(), 2);

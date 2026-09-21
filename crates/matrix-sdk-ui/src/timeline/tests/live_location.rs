@@ -14,9 +14,8 @@
 
 //! Unit tests for live location sharing (MSC3489) in the timeline.
 
-use std::time::Duration;
+use std::{assert_matches, time::Duration};
 
-use assert_matches2::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk_test::{ALICE, BOB, async_test};
 use ruma::{

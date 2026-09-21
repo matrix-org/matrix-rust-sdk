@@ -421,9 +421,9 @@ impl<'a> IntoFuture for GrantLoginWithGeneratedQrCode<'a> {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod test {
-    use std::sync::Arc;
+    use std::{assert_matches, sync::Arc};
 
-    use assert_matches2::{assert_let, assert_matches};
+    use assert_matches2::assert_let;
     use futures_util::StreamExt;
     use matrix_sdk_base::crypto::types::SecretsBundle;
     use matrix_sdk_common::executor::spawn;

@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
+use std::{assert_matches, time::Duration};
 
-use assert_matches2::{assert_let, assert_matches};
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
@@ -177,7 +177,7 @@ async fn test_abort_before_being_sent() {
     assert_eq!(timeline_updates.len(), 1);
 
     // The remote event comes in.
-    assert_matches!(&timeline_updates[0], VectorDiff::Set { index: 1, value: remote_event });
+    assert_let!(VectorDiff::Set { index: 1, value: remote_event } = &timeline_updates[0]);
     let remote_event = remote_event.as_event().unwrap();
     assert_eq!(remote_event.event_id(), Some(event_id));
     assert_eq!(remote_event.reactions().len(), 1);
