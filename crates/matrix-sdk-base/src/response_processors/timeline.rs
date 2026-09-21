@@ -159,7 +159,7 @@ pub async fn build<'notification, 'e2ee>(
 }
 
 /// Set of types used by [`build`] to reduce the number of arguments by grouping
-/// them by thematics.
+/// them by thematic.
 pub mod builder {
     use ruma::{
         api::client::sync::sync_events::{v3, v5},
