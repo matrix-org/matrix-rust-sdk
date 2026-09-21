@@ -303,6 +303,10 @@ impl ThreadEventCache {
 
         let maybe_thread_summary = state.update_thread_summary().await?;
 
+        state
+            .update_sender
+            .send(ThreadEventCacheUpdate::UpdateSummary(maybe_thread_summary.clone()), None);
+
         Ok(maybe_thread_summary)
     }
 
@@ -1233,6 +1237,13 @@ mod timed_tests {
                         );
                     }
                 );
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    ThreadEventCacheUpdate::UpdateSummary(Some(summary)) => {
+                        assert_eq!(summary.latest_reply.as_deref(), Some(thread_event_id_1));
+                        assert_eq!(summary.num_replies, 2);
+                    }
+                );
 
                 // Load one more event with a backpagination.
                 thread_event_cache.pagination().run_backwards_once(1).await.unwrap();
@@ -1251,6 +1262,8 @@ mod timed_tests {
                         );
                     }
                 );
+
+                assert!(updates_stream.is_empty());
             }
 
             // Fourth, because `thread_event_cache_p0` has locked the store
@@ -1282,6 +1295,13 @@ mod timed_tests {
                                 assert_eq!(events[0].event_id(), Some(thread_event_id_1));
                             }
                         );
+                    }
+                );
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    ThreadEventCacheUpdate::UpdateSummary(Some(summary)) => {
+                        assert_eq!(summary.latest_reply.as_deref(), Some(thread_event_id_1));
+                        assert_eq!(summary.num_replies, 2);
                     }
                 );
 

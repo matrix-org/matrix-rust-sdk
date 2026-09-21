@@ -288,8 +288,14 @@ async fn test_deduplication() {
         )
         .await;
 
-    // Still no updates on the stream: the event has been deduplicated, and
-    // there were no gaps.
+    // The event has been deduplicated, but the thread summary has been
+    // recomputed anyway. Let's check the update.
+    assert_let_timeout!(
+        Ok(ThreadEventCacheUpdate::UpdateSummary(Some(summary))) = thread_stream.recv()
+    );
+    assert_eq!(summary.latest_reply.as_deref(), Some(second_reply_event_id));
+
+    // That's it.
     assert!(thread_stream.is_empty());
 
     // If I backpaginate in that thread, and the pagination only returns events
@@ -744,6 +750,13 @@ async fn test_redact_touches_threads() {
         assert_eq!(summary.latest_reply.as_ref(), Some(&thread_resp2));
         assert_eq!(summary.num_replies, 2);
 
+        // Update about the thread summary.
+        assert_let_timeout!(
+            Ok(ThreadEventCacheUpdate::UpdateSummary(Some(summary))) = thread_stream.recv()
+        );
+        assert_eq!(summary.latest_reply.as_ref(), Some(&thread_resp2));
+        assert_eq!(summary.num_replies, 2);
+
         assert!(thread_stream.is_empty());
         assert!(room_stream.is_empty());
     }
@@ -779,6 +792,15 @@ async fn test_redact_touches_threads() {
         assert_eq!(new_event.event_id(), Some(thread_resp1.as_ref()));
         let deserialized = new_event.raw().deserialize().unwrap();
         assert!(deserialized.is_redacted());
+
+        // Update about the thread summary.
+        assert_let_timeout!(
+            Ok(ThreadEventCacheUpdate::UpdateSummary(Some(summary))) = thread_stream.recv()
+        );
+        // Unchanged.
+        assert_eq!(summary.latest_reply.as_ref(), Some(&thread_resp2));
+        // One less reply!
+        assert_eq!(summary.num_replies, 1);
 
         // That's it!
         assert!(thread_stream.is_empty());
@@ -825,6 +847,8 @@ async fn test_redact_touches_threads() {
             assert_eq!(summary.latest_reply.as_ref(), Some(&thread_resp2));
             assert_eq!(summary.num_replies, 1);
         }
+
+        assert!(room_stream.is_empty());
     }
 
     // A redaction for the second (and last) reply comes through sync.
@@ -858,6 +882,10 @@ async fn test_redact_touches_threads() {
         assert_eq!(new_event.event_id(), Some(thread_resp2.as_ref()));
         let deserialized = new_event.raw().deserialize().unwrap();
         assert!(deserialized.is_redacted());
+
+        // Update about the thread summary.
+        // No more replies, so it's an empty summary!
+        assert_let_timeout!(Ok(ThreadEventCacheUpdate::UpdateSummary(None)) = thread_stream.recv());
 
         // That's it!
         assert!(thread_stream.is_empty());
@@ -902,6 +930,8 @@ async fn test_redact_touches_threads() {
             assert_eq!(new_root.event_id(), Some(thread_root_id.as_ref()));
             assert!(new_root.thread_summary.summary().is_none());
         }
+
+        assert!(room_stream.is_empty());
     }
 }
 
@@ -919,6 +949,7 @@ async fn test_edits_touches_threads() {
     event_cache.subscribe().unwrap();
 
     let thread_root_id = s.thread_root;
+    let thread_resp2 = s.events[1].get_field::<OwnedEventId>("event_id").unwrap().unwrap();
 
     s.server.sync_joined_room(&s.client, &s.room_id).await;
 
@@ -940,6 +971,17 @@ async fn test_edits_touches_threads() {
         .await;
 
     wait_for_initial_events(thread_events, &mut thread_stream).await;
+
+    // Check the initial thread updates.
+    {
+        // The thread summary is updated.
+        assert_let_timeout!(
+            Ok(ThreadEventCacheUpdate::UpdateSummary(Some(summary))) = thread_stream.recv()
+        );
+        assert_eq!(summary.latest_reply.as_ref(), Some(&thread_resp2));
+        assert_eq!(summary.num_replies, 2);
+    }
+
     let (room_events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
     assert!(room_stream.is_empty());
@@ -1012,6 +1054,13 @@ async fn test_edits_touches_threads() {
             assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
             assert_eq!(new_events.len(), 1);
             assert_eq!(new_events[0].event_id(), Some(first_edit));
+
+            // The thread summary is updated too.
+            assert_let_timeout!(
+                Ok(ThreadEventCacheUpdate::UpdateSummary(Some(summary))) = thread_stream.recv()
+            );
+            assert_eq!(summary.latest_reply.as_deref(), Some(first_edit));
+            assert_eq!(summary.num_replies, 2);
         }
 
         // That's it.
@@ -1089,6 +1138,13 @@ async fn test_edits_touches_threads() {
             assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
             assert_eq!(new_events.len(), 1);
             assert_eq!(new_events[0].event_id(), Some(second_edit));
+
+            // The thread summary is updated too… to the same value.
+            assert_let_timeout!(
+                Ok(ThreadEventCacheUpdate::UpdateSummary(Some(summary))) = thread_stream.recv()
+            );
+            assert_eq!(summary.latest_reply.as_deref(), Some(first_edit));
+            assert_eq!(summary.num_replies, 2);
         }
 
         // That's it.
