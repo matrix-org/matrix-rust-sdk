@@ -283,6 +283,7 @@ fn generate_uniffi(library_path: &Utf8Path, ffi_directory: &Utf8Path) -> Result<
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_xcframework(
     profile: &str,
     targets: Option<Vec<String>>,
