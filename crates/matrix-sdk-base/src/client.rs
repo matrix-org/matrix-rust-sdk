@@ -919,10 +919,9 @@ impl BaseClient {
             // events outdated and they need to be fetched by `members`.
             // Therefore, they need to be overwritten here, even if they exist.
             // However, this makes a new problem occur where setting the member
-            // events here potentially races with the sync. See
-            // [https://github.com/matrix-org/matrix-rust-sdk/issues/1205][https-github-com-matrix-org-matrix-rust-sdk-issues-1205].
+            // events here potentially races with the sync. See [#1205].
             //
-            // [https-github-com-matrix-org-matrix-rust-sdk-issues-1205]: https://github.com/matrix-org/matrix-rust-sdk/issues/1205
+            // [#1205]: https://github.com/matrix-org/matrix-rust-sdk/issues/1205
 
             #[cfg(feature = "e2e-encryption")]
             match member.membership() {
