@@ -2575,9 +2575,8 @@ pub fn compare_thread_subscription_bump_stamps(
 #[cfg(test)]
 mod tests {
     mod save_locked_state_store {
-        use std::time::Duration;
+        use std::{assert_matches, time::Duration};
 
-        use assert_matches::assert_matches;
         use futures_util::future::{self, Either};
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         use gloo_timers::future::sleep;

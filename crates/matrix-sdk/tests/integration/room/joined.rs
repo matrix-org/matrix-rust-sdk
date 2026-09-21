@@ -1,10 +1,10 @@
 use std::{
+    assert_matches,
     collections::BTreeSet,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
-use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use futures_util::{future::join_all, pin_mut};
 use matrix_sdk::{
@@ -1372,7 +1372,7 @@ async fn test_subscribe_to_knock_requests_clears_seen_ids_on_member_reload() {
 
 #[async_test]
 async fn test_room_member_updates_sender_on_full_member_reload() {
-    use assert_matches::assert_matches;
+    use std::assert_matches;
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 

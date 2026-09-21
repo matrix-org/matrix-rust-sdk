@@ -990,9 +990,8 @@ pub enum ClientBuildError {
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) mod tests {
-    use std::{future, iter, net::SocketAddr, sync::Mutex as StdMutex};
+    use std::{assert_matches, future, iter, net::SocketAddr, sync::Mutex as StdMutex};
 
-    use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use matrix_sdk_test::{async_test, test_json};
     use reqwest::dns::{Addrs, Name, Resolve, Resolving};

@@ -865,9 +865,8 @@ impl AcceptSettings {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{assert_matches, sync::Arc};
 
-    use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
     use ruma::{

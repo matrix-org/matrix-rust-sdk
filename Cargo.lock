@@ -240,12 +240,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "assert_matches"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b34d609dfbaf33d6889b2b7106d3ca345eacad44200913df5ba02bfd31d2ba9"
-
-[[package]]
 name = "assert_matches2"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -493,7 +487,6 @@ dependencies = [
 name = "benchmarks"
 version = "1.0.0"
 dependencies = [
- "assert_matches",
  "codspeed-criterion-compat",
  "futures-util",
  "matrix-sdk",
@@ -3607,7 +3600,6 @@ dependencies = [
  "anymap2",
  "as_variant",
  "assert-json-diff",
- "assert_matches",
  "assert_matches2",
  "async-stream",
  "async-trait",
@@ -3684,7 +3676,6 @@ version = "0.19.1"
 dependencies = [
  "anyhow",
  "as_variant",
- "assert_matches",
  "assert_matches2",
  "assign",
  "async-trait",
@@ -3723,7 +3714,6 @@ dependencies = [
 name = "matrix-sdk-common"
 version = "0.19.1"
 dependencies = [
- "assert_matches",
  "assert_matches2",
  "eyeball-im",
  "futures-core",
@@ -3775,7 +3765,6 @@ dependencies = [
  "aes",
  "anyhow",
  "as_variant",
- "assert_matches",
  "assert_matches2",
  "async-trait",
  "bs58",
@@ -3921,7 +3910,6 @@ dependencies = [
 name = "matrix-sdk-indexeddb"
 version = "0.19.1"
 dependencies = [
- "assert_matches",
  "assert_matches2",
  "async-trait",
  "base64 0.23.1",
@@ -3962,7 +3950,6 @@ name = "matrix-sdk-integration-testing"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "assert_matches",
  "assert_matches2",
  "assign",
  "eyeball",
@@ -4032,7 +4019,6 @@ name = "matrix-sdk-sqlite"
 version = "0.19.1"
 dependencies = [
  "as_variant",
- "assert_matches",
  "async-trait",
  "base64 0.23.1",
  "deadpool 0.13.0",
@@ -4129,7 +4115,6 @@ dependencies = [
  "anyhow",
  "as_variant",
  "assert-json-diff",
- "assert_matches",
  "assert_matches2",
  "async-rx",
  "async-stream",

@@ -1,10 +1,9 @@
 // TODO: Remove this once all tests are re-enabled.
 #![allow(unused)]
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{assert_matches, collections::BTreeSet, sync::Arc};
 
 use anyhow::{Result, ensure};
-use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use matrix_sdk::{
     RoomState,

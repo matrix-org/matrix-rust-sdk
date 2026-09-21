@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Debug, iter, pin::Pin};
+use std::{assert_matches, fmt::Debug, iter, pin::Pin};
 
-use assert_matches::assert_matches;
 use futures_core::Stream;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;

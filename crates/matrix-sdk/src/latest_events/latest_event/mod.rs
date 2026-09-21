@@ -335,9 +335,8 @@ pub(super) type IsLatestEventValueNone = bool;
 
 #[cfg(all(not(target_family = "wasm"), test))]
 mod tests_latest_event {
-    use std::ops::Not;
+    use std::{assert_matches, ops::Not};
 
-    use assert_matches::assert_matches;
     use matrix_sdk_base::{
         RoomInfoNotableUpdateReasons, RoomState,
         latest_event::RemoteLatestEventValue,

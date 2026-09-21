@@ -502,12 +502,12 @@ impl SlidingSyncMode {
 #[cfg(test)]
 mod tests {
     use std::{
+        assert_matches,
         cell::Cell,
         ops::Not,
         sync::{Arc, Mutex},
     };
 
-    use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
     use ruma::uint;
     use serde_json::json;

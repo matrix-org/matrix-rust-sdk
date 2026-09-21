@@ -410,7 +410,8 @@ impl Serialize for ToDeviceEvents {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
+    use std::assert_matches;
+
     use serde_json::{Value, json};
     use similar_asserts::assert_eq;
 

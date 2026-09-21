@@ -1521,7 +1521,8 @@ fn get_raw_content<Ev, C>(raw: Option<Raw<Ev>>) -> Result<Option<Raw<C>>> {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
+    use std::assert_matches;
+
     use matrix_sdk_test::async_test;
 
     use crate::{Error, test_utils::client::MockClientBuilder};

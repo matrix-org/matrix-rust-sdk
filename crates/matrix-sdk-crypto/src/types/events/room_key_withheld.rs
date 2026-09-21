@@ -487,9 +487,8 @@ impl Serialize for RoomKeyWithheldContent {
 
 #[cfg(test)]
 pub(super) mod tests {
-    use std::collections::BTreeMap;
+    use std::{assert_matches, collections::BTreeMap};
 
-    use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use matrix_sdk_common::deserialized_responses::WithheldCode;
     use ruma::{device_id, room_id, serde::Raw, to_device::DeviceIdOrAllDevices, user_id};

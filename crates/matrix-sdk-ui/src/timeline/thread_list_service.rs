@@ -476,9 +476,8 @@ struct ThreadList {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{assert_matches, time::Duration};
 
-    use assert_matches::assert_matches;
     use futures_util::pin_mut;
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};

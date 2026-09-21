@@ -1,6 +1,5 @@
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{assert_matches, collections::BTreeMap, sync::Arc, time::Duration};
 
-use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::deserialized_responses::{
     AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, VerificationState,

@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fs::File, io::Write, sync::Arc, time::Duration};
+use std::{assert_matches, fs::File, io::Write, sync::Arc, time::Duration};
 
 use anyhow::Result;
-use assert_matches::assert_matches;
 use futures_util::{FutureExt, StreamExt, pin_mut};
 use matrix_sdk::{
     Client, SessionMeta,

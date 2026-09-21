@@ -145,7 +145,8 @@ pub fn extract_timestamp(
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
+    use std::assert_matches;
+
     use ruma::{UInt, event_id, owned_event_id};
     use serde_json::json;
 

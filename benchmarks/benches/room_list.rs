@@ -1,4 +1,5 @@
-use assert_matches::assert_matches;
+use std::assert_matches;
+
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use futures_util::pin_mut;
 use matrix_sdk::{stream::StreamExt, test_utils::mocks::MatrixMockServer};

@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{pin::Pin, sync::Arc};
+use std::{assert_matches, pin::Pin, sync::Arc};
 
 use anyhow::{Context as _, Result};
-use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::{Stream, StreamExt, pin_mut};

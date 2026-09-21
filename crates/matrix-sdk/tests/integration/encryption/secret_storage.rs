@@ -1,6 +1,8 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    assert_matches,
+    sync::{Arc, Mutex},
+};
 
-use assert_matches::assert_matches;
 use matrix_sdk::{
     authentication::matrix::MatrixSession,
     encryption::secret_storage::SecretStorageError,

@@ -1773,11 +1773,10 @@ pub struct ChunkMetadata {
 #[cfg(test)]
 mod tests {
     use std::{
+        assert_matches,
         ops::Not,
         sync::{Arc, atomic::Ordering},
     };
-
-    use assert_matches::assert_matches;
 
     use super::{
         Chunk, ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, Error, LinkedChunk,

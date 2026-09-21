@@ -222,7 +222,8 @@ impl Serialize for RoomKeyContent {
 
 #[cfg(test)]
 pub(super) mod tests {
-    use assert_matches::assert_matches;
+    use std::assert_matches;
+
     use serde_json::{Value, json};
     use similar_asserts::assert_eq;
 

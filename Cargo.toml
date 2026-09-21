@@ -22,7 +22,6 @@ rust-version = "1.96"
 anyhow = { version = "1.0.104", default-features = false }
 as_variant = { version = "1.3.0", default-features = false }
 assert-json-diff = { version = "2.0.2", default-features = false }
-assert_matches = { version = "1.5.0", default-features = false }
 assert_matches2 = { version = "0.1.2", default-features = false }
 async_cell = { version = "0.2.3", default-features = false }
 async-compat = { version = "0.2.5", default-features = false }

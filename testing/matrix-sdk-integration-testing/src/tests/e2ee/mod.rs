@@ -1,10 +1,10 @@
 use std::{
+    assert_matches,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
 use anyhow::Result;
-use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use assign::assign;
 use matrix_sdk::{

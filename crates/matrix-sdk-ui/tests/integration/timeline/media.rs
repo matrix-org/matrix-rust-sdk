@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fs::File, io::Write as _, path::PathBuf, time::Duration};
+use std::{assert_matches, fs::File, io::Write as _, path::PathBuf, time::Duration};
 
-use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;

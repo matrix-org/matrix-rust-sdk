@@ -734,13 +734,13 @@ impl CrossProcessLockConfig {
 #[cfg(not(target_family = "wasm"))] // These tests require tokio::time, which is not implemented on wasm.
 mod tests {
     use std::{
+        assert_matches,
         collections::HashMap,
         ops::Not,
         sync::{Arc, RwLock},
         time::Duration,
     };
 
-    use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use matrix_sdk_test_macros::async_test;
     use tokio::{spawn, task::yield_now, time::sleep};

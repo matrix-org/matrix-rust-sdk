@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{ops::Not as _, sync::Arc, time::Duration};
+use std::{assert_matches, ops::Not as _, sync::Arc, time::Duration};
 
 use anyhow::Result;
-use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use assign::assign;
 use eyeball_im::{Vector, VectorDiff};

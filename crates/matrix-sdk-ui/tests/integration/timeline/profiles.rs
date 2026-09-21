@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{assert_matches, sync::Arc};
 
-use assert_matches::assert_matches;
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{

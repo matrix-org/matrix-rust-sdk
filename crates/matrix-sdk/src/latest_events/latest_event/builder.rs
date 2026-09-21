@@ -829,9 +829,8 @@ fn filter_any_sync_state_event(
 
 #[cfg(test)]
 mod filter_tests {
-    use std::ops::Not;
+    use std::{assert_matches, ops::Not};
 
-    use assert_matches::assert_matches;
     use matrix_sdk_test::event_factory::{EventFactory, PreviousMembership};
     use ruma::{
         event_id,
@@ -1375,7 +1374,8 @@ mod filter_tests {
 
 #[cfg(test)]
 mod buffer_of_values_for_local_event_tests {
-    use assert_matches::assert_matches;
+    use std::assert_matches;
+
     use ruma::{
         OwnedTransactionId,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
@@ -1678,9 +1678,8 @@ mod buffer_of_values_for_local_event_tests {
 
 #[cfg(all(not(target_family = "wasm"), test))]
 mod builder_tests {
-    use std::sync::Arc;
+    use std::{assert_matches, sync::Arc};
 
-    use assert_matches::assert_matches;
     use matrix_sdk_base::{
         RoomState,
         deserialized_responses::TimelineEventKind,

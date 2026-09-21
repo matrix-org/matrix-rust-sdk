@@ -1035,6 +1035,7 @@ impl PollTimeout {
 #[allow(clippy::dbg_macro)]
 mod tests {
     use std::{
+        assert_matches,
         collections::BTreeMap,
         future::ready,
         ops::Not,
@@ -1042,7 +1043,6 @@ mod tests {
         time::Duration,
     };
 
-    use assert_matches::assert_matches;
     use event_listener::Listener;
     use futures_util::{StreamExt, future::join_all, pin_mut};
     use matrix_sdk_base::{RequestedRequiredStates, RoomMemberships};

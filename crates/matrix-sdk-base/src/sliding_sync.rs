@@ -288,9 +288,11 @@ impl BaseClient {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use std::collections::{BTreeMap, HashSet};
+    use std::{
+        assert_matches,
+        collections::{BTreeMap, HashSet},
+    };
 
-    use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
     use ruma::{
         JsOption, MxcUri, OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, UserId,

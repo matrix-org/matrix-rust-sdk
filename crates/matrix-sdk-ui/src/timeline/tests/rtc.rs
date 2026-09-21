@@ -1,8 +1,7 @@
 //! Tests for RTC notification timeline items.
 
-use std::ops::Add;
+use std::{assert_matches, ops::Add};
 
-use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::CallIntentConsensus;
 use matrix_sdk_test::{ALICE, BOB, CAROL};

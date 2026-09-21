@@ -2531,7 +2531,8 @@ pub(crate) mod tests {
     }
 
     mod update_sender_data {
-        use assert_matches::assert_matches;
+        use std::assert_matches;
+
         use matrix_sdk_test::async_test;
         use ruma::room_id;
 

@@ -1,6 +1,5 @@
-use std::time::Duration;
+use std::{assert_matches, time::Duration};
 
-use assert_matches::assert_matches;
 use matrix_sdk::{
     SlidingSyncList, config::SyncSettings, notification_settings::RoomNotificationMode,
     test_utils::mocks::MatrixMockServer,

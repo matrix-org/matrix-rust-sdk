@@ -170,9 +170,8 @@ pub struct ValidityError;
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{assert_matches, sync::Arc};
 
-    use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
     use rcgen::{CertificateParams, KeyPair};
     use ruma::{DeviceKeyAlgorithm, DeviceKeyId, encryption::KeyUsage, user_id};

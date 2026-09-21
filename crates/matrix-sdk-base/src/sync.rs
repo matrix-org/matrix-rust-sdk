@@ -110,9 +110,8 @@ impl RoomUpdates {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{assert_matches, collections::BTreeMap};
 
-    use assert_matches::assert_matches;
     use ruma::room_id;
 
     use super::{

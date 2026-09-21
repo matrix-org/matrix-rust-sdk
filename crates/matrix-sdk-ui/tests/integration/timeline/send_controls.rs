@@ -1,4 +1,5 @@
-use assert_matches::assert_matches;
+use std::assert_matches;
+
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;

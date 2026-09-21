@@ -37,7 +37,7 @@ macro_rules! cryptostore_integration_tests {
             use std::ops::Deref;
             use std::time::Duration;
 
-            use assert_matches::assert_matches;
+            use std::assert_matches;
             use matrix_sdk_test::async_test;
             use ruma::{
                 device_id, events::secret::request::SecretName, room_id, serde::Raw, owned_room_id,

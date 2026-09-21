@@ -506,9 +506,8 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::Debug;
+    use std::{assert_matches, fmt::Debug};
 
-    use assert_matches::assert_matches;
     use imbl::{Vector, vector};
 
     use super::{

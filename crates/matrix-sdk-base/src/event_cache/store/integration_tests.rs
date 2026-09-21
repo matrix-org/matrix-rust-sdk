@@ -15,11 +15,11 @@
 //! Trait and macro of integration tests for `EventCacheStore` implementations.
 
 use std::{
+    assert_matches,
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
 
-use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use matrix_sdk_common::{
     deserialized_responses::{

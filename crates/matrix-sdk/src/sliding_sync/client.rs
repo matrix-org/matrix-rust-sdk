@@ -370,9 +370,8 @@ async fn handle_receipts_extension(
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use std::{collections::BTreeMap, ops::Not};
+    use std::{assert_matches, collections::BTreeMap, ops::Not};
 
-    use assert_matches::assert_matches;
     use matrix_sdk_base::{
         RequestedRequiredStates, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomState,
         notification_settings::RoomNotificationMode,

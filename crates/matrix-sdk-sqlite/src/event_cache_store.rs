@@ -2024,6 +2024,7 @@ fn insert_chunk(
 #[cfg(test)]
 mod tests {
     use std::{
+        assert_matches,
         path::PathBuf,
         sync::{
             LazyLock,
@@ -2031,7 +2032,6 @@ mod tests {
         },
     };
 
-    use assert_matches::assert_matches;
     use matrix_sdk_base::{
         event_cache::store::{
             EventCacheStore, EventCacheStoreError, IntoEventCacheStore,

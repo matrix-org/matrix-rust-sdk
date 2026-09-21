@@ -1,6 +1,5 @@
-use std::{collections::BTreeMap, sync::Mutex};
+use std::{assert_matches, collections::BTreeMap, sync::Mutex};
 
-use assert_matches::assert_matches;
 use matrix_sdk::{
     AuthApi, AuthSession, Client, SessionTokens,
     authentication::matrix::MatrixSession,

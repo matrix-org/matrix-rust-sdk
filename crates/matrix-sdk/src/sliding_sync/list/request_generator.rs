@@ -336,9 +336,10 @@ fn create_range(
 
 #[cfg(test)]
 mod tests {
-    use std::ops::{Not, RangeInclusive};
-
-    use assert_matches::assert_matches;
+    use std::{
+        assert_matches,
+        ops::{Not, RangeInclusive},
+    };
 
     use super::{
         SlidingSyncListRequestGenerator, SlidingSyncListRequestGeneratorKind, create_range,

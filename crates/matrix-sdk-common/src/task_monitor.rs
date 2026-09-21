@@ -523,6 +523,7 @@ fn extract_panic_message(payload: &Box<dyn Any + Send>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use std::{
+        assert_matches,
         sync::{
             Arc,
             atomic::{AtomicBool, Ordering},
@@ -530,7 +531,6 @@ mod tests {
         time::Duration,
     };
 
-    use assert_matches::assert_matches;
     use matrix_sdk_test_macros::async_test;
 
     use super::{BackgroundTaskFailureReason, TaskMonitor};

@@ -664,9 +664,8 @@ fn local_room_message(body: &str) -> LocalLatestEventValue {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use std::{collections::HashMap, ops::Not, time::Duration};
+    use std::{assert_matches, collections::HashMap, ops::Not, time::Duration};
 
-    use assert_matches::assert_matches;
     use matrix_sdk_base::{
         RoomState,
         deserialized_responses::TimelineEventKind,

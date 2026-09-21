@@ -173,9 +173,8 @@ impl LatestEventValue {
 
 #[cfg(test)]
 mod tests {
-    use std::{ops::Not, time::Duration};
+    use std::{assert_matches, ops::Not, time::Duration};
 
-    use assert_matches::assert_matches;
     use matrix_sdk::{
         latest_events::{LocalLatestEventValue, RemoteLatestEventValue},
         store::SerializableEventContent,

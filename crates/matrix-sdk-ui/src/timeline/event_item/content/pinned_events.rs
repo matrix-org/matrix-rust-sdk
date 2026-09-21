@@ -75,7 +75,8 @@ impl From<&StateEventContentChange<RoomPinnedEventsEventContent>> for RoomPinned
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
+    use std::assert_matches;
+
     use ruma::{
         events::{
             StateEventContentChange,

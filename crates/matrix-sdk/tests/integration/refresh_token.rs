@@ -1,9 +1,9 @@
 use std::{
+    assert_matches,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
-use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use matrix_sdk::{
     HttpError, RefreshTokenError, SessionChange, SessionTokens,

@@ -42,7 +42,8 @@ pub use vodozemac::{Curve25519PublicKey, olm::IdentityKeys};
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use assert_matches::assert_matches;
+    use std::assert_matches;
+
     use matrix_sdk_test::{async_test, message_like_event_content};
     use ruma::{
         DeviceId, UserId, device_id, event_id,

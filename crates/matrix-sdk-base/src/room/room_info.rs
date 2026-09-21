@@ -1514,9 +1514,8 @@ impl Default for RoomInfoNotableUpdateReasons {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeSet, str::FromStr, sync::Arc, time::Duration};
+    use std::{assert_matches, collections::BTreeSet, str::FromStr, sync::Arc, time::Duration};
 
-    use assert_matches::assert_matches;
     use futures_util::future::{self, Either};
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     use gloo_timers::future::sleep;

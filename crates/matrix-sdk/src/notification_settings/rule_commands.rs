@@ -216,7 +216,8 @@ impl RuleCommands {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
+    use std::assert_matches;
+
     use matrix_sdk_test::{
         async_test,
         notification_settings::{

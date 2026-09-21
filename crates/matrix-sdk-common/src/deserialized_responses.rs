@@ -1518,9 +1518,8 @@ impl ProcessedToDeviceEvent {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, sync::Arc};
+    use std::{assert_matches, collections::BTreeMap, sync::Arc};
 
-    use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use insta::{assert_json_snapshot, with_settings};
     use ruma::{

@@ -60,7 +60,6 @@ test-send-sync = [
 
 # helpers for testing features build upon this
 testing = [
-    "dep:assert_matches",
     "dep:assert_matches2",
     "dep:http",
     "dep:matrix-sdk-test",
@@ -78,7 +77,6 @@ experimental-x509-identity-verification = ["e2e-encryption", "matrix-sdk-crypto/
 
 [dependencies]
 as_variant.workspace = true
-assert_matches = { workspace = true, optional = true }
 assert_matches2 = { workspace = true, optional = true }
 async-trait.workspace = true
 bitflags = { workspace = true, features = ["serde"] }
@@ -111,7 +109,6 @@ uniffi = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow.workspace = true
-assert_matches.workspace = true
 assert_matches2.workspace = true
 assign = "1.1.1"
 futures-executor.workspace = true

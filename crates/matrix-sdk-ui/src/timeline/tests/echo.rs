@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{assert_matches, sync::Arc};
 
-use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{assert_next_matches_with_timeout, send_queue::RoomSendQueueUpdate};
 use matrix_sdk_base::store::QueueWedgeError;

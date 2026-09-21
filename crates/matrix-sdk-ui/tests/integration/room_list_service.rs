@@ -1,6 +1,5 @@
-use std::sync::Arc;
+use std::{assert_matches, sync::Arc};
 
-use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt, pin_mut};
 use matrix_sdk::{

@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use std::{
+    assert_matches,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
-use assert_matches::assert_matches;
 use matrix_sdk::{assert_next_matches_with_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::sync_service::{State, SyncService};

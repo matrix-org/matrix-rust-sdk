@@ -581,12 +581,14 @@ impl NotificationSettings {
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use std::sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
+    use std::{
+        assert_matches,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
     };
 
-    use assert_matches::assert_matches;
     use matrix_sdk_test::{
         TestResult, async_test,
         event_factory::EventFactory,

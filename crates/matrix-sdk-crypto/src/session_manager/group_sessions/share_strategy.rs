@@ -1155,9 +1155,8 @@ fn is_user_verified(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, iter, ops::Deref, sync::Arc};
+    use std::{assert_matches, collections::BTreeMap, iter, ops::Deref, sync::Arc};
 
-    use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use insta::{assert_snapshot, with_settings};
     use matrix_sdk_common::deserialized_responses::WithheldCode;
@@ -2392,7 +2391,7 @@ mod tests {
     /// A set of tests for the behaviour of [`collect_session_recipients`] with
     /// a dehydrated device
     mod dehydrated_device {
-        use std::{collections::HashSet, iter};
+        use std::{assert_matches, collections::HashSet, iter};
 
         use insta::{allow_duplicates, assert_json_snapshot, with_settings};
         use matrix_sdk_common::deserialized_responses::WithheldCode;
@@ -2677,7 +2676,7 @@ mod tests {
 
             // The key share should fail with an error indicating that recipients
             // were previously verified.
-            assert_matches::assert_matches!(
+            assert_matches!(
                 share_result,
                 Err(crate::OlmError::SessionRecipientCollectionError(
                     crate::SessionRecipientCollectionError::VerifiedUserChangedIdentity(_)

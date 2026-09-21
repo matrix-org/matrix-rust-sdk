@@ -1211,12 +1211,12 @@ impl GossipMachine {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "automatic-room-key-forwarding")]
+    use std::assert_matches;
     #[cfg(feature = "experimental-push-secrets")]
     use std::ops::Deref;
     use std::sync::Arc;
 
-    #[cfg(feature = "automatic-room-key-forwarding")]
-    use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, message_like_event_content};
     use ruma::{
         DeviceId, RoomId, UserId, device_id,

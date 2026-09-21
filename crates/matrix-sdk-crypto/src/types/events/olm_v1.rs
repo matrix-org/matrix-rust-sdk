@@ -364,9 +364,8 @@ impl<'de> Deserialize<'de> for AnyDecryptedOlmEvent {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{assert_matches, collections::BTreeMap};
 
-    use assert_matches::assert_matches;
     use insta::{assert_json_snapshot, with_settings};
     use ruma::{
         KeyId, OwnedMxcUri, device_id,

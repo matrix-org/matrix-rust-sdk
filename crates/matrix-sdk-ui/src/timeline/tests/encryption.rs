@@ -15,6 +15,7 @@
 #![cfg(not(target_family = "wasm"))]
 
 use std::{
+    assert_matches,
     io::Cursor,
     iter,
     sync::{Arc, Mutex},
@@ -22,7 +23,6 @@ use std::{
 };
 
 use as_variant::as_variant;
-use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{

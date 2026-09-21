@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::io::Write;
+use std::{assert_matches, io::Write};
 
-use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
     assert_next_matches_with_timeout,

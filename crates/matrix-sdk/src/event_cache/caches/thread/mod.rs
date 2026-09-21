@@ -392,9 +392,8 @@ impl ThreadEventCache {
 
 #[cfg(all(test, not(target_family = "wasm")))] // This uses the cross-process lock, so needs time support.
 mod timed_tests {
-    use std::sync::Arc;
+    use std::{assert_matches, sync::Arc};
 
-    use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use eyeball_im::VectorDiff;
     use futures_util::FutureExt as _;

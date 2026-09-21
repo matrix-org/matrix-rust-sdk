@@ -69,7 +69,6 @@ zeroize.workspace = true
 getrandom = { workspace = true, features = ["wasm_js"] }
 
 [dev-dependencies]
-assert_matches.workspace = true
 assert_matches2.workspace = true
 gloo-timers = { workspace = true, features = ["futures"] }
 matrix-sdk-base = { workspace = true, features = ["testing"] }

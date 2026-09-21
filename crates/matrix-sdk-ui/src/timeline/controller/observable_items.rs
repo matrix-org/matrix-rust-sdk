@@ -715,9 +715,8 @@ impl Deref for ObservableItemsTransactionEntry<'_, '_> {
 
 #[cfg(test)]
 mod observable_items_tests {
-    use std::ops::Not;
+    use std::{assert_matches, ops::Not};
 
-    use assert_matches::assert_matches;
     use eyeball_im::VectorDiff;
     use ruma::{
         MilliSecondsSinceUnixEpoch,
@@ -2075,7 +2074,8 @@ impl AllRemoteEvents {
 
 #[cfg(test)]
 mod all_remote_events_tests {
-    use assert_matches::assert_matches;
+    use std::assert_matches;
+
     use ruma::event_id;
 
     use super::{AllRemoteEvents, EventMeta};

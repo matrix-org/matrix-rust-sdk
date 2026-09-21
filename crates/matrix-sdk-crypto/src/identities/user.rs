@@ -1531,9 +1531,8 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::{collections::HashMap, sync::Arc};
+    use std::{assert_matches, collections::HashMap, sync::Arc};
 
-    use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, test_json};
     #[cfg(feature = "experimental-x509-identity-verification")]
     use rcgen::{Certificate, KeyPair};

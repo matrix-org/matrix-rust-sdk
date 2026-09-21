@@ -1,11 +1,11 @@
 //! Trait and macro of integration tests for StateStore implementations.
 
 use std::{
+    assert_matches,
     collections::{BTreeMap, BTreeSet, HashMap},
     str::FromStr,
 };
 
-use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use growable_bloom_filter::GrowableBloomBuilder;
 use matrix_sdk_common::ttl::TtlValue;

@@ -4155,9 +4155,8 @@ struct PreJoinRoomInfo {
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) mod tests {
-    use std::{sync::Arc, time::Duration};
+    use std::{assert_matches, sync::Arc, time::Duration};
 
-    use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use eyeball::SharedObservable;
     use futures_util::{FutureExt, StreamExt, pin_mut};

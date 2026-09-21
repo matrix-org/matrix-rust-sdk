@@ -13,10 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
+use std::{assert_matches, time::Duration};
 
 use anyhow::Result;
-use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures::StreamExt;
 use matrix_sdk::{

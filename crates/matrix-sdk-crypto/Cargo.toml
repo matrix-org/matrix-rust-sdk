@@ -112,7 +112,6 @@ tokio.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true
-assert_matches.workspace = true
 assert_matches2.workspace = true
 futures-executor.workspace = true
 http.workspace = true

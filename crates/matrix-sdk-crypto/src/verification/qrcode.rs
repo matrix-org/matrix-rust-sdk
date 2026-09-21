@@ -888,9 +888,8 @@ impl QrState<Reciprocated> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{assert_matches, sync::Arc};
 
-    use assert_matches::assert_matches;
     use matrix_sdk_qrcode::QrVerificationData;
     use matrix_sdk_test::async_test;
     use ruma::{

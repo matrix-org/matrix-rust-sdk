@@ -213,7 +213,8 @@ impl RoomDirectorySearch {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use assert_matches::assert_matches;
+    use std::assert_matches;
+
     use eyeball_im::VectorDiff;
     use futures_util::StreamExt;
     use matrix_sdk_test::{async_test, test_json};

@@ -288,9 +288,8 @@ fn add_unique_index<'a>(
 
 #[cfg(all(test, target_family = "wasm"))]
 mod tests {
-    use std::{cell::Cell, future::Future, rc::Rc, sync::Arc};
+    use std::{assert_matches, cell::Cell, future::Future, rc::Rc, sync::Arc};
 
-    use assert_matches::assert_matches;
     use gloo_utils::format::JsValueSerdeExt;
     use indexed_db_futures::{database::VersionChangeEvent, transaction::TransactionMode};
     use matrix_sdk_common::{

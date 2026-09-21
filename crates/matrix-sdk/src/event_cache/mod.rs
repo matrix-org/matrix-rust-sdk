@@ -789,9 +789,8 @@ pub enum EventsOrigin {
 
 #[cfg(test)]
 mod tests {
-    use std::{ops::Not, sync::Arc, time::Duration};
+    use std::{assert_matches, ops::Not, sync::Arc, time::Duration};
 
-    use assert_matches::assert_matches;
     use futures_util::FutureExt as _;
     use matrix_sdk_base::{
         RoomState,

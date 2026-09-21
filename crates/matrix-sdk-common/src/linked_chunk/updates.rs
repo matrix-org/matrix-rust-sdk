@@ -440,11 +440,11 @@ impl<Item, Gap> Drop for UpdatesSubscriber<Item, Gap> {
 #[cfg(test)]
 mod tests {
     use std::{
+        assert_matches,
         sync::{Arc, Mutex},
         task::{Context, Poll, Wake},
     };
 
-    use assert_matches::assert_matches;
     use futures_core::Stream;
     use futures_util::pin_mut;
 

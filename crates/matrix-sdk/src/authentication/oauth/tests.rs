@@ -1,7 +1,6 @@
-use std::time::Duration;
+use std::{assert_matches, time::Duration};
 
 use anyhow::Context as _;
-use assert_matches::assert_matches;
 use matrix_sdk_base::{sleep::sleep, store::RoomLoadSettings, ttl::TtlValue};
 use matrix_sdk_test::async_test;
 use oauth2::{ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope};

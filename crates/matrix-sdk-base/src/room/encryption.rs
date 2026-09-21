@@ -79,12 +79,12 @@ impl EncryptionState {
 #[cfg(test)]
 mod tests {
     use std::{
+        assert_matches,
         ops::{Not, Sub},
         sync::Arc,
         time::Duration,
     };
 
-    use assert_matches::assert_matches;
     use matrix_sdk_test::{ALICE, event_factory::EventFactory};
     use ruma::{
         EventEncryptionAlgorithm, MilliSecondsSinceUnixEpoch, event_id,

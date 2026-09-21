@@ -2,13 +2,13 @@
 #![allow(unused)]
 
 use std::{
+    assert_matches,
     collections::BTreeMap,
     sync::{Arc, LazyLock, Mutex as StdMutex},
     time::Duration,
 };
 
 use anyhow::Result;
-use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use futures_util::{StreamExt as _, pin_mut};
 use matrix_sdk::{

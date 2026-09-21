@@ -113,9 +113,8 @@ impl Serialize for RoomKeyBackupInfo {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{assert_matches, collections::BTreeMap};
 
-    use assert_matches::assert_matches;
     use insta::{assert_json_snapshot, with_settings};
     use ruma::{DeviceKeyAlgorithm, KeyId, owned_user_id};
     use serde_json::{Value, json};

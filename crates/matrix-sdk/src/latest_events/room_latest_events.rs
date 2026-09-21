@@ -335,7 +335,8 @@ impl RoomLatestEventsWriteGuard {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use assert_matches::assert_matches;
+    use std::assert_matches;
+
     use matrix_sdk_base::{
         RoomState,
         event_cache::Gap,

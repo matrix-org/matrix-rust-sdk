@@ -873,9 +873,8 @@ impl StoreConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::{ops::Not, sync::Arc};
+    use std::{assert_matches, ops::Not, sync::Arc};
 
-    use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
     use ruma::{owned_device_id, owned_user_id, room_id, user_id};
 

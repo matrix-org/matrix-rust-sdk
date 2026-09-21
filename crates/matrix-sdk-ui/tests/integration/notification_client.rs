@@ -1,9 +1,9 @@
 use std::{
+    assert_matches,
     collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex},
 };
 
-use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use matrix_sdk::{
     ThreadingSupport,

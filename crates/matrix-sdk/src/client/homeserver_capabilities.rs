@@ -311,9 +311,8 @@ struct ProfileCapabilities {
 
 #[cfg(all(not(target_family = "wasm"), test))]
 mod tests {
-    use std::time::Duration;
+    use std::{assert_matches, time::Duration};
 
-    use assert_matches::assert_matches;
     use matrix_sdk_base::sleep::sleep;
     use matrix_sdk_test::async_test;
     #[allow(deprecated)]

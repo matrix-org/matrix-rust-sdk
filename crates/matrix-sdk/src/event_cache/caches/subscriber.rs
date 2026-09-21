@@ -209,7 +209,8 @@ pub enum AutoShrinkMessage {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
+    use std::assert_matches;
+
     use ruma::owned_room_id;
     use tokio::sync::{broadcast, mpsc};
 

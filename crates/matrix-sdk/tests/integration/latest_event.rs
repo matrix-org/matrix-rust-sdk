@@ -1,4 +1,5 @@
-use assert_matches::assert_matches;
+use std::assert_matches;
+
 use matrix_sdk::{
     latest_events::LatestEventValue,
     linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},

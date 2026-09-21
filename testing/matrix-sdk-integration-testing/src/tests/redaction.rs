@@ -1,5 +1,6 @@
+use std::assert_matches;
+
 use anyhow::Result;
-use assert_matches::assert_matches;
 use assign::assign;
 use matrix_sdk::{
     Client,

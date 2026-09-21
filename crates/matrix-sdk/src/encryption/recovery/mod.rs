@@ -807,7 +807,8 @@ impl IdentityResetHandle {
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) mod tests {
-    use assert_matches::assert_matches;
+    use std::assert_matches;
+
     use matrix_sdk_test::async_test;
     use ruma::{
         events::{secret::request::SecretName, secret_storage::key},

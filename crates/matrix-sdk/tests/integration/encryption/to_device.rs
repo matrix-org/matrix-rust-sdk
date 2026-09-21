@@ -1,12 +1,12 @@
 #![cfg(feature = "experimental-send-custom-to-device")]
 
 use std::{
+    assert_matches,
     collections::{BTreeMap, BTreeSet},
     future,
     sync::Arc,
 };
 
-use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use futures_util::pin_mut;
 use matrix_sdk::{assert_next_with_timeout, test_utils::mocks::MatrixMockServer};

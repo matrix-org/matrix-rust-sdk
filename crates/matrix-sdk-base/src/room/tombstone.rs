@@ -105,9 +105,8 @@ pub struct PredecessorRoom {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Not;
+    use std::{assert_matches, ops::Not};
 
-    use assert_matches::assert_matches;
     use matrix_sdk_test::{
         JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
     };
