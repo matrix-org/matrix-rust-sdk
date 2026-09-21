@@ -280,6 +280,12 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
                 }
             }
 
+            RoomEventCacheUpdate::UpdateThreadSummary { thread_root, thread_summary } => {
+                if matches!(timeline_focus, TimelineFocus::Live { .. }) {
+                    timeline_controller.handle_thread_summary(thread_root, thread_summary).await;
+                }
+            }
+
             RoomEventCacheUpdate::AddReadReceiptEvent { event } => {
                 trace!("Received a new read receipt event from sync.");
 

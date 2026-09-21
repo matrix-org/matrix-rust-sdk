@@ -15,7 +15,10 @@
 use std::sync::Arc;
 
 use eyeball_im::VectorDiff;
-use matrix_sdk::{deserialized_responses::TimelineEvent, send_queue::SendHandle};
+use matrix_sdk::{
+    deserialized_responses::{ThreadSummary, TimelineEvent},
+    send_queue::SendHandle,
+};
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     events::{AnyMessageLikeEventContent, receipt::ReceiptEventContent},
@@ -104,6 +107,19 @@ impl<P: RoomDataProvider> TimelineState<P> {
 
         let mut transaction = self.transaction();
         transaction.handle_remote_aggregations(diffs, origin, room_data, settings).await;
+        transaction.commit();
+    }
+
+    /// Handle an update of the thread summary of a single event that is a
+    /// thread root.
+    pub(super) async fn handle_thread_summary(
+        &mut self,
+        thread_root: OwnedEventId,
+        thread_summary: Option<ThreadSummary>,
+        room_data: &P,
+    ) {
+        let mut transaction = self.transaction();
+        transaction.handle_thread_summary(thread_root, thread_summary, room_data).await;
         transaction.commit();
     }
 

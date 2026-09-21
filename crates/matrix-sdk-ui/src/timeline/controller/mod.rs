@@ -26,7 +26,7 @@ use futures_core::Stream;
 use futures_util::future::try_join_all;
 use imbl::{HashSet, Vector};
 use matrix_sdk::{
-    deserialized_responses::TimelineEvent,
+    deserialized_responses::{ThreadSummary, TimelineEvent},
     event_cache::{
         DecryptionRetryRequest, EventCache, EventFocusedCache, PaginationStatus, PinnedEventsCache,
         RoomEventCache, Subscriber as EventCacheSubscriber, ThreadEventCache,
@@ -771,6 +771,17 @@ impl<P: RoomDataProvider> TimelineController<P> {
         state
             .handle_remote_aggregations(diffs, origin, &self.room_data_provider, &self.settings)
             .await
+    }
+
+    /// Handle an update of the thread summary of a single event that is a
+    /// thread root.
+    pub(super) async fn handle_thread_summary(
+        &self,
+        thread_root: OwnedEventId,
+        thread_summary: Option<ThreadSummary>,
+    ) {
+        let mut state = self.state.write().await;
+        state.handle_thread_summary(thread_root, thread_summary, &self.room_data_provider).await
     }
 
     pub(super) async fn clear(&self) {

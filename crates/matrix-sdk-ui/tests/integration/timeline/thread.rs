@@ -182,7 +182,7 @@ async fn test_thread_backpagination() {
         assert_eq!(event_item.content().as_message().unwrap().body(), "Threaded event 3");
         // In a threaded timeline, threads aren't using the reply fallback,
         // unless they're an actual reply to another thread event.
-        assert_matches!(event_item.content().in_reply_to(), None);
+        assert!(event_item.content().in_reply_to().is_none());
     }
 
     {
@@ -207,17 +207,17 @@ async fn test_thread_backpagination() {
     assert_let!(VectorDiff::Insert { index: 1, value } = &timeline_updates[0]);
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id().unwrap(), thread_root_event_id);
-    assert_matches!(event_item.content().in_reply_to(), None);
+    assert!(event_item.content().in_reply_to().is_none());
 
     assert_let!(VectorDiff::Insert { index: 2, value } = &timeline_updates[1]);
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id().unwrap(), "$1");
-    assert_matches!(event_item.content().in_reply_to(), None);
+    assert!(event_item.content().in_reply_to().is_none());
 
     assert_let!(VectorDiff::Insert { index: 3, value } = &timeline_updates[2]);
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id().unwrap(), "$2");
-    assert_matches!(event_item.content().in_reply_to(), None);
+    assert!(event_item.content().in_reply_to().is_none());
 
     // Check the final items
     let items = timeline.items().await;
@@ -478,12 +478,8 @@ async fn test_new_thread_reply_causes_thread_summary_update() {
     server.sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(event)).await;
 
     // The timeline sees the reply.
-    //
-    // TODO: maybe we should include the thread summaries if and only if the
-    // live timeline is configured to exclude thread replies, aka, it requires
-    // thread-focused timelines to consult the thread replies.
     assert_let_timeout!(Some(timeline_updates) = stream.next());
-    assert_eq!(timeline_updates.len(), 3);
+    assert_eq!(timeline_updates.len(), 4);
 
     assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
     let event_item = value.as_event().unwrap();
@@ -506,23 +502,28 @@ async fn test_new_thread_reply_causes_thread_summary_update() {
     // Spoiling a bit here…
     assert!(replied_to_event.content.thread_summary().is_some());
 
-    // And finally, the thread root event receives a thread summary.
-    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[2]);
-    let event_item = value.as_event().unwrap();
-    assert_eq!(event_item.event_id().unwrap(), thread_event_id);
-    assert!(event_item.content().thread_root().is_none());
+    // And finally, the thread root event receives a thread summary update, from:
+    //
+    // - `TimelineEvent::thread_summary` (TODO: remove soon)
+    // - `ThreadInfo`
+    for nth in 2..=3 {
+        assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[nth]);
+        let event_item = value.as_event().unwrap();
+        assert_eq!(event_item.event_id().unwrap(), thread_event_id);
+        assert!(event_item.content().thread_root().is_none());
 
-    // The thread summary contains the detailed information about the latest
-    // event.
-    assert_let!(Some(summary) = event_item.content().thread_summary());
-    assert!(summary.latest_event.is_ready());
-    assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
-    assert_eq!(latest_event.content.as_message().unwrap().body(), "thread reply");
-    assert_eq!(latest_event.sender, *BOB);
-    assert!(latest_event.sender_profile.is_unavailable());
+        // The thread summary contains the detailed information about the latest
+        // event.
+        assert_let!(Some(summary) = event_item.content().thread_summary());
+        assert!(summary.latest_event.is_ready());
+        assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
+        assert_eq!(latest_event.content.as_message().unwrap().body(), "thread reply");
+        assert_eq!(latest_event.sender, *BOB);
+        assert!(latest_event.sender_profile.is_unavailable());
 
-    // The thread summary contains the number of replies.
-    assert_eq!(summary.num_replies, 1);
+        // The thread summary contains the number of replies.
+        assert_eq!(summary.num_replies, 1);
+    }
 
     assert_pending!(stream);
 
@@ -541,7 +542,7 @@ async fn test_new_thread_reply_causes_thread_summary_update() {
         .await;
 
     assert_let_timeout!(Some(timeline_updates) = stream.next());
-    assert_eq!(timeline_updates.len(), 4);
+    assert_eq!(timeline_updates.len(), 5);
 
     // (Read receipt from Bob moves.)
     assert_let!(VectorDiff::Set { index: 2, .. } = &timeline_updates[0]);
@@ -564,23 +565,28 @@ async fn test_new_thread_reply_causes_thread_summary_update() {
     assert_eq!(replied_to_event.content.thread_summary().unwrap().num_replies, 2);
 
     // Then, we receive an update for the thread root itself, which now has an
-    // up-to-date thread summary.
-    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[3]);
-    let event_item = value.as_event().unwrap();
-    assert_eq!(event_item.event_id().unwrap(), thread_event_id);
-    assert!(event_item.content().thread_root().is_none());
+    // up-to-date thread summary, from:
+    //
+    // - `Timeline::thread_summary` (TODO: remove soon)
+    // - `ThreadInfo`
+    for nth in 3..=4 {
+        assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[nth]);
+        let event_item = value.as_event().unwrap();
+        assert_eq!(event_item.event_id().unwrap(), thread_event_id);
+        assert!(event_item.content().thread_root().is_none());
 
-    assert_let!(Some(summary) = event_item.content().thread_summary());
+        assert_let!(Some(summary) = event_item.content().thread_summary());
 
-    // The latest event has been updated.
-    assert!(summary.latest_event.is_ready());
-    assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
-    assert_eq!(latest_event.content.as_message().unwrap().body(), "another thread reply");
-    assert_eq!(latest_event.sender, *BOB);
-    assert!(latest_event.sender_profile.is_unavailable());
+        // The latest event has been updated.
+        assert!(summary.latest_event.is_ready());
+        assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
+        assert_eq!(latest_event.content.as_message().unwrap().body(), "another thread reply");
+        assert_eq!(latest_event.sender, *BOB);
+        assert!(latest_event.sender_profile.is_unavailable());
 
-    // The number of replies has been updated.
-    assert_eq!(summary.num_replies, 2);
+        // The number of replies has been updated.
+        assert_eq!(summary.num_replies, 2);
+    }
 }
 
 #[async_test]
@@ -628,10 +634,13 @@ async fn test_thread_msg_edit_reflects_in_summary() {
         .await;
 
     assert_let_timeout!(Some(timeline_updates) = stream.next());
-    // Thread root + new implicit read receipt + new thread summary + day
-    // divider. TODO: could we optimize this, to have only a single timeline
-    // update?
-    assert_eq!(timeline_updates.len(), 4);
+    //   thread root
+    // + new implicit read receipt
+    // + date divider
+    // + new thread summary update from `TimelineEvent::thread_summary`
+    // + new thread summary update from `RoomEventCacheUpdate`
+    // = 5
+    assert_eq!(timeline_updates.len(), 5);
 
     // Sanity check the timeline diffs.
     {
@@ -652,23 +661,28 @@ async fn test_thread_msg_edit_reflects_in_summary() {
         // Now, with Bob's read receipt.
         assert_eq!(event_item.read_receipts().len(), 2);
 
-        // The day divider is added.
+        // The date divider is added.
         assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
         assert!(value.is_date_divider());
 
-        // Eventually the summary comes in.
-        assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[3]);
-        let event_item = value.as_event().unwrap();
-        assert_eq!(event_item.event_id().unwrap(), thread_event_id);
-        // Now there is a summary!
-        assert_let!(Some(summary) = event_item.content().thread_summary());
-        assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
-        assert_eq!(
-            latest_event.identifier,
-            TimelineEventItemId::EventId(reply_event_id.to_owned())
-        );
-        assert_eq!(latest_event.content.as_message().unwrap().body(), "threaded reply");
-        assert_eq!(summary.num_replies, 1);
+        // The thread summary updates twice:
+        //
+        // 1. from `TimelineEvent::thread_summary` is updated (TODO: remove soon),
+        // 2. from `ThreadInfo`.
+        for nth in 3..=4 {
+            assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[nth]);
+            let event_item = value.as_event().unwrap();
+            assert_eq!(event_item.event_id().unwrap(), thread_event_id);
+            // Now there is a summary!
+            assert_let!(Some(summary) = event_item.content().thread_summary());
+            assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
+            assert_eq!(
+                latest_event.identifier,
+                TimelineEventItemId::EventId(reply_event_id.to_owned())
+            );
+            assert_eq!(latest_event.content.as_message().unwrap().body(), "threaded reply");
+            assert_eq!(summary.num_replies, 1);
+        }
     }
 
     // When I receive an edit to that event, via sync,
@@ -691,23 +705,25 @@ async fn test_thread_msg_edit_reflects_in_summary() {
 
     // The root message is updated.
     assert_let_timeout!(Some(timeline_updates) = stream.next());
-    assert_eq!(timeline_updates.len(), 1);
+    assert_eq!(timeline_updates.len(), 2);
 
-    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
-    let event_item = value.as_event().unwrap();
-    assert_eq!(event_item.event_id().unwrap(), thread_event_id);
-    assert_let!(Some(summary) = event_item.content().thread_summary());
+    for nth in 0..=1 {
+        assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[nth]);
+        let event_item = value.as_event().unwrap();
+        assert_eq!(event_item.event_id().unwrap(), thread_event_id);
+        assert_let!(Some(summary) = event_item.content().thread_summary());
 
-    // The latest event has been updated.
-    assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
-    assert_eq!(
-        latest_event.identifier,
-        TimelineEventItemId::EventId(edit_reply_event_id.to_owned())
-    );
-    assert_eq!(latest_event.content.as_message().unwrap().body(), "edited threaded reply");
+        // The latest event has been updated.
+        assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
+        assert_eq!(
+            latest_event.identifier,
+            TimelineEventItemId::EventId(edit_reply_event_id.to_owned())
+        );
+        assert_eq!(latest_event.content.as_message().unwrap().body(), "edited threaded reply");
 
-    // Still only one reply; it's been edited.
-    assert_eq!(summary.num_replies, 1);
+        // Still only one reply; it's been edited.
+        assert_eq!(summary.num_replies, 1);
+    }
 
     // That's all, folks!
     assert_pending!(stream);
@@ -773,10 +789,13 @@ async fn test_thread_poll_edit_reflects_in_summary() {
         .await;
 
     assert_let_timeout!(Some(timeline_updates) = stream.next());
-    // Thread root + new implicit read receipt + new thread summary + day
-    // divider. TODO: could we optimize this, to have only a single timeline
-    // update?
-    assert_eq!(timeline_updates.len(), 4);
+    //   thread root
+    // + new implicit read receipt
+    // + date divider
+    // + new thread summary update from `TimelineEvent::thread_summary`
+    // + new thread summary update from `RoomEventCacheUpdate`
+    // = 5
+    assert_eq!(timeline_updates.len(), 5);
 
     assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
     let event_item = value.as_event().unwrap();
@@ -795,27 +814,31 @@ async fn test_thread_poll_edit_reflects_in_summary() {
     // Now, with Bob's read receipt.
     assert_eq!(event_item.read_receipts().len(), 2);
 
-    // The day divider is added.
+    // The date divider is added.
     assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
     assert!(value.is_date_divider());
 
-    // Eventually the summary comes in.
-    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[3]);
-    let event_item = value.as_event().unwrap();
-    assert_eq!(event_item.event_id().unwrap(), thread_event_id);
-    // Now there is a summary!
-    assert_let!(Some(summary) = event_item.content().thread_summary());
-    assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
-    assert_eq!(
-        latest_event.identifier,
-        TimelineEventItemId::EventId(edit_reply_event_id.to_owned())
-    );
+    // The thread summary updates twice:
+    //
+    // 1. from `TimelineEvent::thread_summary` is updated (TODO: remove soon),
+    // 2. from `ThreadInfo`.
+    for nth in 3..=4 {
+        assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[nth]);
+        let event_item = value.as_event().unwrap();
+        assert_eq!(event_item.event_id(), Some(thread_event_id));
+        assert_let!(Some(summary) = event_item.content().thread_summary());
+        assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
+        assert_eq!(
+            latest_event.identifier,
+            TimelineEventItemId::EventId(edit_reply_event_id.to_owned())
+        );
 
-    let poll_results = latest_event.content.as_poll().unwrap().results();
-    assert_eq!(poll_results.question, "What's your favourite colour?");
-    assert_eq!(poll_results.answers.len(), 4);
+        let poll_results = latest_event.content.as_poll().unwrap().results();
+        assert_eq!(poll_results.question, "What's your favourite colour?");
+        assert_eq!(poll_results.answers.len(), 4);
 
-    assert_eq!(summary.num_replies, 1);
+        assert_eq!(summary.num_replies, 1);
+    }
 
     // That's all, folks!
     assert_pending!(stream);
@@ -825,9 +848,9 @@ async fn test_thread_poll_edit_reflects_in_summary() {
 async fn test_thread_filtering_for_sync() {
     // Make sure that:
     //
-    // - a live timeline that shows threaded events will show them
     // - a live timeline that hides threaded events _will_ hide them (and only keep
     //   the summary)
+    // - a live timeline that shows threaded events will show them
     // - a thread timeline will show the threaded events
 
     let server = MatrixMockServer::new().await;
@@ -836,6 +859,7 @@ async fn test_thread_filtering_for_sync() {
     let room_id = room_id!("!a:b.c");
     let sender_id = user_id!("@alice:b.c");
     let thread_root_event_id = owned_event_id!("$root");
+    let thread_event_id = owned_event_id!("$threaded_event");
 
     let room = server.sync_joined_room(&client, room_id).await;
 
@@ -881,29 +905,36 @@ async fn test_thread_filtering_for_sync() {
                     factory
                         .text_msg("Within thread")
                         .sender(sender_id)
-                        .event_id(event_id!("$threaded_event"))
+                        .event_id(&thread_event_id)
                         .in_thread(&thread_root_event_id, &thread_root_event_id),
                 ),
         )
         .await;
 
     // A live timeline hiding in-thread events should only contain the date
-    // separator and the thread root.
+    // separator and the thread root, with the thread summary.
     {
         assert_let_timeout!(Some(timeline_updates) = filtered_timeline_stream.next());
-        assert_eq!(timeline_updates.len(), 3);
+        assert_eq!(timeline_updates.len(), 4);
 
         assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
         let event_item = value.as_event().unwrap();
-        assert_eq!(event_item.content().as_message().unwrap().body(), "Thread root");
-        assert_matches!(event_item.content().thread_summary(), None);
+        assert_eq!(event_item.event_id(), Some(thread_root_event_id.as_ref()));
+        assert!(event_item.content().thread_summary().is_none());
 
         assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
         assert!(value.is_date_divider());
 
-        // The item gets a thread summary.
-        assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[2]);
-        assert_matches!(value.as_event().unwrap().content().thread_summary(), Some(_));
+        // The item gets a thread summary from:
+        //
+        // 1. `TimelineEvent::thread_summary` (TODO: remove soon),
+        // 2. `ThreadInfo`.
+        for nth in 2..=3 {
+            assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[nth]);
+            let event_item = value.as_event().unwrap();
+            assert_eq!(event_item.event_id(), Some(thread_root_event_id.as_ref()));
+            assert!(event_item.content().thread_summary().is_some());
+        }
 
         assert_pending!(filtered_timeline_stream);
     }
@@ -911,26 +942,23 @@ async fn test_thread_filtering_for_sync() {
     // A non-filtered live timeline should contain all the items.
     {
         assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-        assert_eq!(timeline_updates.len(), 6);
+        assert_eq!(timeline_updates.len(), 7);
 
         assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
         let event_item = value.as_event().unwrap();
-        assert_eq!(event_item.content().as_message().unwrap().body(), "Thread root");
-        assert_matches!(event_item.content().thread_summary(), None);
+        assert_eq!(event_item.event_id(), Some(thread_root_event_id.as_ref()));
+        assert!(event_item.content().thread_summary().is_none());
         assert!(event_item.read_receipts().is_empty().not());
 
         // The read receipt from the author moves to the second item.
         assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[1]);
         let event_item = value.as_event().unwrap();
-        assert_matches!(event_item.content().thread_summary(), None);
+        assert!(event_item.content().thread_summary().is_none());
         assert!(event_item.read_receipts().is_empty());
 
         // The threaded event is pushed to the timeline.
         assert_let!(VectorDiff::PushBack { value } = &timeline_updates[2]);
-        assert_eq!(
-            value.as_event().unwrap().content().as_message().unwrap().body(),
-            "Within thread"
-        );
+        assert_eq!(value.as_event().unwrap().event_id(), Some(thread_event_id.as_ref()));
 
         assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
         assert!(value.is_date_divider());
@@ -939,14 +967,21 @@ async fn test_thread_filtering_for_sync() {
         // since its replied-to timeline item has been updated, it also gets
         // updated.
         assert_let!(VectorDiff::Set { index: 2, value } = &timeline_updates[4]);
-        assert_eq!(
-            value.as_event().unwrap().content().as_message().unwrap().body(),
-            "Within thread"
-        );
+        assert_eq!(value.as_event().unwrap().event_id(), Some(thread_event_id.as_ref()));
 
-        // Then the thread summary is updated on the thread root.
-        assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[5]);
-        assert_matches!(value.as_event().unwrap().content().thread_summary(), Some(_));
+        // Then the thread summary is updated on the thread root from:
+        //
+        // 1. `TimelineEvent::thread_summary` (TODO: remove soon),
+        // 2. `ThreadInfo`.
+        //
+        // Note this is a bit useless to have a thread summary in this case, but better
+        // be safe, we don't know which usecases are for all users.
+        for nth in 5..=6 {
+            assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[nth]);
+            let event_item = value.as_event().unwrap();
+            assert_eq!(event_item.event_id(), Some(thread_root_event_id.as_ref()));
+            assert!(event_item.content().thread_summary().is_some());
+        }
 
         assert_pending!(timeline_stream);
     }
@@ -958,22 +993,19 @@ async fn test_thread_filtering_for_sync() {
         assert_eq!(timeline_updates.len(), 4);
 
         assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
-        let event_item = value.as_event().unwrap();
-        assert_eq!(event_item.content().as_message().unwrap().body(), "Thread root");
+        assert_eq!(value.as_event().unwrap().event_id(), Some(thread_root_event_id.as_ref()));
 
         // The read receipt from the author moves to the second item.
         assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[1]);
         let event_item = value.as_event().unwrap();
-        assert_matches!(event_item.content().thread_summary(), None);
+        assert!(event_item.content().thread_summary().is_none());
         assert!(event_item.read_receipts().is_empty());
 
         // The threaded event is pushed to the timeline.
         assert_let!(VectorDiff::PushBack { value } = &timeline_updates[2]);
-        assert_eq!(
-            value.as_event().unwrap().content().as_message().unwrap().body(),
-            "Within thread"
-        );
+        assert_eq!(value.as_event().unwrap().event_id(), Some(thread_event_id.as_ref()));
 
+        // Date divider is added.
         assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
         assert!(value.is_date_divider());
 
@@ -2355,9 +2387,18 @@ async fn test_redaction_affects_thread_summary() {
 
     // The thread summary has disappeared!
     assert_let_timeout!(Some(timeline_updates) = stream.next());
-    assert_eq!(timeline_updates.len(), 1);
-    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
-    let event_item = value.as_event().unwrap();
-    assert_eq!(event_item.event_id(), Some(thread_root));
-    assert!(event_item.content().as_msglike().unwrap().thread_summary.is_none());
+    assert_eq!(timeline_updates.len(), 2);
+
+    // We receive this update twice from:
+    //
+    // - `TimelineEvent::thread_summary` (TODO: remove soon)
+    // - `ThreadInfo`
+    for nth in 0..=1 {
+        assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[nth]);
+        let event_item = value.as_event().unwrap();
+        assert_eq!(event_item.event_id(), Some(thread_root));
+        assert!(event_item.content().as_msglike().unwrap().thread_summary.is_none());
+    }
+
+    assert_pending!(stream);
 }

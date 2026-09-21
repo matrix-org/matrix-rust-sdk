@@ -274,7 +274,7 @@ impl RoomEventCache {
             .state
             .write()
             .await?
-            .update_thread_summary(thread_id, new_thread_summary)
+            .update_thread_summary(thread_id, new_thread_summary.clone())
             .await?;
 
         if !timeline_event_diffs.is_empty() {
@@ -286,6 +286,14 @@ impl RoomEventCache {
                 Some(RoomEventCacheGenericUpdate { room_id: self.inner.room_id.clone() }),
             );
         }
+
+        self.inner.update_sender.send(
+            RoomEventCacheUpdate::UpdateThreadSummary {
+                thread_root: thread_id.to_owned(),
+                thread_summary: new_thread_summary,
+            },
+            None,
+        );
 
         Ok(())
     }
