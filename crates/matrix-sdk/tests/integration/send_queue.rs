@@ -4615,20 +4615,18 @@ async fn test_edit_with_attachment_survives_restart() {
 }
 
 #[async_test]
-async fn test_edit_with_attachment_rejects_non_media_target() {
+async fn test_edit_with_attachment_rejects_someone_elses_message() {
     let mock = MatrixMockServer::new().await;
 
     let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
     let room = mock.sync_joined_room(&client, room_id).await;
 
-    let own_user_id = client.user_id().unwrap().to_owned();
-
     let edited_event_id = event_id!("$edited");
     let f = EventFactory::new();
     mock.mock_room_event()
         .match_event_id()
-        .ok(f.text_msg("not a media").sender(&own_user_id).event_id(edited_event_id).into())
+        .ok(f.text_msg("not mine").sender(*ALICE).event_id(edited_event_id).into())
         .mock_once()
         .mount()
         .await;

@@ -55,7 +55,7 @@ use super::{QueueStorage, QueueThumbnailInfo, RoomSendQueue, RoomSendQueueError}
 use crate::{
     Client, Media, Room,
     attachment::{AttachmentConfig, Thumbnail},
-    room::edit::{update_media_caption, validate_media_edit},
+    room::edit::{update_media_caption, validate_attachment_edit},
     send_queue::{
         LocalEcho, LocalEchoContent, MediaHandles, RoomSendQueueStorageError, RoomSendQueueUpdate,
         SendHandle,
@@ -223,8 +223,9 @@ impl RoomSendQueue {
         self.send_attachment_impl(filename.into(), content_type, data, config, None).await
     }
 
-    /// Queues an edit replacing the media attachment of an already-sent media
-    /// event, using the send queue.
+    /// Queues an edit turning an already-sent message into a media one, using
+    /// the send queue: it replaces the attachment of a media message, or adds
+    /// one to a message which had none.
     ///
     /// The new attachment (and its optional thumbnail) is uploaded the same
     /// way [`Self::send_attachment`] uploads one: the uploads are queued,
@@ -239,15 +240,16 @@ impl RoomSendQueue {
     /// [`EditError::Fetch`](crate::room::edit::EditError::Fetch), and has no
     /// effect.
     ///
-    /// The replacement must keep the media kind of the original event (an
-    /// image stays an image, a video stays a video, and so on): clients are
-    /// not expected to render edits that change an event's kind. The target
-    /// must be a media `m.room.message` sent by the current user.
+    /// The target must be an `m.room.message` sent by the current user. It
+    /// doesn't have to hold media, and if it does, the new attachment can be
+    /// of another kind: an image can be replaced by a file, for instance.
+    /// Nothing of the original content is carried over, so the text to keep
+    /// goes into the [`AttachmentConfig`]'s caption.
     ///
     /// Any `reply` set on the [`AttachmentConfig`] is ignored: a replacement
     /// carries no other relation.
     ///
-    /// The original attachment is not deleted (Matrix media can't be deleted
+    /// A replaced attachment is not deleted (Matrix media can't be deleted
     /// client-side), and the original event remains visible in the room's
     /// edit history, like the previous body of an edited text message does:
     /// replacing an attachment is a correction, not a removal.
@@ -272,7 +274,7 @@ impl RoomSendQueue {
         }
 
         let original_mentions =
-            validate_media_edit(&room, room.own_user_id(), edited_event_id, &content_type).await?;
+            validate_attachment_edit(&room, room.own_user_id(), edited_event_id).await?;
 
         // A replacement carries no other relation.
         config.reply = None;

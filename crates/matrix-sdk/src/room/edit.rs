@@ -217,19 +217,16 @@ async fn make_edit_event<S: EventSource>(
     }
 }
 
-/// Checks that `event_id` can have its media attachment replaced by one of
-/// type `new_content_type`, and returns the original event's intentional
-/// mentions, to be carried into the replacement's metadata.
+/// Checks that `event_id` can be edited into a media message, and returns the
+/// original event's intentional mentions, to be carried into the
+/// replacement's metadata.
 ///
-/// The target must be a message-like event sent by the current user, holding
-/// a media `m.room.message` of the same kind as the replacement (an image
-/// stays an image, a video stays a video, and so on): clients are not
-/// expected to render edits that change an event's kind.
-pub(crate) async fn validate_media_edit<S: EventSource>(
+/// The target must be an `m.room.message` sent by the current user, holding
+/// media or not.
+pub(crate) async fn validate_attachment_edit<S: EventSource>(
     source: S,
     own_user_id: &UserId,
     event_id: &EventId,
-    new_content_type: &mime::Mime,
 ) -> Result<Option<Mentions>, EditError> {
     let target = source.get_event(event_id).await.map_err(|err| EditError::Fetch(Box::new(err)))?;
 
@@ -250,27 +247,9 @@ pub(crate) async fn validate_media_edit<S: EventSource>(
     else {
         return Err(EditError::IncompatibleEditType {
             target: message_like_event.event_type().to_string(),
-            new_content: "media room message",
+            new_content: "room message",
         });
     };
-
-    let new_type = new_content_type.type_();
-    let same_kind = match &original.content.msgtype {
-        MessageType::Audio(_) => new_type == mime::AUDIO,
-        MessageType::Image(_) => new_type == mime::IMAGE,
-        MessageType::Video(_) => new_type == mime::VIDEO,
-        MessageType::File(_) => {
-            new_type != mime::AUDIO && new_type != mime::IMAGE && new_type != mime::VIDEO
-        }
-        _ => false,
-    };
-
-    if !same_kind {
-        return Err(EditError::IncompatibleEditType {
-            target: original.content.msgtype.msgtype().to_owned(),
-            new_content: "media attachment of the same kind",
-        });
-    }
 
     Ok(original.content.mentions)
 }
@@ -351,16 +330,12 @@ mod tests {
         EventId, OwnedEventId, event_id,
         events::{
             AnyMessageLikeEventContent, AnySyncTimelineEvent, Mentions,
-            room::message::{
-                AudioMessageEventContent, FileMessageEventContent, MessageType, Relation,
-                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
-                VideoMessageEventContent,
-            },
+            room::message::{MessageType, Relation, RoomMessageEventContentWithoutRelation},
         },
         owned_mxc_uri, owned_user_id, user_id,
     };
 
-    use super::{EditError, EventSource, make_edit_event, validate_media_edit};
+    use super::{EditError, EventSource, make_edit_event, validate_attachment_edit};
     use crate::{Error, room::edit::EditedContent};
 
     #[derive(Default)]
@@ -704,35 +679,17 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_validate_media_edit_same_kind() {
+    async fn test_validate_attachment_edit() {
         let event_id = event_id!("$1");
         let own_user_id = user_id!("@me:saucisse.bzh");
 
         let cache = image_event_cache(event_id, own_user_id);
 
-        // Replacing an image with another image is allowed.
-        assert_matches!(
-            validate_media_edit(cache, own_user_id, event_id, &mime::IMAGE_PNG).await,
-            Ok(None)
-        );
+        assert_matches!(validate_attachment_edit(cache, own_user_id, event_id).await, Ok(None));
     }
 
     #[async_test]
-    async fn test_validate_media_edit_different_kind() {
-        let event_id = event_id!("$1");
-        let own_user_id = user_id!("@me:saucisse.bzh");
-
-        let cache = image_event_cache(event_id, own_user_id);
-
-        // Replacing an image with a video is not allowed.
-        assert_matches!(
-            validate_media_edit(cache, own_user_id, event_id, &"video/mp4".parse().unwrap()).await,
-            Err(EditError::IncompatibleEditType { .. })
-        );
-    }
-
-    #[async_test]
-    async fn test_validate_media_edit_not_media() {
+    async fn test_validate_attachment_edit_of_a_text_message() {
         let event_id = event_id!("$1");
         let own_user_id = user_id!("@me:saucisse.bzh");
 
@@ -743,14 +700,11 @@ mod tests {
             f.text_msg("this is not a media").event_id(event_id).sender(own_user_id).into(),
         );
 
-        assert_matches!(
-            validate_media_edit(cache, own_user_id, event_id, &mime::IMAGE_PNG).await,
-            Err(EditError::IncompatibleEditType { .. })
-        );
+        assert_matches!(validate_attachment_edit(cache, own_user_id, event_id).await, Ok(None));
     }
 
     #[async_test]
-    async fn test_validate_media_edit_state_event() {
+    async fn test_validate_attachment_edit_state_event() {
         let event_id = event_id!("$1");
         let own_user_id = user_id!("@me:saucisse.bzh");
 
@@ -762,85 +716,41 @@ mod tests {
         );
 
         assert_matches!(
-            validate_media_edit(cache, own_user_id, event_id, &mime::IMAGE_PNG).await,
+            validate_attachment_edit(cache, own_user_id, event_id).await,
             Err(EditError::StateEvent)
         );
     }
 
     #[async_test]
-    async fn test_validate_media_edit_video_and_file_kinds() {
+    async fn test_validate_attachment_edit_not_a_room_message() {
         let event_id = event_id!("$1");
         let own_user_id = user_id!("@me:saucisse.bzh");
+
+        let mut cache = TestEventCache::default();
         let f = EventFactory::new();
-
-        // A video can be replaced by a video.
-        let mut cache = TestEventCache::default();
         cache.events.insert(
             event_id.to_owned(),
-            f.event(RoomMessageEventContent::new(MessageType::Video(
-                VideoMessageEventContent::plain(
-                    "rickroll.mp4".to_owned(),
-                    owned_mxc_uri!("mxc://sdk.rs/rickroll"),
-                ),
-            )))
-            .event_id(event_id)
-            .sender(own_user_id)
-            .into(),
-        );
-        assert_matches!(
-            validate_media_edit(cache, own_user_id, event_id, &"video/mp4".parse().unwrap()).await,
-            Ok(None)
+            f.poll_start("poll", "question", vec!["a", "b"])
+                .event_id(event_id)
+                .sender(own_user_id)
+                .into(),
         );
 
-        // A file can be replaced by anything that isn't an audio, image or video.
-        let mut cache = TestEventCache::default();
-        cache.events.insert(
-            event_id.to_owned(),
-            f.event(RoomMessageEventContent::new(MessageType::File(
-                FileMessageEventContent::plain(
-                    "manual.pdf".to_owned(),
-                    owned_mxc_uri!("mxc://sdk.rs/manual"),
-                ),
-            )))
-            .event_id(event_id)
-            .sender(own_user_id)
-            .into(),
-        );
         assert_matches!(
-            validate_media_edit(cache, own_user_id, event_id, &"application/pdf".parse().unwrap())
-                .await,
-            Ok(None)
-        );
-
-        // An audio can't be replaced by an image.
-        let mut cache = TestEventCache::default();
-        cache.events.insert(
-            event_id.to_owned(),
-            f.event(RoomMessageEventContent::new(MessageType::Audio(
-                AudioMessageEventContent::plain(
-                    "rickroll.mp3".to_owned(),
-                    owned_mxc_uri!("mxc://sdk.rs/rickroll"),
-                ),
-            )))
-            .event_id(event_id)
-            .sender(own_user_id)
-            .into(),
-        );
-        assert_matches!(
-            validate_media_edit(cache, own_user_id, event_id, &mime::IMAGE_PNG).await,
+            validate_attachment_edit(cache, own_user_id, event_id).await,
             Err(EditError::IncompatibleEditType { .. })
         );
     }
 
     #[async_test]
-    async fn test_validate_media_edit_other_user() {
+    async fn test_validate_attachment_edit_other_user() {
         let event_id = event_id!("$1");
         let own_user_id = user_id!("@me:saucisse.bzh");
 
         let cache = image_event_cache(event_id, user_id!("@other:saucisse.bzh"));
 
         assert_matches!(
-            validate_media_edit(cache, own_user_id, event_id, &mime::IMAGE_PNG).await,
+            validate_attachment_edit(cache, own_user_id, event_id).await,
             Err(EditError::NotAuthor)
         );
     }
