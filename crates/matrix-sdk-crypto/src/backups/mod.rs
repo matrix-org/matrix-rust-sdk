@@ -636,10 +636,10 @@ impl BackupMachine {
 mod tests {
     use std::collections::BTreeMap;
 
-    use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
     use ruma::{CanonicalJsonValue, DeviceId, RoomId, UserId, device_id, room_id, user_id};
     use serde_json::json;
+    use strass::assert_let;
 
     use super::BackupMachine;
     use crate::{

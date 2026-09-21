@@ -4158,7 +4158,6 @@ pub(crate) mod tests {
     use std::{sync::Arc, time::Duration};
 
     use assert_matches::assert_matches;
-    use assert_matches2::assert_let;
     use eyeball::SharedObservable;
     use futures_util::{FutureExt, StreamExt, pin_mut};
     use js_int::{UInt, uint};
@@ -4171,6 +4170,7 @@ pub(crate) mod tests {
         DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, async_test,
         event_factory::EventFactory,
     };
+    use strass::assert_let;
     #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 

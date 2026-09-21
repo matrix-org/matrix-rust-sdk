@@ -21,7 +21,6 @@ use std::{
 };
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use futures_util::FutureExt;
 use matrix_sdk::{
     Client,
@@ -50,6 +49,7 @@ use ruma::{
 };
 use serde::Serialize;
 use serde_json::{Value as JsonValue, Value, json};
+use strass::assert_let;
 use tracing::error;
 use wiremock::{
     Mock, ResponseTemplate,

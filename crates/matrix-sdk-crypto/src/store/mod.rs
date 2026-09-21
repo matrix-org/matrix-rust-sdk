@@ -1967,7 +1967,6 @@ impl matrix_sdk_common::cross_process_lock::TryLock for LockableCryptoStore {
 mod tests {
     use std::{assert_matches, collections::BTreeMap, pin::pin};
 
-    use assert_matches2::assert_let;
     use futures_util::StreamExt;
     use insta::{_macro_support::Content, assert_json_snapshot, internals::ContentPath};
     use matrix_sdk_test::async_test;
@@ -1978,6 +1977,7 @@ mod tests {
         owned_device_id, owned_mxc_uri, room_id, user_id,
     };
     use serde_json::json;
+    use strass::assert_let;
     use vodozemac::{Ed25519Keypair, megolm::SessionKey};
 
     use crate::{

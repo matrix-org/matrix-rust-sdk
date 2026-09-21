@@ -17,7 +17,6 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use assert_matches2::assert_let;
 use matrix_sdk_common::deserialized_responses::{
     ProcessedToDeviceEvent, ToDeviceUnableToDecryptReason,
 };
@@ -30,6 +29,7 @@ use ruma::{
     user_id,
 };
 use serde_json::json;
+use strass::assert_let;
 use vodozemac::Ed25519SecretKey;
 
 use crate::{

@@ -15,7 +15,6 @@
 use std::{sync::Arc, time::Duration};
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{Error, assert_let_timeout, test_utils::mocks::MatrixMockServer};
@@ -26,6 +25,7 @@ use ruma::{
     MilliSecondsSinceUnixEpoch, event_id, events::room::message::RoomMessageEventContent, room_id,
 };
 use serde_json::json;
+use strass::assert_let;
 use stream_assert::{assert_next_matches, assert_pending};
 use tokio::{task::yield_now, time::sleep};
 

@@ -1248,7 +1248,6 @@ mod tests {
         time::Duration,
     };
 
-    use assert_matches2::assert_let;
     use async_trait::async_trait;
     use eyeball_im::VectorDiff;
     use matrix_sdk_base::{
@@ -1278,6 +1277,7 @@ mod tests {
         user_id,
     };
     use serde_json::json;
+    use strass::assert_let;
     use tokio::sync::oneshot::{self, Sender};
     use tracing::{Instrument, info};
 

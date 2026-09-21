@@ -5,7 +5,6 @@
 
 use std::collections::BTreeSet;
 
-use assert_matches2::assert_let;
 use futures_util::pin_mut;
 use matrix_sdk::{
     assert_next_with_timeout, deserialized_responses::RawAnySyncOrStrippedState,
@@ -13,6 +12,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{events::StateEventType, owned_user_id, room_id, user_id};
+use strass::assert_let;
 use stream_assert::assert_pending;
 
 /// The `(type, sender)` pairs of a state snapshot of a joined room.

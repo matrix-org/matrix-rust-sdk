@@ -3262,7 +3262,6 @@ fn canonicalize_dependent_requests(
 mod tests {
     use std::{assert_matches, sync::Arc, time::Duration};
 
-    use assert_matches2::assert_let;
     use matrix_sdk_base::store::{
         ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind,
         SerializableEventContent,
@@ -3273,6 +3272,7 @@ mod tests {
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
         room_id,
     };
+    use strass::assert_let;
 
     use super::canonicalize_dependent_requests;
     use crate::{client::WeakClient, test_utils::logged_in_client};

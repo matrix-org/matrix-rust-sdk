@@ -1,7 +1,6 @@
 #[cfg(feature = "unstable-msc4426")]
 use std::assert_matches;
 
-use assert_matches2::assert_let;
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_test::async_test;
 use ruma::{
@@ -13,6 +12,7 @@ use ruma::{
     profile::{ProfileFieldName, ProfileFieldValue},
 };
 use serde_json::json;
+use strass::assert_let;
 use wiremock::{
     Mock, Request, ResponseTemplate,
     matchers::{method, path},

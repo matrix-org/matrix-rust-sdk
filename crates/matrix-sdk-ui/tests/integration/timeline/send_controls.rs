@@ -1,5 +1,4 @@
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::{
@@ -14,6 +13,7 @@ use ruma::{
     events::room::message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
     room_id,
 };
+use strass::assert_let;
 use stream_assert::assert_pending;
 
 fn text_edit(body: &str) -> EditedContent {

@@ -1158,7 +1158,6 @@ mod tests {
     use std::{collections::BTreeMap, iter, ops::Deref, sync::Arc};
 
     use assert_matches::assert_matches;
-    use assert_matches2::assert_let;
     use insta::{assert_snapshot, with_settings};
     use matrix_sdk_common::deserialized_responses::WithheldCode;
     use matrix_sdk_test::{
@@ -1174,6 +1173,7 @@ mod tests {
         room_id,
     };
     use serde_json::json;
+    use strass::assert_let;
 
     #[cfg(feature = "experimental-send-custom-to-device")]
     use super::split_devices_for_share_strategy;

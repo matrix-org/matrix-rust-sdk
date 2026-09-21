@@ -75,12 +75,12 @@ uniffi = { workspace = true, optional = true }
 anyhow.workspace = true
 assert-json-diff.workspace = true
 assert_matches.workspace = true
-assert_matches2.workspace = true
 eyeball-im-util.workspace = true
 matrix-sdk = { workspace = true, features = ["testing", "sqlite", "rustls-aws-lc-rs"] }
 matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
 proptest.workspace = true
+strass.workspace = true
 stream_assert.workspace = true
 tempfile.workspace = true
 url.workspace = true

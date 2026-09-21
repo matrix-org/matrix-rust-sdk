@@ -21,7 +21,6 @@ use std::{
     sync::{Arc, Mutex, atomic::Ordering},
 };
 
-use assert_matches2::assert_let;
 use matrix_sdk_base::crypto::types::events::room::encrypted::EncryptedToDeviceEvent;
 use matrix_sdk_test::test_json;
 use ruma::{
@@ -37,6 +36,7 @@ use ruma::{
     to_device::DeviceIdOrAllDevices,
 };
 use serde_json::json;
+use strass::assert_let;
 use tracing::Instrument;
 use wiremock::{
     Mock, MockGuard, Request, ResponseTemplate,

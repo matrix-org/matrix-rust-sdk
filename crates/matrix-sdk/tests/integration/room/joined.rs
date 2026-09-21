@@ -5,7 +5,6 @@ use std::{
 };
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use futures_util::{future::join_all, pin_mut};
 use matrix_sdk::{
     assert_next_with_timeout, assert_recv_with_timeout,
@@ -40,6 +39,7 @@ use ruma::{
     int, mxc_uri, owned_event_id, owned_user_id, room_id, thirdparty, user_id,
 };
 use serde_json::json;
+use strass::assert_let;
 use stream_assert::assert_pending;
 use tokio::time::sleep;
 use wiremock::{

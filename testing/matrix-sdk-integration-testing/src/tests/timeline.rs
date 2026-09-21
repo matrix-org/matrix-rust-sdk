@@ -16,7 +16,6 @@ use std::{ops::Not as _, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use assign::assign;
 use eyeball_im::{Vector, VectorDiff};
 use futures::pin_mut;
@@ -60,6 +59,7 @@ use matrix_sdk_ui::{
     },
 };
 use similar_asserts::assert_eq;
+use strass::assert_let;
 use stream_assert::assert_pending;
 use tokio::{
     spawn,

@@ -395,7 +395,6 @@ mod timed_tests {
     use std::sync::Arc;
 
     use assert_matches::assert_matches;
-    use assert_matches2::assert_let;
     use eyeball_im::VectorDiff;
     use futures_util::FutureExt as _;
     use matrix_sdk_base::{
@@ -418,6 +417,7 @@ mod timed_tests {
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
         room_id, user_id,
     };
+    use strass::assert_let;
     use tokio::task::yield_now;
 
     use super::{

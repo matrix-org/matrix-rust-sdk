@@ -137,8 +137,8 @@ impl RawX509Verifier for RustRawX509Verifier {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
+    use strass::assert_let;
 
     use crate::x509::{
         RawX509Signer, RawX509Verifier, X509SignatureVerificationError,

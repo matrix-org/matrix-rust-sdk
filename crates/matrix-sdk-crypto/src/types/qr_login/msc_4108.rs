@@ -214,8 +214,8 @@ impl QrCodeData {
 
 #[cfg(test)]
 pub(super) mod test {
-    use assert_matches2::assert_let;
     use similar_asserts::assert_eq;
+    use strass::assert_let;
 
     use super::*;
     use crate::types::qr_login::QrCodeIntentData;

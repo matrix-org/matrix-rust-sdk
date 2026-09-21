@@ -441,13 +441,13 @@ pub enum SenderDataType {
 mod tests {
     use std::{cmp::Ordering, collections::BTreeMap, ops::Deref};
 
-    use assert_matches2::assert_let;
     use insta::assert_json_snapshot;
     use matrix_sdk_test::async_test;
     use ruma::{
         DeviceKeyAlgorithm, DeviceKeyId, device_id, owned_device_id, owned_user_id, user_id,
     };
     use serde_json::json;
+    use strass::assert_let;
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, base64_decode};
 
     use super::SenderData;

@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use imbl::vector;
@@ -37,6 +36,7 @@ use ruma::{
     },
     mxc_uri, owned_event_id, owned_mxc_uri, room_id, user_id,
 };
+use strass::assert_let;
 use stream_assert::{assert_next_matches, assert_pending};
 
 use super::TestTimeline;

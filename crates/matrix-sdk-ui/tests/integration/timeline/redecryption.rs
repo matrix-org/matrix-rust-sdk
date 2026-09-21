@@ -1,6 +1,5 @@
 use std::{assert_matches, sync::Arc};
 
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::pin_mut;
 use matrix_sdk::{
@@ -10,6 +9,7 @@ use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory
 use matrix_sdk_ui::timeline::{RoomExt, TimelineItem};
 use ruma::{RoomVersionId, device_id, event_id, room_id, user_id};
 use serde_json::{Value, json};
+use strass::assert_let;
 
 // Helper function to test the redecryption of different event types.
 async fn test_redecryption(

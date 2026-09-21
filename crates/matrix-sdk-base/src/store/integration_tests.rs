@@ -6,7 +6,6 @@ use std::{
 };
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use growable_bloom_filter::GrowableBloomBuilder;
 use matrix_sdk_common::ttl::TtlValue;
 use matrix_sdk_test::{TestResult, event_factory::EventFactory};
@@ -45,6 +44,7 @@ use ruma::{
     uint, user_id,
 };
 use serde_json::json;
+use strass::assert_let;
 
 use super::{
     DependentQueuedRequestKind, DisplayName, DynStateStore, RoomLoadSettings,

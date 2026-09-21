@@ -282,9 +282,9 @@ impl From<QueryString> for UrlOrQuery {
 #[cfg(test)]
 mod test {
     #[cfg(feature = "markdown")]
-    use assert_matches2::assert_let;
-    #[cfg(feature = "markdown")]
     use ruma::events::room::message::FormattedBody;
+    #[cfg(feature = "markdown")]
+    use strass::assert_let;
 
     #[cfg(feature = "markdown")]
     use crate::utils::formatted_body_from;

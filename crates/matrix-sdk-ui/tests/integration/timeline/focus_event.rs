@@ -17,7 +17,6 @@
 use std::time::Duration;
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
@@ -32,6 +31,7 @@ use matrix_sdk_ui::timeline::{
     EventSendState, TimelineBuilder, TimelineEventFocusThreadMode, TimelineFocus,
 };
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
+use strass::assert_let;
 use stream_assert::assert_pending;
 use tokio::time::sleep;
 

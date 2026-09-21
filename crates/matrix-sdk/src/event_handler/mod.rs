@@ -742,7 +742,6 @@ mod tests {
         },
     };
 
-    use assert_matches2::assert_let;
     use matrix_sdk_common::{deserialized_responses::EncryptionInfo, locks::Mutex};
     use matrix_sdk_test::SyncResponseBuilder;
     use ruma::{
@@ -765,6 +764,7 @@ mod tests {
         user_id,
     };
     use serde_json::json;
+    use strass::assert_let;
 
     use crate::{
         Client, Room,

@@ -490,10 +490,10 @@ pub(super) mod tests {
     use std::collections::BTreeMap;
 
     use assert_matches::assert_matches;
-    use assert_matches2::assert_let;
     use matrix_sdk_common::deserialized_responses::WithheldCode;
     use ruma::{device_id, room_id, serde::Raw, to_device::DeviceIdOrAllDevices, user_id};
     use serde_json::{Value, json};
+    use strass::assert_let;
     use vodozemac::Curve25519PublicKey;
 
     use super::RoomKeyWithheldEvent;

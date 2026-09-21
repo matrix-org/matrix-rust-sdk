@@ -1,4 +1,3 @@
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{
@@ -10,6 +9,7 @@ use ruma::{
     events::rtc::notification::{CallIntent, NotificationType},
     room_id,
 };
+use strass::assert_let;
 use tokio_stream::StreamExt;
 
 #[async_test]

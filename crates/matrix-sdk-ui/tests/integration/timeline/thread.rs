@@ -14,7 +14,6 @@
 
 use std::{assert_matches, ops::Not as _, time::Duration};
 
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::{
@@ -51,6 +50,7 @@ use ruma::{
     },
     owned_event_id, owned_mxc_uri, room_id, user_id,
 };
+use strass::assert_let;
 use stream_assert::assert_pending;
 use tokio::task::yield_now;
 

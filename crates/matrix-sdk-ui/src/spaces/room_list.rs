@@ -408,7 +408,6 @@ impl SpaceRoomList {
 mod tests {
     use std::{assert_matches, cmp::Ordering, collections::HashMap};
 
-    use assert_matches2::assert_let;
     use eyeball_im::VectorDiff;
     use futures_util::pin_mut;
     use matrix_sdk::{RoomState, test_utils::mocks::MatrixMockServer};
@@ -423,6 +422,7 @@ mod tests {
         room_id, server_name, uint,
     };
     use serde_json::{from_value, json};
+    use strass::assert_let;
     use stream_assert::{assert_next_eq, assert_next_matches, assert_pending, assert_ready};
     use wiremock::ResponseTemplate;
 

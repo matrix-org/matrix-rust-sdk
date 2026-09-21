@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use assert_matches2::assert_let;
 use matrix_sdk::{config::SyncSettings, linked_chunk::LinkedChunkId};
 use matrix_sdk_base::{RoomInfoNotableUpdateReasons, RoomState};
 use matrix_sdk_test::{
@@ -13,6 +12,7 @@ use ruma::{
     user_id,
 };
 use serde_json::json;
+use strass::assert_let;
 use tokio::task::yield_now;
 use wiremock::{
     Mock, ResponseTemplate,

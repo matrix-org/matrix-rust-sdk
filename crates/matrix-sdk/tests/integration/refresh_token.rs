@@ -4,7 +4,6 @@ use std::{
 };
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use matrix_sdk::{
     HttpError, RefreshTokenError, SessionChange, SessionTokens,
     authentication::{matrix::MatrixSession, oauth::OAuthError},
@@ -31,6 +30,7 @@ use ruma::{
     assign, owned_device_id, owned_user_id,
 };
 use serde_json::json;
+use strass::assert_let;
 use tokio::sync::{broadcast::error::TryRecvError, mpsc};
 use wiremock::{
     Mock, ResponseTemplate,

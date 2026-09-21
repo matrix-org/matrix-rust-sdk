@@ -858,7 +858,6 @@ mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use assert_matches::assert_matches;
-    use assert_matches2::assert_let;
     use indexed_db_futures::{
         database::{Database, VersionChangeEvent},
         error::Error,
@@ -887,6 +886,7 @@ mod tests {
         server_name, user_id,
     };
     use serde_json::json;
+    use strass::assert_let;
     use uuid::Uuid;
     use wasm_bindgen::JsValue;
 

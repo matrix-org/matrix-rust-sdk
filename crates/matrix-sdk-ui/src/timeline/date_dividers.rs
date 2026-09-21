@@ -653,11 +653,11 @@ enum DateDividerInsertError {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches2::assert_let;
     use ruma::{
         MilliSecondsSinceUnixEpoch, owned_event_id, owned_user_id,
         room_version_rules::RoomVersionRules, uint,
     };
+    use strass::assert_let;
 
     use super::{super::controller::ObservableItems, DateDividerAdjuster};
     use crate::timeline::{

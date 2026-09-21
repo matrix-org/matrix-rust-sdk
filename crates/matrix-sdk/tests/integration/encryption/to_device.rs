@@ -7,7 +7,6 @@ use std::{
 };
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use futures_util::pin_mut;
 use matrix_sdk::{assert_next_with_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_base::crypto::CollectStrategy;
@@ -23,6 +22,7 @@ use ruma::{
     to_device::DeviceIdOrAllDevices,
 };
 use serde_json::json;
+use strass::assert_let;
 use wiremock::{
     Mock, ResponseTemplate,
     matchers::{method, path_regex},

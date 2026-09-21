@@ -169,8 +169,8 @@ impl From<matrix_sdk_crypto::BootstrapCrossSigningError> for BootstrapCrossSigni
 
 #[cfg(test)]
 mod tests {
-    use assert_matches2::assert_let;
     use matrix_sdk_crypto::MegolmError;
+    use strass::assert_let;
 
     use super::DecryptionError;
 

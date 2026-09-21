@@ -1,4 +1,3 @@
-use assert_matches2::assert_let;
 use fakes::poll_a2;
 use matrix_sdk_test::{ALICE, BOB, async_test};
 use ruma::{
@@ -9,6 +8,7 @@ use ruma::{
     },
     server_name,
 };
+use strass::assert_let;
 
 use crate::timeline::{EventTimelineItem, event_item::PollState, tests::TestTimeline};
 

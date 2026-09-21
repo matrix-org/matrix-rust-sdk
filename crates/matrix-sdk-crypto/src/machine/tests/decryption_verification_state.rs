@@ -14,7 +14,6 @@
 
 use std::{assert_matches, iter, sync::Arc};
 
-use assert_matches2::assert_let;
 use matrix_sdk_common::deserialized_responses::{
     DeviceLinkProblem, ShieldState, VerificationLevel, VerificationState,
 };
@@ -27,6 +26,7 @@ use ruma::{
     user_id,
 };
 use serde_json::json;
+use strass::assert_let;
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 use crate::{

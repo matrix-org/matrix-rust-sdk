@@ -15,7 +15,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
     deserialized_responses::{AlgorithmInfo, EncryptionInfo, VerificationLevel, VerificationState},
@@ -38,6 +37,7 @@ use ruma::{
     },
     owned_event_id, room_id,
 };
+use strass::assert_let;
 use stream_assert::{assert_next_matches, assert_pending};
 
 use super::TestTimeline;

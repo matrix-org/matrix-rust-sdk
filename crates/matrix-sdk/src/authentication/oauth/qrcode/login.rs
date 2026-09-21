@@ -486,7 +486,6 @@ impl<'a> LoginWithGeneratedQrCode<'a> {
 mod test {
     use std::{assert_matches, time::Duration};
 
-    use assert_matches2::assert_let;
     use futures_util::StreamExt;
     use matrix_sdk_base::crypto::types::{
         SecretsBundle,
@@ -495,6 +494,7 @@ mod test {
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
     use serde_json::json;
+    use strass::assert_let;
 
     use super::*;
     use crate::{

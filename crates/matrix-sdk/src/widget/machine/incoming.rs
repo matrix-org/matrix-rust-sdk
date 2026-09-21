@@ -144,7 +144,7 @@ impl<'de> Deserialize<'de> for IncomingWidgetMessage {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches2::assert_let;
+    use strass::assert_let;
 
     use crate::widget::machine::{
         from_widget::FromWidgetRequest,

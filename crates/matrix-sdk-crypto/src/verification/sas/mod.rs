@@ -868,13 +868,13 @@ mod tests {
     use std::sync::Arc;
 
     use assert_matches::assert_matches;
-    use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
     use ruma::{
         DeviceId, TransactionId, UserId, device_id,
         events::key::verification::{ShortAuthenticationString, accept::AcceptMethod},
         user_id,
     };
+    use strass::assert_let;
     use tokio::sync::Mutex;
 
     use super::Sas;

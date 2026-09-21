@@ -113,7 +113,6 @@ tokio.workspace = true
 [dev-dependencies]
 anyhow.workspace = true
 assert_matches.workspace = true
-assert_matches2.workspace = true
 futures-executor.workspace = true
 http.workspace = true
 insta.workspace = true
@@ -123,6 +122,7 @@ proptest.workspace = true
 rmp-serde.workspace = true
 rcgen = { workspace = true, features = ["pem", "aws_lc_rs", "x509-parser"] }
 similar-asserts.workspace = true
+strass.workspace = true
 # required for async_test macro
 stream_assert.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
