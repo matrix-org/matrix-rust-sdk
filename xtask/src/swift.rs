@@ -682,19 +682,22 @@ fn consolidate_modulemap_files(source: &Utf8Path, destination: &Utf8Path) -> Res
 
         if entry.file_type()?.is_file() {
             let path = entry.path();
+
             if path.extension() == Some("modulemap") {
                 let contents = std::fs::read_to_string(path)?;
+
                 if base_contents.is_none() {
                     base_contents = Some(contents);
                 } else {
                     for line in contents.lines() {
-                        if line.trim().starts_with("header ")
-                            && !extra_headers.contains(&line.to_string())
-                        {
-                            extra_headers.push(line.to_string());
+                        let line = line.trim().to_owned();
+
+                        if line.starts_with("header ") && !extra_headers.contains(&line) {
+                            extra_headers.push(line);
                         }
                     }
                 }
+
                 remove_file(path)?;
             }
         }
@@ -708,13 +711,16 @@ fn consolidate_modulemap_files(source: &Utf8Path, destination: &Utf8Path) -> Res
     let mut last_header_position: Option<usize> = None;
 
     for line in base.lines() {
+        let line = line.trim();
+
         if line.starts_with("module ") {
-            lines.push("module MatrixSDKFFI {".to_string());
+            lines.push("module MatrixSDKFFI {".to_owned());
         } else {
             if line.trim().starts_with("header ") {
                 last_header_position = Some(lines.len());
             }
-            lines.push(line.to_string());
+
+            lines.push(line.to_owned());
         }
     }
 
