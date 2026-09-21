@@ -875,11 +875,30 @@ impl TimelineEvent {
         self.kind.into_raw()
     }
 
-    /// If this event is a thread root, find and create the latest event of the
-    /// thread.
+    /// If this event is a thread root, find, parse, and create the
+    /// [`ThreadSummary`] of the thread.
+    ///
+    /// Note that this value is **NEVER** updated. An event is immutable in
+    /// Matrix. However, the thread summary is updated dynamically in the SDK,
+    /// see `matrix_sdk_base::event_cache::thread::ThreadInfo`.
+    pub fn thread_summary(&self) -> Option<ThreadSummary> {
+        extract_bundled_thread(self.raw()).map(|bundled_thread| {
+            ThreadSummary::new(
+                bundled_thread.latest_event.get_field::<OwnedEventId>("event_id").ok().flatten(),
+                bundled_thread.count,
+            )
+        })
+    }
+
+    /// If this event is a thread root, find, parse, and create the latest event
+    /// of the thread.
     ///
     /// The latest event comes bundled with this event, if it was provided in
     /// the unsigned relations of this event.
+    ///
+    /// Note that this value is **NEVER** updated. An event is immutable in
+    /// Matrix. However, the thread summary is updated dynamically in the SDK,
+    /// see `matrix_sdk_base::event_cache::thread::ThreadInfo`.
     pub fn bundled_latest_thread_event(&self) -> Option<Self> {
         let bundled_thread = extract_bundled_thread(self.raw())?;
 
@@ -888,6 +907,34 @@ impl TimelineEvent {
             bundled_thread.latest_event,
             self.timestamp_raw().unwrap_or_else(MilliSecondsSinceUnixEpoch::now),
         )
+    }
+
+    /// Combo of [`Self::thread_summary`] and
+    /// [`Self::bundled_latest_thread_event`]: if this event is a thread root, find,
+    /// parse **once**, and create the [`ThreadSummary`] and the
+    /// [`TimelineEvent`] representing the latest event of the thread.
+    ///
+    /// Note that this value is **NEVER** updated. An event is immutable in
+    /// Matrix. However, the thread summary is updated dynamically in the SDK,
+    /// see `matrix_sdk_base::event_cache::thread::ThreadInfo`.
+    pub fn thread_summary_with_latest_event(&self) -> Option<(ThreadSummary, Self)> {
+        extract_bundled_thread(self.raw()).and_then(|bundled_thread| {
+            Some((
+                ThreadSummary::new(
+                    bundled_thread
+                        .latest_event
+                        .get_field::<OwnedEventId>("event_id")
+                        .ok()
+                        .flatten(),
+                    bundled_thread.count,
+                ),
+                Self::from_bundled_latest_event(
+                    &self.kind,
+                    bundled_thread.latest_event,
+                    self.timestamp_raw().unwrap_or_else(MilliSecondsSinceUnixEpoch::now),
+                )?,
+            ))
+        })
     }
 }
 
