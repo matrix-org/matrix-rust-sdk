@@ -92,9 +92,9 @@ impl SignatureVerification {
     /// This tells us if the result has a valid signature from any of the
     /// following:
     ///
-    /// * Our own device
-    /// * Our own user identity, provided the identity is trusted as well
-    /// * Any of our own devices, provided the device is trusted as well
+    /// - Our own device
+    /// - Our own user identity, provided the identity is trusted as well
+    /// - Any of our own devices, provided the device is trusted as well
     pub fn trusted(&self) -> bool {
         self.device_signature.trusted()
             || self.user_identity_signature.trusted()
@@ -227,8 +227,8 @@ impl BackupMachine {
                 if device_key_id.algorithm() == DeviceKeyAlgorithm::Ed25519 {
                     let device_id = device_key_id.key_name();
 
-                    // No need to check our own device here, we're doing that using
-                    // the check_own_device_signature().
+                    // No need to check our own device here, we're doing that
+                    // using the check_own_device_signature().
                     if device_id == self.store.static_account().device_id {
                         continue;
                     }
@@ -313,10 +313,10 @@ impl BackupMachine {
     ///
     /// # Arguments
     ///
-    /// * `backup_info`: The backup info that should be verified. Should be
+    /// - `backup_info`: The backup info that should be verified. Should be
     ///   fetched from the server using the [`/room_keys/version`] endpoint.
     ///
-    /// * `compute_all_signatures`: *Useful for debugging only*. If this
+    /// - `compute_all_signatures`: _Useful for debugging only_. If this
     ///   parameter is `true`, the internal machinery will compute the trust
     ///   state for all signatures before returning, instead of short-circuiting
     ///   on the first trusted signature. Has no impact on whether the backup
@@ -342,7 +342,7 @@ impl BackupMachine {
     ///
     /// # Arguments
     ///
-    /// * `backup_info`: The backup version that should be verified. Should be
+    /// - `backup_info`: The backup version that should be verified. Should be
     ///   created from the [`BackupDecryptionKey`] using the
     ///   [`BackupDecryptionKey::to_backup_info()`] method.
     pub async fn sign_backup(
@@ -417,8 +417,7 @@ impl BackupMachine {
     }
 
     /// Provide the `backup_version` of the current `backup_key`, or None if
-    /// there is no current key, or the key is not used with any backup
-    /// version.
+    /// there is no current key, or the key is not used with any backup version.
     pub async fn backup_version(&self) -> Option<String> {
         self.backup_key.read().await.as_ref().and_then(|k| k.backup_version())
     }
@@ -594,9 +593,9 @@ impl BackupMachine {
     ///
     /// # Arguments
     ///
-    /// * `room_keys` - A list of previously exported keys that should be
+    /// - `room_keys` - A list of previously exported keys that should be
     ///   imported into our store. If we already have a better version of a key
-    ///   the key will *not* be imported.
+    ///   the key will _not_ be imported.
     ///
     /// Returns a [`RoomKeyImportResult`] containing information about room keys
     /// which were imported.
@@ -620,10 +619,10 @@ impl BackupMachine {
             }
         }
 
-        // FIXME: This method is a bit flawed: we have no real idea which backup version
-        //   these keys came from. For example, we might have reset the backup
-        //   since the keys were downloaded. For now, let's assume they came from
-        //   the "current" backup version.
+        // FIXME: This method is a bit flawed: we have no real idea which backup
+        // version these keys came from. For example, we might have reset the
+        // backup since the keys were downloaded. For now, let's assume they
+        // came from the "current" backup version.
         let backup_version = self.backup_version().await;
 
         self.store
@@ -838,7 +837,8 @@ mod tests {
         let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
         let backup_machine = machine.backup_machine();
 
-        // We set up a backup key, so that we can test `backup_machine.backup()` later.
+        // We set up a backup key, so that we can test `backup_machine.backup()`
+        // later.
         let decryption_key = BackupDecryptionKey::new();
         let backup_key = decryption_key.megolm_v1_public_key();
         backup_key.set_version("1".to_owned());
@@ -863,8 +863,8 @@ mod tests {
             .await
             .expect("We should be able to import a room key");
 
-        // Now check that the session was correctly imported, and that it is marked as
-        // backed up
+        // Now check that the session was correctly imported, and that it is
+        // marked as backed up
         let session = machine.store().get_inbound_group_session(room_id, session_id).await.unwrap();
         assert_let!(Some(session) = session);
         assert!(
@@ -916,8 +916,8 @@ mod tests {
             .await
             .unwrap();
 
-        // Create the machine using `with_store` and without a call to enable_backup_v1,
-        // like regenerate_olm would do
+        // Create the machine using `with_store` and without a call to
+        // enable_backup_v1, like regenerate_olm would do
         let alice = OlmMachineBuilder::new(alice_id(), alice_device_id())
             .with_crypto_store(store)
             .build()

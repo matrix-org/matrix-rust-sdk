@@ -90,6 +90,7 @@ impl QrCodeData {
     /// The slice of bytes would generally be returned by a QR code decoder.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, LoginQrCodeDecodeError> {
         // The QR data consists of the following values:
+        //
         // 1. The unstable ASCII string IO_ELEMENT_MSC4388.
         // 2. One byte type, 0x03 is for the format specified in MSC4388.
         // 3. One byte intent, either 0x00 or 0x01.
@@ -199,8 +200,8 @@ mod test {
         0x2E, 0x6F, 0x72, 0x67,
     ];
 
-    // Test vector for the QR code data, copied from the MSC, with the intent set to
-    // login
+    // Test vector for the QR code data, copied from the MSC, with the intent
+    // set to login
     const QR_CODE_DATA_LOGIN: &[u8] = &[
         0x49, 0x4F, 0x5F, 0x45, 0x4C, 0x45, 0x4D, 0x45, 0x4E, 0x54, 0x5F, 0x4D, 0x53, 0x43, 0x34,
         0x33, 0x38, 0x38, 0x03, 0x00, 0xd8, 0x86, 0x68, 0x6a, 0xb2, 0x19, 0x7b, 0x78, 0x0e, 0x30,

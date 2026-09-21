@@ -33,12 +33,11 @@ pub struct ToDeviceRequest {
     /// request.
     pub txn_id: OwnedTransactionId,
 
-    /// A map of users to devices to a content for a message event to be
-    /// sent to the user's device. Individual message events can be sent
-    /// to devices, but all events must be of the same type.
-    /// The content's type for this field will be updated in a future
-    /// release, until then you can create a value using
-    /// `serde_json::value::to_raw_value`.
+    /// A map of users to devices to a content for a message event to be sent to
+    /// the user's device. Individual message events can be sent to devices, but
+    /// all events must be of the same type. The content's type for this field
+    /// will be updated in a future release, until then you can create a value
+    /// using `serde_json::value::to_raw_value`.
     pub messages:
         BTreeMap<OwnedUserId, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
 }
@@ -48,15 +47,14 @@ impl ToDeviceRequest {
     ///
     /// # Arguments
     ///
-    /// * `recipient` - The ID of the user that should receive this to-device
+    /// - `recipient` - The ID of the user that should receive this to-device
     ///   event.
     ///
-    /// * `recipient_device` - The device that should receive this to-device
+    /// - `recipient_device` - The device that should receive this to-device
     ///   event, or all devices.
     ///
-    /// * `event_type` - The type of the event content that is getting sent out.
-    ///
-    /// * `content` - The content of the to-device event.
+    /// - `event_type` - The type of the event content that is getting sent out.
+    /// - `content` - The content of the to-device event.
     pub fn new(
         recipient: &UserId,
         recipient_device: impl Into<DeviceIdOrAllDevices>,
@@ -128,7 +126,7 @@ impl ToDeviceRequest {
 
     /// Get the number of unique messages this request contains.
     ///
-    /// *Note*: A single message may be sent to multiple devices, so this may or
+    /// _Note_: A single message may be sent to multiple devices, so this may or
     /// may not be the number of devices that will receive the messages as well.
     pub fn message_count(&self) -> usize {
         self.messages.values().map(|d| d.len()).sum()
