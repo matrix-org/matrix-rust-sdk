@@ -147,8 +147,8 @@ pub enum MegolmError {
 }
 
 /// Decryption failed because of a mismatch between the identity keys of the
-/// device we received the room key from and the identity keys recorded in
-/// the plaintext of the room key to-device message.
+/// device we received the room key from and the identity keys recorded in the
+/// plaintext of the room key to-device message.
 #[derive(Error, Debug, PartialEq)]
 pub struct MismatchedIdentityKeysError {
     /// The Ed25519 key recorded in the room key's to-device message.
@@ -232,16 +232,16 @@ pub enum EventError {
     MismatchedRoom(OwnedRoomId, Option<OwnedRoomId>),
 
     /// The event includes `sender_device_keys` as per [MSC4147], but the
-    /// signature was invalid, or the ed25519 or curve25519 key did not
-    /// match other data in the event.
+    /// signature was invalid, or the ed25519 or curve25519 key did not match
+    /// other data in the event.
     ///
     /// [MSC4147]: https://github.com/matrix-org/matrix-spec-proposals/pull/4147
     #[error("the event included sender_device_keys which were invalid in some way")]
     InvalidSenderDeviceKeys,
 }
 
-/// Error type describing different errors that can happen when we create an
-/// Olm session from a pickle.
+/// Error type describing different errors that can happen when we create an Olm
+/// session from a pickle.
 #[derive(Error, Debug)]
 pub enum SessionUnpickleError {
     /// The device keys are missing the signing key
@@ -408,8 +408,8 @@ pub enum SessionRecipientCollectionError {
     ///
     /// In order to resolve this, the caller can set the trust level of the
     /// affected devices to [`LocalTrust::Ignored`] or
-    /// [`LocalTrust::BlackListed`] (see [`Device::set_local_trust`]), and
-    /// then retry the encryption operation.
+    /// [`LocalTrust::BlackListed`] (see [`Device::set_local_trust`]), and then
+    /// retry the encryption operation.
     #[error("one or more verified users have unsigned devices")]
     VerifiedUserHasUnsignedDevice(BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>),
 
@@ -421,12 +421,11 @@ pub enum SessionRecipientCollectionError {
     ///
     /// In order to resolve this, the user can:
     ///
-    /// * re-verify the problematic recipients, or
-    ///
-    /// * withdraw verification of the problematic recipients with
+    /// - re-verify the problematic recipients, or
+    /// - withdraw verification of the problematic recipients with
     ///   [`OtherUserIdentity::withdraw_verification`], or
     ///
-    /// * set the trust level of all of the devices belonging to the problematic
+    /// - set the trust level of all of the devices belonging to the problematic
     ///   recipients to [`LocalTrust::Ignored`] or [`LocalTrust::BlackListed`]
     ///   (see [`Device::set_local_trust`]).
     ///

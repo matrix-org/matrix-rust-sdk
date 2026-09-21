@@ -15,8 +15,8 @@
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 // AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-// THE SOFTWARE.
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
 
 use std::collections::BTreeMap;
 
@@ -44,7 +44,7 @@ use crate::{
 /// identity keys.
 ///
 /// See also [`ruma::encryption::DeviceKeys`] which is similar, but slightly
-/// less comprehensive (it lacks some fields, and  the `keys` are represented as
+/// less comprehensive (it lacks some fields, and the `keys` are represented as
 /// base64 strings rather than type-safe [`DeviceKey`]s). We always use this
 /// struct to build `/keys/upload` requests and to deserialize `/keys/query`
 /// responses.

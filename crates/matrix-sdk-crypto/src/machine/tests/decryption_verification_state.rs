@@ -208,8 +208,8 @@ async fn test_decryption_verification_state() {
 
     let encryption_info = bob.get_room_event_encryption_info(&event, room_id).await.unwrap();
 
-    // As soon as the key source is unsafe the verification state (or
-    // existence) of the device is meaningless
+    // As soon as the key source is unsafe the verification state (or existence)
+    // of the device is meaningless
     assert_eq!(
         VerificationState::Unverified(VerificationLevel::None(DeviceLinkProblem::InsecureSource)),
         encryption_info.verification_state
@@ -361,8 +361,8 @@ async fn test_verification_states_spoofed_sender(
         VerificationState::Unverified(VerificationLevel::UnverifiedIdentity)
     );
 
-    // Alice now sends a second message to Bob, using the same room key, but the HS
-    // admin rewrites the 'sender' to Charlie.
+    // Alice now sends a second message to Bob, using the same room key, but the
+    // HS admin rewrites the 'sender' to Charlie.
     let result = alice
         .encrypt_room_event(
             room_id,
@@ -424,9 +424,8 @@ async fn test_verification_states_multiple_device() {
 
     let fake_room_id = room_id!("!roomid:example.com");
 
-    // We just need a fake session to export it
-    // We will use the export to create various inbounds with other claimed
-    // ownership
+    // We just need a fake session to export it We will use the export to create
+    // various inbounds with other claimed ownership
     let id_keys = bob.identity_keys();
     let fake_device_id = bob.device_id().into();
     let olm = OutboundGroupSession::new(
@@ -495,7 +494,7 @@ async fn test_decryption_trust_requirement() {
     let (event, session_id) = encrypt_message(&alice, room_id, &bob, "Secret message").await;
 
     // Set the SenderData on the megolm session used to encrypt `event` to
-    // `DeviceInfo` (ie,  we have the device keys but no cross-signing
+    // `DeviceInfo` (ie, we have the device keys but no cross-signing
     // information). Events sent on such a session should be decryptable only
     // when the trust requirement allows untrusted or legacy sessions.
     let mut session =
@@ -626,8 +625,8 @@ async fn set_up_alice_cross_signing(alice: &OlmMachine, bob: &OlmMachine) {
         .unwrap();
 }
 
-/// Helper function that encrypts a message and shares the Megolm session
-/// with a recipient.
+/// Helper function that encrypts a message and shares the Megolm session with a
+/// recipient.
 async fn encrypt_message(
     sender: &OlmMachine,
     room_id: &RoomId,

@@ -122,7 +122,8 @@ async fn test_send_encrypted_to_device() {
 /// Test what happens when the sending device is deleted before the to-device
 /// event arrives. (It should still be successfully decrypted.)
 ///
-/// Regression test for https://github.com/matrix-org/matrix-rust-sdk/issues/5768.
+/// Regression test for
+/// https://github.com/matrix-org/matrix-rust-sdk/issues/5768.
 #[async_test]
 async fn test_encrypted_to_device_from_deleted_device() {
     let (alice, bob) =
@@ -663,13 +664,13 @@ async fn test_send_encrypted_to_device_no_session() {
 }
 
 /// Create a new [`OutboundGroupSession`], and build a to-device event to share
-/// it with another [`OlmMachine`], *without* sending the MSC4147 sender data.
+/// it with another [`OlmMachine`], _without_ sending the MSC4147 sender data.
 ///
 /// # Arguments
 ///
-/// * `alice` - sending device.
-/// * `bob` - receiving device.
-/// * `room_id` - room to create a session for.
+/// - `alice` - sending device.
+/// - `bob` - receiving device.
+/// - `room_id` - room to create a session for.
 async fn create_and_share_session_without_sender_data(
     alice: &OlmMachine,
     bob: &OlmMachine,
@@ -686,8 +687,8 @@ async fn create_and_share_session_without_sender_data(
         .await
         .unwrap();
 
-    // In future, we might want to save the session to the store, to better match
-    // the behaviour of the real implementation. See
+    // In future, we might want to save the session to the store, to better
+    // match the behaviour of the real implementation. See
     // `GroupSessionManager::share_room_key` for inspiration on how to do that.
 
     let bob_device = alice

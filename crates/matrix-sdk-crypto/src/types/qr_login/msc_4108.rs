@@ -113,6 +113,7 @@ impl QrCodeData {
     /// The slice of bytes would generally be returned by a QR code decoder.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, LoginQrCodeDecodeError> {
         // The QR data consists of the following values:
+        //
         // 1. The ASCII string MATRIX.
         // 2. One byte version, only 0x02 is supported.
         // 3. One byte intent, either 0x03 or 0x04.
@@ -232,8 +233,8 @@ pub(super) mod test {
         0x64, 0x39, 0x38, 0x33, 0x30, 0x36, 0x36, 0x38,
     ];
 
-    // Test vector for the QR code data, copied from the MSC, with the intent set to
-    // reciprocate.
+    // Test vector for the QR code data, copied from the MSC, with the intent
+    // set to reciprocate.
     const QR_CODE_DATA_RECIPROCATE: &[u8] = &[
         0x4D, 0x41, 0x54, 0x52, 0x49, 0x58, 0x02, 0x04, 0xd8, 0x86, 0x68, 0x6a, 0xb2, 0x19, 0x7b,
         0x78, 0x0e, 0x30, 0x0a, 0x9d, 0x4a, 0x21, 0x47, 0x48, 0x07, 0x00, 0xd7, 0x92, 0x9f, 0x39,
