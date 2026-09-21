@@ -21,6 +21,7 @@ allow = [
     "BSD-2-Clause",
     "BSD-3-Clause",
     "BSL-1.0",
+    "EUPL-1.2",
     "ISC",
     "MIT",
     "MPL-2.0",
