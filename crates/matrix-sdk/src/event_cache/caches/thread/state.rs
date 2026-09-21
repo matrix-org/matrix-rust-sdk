@@ -522,7 +522,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     }
 
     /// Update the [`ThreadSummary`] for this thread, and return a copy of it.
-    pub async fn update_thread_summary(&mut self) -> Result<Option<ThreadSummary>> {
+    pub(super) async fn update_thread_summary(&mut self) -> Result<Option<ThreadSummary>> {
         // Find the latest event ID.
         let latest_event_id = {
             // Find the last non-edit, non-redaction, non-redacted event.
