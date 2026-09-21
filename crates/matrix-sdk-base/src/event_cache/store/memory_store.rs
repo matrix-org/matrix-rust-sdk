@@ -111,6 +111,37 @@ impl EventCacheStore for MemoryStore {
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error> {
         let mut inner = self.inner.write().unwrap();
+
+        let is_complete_event = |event: &Event| {
+            let Some(event_id) = event.event_id() else {
+                error!("Found event with no ID");
+                return false;
+            };
+            if event.kind.event_type().is_none() {
+                error!(%event_id, "Found an event with no event type");
+                return false;
+            }
+            true
+        };
+
+        let updates = updates
+            .into_iter()
+            .filter_map(|update| match update {
+                Update::PushItems { at, items } => Some(Update::PushItems {
+                    at,
+                    items: items.into_iter().filter(is_complete_event).collect(),
+                }),
+                Update::ReplaceItem { at, item } => {
+                    if is_complete_event(&item) {
+                        Some(Update::ReplaceItem { at, item })
+                    } else {
+                        None
+                    }
+                }
+                update => Some(update),
+            })
+            .collect();
+
         inner
             .events
             .apply_updates(linked_chunk_id, updates)

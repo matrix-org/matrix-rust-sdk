@@ -150,7 +150,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         };
 
         Ok(if let Some(lease) = lease {
-            transaction.put_lease(&lease).await?;
+            transaction.put_lease(&lease)?;
             transaction.commit().await?;
 
             Some(lease.generation)
@@ -172,6 +172,20 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             IdbTransactionMode::Readwrite,
         )?;
 
+        // Test whether necessary components of an event are present
+        // in the underlying structure
+        let is_complete_event = |event: &Event| {
+            let Some(event_id) = event.event_id() else {
+                error!("Found event with no ID");
+                return false;
+            };
+            if event.kind.event_type().is_none() {
+                error!(%event_id, "Found an event with no event type");
+                return false;
+            }
+            true
+        };
+
         for update in updates {
             match update {
                 Update::NewItemsChunk { previous, new, next } => {
@@ -188,13 +202,11 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                 }
                 Update::NewGapChunk { previous, new, next, gap } => {
                     trace!(%linked_chunk_id, "Inserting new gap (prev={previous:?}, new={new:?}, next={next:?})");
-                    transaction
-                        .add_item(&types::Gap {
-                            linked_chunk_id: linked_chunk_id.to_owned(),
-                            chunk_identifier: new.index(),
-                            token: gap.token,
-                        })
-                        .await?;
+                    transaction.add_item(&types::Gap {
+                        linked_chunk_id: linked_chunk_id.to_owned(),
+                        chunk_identifier: new.index(),
+                        token: gap.token,
+                    })?;
                     transaction
                         .add_chunk(&types::Chunk {
                             linked_chunk_id: linked_chunk_id.to_owned(),
@@ -214,7 +226,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     trace!(%linked_chunk_id, "pushing {} items @ {chunk_identifier}", items.len());
 
-                    for (i, item) in items.into_iter().enumerate() {
+                    for (i, item) in items.into_iter().filter(is_complete_event).enumerate() {
                         transaction
                             .add_event(&types::Event::InBand(InBandEvent {
                                 linked_chunk_id: linked_chunk_id.to_owned(),
@@ -232,6 +244,10 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     let index = at.index();
 
                     trace!(%linked_chunk_id, "replacing item @ {chunk_id}:{index}");
+
+                    if !is_complete_event(&item) {
+                        continue;
+                    }
 
                     transaction
                         .put_event(&types::Event::InBand(InBandEvent {
@@ -377,13 +393,16 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             }
             Ok(Some(last_chunk)) => {
                 let last_chunk_identifier = ChunkIdentifier::new(last_chunk.identifier);
-                let last_raw_chunk = transaction
-                    .load_chunk_by_id(linked_chunk_id, last_chunk_identifier)
-                    .await?
-                    .ok_or(IndexeddbEventCacheStoreError::UnableToLoadChunk)?;
-                let max_chunk_id = transaction
-                    .get_max_chunk_by_id(linked_chunk_id)
-                    .await?
+
+                let (last_raw_chunk, max_chunk_id) = futures_util::future::try_join(
+                    transaction.load_chunk_by_id(linked_chunk_id, last_chunk_identifier),
+                    transaction.get_max_chunk_by_id(linked_chunk_id),
+                )
+                .await?;
+
+                let last_raw_chunk =
+                    last_raw_chunk.ok_or(IndexeddbEventCacheStoreError::UnableToLoadChunk)?;
+                let max_chunk_id = max_chunk_id
                     .map(|chunk| ChunkIdentifier::new(chunk.identifier))
                     .ok_or(IndexeddbEventCacheStoreError::NoMaxChunkId)?;
                 let generator =
@@ -439,7 +458,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             thread_id: thread_id.to_owned(),
             info: ThreadInfo::new(),
         };
-        transaction.update_thread_info(&thread).await?;
+        transaction.update_thread_info(&thread)?;
         transaction.commit().await?;
 
         Ok(thread.info)
@@ -461,7 +480,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             thread_id: thread_id.to_owned(),
             info: thread_info.clone(),
         };
-        transaction.update_thread_info(&thread).await?;
+        transaction.update_thread_info(&thread)?;
         transaction.commit().await?;
 
         Ok(())
@@ -482,9 +501,9 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         match room_id {
             // Clear all events.
             None => {
-                transaction.clear::<types::Chunk>().await?;
-                transaction.clear::<types::Event>().await?;
-                transaction.clear::<types::Gap>().await?;
+                transaction.clear::<types::Chunk>()?;
+                transaction.clear::<types::Event>()?;
+                transaction.clear::<types::Gap>()?;
                 transaction.commit().await?;
             }
 

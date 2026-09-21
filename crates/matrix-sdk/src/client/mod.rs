@@ -23,6 +23,7 @@ use std::{
     time::Duration,
 };
 
+use async_stream::stream;
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_core::Stream;
@@ -35,6 +36,7 @@ use matrix_sdk_base::{
     BaseClient, DmRoomDefinition, RoomInfoNotableUpdate, RoomState, RoomStateFilter,
     SendOutsideWasm, SessionMeta, StateStoreDataKey, StateStoreDataValue, StoreError,
     SyncOutsideWasm, ThreadingSupport,
+    deserialized_responses::EncryptionInfo,
     event_cache::store::EventCacheStoreLock,
     media::store::MediaStoreLock,
     store::{DynStateStore, RoomLoadSettings, SupportedVersionsResponse, WellKnownResponse},
@@ -74,13 +76,17 @@ use ruma::{
         path_builder::PathBuilder,
     },
     assign,
-    events::{beacon_info::OriginalSyncBeaconInfoEvent, direct::DirectUserIdentifier},
+    events::{
+        AnyToDeviceEvent, ToDeviceEventType, beacon_info::OriginalSyncBeaconInfoEvent,
+        direct::DirectUserIdentifier,
+    },
     presence::PresenceState,
     push::Ruleset,
+    serde::Raw,
     time::Instant,
 };
 use serde::de::DeserializeOwned;
-use tokio::sync::{Mutex, OnceCell, RwLock, RwLockReadGuard, broadcast};
+use tokio::sync::{Mutex, OnceCell, RwLock, RwLockReadGuard, broadcast, mpsc::unbounded_channel};
 use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 use url::Url;
 
@@ -1410,6 +1416,79 @@ impl Client {
         self.inner.room_updates_sender.subscribe()
     }
 
+    /// Subscribe to the custom to-device messages received by this client.
+    ///
+    /// The returned stream yields every to-device message whose type is one of
+    /// `event_types`, or every custom to-device message if `event_types` is
+    /// empty, as they are received. A message that was sent encrypted is
+    /// yielded decrypted, along with its [`EncryptionInfo`].
+    ///
+    /// The to-device traffic the SDK uses for its own crypto machinery (room
+    /// keys, verification, secret sharing, ...) and the messages it could not
+    /// decrypt are never yielded, whatever `event_types` says.
+    ///
+    /// Forwarding stops once the returned stream is dropped.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # async {
+    /// # let client: matrix_sdk::Client = unimplemented!();
+    /// use futures_util::{StreamExt, pin_mut};
+    /// use matrix_sdk::ruma::events::ToDeviceEventType;
+    ///
+    /// let messages = client.subscribe_to_custom_to_device_messages(vec![
+    ///     ToDeviceEventType::from("io.element.call.encryption_keys"),
+    /// ]);
+    /// pin_mut!(messages);
+    ///
+    /// while let Some(message) = messages.next().await {
+    ///     let Some(encryption_info) = &message.encryption_info else {
+    ///         // The message was not encrypted, don't trust it.
+    ///         continue;
+    ///     };
+    ///     println!("{} sent {}", encryption_info.sender, message.raw.json());
+    /// }
+    /// # };
+    /// ```
+    pub fn subscribe_to_custom_to_device_messages(
+        &self,
+        event_types: Vec<ToDeviceEventType>,
+    ) -> impl Stream<Item = ToDeviceMessage> + use<> {
+        let (sender, mut receiver) = unbounded_channel();
+
+        // Event handlers can only filter by type for statically-known event content
+        // types, so a runtime list of types has to be filtered here instead.
+        let handle = self.add_event_handler(
+            move |raw: Raw<AnyToDeviceEvent>, encryption_info: Option<EncryptionInfo>| {
+                let Ok(Some(event_type)) = raw.get_field::<ToDeviceEventType>("type") else {
+                    trace!("Ignoring a to-device message without a type");
+                    return ready(());
+                };
+
+                if is_internal_to_device_type(&event_type) {
+                    trace!(%event_type, "Not forwarding an internal to-device message");
+                } else if event_types.is_empty() || event_types.contains(&event_type) {
+                    // Ignore the result: it can only fail if the stream was dropped.
+                    let _ = sender.send(ToDeviceMessage { raw, encryption_info });
+                }
+
+                ready(())
+            },
+        );
+
+        let drop_guard = self.event_handler_drop_guard(handle);
+
+        stream! {
+            // Deregisters the event handler when the stream is dropped.
+            let _drop_guard = drop_guard;
+
+            while let Some(message) = receiver.recv().await {
+                yield message;
+            }
+        }
+    }
+
     pub(crate) async fn notification_handlers(
         &self,
     ) -> RwLockReadGuard<'_, Vec<NotificationHandlerFn>> {
@@ -1466,6 +1545,17 @@ impl Client {
             .into_iter()
             .flat_map(|room| room.is_space().then_some(Room::new(self.clone(), room)))
             .collect()
+    }
+
+    /// The total number of client-side computed unread notifications across all
+    /// joined rooms. Rooms the user marked as unread by hand count as one
+    /// each.
+    pub fn total_unread_notifications(&self) -> u64 {
+        self.base_client()
+            .rooms_filtered(RoomStateFilter::JOINED)
+            .iter()
+            .map(|room| room.num_unread_notifications().max(room.is_marked_unread().into()))
+            .sum()
     }
 
     /// Get a room with the given room id.
@@ -1587,6 +1677,26 @@ impl Client {
     ///
     /// See the documentation of the corresponding authentication API's
     /// `restore_session` method for more information.
+    ///
+    /// # Persisting the store
+    ///
+    /// Restoring a session only reattaches the [`Client`] to its stored
+    /// state; it does not recreate that state. If the [`ClientBuilder`]
+    /// was configured with a persistent store (for example via
+    /// [`ClientBuilder::sqlite_store()`]), the same store must be
+    /// configured when the session is restored, otherwise the encryption
+    /// keys and room state will not be available. In particular, when the
+    /// `e2e-encryption` feature is enabled, restoring on top of an
+    /// in-memory store will leave the client unable to send or receive
+    /// encrypted messages, since the Olm and outbound group session state
+    /// cannot be recovered.
+    ///
+    /// See the [`persist_session`] example for an end-to-end sample of how
+    /// to persist a session and its store across runs.
+    ///
+    /// [`ClientBuilder`]: crate::ClientBuilder
+    /// [`ClientBuilder::sqlite_store()`]: crate::ClientBuilder::sqlite_store
+    /// [`persist_session`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples/persist_session
     ///
     /// # Panics
     ///
@@ -3744,6 +3854,22 @@ impl Client {
         Ok(server_enabled)
     }
 
+    /// Whether global user profiles are included in the sync response.
+    ///
+    /// Requires [MSC4262](https://github.com/matrix-org/matrix-spec-proposals/pull/4262)
+    /// for sliding sync. Not implemented for sync v2.
+    pub async fn is_global_profile_sync_enabled(&self) -> Result<bool> {
+        if matches!(self.sliding_sync_version(), SlidingSyncVersion::None) {
+            return Ok(false);
+        }
+
+        Ok(self
+            .supported_versions()
+            .await?
+            .features
+            .contains(&FeatureFlag::from("org.matrix.msc4262")))
+    }
+
     /// Fetch thread subscriptions changes between `from` and up to `to`.
     ///
     /// The `limit` optional parameter can be used to limit the number of
@@ -3929,6 +4055,49 @@ pub struct StoreSizes {
     pub event_cache_store: Option<usize>,
     /// The size of the MediaStore.
     pub media_store: Option<usize>,
+}
+
+/// A custom to-device message received by the client.
+///
+/// Yielded by [`Client::subscribe_to_custom_to_device_messages`].
+#[derive(Debug, Clone)]
+pub struct ToDeviceMessage {
+    /// The event as it was received, decrypted if it was sent encrypted.
+    pub raw: Raw<AnyToDeviceEvent>,
+
+    /// The encryption data of this message, if it was sent encrypted, or `None`
+    /// if it arrived in the clear.
+    ///
+    /// When present, its `sender` is the cryptographically attested sender of
+    /// the message, and should be trusted over the `sender` field of the event.
+    pub encryption_info: Option<EncryptionInfo>,
+}
+
+/// Whether a to-device event type is used by the SDK for its own crypto
+/// machinery, and must therefore not be exposed to, or sent on behalf of,
+/// consumers of custom to-device messages.
+///
+/// `m.room.encrypted` is included because a to-device message that could not
+/// be decrypted keeps that type.
+pub(crate) fn is_internal_to_device_type(event_type: &ToDeviceEventType) -> bool {
+    matches!(
+        event_type.to_string().as_str(),
+        "m.dummy"
+            | "m.room_key"
+            | "m.room_key_request"
+            | "m.forwarded_room_key"
+            | "m.key.verification.request"
+            | "m.key.verification.ready"
+            | "m.key.verification.start"
+            | "m.key.verification.cancel"
+            | "m.key.verification.accept"
+            | "m.key.verification.key"
+            | "m.key.verification.mac"
+            | "m.key.verification.done"
+            | "m.secret.request"
+            | "m.secret.send"
+            | "m.room.encrypted"
+    )
 }
 
 #[cfg(any(feature = "testing", test))]
@@ -4483,7 +4652,7 @@ pub(crate) mod tests {
         assert!(!rooms.contains(&owned_room_id!("!beta:localhost")));
 
         // And the last tracked room should be the first
-        assert_eq!(rooms.first().unwrap(), room_id!("!19:localhost"));
+        assert_eq!(rooms.first().unwrap(), "!19:localhost");
     }
 
     #[async_test]

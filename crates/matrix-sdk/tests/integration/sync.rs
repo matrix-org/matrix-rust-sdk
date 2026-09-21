@@ -1,6 +1,6 @@
-use std::collections::BTreeSet;
+use std::{assert_matches, collections::BTreeSet};
 
-use assert_matches2::assert_matches;
+use assert_matches2::assert_let;
 use matrix_sdk::{
     deserialized_responses::RawSyncOrStrippedState,
     test_utils::mocks::{AnyRoomBuilder, MatrixMockServer},
@@ -85,9 +85,9 @@ async fn test_receive_room_encryption_event_via_sync() {
         room.encryption_settings().unwrap().algorithm,
         Some(EventEncryptionAlgorithm::MegolmV1AesSha2)
     );
-    assert_matches!(
-        room.get_state_event_static::<RoomEncryptionEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomEncryptionEventContent>().await
     );
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -129,9 +129,9 @@ async fn test_receive_room_encryption_event_via_sync() {
         room.encryption_settings().unwrap().algorithm,
         Some(EventEncryptionAlgorithm::MegolmV1AesSha2)
     );
-    assert_matches!(
-        room.get_state_event_static::<RoomEncryptionEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomEncryptionEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -169,9 +169,9 @@ async fn test_receive_room_encryption_event_via_sync() {
         room.encryption_settings().unwrap().algorithm,
         Some(EventEncryptionAlgorithm::MegolmV1AesSha2)
     );
-    assert_matches!(
-        room.get_state_event_static::<RoomEncryptionEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomEncryptionEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -227,9 +227,9 @@ async fn test_receive_room_avatar_event_via_sync() {
 
     // The room info is set and the valid state event is in the store.
     assert_eq!(room.avatar_url().as_deref(), Some(avatar_url));
-    assert_matches!(
-        room.get_state_event_static::<RoomAvatarEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomAvatarEventContent>().await
     );
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -265,9 +265,9 @@ async fn test_receive_room_avatar_event_via_sync() {
 
     // The room info is unset and the invalid state event is in the store.
     assert_eq!(room.avatar_url(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomAvatarEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomAvatarEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -302,9 +302,9 @@ async fn test_receive_room_avatar_event_via_sync() {
 
     // Nothing has changed.
     assert_eq!(room.avatar_url(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomAvatarEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomAvatarEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -360,9 +360,9 @@ async fn test_receive_room_name_event_via_sync() {
 
     // The room info is set and the valid state event is in the store.
     assert_eq!(room.name().as_deref(), Some(room_name));
-    assert_matches!(
-        room.get_state_event_static::<RoomNameEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomNameEventContent>().await
     );
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -398,9 +398,9 @@ async fn test_receive_room_name_event_via_sync() {
 
     // The room info is unset and the invalid state event is in the store.
     assert_eq!(room.name(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomNameEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomNameEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -435,9 +435,9 @@ async fn test_receive_room_name_event_via_sync() {
 
     // Nothing has changed.
     assert_eq!(room.name(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomNameEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomNameEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -492,9 +492,9 @@ async fn test_receive_room_create_event_via_sync() {
 
     // The room info is set and the valid state event is in the store.
     assert_eq!(room.create_content().unwrap().room_version, RoomVersionId::V12);
-    assert_matches!(
-        room.get_state_event_static::<RoomCreateEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomCreateEventContent>().await
     );
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -531,9 +531,9 @@ async fn test_receive_room_create_event_via_sync() {
     // The room info didn't change because it never changes after being set, and the
     // invalid state event is in the store.
     assert_eq!(room.create_content().unwrap().room_version, RoomVersionId::V12);
-    assert_matches!(
-        room.get_state_event_static::<RoomCreateEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomCreateEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -573,9 +573,9 @@ async fn test_receive_room_create_event_via_sync() {
     // The room info didn't change because the event is invalid, but the
     // invalid state event is in the store.
     assert_matches!(room.create_content(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomCreateEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomCreateEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -610,9 +610,9 @@ async fn test_receive_room_create_event_via_sync() {
 
     // Nothing has changed.
     assert_matches!(room.create_content(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomCreateEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomCreateEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -670,9 +670,9 @@ async fn test_receive_room_history_visibility_event_via_sync() {
 
     // The room info is set and the valid state event is in the store.
     assert_eq!(room.history_visibility(), Some(HistoryVisibility::Shared));
-    assert_matches!(
-        room.get_state_event_static::<RoomHistoryVisibilityEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomHistoryVisibilityEventContent>().await
     );
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -708,9 +708,9 @@ async fn test_receive_room_history_visibility_event_via_sync() {
 
     // The room info is unset and the invalid state event is in the store.
     assert_eq!(room.history_visibility(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomHistoryVisibilityEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomHistoryVisibilityEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -745,9 +745,9 @@ async fn test_receive_room_history_visibility_event_via_sync() {
 
     // Nothing has changed.
     assert_eq!(room.name(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomHistoryVisibilityEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomHistoryVisibilityEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -802,9 +802,9 @@ async fn test_receive_room_guest_access_event_via_sync() {
 
     // The room info is set and the valid state event is in the store.
     assert_eq!(room.guest_access(), GuestAccess::CanJoin);
-    assert_matches!(
-        room.get_state_event_static::<RoomGuestAccessEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomGuestAccessEventContent>().await
     );
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -841,9 +841,9 @@ async fn test_receive_room_guest_access_event_via_sync() {
     // The room info reverted to the default and the invalid state event is in the
     // store.
     assert_eq!(room.guest_access(), GuestAccess::Forbidden);
-    assert_matches!(
-        room.get_state_event_static::<RoomGuestAccessEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomGuestAccessEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -878,9 +878,9 @@ async fn test_receive_room_guest_access_event_via_sync() {
 
     // Nothing has changed.
     assert_eq!(room.guest_access(), GuestAccess::Forbidden);
-    assert_matches!(
-        room.get_state_event_static::<RoomGuestAccessEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomGuestAccessEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -935,9 +935,9 @@ async fn test_receive_room_join_rules_event_via_sync() {
 
     // The room info is set and the valid state event is in the store.
     assert_eq!(room.join_rule(), Some(JoinRule::Public));
-    assert_matches!(
-        room.get_state_event_static::<RoomJoinRulesEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomJoinRulesEventContent>().await
     );
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -974,9 +974,9 @@ async fn test_receive_room_join_rules_event_via_sync() {
     // The room info is unset and the invalid state event is in the
     // store.
     assert_eq!(room.join_rule(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomJoinRulesEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomJoinRulesEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -1011,9 +1011,9 @@ async fn test_receive_room_join_rules_event_via_sync() {
 
     // Nothing has changed.
     assert_eq!(room.join_rule(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomJoinRulesEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomJoinRulesEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -1072,9 +1072,9 @@ async fn test_receive_room_canonical_alias_event_via_sync() {
 
     // The room info is set and the valid state event is in the store.
     assert_eq!(room.canonical_alias().as_deref(), Some(room_alias));
-    assert_matches!(
-        room.get_state_event_static::<RoomCanonicalAliasEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomCanonicalAliasEventContent>().await
     );
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -1111,9 +1111,9 @@ async fn test_receive_room_canonical_alias_event_via_sync() {
     // The room info is unset and the invalid state event is in the
     // store.
     assert_eq!(room.canonical_alias(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomCanonicalAliasEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomCanonicalAliasEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -1148,9 +1148,9 @@ async fn test_receive_room_canonical_alias_event_via_sync() {
 
     // Nothing has changed.
     assert_eq!(room.canonical_alias(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomCanonicalAliasEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomCanonicalAliasEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -1206,9 +1206,9 @@ async fn test_receive_room_topic_event_via_sync() {
 
     // The room info is set and the valid state event is in the store.
     assert_eq!(room.topic().as_deref(), Some(room_topic));
-    assert_matches!(
-        room.get_state_event_static::<RoomTopicEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomTopicEventContent>().await
     );
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -1245,9 +1245,9 @@ async fn test_receive_room_topic_event_via_sync() {
     // The room info is unset and the invalid state event is in the
     // store.
     assert_eq!(room.topic(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomTopicEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomTopicEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -1282,9 +1282,9 @@ async fn test_receive_room_topic_event_via_sync() {
 
     // Nothing has changed.
     assert_eq!(room.topic(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomTopicEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomTopicEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -1344,9 +1344,9 @@ async fn test_receive_room_tombstone_event_via_sync() {
         room.tombstone_content().unwrap().replacement_room.as_deref(),
         Some(tombstone_replacement)
     );
-    assert_matches!(
-        room.get_state_event_static::<RoomTombstoneEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomTombstoneEventContent>().await
     );
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -1384,9 +1384,9 @@ async fn test_receive_room_tombstone_event_via_sync() {
     // The room info is unset and the invalid state event is in the
     // store.
     assert_matches!(room.tombstone_content(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomTombstoneEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomTombstoneEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -1422,9 +1422,9 @@ async fn test_receive_room_tombstone_event_via_sync() {
 
     // Nothing has changed.
     assert_matches!(room.tombstone_content(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomTombstoneEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomTombstoneEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -1479,9 +1479,9 @@ async fn test_receive_room_power_levels_event_via_sync() {
 
     // The room info is set and the valid state event is in the store.
     assert_eq!(room.max_power_level(), -10);
-    assert_matches!(
-        room.get_state_event_static::<RoomPowerLevelsEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomPowerLevelsEventContent>().await
     );
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -1518,9 +1518,9 @@ async fn test_receive_room_power_levels_event_via_sync() {
     // The room info is reset and the invalid state event is in the
     // store.
     assert_eq!(room.max_power_level(), 100);
-    assert_matches!(
-        room.get_state_event_static::<RoomPowerLevelsEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomPowerLevelsEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -1555,9 +1555,9 @@ async fn test_receive_room_power_levels_event_via_sync() {
 
     // Nothing has changed.
     assert_eq!(room.max_power_level(), 100);
-    assert_matches!(
-        room.get_state_event_static::<RoomPowerLevelsEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomPowerLevelsEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -1613,9 +1613,9 @@ async fn test_receive_room_pinned_events_event_via_sync() {
 
     // The room info is set and the valid state event is in the store.
     assert_eq!(room.pinned_event_ids().unwrap(), &[pinned_event]);
-    assert_matches!(
-        room.get_state_event_static::<RoomPinnedEventsEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomPinnedEventsEventContent>().await
     );
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -1652,9 +1652,9 @@ async fn test_receive_room_pinned_events_event_via_sync() {
     // The room info is unset and the invalid state event is in the
     // store.
     assert_eq!(room.pinned_event_ids(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomPinnedEventsEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomPinnedEventsEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -1689,9 +1689,9 @@ async fn test_receive_room_pinned_events_event_via_sync() {
 
     // Nothing has changed.
     assert_eq!(room.pinned_event_ids(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomPinnedEventsEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Sync(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Sync(raw_event))) =
+            room.get_state_event_static::<RoomPinnedEventsEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -1734,9 +1734,9 @@ async fn test_receive_stripped_room_encryption_event_via_sync() {
         room.encryption_settings().unwrap().algorithm,
         Some(EventEncryptionAlgorithm::MegolmV1AesSha2)
     );
-    assert_matches!(
-        room.get_state_event_static::<RoomEncryptionEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event))) =
+            room.get_state_event_static::<RoomEncryptionEventContent>().await
     );
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -1761,9 +1761,9 @@ async fn test_receive_stripped_room_encryption_event_via_sync() {
 
     // The room info is empty but the state event is in the store.
     assert_matches!(room.encryption_settings(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomEncryptionEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event))) =
+            room.get_state_event_static::<RoomEncryptionEventContent>().await
     );
     assert_eq!(raw_event.json().get(), redacted_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -1792,9 +1792,9 @@ async fn test_receive_stripped_room_encryption_event_via_sync() {
 
     // The room info is empty but the state event is in the store.
     assert_matches!(room.encryption_settings(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomEncryptionEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event))) =
+            room.get_state_event_static::<RoomEncryptionEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -1854,9 +1854,9 @@ async fn test_receive_stripped_room_avatar_event_via_sync() {
 
     // The room info is set and the valid state event is in the store.
     assert_eq!(room.avatar_url().as_deref(), Some(avatar_url));
-    assert_matches!(
-        room.get_state_event_static::<RoomAvatarEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event))) =
+            room.get_state_event_static::<RoomAvatarEventContent>().await
     );
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -1885,9 +1885,9 @@ async fn test_receive_stripped_room_avatar_event_via_sync() {
 
     // The room info is not set but the invalid state event is in the store.
     assert_eq!(room.avatar_url(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomAvatarEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event))) =
+            room.get_state_event_static::<RoomAvatarEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -1947,9 +1947,9 @@ async fn test_receive_stripped_room_name_event_via_sync() {
 
     // The room info is set and the valid state event is in the store.
     assert_eq!(room.name().as_deref(), Some(room_name));
-    assert_matches!(
-        room.get_state_event_static::<RoomNameEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event))) =
+            room.get_state_event_static::<RoomNameEventContent>().await
     );
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -1978,9 +1978,9 @@ async fn test_receive_stripped_room_name_event_via_sync() {
 
     // The room info is not set but the invalid state event is in the store.
     assert_eq!(room.name(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomNameEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event))) =
+            room.get_state_event_static::<RoomNameEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -2039,9 +2039,9 @@ async fn test_receive_stripped_room_create_event_via_sync() {
 
     // The room info is set and the valid state event is in the store.
     assert_eq!(room.create_content().unwrap().room_version, RoomVersionId::V12);
-    assert_matches!(
-        room.get_state_event_static::<RoomCreateEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event))) =
+            room.get_state_event_static::<RoomCreateEventContent>().await
     );
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -2070,9 +2070,9 @@ async fn test_receive_stripped_room_create_event_via_sync() {
 
     // The room info is not set but the invalid state event is in the store.
     assert_matches!(room.create_content(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomCreateEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event))) =
+            room.get_state_event_static::<RoomCreateEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -2131,9 +2131,9 @@ async fn test_receive_stripped_room_join_rules_event_via_sync() {
 
     // The room info is set and the valid state event is in the store.
     assert_eq!(room.join_rule(), Some(JoinRule::Public));
-    assert_matches!(
-        room.get_state_event_static::<RoomJoinRulesEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event))) =
+            room.get_state_event_static::<RoomJoinRulesEventContent>().await
     );
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -2162,9 +2162,9 @@ async fn test_receive_stripped_room_join_rules_event_via_sync() {
 
     // The room info is not set but the invalid state event is in the store.
     assert_eq!(room.join_rule(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomJoinRulesEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event))) =
+            room.get_state_event_static::<RoomJoinRulesEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -2224,9 +2224,9 @@ async fn test_receive_stripped_room_canonical_alias_event_via_sync() {
 
     // The room info is set and the valid state event is in the store.
     assert_eq!(room.canonical_alias().as_deref(), Some(room_alias));
-    assert_matches!(
-        room.get_state_event_static::<RoomCanonicalAliasEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event))) =
+            room.get_state_event_static::<RoomCanonicalAliasEventContent>().await
     );
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -2255,9 +2255,9 @@ async fn test_receive_stripped_room_canonical_alias_event_via_sync() {
 
     // The room info is not set but the invalid state event is in the store.
     assert_eq!(room.canonical_alias(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomCanonicalAliasEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event))) =
+            room.get_state_event_static::<RoomCanonicalAliasEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));
@@ -2320,9 +2320,9 @@ async fn test_receive_stripped_room_topic_event_via_sync() {
 
     // The room info is set and the valid state event is in the store.
     assert_eq!(room.topic().as_deref(), Some(room_topic));
-    assert_matches!(
-        room.get_state_event_static::<RoomTopicEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event))) =
+            room.get_state_event_static::<RoomTopicEventContent>().await
     );
     assert_eq!(raw_event.json().get(), valid_raw_event.json().get());
     assert_matches!(raw_event.deserialize(), Ok(_));
@@ -2351,9 +2351,9 @@ async fn test_receive_stripped_room_topic_event_via_sync() {
 
     // The room info is not set but the invalid state event is in the store.
     assert_eq!(room.topic(), None);
-    assert_matches!(
-        room.get_state_event_static::<RoomTopicEventContent>().await,
-        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event)))
+    assert_let!(
+        Ok(Some(RawSyncOrStrippedState::Stripped(raw_event))) =
+            room.get_state_event_static::<RoomTopicEventContent>().await
     );
     assert_eq!(raw_event.json().get(), raw_event_with_invalid_content.json().get());
     assert_matches!(raw_event.deserialize(), Err(_));

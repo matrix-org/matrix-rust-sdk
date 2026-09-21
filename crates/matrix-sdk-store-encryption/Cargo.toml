@@ -1,6 +1,6 @@
 [package]
 name = "matrix-sdk-store-encryption"
-version = "0.18.0"
+version = "0.19.1"
 edition = "2024"
 description = "Helpers for encrypted storage keys for the Matrix SDK"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
@@ -11,14 +11,16 @@ rust-version.workspace = true
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [package.metadata.cargo-machete]
-ignored = ["getrandom", "getrandom_0_2"] # We manually enable a feature for each.
+# getrandom: we manually enable a feature for each.
+# serde_bytes: we only use it in a `#[serde(with = "...")]` attribute.
+ignored = ["getrandom", "getrandom_0_2", "serde_bytes"]
 
 [features]
 js = ["dep:getrandom", "getrandom?/wasm_js"]
 
 [dependencies]
 base64.workspace = true
-blake3 = { version = "1.8.5", default-features = false }
+blake3 = { version = "1.8.7", default-features = false }
 chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["alloc"] }
 getrandom = { workspace = true, optional = true }
 hkdf.workspace = true
@@ -27,6 +29,7 @@ pbkdf2.workspace = true
 rand = { workspace = true, features = ["thread_rng"] }
 rmp-serde.workspace = true
 serde = { workspace = true, features = ["derive"] }
+serde_bytes = "0.11"
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true

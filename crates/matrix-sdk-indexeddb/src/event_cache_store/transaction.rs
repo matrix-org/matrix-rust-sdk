@@ -26,10 +26,10 @@ use crate::{
     error::AsyncErrorDeps,
     event_cache_store::{
         serializer::indexed_types::{
-            IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventIdKey,
-            IndexedEventPositionKey, IndexedEventRelationKey, IndexedEventRoomKey, IndexedGapIdKey,
-            IndexedLease, IndexedLeaseIdKey, IndexedNextChunkIdKey, IndexedThread,
-            IndexedThreadIdKey,
+            IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventError,
+            IndexedEventEventIdKey, IndexedEventIdKey, IndexedEventPositionKey,
+            IndexedEventRelationKey, IndexedEventRoomKey, IndexedGapIdKey, IndexedLease,
+            IndexedLeaseIdKey, IndexedNextChunkIdKey, IndexedThread, IndexedThreadIdKey,
         },
         types::{Chunk, ChunkType, Event, Gap, Lease, Position, Thread},
     },
@@ -149,8 +149,8 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     /// exists, it will be overwritten. When the item is successfully put, the
     /// function returns the intermediary type [`IndexedLease`] in case
     /// inspection is needed.
-    pub async fn put_lease(&self, lease: &Lease) -> Result<IndexedLease, TransactionError> {
-        self.put_item(lease).await
+    pub fn put_lease(&self, lease: &Lease) -> Result<IndexedLease, TransactionError> {
+        self.put_item(lease)
     }
 
     /// Query IndexedDB for chunks that match the given chunk identifier and the
@@ -257,7 +257,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     /// function returns the intermediary type [`IndexedChunk`] in case
     /// inspection is needed.
     pub async fn add_chunk(&self, chunk: &Chunk) -> Result<IndexedChunk, TransactionError> {
-        let indexed = self.add_item(chunk).await?;
+        let indexed = self.add_item(chunk)?;
         if let Some(previous) = chunk.previous {
             let previous_identifier = ChunkIdentifier::new(previous);
             let mut previous_chunk = self
@@ -265,7 +265,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
                 .await?
                 .ok_or(TransactionError::ItemNotFound)?;
             previous_chunk.next = Some(chunk.identifier);
-            self.put_item(&previous_chunk).await?;
+            self.put_item(&previous_chunk)?;
         }
         if let Some(next) = chunk.next {
             let next_identifier = ChunkIdentifier::new(next);
@@ -274,7 +274,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
                 .await?
                 .ok_or(TransactionError::ItemNotFound)?;
             next_chunk.previous = Some(chunk.identifier);
-            self.put_item(&next_chunk).await?;
+            self.put_item(&next_chunk)?;
         }
         Ok(indexed)
     }
@@ -295,7 +295,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
                     self.get_chunk_by_id(linked_chunk_id, previous_identifier).await?
                 {
                     previous_chunk.next = chunk.next;
-                    self.put_item(&previous_chunk).await?;
+                    self.put_item(&previous_chunk)?;
                 }
             }
             if let Some(next) = chunk.next {
@@ -304,7 +304,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
                     self.get_chunk_by_id(linked_chunk_id, next_identifier).await?
                 {
                     next_chunk.previous = chunk.previous;
-                    self.put_item(&next_chunk).await?;
+                    self.put_item(&next_chunk)?;
                 }
             }
             self.delete_item_by_key::<Chunk, IndexedChunkIdKey>((linked_chunk_id, chunk_id))
@@ -338,6 +338,16 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     ) -> Result<Option<Event>, TransactionError> {
         let key = self.serializer().encode_key((linked_chunk_id, event_id));
         self.get_item_by_key::<Event, IndexedEventIdKey>(key).await
+    }
+
+    /// Query IndexedDB for events that match the given event id across all
+    /// linked chunks.
+    pub async fn get_events_by_event_id(
+        &self,
+        event_id: &EventId,
+    ) -> Result<Vec<Event>, TransactionError> {
+        let key = self.serializer().encode_key::<_, IndexedEventEventIdKey>(event_id);
+        self.get_items_by_key::<Event, IndexedEventEventIdKey>(key).await
     }
 
     /// Query IndexedDB for events that match the given event id in the given
@@ -434,25 +444,71 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     /// This functionality allows events to be promoted from
     /// out-of-band events to in-band events, but not vice versa.
     ///
+    /// Additionally, if an event with the same ID already exists anywhere
+    /// in the store, every instance is updated with the provided content, i.e.,
+    /// across all linked chunks.
+    ///
     /// When the event is successfully added, the function returns
     /// the intermediary type [`IndexedEvent`] in case inspection
     /// is needed.
     pub async fn add_event(&self, event: &Event) -> Result<IndexedEvent, TransactionError> {
-        let existing =
-            self.get_event_by_id(event.linked_chunk_id(), event.event_id().unwrap()).await?;
-        if matches!(event, Event::InBand(_)) && matches!(existing, Some(Event::OutOfBand(_))) {
-            self.put_event(event).await
-        } else {
-            self.add_item(event).await
-        }
+        let linked_chunk_id = event.linked_chunk_id();
+        let Some(event_id) = event.event_id() else {
+            return Err(TransactionError::Serialization(Box::new(IndexedEventError::NoEventId)));
+        };
+
+        let existing = self.get_event_by_id(linked_chunk_id, event_id).await?;
+
+        let indexed =
+            if matches!(event, Event::InBand(_)) && matches!(existing, Some(Event::OutOfBand(_))) {
+                self.put_item(event)?
+            } else {
+                self.add_item(event)?
+            };
+
+        self.update_events_by_event_id(event_id, |existing| {
+            existing.with_content(event.content().clone())
+        })
+        .await?;
+
+        Ok(indexed)
     }
 
     /// Puts an event in IndexedDB. If an event with the same key already
-    /// exists, it will be overwritten. When the item is successfully put, the
-    /// function returns the intermediary type [`IndexedEvent`] in case
-    /// inspection is needed.
+    /// exists in it will be overwritten.
+    ///
+    /// Additionally, if an event with the same ID exists in any other linked
+    /// chunk, every instance is updated with the provided content.
+    ///
+    /// When the item is successfully put, the function returns the intermediary
+    /// type [`IndexedEvent`] in case inspection is needed.
     pub async fn put_event(&self, event: &Event) -> Result<IndexedEvent, TransactionError> {
-        self.put_item(event).await
+        let Some(event_id) = event.event_id() else {
+            return Err(TransactionError::Serialization(Box::new(IndexedEventError::NoEventId)));
+        };
+
+        let indexed = self.put_item(event)?;
+
+        self.update_events_by_event_id(event_id, |existing| {
+            existing.with_content(event.content().clone())
+        })
+        .await?;
+
+        Ok(indexed)
+    }
+
+    /// Update all events in the store matching the given event ID by reading
+    /// them, applying the function `F`, and then writing them back to
+    /// IndexedDB.
+    ///
+    /// Note that this is a potentially expensive operation, as IndexedDB
+    /// does not provide modification utilities.
+    pub async fn update_events_by_event_id<F: Fn(Event) -> Event>(
+        &self,
+        event_id: &EventId,
+        f: F,
+    ) -> Result<(), TransactionError> {
+        self.update_items_by_key_components::<Event, IndexedEventEventIdKey, F>(event_id, f).await
     }
 
     /// Update events in the given position range matching the given linked
@@ -585,11 +641,8 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     }
 
     /// Update a thread info.
-    pub async fn update_thread_info(
-        &self,
-        thread: &Thread,
-    ) -> Result<IndexedThread, TransactionError> {
-        self.put_item(thread).await
+    pub fn update_thread_info(&self, thread: &Thread) -> Result<IndexedThread, TransactionError> {
+        self.put_item(thread)
     }
 
     /// List all threads (remembered with [`Self::update_thread_info`]) for a

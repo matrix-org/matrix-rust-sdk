@@ -37,6 +37,8 @@ use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, olm::SessionConfig};
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
 #[cfg(any(test, feature = "testing", doc))]
 use crate::OlmMachine;
+#[cfg(feature = "experimental-x509-identity-verification")]
+use crate::x509::X509Verifier;
 use crate::{
     Account, Sas, VerificationRequest,
     error::{MismatchedIdentityKeysError, OlmError, OlmResult, SignatureError},
@@ -127,6 +129,8 @@ pub struct Device {
     pub(crate) verification_machine: VerificationMachine,
     pub(crate) own_identity: Option<OwnUserIdentityData>,
     pub(crate) device_owner_identity: Option<UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    pub(crate) x509_verifier: Option<X509Verifier>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -300,9 +304,11 @@ impl Device {
     pub fn is_device_owner_verified(&self) -> bool {
         self.device_owner_identity.as_ref().is_some_and(|id| match id {
             UserIdentityData::Own(own_identity) => own_identity.is_verified(),
-            UserIdentityData::Other(other_identity) => {
-                self.own_identity.as_ref().is_some_and(|oi| oi.is_identity_verified(other_identity))
-            }
+            UserIdentityData::Other(other_identity) => other_identity.is_verified(
+                self.own_identity.as_ref(),
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                self.x509_verifier.as_ref(),
+            ),
         })
     }
 
@@ -353,12 +359,22 @@ impl Device {
     /// [`is_locally_trusted()`]: #method.is_locally_trusted
     /// [`is_cross_signing_trusted()`]: #method.is_cross_signing_trusted
     pub fn is_verified(&self) -> bool {
-        self.inner.is_verified(&self.own_identity, &self.device_owner_identity)
+        self.inner.is_verified(
+            &self.own_identity,
+            &self.device_owner_identity,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            self.x509_verifier.as_ref(),
+        )
     }
 
     /// Is this device considered to be verified using cross signing.
     pub fn is_cross_signing_trusted(&self) -> bool {
-        self.inner.is_cross_signing_trusted(&self.own_identity, &self.device_owner_identity)
+        self.inner.is_cross_signing_trusted(
+            &self.own_identity,
+            &self.device_owner_identity,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            self.x509_verifier.as_ref(),
+        )
     }
 
     /// Manually verify this device.
@@ -493,6 +509,8 @@ impl Device {
             share_strategy,
             &self.own_identity,
             &self.device_owner_identity,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            self.x509_verifier.as_ref(),
         )
         .await?
         {
@@ -523,6 +541,8 @@ pub struct UserDevices {
     pub(crate) verification_machine: VerificationMachine,
     pub(crate) own_identity: Option<OwnUserIdentityData>,
     pub(crate) device_owner_identity: Option<UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    pub(crate) x509_verifier: Option<X509Verifier>,
 }
 
 impl UserDevices {
@@ -533,6 +553,8 @@ impl UserDevices {
             verification_machine: self.verification_machine.clone(),
             own_identity: self.own_identity.clone(),
             device_owner_identity: self.device_owner_identity.clone(),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier: self.x509_verifier.clone(),
         })
     }
 
@@ -555,7 +577,14 @@ impl UserDevices {
             .filter(|d| {
                 !(d.user_id() == self.own_user_id() && d.device_id() == self.own_device_id())
             })
-            .any(|d| d.is_verified(&self.own_identity, &self.device_owner_identity))
+            .any(|d| {
+                d.is_verified(
+                    &self.own_identity,
+                    &self.device_owner_identity,
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    self.x509_verifier.as_ref(),
+                )
+            })
     }
 
     /// Iterator over all the device ids of the user devices.
@@ -570,6 +599,8 @@ impl UserDevices {
             verification_machine: self.verification_machine.clone(),
             own_identity: self.own_identity.clone(),
             device_owner_identity: self.device_owner_identity.clone(),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier: self.x509_verifier.clone(),
         })
     }
 }
@@ -758,32 +789,44 @@ impl DeviceData {
         &self,
         own_identity: &Option<OwnUserIdentityData>,
         device_owner: &Option<UserIdentityData>,
+        #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+            &X509Verifier,
+        >,
     ) -> bool {
-        self.is_locally_trusted() || self.is_cross_signing_trusted(own_identity, device_owner)
+        self.is_locally_trusted()
+            || self.is_cross_signing_trusted(
+                own_identity,
+                device_owner,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                x509_verifier,
+            )
     }
 
     pub(crate) fn is_cross_signing_trusted(
         &self,
         own_identity: &Option<OwnUserIdentityData>,
         device_owner: &Option<UserIdentityData>,
+        #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+            &X509Verifier,
+        >,
     ) -> bool {
-        own_identity.as_ref().zip(device_owner.as_ref()).is_some_and(
-            |(own_identity, device_identity)| {
-                match device_identity {
-                    UserIdentityData::Own(_) => {
-                        own_identity.is_verified() && own_identity.is_device_signed(self)
-                    }
+        device_owner.as_ref().is_some_and(|device_identity| match device_identity {
+            UserIdentityData::Own(_) => own_identity.as_ref().is_some_and(|own_identity| {
+                own_identity.is_verified() && own_identity.is_device_signed(self)
+            }),
 
-                    // If it's a device from someone else, first check
-                    // that our user has verified the other user and then
-                    // check if the other user has signed this device.
-                    UserIdentityData::Other(device_identity) => {
-                        own_identity.is_identity_verified(device_identity)
-                            && device_identity.is_device_signed(self)
-                    }
-                }
-            },
-        )
+            // If it's a device from someone else, first check that our user
+            // has verified the other user (either by cross-signing their
+            // identity, or via a valid X.509 signature on their master key)
+            // and then check if the other user has signed this device.
+            UserIdentityData::Other(device_identity) => {
+                device_identity.is_verified(
+                    own_identity.as_ref(),
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    x509_verifier,
+                ) && device_identity.is_device_signed(self)
+            }
+        })
     }
 
     pub(crate) fn is_cross_signed_by_owner(
@@ -1169,5 +1212,62 @@ pub(crate) mod tests {
             device.ed25519_key().unwrap(),
             Ed25519PublicKey::from_base64("2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4").unwrap(),
         );
+    }
+
+    /// A device signed by its owner's self-signing key becomes trusted when
+    /// the owner's identity is verified via X.509, even though we never
+    /// cross-signed the identity ourselves.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    #[matrix_sdk_test::async_test]
+    async fn test_x509_verified_owner_confers_device_trust() {
+        use std::sync::Arc;
+
+        use ruma::device_id;
+
+        use crate::{
+            machine::test_helpers::create_signed_device_of_unverified_user,
+            olm::{Account, PrivateCrossSigningIdentity},
+            x509::{
+                RustRawX509Signer, RustRawX509Verifier, X509Signer, X509Verifier,
+                tests::{ca_cert, cert_and_key_with_email_signed_by},
+            },
+        };
+
+        // Given Alice's identity is signed with an X.509 certificate chaining
+        // to a CA...
+        let (ca_certificate, ca_signing_key) = ca_cert();
+        let (certificate, signing_key) =
+            cert_and_key_with_email_signed_by("alice@hs.co", &ca_certificate, &ca_signing_key);
+        let x509_signer = X509Signer::new(Arc::new(
+            RustRawX509Signer::new_from_pem_data(&certificate.pem(), &signing_key.serialize_pem())
+                .unwrap(),
+        ));
+        let account = Account::with_device_id(user_id!("@alice:hs.co"), device_id!("ALICEDEV"));
+        let alice_private_identity =
+            PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer)).await.unwrap();
+
+        // ...and her device is signed by her self-signing key, but we have not
+        // cross-signed her identity ourselves.
+        let mut device =
+            create_signed_device_of_unverified_user(account.device_keys(), &alice_private_identity)
+                .await;
+        assert!(device.is_cross_signed_by_owner());
+
+        // Without a verifier for the CA, the device is not trusted.
+        assert!(!device.is_cross_signing_trusted());
+
+        // With a verifier trusting the CA, the device is trusted.
+        device.x509_verifier = Some(X509Verifier::new(Arc::new(
+            RustRawX509Verifier::new_from_pem_data(&ca_certificate.pem()).unwrap(),
+        )));
+        assert!(device.is_cross_signing_trusted());
+        assert!(device.is_verified());
+
+        // A verifier trusting a *different* CA does not trust the device.
+        let (wrong_ca_certificate, _) = ca_cert();
+        device.x509_verifier = Some(X509Verifier::new(Arc::new(
+            RustRawX509Verifier::new_from_pem_data(&wrong_ca_certificate.pem()).unwrap(),
+        )));
+        assert!(!device.is_cross_signing_trusted());
     }
 }

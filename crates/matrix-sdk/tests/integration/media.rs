@@ -315,7 +315,7 @@ async fn test_async_media_upload() {
 
     let mxc_uri = client.media().create_content_uri().await.unwrap();
 
-    assert_eq!(mxc_uri.uri, owned_mxc_uri!("mxc://example.com/AQwafuaFswefuhsfAFAgsw"));
+    assert_eq!(mxc_uri.uri, "mxc://example.com/AQwafuaFswefuhsfAFAgsw");
 
     client
         .media()

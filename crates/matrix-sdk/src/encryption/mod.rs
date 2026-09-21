@@ -17,7 +17,7 @@
 #![cfg_attr(target_family = "wasm", allow(unused_imports))]
 
 #[cfg(feature = "experimental-send-custom-to-device")]
-use std::ops::Deref;
+use std::{collections::BTreeSet, ops::Deref};
 use std::{
     collections::{BTreeMap, HashSet},
     io::{Cursor, Read, Write},
@@ -28,6 +28,8 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "experimental-send-custom-to-device")]
+use as_variant::as_variant;
 use eyeball::{SharedObservable, Subscriber};
 use futures_core::Stream;
 use futures_util::{
@@ -79,7 +81,11 @@ use ruma::{
     },
 };
 #[cfg(feature = "experimental-send-custom-to-device")]
-use ruma::{events::AnyToDeviceEventContent, serde::Raw, to_device::DeviceIdOrAllDevices};
+use ruma::{
+    events::{AnyToDeviceEventContent, ToDeviceEventType},
+    serde::Raw,
+    to_device::DeviceIdOrAllDevices,
+};
 use serde::{Deserialize, de::Error as _};
 use tasks::BundleReceiverTask;
 use tokio::sync::{Mutex, RwLockReadGuard};
@@ -879,6 +885,132 @@ impl Client {
             .await;
 
         Ok(())
+    }
+}
+
+#[cfg(feature = "experimental-send-custom-to-device")]
+impl Client {
+    /// Olm-encrypt a raw to-device message and send it to a set of recipient
+    /// devices.
+    ///
+    /// If there are a lot of recipient devices multiple `/sendToDevice`
+    /// requests might be sent out.
+    ///
+    /// The content is always encrypted.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_type` - The type of the to-device event to send.
+    ///
+    /// * `recipients` - The devices to send the message to, as a `user id ->
+    ///   device ids` map. [`DeviceIdOrAllDevices::AllDevices`] targets every
+    ///   device of that user we know about.
+    ///
+    /// * `content` - The content of the to-device event, encrypted for and sent
+    ///   to every recipient.
+    ///
+    /// # Returns
+    ///
+    /// The devices that did *not* receive the message, as a `user id -> device
+    /// ids` map. A device can end up in there because it is unknown to us,
+    /// because the sharing strategy excluded it, or because encrypting for it
+    /// or sending to it failed. An empty map means every recipient was served.
+    ///
+    /// [`send_event_to_device`]: ruma::api::client::to_device::send_event_to_device
+    pub async fn send_encrypted_to_device(
+        &self,
+        event_type: &ToDeviceEventType,
+        recipients: BTreeMap<OwnedUserId, Vec<DeviceIdOrAllDevices>>,
+        content: Raw<AnyToDeviceEventContent>,
+    ) -> Result<BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>> {
+        let mut failures: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> = BTreeMap::new();
+        let mut recipient_devices = Vec::<_>::new();
+
+        // Find out the actual user devices from their name/wildcard
+        for (user_id, recipient_device_ids) in recipients {
+            let (devices, unknown_devices) =
+                self.resolve_recipient_devices(&user_id, recipient_device_ids).await?;
+            recipient_devices.extend(devices);
+            if !unknown_devices.is_empty() {
+                failures.insert(user_id, unknown_devices);
+            }
+        }
+
+        if !recipient_devices.is_empty() {
+            let encrypt_and_send_failures = self
+                .encryption()
+                .encrypt_and_send_raw_to_device(
+                    recipient_devices.iter().collect(),
+                    &event_type.to_string(),
+                    content,
+                    CollectStrategy::AllDevices,
+                )
+                .await?;
+
+            for (user_id, device_id) in encrypt_and_send_failures {
+                failures.entry(user_id).or_default().push(device_id)
+            }
+        }
+
+        Ok(failures)
+    }
+
+    /// Resolve the devices ([`Device`]) of a single user from a list of
+    /// DeviceIdOrAllDevices.
+    ///
+    /// # Returns
+    ///
+    /// A tuple of the [`Device`]s we know about and should send to, and the
+    /// device IDs that were explicitly requested but are unknown to us.
+    /// [`DeviceIdOrAllDevices::AllDevices`] never yields unknown devices.
+    async fn resolve_recipient_devices(
+        &self,
+        user_id: &UserId,
+        recipient_device_ids: Vec<DeviceIdOrAllDevices>,
+    ) -> Result<(Vec<Device>, Vec<OwnedDeviceId>)> {
+        let user_devices = self.encryption().get_user_devices(user_id).await?;
+
+        if recipient_device_ids.contains(&DeviceIdOrAllDevices::AllDevices) {
+            // If the user wants to send to all devices, there's nothing to filter and no
+            // need to inspect other entries in the user's device list.
+            let devices: Vec<_> = user_devices.devices().collect();
+
+            if devices.is_empty() {
+                warn!(
+                    "Recipient list contains `AllDevices` but no devices found for user {user_id}."
+                );
+            }
+            if recipient_device_ids.len() > 1 {
+                warn!(
+                    "The recipient_device_ids list for {user_id} contains both `AllDevices` and explicit `DeviceId` entries. Only consider `AllDevices`",
+                );
+            }
+
+            Ok((devices, Vec::new()))
+        } else {
+            // If the user wants to send to only some devices, filter out any devices that
+            // aren't part of the recipient_device_ids list.
+            let (found_device_ids, devices): (BTreeSet<_>, Vec<_>) = user_devices
+                .devices()
+                .map(|device| (device.device_id().to_owned(), device))
+                .filter(|(device_id, _)| {
+                    recipient_device_ids
+                        .contains(&DeviceIdOrAllDevices::DeviceId(device_id.clone()))
+                })
+                .unzip();
+
+            let requested_device_ids: BTreeSet<_> = recipient_device_ids
+                .into_iter()
+                .filter_map(|d| as_variant!(d, DeviceIdOrAllDevices::DeviceId))
+                .collect();
+
+            // Let's now find any devices that are part of the recipient_device_ids list but
+            // were not found in our store.
+            let missing_devices =
+                requested_device_ids.difference(&found_device_ids).map(ToOwned::to_owned).collect();
+
+            Ok((devices, missing_devices))
+        }
     }
 }
 
@@ -2772,5 +2904,231 @@ mod tests {
         client.keys_query(&request_id, request.device_keys).await.unwrap();
 
         assert!(!client.encryption().has_devices_to_verify_against().await.unwrap());
+    }
+
+    #[cfg(feature = "experimental-send-custom-to-device")]
+    mod resolve_recipient_devices {
+        use matrix_sdk_test::async_test;
+        use ruma::{
+            OwnedDeviceId, device_id, owned_device_id, to_device::DeviceIdOrAllDevices, user_id,
+        };
+
+        use super::super::Device;
+        use crate::{Client, test_utils::mocks::MatrixMockServer};
+
+        const BOB_FIRST_DEVICE: &str = "B0B0B0B0B";
+        const BOB_SECOND_DEVICE: &str = "B0B2B0B2";
+        const BOB_THIRD_DEVICE: &str = "B0B3B0B3";
+
+        /// Set up Alice and Bob, where Bob has two devices that Alice knows
+        /// about.
+        ///
+        /// The [`MatrixMockServer`] is returned so that it stays alive for the
+        /// duration of the test.
+        async fn alice_and_bob_with_two_bob_devices() -> (MatrixMockServer, Client, Client) {
+            let server = MatrixMockServer::new().await;
+            server.mock_crypto_endpoints_preset().await;
+
+            let (alice, bob) = server.set_up_alice_and_bob_for_encryption().await;
+            assert_eq!(bob.device_id().unwrap(), device_id!(BOB_FIRST_DEVICE));
+
+            server
+                .set_up_new_device_for_encryption(&bob, device_id!(BOB_SECOND_DEVICE), vec![&alice])
+                .await;
+
+            // Let Alice download Bob's second device.
+            server
+                .mock_sync()
+                .ok_and_run(&alice, |builder| {
+                    builder.add_change_device(bob.user_id().unwrap());
+                })
+                .await;
+
+            (server, alice, bob)
+        }
+
+        /// The device IDs of the given devices, sorted so that we can assert on
+        /// them.
+        fn device_ids(devices: Vec<Device>) -> Vec<OwnedDeviceId> {
+            let mut device_ids: Vec<_> =
+                devices.into_iter().map(|d| d.device_id().to_owned()).collect();
+            device_ids.sort();
+            device_ids
+        }
+
+        #[async_test]
+        async fn test_all_devices_resolves_to_every_known_device() {
+            let (_server, alice, bob) = alice_and_bob_with_two_bob_devices().await;
+
+            let (devices, unknown_devices) = alice
+                .resolve_recipient_devices(
+                    bob.user_id().unwrap(),
+                    vec![DeviceIdOrAllDevices::AllDevices],
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(
+                device_ids(devices),
+                vec![owned_device_id!(BOB_FIRST_DEVICE), owned_device_id!(BOB_SECOND_DEVICE)]
+            );
+            assert!(unknown_devices.is_empty(), "`AllDevices` can't reference an unknown device");
+        }
+
+        #[async_test]
+        async fn test_explicit_device_ids_are_filtered_to_the_requested_ones() {
+            let (_server, alice, bob) = alice_and_bob_with_two_bob_devices().await;
+
+            let (devices, unknown_devices) = alice
+                .resolve_recipient_devices(
+                    bob.user_id().unwrap(),
+                    vec![DeviceIdOrAllDevices::DeviceId(owned_device_id!(BOB_SECOND_DEVICE))],
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(device_ids(devices), vec![owned_device_id!(BOB_SECOND_DEVICE)]);
+            assert!(unknown_devices.is_empty());
+        }
+
+        /// Asking for several device IDs resolves all of them, and only them.
+        #[async_test]
+        async fn test_several_explicit_device_ids_are_all_resolved() {
+            let (server, alice, bob) = alice_and_bob_with_two_bob_devices().await;
+
+            server
+                .set_up_new_device_for_encryption(&bob, device_id!(BOB_THIRD_DEVICE), vec![&alice])
+                .await;
+
+            // Let Alice download Bob's third device.
+            server
+                .mock_sync()
+                .ok_and_run(&alice, |builder| {
+                    builder.add_change_device(bob.user_id().unwrap());
+                })
+                .await;
+
+            let (devices, unknown_devices) = alice
+                .resolve_recipient_devices(
+                    bob.user_id().unwrap(),
+                    vec![
+                        DeviceIdOrAllDevices::DeviceId(owned_device_id!(BOB_FIRST_DEVICE)),
+                        DeviceIdOrAllDevices::DeviceId(owned_device_id!(BOB_THIRD_DEVICE)),
+                    ],
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(
+                device_ids(devices),
+                vec![owned_device_id!(BOB_FIRST_DEVICE), owned_device_id!(BOB_THIRD_DEVICE)],
+                "the second device was not requested and must be left out"
+            );
+            assert!(unknown_devices.is_empty());
+        }
+
+        #[async_test]
+        async fn test_unknown_device_is_reported_back() {
+            let (_server, alice, bob) = alice_and_bob_with_two_bob_devices().await;
+
+            let (devices, unknown_devices) = alice
+                .resolve_recipient_devices(
+                    bob.user_id().unwrap(),
+                    vec![DeviceIdOrAllDevices::DeviceId(owned_device_id!("UNKNOWNDEVICE"))],
+                )
+                .await
+                .unwrap();
+
+            assert!(devices.is_empty());
+            assert_eq!(unknown_devices, vec![owned_device_id!("UNKNOWNDEVICE")]);
+        }
+
+        /// A single unknown device must not prevent the known ones from
+        /// receiving the message.
+        #[async_test]
+        async fn test_known_and_unknown_devices_are_split() {
+            let (_server, alice, bob) = alice_and_bob_with_two_bob_devices().await;
+
+            let (devices, unknown_devices) = alice
+                .resolve_recipient_devices(
+                    bob.user_id().unwrap(),
+                    vec![
+                        DeviceIdOrAllDevices::DeviceId(owned_device_id!(BOB_FIRST_DEVICE)),
+                        DeviceIdOrAllDevices::DeviceId(owned_device_id!("UNKNOWNDEVICE")),
+                    ],
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(device_ids(devices), vec![owned_device_id!(BOB_FIRST_DEVICE)]);
+            assert_eq!(unknown_devices, vec![owned_device_id!("UNKNOWNDEVICE")]);
+        }
+
+        /// If `AllDevices` is mixed with explicit device IDs, `AllDevices`
+        /// wins and the explicit entries are ignored, even if they are unknown
+        /// to us.
+        #[async_test]
+        async fn test_all_devices_takes_precedence_over_explicit_device_ids() {
+            let (_server, alice, bob) = alice_and_bob_with_two_bob_devices().await;
+
+            let (devices, unknown_devices) = alice
+                .resolve_recipient_devices(
+                    bob.user_id().unwrap(),
+                    vec![
+                        DeviceIdOrAllDevices::AllDevices,
+                        DeviceIdOrAllDevices::DeviceId(owned_device_id!("UNKNOWNDEVICE")),
+                    ],
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(
+                device_ids(devices),
+                vec![owned_device_id!(BOB_FIRST_DEVICE), owned_device_id!(BOB_SECOND_DEVICE)]
+            );
+            assert!(unknown_devices.is_empty());
+        }
+
+        /// An empty recipient list targets nobody, it is not a synonym for
+        /// `AllDevices`.
+        #[async_test]
+        async fn test_empty_recipient_list_resolves_to_no_device() {
+            let (_server, alice, bob) = alice_and_bob_with_two_bob_devices().await;
+
+            let (devices, unknown_devices) =
+                alice.resolve_recipient_devices(bob.user_id().unwrap(), vec![]).await.unwrap();
+
+            assert!(devices.is_empty());
+            assert!(unknown_devices.is_empty());
+        }
+
+        /// A user we don't know anything about has no devices, and every device
+        /// explicitly asked for is unknown.
+        #[async_test]
+        async fn test_unknown_user_has_no_device() {
+            let (_server, alice, _bob) = alice_and_bob_with_two_bob_devices().await;
+            let unknown_user_id = user_id!("@carol:example.org");
+
+            let (devices, unknown_devices) = alice
+                .resolve_recipient_devices(
+                    unknown_user_id,
+                    vec![DeviceIdOrAllDevices::DeviceId(owned_device_id!(BOB_FIRST_DEVICE))],
+                )
+                .await
+                .unwrap();
+
+            assert!(devices.is_empty());
+            assert_eq!(unknown_devices, vec![owned_device_id!(BOB_FIRST_DEVICE)]);
+
+            // `AllDevices` for an unknown user is not an error either, it just
+            // resolves to nothing.
+            let (devices, unknown_devices) = alice
+                .resolve_recipient_devices(unknown_user_id, vec![DeviceIdOrAllDevices::AllDevices])
+                .await
+                .unwrap();
+
+            assert!(devices.is_empty());
+            assert!(unknown_devices.is_empty());
+        }
     }
 }

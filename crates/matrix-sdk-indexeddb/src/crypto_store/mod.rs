@@ -2343,6 +2343,6 @@ mod encrypted_tests {
             .expect("Can't create a key-protected store");
         let loaded_account =
             store.load_account().await.expect("Can't load account").expect("Account was not saved");
-        assert_eq!(loaded_account.user_id, user_id!("@alice:example.org"));
+        assert_eq!(loaded_account.user_id, "@alice:example.org");
     }
 }

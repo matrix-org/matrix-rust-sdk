@@ -56,7 +56,7 @@ use crate::{
     paginators::PaginatorError,
 };
 
-mod back_pagination_queue;
+pub(crate) mod back_pagination_queue;
 mod caches;
 mod deduplicator;
 mod persistence;
@@ -80,7 +80,7 @@ pub use self::{
             pagination::RoomPagination,
         },
         subscriber::Subscriber,
-        thread::{ThreadEventCache, pagination::ThreadPagination},
+        thread::{ThreadEventCache, ThreadEventCacheUpdate, pagination::ThreadPagination},
     },
 };
 use self::{

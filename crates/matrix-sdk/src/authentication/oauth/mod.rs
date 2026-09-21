@@ -715,6 +715,23 @@ impl OAuth {
     /// loading the sync state and the encryption keys from the store, if
     /// one was set up.
     ///
+    /// # Persisting the store
+    ///
+    /// Restoring only reattaches the client to its stored state; it does
+    /// not recreate that state. The same persistent store used during the
+    /// original login (for example via
+    /// [`ClientBuilder::sqlite_store()`]) must be configured on the
+    /// [`ClientBuilder`] when the session is restored, otherwise the
+    /// encryption keys and room state will not be available. When the
+    /// `e2e-encryption` feature is enabled, restoring on top of an
+    /// in-memory store will leave the client unable to send or receive
+    /// encrypted messages. See the [`persist_session`] example for a full
+    /// walk-through.
+    ///
+    /// [`ClientBuilder`]: crate::ClientBuilder
+    /// [`ClientBuilder::sqlite_store()`]: crate::ClientBuilder::sqlite_store
+    /// [`persist_session`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples/persist_session
+    ///
     /// # Arguments
     ///
     /// * `session` - The session to restore.

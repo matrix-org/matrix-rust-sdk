@@ -282,7 +282,7 @@ impl CryptoStore for MemoryStore {
         {
             let mut olm_hashes = self.olm_hashes.write();
             for hash in changes.message_hashes {
-                olm_hashes.entry(hash.sender_key.to_owned()).or_default().insert(hash.hash.clone());
+                olm_hashes.entry(hash.sender_key.to_owned()).or_default().insert(hash.hash);
             }
         }
 
@@ -1135,7 +1135,7 @@ mod tests {
         let loaded_identity =
             store.load_identity().await.expect("failed to load private identity").unwrap();
 
-        assert_eq!(loaded_identity.user_id(), user_id!("@u:s"));
+        assert_eq!(loaded_identity.user_id(), "@u:s");
     }
 
     #[async_test]

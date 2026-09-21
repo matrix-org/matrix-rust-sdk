@@ -58,6 +58,7 @@ mod reactions;
 mod read_receipts;
 mod redecryption;
 mod replies;
+mod send_controls;
 mod subscribe;
 mod thread;
 
@@ -326,7 +327,7 @@ async fn test_reaction() {
     assert_let!(Some(msg) = event_item.content().as_message());
     assert!(!msg.is_edited());
     assert_eq!(event_item.read_receipts().len(), 2);
-    assert_eq!(event_item.content().reactions().cloned().unwrap_or_default().len(), 0);
+    assert_eq!(event_item.reactions().len(), 0);
 
     // Then the reaction is taken into account.
     assert_let!(VectorDiff::Set { index: 0, value: updated_message } = &timeline_updates[2]);
@@ -334,7 +335,7 @@ async fn test_reaction() {
     assert_let!(Some(msg) = event_item.content().as_message());
     assert!(!msg.is_edited());
     assert_eq!(event_item.read_receipts().len(), 2);
-    let reactions = event_item.content().reactions().cloned().unwrap_or_default();
+    let reactions = event_item.reactions().clone();
     assert_eq!(reactions.len(), 1);
     let group = &reactions["👍"];
     assert_eq!(group.len(), 1);
@@ -362,7 +363,7 @@ async fn test_reaction() {
     let event_item = updated_message.as_event().unwrap();
     assert_let!(Some(msg) = event_item.content().as_message());
     assert!(!msg.is_edited());
-    assert_eq!(event_item.content().reactions().cloned().unwrap_or_default().len(), 0);
+    assert_eq!(event_item.reactions().len(), 0);
 
     assert_pending!(timeline_stream);
 }
@@ -446,6 +447,26 @@ async fn test_redact_message() {
     server.mock_room_redact().ok(event_id!("$42")).mock_once().mount().await;
 
     timeline.redact(&first.as_event().unwrap().identifier(), Some("inapprops")).await.unwrap();
+
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 1);
+
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+    assert!(item.as_event().unwrap().content().is_redacted());
+
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 2);
+
+    // The redaction was sent, then its remote echo arrived.
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+    let item = item.as_event().unwrap();
+    assert!(item.content().is_redacted());
+    assert_matches!(item.redaction_send_state(), Some(EventSendState::Sent { .. }));
+
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[1]);
+    let item = item.as_event().unwrap();
+    assert!(item.content().is_redacted());
+    assert_matches!(item.redaction_send_state(), None);
 
     // Redacting a local event works.
     timeline
@@ -537,6 +558,26 @@ async fn test_redact_local_sent_message() {
 
     // Let's redact the local echo with the remote handle.
     timeline.redact(&event.identifier(), None).await.unwrap();
+
+    // We receive an update in the timeline from the send queue: the redaction's
+    // local echo.
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 1);
+
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+    let event = item.as_event().unwrap();
+    assert!(event.content().is_redacted());
+
+    // We receive an update in the timeline from the send queue: the redaction's
+    // remote echo.
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 1);
+
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+    let event = item.as_event().unwrap();
+    assert!(event.content().is_redacted());
+
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]

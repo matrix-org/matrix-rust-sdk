@@ -95,8 +95,8 @@ pub use self::{
         EventItemOrigin, EventSendState, EventTimelineItem, InReplyToDetails, LiveLocationState,
         MediaUploadProgress, MemberProfileChange, MembershipChange, Message, MsgLikeContent,
         MsgLikeKind, OtherMessageLike, OtherState, PollResult, PollState, Profile, ReactionInfo,
-        ReactionStatus, ReactionsByKeyBySender, RoomMembershipChange, RoomPinnedEventsChange,
-        Sticker, ThreadSummary, TimelineDetails, TimelineEventItemId, TimelineEventShieldState,
+        ReactionsByKeyBySender, RoomMembershipChange, RoomPinnedEventsChange, Sticker,
+        ThreadSummary, TimelineDetails, TimelineEventItemId, TimelineEventShieldState,
         TimelineEventShieldStateCode, TimelineItemContent,
     },
     item::{TimelineItem, TimelineItemKind, TimelineUniqueId},
@@ -105,6 +105,26 @@ pub use self::{
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
 };
+
+/// Which pending send on an item [`Timeline::retry_send`] and
+/// [`Timeline::abort_send`] act on.
+#[derive(Clone, Debug)]
+pub enum SendTarget {
+    /// The item itself, while it's a local echo.
+    ///
+    /// Note that aborting one that's already in flight queues a redaction for
+    /// it, without a reason; use [`SendHandle::abort_with_reason`] if one is
+    /// needed.
+    ///
+    /// [`SendHandle::abort_with_reason`]: matrix_sdk::send_queue::SendHandle::abort_with_reason
+    Event,
+    /// Our pending edit of the item.
+    Edit,
+    /// Our pending redaction of the item.
+    Redaction,
+    /// Our pending reaction to the item with this key.
+    Reaction { key: String },
+}
 
 /// A high-level view into a regular¹ room's contents.
 ///
@@ -575,11 +595,14 @@ impl Timeline {
             }
 
             TimelineItemHandle::Local(handle) => {
-                // Relations are filled by the editing code itself.
                 let new_content: AnyMessageLikeEventContent = match new_content {
                     EditedContent::RoomMessage(message) => {
                         if item.content.is_message() {
-                            AnyMessageLikeEventContent::RoomMessage(message.into())
+                            // The replacement becomes the pending event itself, so restore its
+                            // relations, which the payload can't carry by type.
+                            AnyMessageLikeEventContent::RoomMessage(
+                                message.with_relation(item.content.relation()),
+                            )
                         } else {
                             return Err(EditError::ContentMismatch {
                                 original: item.content.debug_string().to_owned(),
@@ -730,7 +753,12 @@ impl Timeline {
 
         match event.handle() {
             TimelineItemHandle::Remote(event_id) => {
-                self.room().redact(event_id, reason, None).await.map_err(RedactError::HttpError)?;
+                self.room()
+                    .send_queue()
+                    .redact(event_id.to_owned(), reason)
+                    .await
+                    .map_err(|_| Error::FailedSendingRedaction)?;
+                Ok(())
             }
             TimelineItemHandle::Local(handle) => {
                 // Forward the reason: if the local echo was being sent and the send wins the
@@ -742,10 +770,45 @@ impl Timeline {
                 {
                     return Err(RedactError::InvalidLocalEchoState.into());
                 }
+                Ok(())
             }
         }
+    }
 
-        Ok(())
+    /// Retry sending something on this item that failed, see [`SendTarget`].
+    ///
+    /// Only needed after an unrecoverable failure, which parks the request
+    /// until it's retried or aborted; a recoverable one goes out again when
+    /// the room's send queue is re-enabled.
+    ///
+    /// Returns `false` if there was nothing of that kind left to retry, e.g.
+    /// because it went out in the meantime.
+    pub async fn retry_send(
+        &self,
+        item_id: &TimelineEventItemId,
+        target: SendTarget,
+    ) -> Result<bool, Error> {
+        let Some(handle) = self.controller.pending_send_handle(item_id, target).await? else {
+            return Ok(false);
+        };
+        handle.unwedge().await?;
+        Ok(true)
+    }
+
+    /// Abort sending something on this item that hasn't gone out yet, see
+    /// [`SendTarget`].
+    ///
+    /// Returns `false` if there was nothing of that kind left to abort, e.g.
+    /// because it went out in the meantime.
+    pub async fn abort_send(
+        &self,
+        item_id: &TimelineEventItemId,
+        target: SendTarget,
+    ) -> Result<bool, Error> {
+        let Some(handle) = self.controller.pending_send_handle(item_id, target).await? else {
+            return Ok(false);
+        };
+        handle.abort().await.map_err(|err| Error::SendQueueError(err.into()))
     }
 
     /// Fetch unavailable details about the event with the given ID.

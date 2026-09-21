@@ -172,6 +172,16 @@ pub trait MediaFetcher: SendOutsideWasm + SyncOutsideWasm + fmt::Debug {
         client: &'a Client,
         request: &'a MediaRequestParameters,
     ) -> BoxFuture<'a, Result<Vec<u8>, Error>>;
+
+    /// Fetches the media content for the given [`MediaRequestParameters`],
+    /// using the provided [RequestConfig]. Returns either a byte array or
+    /// an [`crate::Error`].
+    fn fetch_media_content_with_config<'a>(
+        &'a self,
+        client: &'a Client,
+        request: &'a MediaRequestParameters,
+        request_config: RequestConfig,
+    ) -> BoxFuture<'a, Result<Vec<u8>, Error>>;
 }
 
 impl Media {
@@ -436,6 +446,14 @@ impl Media {
         // This is a local media. Force to read the media's content from the store: it
         // cannot exist somewhere else!
         if Self::is_local_uri(&request.source) {
+            // Local medias are always cached with `MediaFormat::File`, be it the file
+            // itself or its thumbnail (see `RoomSendQueue::cache_media`), so ignore the
+            // requested format.
+            let request = &MediaRequestParameters {
+                source: request.source.clone(),
+                format: MediaFormat::File,
+            };
+
             if let Some(content) =
                 self.client.media_store().lock().await?.get_media_content(request).await?
             {
@@ -802,13 +820,22 @@ impl MediaFetcher for DefaultMediaFetcher {
         client: &'a Client,
         request: &'a MediaRequestParameters,
     ) -> BoxFuture<'a, Result<Vec<u8>, Error>> {
-        Box::pin(async move {
-            let request_config = client
-                .request_config()
-                // Downloading a file should have no timeout as we don't know the network
-                // connectivity available for the user or the file size
-                .timeout(Some(Duration::MAX));
+        let request_config = client
+            .request_config()
+            // Downloading a file should have no timeout as we don't know the network
+            // connectivity available for the user or the file size
+            .timeout(Some(Duration::MAX));
 
+        self.fetch_media_content_with_config(client, request, request_config)
+    }
+
+    fn fetch_media_content_with_config<'a>(
+        &'a self,
+        client: &'a Client,
+        request: &'a MediaRequestParameters,
+        request_config: RequestConfig,
+    ) -> BoxFuture<'a, Result<Vec<u8>, Error>> {
+        Box::pin(async move {
             // Use the authenticated endpoints when the server supports it.
             let supported_versions = client.supported_versions().await?;
 

@@ -16,15 +16,12 @@ use std::sync::Arc;
 
 use eyeball_im::VectorDiff;
 use matrix_sdk::{deserialized_responses::TimelineEvent, send_queue::SendHandle};
-#[cfg(test)]
-use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
-    events::{AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent},
+    events::{AnyMessageLikeEventContent, receipt::ReceiptEventContent},
     room_version_rules::RoomVersionRules,
-    serde::Raw,
 };
-use tracing::{instrument, trace, warn};
+use tracing::{instrument, trace};
 
 use super::{
     super::{
@@ -119,32 +116,19 @@ impl<P: RoomDataProvider> TimelineState<P> {
     }
 
     #[instrument(skip_all)]
-    pub(super) async fn handle_ephemeral_events(
+    pub(super) async fn handle_read_receipt(
         &mut self,
-        events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        event: ReceiptEventContent,
         room_data_provider: &P,
     ) {
-        if events.is_empty() {
+        if event.is_empty() {
             return;
         }
 
-        let mut txn = self.transaction();
-
         trace!("Handling ephemeral room events");
-        let own_user_id = room_data_provider.own_user_id();
-        for raw_event in events {
-            match raw_event.deserialize() {
-                Ok(AnySyncEphemeralRoomEvent::Receipt(ev)) => {
-                    txn.handle_explicit_read_receipts(ev.content, own_user_id);
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    let event_type = raw_event.get_field::<String>("type").ok().flatten();
-                    warn!(event_type, "Failed to deserialize ephemeral event: {e}");
-                }
-            }
-        }
 
+        let mut txn = self.transaction();
+        txn.handle_explicit_read_receipts(event, room_data_provider.own_user_id());
         txn.commit();
     }
 

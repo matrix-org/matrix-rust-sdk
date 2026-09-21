@@ -1799,7 +1799,7 @@ mod tests {
 
         let info: RoomInfo = serde_json::from_value(info_json).unwrap();
 
-        assert_eq!(info.room_id, room_id!("!gda78o:server.tld"));
+        assert_eq!(info.room_id, "!gda78o:server.tld");
         assert_eq!(info.room_state, RoomState::Joined);
         assert_eq!(info.notification_counts.highlight_count, 1);
         assert_eq!(info.notification_counts.notification_count, 2);
@@ -1891,7 +1891,7 @@ mod tests {
 
         let info: RoomInfo = serde_json::from_value(info_json).unwrap();
 
-        assert_eq!(info.room_id, room_id!("!gda78o:server.tld"));
+        assert_eq!(info.room_id, "!gda78o:server.tld");
         assert_eq!(info.room_state, RoomState::Invited);
         assert_eq!(info.notification_counts.highlight_count, 1);
         assert_eq!(info.notification_counts.notification_count, 2);

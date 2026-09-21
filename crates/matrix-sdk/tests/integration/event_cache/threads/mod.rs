@@ -8,7 +8,7 @@ use imbl::Vector;
 use matrix_sdk::{
     Client, ThreadingSupport, assert_let_timeout,
     deserialized_responses::TimelineEvent,
-    event_cache::{RoomEventCacheUpdate, Subscriber, TimelineVectorDiffs},
+    event_cache::{RoomEventCacheUpdate, Subscriber, ThreadEventCacheUpdate, TimelineVectorDiffs},
     sleep::sleep,
     test_utils::{
         assert_event_matches_msg,
@@ -32,13 +32,16 @@ use tokio::sync::broadcast;
 /// stabilize.
 async fn wait_for_initial_events(
     mut events: Vec<TimelineEvent>,
-    stream: &mut broadcast::Receiver<TimelineVectorDiffs>,
+    stream: &mut broadcast::Receiver<ThreadEventCacheUpdate>,
 ) -> Vec<TimelineEvent> {
     if events.is_empty() {
         // Wait for a first update.
         let mut vector = Vector::new();
 
-        assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = stream.recv());
+        assert_let_timeout!(
+            Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                stream.recv()
+        );
 
         for diff in diffs {
             diff.apply(&mut vector);
@@ -118,7 +121,10 @@ async fn test_thread_contains_its_root_event() {
     let outcome = thread_event_cache.pagination().run_backwards_once(42).await.unwrap();
     assert!(outcome.reached_start);
 
-    assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = thread_stream.recv());
+    assert_let_timeout!(
+        Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            thread_stream.recv()
+    );
     assert_eq!(diffs.len(), 1);
     assert_let!(VectorDiff::Insert { index: 0, value } = &diffs[0]);
     assert_eq!(value.event_id(), Some(thread_root_id));
@@ -184,7 +190,10 @@ async fn test_ignored_user_empties_threads() {
 
     // We do receive a clear.
     {
-        assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = thread_stream.recv());
+        assert_let_timeout!(
+            Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                thread_stream.recv()
+        );
         assert_eq!(diffs.len(), 1);
         assert_let!(VectorDiff::Clear = &diffs[0]);
     }
@@ -205,7 +214,10 @@ async fn test_ignored_user_empties_threads() {
 
     // We do receive the new event.
     {
-        assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = thread_stream.recv());
+        assert_let_timeout!(
+            Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                thread_stream.recv()
+        );
         assert_eq!(diffs.len(), 1);
 
         assert_let!(VectorDiff::Append { values: events } = &diffs[0]);
@@ -550,7 +562,10 @@ async fn test_auto_subscribe_on_thread_paginate() {
     assert!(outcome.reached_start);
 
     // Let the event cache process the update.
-    assert_let_timeout!(Ok(TimelineVectorDiffs { .. }) = thread_stream.recv());
+    assert_let_timeout!(
+        Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { .. })) =
+            thread_stream.recv()
+    );
     assert_let_timeout!(Ok(()) = thread_subscriber_updates.recv());
     assert!(thread_subscriber_updates.is_empty());
 }
@@ -633,7 +648,10 @@ async fn test_auto_subscribe_on_thread_paginate_root_event() {
     assert!(outcome.reached_start);
 
     // Let the event cache process the update.
-    assert_let_timeout!(Ok(TimelineVectorDiffs { .. }) = thread_stream.recv());
+    assert_let_timeout!(
+        Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { .. })) =
+            thread_stream.recv()
+    );
     assert_let_timeout!(Ok(()) = thread_subscriber_updates.recv());
 }
 
@@ -741,7 +759,10 @@ async fn test_redact_touches_threads() {
     // - the redaction event is added to the “timeline”,
     // - the redaction's target is, well, redacted.
     {
-        assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = thread_stream.recv());
+        assert_let_timeout!(
+            Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                thread_stream.recv()
+        );
         assert_eq!(diffs.len(), 2);
 
         // The redaction event is appended to the thread cache.
@@ -815,7 +836,10 @@ async fn test_redact_touches_threads() {
     // - the redaction event is added to the “timeline”,
     // - the redaction's target is, well, redacted.
     {
-        assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = thread_stream.recv());
+        assert_let_timeout!(
+            Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                thread_stream.recv()
+        );
         assert_eq!(diffs.len(), 2);
 
         // The redaction event is appended to the thread cache.
@@ -969,7 +993,12 @@ async fn test_edits_touches_threads() {
     {
         // First update.
         {
-            assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = thread_stream.recv());
+            assert_let_timeout!(
+                Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                    diffs,
+                    ..
+                })) = thread_stream.recv()
+            );
             assert_eq!(diffs.len(), 1);
 
             // Oh, an edit event.
@@ -1040,7 +1069,12 @@ async fn test_edits_touches_threads() {
     {
         // First update.
         {
-            assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = thread_stream.recv());
+            assert_let_timeout!(
+                Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                    diffs,
+                    ..
+                })) = thread_stream.recv()
+            );
             assert_eq!(diffs.len(), 1);
 
             // Oh, an edit event.

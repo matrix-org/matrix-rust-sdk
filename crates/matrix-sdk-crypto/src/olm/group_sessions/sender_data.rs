@@ -551,7 +551,7 @@ mod tests {
 
         let end: SenderData = serde_json::from_str(json).expect("Failed to parse!");
         assert_let!(SenderData::VerificationViolation(KnownSenderData { user_id, .. }) = end);
-        assert_eq!(user_id, owned_user_id!("@u:s.co"));
+        assert_eq!(user_id, "@u:s.co");
     }
 
     #[test]
@@ -571,7 +571,7 @@ mod tests {
 
         let end: SenderData = serde_json::from_str(json).expect("Failed to parse!");
         assert_let!(SenderData::VerificationViolation(KnownSenderData { user_id, .. }) = end);
-        assert_eq!(user_id, owned_user_id!("@u:s.co"));
+        assert_eq!(user_id, "@u:s.co");
     }
 
     #[test]

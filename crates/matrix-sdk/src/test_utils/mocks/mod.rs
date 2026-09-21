@@ -654,7 +654,7 @@ impl MatrixMockServer {
     ///     .resolve_room_alias(room_alias_id!("#a:b.c"))
     ///     .await
     ///     .expect("We should be able to resolve the room alias");
-    /// assert_eq!(res.room_id, owned_room_id!("!a:b.c"));
+    /// assert_eq!(res.room_id, "!a:b.c");
     /// # anyhow::Ok(()) });
     /// ```
     pub fn mock_room_directory_resolve_alias(&self) -> MockEndpoint<'_, ResolveRoomAliasEndpoint> {
@@ -3679,6 +3679,11 @@ impl<'a> MockEndpoint<'a, VersionsEndpoint> {
     /// Indicate that simplified sliding sync is supported by this homeserver.
     pub fn with_simplified_sliding_sync(self) -> Self {
         self.with_feature("org.matrix.simplified_msc3575", true)
+    }
+
+    /// Indicate that global profile sync is supported by this homeserver.
+    pub fn with_profiles_sliding_sync_extension(self) -> Self {
+        self.with_feature("org.matrix.msc4262", true)
     }
 
     /// Set the supported versions in the response of this endpoint.

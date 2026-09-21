@@ -34,7 +34,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::{
     debug::{DebugRawEvent, DebugStructExt},
-    serde_helpers::{extract_bundled_thread_summary, extract_timestamp},
+    serde_helpers::{extract_bundled_thread, extract_timestamp},
 };
 
 const AUTHENTICITY_NOT_GUARANTEED: &str =
@@ -521,13 +521,6 @@ pub struct TimelineEvent {
     /// If the event is part of a thread, a thread summary.
     #[serde(default, skip_serializing_if = "ThreadSummaryStatus::is_unknown")]
     pub thread_summary: ThreadSummaryStatus,
-
-    /// The bundled latest thread event, if it was provided in the unsigned
-    /// relations of this event.
-    ///
-    /// Not serialized.
-    #[serde(skip)]
-    pub bundled_latest_thread_event: Option<Box<TimelineEvent>>,
 }
 
 // Don't serialize push actions if they're `None` or an empty vec.
@@ -616,11 +609,7 @@ impl TimelineEvent {
     ) -> Self {
         let raw = kind.raw();
 
-        let (thread_summary, latest_thread_event) = extract_bundled_thread_summary(raw);
-
-        let bundled_latest_thread_event =
-            Self::from_bundled_latest_event(&kind, latest_thread_event, max_timestamp);
-
+        let bundled_thread = extract_bundled_thread(raw);
         let timestamp = extract_timestamp(raw, max_timestamp);
 
         Self {
@@ -628,8 +617,17 @@ impl TimelineEvent {
             kind,
             push_actions,
             timestamp,
-            thread_summary,
-            bundled_latest_thread_event,
+            thread_summary: match bundled_thread {
+                Some(bundled_thread) => ThreadSummaryStatus::Some(ThreadSummary {
+                    latest_reply: bundled_thread
+                        .latest_event
+                        .get_field::<OwnedEventId>("event_id")
+                        .ok()
+                        .flatten(),
+                    num_replies: bundled_thread.count.try_into().unwrap_or(u32::MAX),
+                }),
+                None => ThreadSummaryStatus::None,
+            },
         }
     }
 
@@ -660,7 +658,6 @@ impl TimelineEvent {
             timestamp: self.timestamp,
             push_actions,
             thread_summary: self.thread_summary.clone(),
-            bundled_latest_thread_event: self.bundled_latest_thread_event.clone(),
         }
     }
 
@@ -683,20 +680,16 @@ impl TimelineEvent {
             timestamp: self.timestamp,
             push_actions: None,
             thread_summary: self.thread_summary.clone(),
-            bundled_latest_thread_event: self.bundled_latest_thread_event.clone(),
         }
     }
 
     /// Try to create a new [`TimelineEvent`] for the bundled latest thread
-    /// event, if available, and if we have enough information about the
-    /// encryption status for it.
+    /// event, if we have enough information about the encryption status for it.
     fn from_bundled_latest_event(
         kind: &TimelineEventKind,
-        latest_event: Option<Raw<AnySyncMessageLikeEvent>>,
+        latest_event: Raw<AnySyncMessageLikeEvent>,
         max_timestamp: MilliSecondsSinceUnixEpoch,
-    ) -> Option<Box<Self>> {
-        let latest_event = latest_event?;
-
+    ) -> Option<Self> {
         match kind {
             TimelineEventKind::Decrypted(decrypted) => {
                 if let Some(unsigned_decryption_result) =
@@ -708,32 +701,30 @@ impl TimelineEvent {
                         UnsignedDecryptionResult::Decrypted(encryption_info) => {
                             // The bundled event was encrypted, and we could decrypt it: pass that
                             // information around.
-                            return Some(Box::new(
-                                TimelineEvent::from_decrypted_with_max_timestamp(
-                                    DecryptedRoomEvent {
-                                        // Safety: A decrypted event always includes a room_id in
-                                        // its payload.
-                                        event: latest_event.cast_unchecked(),
-                                        encryption_info: encryption_info.clone(),
-                                        // A bundled latest event is never a thread root. It could
-                                        // have
-                                        // a replacement event, but we don't carry this information
-                                        // around.
-                                        unsigned_encryption_info: None,
-                                    },
-                                    None,
-                                    max_timestamp,
-                                ),
+                            return Some(TimelineEvent::from_decrypted_with_max_timestamp(
+                                DecryptedRoomEvent {
+                                    // Safety: A decrypted event always includes a room_id in
+                                    // its payload.
+                                    event: latest_event.cast_unchecked(),
+                                    encryption_info: encryption_info.clone(),
+                                    // A bundled latest event is never a thread root. It could
+                                    // have
+                                    // a replacement event, but we don't carry this information
+                                    // around.
+                                    unsigned_encryption_info: None,
+                                },
+                                None,
+                                max_timestamp,
                             ));
                         }
 
                         UnsignedDecryptionResult::UnableToDecrypt(utd_info) => {
                             // The bundled event was a UTD; store that information.
-                            return Some(Box::new(TimelineEvent::from_utd_with_max_timestamp(
+                            return Some(TimelineEvent::from_utd_with_max_timestamp(
                                 latest_event.cast(),
                                 utd_info.clone(),
                                 max_timestamp,
-                            )));
+                            ));
                         }
                     }
                 }
@@ -769,17 +760,18 @@ impl TimelineEvent {
                 } else {
                     None
                 };
-                Some(Box::new(TimelineEvent::from_utd_with_max_timestamp(
+
+                Some(TimelineEvent::from_utd_with_max_timestamp(
                     latest_event.cast(),
                     UnableToDecryptInfo { session_id, reason: UnableToDecryptReason::Unknown },
                     max_timestamp,
-                )))
+                ))
             }
 
-            Ok(_) => Some(Box::new(TimelineEvent::from_plaintext_with_max_timestamp(
+            Ok(_) => Some(TimelineEvent::from_plaintext_with_max_timestamp(
                 latest_event.cast(),
                 max_timestamp,
-            ))),
+            )),
 
             Err(err) => {
                 let event_id = latest_event.get_field::<OwnedEventId>("event_id").ok().flatten();
@@ -865,6 +857,21 @@ impl TimelineEvent {
     /// decrypted) Matrix event within.
     pub fn into_raw(self) -> Raw<AnySyncTimelineEvent> {
         self.kind.into_raw()
+    }
+
+    /// If this event is a thread root, find and create the latest event of the
+    /// thread.
+    ///
+    /// The latest event comes bundled with this event, if it was provided in
+    /// the unsigned relations of this event.
+    pub fn bundled_latest_thread_event(&self) -> Option<Self> {
+        let bundled_thread = extract_bundled_thread(self.raw())?;
+
+        Self::from_bundled_latest_event(
+            &self.kind,
+            bundled_thread.latest_event,
+            self.timestamp_raw().unwrap_or_else(MilliSecondsSinceUnixEpoch::now),
+        )
     }
 }
 
@@ -1358,8 +1365,6 @@ impl From<SyncTimelineEventDeserializationHelperV1> for TimelineEvent {
             timestamp,
             push_actions: Some(push_actions),
             thread_summary,
-            // Bundled latest thread event is not persisted.
-            bundled_latest_thread_event: None,
         }
     }
 }
@@ -1428,8 +1433,6 @@ impl From<SyncTimelineEventDeserializationHelperV0> for TimelineEvent {
             push_actions: Some(push_actions),
             // No serialized events had a thread summary at this version of the struct.
             thread_summary: ThreadSummaryStatus::Unknown,
-            // Bundled latest thread event is not persisted.
-            bundled_latest_thread_event: None,
         }
     }
 }
@@ -1696,7 +1699,6 @@ mod tests {
             timestamp: Some(MilliSecondsSinceUnixEpoch(UInt::new_saturating(2189))),
             push_actions: Default::default(),
             thread_summary: ThreadSummaryStatus::Unknown,
-            bundled_latest_thread_event: None,
         };
 
         let serialized = serde_json::to_value(&room_event).unwrap();
@@ -1870,8 +1872,6 @@ mod tests {
             assert_eq!(latest_reply.as_deref(), Some(event_id!("$latest_event:example.com")));
         });
 
-        assert!(timeline_event.bundled_latest_thread_event.is_some());
-
         // When deserializing an old serialized timeline event, the thread summary is
         // also extracted, if it wasn't serialized.
         let serialized_timeline_item = json!({
@@ -1885,10 +1885,6 @@ mod tests {
         let timeline_event: TimelineEvent =
             serde_json::from_value(serialized_timeline_item).unwrap();
         assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Unknown);
-
-        // The bundled latest thread event is not persisted, so it should be `None` when
-        // deserialized from a previously serialized `TimelineEvent`.
-        assert!(timeline_event.bundled_latest_thread_event.is_none());
     }
 
     #[test]
@@ -2161,7 +2157,6 @@ mod tests {
                 num_replies: 2,
                 latest_reply: None,
             }),
-            bundled_latest_thread_event: None,
         };
 
         with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
@@ -2202,7 +2197,7 @@ mod tests {
         };
         let result = TimelineEvent::from_bundled_latest_event(
             &kind,
-            Some(value.cast_unchecked()),
+            value.cast_unchecked(),
             MilliSecondsSinceUnixEpoch::now(),
         )
         .expect("Could not get bundled latest event");

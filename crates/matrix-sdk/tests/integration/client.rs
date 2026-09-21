@@ -1,6 +1,6 @@
-use std::{collections::BTreeMap, ops::Not as _, time::Duration};
+use std::{assert_matches, collections::BTreeMap, ops::Not as _, time::Duration};
 
-use assert_matches2::{assert_let, assert_matches};
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt, pin_mut};
 use matrix_sdk::{
@@ -17,7 +17,7 @@ use matrix_sdk::{
         client::mock_matrix_session, mocks::MatrixMockServer, no_retry_test_client_with_server,
     },
 };
-use matrix_sdk_base::{RoomState, sync::RoomUpdates};
+use matrix_sdk_base::{RoomState, read_receipts::ReadReceipts, sync::RoomUpdates};
 use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, executor::spawn};
 use matrix_sdk_test::{
     DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, async_test,
@@ -368,7 +368,7 @@ async fn test_room_update_channel() {
 
     assert_eq!(updates.account_data.len(), 1);
     assert_eq!(updates.ephemeral.len(), 1);
-    assert_matches!(updates.state, State::Before(state_events));
+    assert_let!(State::Before(state_events) = updates.state);
     assert_eq!(state_events.len(), 9);
 
     assert!(updates.timeline.limited);
@@ -399,7 +399,7 @@ async fn test_subscribe_all_room_updates() {
         let (room_id, update) = left.iter().next().unwrap();
 
         assert_eq!(room_id, *MIXED_LEFT_ROOM_ID);
-        assert_matches!(&update.state, State::Before(state_events));
+        assert_let!(State::Before(state_events) = &update.state);
         assert!(state_events.is_empty());
         assert_eq!(update.timeline.events.len(), 1);
         assert!(update.account_data.is_empty());
@@ -415,7 +415,7 @@ async fn test_subscribe_all_room_updates() {
 
         assert_eq!(update.account_data.len(), 1);
         assert_eq!(update.ephemeral.len(), 1);
-        assert_matches!(&update.state, State::Before(state_events));
+        assert_let!(State::Before(state_events) = &update.state);
         assert_eq!(state_events.len(), 1);
 
         assert!(update.timeline.limited);
@@ -1486,7 +1486,7 @@ async fn test_observe_own_beacon_info_updates_emits_room_id_event_id_and_content
 
     let update: BeaconInfoUpdate = stream.next().await.expect("expected a beacon_info update");
     assert_eq!(update.room_id, *DEFAULT_TEST_ROOM_ID);
-    assert_eq!(update.event_id, event_id!("$own_beacon_info"));
+    assert_eq!(update.event_id, "$own_beacon_info");
     assert_eq!(update.content.description, Some("Live Share".to_owned()));
     assert!(update.content.live);
 }
@@ -1575,6 +1575,54 @@ async fn test_observe_own_beacon_info_updates_stays_idle_without_matching_update
     server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
 
     assert!(stream.next().now_or_never().is_none());
+}
+
+#[async_test]
+async fn test_total_unread_notifications() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let f = EventFactory::new();
+
+    let set_num_notifications = async |room: &matrix_sdk::Room, num: u64| {
+        room.update_room_info(|mut room_info| {
+            room_info
+                .set_read_receipts(ReadReceipts { num_notifications: num, ..Default::default() });
+
+            (room_info, Default::default())
+        })
+        .await;
+    };
+
+    // A room with unread notifications contributes all of them.
+    let notifications_room = server.sync_joined_room(&client, room_id!("!a:b.c")).await;
+    set_num_notifications(&notifications_room, 3).await;
+
+    // A room the user marked as unread by hand has no count of its own, so it
+    // contributes one.
+    let marked_unread_room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!d:b.c")).add_account_data(f.marked_unread(true)),
+        )
+        .await;
+    assert!(marked_unread_room.is_marked_unread());
+
+    // A room that is both only needs the user's attention once, so it contributes
+    // its notifications and not one more.
+    let both_notifications_and_unread = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!e:b.c")).add_account_data(f.marked_unread(true)),
+        )
+        .await;
+    assert!(both_notifications_and_unread.is_marked_unread());
+    set_num_notifications(&both_notifications_and_unread, 2).await;
+
+    // A room we haven't joined doesn't contribute at all.
+    let invited_room = server.sync_room(&client, InvitedRoomBuilder::new(room_id!("!f:b.c"))).await;
+    set_num_notifications(&invited_room, 100).await;
+
+    assert_eq!(client.total_unread_notifications(), 3 + 1 + 2);
 }
 
 #[async_test]
@@ -1850,7 +1898,7 @@ async fn test_logout() {
     // This returns an error because it requires a HTTPS server URI, or to be able
     // to call `OAuth::insecure_rewrite_https_to_http()`, but at least we are
     // testing the OAuth branch inside `Client::logout()`.
-    assert_matches!(res, Err(Error::OAuth(oauth_error)));
+    assert_let!(Err(Error::OAuth(oauth_error)) = res);
     assert_matches!(*oauth_error, OAuthError::Logout(OAuthTokenRevocationError::Url(_)));
 }
 
@@ -1894,7 +1942,7 @@ async fn test_room_sync_state_after() {
     assert_let!(RoomUpdate::Joined { updates, .. } = update);
 
     // We received the `state_after`.
-    assert_matches!(updates.state, State::After(state_events));
+    assert_let!(State::After(state_events) = updates.state);
     assert_eq!(state_events.len(), 5);
     assert_eq!(updates.timeline.events.len(), 2);
 

@@ -19,7 +19,7 @@ use std::{
     process::Command,
 };
 
-use vergen_gitcl::{Emitter, GitclBuilder};
+use vergen_gitcl::{Emitter, Gitcl};
 
 /// Adds a temporary workaround for an issue with the Rust compiler and Android
 /// in x86_64 devices: https://github.com/rust-lang/rust/issues/109717.
@@ -98,7 +98,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     setup_watchos_simulator_workaround();
     uniffi::generate_scaffolding("./src/api.udl").expect("Building the UDL file failed");
 
-    let git_config = GitclBuilder::default().sha(true).build()?;
+    let git_config = Gitcl::builder().sha(true).build();
     Emitter::default().add_instructions(&git_config)?.emit()?;
 
     Ok(())

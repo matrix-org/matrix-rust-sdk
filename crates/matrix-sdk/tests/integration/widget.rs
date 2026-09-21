@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    collections::{BTreeMap, BTreeSet},
     future,
     pin::pin,
     sync::{Arc, LazyLock},
@@ -37,9 +38,7 @@ use matrix_sdk_common::{
 };
 use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
-    OwnedRoomId,
-    api::client::to_device::send_event_to_device::v3::Messages,
-    device_id, event_id,
+    OwnedRoomId, device_id, event_id,
     events::{
         AnySyncStateEvent, AnyToDeviceEvent, MessageLikeEventType, StateEventType,
         room::{member::MembershipState, message::RoomMessageEventContent},
@@ -53,9 +52,11 @@ use serde::Serialize;
 use serde_json::{Value as JsonValue, Value, json};
 use tracing::error;
 use wiremock::{
-    Mock, Request, ResponseTemplate,
+    Mock, ResponseTemplate,
     matchers::{method, path_regex},
 };
+
+use crate::{recipients_of, record_sent_encrypted_to_device};
 
 /// Create a JSON string from a [`json!`][serde_json::json] "literal".
 #[macro_export]
@@ -153,7 +154,7 @@ async fn recv_message(driver_handle: &WidgetDriverHandle) -> JsonObject {
     serde_json::from_str(&msg.unwrap()).unwrap()
 }
 
-async fn send_request(
+fn send_request(
     driver_handle: &WidgetDriverHandle,
     request_id: &str,
     action: &str,
@@ -167,27 +168,25 @@ async fn send_request(
         "data": data,
     });
     println!("Json string sent from the widget {json_string}");
-    let sent = driver_handle.send(json_string).await;
+    let sent = driver_handle.send(json_string);
     assert!(sent);
 }
 
-async fn send_response(
+fn send_response(
     driver_handle: &WidgetDriverHandle,
     request_id: &str,
     action: &str,
     request_data: impl Serialize,
     response_data: impl Serialize,
 ) {
-    let sent = driver_handle
-        .send(json_string!({
-            "api": "toWidget",
-            "widgetId": WIDGET_ID,
-            "requestId": request_id,
-            "action": action,
-            "data": request_data,
-            "response": response_data,
-        }))
-        .await;
+    let sent = driver_handle.send(json_string!({
+        "api": "toWidget",
+        "widgetId": WIDGET_ID,
+        "requestId": request_id,
+        "action": action,
+        "data": request_data,
+        "response": response_data,
+    }));
     assert!(sent);
 }
 
@@ -215,8 +214,7 @@ async fn test_negotiate_capabilities_immediately() {
                 "get-supported-api-versions",
                 "supported_api_versions",
                 json!({}),
-            )
-            .await;
+            );
 
             let msg = recv_message(&driver_handle).await;
             assert_eq!(msg["api"], "fromWidget");
@@ -227,7 +225,7 @@ async fn test_negotiate_capabilities_immediately() {
 
         // Answer with caps we want
         let response = json!({ "capabilities": caps });
-        send_response(&driver_handle, request_id, "capabilities", data, &response).await;
+        send_response(&driver_handle, request_id, "capabilities", data, &response);
     }
 
     {
@@ -239,7 +237,7 @@ async fn test_negotiate_capabilities_immediately() {
         let request_id = msg["requestId"].as_str().unwrap();
 
         // ACK the request
-        send_response(&driver_handle, request_id, "notify_capabilities", caps, json!({})).await;
+        send_response(&driver_handle, request_id, "notify_capabilities", caps, json!({}));
     }
 
     assert_matches!(driver_handle.recv().now_or_never(), None);
@@ -280,7 +278,7 @@ async fn test_read_messages() {
 
     {
         // Tell the driver that we're ready for communication
-        send_request(&driver_handle, "1-content-loaded", "content_loaded", json!({})).await;
+        send_request(&driver_handle, "1-content-loaded", "content_loaded", json!({}));
 
         // Receive the response
         let msg = recv_message(&driver_handle).await;
@@ -320,8 +318,7 @@ async fn test_read_messages() {
             "type": "m.room.message",
             "limit": 2,
         }),
-    )
-    .await;
+    );
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
@@ -340,7 +337,7 @@ async fn test_read_messages_with_msgtype_capabilities() {
 
     {
         // Tell the driver that we're ready for communication
-        send_request(&driver_handle, "1-content-loaded", "content_loaded", json!({})).await;
+        send_request(&driver_handle, "1-content-loaded", "content_loaded", json!({}));
 
         // Receive the response
         let msg = recv_message(&driver_handle).await;
@@ -383,8 +380,7 @@ async fn test_read_messages_with_msgtype_capabilities() {
             "type": "m.room.message",
             "limit": 3,
         }),
-    )
-    .await;
+    );
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
@@ -455,8 +451,7 @@ async fn test_read_room_members() {
             "state_key": true,
             "limit": 3,
         }),
-    )
-    .await;
+    );
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
@@ -962,8 +957,7 @@ async fn test_send_room_message() {
                 "body": "Message from a widget!",
             },
         }),
-    )
-    .await;
+    );
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
@@ -1002,8 +996,7 @@ async fn test_send_room_name() {
                 "name": "Room Name set by Widget",
             },
         }),
-    )
-    .await;
+    );
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
@@ -1048,8 +1041,7 @@ async fn test_send_delayed_message_event() {
             },
             "delay":1000,
         }),
-    )
-    .await;
+    );
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
@@ -1095,8 +1087,7 @@ async fn test_send_delayed_state_event() {
             },
             "delay":1000,
         }),
-    )
-    .await;
+    );
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
@@ -1141,8 +1132,7 @@ async fn test_fail_sending_delay_rate_limit() {
             },
             "delay":1000,
         }),
-    )
-    .await;
+    );
 
     let msg = recv_message(&driver_handle).await;
     assert_eq!(msg["api"], "fromWidget");
@@ -1187,8 +1177,7 @@ async fn test_try_send_delayed_state_event_without_permission() {
             },
             "delay":1000,
         }),
-    )
-    .await;
+    );
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
@@ -1223,8 +1212,8 @@ async fn test_update_delayed_event() {
             "action":"refresh",
             "delay_id": "1234",
         }),
-    )
-    .await;
+    );
+
     // Receive the response
     let response = recv_message(&driver_handle).await;
     print!("{response:?}");
@@ -1248,8 +1237,8 @@ async fn test_try_update_delayed_event_without_permission() {
             "action":"refresh",
             "delay_id": "1234",
         }),
-    )
-    .await;
+    );
+
     // Receive the response
     let response = recv_message(&driver_handle).await;
     print!("{response:?}");
@@ -1274,8 +1263,8 @@ async fn test_try_update_delayed_event_without_permission_negotiate() {
             "action":"refresh",
             "delay_id": "1234",
         }),
-    )
-    .await;
+    );
+
     // Wait for the corresponding response.
     loop {
         let response = recv_message(&driver_handle).await;
@@ -1316,8 +1305,7 @@ async fn test_send_redaction() {
                 "redacts": "$1234"
             },
         }),
-    )
-    .await;
+    );
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
@@ -1349,7 +1337,7 @@ async fn send_to_device_test_helper(
 
     mock_server.mock_send_to_device().ok().expect(calls).mount().await;
 
-    send_request(&driver_handle, request_id, "send_to_device", data).await;
+    send_request(&driver_handle, request_id, "send_to_device", data);
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
@@ -1408,7 +1396,7 @@ async fn test_error_to_device_event_no_permission() {
 }
 
 #[async_test]
-async fn test_send_encrypted_to_device_event() {
+async fn test_alice_send_encrypted_to_device_that_and_carl_and_bob_receive() {
     let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
     let carl = mock_server.set_up_carl_for_encryption(&alice, &bob).await;
 
@@ -1463,7 +1451,7 @@ async fn test_send_encrypted_to_device_event() {
         }
     });
 
-    send_request(&driver_handle, request_id, "send_to_device", data).await;
+    send_request(&driver_handle, request_id, "send_to_device", data);
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
@@ -1495,8 +1483,10 @@ async fn test_send_encrypted_to_device_event() {
     }
 }
 
+/// Test that a `*` device in the widget's recipient list is expanded to every
+/// device of that user we know about, and to nobody else.
 #[async_test]
-async fn test_send_encrypted_to_device_event_wildcard() {
+async fn test_send_encrypted_to_device_with_wildcard_expands_to_all_devices() {
     let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
 
     let bob_2 = mock_server
@@ -1529,37 +1519,9 @@ async fn test_send_encrypted_to_device_event_wildcard() {
         }
     });
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
-        .respond_with(move |req: &Request| {
-            // there should be two messages, one for bob and one for bob_2
-            #[derive(Debug, serde::Deserialize)]
-            struct Parameters {
-                messages: Messages,
-            }
+    let sent_messages = record_sent_encrypted_to_device(&mock_server).await;
 
-            let params: Parameters = req.body_json().unwrap();
-            assert_eq!(params.messages.len(), 1);
-            let for_bob = params.messages.get(bob.user_id().unwrap()).unwrap();
-            assert_eq!(for_bob.len(), 2);
-            assert!(
-                for_bob
-                    .get(&DeviceIdOrAllDevices::DeviceId(bob.device_id().unwrap().to_owned()))
-                    .is_some()
-            );
-            assert!(
-                for_bob
-                    .get(&DeviceIdOrAllDevices::DeviceId(bob_2.device_id().unwrap().to_owned()))
-                    .is_some()
-            );
-
-            ResponseTemplate::new(200)
-        })
-        .expect(1)
-        .mount(mock_server.server())
-        .await;
-
-    send_request(&driver_handle, request_id, "send_to_device", data).await;
+    send_request(&driver_handle, request_id, "send_to_device", data);
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
@@ -1567,13 +1529,29 @@ async fn test_send_encrypted_to_device_event_wildcard() {
     assert_eq!(msg["action"], "send_to_device");
     let response = msg["response"].clone();
     assert_eq!(serde_json::to_string(&response).unwrap(), "{}");
+
+    let sent_messages = sent_messages.lock();
+    assert_eq!(sent_messages.len(), 1, "a single to-device request should have been sent");
+
+    // The `*` must have been expanded to exactly Bob's two devices, and nothing
+    // else should have been sent to.
+    assert_eq!(
+        recipients_of(&sent_messages[0]),
+        BTreeMap::from([(
+            bob.user_id().unwrap().to_owned(),
+            BTreeSet::from([
+                DeviceIdOrAllDevices::DeviceId(bob.device_id().unwrap().to_owned()),
+                DeviceIdOrAllDevices::DeviceId(bob_2.device_id().unwrap().to_owned()),
+            ]),
+        )])
+    );
 }
 
-/// Test the wildcard edge cases, like using mixed wildcard and explicit device
-/// or when there are no devices at all. For now, we just log it and not report
-/// errors.
+/// Test the wildcard edge cases: a `*` mixed with an explicit device ID, and a
+/// `*` for a user we don't know any device of. For now, we just log those and
+/// don't report them back as errors.
 #[async_test]
-async fn test_send_encrypted_to_device_event_wildcard_edge_cases() {
+async fn test_send_encrypted_to_device_wildcard_edge_cases() {
     let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
 
     let bob_2 = mock_server
@@ -1614,37 +1592,9 @@ async fn test_send_encrypted_to_device_event_wildcard_edge_cases() {
         }
     });
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
-        .respond_with(move |req: &Request| {
-            // there should be two messages, one for bob and one for bob_2
-            #[derive(Debug, serde::Deserialize)]
-            struct Parameters {
-                messages: Messages,
-            }
+    let sent_messages = record_sent_encrypted_to_device(&mock_server).await;
 
-            let params: Parameters = req.body_json().unwrap();
-            assert_eq!(params.messages.len(), 1);
-            let for_bob = params.messages.get(bob.user_id().unwrap()).unwrap();
-            assert_eq!(for_bob.len(), 2);
-            assert!(
-                for_bob
-                    .get(&DeviceIdOrAllDevices::DeviceId(bob.device_id().unwrap().to_owned()))
-                    .is_some()
-            );
-            assert!(
-                for_bob
-                    .get(&DeviceIdOrAllDevices::DeviceId(bob_2.device_id().unwrap().to_owned()))
-                    .is_some()
-            );
-
-            ResponseTemplate::new(200)
-        })
-        .expect(1)
-        .mount(mock_server.server())
-        .await;
-
-    send_request(&driver_handle, request_id, "send_to_device", data).await;
+    send_request(&driver_handle, request_id, "send_to_device", data);
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
@@ -1653,6 +1603,23 @@ async fn test_send_encrypted_to_device_event_wildcard_edge_cases() {
     let response = msg["response"].clone();
     // For now we don't report unknown device when there is the wildcard
     assert_eq!(serde_json::to_string(&response).unwrap(), "{}");
+
+    let sent_messages = sent_messages.lock();
+    assert_eq!(sent_messages.len(), 1, "a single to-device request should have been sent");
+
+    // For Bob, the `*` takes precedence and the explicit `OTHER_UNKNOWN` device is
+    // ignored. Carl, of whom we know no device at all, is dropped entirely: only
+    // Bob's two known devices are sent to.
+    assert_eq!(
+        recipients_of(&sent_messages[0]),
+        BTreeMap::from([(
+            bob.user_id().unwrap().to_owned(),
+            BTreeSet::from([
+                DeviceIdOrAllDevices::DeviceId(bob.device_id().unwrap().to_owned()),
+                DeviceIdOrAllDevices::DeviceId(bob_2.device_id().unwrap().to_owned()),
+            ]),
+        )])
+    );
 }
 
 #[async_test]
@@ -1678,7 +1645,7 @@ async fn test_send_encrypted_to_device_event_unknown_device() {
         }
     });
 
-    send_request(&driver_handle, request_id, "send_to_device", data).await;
+    send_request(&driver_handle, request_id, "send_to_device", data);
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
@@ -1745,7 +1712,7 @@ async fn test_send_internal_to_device_event() {
             }
         });
 
-        send_request(&driver_handle, request_id, "send_to_device", data).await;
+        send_request(&driver_handle, request_id, "send_to_device", data);
 
         // Receive the response
         let msg = recv_message(&driver_handle).await;
@@ -1791,7 +1758,7 @@ async fn test_send_encrypted_to_device_event_partial_error() {
     let (guard, event_as_sent_by_alice) =
         mock_server.mock_capture_put_to_device(alice.user_id().unwrap()).await;
 
-    send_request(&driver_handle, request_id, "send_to_device", data).await;
+    send_request(&driver_handle, request_id, "send_to_device", data);
 
     // It was sent to bob even though other recipients failed
     let event_as_sent_by_alice = event_as_sent_by_alice.await.deserialize().unwrap();
@@ -1841,7 +1808,7 @@ async fn test_send_encrypted_to_device_event_server_error() {
 
     mock_server.mock_send_to_device().error500().mount().await;
 
-    send_request(&driver_handle, request_id, "send_to_device", data).await;
+    send_request(&driver_handle, request_id, "send_to_device", data);
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
@@ -1920,7 +1887,7 @@ async fn test_send_encrypted_to_device_different_content() {
         }
     });
 
-    send_request(&driver_handle, request_id, "send_to_device", data).await;
+    send_request(&driver_handle, request_id, "send_to_device", data);
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
@@ -1969,8 +1936,7 @@ async fn test_try_download_file_without_permission() {
         json!({
             "content_uri":"mxc://example.org/profile.jpg",
         }),
-    )
-    .await;
+    );
 
     let response = recv_message(&driver_handle).await;
     if response["api"] == "fromWidget" && response["action"] == "org.matrix.msc4039.download_file" {
@@ -1995,8 +1961,7 @@ async fn test_download_non_mxc_uri_should_fail() {
         json!({
             "content_uri":"https://example.org/profile.jpg",
         }),
-    )
-    .await;
+    );
 
     let response = recv_message(&driver_handle).await;
     if response["api"] == "fromWidget" && response["action"] == "org.matrix.msc4039.download_file" {
@@ -2018,8 +1983,7 @@ async fn test_try_download_file() {
         json!({
             "content_uri":"mxc://example.org/xJbofAzMprfEWsmWWqGsMuEY",
         }),
-    )
-    .await;
+    );
 
     let bundle = vec![1, 2, 3, 4, 5];
 
@@ -2067,8 +2031,7 @@ async fn test_get_rtc_transports() {
         "get-rtc-transports",
         "org.matrix.msc4515.get_rtc_transports",
         json!({}),
-    )
-    .await;
+    );
 
     let response = recv_message(&driver_handle).await;
     assert_eq!(response["api"], "fromWidget");
@@ -2106,8 +2069,7 @@ async fn test_get_rtc_transports_endpoint_unsupported() {
         "get-rtc-transports",
         "org.matrix.msc4515.get_rtc_transports",
         json!({}),
-    )
-    .await;
+    );
 
     // The widget receives an error (as opposed to an empty list), so it can tell
     // the endpoint apart from a homeserver that advertises no transports.
@@ -2142,8 +2104,7 @@ async fn test_get_rtc_transports_falls_back_to_well_known() {
         "get-rtc-transports",
         "org.matrix.msc4515.get_rtc_transports",
         json!({}),
-    )
-    .await;
+    );
 
     let response = recv_message(&driver_handle).await;
     assert_eq!(response["api"], "fromWidget");
@@ -2169,8 +2130,7 @@ async fn test_get_rtc_transports_without_permission() {
         "get-rtc-transports",
         "org.matrix.msc4515.get_rtc_transports",
         json!({}),
-    )
-    .await;
+    );
 
     let response = recv_message(&driver_handle).await;
     assert_eq!(response["api"], "fromWidget");
@@ -2192,7 +2152,7 @@ async fn negotiate_capabilities(driver_handle: &WidgetDriverHandle, caps: JsonVa
 
         // Answer with caps we want
         let response = json!({ "capabilities": caps });
-        send_response(driver_handle, request_id, "capabilities", data, &response).await;
+        send_response(driver_handle, request_id, "capabilities", data, &response);
     }
 
     {
@@ -2204,6 +2164,6 @@ async fn negotiate_capabilities(driver_handle: &WidgetDriverHandle, caps: JsonVa
         let request_id = msg["requestId"].as_str().unwrap();
 
         // ACK the notification
-        send_response(driver_handle, request_id, "notify_capabilities", caps, json!({})).await;
+        send_response(driver_handle, request_id, "notify_capabilities", caps, json!({}));
     }
 }

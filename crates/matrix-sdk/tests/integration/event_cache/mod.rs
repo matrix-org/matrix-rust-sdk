@@ -1028,7 +1028,7 @@ async fn test_backpaginate_replace_empty_gap() {
             JoinedRoomBuilder::new(room_id)
                 .add_timeline_event(f.text_msg("world").event_id(event_id!("$2")))
                 .set_timeline_limited()
-                .set_timeline_prev_batch("prev-batch".to_owned()),
+                .set_timeline_prev_batch("prev_batch".to_owned()),
         )
         .await;
 
@@ -1040,6 +1040,7 @@ async fn test_backpaginate_replace_empty_gap() {
     // The first back-pagination will return a previous-batch token, but no events.
     server
         .mock_room_messages()
+        .match_from("prev_batch")
         .ok(RoomMessagesResponseTemplate::default().end_token("prev_batch"))
         .mock_once()
         .mount()
@@ -1439,7 +1440,7 @@ async fn test_apply_redaction_when_redaction_comes_later() {
         assert_let!(
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) = ev
         );
-        assert_eq!(ev.redacts(&RedactionRules::V1).unwrap(), event_id!("$1"));
+        assert_eq!(ev.redacts(&RedactionRules::V1).unwrap(), "$1");
     }
 
     // Then, we have an update for the redacted event.
@@ -1674,7 +1675,7 @@ async fn test_apply_redaction_when_redacted_and_redaction_are_in_same_sync() {
         assert_let!(
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) = ev
         );
-        assert_eq!(ev.redacts(&RedactionRules::V1).unwrap(), event_id!("$2"));
+        assert_eq!(ev.redacts(&RedactionRules::V1).unwrap(), "$2");
     }
 
     // Then the redaction of the event happens separately.
@@ -2775,10 +2776,10 @@ async fn test_concurrent_backpagination() {
     assert_eq!(outcome1.events.len(), 2);
     assert_eq!(outcome2.events.len(), 2);
 
-    assert_eq!(outcome1.events[0].event_id().unwrap(), event_id!("$2"));
-    assert_eq!(outcome2.events[0].event_id().unwrap(), event_id!("$2"));
-    assert_eq!(outcome1.events[1].event_id().unwrap(), event_id!("$3"));
-    assert_eq!(outcome2.events[1].event_id().unwrap(), event_id!("$3"));
+    assert_eq!(outcome1.events[0].event_id().unwrap(), "$2");
+    assert_eq!(outcome2.events[0].event_id().unwrap(), "$2");
+    assert_eq!(outcome1.events[1].event_id().unwrap(), "$3");
+    assert_eq!(outcome2.events[1].event_id().unwrap(), "$3");
 
     // Both should report we've reached the start of the timeline.
     assert!(outcome1.reached_start);

@@ -29,6 +29,7 @@ use std::time::Duration;
 use matrix_sdk::{
     ThreadingSupport, assert_let_timeout,
     event_cache::RoomEventCacheUpdate,
+    linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
 use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
@@ -155,7 +156,7 @@ async fn test_unread_count_implicit_receipt_own_message() {
     // ev4 and ev5 (after our own ev3) are unread; ev1/ev2/ev3 are read via
     // implicit receipt.
     assert_eq!(room.num_unread_messages(), 2);
-    assert_eq!(room.read_receipts().latest_active.unwrap().event_id, event_id!("$3"));
+    assert_eq!(room.read_receipts().latest_active.unwrap().event_id, "$3");
 }
 
 /// Test that receiving only a new read receipt event (with no new messages)
@@ -253,7 +254,7 @@ async fn test_unread_count_pending_receipt() {
         Ok(RoomEventCacheUpdate::UpdateTimelineEvents(..)) = room_cache_updates.recv()
     );
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::AddEphemeralEvents { .. }) = room_cache_updates.recv()
+        Ok(RoomEventCacheUpdate::AddReadReceiptEvent { .. }) = room_cache_updates.recv()
     );
 
     // All three events are unread because the receipt target is unknown.
@@ -712,7 +713,7 @@ async fn test_unread_counts_updated_after_duplicate_only_sync_response() {
 
     // We get an update only for the read receipt.
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::AddEphemeralEvents { .. }) = room_cache_updates.recv()
+        Ok(RoomEventCacheUpdate::AddReadReceiptEvent { .. }) = room_cache_updates.recv()
     );
 
     // The message counts are properly updated (zero new message unread after $2).
@@ -894,4 +895,94 @@ async fn test_all_read_receipts_from_store_used_as_latest_active() {
 
     // No event is unread, because the private main receipt points to $3.
     assert_eq!(room.num_unread_messages(), 0);
+}
+
+/// Test that the unread counts are recomputed when the read-receipt backfill
+/// resolves the receipt's target event from the local store, instead of the
+/// network.
+#[async_test]
+async fn test_compute_unread_counts_after_backfill_from_disk() {
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| builder.with_enable_automatic_back_pagination(true))
+        .build()
+        .await;
+    let own_user_id = client.user_id().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(*BOB);
+
+    // Set up the event cache store with two item chunks, and no gap: only the last
+    // one will be loaded in memory, the first one has to be paginated in from the
+    // store.
+    {
+        let event_cache_store = client.event_cache_store().lock().await.unwrap();
+
+        event_cache_store
+            .as_clean()
+            .unwrap()
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![
+                            f.text_msg("hello 1").event_id(event_id!("$1")).into_event(),
+                            f.text_msg("hello 2").event_id(event_id!("$2")).into_event(),
+                            f.text_msg("hello 3").event_id(event_id!("$3")).into_event(),
+                        ],
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![
+                            f.text_msg("hello 4").event_id(event_id!("$4")).into_event(),
+                            f.text_msg("hello 5").event_id(event_id!("$5")).into_event(),
+                        ],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+    }
+
+    client.event_cache().subscribe().unwrap();
+
+    let room = server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (initial_events, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+
+    // Only the last chunk is loaded: $4 and $5. $1, $2 and $3 are in the store.
+    assert_eq!(initial_events.len(), 2);
+
+    // Now, a read receipt on $2 arrives: its target event isn't loaded in memory.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_receipt(
+                f.read_receipts()
+                    .add(event_id!("$2"), own_user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+                    .into_event(),
+            ),
+        )
+        .await;
+
+    assert_let_timeout!(Ok(_) = room_cache_updates.recv());
+
+    // $2 isn't loaded, so the read-receipt backfill runs and loads the first chunk
+    // from the store, which contains it. The counts must then be recomputed against
+    // the newly loaded events: $3, $4 and $5 come after $2.
+    assert_let_timeout!(Duration::from_secs(2), Ok(_) = room_cache_updates.recv());
+
+    assert_eq!(room.num_unread_messages(), 3);
 }

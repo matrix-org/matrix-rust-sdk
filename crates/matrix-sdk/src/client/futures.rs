@@ -148,11 +148,19 @@ where
                         Err(HttpError::RefreshToken(refresh_error))
                     }
 
-                    _ => {
-                        trace!("Token refresh: Token refresh failed.");
-                        // This isn't necessarily correct, but matches the behaviour when
-                        // implementing OAuth 2.0.
-                        client.broadcast_unknown_token(unknown_token_data);
+                    RefreshTokenError::MatrixAuth(http_error) => {
+                        // Only an answer from the homeserver means the token is gone. A
+                        // transport failure or a 5xx says nothing about the session.
+                        let rejected = http_error
+                            .as_client_api_error()
+                            .is_some_and(|error| !error.status_code.is_server_error());
+
+                        if rejected {
+                            error!("Token refresh: the homeserver rejected the refresh token");
+                            client.broadcast_unknown_token(unknown_token_data);
+                        } else {
+                            trace!("Token refresh: the refresh request itself failed.");
+                        }
                         Err(HttpError::RefreshToken(refresh_error))
                     }
                 }

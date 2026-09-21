@@ -96,6 +96,9 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     // Let the server respond a few times.
     tokio::time::sleep(Duration::from_millis(300)).await;
 
+    // The permit is still held while the encryption sync is running.
+    assert!(sync_service.try_get_encryption_sync_permit().is_none());
+
     // Pausing will stop both syncs, after a bit of delay.
     sync_service.stop().await;
     assert_next_matches!(state_stream, State::Idle);

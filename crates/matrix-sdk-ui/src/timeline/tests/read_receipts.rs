@@ -828,12 +828,12 @@ async fn test_threaded_latest_user_read_receipt() {
     // Implicit receipts are taken into account.
     let (receipt_event_id, receipt) =
         timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
-    assert_eq!(receipt_event_id, event_id!("$1"));
+    assert_eq!(receipt_event_id, "$1");
     assert_eq!(receipt.thread, receipt_thread);
 
     let (receipt_event_id, receipt) =
         timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
-    assert_eq!(receipt_event_id, event_id!("$2"));
+    assert_eq!(receipt_event_id, "$2");
     assert_eq!(receipt.thread, receipt_thread);
 
     timeline
@@ -843,13 +843,13 @@ async fn test_threaded_latest_user_read_receipt() {
     // Alice's latest read receipt is updated.
     let (receipt_event_id, receipt) =
         timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
-    assert_eq!(receipt_event_id, event_id!("$3"));
+    assert_eq!(receipt_event_id, "$3");
     assert_eq!(receipt.thread, receipt_thread);
 
     // But Bob's isn't.
     let (receipt_event_id, receipt) =
         timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
-    assert_eq!(receipt_event_id, event_id!("$2"));
+    assert_eq!(receipt_event_id, "$2");
     assert_eq!(receipt.thread, receipt_thread);
 
     // Bob sees Alice's message.
@@ -865,13 +865,13 @@ async fn test_threaded_latest_user_read_receipt() {
     // Alice's latest read receipt is at the same position.
     let (receipt_event_id, receipt) =
         timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
-    assert_eq!(receipt_event_id, event_id!("$3"));
+    assert_eq!(receipt_event_id, "$3");
     assert_eq!(receipt.thread, receipt_thread);
 
     // But Bob's has moved!
     let (receipt_event_id, receipt) =
         timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
-    assert_eq!(receipt_event_id, event_id!("$3"));
+    assert_eq!(receipt_event_id, "$3");
     assert_eq!(receipt.thread, receipt_thread);
 }
 

@@ -305,7 +305,7 @@ impl SpaceRoomList {
                     for child_state in &room.children_state {
                         match child_state.deserialize() {
                             Ok(child) => {
-                                children_state.insert(child.state_key.clone(), child.clone());
+                                children_state.insert(child.state_key.clone(), child);
                             }
                             Err(error) => {
                                 warn!("Failed deserializing space child event: {error}");

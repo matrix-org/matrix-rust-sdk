@@ -17,6 +17,7 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![warn(missing_docs, missing_debug_implementations)]
 #![cfg_attr(target_family = "wasm", allow(clippy::arc_with_non_send_sync))]
+#![recursion_limit = "256"]
 
 pub mod backups;
 mod ciphers;
@@ -164,7 +165,7 @@ pub enum RoomEventDecryptionResult {
     UnableToDecrypt(UnableToDecryptInfo),
 }
 
-#[cfg_attr(doc, doc = include_str!("../../../.cargo/mermaid.html"))]
+#[cfg_attr(doc, doc = include_str!("../.cargo/mermaid.html"))]
 /// A step by step guide that explains how to include [end-to-end-encryption]
 /// support in a [Matrix] client library.
 ///

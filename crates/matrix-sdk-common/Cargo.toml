@@ -2,14 +2,12 @@
 authors = ["Damir Jelić <poljar@termina.org.uk>"]
 description = "Collection of common types and imports used in the matrix-sdk"
 edition = "2024"
-homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
 license = "Apache-2.0"
 name = "matrix-sdk-common"
-readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version.workspace = true
-version = "0.18.0"
+version = "0.19.1"
 
 [package.metadata.docs.rs]
 default-target = "x86_64-unknown-linux-gnu"
@@ -51,7 +49,7 @@ gloo-timers = { workspace = true, features = ["futures"] }
 tokio = { workspace = true, features = ["sync", "macros", "time"] }
 tracing-subscriber = { workspace = true, features = ["fmt", "ansi"] }
 wasm-bindgen.workspace = true
-wasm-bindgen-futures = { version = "0.4.76", optional = true }
+wasm-bindgen-futures = { version = "0.4.78", optional = true }
 web-sys = { workspace = true, features = ["console"] }
 
 [dev-dependencies]

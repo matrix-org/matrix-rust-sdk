@@ -41,6 +41,7 @@ mod sqlite {
     use std::{fs, path::Path, sync::Arc};
 
     use matrix_sdk::SqliteStoreConfig;
+    use matrix_sdk_sqlite::Base64Variant;
     use tracing::debug;
     use zeroize::Zeroizing;
 
@@ -64,6 +65,8 @@ mod sqlite {
     pub struct SqliteStoreBuilder {
         paths: StorePaths,
         passphrase: Zeroizing<Option<String>>,
+        high_entropy_passphrase: Zeroizing<Option<Vec<u8>>>,
+        high_entropy_passphrase_base_64_variant: Base64Variant,
         key: Zeroizing<Option<Vec<u8>>>,
         pool_max_size: Option<usize>,
         cache_size: Option<u32>,
@@ -76,6 +79,8 @@ mod sqlite {
             Self {
                 paths: StorePaths { data_path, cache_path },
                 passphrase: Zeroizing::new(None),
+                high_entropy_passphrase: Zeroizing::new(None),
+                high_entropy_passphrase_base_64_variant: Base64Variant::Padded,
                 key: Zeroizing::new(None),
                 pool_max_size: None,
                 cache_size: None,
@@ -103,6 +108,36 @@ mod sqlite {
         pub fn passphrase(self: Arc<Self>, passphrase: Option<String>) -> Arc<Self> {
             let mut builder = unwrap_or_clone_arc(self);
             builder.passphrase = Zeroizing::new(passphrase);
+            builder.high_entropy_passphrase = Zeroizing::new(None);
+            builder.key = Zeroizing::new(None);
+            Arc::new(builder)
+        }
+
+        /// Define the passphrase if the store is encoded, declaring that it was
+        /// randomly generated rather than chosen by a human.
+        ///
+        /// Do NOT use this with human-chosen passphrases, as doing so would
+        /// remove their brute-force protection.
+        ///
+        /// This migrates a passphrase-based store whose passphrase was created
+        /// by base64-encoding a randomly generated key to a key-based
+        /// setup.
+        ///
+        /// Once this function has been called,
+        /// [`SqliteStoreBuilder::passphrase`] can no longer be used with
+        /// the passphrase.
+        ///
+        /// [`SqliteStoreBuilder::key`] can be used with the original key,
+        /// before it was base64-encoded.
+        pub fn high_entropy_passphrase(
+            self: Arc<Self>,
+            passphrase: Option<Vec<u8>>,
+            base64_variant: Base64Variant,
+        ) -> Arc<Self> {
+            let mut builder = unwrap_or_clone_arc(self);
+            builder.high_entropy_passphrase = Zeroizing::new(passphrase);
+            builder.high_entropy_passphrase_base_64_variant = base64_variant;
+            builder.passphrase = Zeroizing::new(None);
             builder.key = Zeroizing::new(None);
             Arc::new(builder)
         }
@@ -196,12 +231,14 @@ mod sqlite {
             };
 
             if let Some(key) = self.key.as_deref() {
-                match key.try_into() {
-                    Ok(data) => sqlite_store_config = sqlite_store_config.key(Some(&data)),
-                    Err(_) => return Err(ClientBuildError::InvalidRawKey),
-                }
+                sqlite_store_config = sqlite_store_config.key(Some(key));
             } else if let Some(passphrase) = self.passphrase.as_deref() {
                 sqlite_store_config = sqlite_store_config.passphrase(Some(passphrase));
+            } else if let Some(key) = self.high_entropy_passphrase.as_deref() {
+                sqlite_store_config = sqlite_store_config.high_entropy_passphrase(
+                    Some(key),
+                    self.high_entropy_passphrase_base_64_variant,
+                )
             }
 
             if let Some(size) = self.pool_max_size {

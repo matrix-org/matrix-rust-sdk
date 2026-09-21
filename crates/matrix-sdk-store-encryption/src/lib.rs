@@ -679,6 +679,7 @@ impl MacKey {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EncryptedValue {
     version: u8,
+    #[serde(with = "serde_bytes")]
     ciphertext: Vec<u8>,
     nonce: [u8; XNONCE_SIZE],
 }

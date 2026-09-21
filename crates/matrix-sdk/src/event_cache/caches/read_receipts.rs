@@ -100,8 +100,10 @@
 //! [`ThreadEventCache`]: super::thread::ThreadEventCache
 
 use std::{
+    borrow::Borrow,
     collections::HashSet,
-    ops::{ControlFlow, Not},
+    hash::Hash,
+    ops::{ControlFlow, Deref, DerefMut, Not},
 };
 
 use matrix_sdk_base::{
@@ -117,7 +119,7 @@ use ruma::{
     EventId, OwnedEventId, OwnedUserId, RoomId, UserId,
     events::{
         AnySyncTimelineEvent, MessageLikeEventType,
-        receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
+        receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType, Receipts},
         relation::RelationType,
     },
     serde::Raw,
@@ -162,18 +164,36 @@ fn paginate_for_read_receipt(
     }
 }
 
+/// The receipt event ids the unread counts are still chasing, i.e. those whose
+/// target event hasn't been found in the linked chunk yet.
+pub(super) fn unresolved_receipt_targets(read_receipts: &ReadReceipts) -> HashSet<&EventId> {
+    read_receipts
+        .pending
+        .iter()
+        .map(|event_id| &**event_id)
+        .chain(read_receipts.latest_active.as_ref().map(|receipt| &*receipt.event_id))
+        .collect()
+}
+
+/// Whether `events` contains the target of one of `targets`.
+pub(super) fn contains_a_receipt_target<T>(events: &[TimelineEvent], targets: &HashSet<T>) -> bool
+where
+    T: Borrow<EventId> + Eq + Hash,
+{
+    events.iter().any(|event| event.event_id().is_some_and(|id| targets.contains(id)))
+}
+
 /// A stop predicate that fires as soon as a batch loads any of `targets`. With
 /// no targets it never fires, so the request runs to its batch cap.
 fn stop_on_event_ids(
     targets: HashSet<OwnedEventId>,
 ) -> impl FnMut(&BackPaginationOutcome) -> ControlFlow<()> + Send + 'static {
     move |outcome| {
-        let found = outcome
-            .events
-            .iter()
-            .any(|event| event.event_id().is_some_and(|id| targets.contains(id)));
-
-        if found { ControlFlow::Break(()) } else { ControlFlow::Continue(()) }
+        if contains_a_receipt_target(&outcome.events, &targets) {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
     }
 }
 
@@ -613,12 +633,8 @@ pub(crate) async fn compute_unread_counts<T>(
     // found the latest active receipt! Hand it the receipt event ids we're chasing
     // so the backfill can stop as soon as one of them is loaded.
     if let Some(back_pagination_queue) = back_pagination_queue {
-        let targets: HashSet<OwnedEventId> = read_receipts
-            .pending
-            .iter()
-            .cloned()
-            .chain(read_receipts.latest_active.as_ref().map(|receipt| receipt.event_id.clone()))
-            .collect();
+        let targets =
+            unresolved_receipt_targets(read_receipts).into_iter().map(ToOwned::to_owned).collect();
         paginate_for_read_receipt(back_pagination_queue, event_filter.room_id(), targets);
     }
 
@@ -695,6 +711,48 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
     true
 }
 
+/// A type representing `Option<ReceiptEventContent>`.
+///
+/// It is useful because it implements [`FromIterator`], similarly to
+/// [`ReceiptEventContent`], except it produces `None` if source iterator is
+/// empty instead of an empty `BTreeMap`.
+pub struct MaybeReceiptEventContent(Option<ReceiptEventContent>);
+
+impl MaybeReceiptEventContent {
+    pub fn none() -> Self {
+        Self(None)
+    }
+
+    pub fn into_inner(self) -> Option<ReceiptEventContent> {
+        self.0
+    }
+}
+
+impl Deref for MaybeReceiptEventContent {
+    type Target = Option<ReceiptEventContent>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for MaybeReceiptEventContent {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl FromIterator<(OwnedEventId, Receipts)> for MaybeReceiptEventContent {
+    fn from_iter<T>(iterator: T) -> Self
+    where
+        T: IntoIterator<Item = (OwnedEventId, Receipts)>,
+    {
+        let mut iterator = iterator.into_iter().peekable();
+
+        Self(if iterator.peek().is_some() { Some(iterator.collect()) } else { None })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{num::NonZeroUsize, ops::Not as _};
@@ -703,9 +761,9 @@ mod tests {
     use matrix_sdk_common::{deserialized_responses::TimelineEvent, ring_buffer::RingBuffer};
     use matrix_sdk_test::{ALICE, event_factory::EventFactory};
     use ruma::{
-        EventId, RoomId, UserId, event_id,
+        EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId, event_id,
         events::{
-            receipt::{ReceiptThread, ReceiptType},
+            receipt::{Receipt, ReceiptThread, ReceiptType, UserReceipts},
             room::{member::MembershipState, message::MessageType},
         },
         owned_event_id,
@@ -714,8 +772,8 @@ mod tests {
     };
 
     use super::{
-        EventFilter, ReadReceiptsExt as _, RoomReadReceiptEventFilter, marks_as_unread,
-        select_best_receipt, stop_on_event_ids,
+        EventFilter, MaybeReceiptEventContent, ReadReceiptsExt as _, Receipts,
+        RoomReadReceiptEventFilter, marks_as_unread, select_best_receipt, stop_on_event_ids,
     };
     use crate::event_cache::caches::{
         event_linked_chunk::EventLinkedChunk, pagination::BackPaginationOutcome,
@@ -1172,7 +1230,7 @@ mod tests {
             new_receipt_event,
             active_receipt,
         );
-        assert_eq!(receipt.unwrap(), event_id!("$2"));
+        assert_eq!(receipt.unwrap(), "$2");
         // And there are no pending receipts.
         assert!(pending_receipts.is_empty());
     }
@@ -1215,7 +1273,7 @@ mod tests {
             new_receipt_event,
             active_receipt,
         );
-        assert_eq!(receipt.unwrap(), event_id!("$2"));
+        assert_eq!(receipt.unwrap(), "$2");
         // And there are no pending receipts.
         assert!(pending_receipts.is_empty());
     }
@@ -1263,7 +1321,7 @@ mod tests {
             new_receipt_event.as_ref(),
             active_receipt,
         );
-        assert_eq!(receipt.unwrap(), event_id!("$2"));
+        assert_eq!(receipt.unwrap(), "$2");
         // And there are no pending receipts.
         assert!(pending_receipts.is_empty());
     }
@@ -1315,7 +1373,7 @@ mod tests {
         assert!(receipt.is_none());
         // And there's a new pending receipt for $4.
         assert_eq!(pending_receipts.len(), 1);
-        assert_eq!(pending_receipts.get(0).unwrap(), event_id!("$4"));
+        assert_eq!(pending_receipts.get(0).unwrap(), "$4");
     }
 
     #[test]
@@ -1358,7 +1416,7 @@ mod tests {
             new_receipt_event.as_ref(),
             active_receipt,
         );
-        assert_eq!(receipt.unwrap(), event_id!("$2"));
+        assert_eq!(receipt.unwrap(), "$2");
         // And there are no more pending receipts.
         assert!(pending_receipts.is_empty());
     }
@@ -1413,12 +1471,41 @@ mod tests {
             new_receipt_event.as_ref(),
             active_receipt,
         );
-        assert_eq!(receipt.unwrap(), event_id!("$4"));
+        assert_eq!(receipt.unwrap(), "$4");
 
         // Receipt 6 is still pending, and there's a new pending receipt for 7 too. ($2
         // has been cleaned because it has been seen).
         assert_eq!(pending_receipts.len(), 2);
         assert!(pending_receipts.iter().any(|ev| ev == event_id!("$6")));
         assert!(pending_receipts.iter().any(|ev| ev == event_id!("$7")));
+    }
+
+    #[test]
+    fn test_maybe_receipt_event_content_from_empty_iterator() {
+        let maybe: MaybeReceiptEventContent = std::iter::empty().collect();
+
+        assert!(maybe.is_none());
+    }
+
+    #[test]
+    fn test_maybe_receipt_event_content_from_iterator() {
+        let maybe: MaybeReceiptEventContent = vec![(
+            event_id!("$ev").to_owned(),
+            Receipts::from([(
+                ReceiptType::Read,
+                UserReceipts::from([(
+                    user_id!("@ali:ce").to_owned(),
+                    Receipt::new(MilliSecondsSinceUnixEpoch::now()),
+                )]),
+            )]),
+        )]
+        .into_iter()
+        .collect();
+
+        assert!(maybe.is_some());
+
+        let receipt_event_content = maybe.into_inner().unwrap();
+        assert_eq!(receipt_event_content.len(), 1);
+        assert!(receipt_event_content.contains_key(event_id!("$ev")));
     }
 }

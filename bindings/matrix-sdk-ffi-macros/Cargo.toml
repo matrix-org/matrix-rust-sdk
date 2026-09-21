@@ -1,11 +1,9 @@
 [package]
 description = "Helper macros to write FFI bindings"
 edition = "2024"
-homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ruma"]
 license = "Apache-2.0"
 name = "matrix-sdk-ffi-macros"
-readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version.workspace = true
 version = "0.7.0"
@@ -20,8 +18,8 @@ proc-macro2 = { workspace = true , features = ["proc-macro"] }
 quote.workspace = true
 syn = { workspace = true, features = ["full", "extra-traits", "proc-macro"] }
 
-[lints]
-workspace = true
-
 [package.metadata.release]
 release = false
+
+[lints]
+workspace = true

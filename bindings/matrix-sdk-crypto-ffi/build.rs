@@ -5,7 +5,7 @@ use std::{
     process::Command,
 };
 
-use vergen_gitcl::{Emitter, GitclBuilder};
+use vergen_gitcl::{Emitter, Gitcl};
 
 /// Adds a temporary workaround for an issue with the Rust compiler and Android
 /// in x86_64 devices: https://github.com/rust-lang/rust/issues/109717.
@@ -65,7 +65,7 @@ fn get_clang_major_version(clang_path: &Path) -> String {
 fn main() -> Result<(), Box<dyn Error>> {
     setup_x86_64_android_workaround();
 
-    let git_config = GitclBuilder::default().sha(true).describe(true, false, None).build()?;
+    let git_config = Gitcl::builder().sha(true).describe(true, false, None).build();
     Emitter::default().add_instructions(&git_config)?.emit()?;
 
     Ok(())

@@ -1,7 +1,7 @@
-use std::{ops::Not as _, time::Duration};
+use std::{assert_matches, ops::Not as _, time::Duration};
 
 use anyhow::Result;
-use assert_matches2::{assert_let, assert_matches};
+use assert_matches2::assert_let;
 use eyeball::Subscriber;
 use futures::FutureExt as _;
 use http::StatusCode;

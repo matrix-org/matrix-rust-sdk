@@ -366,7 +366,7 @@ struct QueueThumbnailInfo {
     file_size: usize,
 }
 
-/// A specific room's send queue ran into an error, and it has disabled itself.
+/// A specific room's send queue ran into an error.
 #[derive(Clone, Debug)]
 pub struct SendQueueRoomError {
     /// For which room is the send queue failing?
@@ -378,8 +378,7 @@ pub struct SendQueueRoomError {
     /// Whether the error is considered recoverable or not.
     ///
     /// An error that's recoverable will disable the room's send queue, while an
-    /// unrecoverable error will be parked, until the user decides to do
-    /// something about it.
+    /// unrecoverable error will be parked, until it's retried or aborted.
     pub is_recoverable: bool,
 }
 
@@ -1015,10 +1014,12 @@ impl RoomSendQueue {
                         _ => false,
                     };
 
-                    // Disable the queue for this room after any kind of error happened.
-                    locally_enabled.store(false, Ordering::SeqCst);
-
                     if is_recoverable {
+                        // Disable the queue for this room; there's nothing else blocking it,
+                        // and whatever caused the failure is likely to affect the next
+                        // requests too.
+                        locally_enabled.store(false, Ordering::SeqCst);
+
                         warn!(txn_id = %txn_id, error = ?err, "Recoverable error when sending request: {err}, disabling send queue");
 
                         // In this case, we intentionally keep the request in the queue, but mark it
@@ -1039,7 +1040,13 @@ impl RoomSendQueue {
                         if let Err(storage_error) =
                             queue.mark_as_wedged(&txn_id, QueueWedgeError::from(&err)).await
                         {
-                            warn!("unable to mark request as wedged: {storage_error}");
+                            // Nothing recorded the wedge, so the request would be picked
+                            // up and sent again right away, over and over; disabling the
+                            // queue is the only brake left.
+                            error!(
+                                "unable to mark request as wedged, disabling the queue: {storage_error}"
+                            );
+                            locally_enabled.store(false, Ordering::SeqCst);
                         }
                     }
 
@@ -1248,6 +1255,28 @@ impl RoomSendQueue {
             .inner
             .global_update_sender
             .send(SendQueueUpdate { room_id: self.inner.room.room_id().to_owned(), update });
+    }
+
+    /// Clear a request's wedged status and wake the queue up so it's tried
+    /// again.
+    async fn unwedge_request(
+        &self,
+        transaction_id: &TransactionId,
+    ) -> Result<(), RoomSendQueueError> {
+        self.inner
+            .queue
+            .mark_as_unwedged(transaction_id)
+            .await
+            .map_err(RoomSendQueueError::StorageError)?;
+
+        // Wake up the queue, in case the room was asleep before unwedging the request.
+        self.inner.notifier.notify_one();
+
+        self.send_update(RoomSendQueueUpdate::RetryEvent {
+            transaction_id: transaction_id.to_owned(),
+        });
+
+        Ok(())
     }
 }
 
@@ -1624,12 +1653,7 @@ impl QueueStorage {
                     transaction_id,
                     ChildTransactionId::new(),
                     MilliSecondsSinceUnixEpoch::now(),
-                    match reason {
-                        Some(reason) => {
-                            DependentQueuedRequestKind::RedactEventWithReason { reason }
-                        }
-                        None => DependentQueuedRequestKind::RedactEvent,
-                    },
+                    DependentQueuedRequestKind::RedactEventWithReason { reason },
                 )
                 .await?;
 
@@ -2288,7 +2312,8 @@ impl QueueStorage {
             kind @ (DependentQueuedRequestKind::RedactEvent
             | DependentQueuedRequestKind::RedactEventWithReason { .. }) => {
                 let reason = match kind {
-                    DependentQueuedRequestKind::RedactEventWithReason { reason } => Some(reason),
+                    DependentQueuedRequestKind::RedactEventWithReason { reason } => reason,
+                    // The legacy variant carries no reason.
                     _ => None,
                 };
 
@@ -2610,8 +2635,10 @@ pub enum RoomSendQueueUpdate {
 
     /// An error happened when an event was being sent.
     ///
-    /// The event has not been removed from the queue. All the send queues
-    /// will be disabled after this happens, and must be manually re-enabled.
+    /// The event has not been removed from the queue. A recoverable error
+    /// disables the room's send queue, which must then be manually re-enabled;
+    /// an unrecoverable one wedges the request, which blocks its room's queue
+    /// until the request is unwedged or aborted.
     SendError {
         /// Transaction id used to identify this event.
         transaction_id: OwnedTransactionId,
@@ -2620,8 +2647,8 @@ pub enum RoomSendQueueUpdate {
         /// Whether the error is considered recoverable or not.
         ///
         /// An error that's recoverable will disable the room's send queue,
-        /// while an unrecoverable error will be parked, until the user
-        /// decides to cancel sending it.
+        /// while an unrecoverable error will be parked, until it's retried or
+        /// aborted.
         is_recoverable: bool,
     },
 
@@ -2832,6 +2859,11 @@ impl SendHandle {
         Self { room, transaction_id, media_handles: vec![], created_at }
     }
 
+    /// Returns the [`TransactionId`] used for sending the associated event.
+    pub fn transaction_id(&self) -> &TransactionId {
+        &self.transaction_id
+    }
+
     fn nyi_for_uploads(&self) -> Result<(), RoomSendQueueStorageError> {
         if !self.media_handles.is_empty() {
             Err(RoomSendQueueStorageError::OperationNotImplementedYet)
@@ -2990,16 +3022,12 @@ impl SendHandle {
         }
     }
 
-    /// Unwedge a local echo identified by its transaction identifier and try to
+    /// Unwedge the local echo associated to this [`SendHandle`] and try to
     /// resend it.
     pub async fn unwedge(&self) -> Result<(), RoomSendQueueError> {
         let room = &self.room.inner;
-        room.queue
-            .mark_as_unwedged(&self.transaction_id)
-            .await
-            .map_err(RoomSendQueueError::StorageError)?;
 
-        // If we have media handles, also try to unwedge them.
+        // If we have media handles, try to unwedge them.
         //
         // It's fine to always do it to *all* the transaction IDs at once, because only
         // one of the three requests will be active at the same time, i.e. only
@@ -3017,14 +3045,7 @@ impl SendHandle {
             }
         }
 
-        // Wake up the queue, in case the room was asleep before unwedging the request.
-        room.notifier.notify_one();
-
-        self.room.send_update(RoomSendQueueUpdate::RetryEvent {
-            transaction_id: self.transaction_id.clone(),
-        });
-
-        Ok(())
+        self.room.unwedge_request(&self.transaction_id).await
     }
 
     /// Send a reaction to the event as soon as it's sent.
@@ -3116,6 +3137,14 @@ impl SendReactionHandle {
         handle.abort().await
     }
 
+    /// Unwedge the reaction and try to send it again.
+    ///
+    /// A reaction still waiting on its parent to be sent can't be wedged;
+    /// unwedging it only wakes the queue.
+    pub async fn unwedge(&self) -> Result<(), RoomSendQueueError> {
+        self.room.unwedge_request(&self.transaction_id).await
+    }
+
     /// The transaction id that will be used to send this reaction later.
     pub fn transaction_id(&self) -> &TransactionId {
         &self.transaction_id
@@ -3165,6 +3194,11 @@ impl SendRedactionHandle {
             debug!("local echo of redaction didn't exist anymore, can't abort");
             Ok(false)
         }
+    }
+
+    /// Unwedge the redaction and try to send it again.
+    pub async fn unwedge(&self) -> Result<(), RoomSendQueueError> {
+        self.room.unwedge_request(&self.transaction_id).await
     }
 }
 
@@ -3359,7 +3393,7 @@ mod tests {
         let redact = DependentQueuedRequest {
             own_transaction_id: ChildTransactionId::new(),
             parent_transaction_id: txn.clone(),
-            kind: DependentQueuedRequestKind::RedactEvent,
+            kind: DependentQueuedRequestKind::RedactEventWithReason { reason: None },
             parent_key: None,
             created_at: MilliSecondsSinceUnixEpoch::now(),
         };
@@ -3394,7 +3428,7 @@ mod tests {
         let res = canonicalize_dependent_requests(&inputs);
 
         assert_eq!(res.len(), 1);
-        assert_matches!(&res[0].kind, DependentQueuedRequestKind::RedactEvent);
+        assert_matches!(&res[0].kind, DependentQueuedRequestKind::RedactEventWithReason { .. });
         assert_eq!(res[0].parent_transaction_id, txn);
     }
 
@@ -3443,7 +3477,7 @@ mod tests {
             // This one pertains to txn1.
             DependentQueuedRequest {
                 own_transaction_id: child1.clone(),
-                kind: DependentQueuedRequestKind::RedactEvent,
+                kind: DependentQueuedRequestKind::RedactEventWithReason { reason: None },
                 parent_transaction_id: txn1.clone(),
                 parent_key: None,
                 created_at: MilliSecondsSinceUnixEpoch::now(),
@@ -3471,7 +3505,10 @@ mod tests {
         for dependent in res {
             if dependent.own_transaction_id == child1 {
                 assert_eq!(dependent.parent_transaction_id, txn1);
-                assert_matches!(dependent.kind, DependentQueuedRequestKind::RedactEvent);
+                assert_matches!(
+                    dependent.kind,
+                    DependentQueuedRequestKind::RedactEventWithReason { .. }
+                );
             } else {
                 assert_eq!(dependent.parent_transaction_id, txn2);
                 assert_matches!(dependent.kind, DependentQueuedRequestKind::EditEvent { .. });

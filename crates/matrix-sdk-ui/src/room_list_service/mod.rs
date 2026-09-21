@@ -144,8 +144,7 @@ impl RoomListService {
     /// to create one in this case using
     /// [`EncryptionSyncService`][crate::encryption_sync_service::EncryptionSyncService].
     pub async fn new(client: Client) -> Result<Self, Error> {
-        Self::new_with(client, true, DEFAULT_CONNECTION_ID, DEFAULT_LIST_TIMELINE_LIMIT, false)
-            .await
+        Self::new_with(client, true, DEFAULT_CONNECTION_ID, DEFAULT_LIST_TIMELINE_LIMIT).await
     }
 
     /// Like [`RoomListService::new`] but with additional configuration options.
@@ -154,9 +153,6 @@ impl RoomListService {
     ///   cross-process position sharing.
     /// - `connection_id`: the Sliding Sync connection ID
     /// - `timeline_limit`: the timeline limit
-    /// - `profiles_extension`: enables the Profiles extension, required to
-    ///   merge the global `m.status` and `m.call` fields into room members and
-    ///   profiles
     ///
     /// [`SlidingSyncBuilder::share_pos`]: matrix_sdk::sliding_sync::SlidingSyncBuilder::share_pos
     pub async fn new_with(
@@ -164,7 +160,6 @@ impl RoomListService {
         share_pos: bool,
         connection_id: &str,
         timeline_limit: u32,
-        profiles_extension: bool,
     ) -> Result<Self, Error> {
         let mut builder = client
             .sliding_sync(connection_id)
@@ -177,6 +172,9 @@ impl RoomListService {
                 rooms: Some(vec![http::request::ExtensionRoomConfig::AllSubscribed])
             }))
             .with_typing_extension(assign!(http::request::Typing::default(), {
+                enabled: Some(true),
+            }))
+            .with_profiles_extension(assign!(http::request::Profiles::default(), {
                 enabled: Some(true),
             }));
 
@@ -204,14 +202,6 @@ impl RoomListService {
                     "Failed to check whether the client requested thread subscriptions extension: not enabling."
                 );
             }
-        }
-
-        if profiles_extension {
-            debug!("Enabling the profiles extension for the room list sliding sync");
-            builder = builder.with_profiles_extension(assign!(
-                http::request::Profiles::default(),
-                { enabled: Some(true) }
-            ));
         }
 
         if share_pos {

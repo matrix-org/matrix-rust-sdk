@@ -1,7 +1,7 @@
-use std::{ops::Not as _, sync::Arc, time::Duration};
+use std::{assert_matches, ops::Not as _, sync::Arc, time::Duration};
 
 use as_variant::as_variant;
-use assert_matches2::{assert_let, assert_matches};
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk::attachment::{GalleryConfig, GalleryItemInfo};
@@ -495,9 +495,12 @@ async fn test_smoke() {
         .mount()
         .await;
 
-    room.send_queue().send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
+    let send_handle =
+        room.send_queue().send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
+    let txn0 = send_handle.transaction_id();
 
     let (txn1, _) = assert_update!((global_watch, watch) => local echo { body = "1" });
+    assert_eq!(txn0, txn1);
 
     {
         let (local_echoes, _) = q.subscribe().await.unwrap();
@@ -1649,9 +1652,9 @@ async fn test_unrecoverable_errors() {
     // too.
     assert_update!((global_watch, watch) => error { recoverable=false, txn=txn1 });
 
-    // The permanent error disables the room send queue.
-    assert!(!room.send_queue().is_enabled());
-    room.send_queue().set_enabled(true);
+    // The queue stays enabled: the wedged request alone blocks it, which preserves
+    // ordering without stopping the room from ever sending again.
+    assert!(room.send_queue().is_enabled());
 
     // The second message is NOT sent: the wedged first message blocks the queue, so
     // messages aren't sent out of order. Its success mock is only mounted below, so
@@ -1722,13 +1725,9 @@ async fn test_unwedge_unrecoverable_errors() {
     // too.
     assert_update!((global_watch, watch) => error { recoverable=false, txn=txn1 });
 
-    // The queue is disabled, because it ran into an error.
-    assert!(!room.send_queue().is_enabled());
-    // Not *all* rooms' queues are disabled, though.
+    // The queue stays enabled; only the wedged request blocks it.
+    assert!(room.send_queue().is_enabled());
     assert!(client.send_queue().is_enabled());
-
-    // Re-enable the room queue.
-    room.send_queue().set_enabled(true);
     assert!(watch.is_empty());
 
     // Unwedge the previously failed message and try sending it again
@@ -1739,6 +1738,83 @@ async fn test_unwedge_unrecoverable_errors() {
 
     // Then eventually sent and a remote echo received
     assert_update!((global_watch, watch) => sent { txn=txn1, event_id=event_id!("$42") });
+}
+
+#[async_test]
+async fn test_unwedge_reaction() {
+    let mock = MatrixMockServer::new().await;
+
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // The message goes out, the reaction fails unrecoverably, then goes out.
+    mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
+    mock.mock_room_send().error_too_large().mock_once().mount().await;
+    mock.mock_room_send().ok(event_id!("$2")).mock_once().mount().await;
+
+    let msg_handle = q.send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
+    let reaction_handle =
+        msg_handle.react("👍".to_owned()).await.unwrap().expect("reaction was queued");
+
+    let (msg_txn, _) = assert_update!((global_watch, watch) => local echo { body = "1" });
+    let reaction_txn =
+        assert_update!((global_watch, watch) => local reaction { key = "👍", parent = msg_txn });
+    assert_update!((global_watch, watch) => sent { txn = msg_txn, event_id = event_id!("$1") });
+    assert_update!((global_watch, watch) => error { recoverable = false, txn = reaction_txn });
+
+    // The queue stays enabled; only the wedged reaction blocks it.
+    assert!(room.send_queue().is_enabled());
+    assert!(watch.is_empty());
+
+    reaction_handle.unwedge().await.unwrap();
+
+    assert_update!((global_watch, watch) => retry { txn = reaction_txn });
+    assert_update!((global_watch, watch) => sent { txn = reaction_txn, event_id = event_id!("$2") });
+}
+
+#[async_test]
+async fn test_unwedge_redaction() {
+    let mock = MatrixMockServer::new().await;
+
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // The redaction fails unrecoverably, then goes out.
+    mock.mock_room_redact().error_too_large().mock_once().mount().await;
+    mock.mock_room_redact().ok(event_id!("$2")).mock_once().mount().await;
+
+    let redacts = owned_event_id!("$1");
+    let handle = q.redact(redacts.clone(), None).await.unwrap();
+
+    let txn = assert_update!((global_watch, watch) => local echo redaction { redacts = redacts, reason = None });
+    assert_update!((global_watch, watch) => error { recoverable = false, txn = txn });
+
+    // The queue stays enabled; only the wedged redaction blocks it.
+    assert!(room.send_queue().is_enabled());
+    assert!(watch.is_empty());
+
+    handle.unwedge().await.unwrap();
+
+    assert_update!((global_watch, watch) => retry { txn = txn });
+    assert_update!((global_watch, watch) => sent { txn = txn, event_id = event_id!("$2") });
 }
 
 #[async_test]
@@ -2274,6 +2350,23 @@ async fn test_media_uploads() {
         .expect("media should be found");
     assert_eq!(thumbnail_media, b"thumbnail");
 
+    // The format should be ignored when requesting a local media.
+    let thumbnail_media = client
+        .media()
+        .get_media_content(
+            &MediaRequestParameters {
+                source: local_thumbnail_source.clone(),
+                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
+                    tinfo.width.unwrap(),
+                    tinfo.height.unwrap(),
+                )),
+            },
+            true,
+        )
+        .await
+        .expect("media should be found");
+    assert_eq!(thumbnail_media, b"thumbnail");
+
     // ----------------------
     // Send handle operations.
 
@@ -2313,7 +2406,7 @@ async fn test_media_uploads() {
     assert_let!(MessageType::Image(new_content) = edit_msg.msgtype);
 
     assert_let!(MediaSource::Plain(new_uri) = &new_content.source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media"));
+    assert_eq!(new_uri, "mxc://sdk.rs/media");
 
     let file_media = client
         .media()
@@ -2331,7 +2424,7 @@ async fn test_media_uploads() {
     let new_thumbnail_source =
         new_content.info.as_ref().unwrap().thumbnail_source.as_ref().unwrap();
     assert_let!(MediaSource::Plain(new_uri) = new_thumbnail_source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/thumbnail"));
+    assert_eq!(new_uri, "mxc://sdk.rs/thumbnail");
 
     // The thumbnail can be retrieved as a file, using its own MXC URI:
     let thumbnail_media_as_file = client
@@ -2596,6 +2689,23 @@ async fn test_gallery_uploads() {
         .expect("media should be found");
     assert_eq!(thumbnail_media, b"thumbnail");
 
+    // The format should be ignored when requesting a local media.
+    let thumbnail_media = client
+        .media()
+        .get_media_content(
+            &MediaRequestParameters {
+                source: local_thumbnail_source1.clone(),
+                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
+                    tinfo.width.unwrap(),
+                    tinfo.height.unwrap(),
+                )),
+            },
+            true,
+        )
+        .await
+        .expect("media should be found");
+    assert_eq!(thumbnail_media, b"thumbnail");
+
     // ----------------------
     // Media 2.
     assert_let!(GalleryItemType::Image(img_content) = gallery_content.itemtypes.get(1).unwrap());
@@ -2654,6 +2764,23 @@ async fn test_gallery_uploads() {
         .expect("media should be found");
     assert_eq!(thumbnail_media, b"another thumbnail");
 
+    // The format should be ignored when requesting a local media.
+    let thumbnail_media = client
+        .media()
+        .get_media_content(
+            &MediaRequestParameters {
+                source: local_thumbnail_source2.clone(),
+                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
+                    tinfo.width.unwrap(),
+                    tinfo.height.unwrap(),
+                )),
+            },
+            true,
+        )
+        .await
+        .expect("media should be found");
+    assert_eq!(thumbnail_media, b"another thumbnail");
+
     // ----------------------
     // Send handle operations.
 
@@ -2700,7 +2827,7 @@ async fn test_gallery_uploads() {
     assert_let!(GalleryItemType::Image(new_content) = gallery_content.itemtypes.first().unwrap());
 
     assert_let!(MediaSource::Plain(new_uri) = &new_content.source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media1"));
+    assert_eq!(new_uri, "mxc://sdk.rs/media1");
 
     let file_media = client
         .media()
@@ -2717,7 +2844,7 @@ async fn test_gallery_uploads() {
 
     let new_thumbnail_source = new_content.info.clone().unwrap().thumbnail_source.unwrap();
     assert_let!(MediaSource::Plain(new_uri) = &new_thumbnail_source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/thumbnail1"));
+    assert_eq!(new_uri, "mxc://sdk.rs/thumbnail1");
 
     let thumbnail_media = client
         .media()
@@ -2747,7 +2874,7 @@ async fn test_gallery_uploads() {
     assert_let!(GalleryItemType::Image(new_content) = gallery_content.itemtypes.get(1).unwrap());
 
     assert_let!(MediaSource::Plain(new_uri) = &new_content.source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media2"));
+    assert_eq!(new_uri, "mxc://sdk.rs/media2");
 
     let file_media = client
         .media()
@@ -2764,7 +2891,7 @@ async fn test_gallery_uploads() {
 
     let new_thumbnail_source = new_content.info.clone().unwrap().thumbnail_source.unwrap();
     assert_let!(MediaSource::Plain(new_uri) = &new_thumbnail_source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/thumbnail2"));
+    assert_eq!(new_uri, "mxc://sdk.rs/thumbnail2");
 
     let thumbnail_media = client
         .media()
@@ -2931,7 +3058,7 @@ async fn test_media_upload_retry() {
     });
     assert_let!(MessageType::Image(new_content) = edit_msg.msgtype);
     assert_let!(MediaSource::Plain(new_uri) = &new_content.source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media"));
+    assert_eq!(new_uri, "mxc://sdk.rs/media");
 
     // The event is sent, at some point.
     assert_update!((global_watch, watch) => sent {
@@ -3057,7 +3184,7 @@ async fn test_unwedging_media_upload() {
     let error = assert_update!((global_watch, watch) => error { recoverable=false, txn=event_txn });
     let error = error.as_client_api_error().unwrap();
     assert_eq!(error.status_code, 413);
-    assert!(!q.is_enabled());
+    assert!(q.is_enabled());
 
     // The wedged upload is reflected on the media event's local echo: a client
     // restarting here must see the media as failed, not as still being sent.
@@ -3069,9 +3196,6 @@ async fn test_unwedging_media_upload() {
     // Mount the mock for the upload and sending the event.
     mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/media")).mock_once().mount().await;
     mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
-
-    // Re-enable the room queue.
-    q.set_enabled(true);
 
     // Unwedge the upload.
     send_handle.unwedge().await.unwrap();
@@ -3085,7 +3209,7 @@ async fn test_unwedging_media_upload() {
     let edit_msg = assert_update!((global_watch, watch) => edit local echo { txn = event_txn });
     assert_let!(MessageType::Image(new_content) = edit_msg.msgtype);
     assert_let!(MediaSource::Plain(new_uri) = &new_content.source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media"));
+    assert_eq!(new_uri, "mxc://sdk.rs/media");
 
     // The event is sent, at some point.
     assert_update!((global_watch, watch) => sent { txn = event_txn, event_id = event_id!("$1") });
@@ -3137,7 +3261,7 @@ async fn test_wedged_gallery_upload_error_is_reflected_on_local_echo() {
     // be reported with the *event* transaction id.
     let error = assert_update!((global_watch, watch) => error { recoverable=false, txn=event_txn });
     assert_eq!(error.as_client_api_error().unwrap().status_code, 413);
-    assert!(!q.is_enabled());
+    assert!(q.is_enabled());
 
     // The wedged upload is reflected on the gallery event's local echo: a client
     // restarting here must see the gallery as failed, not as still being sent.
@@ -3601,7 +3725,7 @@ async fn test_cancel_upload_while_sending_event() {
     let edit_msg = assert_update!((global_watch, watch) => edit local echo { txn = upload_txn });
     assert_let!(MessageType::Image(remote_content) = edit_msg.msgtype);
     assert_let!(MediaSource::Plain(new_uri) = &remote_content.source);
-    assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media"));
+    assert_eq!(new_uri, "mxc://sdk.rs/media");
 
     // Let the upload request start.
     sleep(Duration::from_millis(250)).await;
@@ -3721,7 +3845,7 @@ async fn test_update_caption_while_sending_media() {
             assert_update!((global_watch, watch) => edit local echo { txn = upload_txn });
         assert_let!(MessageType::Image(image) = edit_msg.msgtype);
         assert_let!(MediaSource::Plain(new_uri) = &image.source);
-        assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media"));
+        assert_eq!(new_uri, "mxc://sdk.rs/media");
 
         // Still has the new caption.
         assert_eq!(image.filename(), filename);
@@ -4244,7 +4368,7 @@ async fn test_sending_event_still_saves_sync_gap() {
     assert_eq!(up.diffs.len(), 1);
     assert_let!(VectorDiff::Append { values } = &up.diffs[0]);
     assert_eq!(values.len(), 1);
-    assert_eq!(values[0].event_id().unwrap(), event_id!("$msg_now"));
+    assert_eq!(values[0].event_id().unwrap(), "$msg_now");
 
     // Now, assume that a /sync response comes with only this message as part of the
     // response, and with a previous gap.
@@ -4266,7 +4390,7 @@ async fn test_sending_event_still_saves_sync_gap() {
     assert_eq!(update.diffs.len(), 2);
     assert_let!(VectorDiff::Clear = &update.diffs[0]);
     assert_let!(VectorDiff::Append { values } = &update.diffs[1]);
-    assert_eq!(values[0].event_id().unwrap(), event_id!("$msg_now"));
+    assert_eq!(values[0].event_id().unwrap(), "$msg_now");
 
     // When paginating with this previous batch token, we should get new events from
     // this room.
@@ -4287,7 +4411,7 @@ async fn test_sending_event_still_saves_sync_gap() {
     assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(update)) = stream.recv());
     assert_eq!(update.diffs.len(), 1);
     assert_let!(VectorDiff::Insert { index: 0, value: event } = &update.diffs[0]);
-    assert_eq!(event.event_id().unwrap(), event_id!("$past_msg"));
+    assert_eq!(event.event_id().unwrap(), "$past_msg");
 
     assert!(stream.is_empty());
 }

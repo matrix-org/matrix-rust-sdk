@@ -69,6 +69,7 @@ use crate::{
     },
     runtime::get_runtime_handle,
     task_handle::TaskHandle,
+    timeline::content::{Reaction, ReactionSenderData},
     utils::Timestamp,
 };
 
@@ -752,6 +753,35 @@ impl Timeline {
         Ok(self.inner.redact(&(event_or_transaction_id.try_into()?), reason.as_deref()).await?)
     }
 
+    /// Retry sending something on this item that failed, see [`SendTarget`].
+    ///
+    /// Only needed after an unrecoverable failure, which parks the request
+    /// until it's retried or aborted; a recoverable one goes out again when
+    /// the room's send queue is re-enabled.
+    ///
+    /// Returns `false` if there was nothing of that kind left to retry, e.g.
+    /// because it went out in the meantime.
+    pub async fn retry_send(
+        &self,
+        item_id: EventOrTransactionId,
+        target: SendTarget,
+    ) -> Result<bool, ClientError> {
+        Ok(self.inner.retry_send(&item_id.try_into()?, target.into()).await?)
+    }
+
+    /// Abort sending something on this item that hasn't gone out yet, see
+    /// [`SendTarget`].
+    ///
+    /// Returns `false` if there was nothing of that kind left to abort, e.g.
+    /// because it went out in the meantime.
+    pub async fn abort_send(
+        &self,
+        item_id: EventOrTransactionId,
+        target: SendTarget,
+    ) -> Result<bool, ClientError> {
+        Ok(self.inner.abort_send(&item_id.try_into()?, target.into()).await?)
+    }
+
     /// Load the reply details for the given event id.
     ///
     /// This will return an `InReplyToDetails` object that contains the details
@@ -834,7 +864,8 @@ impl SendHandle {
 
 #[matrix_sdk_ffi_macros::export]
 impl SendHandle {
-    /// Try to abort the sending of the current event.
+    /// Try to abort the sending of the current event, with an optional
+    /// `reason` applied to the redaction when the event went out anyway.
     ///
     /// If this returns `true`, then the sending could be aborted, because the
     /// event hasn't been sent yet. Otherwise, if this returns `false`, the
@@ -842,10 +873,11 @@ impl SendHandle {
     ///
     /// This has an effect only on the first call; subsequent calls will always
     /// return `false`.
-    async fn abort(self: Arc<Self>) -> Result<bool, ClientError> {
+    #[uniffi::method(default(reason = None))]
+    async fn abort(self: Arc<Self>, reason: Option<String>) -> Result<bool, ClientError> {
         if let Some(inner) = self.inner.lock().await.take() {
             Ok(inner
-                .abort()
+                .abort_with_reason(reason)
                 .await
                 .map_err(|err| anyhow::anyhow!("error when saving in store: {err}"))?)
         } else {
@@ -1003,6 +1035,34 @@ impl TimelineItem {
     }
 }
 
+/// Which pending send on an item [`Timeline::retry_send`] and
+/// [`Timeline::abort_send`] act on.
+#[derive(Clone, uniffi::Enum)]
+pub enum SendTarget {
+    /// The item itself, while it's a local echo.
+    ///
+    /// Note that aborting one that's already in flight queues a redaction for
+    /// it, without a reason; use `SendHandle::abort` if one is needed.
+    Event,
+    /// Our pending edit of the item.
+    Edit,
+    /// Our pending redaction of the item.
+    Redaction,
+    /// Our pending reaction to the item with this key.
+    Reaction { key: String },
+}
+
+impl From<SendTarget> for matrix_sdk_ui::timeline::SendTarget {
+    fn from(value: SendTarget) -> Self {
+        match value {
+            SendTarget::Event => Self::Event,
+            SendTarget::Edit => Self::Edit,
+            SendTarget::Redaction => Self::Redaction,
+            SendTarget::Reaction { key } => Self::Reaction { key },
+        }
+    }
+}
+
 /// This type represents the “send state” of a local event timeline item.
 #[derive(Clone, uniffi::Enum)]
 pub enum EventSendState {
@@ -1022,8 +1082,8 @@ pub enum EventSendState {
         /// Whether the error is considered recoverable or not.
         ///
         /// An error that's recoverable will disable the room's send queue,
-        /// while an unrecoverable error will be parked, until the user
-        /// decides to cancel sending it.
+        /// while an unrecoverable error will be parked, until it's retried or
+        /// aborted.
         is_recoverable: bool,
     },
 
@@ -1087,11 +1147,16 @@ pub struct EventTimelineItem {
     is_own: bool,
     is_editable: bool,
     content: TimelineItemContent,
+    reactions: Vec<Reaction>,
     /// The raw Matrix event type string (e.g. `"m.room.message"`), or `None`
     /// when the original type is not available (e.g. redacted events).
     event_type_raw: Option<String>,
     timestamp: Timestamp,
     local_send_state: Option<EventSendState>,
+    /// Send state of our pending edit of this event, if any.
+    edit_send_state: Option<EventSendState>,
+    /// Send state of our pending redaction of this event, if any.
+    redaction_send_state: Option<EventSendState>,
     local_created_at: Option<u64>,
     read_receipts: HashMap<String, Receipt>,
     origin: Option<EventItemOrigin>,
@@ -1115,9 +1180,26 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
             is_own: item.is_own(),
             is_editable: item.is_editable(),
             content: item.content().clone().into(),
+            reactions: item
+                .reactions()
+                .iter()
+                .map(|(key, senders)| Reaction {
+                    key: key.to_owned(),
+                    senders: senders
+                        .iter()
+                        .map(|(sender_id, info)| ReactionSenderData {
+                            sender_id: sender_id.to_string(),
+                            timestamp: info.timestamp.into(),
+                            send_state: info.send_state.as_ref().map(|s| s.into()),
+                        })
+                        .collect(),
+                })
+                .collect(),
             event_type_raw: item.content().event_type_str(),
             timestamp: item.timestamp().into(),
             local_send_state: item.send_state().map(|s| s.into()),
+            edit_send_state: item.edit_send_state().map(|s| s.into()),
+            redaction_send_state: item.redaction_send_state().map(|s| s.into()),
             local_created_at: item.local_created_at().map(|t| t.0.into()),
             read_receipts,
             origin: item.origin(),

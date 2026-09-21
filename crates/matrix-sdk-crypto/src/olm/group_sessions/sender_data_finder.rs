@@ -30,6 +30,7 @@ use crate::{
 /// When we receive a to-device message establishing a megolm session (i.e. when
 /// [`crate::machine::OlmMachine::add_room_key`] is called):
 ///
+/// ```text
 /// ┌───────────────────────────────────────────────────────────────────┐
 /// │ A (start - we have a to-device message containing a room key)     │
 /// └───────────────────────────────────────────────────────────────────┘
@@ -119,6 +120,7 @@ use crate::{
 /// │                                                                   │
 /// │ Store this information with the session.                          │
 /// ╰───────────────────────────────────────────────────────────────────╯
+/// ```
 ///
 /// Note: the sender data may become out-of-date if we later verify the user. We
 /// have no plans to update it if so.

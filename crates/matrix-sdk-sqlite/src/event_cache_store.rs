@@ -197,7 +197,7 @@ impl SqliteEventCacheStore {
     /// given key to encrypt private data.
     pub async fn open_with_key(
         path: impl AsRef<Path>,
-        key: Option<&[u8; 32]>,
+        key: Option<&[u8]>,
     ) -> Result<Self, OpenStoreError> {
         Self::open_with_config(&SqliteStoreConfig::new(path).key(key)).await
     }
@@ -658,6 +658,15 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
                 "../migrations/event_cache_store/017_threads_with_thread_infos.sql"
             ))?;
             txn.set_db_version(17)
+        })
+        .await?;
+    }
+
+    if version < 18 {
+        debug!("Upgrading database to version 18");
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/event_cache_store/018_event_chunks_unique_linked_chunk_id_event_id.sql"))?;
+            txn.set_db_version(18)
         })
         .await?;
     }

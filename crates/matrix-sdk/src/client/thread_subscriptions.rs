@@ -77,20 +77,14 @@ impl GuardedStoreAccess {
     }
 
     /// Saves the tokens in the database.
-    ///
-    /// Returns whether the list of tokens is empty or not.
     #[instrument(skip_all, fields(num_tokens = tokens.len()))]
-    async fn save_catchup_tokens(
-        &self,
-        tokens: Vec<ThreadSubscriptionCatchupToken>,
-    ) -> Result<bool> {
+    async fn save_catchup_tokens(&self, tokens: Vec<ThreadSubscriptionCatchupToken>) -> Result<()> {
         let store = self.client.state_store();
-        let is_empty = if tokens.is_empty() {
+        if tokens.is_empty() {
             store.remove_kv_data(StateStoreDataKey::ThreadSubscriptionsCatchupTokens).await?;
 
             trace!("Marking thread subscriptions as not outdated \\o/");
             self.is_outdated.store(false, atomic::Ordering::SeqCst);
-            true
         } else {
             store
                 .set_kv_data(
@@ -101,9 +95,9 @@ impl GuardedStoreAccess {
 
             trace!("Marking thread subscriptions as outdated.");
             self.is_outdated.store(true, atomic::Ordering::SeqCst);
-            false
-        };
-        Ok(is_empty)
+        }
+
+        Ok(())
     }
 }
 
@@ -227,17 +221,21 @@ impl ThreadSubscriptionCatchup {
         let mut tokens = guard.load_catchup_tokens().await?.unwrap_or_default();
 
         if let Some(token) = token {
-            trace!(?token, "Saving catchup token");
-            tokens.push(token);
+            // Gappy syncs on a busy account can cause the same catchup token to be sent
+            // repeatedly. We dedupe the tokens here to prevent duplicate catchup requests.
+            if tokens.contains(&token) {
+                trace!(?token, "Skipping duplicate catchup token");
+            } else {
+                trace!(?token, "Saving catchup token");
+                tokens.push(token);
+
+                guard.save_catchup_tokens(tokens).await?;
+
+                // Wake up the catchup task, in case it's waiting.
+                self.ping.notify_one();
+            }
         } else {
             trace!("No catchup token to save");
-        }
-
-        let is_token_list_empty = guard.save_catchup_tokens(tokens).await?;
-
-        // Wake up the catchup task, in case it's waiting.
-        if !is_token_list_empty {
-            self.ping.notify_one();
         }
 
         Ok(())
@@ -443,6 +441,25 @@ mod tests {
 
         // And we are not outdated anymore!
         assert!(tsc.is_outdated().not());
+    }
+
+    #[async_test]
+    async fn test_save_catchup_token_deduplicates() {
+        let client = MockClientBuilder::new(None).build().await;
+
+        let tsc = client.thread_subscription_catchup();
+        let guard = tsc.lock().await.unwrap();
+
+        let token =
+            ThreadSubscriptionCatchupToken { from: "from".to_owned(), to: Some("to".to_owned()) };
+
+        // When the same catchup token is saved twice,
+        tsc.save_catchup_token(&guard, Some(token.clone())).await.unwrap();
+        tsc.save_catchup_token(&guard, Some(token.clone())).await.unwrap();
+
+        // Then it must only appear once in the stored list.
+        let tokens = guard.load_catchup_tokens().await.unwrap();
+        assert_eq!(tokens, Some(vec![token]));
     }
 }
 

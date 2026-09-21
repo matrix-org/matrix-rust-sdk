@@ -44,8 +44,8 @@ use tracing::{debug, error, field::debug, instrument, trace, warn};
 
 use super::{
     BeaconInfo, EmbeddedEvent, EncryptedMessage, EventTimelineItem, InReplyToDetails,
-    LiveLocationState, MsgLikeContent, MsgLikeKind, OtherState, ReactionStatus, Sticker,
-    ThreadSummary, TimelineDetails, TimelineItem, TimelineItemContent,
+    LiveLocationState, MsgLikeContent, MsgLikeKind, OtherState, Sticker, ThreadSummary,
+    TimelineDetails, TimelineItem, TimelineItemContent,
     controller::{
         Aggregation, AggregationKind, ObservableItemsTransaction, PendingEditKind,
         TimelineMetadata, TimelineStateTransaction, find_item_and_apply_aggregation,
@@ -60,7 +60,9 @@ use super::{
 };
 use crate::{
     timeline::{
-        TimelineUniqueId, algorithms::rfind_event_item, controller::aggregations::PendingEdit,
+        TimelineUniqueId,
+        algorithms::rfind_event_item,
+        controller::aggregations::{AggregationSendHandle, PendingEdit},
         event_item::OtherMessageLike,
     },
     unable_to_decrypt_hook::UtdHookManager,
@@ -346,7 +348,6 @@ impl TimelineAction {
                                     kind: MsgLikeKind::LiveLocation(LiveLocationState::new(
                                         ev.content,
                                     )),
-                                    reactions: Default::default(),
                                     thread_root: None,
                                     in_reply_to: None,
                                     thread_summary: None,
@@ -471,7 +472,6 @@ impl TimelineAction {
             AnyMessageLikeEventContent::Sticker(content) => {
                 Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent {
                     kind: MsgLikeKind::Sticker(Sticker { content }),
-                    reactions: Default::default(),
                     thread_root,
                     in_reply_to,
                     thread_summary,
@@ -486,7 +486,6 @@ impl TimelineAction {
                 Self::AddItem {
                     content: TimelineItemContent::MsgLike(MsgLikeContent {
                         kind: MsgLikeKind::Poll(poll_state),
-                        reactions: Default::default(),
                         thread_root,
                         in_reply_to,
                         thread_summary,
@@ -498,7 +497,6 @@ impl TimelineAction {
                 content: TimelineItemContent::message(
                     msg.msgtype,
                     msg.mentions,
-                    Default::default(),
                     thread_root,
                     in_reply_to,
                     thread_summary,
@@ -523,7 +521,6 @@ impl TimelineAction {
                 Self::AddItem {
                     content: TimelineItemContent::MsgLike(MsgLikeContent {
                         kind: MsgLikeKind::Other(other),
-                        reactions: Default::default(),
                         thread_root,
                         in_reply_to,
                         thread_summary,
@@ -727,21 +724,32 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
     }
 
+    /// Build an aggregation owned by the event being handled: a pending local
+    /// echo when the flow is local, a remote one otherwise.
+    fn new_aggregation(&self, kind: AggregationKind) -> Aggregation {
+        let own_id = self.ctx.flow.timeline_item_id();
+        match &self.ctx.flow {
+            Flow::Local { send_handle, .. } => Aggregation::new_local(
+                own_id,
+                kind,
+                send_handle.clone().map(AggregationSendHandle::Event),
+            ),
+            Flow::Remote { .. } => Aggregation::new(own_id, kind),
+        }
+    }
+
     #[instrument(skip(self, edit_kind))]
     fn handle_edit(&mut self, edited_event_id: OwnedEventId, edit_kind: PendingEditKind) {
         let target = TimelineEventItemId::EventId(edited_event_id.clone());
 
         let encryption_info =
             as_variant!(&self.ctx.flow, Flow::Remote { encryption_info, .. } => encryption_info.clone()).flatten();
-        let aggregation = Aggregation::new(
-            self.ctx.flow.timeline_item_id(),
-            AggregationKind::Edit(PendingEdit {
-                kind: edit_kind,
-                edit_json: self.ctx.flow.raw_event().cloned(),
-                encryption_info,
-                bundled_item_owner: None,
-            }),
-        );
+        let aggregation = self.new_aggregation(AggregationKind::Edit(PendingEdit {
+            kind: edit_kind,
+            edit_json: self.ctx.flow.raw_event().cloned(),
+            encryption_info,
+            bundled_item_owner: None,
+        }));
 
         self.meta.aggregations.add(target.clone(), aggregation.clone());
 
@@ -770,27 +778,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     fn handle_reaction(&mut self, relates_to: OwnedEventId, reaction_key: String) {
         let target = TimelineEventItemId::EventId(relates_to);
 
-        // Add the aggregation to the manager.
-        let reaction_status = match &self.ctx.flow {
-            Flow::Local { send_handle, .. } => {
-                // This is a local echo for a reaction to a remote event.
-                ReactionStatus::LocalToRemote(send_handle.clone())
-            }
-            Flow::Remote { event_id, .. } => {
-                // This is the remote echo for a reaction to a remote event.
-                ReactionStatus::RemoteToRemote(event_id.clone())
-            }
-        };
-
-        let aggregation = Aggregation::new(
-            self.ctx.flow.timeline_item_id(),
-            AggregationKind::Reaction {
-                key: reaction_key,
-                sender: self.ctx.sender.clone(),
-                timestamp: self.ctx.timestamp,
-                reaction_status,
-            },
-        );
+        let aggregation = self.new_aggregation(AggregationKind::Reaction {
+            key: reaction_key,
+            sender: self.ctx.sender.clone(),
+            timestamp: self.ctx.timestamp,
+        });
 
         self.meta.aggregations.add(target.clone(), aggregation.clone());
         find_item_and_apply_aggregation(
@@ -804,14 +796,11 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
     fn handle_poll_response(&mut self, poll_event_id: OwnedEventId, answers: Vec<String>) {
         let target = TimelineEventItemId::EventId(poll_event_id);
-        let aggregation = Aggregation::new(
-            self.ctx.flow.timeline_item_id(),
-            AggregationKind::PollResponse {
-                sender: self.ctx.sender.clone(),
-                timestamp: self.ctx.timestamp,
-                answers,
-            },
-        );
+        let aggregation = self.new_aggregation(AggregationKind::PollResponse {
+            sender: self.ctx.sender.clone(),
+            timestamp: self.ctx.timestamp,
+            answers,
+        });
         self.meta.aggregations.add(target.clone(), aggregation.clone());
         find_item_and_apply_aggregation(
             &self.meta.aggregations,
@@ -824,10 +813,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
     fn handle_poll_end(&mut self, poll_event_id: OwnedEventId) {
         let target = TimelineEventItemId::EventId(poll_event_id);
-        let aggregation = Aggregation::new(
-            self.ctx.flow.timeline_item_id(),
-            AggregationKind::PollEnd { end_date: self.ctx.timestamp },
-        );
+        let aggregation =
+            self.new_aggregation(AggregationKind::PollEnd { end_date: self.ctx.timestamp });
         self.meta.aggregations.add(target.clone(), aggregation.clone());
         find_item_and_apply_aggregation(
             &self.meta.aggregations,
@@ -884,10 +871,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     #[instrument(skip(self, location))]
     fn handle_beacon_update(&mut self, beacon_info_event_id: OwnedEventId, location: BeaconInfo) {
         let target = TimelineEventItemId::EventId(beacon_info_event_id);
-        let aggregation = Aggregation::new(
-            self.ctx.flow.timeline_item_id(),
-            AggregationKind::BeaconUpdate { location },
-        );
+        let aggregation = self.new_aggregation(AggregationKind::BeaconUpdate { location });
         self.meta.aggregations.add(target.clone(), aggregation.clone());
         find_item_and_apply_aggregation(
             &self.meta.aggregations,
@@ -916,12 +900,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
 
         let target = TimelineEventItemId::EventId(redacted.clone());
-        let aggregation = Aggregation::new(
-            self.ctx.flow.timeline_item_id(),
-            AggregationKind::Redaction {
-                is_local: false, // We can only get here for remote echoes of redactions.
-            },
-        );
+        let aggregation = self.new_aggregation(AggregationKind::Redaction);
         self.meta.aggregations.add(target.clone(), aggregation.clone());
 
         find_item_and_apply_aggregation(
@@ -968,10 +947,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// event and adding the new decliner to the list via the manager.
     fn handle_call_declined(&mut self, notification_event_id: OwnedEventId) {
         let target = TimelineEventItemId::EventId(notification_event_id);
-        let aggregation = Aggregation::new(
-            self.ctx.flow.timeline_item_id(),
-            AggregationKind::CallDeclined { sender: self.ctx.sender.clone() },
-        );
+        let aggregation =
+            self.new_aggregation(AggregationKind::CallDeclined { sender: self.ctx.sender.clone() });
         self.meta.aggregations.add(target.clone(), aggregation.clone());
         find_item_and_apply_aggregation(
             &self.meta.aggregations,
@@ -1229,18 +1206,31 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 position: TimelineItemPosition::UpdateAt { timeline_item_index: idx },
                 ..
             } => {
-                trace!("Updating timeline item at position {idx}");
+                // The event cache redacts the raw event independently of the aggregations
+                // system, which reaches us here as an `UpdateAt`. If the item is already
+                // redacted (via the aggregations system, applied earlier in the diff batch),
+                // skip it to avoid a spurious duplicate update.
+                let already_redacted = item.content().is_redacted()
+                    && self.items[*idx]
+                        .as_event()
+                        .is_some_and(|existing| existing.content().is_redacted());
 
-                // Update all events that replied to this previously encrypted message.
-                Self::maybe_update_responses(
-                    self.meta,
-                    self.items,
-                    decrypted_event_id,
-                    EmbeddedEvent::from_timeline_item(&item),
-                );
+                if already_redacted {
+                    trace!("Item at position {idx} is already redacted, skipping the update");
+                } else {
+                    trace!("Updating timeline item at position {idx}");
 
-                let internal_id = self.items[*idx].internal_id.clone();
-                self.items.replace(*idx, TimelineItem::new(item, internal_id));
+                    // Update all events that replied to this previously encrypted message.
+                    Self::maybe_update_responses(
+                        self.meta,
+                        self.items,
+                        decrypted_event_id,
+                        EmbeddedEvent::from_timeline_item(&item),
+                    );
+
+                    let internal_id = self.items[*idx].internal_id.clone();
+                    self.items.replace(*idx, TimelineItem::new(item, internal_id));
+                }
             }
         }
 
@@ -1422,9 +1412,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             };
 
             let new_reply_content = TimelineItemContent::MsgLike(
-                msglike
-                    .with_in_reply_to(in_reply_to)
-                    .with_kind(MsgLikeKind::Message(message.clone())),
+                msglike.with_in_reply_to(in_reply_to).with_kind(MsgLikeKind::Message(message)),
             );
             let new_reply_item = item.with_kind(event_item.with_content(new_reply_content));
             items.replace(timeline_item_index, new_reply_item);

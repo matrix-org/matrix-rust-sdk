@@ -584,7 +584,15 @@ impl PrivateCrossSigningIdentity {
 
         #[cfg(feature = "experimental-x509-identity-verification")]
         if let Some(x509_signer) = x509_signer {
-            x509_signer.sign_cross_signing_key(&account.user_id, cross_signing_key).await?;
+            // X.509 signing can and will fail - the user may enter the wrong PIN, the
+            // hardware key could vanish mid-sign, etc. We should not, however, let this
+            // prevent us from setting up normal cross-signing, so we log and disregard
+            // any errors.
+            x509_signer
+                .sign_cross_signing_key(&account.user_id, cross_signing_key)
+                .await
+                .inspect_err(|e| tracing::warn!("Failed to sign cross signing key with X.509: {e}"))
+                .ok();
         }
 
         Ok(Self::new_helper(account.user_id(), master))
@@ -814,6 +822,79 @@ mod tests {
 
         // ... the resulting cross-signing identity should be signed with X.509
         assert!(x509_verifier.verify_signed_object(user_id(), public_key));
+    }
+
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    #[async_test]
+    async fn test_private_identity_ignores_fallible_x509_signer() {
+        use std::{pin::Pin, time::Duration};
+
+        use crate::{
+            SignatureError,
+            types::Signature,
+            x509::{RawX509Signature, RawX509Signer, ValidityError, X509Signer},
+        };
+
+        /// A signer whose private key operation always fails.
+        #[derive(Debug)]
+        struct FailingRawX509Signer;
+
+        impl RawX509Signer for FailingRawX509Signer {
+            #[cfg(not(target_family = "wasm"))]
+            fn sign(
+                &self,
+                _message: Vec<u8>,
+            ) -> Pin<Box<dyn Future<Output = Result<RawX509Signature, SignatureError>> + Send>>
+            {
+                Box::pin(async { Err(SignatureError::MissingSigningKey) })
+            }
+
+            #[cfg(target_family = "wasm")]
+            fn sign(
+                &self,
+                _message: Vec<u8>,
+            ) -> Pin<Box<dyn Future<Output = Result<RawX509Signature, SignatureError>>>>
+            {
+                Box::pin(async { Err(SignatureError::MissingSigningKey) })
+            }
+
+            fn validity_not_after(&self) -> Result<Duration, ValidityError> {
+                Ok(Duration::from_secs(123_456_789))
+            }
+        }
+
+        let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
+        let x509_signer = X509Signer::new(Arc::new(FailingRawX509Signer));
+
+        // Bootstrapping must not depend on a hardware key being present.
+        let identity = PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer))
+            .await
+            .expect("A failing X.509 signer must not prevent the identity being created");
+
+        let master = identity.master_key.lock().await;
+        let master = master.as_ref().unwrap();
+
+        let public_key = master.public_key().as_ref();
+        let signatures = &public_key.signatures;
+        let canonical_json = public_key.to_canonical_json().unwrap();
+
+        // The device's own signature is still applied, so the master key is
+        // well-formed ...
+        account
+            .has_signed_raw(signatures, &canonical_json)
+            .expect("The account should still have signed the master key");
+
+        // ... it just carries no X.509 signature yet.
+        // `OwnUserIdentity::refresh_x509_signature` adds one on a later
+        // `/keys/query`, once the hardware key is available again.
+        assert!(
+            !signatures
+                .get(user_id())
+                .expect("The master key should have signatures")
+                .values()
+                .any(|signature| matches!(signature, Ok(Signature::X509(_)))),
+            "The master key should carry no X.509 signature"
+        );
     }
 
     #[async_test]

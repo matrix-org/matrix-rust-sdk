@@ -1748,8 +1748,7 @@ pub(crate) mod tests {
         let devices = manager.store.get_user_devices(our_user).await.unwrap();
         assert_eq!(devices.devices().count(), 1);
 
-        let device =
-            manager.store.get_device_data(our_user, device_id!(device_id())).await.unwrap();
+        let device = manager.store.get_device_data(our_user, device_id()).await.unwrap();
 
         assert!(device.is_some());
     }

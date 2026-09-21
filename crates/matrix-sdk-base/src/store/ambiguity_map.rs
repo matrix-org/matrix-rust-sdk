@@ -258,7 +258,7 @@ impl AmbiguityCache {
 
             // We don't allow other users to set the display name, so if we have a more
             // trusted version of the display name use that.
-            let new_display_name = if member_event.sender().as_str() == member_event.state_key() {
+            let new_display_name = if member_event.sender() == member_event.state_key() {
                 new
             } else if let Some(old) = old_display_name.as_deref() {
                 old

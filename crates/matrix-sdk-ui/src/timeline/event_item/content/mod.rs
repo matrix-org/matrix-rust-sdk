@@ -29,7 +29,7 @@ use ruma::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
             user::PolicyRuleUserEventContent,
         },
-        relation::Replacement,
+        relation::{Replacement, Reply, Thread},
         room::{
             avatar::RoomAvatarEventContent,
             canonical_alias::RoomCanonicalAliasEventContent,
@@ -40,7 +40,10 @@ use ruma::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
             member::{Change, RoomMemberEventContent},
-            message::{MessageType, RoomMessageEventContent},
+            message::{
+                MessageType, Relation, RoomMessageEventContent,
+                RoomMessageEventContentWithoutRelation,
+            },
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -82,7 +85,6 @@ pub use self::{
     polls::{PollResult, PollState},
     reply::{EmbeddedEvent, InReplyToDetails},
 };
-use super::ReactionsByKeyBySender;
 use crate::timeline::{
     controller::ActiveCallInfo,
     event_handler::{HandleAggregationKind, TimelineAction},
@@ -213,7 +215,6 @@ impl TimelineItemContent {
                 },
             ] => Some(TimelineItemContent::MsgLike(MsgLikeContent {
                 kind: MsgLikeKind::LiveLocation(LiveLocationState::new(content.clone())),
-                reactions: Default::default(),
                 thread_root: None,
                 in_reply_to: None,
                 thread_summary: None,
@@ -344,7 +345,6 @@ impl TimelineItemContent {
     pub(crate) fn message(
         msgtype: MessageType,
         mentions: Option<Mentions>,
-        reactions: ReactionsByKeyBySender,
         thread_root: Option<OwnedEventId>,
         in_reply_to: Option<InReplyToDetails>,
         thread_summary: Option<ThreadSummary>,
@@ -359,7 +359,6 @@ impl TimelineItemContent {
                 None,
                 remove_reply_fallback,
             )),
-            reactions,
             thread_root,
             in_reply_to,
             thread_summary,
@@ -449,7 +448,6 @@ impl TimelineItemContent {
         match self {
             Self::MsgLike(msglike) => TimelineItemContent::MsgLike(MsgLikeContent {
                 kind: MsgLikeKind::Redacted,
-                reactions: Default::default(),
                 in_reply_to: None,
                 ..msglike.clone()
             }),
@@ -473,56 +471,23 @@ impl TimelineItemContent {
         as_variant!(self, Self::MsgLike)?.in_reply_to.clone()
     }
 
-    /// Return the reactions, grouped by key and then by sender, for a given
-    /// content.
-    pub fn reactions(&self) -> Option<&ReactionsByKeyBySender> {
-        match self {
-            TimelineItemContent::MsgLike(msglike) => Some(&msglike.reactions),
-
-            TimelineItemContent::MembershipChange(..)
-            | TimelineItemContent::ProfileChange(..)
-            | TimelineItemContent::OtherState(..)
-            | TimelineItemContent::FailedToParseMessageLike { .. }
-            | TimelineItemContent::FailedToParseState { .. }
-            | TimelineItemContent::CallInvite
-            | TimelineItemContent::RtcNotification { .. } => {
-                // No reactions for these kind of items.
-                None
-            }
+    /// The thread or reply relation of this item, rebuilt from its thread root
+    /// and reply target, if any.
+    pub(crate) fn relation(&self) -> Option<Relation<RoomMessageEventContentWithoutRelation>> {
+        if let Some(thread_root) = self.thread_root() {
+            Some(Relation::Thread(match self.in_reply_to() {
+                Some(details) => Thread::reply(thread_root, details.event_id),
+                None => Thread::plain(thread_root.clone(), thread_root),
+            }))
+        } else {
+            self.in_reply_to()
+                .map(|details| Relation::Reply(Reply::with_event_id(details.event_id)))
         }
     }
 
     /// Information about the thread this item is the root for.
     pub fn thread_summary(&self) -> Option<ThreadSummary> {
         as_variant!(self, Self::MsgLike)?.thread_summary.clone()
-    }
-
-    /// Return a mutable handle to the reactions of this item.
-    ///
-    /// See also [`Self::reactions()`] to explain the optional return type.
-    pub(crate) fn reactions_mut(&mut self) -> Option<&mut ReactionsByKeyBySender> {
-        match self {
-            TimelineItemContent::MsgLike(msglike) => Some(&mut msglike.reactions),
-
-            TimelineItemContent::MembershipChange(..)
-            | TimelineItemContent::ProfileChange(..)
-            | TimelineItemContent::OtherState(..)
-            | TimelineItemContent::FailedToParseMessageLike { .. }
-            | TimelineItemContent::FailedToParseState { .. }
-            | TimelineItemContent::CallInvite
-            | TimelineItemContent::RtcNotification { .. } => {
-                // No reactions for these kind of items.
-                None
-            }
-        }
-    }
-
-    pub fn with_reactions(&self, reactions: ReactionsByKeyBySender) -> Self {
-        let mut cloned = self.clone();
-        if let Some(r) = cloned.reactions_mut() {
-            *r = reactions;
-        }
-        cloned
     }
 }
 

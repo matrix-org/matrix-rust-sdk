@@ -14,6 +14,7 @@
 
 use std::iter::empty;
 
+use eyeball::{AsyncLock, ObservableWriteGuard, SharedObservable};
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     apply_redaction, check_validity_of_replacement_events,
@@ -22,18 +23,17 @@ use matrix_sdk_base::{
     linked_chunk::{
         ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
     },
-    serde_helpers::{extract_read_receipt, extract_redaction_target},
+    serde_helpers::extract_redaction_target,
     sync::Timeline,
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId,
     events::{
-        AnySyncEphemeralRoomEvent, receipt::ReceiptEventContent, relation::RelationType,
+        receipt::ReceiptEventContent, relation::RelationType,
         room::redaction::SyncRoomRedactionEvent,
     },
     room_version_rules::RoomVersionRules,
-    serde::Raw,
 };
 use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, instrument, trace};
@@ -53,7 +53,9 @@ use super::{
         },
         EventLocation,
         event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
-        read_receipts::{ThreadReadReceiptEventFilter, compute_unread_counts},
+        read_receipts::{
+            MaybeReceiptEventContent, ThreadReadReceiptEventFilter, compute_unread_counts,
+        },
         room::RoomEventCacheLinkedChunkUpdate,
         subscriber::SubscribersHandle,
     },
@@ -82,7 +84,7 @@ pub struct ThreadEventCacheState {
     thread_linked_chunk: EventLinkedChunk,
 
     /// The information related to this thread, [`ThreadInfo`].
-    pub thread_info: ThreadInfo,
+    pub thread_info: SharedObservable<ThreadInfo, AsyncLock>,
 
     /// A clone of [`super::ThreadEventCacheInner::update_sender`].
     ///
@@ -187,7 +189,7 @@ impl ThreadEventCacheState {
                 linked_chunk,
                 full_linked_chunk_metadata,
             ),
-            thread_info,
+            thread_info: SharedObservable::new_async(thread_info),
             update_sender,
             linked_chunk_update_sender,
             waited_for_initial_prev_token: false,
@@ -457,7 +459,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     pub async fn handle_sync(
         &mut self,
         timeline: Timeline,
-        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        read_receipts: &MaybeReceiptEventContent,
     ) -> Result<(bool, Vec<VectorDiff<Event>>)> {
         let prev_batch_token = &timeline.prev_batch;
 
@@ -483,8 +485,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             // unread counts tracking.
             //
             // Post-process the ephemeral events.
-            self.post_process_upserted_events(empty(), extract_read_receipt(&ephemeral_events))
-                .await?;
+            self.post_process_upserted_events(empty(), read_receipts.as_ref()).await?;
 
             return Ok((false, Vec::new()));
         }
@@ -512,8 +513,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         self.state.propagate_changes(&self.store).await?;
 
         // Post-process newly inserted events.
-        self.post_process_upserted_events(events.iter(), extract_read_receipt(&ephemeral_events))
-            .await?;
+        self.post_process_upserted_events(events.iter(), read_receipts.as_ref()).await?;
 
         if timeline.limited && has_new_gap {
             // If there was a previous batch token for a limited timeline, unload the chunks
@@ -533,7 +533,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     pub(super) async fn post_process_upserted_events<'i, I>(
         &mut self,
         events: I,
-        receipt_event: Option<ReceiptEventContent>,
+        receipt_event: Option<&ReceiptEventContent>,
     ) -> Result<()>
     where
         I: Iterator<Item = &'i Event>,
@@ -543,12 +543,12 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             self.maybe_apply_new_redaction(event).await?;
 
             // Save a bundled thread event, if there was one.
-            if let Some(bundled_thread) = &event.bundled_latest_thread_event {
-                self.save_events([*bundled_thread.clone()]).await?;
+            if let Some(bundled_thread) = event.bundled_latest_thread_event() {
+                self.save_events([bundled_thread]).await?;
             }
         }
 
-        self.update_read_receipts(receipt_event.as_ref()).await?;
+        self.update_read_receipts(receipt_event).await?;
 
         Ok(())
     }
@@ -564,7 +564,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             return Ok(());
         };
 
-        let prev_read_receipts = &self.state.thread_info.read_receipts;
+        let prev_read_receipts = self.state.thread_info.read().await.read_receipts.clone();
         let mut read_receipts = prev_read_receipts.clone();
 
         let client = room.client();
@@ -580,16 +580,20 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         )
         .await;
 
-        if prev_read_receipts != &read_receipts {
-            // The read receipt has changed! Do a little dance to update the `ThreadInfo` in
-            // the store.
-            self.state.thread_info.read_receipts = read_receipts;
+        if prev_read_receipts != read_receipts {
+            // The read receipt has changed! Do a little dance to update the
+            // `ThreadInfo` in the store.
+            let mut thread_info = self.state.thread_info.write().await;
+
+            ObservableWriteGuard::update(&mut thread_info, |thread_info| {
+                thread_info.read_receipts = read_receipts;
+            });
 
             let room_id = &self.state.room_id;
             let thread_id = &self.state.thread_id;
 
             if let Err(error) =
-                self.store.update_thread_info(room_id, thread_id, &self.state.thread_info).await
+                self.store.update_thread_info(room_id, thread_id, &thread_info).await
             {
                 error!(?room_id, ?thread_id, ?error, "Failed to update the `ThreadInfo`");
             }

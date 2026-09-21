@@ -184,7 +184,7 @@ impl Room {
             Ok::<Option<PresenceEvent>, StoreError>(raw_event.and_then(|e| e.deserialize().ok()))
         };
 
-        let profile = async { self.store.get_profile(self.room_id(), user_id).await };
+        let profile = self.store.get_profile(self.room_id(), user_id);
 
         #[cfg(feature = "unstable-msc4426")]
         let (Some(event), presence, profile, global_profile) =

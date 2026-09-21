@@ -22,11 +22,11 @@ use eyeball::SharedObservable;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, ThreadSummary},
     event_cache::Event,
-    sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
+    sync::Timeline,
 };
 use ruma::{
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId,
-    events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
+    events::{AnyRoomAccountDataEvent, relation::RelationType},
     serde::Raw,
 };
 use tokio::sync::{Notify, mpsc};
@@ -48,6 +48,7 @@ use super::{
     TimelineVectorDiffs,
     event_linked_chunk::sort_positions_descending,
     pagination::SharedPaginationStatus,
+    read_receipts::MaybeReceiptEventContent,
     subscriber::{AutoShrinkMessage, Subscriber},
 };
 use crate::room::WeakRoom;
@@ -231,27 +232,33 @@ impl RoomEventCache {
         &self.inner.state
     }
 
-    /// Handle a [`JoinedRoomUpdate`].
+    /// Handle an update from a joined room.
     #[instrument(skip_all, fields(room_id = %self.room_id()))]
-    pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
+    pub(super) async fn handle_joined_room_update(
+        &self,
+        timeline: Timeline,
+        read_receipts: MaybeReceiptEventContent,
+        account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
+        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+        avatar_changes: Option<BTreeMap<OwnedUserId, Option<OwnedMxcUri>>>,
+    ) -> Result<()> {
         self.inner
-            .handle_timeline(
-                updates.timeline,
-                updates.ephemeral,
-                updates.ambiguity_changes,
-                updates.avatar_changes,
-            )
+            .handle_timeline(timeline, read_receipts, ambiguity_changes, avatar_changes)
             .await?;
-        self.inner.handle_account_data(updates.account_data);
+        self.inner.handle_account_data(account_data);
 
         Ok(())
     }
 
-    /// Handle a [`LeftRoomUpdate`].
+    /// Handle an update from a left room.
     #[instrument(skip_all, fields(room_id = %self.room_id()))]
-    pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
+    pub(super) async fn handle_left_room_update(
+        &self,
+        timeline: Timeline,
+        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+    ) -> Result<()> {
         self.inner
-            .handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes, None)
+            .handle_timeline(timeline, MaybeReceiptEventContent::none(), ambiguity_changes, None)
             .await?;
 
         Ok(())
@@ -381,14 +388,14 @@ impl RoomEventCacheInner {
     async fn handle_timeline(
         &self,
         timeline: Timeline,
-        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        read_receipts: MaybeReceiptEventContent,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
         avatar_changes: Option<BTreeMap<OwnedUserId, Option<OwnedMxcUri>>>,
     ) -> Result<()> {
         self.handle_timeline_inner(
             self.state.write().await?,
             timeline,
-            ephemeral_events,
+            read_receipts,
             ambiguity_changes,
             avatar_changes,
         )
@@ -409,7 +416,7 @@ impl RoomEventCacheInner {
                 .handle_timeline_inner(
                     state,
                     Timeline { limited: false, prev_batch: None, events: vec![event] },
-                    Vec::new(),
+                    MaybeReceiptEventContent::none(),
                     BTreeMap::new(),
                     None,
                 )
@@ -423,13 +430,13 @@ impl RoomEventCacheInner {
         &self,
         mut state: StateLockWriteGuard<'_, RoomEventCacheState>,
         timeline: Timeline,
-        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        read_receipts: MaybeReceiptEventContent,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
         avatar_changes: Option<BTreeMap<OwnedUserId, Option<OwnedMxcUri>>>,
     ) -> Result<()> {
         if timeline.events.is_empty()
             && timeline.prev_batch.is_none()
-            && ephemeral_events.is_empty()
+            && read_receipts.is_none()
             && ambiguity_changes.is_empty()
             && avatar_changes.as_ref().is_none_or(|avatars| avatars.is_empty())
         {
@@ -439,7 +446,7 @@ impl RoomEventCacheInner {
         trace!("adding new events");
 
         let (stored_prev_batch_token, timeline_event_diffs) =
-            state.handle_sync(timeline, &ephemeral_events).await?;
+            state.handle_sync(timeline, &read_receipts).await?;
 
         drop(state);
 
@@ -461,9 +468,9 @@ impl RoomEventCacheInner {
             );
         }
 
-        if !ephemeral_events.is_empty() {
+        if let Some(read_receipts) = read_receipts.into_inner() {
             self.update_sender
-                .send(RoomEventCacheUpdate::AddEphemeralEvents { events: ephemeral_events }, None);
+                .send(RoomEventCacheUpdate::AddReadReceiptEvent { event: read_receipts }, None);
         }
 
         if !ambiguity_changes.is_empty() || avatar_changes.as_ref().is_some_and(|c| !c.is_empty()) {
@@ -781,7 +788,7 @@ mod timed_tests {
             lazy_loader::from_all_chunks,
         },
         store::StoreConfig,
-        sync::{JoinedRoomUpdate, Timeline},
+        sync::Timeline,
     };
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{ALICE, BOB, async_test, event_factory::EventFactory};
@@ -797,7 +804,8 @@ mod timed_tests {
 
     use super::{
         super::{super::TimelineVectorDiffs, pagination::LoadMoreEventsBackwardsOutcome},
-        RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
+        MaybeReceiptEventContent, RoomEventCache, RoomEventCacheGenericUpdate,
+        RoomEventCacheUpdate,
     };
     use crate::{assert_let_timeout, test_utils::client::MockClientBuilder};
 
@@ -838,7 +846,13 @@ mod timed_tests {
         };
 
         room_event_cache
-            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
+            .handle_joined_room_update(
+                timeline,
+                MaybeReceiptEventContent::none(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+            )
             .await
             .unwrap();
 
@@ -915,7 +929,13 @@ mod timed_tests {
         let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev] };
 
         room_event_cache
-            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
+            .handle_joined_room_update(
+                timeline,
+                MaybeReceiptEventContent::none(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+            )
             .await
             .unwrap();
 
@@ -1252,7 +1272,13 @@ mod timed_tests {
         let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev2] };
 
         room_event_cache
-            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
+            .handle_joined_room_update(
+                timeline,
+                MaybeReceiptEventContent::none(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+            )
             .await
             .unwrap();
 
@@ -1358,14 +1384,17 @@ mod timed_tests {
         // Propagate an update including a limited timeline with one message and a
         // prev-batch token.
         room_event_cache
-            .handle_joined_room_update(JoinedRoomUpdate {
-                timeline: Timeline {
+            .handle_joined_room_update(
+                Timeline {
                     limited: true,
                     prev_batch: Some("raclette".to_owned()),
                     events: vec![f.text_msg("hey yo").into_event()],
                 },
-                ..Default::default()
-            })
+                MaybeReceiptEventContent::none(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+            )
             .await
             .unwrap();
 
@@ -1424,14 +1453,17 @@ mod timed_tests {
         // Now, propagate an update for another message, but the timeline isn't limited
         // this time.
         room_event_cache
-            .handle_joined_room_update(JoinedRoomUpdate {
-                timeline: Timeline {
+            .handle_joined_room_update(
+                Timeline {
                     limited: false,
                     prev_batch: Some("fondue".to_owned()),
                     events: vec![f.text_msg("sup").into_event()],
                 },
-                ..Default::default()
-            })
+                MaybeReceiptEventContent::none(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+            )
             .await
             .unwrap();
 
@@ -1704,14 +1736,17 @@ mod timed_tests {
         // events.
         let evid4 = event_id!("$4");
         room_event_cache
-            .handle_joined_room_update(JoinedRoomUpdate {
-                timeline: Timeline {
+            .handle_joined_room_update(
+                Timeline {
                     limited: true,
                     prev_batch: Some("fondue".to_owned()),
                     events: vec![ev3, f.text_msg("sup").event_id(evid4).into_event()],
                 },
-                ..Default::default()
-            })
+                MaybeReceiptEventContent::none(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+            )
             .await
             .unwrap();
 
@@ -2600,7 +2635,13 @@ mod timed_tests {
         let account_data = vec![read_marker_event; 100];
 
         room_event_cache
-            .handle_joined_room_update(JoinedRoomUpdate { account_data, ..Default::default() })
+            .handle_joined_room_update(
+                Default::default(),
+                MaybeReceiptEventContent::none(),
+                account_data,
+                Default::default(),
+                Default::default(),
+            )
             .await
             .unwrap();
 

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![recursion_limit = "256"]
+
 #[cfg(feature = "e2e-encryption")]
 use std::io::Read;
 use std::{
@@ -27,6 +29,7 @@ use api::{
 };
 use matrix_sdk::{
     BoxFuture, Client, Error, IdParseError,
+    config::RequestConfig,
     encryption::vodozemac::pk_encryption::Message,
     locks::Mutex,
     media::{MediaFetcher, MediaRequestParameters},
@@ -96,6 +99,7 @@ impl ContentScanner {
         &self,
         client: &Client,
         media_source: &MediaSource,
+        config: Option<RequestConfig>,
     ) -> Result<DownloadAndScanMediaResponse, Error> {
         match &media_source {
             MediaSource::Encrypted(encrypted) => {
@@ -108,6 +112,7 @@ impl ContentScanner {
                         public_server_key,
                         *encrypted.clone(),
                     ))
+                    .with_request_config(config)
                     .await?)
             }
             MediaSource::Plain(mxc) => {
@@ -208,6 +213,37 @@ impl ContentScannerMediaFetcher {
     pub fn with_content_scanner(content_scanner: Arc<ContentScanner>) -> Self {
         Self { content_scanner }
     }
+
+    async fn fetch_media_inner(
+        &self,
+        client: &Client,
+        request: &MediaRequestParameters,
+        request_config: Option<RequestConfig>,
+    ) -> matrix_sdk::Result<Vec<u8>, Error> {
+        let content =
+            self.content_scanner.get_media(client, &request.source, request_config).await?.content;
+        #[cfg(feature = "e2e-encryption")]
+        let content = {
+            match &request.source {
+                MediaSource::Encrypted(file) => {
+                    let content_len = content.len();
+                    let mut cursor = std::io::Cursor::new(content);
+                    let mut reader =
+                        AttachmentDecryptor::new(&mut cursor, file.as_ref().clone().into())?;
+
+                    // Encrypted size should be the same as the decrypted size,
+                    // rounded up to a cipher block.
+                    let mut decrypted = Vec::with_capacity(content_len);
+
+                    reader.read_to_end(&mut decrypted)?;
+
+                    decrypted
+                }
+                MediaSource::Plain(_) => content,
+            }
+        };
+        Ok(content)
+    }
 }
 
 impl MediaFetcher for ContentScannerMediaFetcher {
@@ -216,30 +252,16 @@ impl MediaFetcher for ContentScannerMediaFetcher {
         client: &'a Client,
         request: &'a MediaRequestParameters,
     ) -> BoxFuture<'a, matrix_sdk::Result<Vec<u8>, Error>> {
-        Box::pin(async move {
-            let content = self.content_scanner.get_media(client, &request.source).await?.content;
-            #[cfg(feature = "e2e-encryption")]
-            let content = {
-                match &request.source {
-                    MediaSource::Encrypted(file) => {
-                        let content_len = content.len();
-                        let mut cursor = std::io::Cursor::new(content);
-                        let mut reader =
-                            AttachmentDecryptor::new(&mut cursor, file.as_ref().clone().into())?;
+        Box::pin(self.fetch_media_inner(client, request, None))
+    }
 
-                        // Encrypted size should be the same as the decrypted size,
-                        // rounded up to a cipher block.
-                        let mut decrypted = Vec::with_capacity(content_len);
-
-                        reader.read_to_end(&mut decrypted)?;
-
-                        decrypted
-                    }
-                    MediaSource::Plain(_) => content,
-                }
-            };
-            Ok(content)
-        })
+    fn fetch_media_content_with_config<'a>(
+        &'a self,
+        client: &'a Client,
+        request: &'a MediaRequestParameters,
+        request_config: RequestConfig,
+    ) -> BoxFuture<'a, matrix_sdk::Result<Vec<u8>, Error>> {
+        Box::pin(self.fetch_media_inner(client, request, Some(request_config)))
     }
 }
 
@@ -355,7 +377,7 @@ mod tests {
         let content_scanner = ContentScanner::new(content_scanner_server.uri());
         let media_source =
             MediaSource::Plain(owned_mxc_uri!("mxc://matrix.org/RhfpOXOzAwzkuqcmbgMwQUrJ"));
-        content_scanner.get_media(&client, &media_source).await.expect("Get media");
+        content_scanner.get_media(&client, &media_source, None).await.expect("Get media");
     }
 
     #[async_test]
@@ -378,8 +400,10 @@ mod tests {
         let content_scanner = ContentScanner::new(content_scanner_server.uri());
         let media_source =
             MediaSource::Plain(owned_mxc_uri!("mxc://matrix.org/ckTaStcNnFXLzKApkBmgRDoC"));
-        let err =
-            content_scanner.get_media(&client, &media_source).await.expect_err("Get media error");
+        let err = content_scanner
+            .get_media(&client, &media_source, None)
+            .await
+            .expect_err("Get media error");
         let client_error = err.as_client_api_error().expect("Get client error");
         assert_eq!(client_error.status_code, StatusCode::FORBIDDEN);
         assert_eq!(
@@ -420,7 +444,7 @@ mod tests {
             file_info,
             hashes,
         )));
-        content_scanner.get_media(&client, &media_source).await.expect("Get media");
+        content_scanner.get_media(&client, &media_source, None).await.expect("Get media");
     }
 
     #[async_test]
@@ -456,7 +480,7 @@ mod tests {
             hashes,
         )));
         let err = content_scanner
-            .get_media(&client, &media_source)
+            .get_media(&client, &media_source, None)
             .await
             .expect_err("Invalid type error");
         let client_error = err.as_client_api_error().expect("Invalid error");

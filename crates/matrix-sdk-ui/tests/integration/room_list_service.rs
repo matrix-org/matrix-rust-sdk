@@ -380,6 +380,9 @@ async fn test_sync_all_states() -> Result<(), Error> {
                 "typing": {
                     "enabled": true,
                 },
+                "org.matrix.msc4262.profiles": {
+                    "enabled": true,
+                },
             },
         },
         respond with = {
@@ -2407,6 +2410,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                 "account_data": { "enabled": true },
                 "receipts": { "enabled": true, "rooms": [ "*" ] },
                 "typing": { "enabled": true },
+                "org.matrix.msc4262.profiles": { "enabled": true },
             },
         },
         respond with = {
@@ -2506,6 +2510,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                 "account_data": { "enabled": true },
                 "receipts": { "enabled": true, "rooms": [ "*" ] },
                 "typing": { "enabled": true },
+                "org.matrix.msc4262.profiles": { "enabled": true },
             },
         },
         respond with = {
@@ -2641,6 +2646,7 @@ async fn test_remove_and_reset_room_subscriptions() -> Result<(), Error> {
                 "account_data": { "enabled": true },
                 "receipts": { "enabled": true, "rooms": [ "*" ] },
                 "typing": { "enabled": true },
+                "org.matrix.msc4262.profiles": { "enabled": true },
             },
         },
         respond with = {
@@ -2747,6 +2753,7 @@ async fn test_remove_and_reset_room_subscriptions() -> Result<(), Error> {
                 "account_data": { "enabled": true },
                 "receipts": { "enabled": true, "rooms": [ "*" ] },
                 "typing": { "enabled": true },
+                "org.matrix.msc4262.profiles": { "enabled": true },
             },
         },
         respond with = {
@@ -3300,6 +3307,9 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
                     "typing": {
                         "enabled": true,
                     },
+                    "org.matrix.msc4262.profiles": {
+                        "enabled": true,
+                    },
                 },
                 "lists": {
                     "all_rooms": {
@@ -3398,6 +3408,9 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
                 "io.element.msc4308.thread_subscriptions": {
                     "enabled": true,
                     "limit": 10,
+                },
+                "org.matrix.msc4262.profiles": {
+                    "enabled": true,
                 },
             },
             "lists": {

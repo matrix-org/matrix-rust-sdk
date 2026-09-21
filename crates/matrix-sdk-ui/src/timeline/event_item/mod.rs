@@ -22,7 +22,7 @@ use indexmap::IndexMap;
 use matrix_sdk::{
     Error, Room,
     deserialized_responses::{EncryptionInfo, ShieldState},
-    send_queue::{SendHandle, SendReactionHandle},
+    send_queue::SendHandle,
 };
 use matrix_sdk_base::deserialized_responses::ShieldStateCode;
 #[cfg(feature = "unstable-msc4426")]
@@ -90,6 +90,14 @@ pub struct EventTimelineItem {
     /// before redaction. This applies to all sorts of timeline items, including
     /// state events. If no redaction is in flight, None.
     pub(super) unredacted_item: Option<UnredactedEventTimelineItem>,
+    /// Send state of our own pending redaction of this event, if any.
+    pub(super) redaction_send_state: Option<EventSendState>,
+    /// Send state of our own pending edits of this event, if any.
+    pub(super) edit_send_state: Option<EventSendState>,
+    /// The reactions of the event, grouped by key and then by sender.
+    pub(super) reactions: ReactionsByKeyBySender,
+    /// The message before our pending edits, put back if they're all dropped.
+    pub(super) unedited_kind: Option<Box<MsgLikeKind>>,
     /// The kind of event timeline item, local or remote.
     pub(super) kind: EventTimelineItemKind,
     /// Whether or not the event belongs to an encrypted room.
@@ -145,6 +153,9 @@ pub(super) struct UnredactedEventTimelineItem {
     /// The original content before redaction.
     content: TimelineItemContent,
 
+    /// The reactions before redaction.
+    reactions: ReactionsByKeyBySender,
+
     /// JSON of the original event.
     pub(crate) original_json: Option<Raw<AnySyncTimelineEvent>>,
 
@@ -172,9 +183,28 @@ impl EventTimelineItem {
             timestamp,
             content,
             unredacted_item: None,
+            redaction_send_state: None,
+            edit_send_state: None,
+            reactions: Default::default(),
+            unedited_kind: None,
             kind,
             is_room_encrypted,
         }
+    }
+
+    /// The reactions of this event, grouped by key and then by sender.
+    pub fn reactions(&self) -> &ReactionsByKeyBySender {
+        &self.reactions
+    }
+
+    /// A mutable handle to the reactions of this event.
+    pub(crate) fn reactions_mut(&mut self) -> &mut ReactionsByKeyBySender {
+        &mut self.reactions
+    }
+
+    /// Clone this item with a different set of reactions.
+    pub fn with_reactions(&self, reactions: ReactionsByKeyBySender) -> Self {
+        Self { reactions, ..self.clone() }
     }
 
     /// Check whether this item is a local echo.
@@ -217,6 +247,19 @@ impl EventTimelineItem {
     /// Get the event's send state of a local echo.
     pub fn send_state(&self) -> Option<&EventSendState> {
         as_variant!(&self.kind, EventTimelineItemKind::Local(local) => &local.send_state)
+    }
+
+    /// Send state of our own pending redaction of this event, if any. `None`
+    /// when the event isn't redacted or the redaction came from the server.
+    pub fn redaction_send_state(&self) -> Option<&EventSendState> {
+        self.redaction_send_state.as_ref()
+    }
+
+    /// Send state of our own pending edits of this event: a failed edit wins
+    /// over a pending one, which wins over a sent one. `None` when there is no
+    /// local edit.
+    pub fn edit_send_state(&self) -> Option<&EventSendState> {
+        self.edit_send_state.as_ref()
     }
 
     /// Get the time that the local event was pushed in the send queue at.
@@ -550,6 +593,7 @@ impl EventTimelineItem {
     pub(super) fn redact(&self, rules: &RedactionRules, is_local: bool) -> Self {
         let unredacted_item = is_local.then(|| UnredactedEventTimelineItem {
             content: self.content.clone(),
+            reactions: self.reactions.clone(),
             original_json: self.original_json().cloned(),
             latest_edit_json: self.latest_edit_json().cloned(),
         });
@@ -566,6 +610,10 @@ impl EventTimelineItem {
             timestamp: self.timestamp,
             content,
             unredacted_item,
+            redaction_send_state: None,
+            edit_send_state: None,
+            reactions: Default::default(),
+            unedited_kind: None,
             kind,
             is_room_encrypted: self.is_room_encrypted,
         }
@@ -594,6 +642,10 @@ impl EventTimelineItem {
             timestamp: self.timestamp,
             content: unredacted_item.content.clone(),
             unredacted_item: None,
+            redaction_send_state: None,
+            edit_send_state: None,
+            reactions: unredacted_item.reactions.clone(),
+            unedited_kind: None,
             kind,
             is_room_encrypted: self.is_room_encrypted,
         }
@@ -802,29 +854,13 @@ pub enum EventItemOrigin {
     Cache,
 }
 
-/// What's the status of a reaction?
-#[derive(Clone, Debug)]
-pub enum ReactionStatus {
-    /// It's a local reaction to a local echo.
-    ///
-    /// The handle is missing only in testing contexts.
-    LocalToLocal(Option<SendReactionHandle>),
-    /// It's a local reaction to a remote event.
-    ///
-    /// The handle is missing only in testing contexts.
-    LocalToRemote(Option<SendHandle>),
-    /// It's a remote reaction to a remote event.
-    ///
-    /// The event id is that of the reaction event (not the target event).
-    RemoteToRemote(OwnedEventId),
-}
-
 /// Information about a single reaction stored in [`ReactionsByKeyBySender`].
 #[derive(Clone, Debug)]
 pub struct ReactionInfo {
     pub timestamp: MilliSecondsSinceUnixEpoch,
-    /// Current status of this reaction.
-    pub status: ReactionStatus,
+    /// Send state of the reaction when it's one of our own local echoes;
+    /// `None` when it came from the server.
+    pub send_state: Option<EventSendState>,
 }
 
 /// Reactions grouped by key first, then by sender.
@@ -970,7 +1006,6 @@ mod tests {
                 edited: false,
                 mentions: None,
             }),
-            reactions: Default::default(),
             thread_root: None,
             in_reply_to: None,
             thread_summary: None,
@@ -985,7 +1020,6 @@ mod tests {
                 true,
                 Some(MilliSecondsSinceUnixEpoch(uint!(1))),
             ))),
-            reactions: Default::default(),
             thread_root: None,
             in_reply_to: None,
             thread_summary: None,
