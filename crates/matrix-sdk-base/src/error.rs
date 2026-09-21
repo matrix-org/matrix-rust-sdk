@@ -40,8 +40,8 @@ pub enum Error {
     #[error("The room where a group session should be shared is not encrypted")]
     EncryptionNotEnabled,
 
-    /// A generic error returned when the state store fails not due to
-    /// IO or (de)serialization.
+    /// A generic error returned when the state store fails not due to IO or
+    /// (de)serialization.
     #[error(transparent)]
     StateStore(#[from] crate::store::StoreError),
 

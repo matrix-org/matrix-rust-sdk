@@ -125,8 +125,8 @@ impl Room {
         self.info.set(info);
 
         if reasons.is_empty() {
-            // TODO: remove this block!
-            // Read `RoomInfoNotableUpdateReasons::NONE` to understand why it must be
+            // TODO: remove this block! Read
+            // `RoomInfoNotableUpdateReasons::NONE` to understand why it must be
             // removed.
             reasons = RoomInfoNotableUpdateReasons::NONE;
         }
@@ -253,9 +253,10 @@ impl BaseRoomInfo {
     ) -> bool {
         match (&raw_event.event_type, raw_event.state_key.as_str()) {
             (StateEventType::RoomEncryption, "") => {
-                // To avoid breaking encrypted rooms, we ignore `m.room.encryption` events that
-                // fail to deserialize or that are redacted (i.e. they don't contain the
-                // algorithm used for encryption).
+                // To avoid breaking encrypted rooms, we ignore
+                // `m.room.encryption` events that fail to deserialize or that
+                // are redacted (i.e. they don't contain the algorithm used for
+                // encryption).
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
                     as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomEncryption)
                 }) && event.content.algorithm.is_some()
@@ -273,7 +274,8 @@ impl BaseRoomInfo {
                     self.avatar = Some(event);
                     true
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.avatar.take().is_some()
                 }
             }
@@ -284,7 +286,8 @@ impl BaseRoomInfo {
                     self.name = Some(event);
                     true
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.name.take().is_some()
                 }
             }
@@ -318,7 +321,8 @@ impl BaseRoomInfo {
                     self.history_visibility = Some(event);
                     true
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.history_visibility.take().is_some()
                 }
             }
@@ -329,7 +333,8 @@ impl BaseRoomInfo {
                     self.retention = Some(event);
                     true
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.retention.take().is_some()
                 }
             }
@@ -340,7 +345,8 @@ impl BaseRoomInfo {
                     self.guest_access = Some(event);
                     true
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.guest_access.take().is_some()
                 }
             }
@@ -351,7 +357,8 @@ impl BaseRoomInfo {
                     self.member_hints = Some(event);
                     true
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.member_hints.take().is_some()
                 }
             }
@@ -371,12 +378,14 @@ impl BaseRoomInfo {
                         }
                         r => {
                             warn!(join_rule = ?r.as_str(), "Encountered a custom join rule, skipping");
-                            // Remove the previous content if the new content is unsupported.
+                            // Remove the previous content if the new content is
+                            // unsupported.
                             self.join_rules.take().is_some()
                         }
                     }
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.join_rules.take().is_some()
                 }
             }
@@ -387,7 +396,8 @@ impl BaseRoomInfo {
                     self.canonical_alias = Some(event);
                     true
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.canonical_alias.take().is_some()
                 }
             }
@@ -398,7 +408,8 @@ impl BaseRoomInfo {
                     self.topic = Some(event);
                     true
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.topic.take().is_some()
                 }
             }
@@ -409,7 +420,8 @@ impl BaseRoomInfo {
                     self.tombstone = Some(event);
                     true
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.tombstone.take().is_some()
                 }
             }
@@ -461,14 +473,15 @@ impl BaseRoomInfo {
                         // Add the new event.
                         self.rtc_member_events.insert(call_member_key, event);
 
-                        // Remove all events that don't contain any memberships anymore.
+                        // Remove all events that don't contain any memberships
+                        // anymore.
                         self.rtc_member_events
                             .retain(|_, ev| !ev.content.active_memberships(None).is_empty());
 
                         true
                     } else {
-                        // Remove the previous content with the same state key if the new content is
-                        // unknown.
+                        // Remove the previous content with the same state key
+                        // if the new content is unknown.
                         self.rtc_member_events.remove(&call_member_key).is_some()
                     }
                 } else {
@@ -482,7 +495,8 @@ impl BaseRoomInfo {
                     self.pinned_events = Some(event.content);
                     true
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.pinned_events.take().is_some()
                 }
             }
@@ -654,9 +668,9 @@ pub struct RoomInfo {
     /// The recency stamp of this room.
     ///
     /// It's not to be confused with the `origin_server_ts` value of an event.
-    /// Sliding Sync might “ignore” some events when computing the recency
-    /// stamp of the room. The recency stamp must be considered as an opaque
-    /// unsigned integer value.
+    /// Sliding Sync might “ignore” some events when computing the recency stamp
+    /// of the room. The recency stamp must be considered as an opaque unsigned
+    /// integer value.
     ///
     /// # Sorting rooms
     ///
@@ -764,9 +778,9 @@ impl RoomInfo {
         self.encryption_state_synced = false;
     }
 
-    /// Set the `prev_batch`-token.
-    /// Returns whether the token has differed and thus has been upgraded:
-    /// `false` means no update was applied as the were the same
+    /// Set the `prev_batch`-token. Returns whether the token has differed and
+    /// thus has been upgraded: `false` means no update was applied as the were
+    /// the same
     pub fn set_prev_batch(&mut self, prev_batch: Option<&str>) -> bool {
         if self.last_prev_batch.as_deref() != prev_batch {
             self.last_prev_batch = prev_batch.map(|p| p.to_owned());
@@ -830,10 +844,11 @@ impl RoomInfo {
             .iter()
             .any(|(state_event, _)| state_event == &StateEventType::RoomEncryption)
         {
-            // The `m.room.encryption` event was requested during the sync. Whether we have
-            // received a `m.room.encryption` event in return doesn't matter: we must mark
-            // the encryption state as synced; if the event is present, it means the room
-            // _is_ encrypted, otherwise it means the room _is not_ encrypted.
+            // The `m.room.encryption` event was requested during the sync.
+            // Whether we have received a `m.room.encryption` event in return
+            // doesn't matter: we must mark the encryption state as synced; if
+            // the event is present, it means the room _is_ encrypted, otherwise
+            // it means the room _is not_ encrypted.
 
             self.mark_encryption_state_synced();
         }
@@ -868,10 +883,10 @@ impl RoomInfo {
 
         if raw_event.event_type == StateEventType::RoomEncryption && raw_event.state_key.is_empty()
         {
-            // The `m.room.encryption` event was or wasn't explicitly requested, we don't
-            // know here (see `Self::handle_encryption_state`) but we got one in
-            // return! In this case, we can deduce the room _is_ encrypted, but we cannot
-            // know if it _is not_ encrypted.
+            // The `m.room.encryption` event was or wasn't explicitly requested,
+            // we don't know here (see `Self::handle_encryption_state`) but we
+            // got one in return! In this case, we can deduce the room _is_
+            // encrypted, but we cannot know if it _is not_ encrypted.
 
             self.mark_encryption_state_synced();
         }
@@ -1166,9 +1181,9 @@ impl RoomInfo {
     /// Whether the given `(user_id, device_id)` tuple is currently a
     /// participant in this room's active MatrixRTC call.
     ///
-    /// Distinct from [`Self::active_room_call_participants`] which returns
-    /// only user IDs. Callers that must not conflate multiple devices of
-    /// the same user (e.g. profile-field mirroring) should use this.
+    /// Distinct from [`Self::active_room_call_participants`] which returns only
+    /// user IDs. Callers that must not conflate multiple devices of the same
+    /// user (e.g. profile-field mirroring) should use this.
     pub fn is_device_in_active_room_call(
         &self,
         user_id: &ruma::UserId,
@@ -1183,9 +1198,9 @@ impl RoomInfo {
     /// members are advertising.
     ///
     /// This provides detailed information about the consensus state (is it an
-    /// audio or video call), including whether it's full (all members
-    /// agree) or partial (only some members advertise), allowing callers to
-    /// distinguish between different levels of consensus.
+    /// audio or video call), including whether it's full (all members agree) or
+    /// partial (only some members advertise), allowing callers to distinguish
+    /// between different levels of consensus.
     ///
     /// # Returns
     ///
@@ -1277,9 +1292,8 @@ impl RoomInfo {
         self.base_info.fully_read_event_id.as_deref()
     }
 
-    /// Checks if an `EventId` is currently pinned.
-    /// It avoids having to clone the whole list of event ids to check a single
-    /// value.
+    /// Checks if an `EventId` is currently pinned. It avoids having to clone
+    /// the whole list of event ids to check a single value.
     ///
     /// Returns `true` if the provided `event_id` is pinned, `false` otherwise.
     pub fn is_pinned_event(&self, event_id: &EventId) -> bool {
@@ -1488,14 +1502,15 @@ bitflags! {
 
         /// This is a temporary hack.
         ///
-        /// So here is the thing. Ideally, we DO NOT want to emit this reason. It does not
-        /// makes sense. However, all notable update reasons are not clearly identified
-        /// so far. Why is it a problem? The `matrix_sdk_ui::room_list_service::RoomList`
-        /// is listening this stream of [`RoomInfoNotableUpdate`], and emits an update on a
-        /// room item if it receives a notable reason. Because all reasons are not
-        /// identified, we are likely to miss particular updates, and it can feel broken.
-        /// Ultimately, we want to clearly identify all the notable update reasons, and
-        /// remove this one.
+        /// So here is the thing. Ideally, we DO NOT want to emit this reason.
+        /// It does not makes sense. However, all notable update reasons are not
+        /// clearly identified so far. Why is it a problem? The
+        /// `matrix_sdk_ui::room_list_service::RoomList` is listening this
+        /// stream of [`RoomInfoNotableUpdate`], and emits an update on a room
+        /// item if it receives a notable reason. Because all reasons are not
+        /// identified, we are likely to miss particular updates, and it can
+        /// feel broken. Ultimately, we want to clearly identify all the notable
+        /// update reasons, and remove this one.
         const NONE = 0b0000_0000_1000_0000;
 
         /// The user's `m.fully_read` marker has changed.
@@ -1847,12 +1862,12 @@ mod tests {
     // schema
     //
     // In an ideal world, we must not change this test. Please see
-    // [`test_room_info_serialization`] if you want to test a “recent” `RoomInfo`
-    // deserialization.
+    // [`test_room_info_serialization`] if you want to test a “recent”
+    // `RoomInfo` deserialization.
     #[test]
     fn test_room_info_deserialization_without_optional_items() {
-        // The following JSON should never change if we want to be able to read in old
-        // cached state
+        // The following JSON should never change if we want to be able to read
+        // in old cached state
         let info_json = json!({
             "room_id": "!gda78o:server.tld",
             "room_state": "Invited",
@@ -2192,8 +2207,8 @@ mod tests {
             room.update_room_info(|info| (info, RoomInfoNotableUpdateReasons::NONE)).await
         });
 
-        // Ensure that the second task does not progress until the first task has
-        // completed and, therefore, releases the save lock
+        // Ensure that the second task does not progress until the first task
+        // has completed and, therefore, releases the save lock
         assert_matches!(future::select(lock_task, save_task).await, Either::Left((_, save_task)) => {
             timeout(Duration::from_millis(100), save_task)
                 .await
@@ -2221,8 +2236,8 @@ mod tests {
             room.update_and_save_room_info(|info| (info, RoomInfoNotableUpdateReasons::NONE)).await
         });
 
-        // Ensure that the second task does not progress until the first task has
-        // completed and, therefore, releases the save lock
+        // Ensure that the second task does not progress until the first task
+        // has completed and, therefore, releases the save lock
         assert_matches!(future::select(lock_task, save_task).await, Either::Left((_, save_task)) => {
             timeout(Duration::from_millis(100), save_task)
                 .await
