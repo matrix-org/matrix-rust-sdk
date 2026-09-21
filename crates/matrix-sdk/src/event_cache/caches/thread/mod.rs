@@ -410,7 +410,7 @@ mod timed_tests {
             lazy_loader::from_all_chunks,
         },
         store::StoreConfig,
-        sync::Timeline,
+        sync::{JoinedRoomUpdate, RoomUpdates, Timeline},
     };
     use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
     use ruma::{
@@ -516,6 +516,137 @@ mod timed_tests {
 
         // That's all, folks!
         assert!(chunks.next().is_none());
+    }
+
+    // Reproduction for #7036 / #7044.
+    //
+    // A thread only receives a `Timeline` when the sync window holds an in-thread
+    // event. So a limited ROOM sync whose window holds only other messages never
+    // reaches the thread, and nothing records that in-thread events may have
+    // been skipped *after* the thread's head. The `!limited && has events` guard
+    // then drops the next sync token, appends the next reply contiguously, and
+    // the skipped reply has no gap to be recovered through: the only gap is at
+    // the front, which paginates further into the past.
+    //
+    // Expected to FAIL on #7044 (`[gap][ev1, ev3]`, `ev2` unreachable), and to
+    // pass on `main` before it, where every token becomes a gap.
+    #[async_test]
+    async fn test_guard_alone_hides_replies_skipped_by_a_limited_room_sync() {
+        let room_id = room_id!("!r0");
+        let thread_root = event_id!("$t0_ev0");
+        let ev1_id = event_id!("$t0_ev1");
+        let ev3_id = event_id!("$t0_ev3");
+        let plain_id = event_id!("$plain");
+
+        let f = EventFactory::new().room(room_id).sender(user_id!("@mnt_io:matrix.org"));
+        let event_cache_store = Arc::new(MemoryStore::new());
+
+        let client = MockClientBuilder::new(None)
+            .on_builder(|builder| {
+                builder
+                    .store_config(
+                        StoreConfig::new(CrossProcessLockConfig::multi_process("hodor"))
+                            .event_cache_store(event_cache_store.clone()),
+                    )
+                    .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
+            })
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+        let reply = |id, body: &str| {
+            f.text_msg(body).event_id(id).in_thread(thread_root, thread_root).into_event()
+        };
+        let load_chunks = || async {
+            from_all_chunks::<3, _, _>(
+                event_cache_store
+                    .load_all_chunks(LinkedChunkId::Thread(room_id, thread_root))
+                    .await
+                    .unwrap(),
+            )
+            .unwrap()
+            .unwrap()
+        };
+
+        // 1. The thread is loaded and holds one reply: [gap "raclette"][ev1].
+        let (thread_event_cache, _drop_handles) =
+            event_cache.thread(room_id, thread_root).await.unwrap();
+        thread_event_cache
+            .handle_joined_room_update(
+                Timeline {
+                    limited: false,
+                    prev_batch: Some("raclette".to_owned()),
+                    events: vec![reply(ev1_id, "one")],
+                },
+                MaybeReceiptEventContent::none(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(load_chunks().await.chunks().count(), 2);
+
+        // 2. The client falls behind. Server-side, reply `ev2` is sent, then enough
+        //    plain room messages to push it out of the sync window. The next room sync
+        //    is limited and its window holds only a plain message: the aggregator finds
+        //    no in-thread event, so the thread receives nothing.
+        let mut updates = RoomUpdates::default();
+        updates.joined.insert(
+            room_id.to_owned(),
+            JoinedRoomUpdate {
+                timeline: Timeline {
+                    limited: true,
+                    prev_batch: Some("fondue".to_owned()),
+                    events: vec![f.text_msg("plain").event_id(plain_id).into_event()],
+                },
+                ..Default::default()
+            },
+        );
+        event_cache.inner.handle_room_updates(updates).await.unwrap();
+
+        let linked_chunk = load_chunks().await;
+        assert_eq!(linked_chunk.chunks().count(), 2, "the thread did not get a Timeline");
+        assert!(linked_chunk.items().all(|(_, event)| event.event_id() != Some(plain_id)));
+
+        // 3. A later, non-limited sync brings reply `ev3` with a token. The thread
+        //    holds events, so the guard drops the token and appends `ev3` right after
+        //    `ev1`. `ev2` sits between them on the server, but there is no gap between
+        //    `ev1` and `ev3` to paginate from: `ev2` is unreachable for the life of the
+        //    cache. The only gap ("raclette") is *before* `ev1`.
+        thread_event_cache
+            .handle_joined_room_update(
+                Timeline {
+                    limited: false,
+                    prev_batch: Some("tartiflette".to_owned()),
+                    events: vec![reply(ev3_id, "three")],
+                },
+                MaybeReceiptEventContent::none(),
+            )
+            .await
+            .unwrap();
+
+        let linked_chunk = load_chunks().await;
+        let shape: Vec<String> = linked_chunk
+            .chunks()
+            .map(|chunk| match chunk.content() {
+                ChunkContent::Gap(gap) => format!("gap({})", gap.token),
+                ChunkContent::Items(events) => format!(
+                    "items({})",
+                    events
+                        .iter()
+                        .map(|e| e.event_id().unwrap().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            })
+            .collect();
+        assert_eq!(
+            linked_chunk.chunks().count(),
+            4,
+            "expected [gap][ev1][gap][ev3] so the skipped `ev2` is reachable through the \
+             second gap; got {shape:?}"
+        );
     }
 
     #[async_test]
