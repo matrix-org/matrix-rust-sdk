@@ -113,8 +113,7 @@ impl<T> RingBuffer<T> {
     }
 
     /// Returns a mutable iterator that provides elements in front-to-back
-    /// order, i.e. the same order you would get if you repeatedly called
-    /// pop().
+    /// order, i.e. the same order you would get if you repeatedly called pop().
     pub fn iter_mut(&mut self) -> IterMut<'_, T> {
         self.inner.iter_mut()
     }
