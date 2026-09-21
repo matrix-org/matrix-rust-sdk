@@ -29,7 +29,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::UserId;
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::{
     client::UserProfile, error::ClientError, runtime::get_runtime_handle, utils::Timestamp,
@@ -295,9 +295,10 @@ impl SessionVerificationController {
                 return;
             }
         } else if !cross_signing_status.as_ref().is_some_and(|status| status.has_self_signing) {
-            // Signing one of our own devices needs the private self-signing key. Not
-            // having it is only fine while we are the session that is about to be
-            // verified. If we are already verified the flow could only fail, so
+            // Signing one of our own devices needs the private self-signing
+            // key. Not having it is only fine while we are the
+            // session that is about to be verified. If we are
+            // already verified the flow could only fail, so
             // don't surface the request at all.
             let we_are_verified = self
                 .encryption
