@@ -100,9 +100,9 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     }
 
     /// Puts a media clean up time into IndexedDB. If one already exists, it
-    /// will be overwritten. When the item is successfully put, the
-    /// function returns the intermediary type [`IndexedMediaCLeanupTime`] in
-    /// case inspection is needed.
+    /// will be overwritten. When the item is successfully put, the function
+    /// returns the intermediary type [`IndexedMediaCLeanupTime`] in case
+    /// inspection is needed.
     pub fn put_media_cleanup_time(
         &self,
         time: impl Into<MediaCleanupTime>,
@@ -139,9 +139,9 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     }
 
     /// Query IndexedDB for the size recorded in each
-    /// [`MediaMetadata::content_size`] which match
-    /// the given [`IgnoreMediaRetentionPolicy`]. Returns the sum of all sizes
-    /// or [`None`] if the size of the cache overflows [`usize::MAX`].
+    /// [`MediaMetadata::content_size`] which match the given
+    /// [`IgnoreMediaRetentionPolicy`]. Returns the sum of all sizes or [`None`]
+    /// if the size of the cache overflows [`usize::MAX`].
     ///
     /// Note that this operation is not constant, but rather iterates over all
     /// keys and extracts the content size from each key.
@@ -159,10 +159,10 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     /// Adds [`MediaMetadata`] and [`MediaContent`] to IndexedDB if the size of
     /// [`IndexedMediaContent::content`] does not exceed
     /// [`MediaRetentionPolicy::max_file_size]. If an item with the same key
-    /// already exists, it will be overwritten.  When the item is
-    /// successfully put, the function returns the intermediary types
-    /// [`IndexedMediaMetadata`] and [`IndexedMediaContent`] in case inspection
-    /// is needed.
+    /// already exists, it will be overwritten.  When the item is successfully
+    /// put, the function returns the intermediary types
+    /// [`IndexedMediaMetadata`] and [`IndexedMediaContent`] in case
+    /// inspection is needed.
     pub async fn put_media_if_policy_compliant(
         &self,
         media: Media,
@@ -242,8 +242,8 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     }
 
     /// Delete [`MediaMetadata`] and [`MediaContent`] that matches the given
-    /// [`IgnoreMediaRetentionPolicy`] and the given last access time range
-    /// from IndexedDB
+    /// [`IgnoreMediaRetentionPolicy`] and the given last access time range from
+    /// IndexedDB
     pub async fn delete_media_by_last_access(
         &self,
         ignore_policy: IgnoreMediaRetentionPolicy,
@@ -257,8 +257,8 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     }
 
     /// Delete [`MediaMetadata`] and [`MediaContent`] that matches the given
-    /// [`IgnoreMediaRetentionPolicy`] and is earlier than the given last
-    /// access time from IndexedDB
+    /// [`IgnoreMediaRetentionPolicy`] and is earlier than the given last access
+    /// time from IndexedDB
     pub async fn delete_media_by_last_access_earlier_than(
         &self,
         ignore_policy: IgnoreMediaRetentionPolicy,
@@ -301,8 +301,8 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     }
 
     /// Query IndexedDB for [`MediaMetadata`] that matches the given
-    /// [`MediaRequestParameters`]. If more than one item is found, an error
-    /// is returned.
+    /// [`MediaRequestParameters`]. If more than one item is found, an error is
+    /// returned.
     pub async fn get_media_metadata_by_id(
         &self,
         request_parameters: &MediaRequestParameters,
@@ -341,10 +341,9 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         self.get_items_by_key_components::<MediaMetadata, IndexedMediaMetadataUriKey>(uri).await
     }
 
-    /// Query IndexedDB for [`MediaMetadata`] that matches the given
-    /// [`MxcUri`]. If an item is found, update [`MediaMetadata::last_access`]
-    /// using `current_time`. If more than one item is found, an error
-    /// is returned.
+    /// Query IndexedDB for [`MediaMetadata`] that matches the given [`MxcUri`].
+    /// If an item is found, update [`MediaMetadata::last_access`] using
+    /// `current_time`. If more than one item is found, an error is returned.
     pub async fn access_media_metadata_by_uri(
         &self,
         uri: &MxcUri,
@@ -376,8 +375,8 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         self.get_keys::<MediaMetadata, IndexedMediaMetadataContentSizeKey>(range).await
     }
 
-    /// Query IndexedDB for all [content
-    /// size](IndexedMediaMetadataContentSizeKey) keys whose associated
+    /// Query IndexedDB for all
+    /// [content size](IndexedMediaMetadataContentSizeKey) keys whose associated
     /// [`MediaMetadata`] matches the given [`IgnoreMediaRetentionPolicy`].
     pub async fn get_all_media_metadata_keys_by_content_size(
         &self,
@@ -404,8 +403,8 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         self.get_keys::<MediaMetadata, IndexedMediaMetadataLastAccessKey>(range).await
     }
 
-    /// Query IndexedDB for [retention](IndexedMediaMetadataRetentionKey)
-    /// keys whose associated [`MediaMetadata`] matches the given
+    /// Query IndexedDB for [retention](IndexedMediaMetadataRetentionKey) keys
+    /// whose associated [`MediaMetadata`] matches the given
     /// [`IgnoreMediaRetentionPolicy`] and last access time and content size
     /// range.
     pub async fn get_media_metadata_keys_by_retention(
@@ -463,8 +462,8 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
 
     /// Puts [`MediaMetadata`] in IndexedDB object. If an item with the same key
     /// already exists, it will be overwritten. When the item is successfully
-    /// put, the function returns the intermediary type
-    /// [`IndexedMediaMetadata`] in case inspection is needed.
+    /// put, the function returns the intermediary type [`IndexedMediaMetadata`]
+    /// in case inspection is needed.
     pub fn put_media_metadata(
         &self,
         media_metadata: &MediaMetadata,
@@ -482,8 +481,8 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
             .await
     }
 
-    /// Delete [`MediaMetadata`] that matches the given [`MxcUri`]
-    /// from IndexedDB
+    /// Delete [`MediaMetadata`] that matches the given [`MxcUri`] from
+    /// IndexedDB
     pub async fn delete_media_metadata_by_uri(
         &self,
         source: &MxcUri,
@@ -519,8 +518,8 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     }
 
     /// Delete [`MediaMetadata`] that matches the given
-    /// [`IgnoreMediaRetentionPolicy`] and the given last access time range
-    /// from IndexedDB
+    /// [`IgnoreMediaRetentionPolicy`] and the given last access time range from
+    /// IndexedDB
     pub async fn delete_media_metadata_by_last_access(
         &self,
         ignore_policy: IgnoreMediaRetentionPolicy,
@@ -533,8 +532,8 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     }
 
     /// Delete [`MediaMetadata`] that matches the given
-    /// [`IgnoreMediaRetentionPolicy`] and is earlier than the given last
-    /// access time from IndexedDB
+    /// [`IgnoreMediaRetentionPolicy`] and is earlier than the given last access
+    /// time from IndexedDB
     pub async fn delete_media_metadata_by_last_access_earlier_than(
         &self,
         ignore_policy: IgnoreMediaRetentionPolicy,
@@ -575,9 +574,8 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
             .await
     }
 
-    /// Query IndexedDB for [`Media`] that matches the given
-    /// identifier. If more than one item is found, an error
-    /// is returned.
+    /// Query IndexedDB for [`Media`] that matches the given identifier. If more
+    /// than one item is found, an error is returned.
     pub async fn get_media_content_by_id(
         &self,
         id: Uuid,
@@ -598,8 +596,8 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
 
     /// Puts [`MediaContent`] in IndexedDB object. If an item with the same key
     /// already exists, it will be overwritten. When the item is successfully
-    /// put, the function returns the intermediary type
-    /// [`IndexedMediaContent`] in case inspection is needed.
+    /// put, the function returns the intermediary type [`IndexedMediaContent`]
+    /// in case inspection is needed.
     pub fn put_media_content(
         &self,
         content: &MediaContent,

@@ -211,8 +211,8 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     }
 
     /// Query IndexedDB for given chunk matching the given linked chunk id and
-    /// additionally query for events or gap, depending on chunk type, in
-    /// order to construct the full chunk.
+    /// additionally query for events or gap, depending on chunk type, in order
+    /// to construct the full chunk.
     pub async fn load_chunk_by_id(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -250,12 +250,11 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         Ok(None)
     }
 
-    /// Add a chunk and ensure that the next and previous
-    /// chunks are properly linked to the chunk being added. If a chunk with
-    /// the same identifier already exists, the given chunk will be
-    /// rejected. When the item is successfully added, the
-    /// function returns the intermediary type [`IndexedChunk`] in case
-    /// inspection is needed.
+    /// Add a chunk and ensure that the next and previous chunks are properly
+    /// linked to the chunk being added. If a chunk with the same identifier
+    /// already exists, the given chunk will be rejected. When the item is
+    /// successfully added, the function returns the intermediary type
+    /// [`IndexedChunk`] in case inspection is needed.
     pub async fn add_chunk(&self, chunk: &Chunk) -> Result<IndexedChunk, TransactionError> {
         let indexed = self.add_item(chunk)?;
         if let Some(previous) = chunk.previous {
@@ -281,8 +280,8 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
 
     /// Delete chunk that matches the given id and the given linked chunk id and
     /// ensure that the next and previous chunk are updated to link to one
-    /// another. Additionally, ensure that events and gaps in the given
-    /// chunk are also deleted.
+    /// another. Additionally, ensure that events and gaps in the given chunk
+    /// are also deleted.
     pub async fn delete_chunk_by_id(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -372,8 +371,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.get_items_by_key::<Event, IndexedEventRoomKey>(key).await
     }
 
-    /// Query IndexedDB for events that are in the given
-    /// room.
+    /// Query IndexedDB for events that are in the given room.
     pub async fn get_room_events(&self, room_id: &RoomId) -> Result<Vec<Event>, TransactionError> {
         self.get_items_in_room::<Event, IndexedEventRoomKey>(room_id).await
     }
@@ -436,21 +434,19 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
 
     /// Adds an event to IndexedDB.
     ///
-    /// If an event with the same key already exists, actions are
-    /// taken based on the following conditions. If the provided
-    /// event is an [`Event::InBand`] and the existing event is an
-    /// [`Event::OutOfBand`], the provided event will replace the
-    /// existing event. Otherwise, the provided event will be rejected.
-    /// This functionality allows events to be promoted from
+    /// If an event with the same key already exists, actions are taken based on
+    /// the following conditions. If the provided event is an [`Event::InBand`]
+    /// and the existing event is an [`Event::OutOfBand`], the provided event
+    /// will replace the existing event. Otherwise, the provided event will be
+    /// rejected. This functionality allows events to be promoted from
     /// out-of-band events to in-band events, but not vice versa.
     ///
-    /// Additionally, if an event with the same ID already exists anywhere
-    /// in the store, every instance is updated with the provided content, i.e.,
+    /// Additionally, if an event with the same ID already exists anywhere in
+    /// the store, every instance is updated with the provided content, i.e.,
     /// across all linked chunks.
     ///
-    /// When the event is successfully added, the function returns
-    /// the intermediary type [`IndexedEvent`] in case inspection
-    /// is needed.
+    /// When the event is successfully added, the function returns the
+    /// intermediary type [`IndexedEvent`] in case inspection is needed.
     pub async fn add_event(&self, event: &Event) -> Result<IndexedEvent, TransactionError> {
         let linked_chunk_id = event.linked_chunk_id();
         let Some(event_id) = event.event_id() else {
@@ -474,8 +470,8 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         Ok(indexed)
     }
 
-    /// Puts an event in IndexedDB. If an event with the same key already
-    /// exists in it will be overwritten.
+    /// Puts an event in IndexedDB. If an event with the same key already exists
+    /// in it will be overwritten.
     ///
     /// Additionally, if an event with the same ID exists in any other linked
     /// chunk, every instance is updated with the provided content.
@@ -501,8 +497,8 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     /// them, applying the function `F`, and then writing them back to
     /// IndexedDB.
     ///
-    /// Note that this is a potentially expensive operation, as IndexedDB
-    /// does not provide modification utilities.
+    /// Note that this is a potentially expensive operation, as IndexedDB does
+    /// not provide modification utilities.
     pub async fn update_events_by_event_id<F: Fn(Event) -> Event>(
         &self,
         event_id: &EventId,
@@ -515,8 +511,8 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     /// chunk id by reading them, applying the function `F`, and then writing
     /// them back to IndexedDB.
     ///
-    /// Note that this is a potentially expensive operation, as IndexedDB
-    /// does not provide modification utilities.
+    /// Note that this is a potentially expensive operation, as IndexedDB does
+    /// not provide modification utilities.
     pub async fn update_events_by_position<F: Fn(Event) -> Event>(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -544,8 +540,8 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.delete_item_by_key::<Event, IndexedEventPositionKey>((linked_chunk_id, position))
             .await?;
 
-        // After deleting an event, every subsequent event in the chunk
-        // must shift it's recorded index down one position.
+        // After deleting an event, every subsequent event in the chunk must
+        // shift it's recorded index down one position.
         let lower = (linked_chunk_id, position);
         let upper = IndexedEventPositionKey::upper_key_components_with_prefix((
             linked_chunk_id,
