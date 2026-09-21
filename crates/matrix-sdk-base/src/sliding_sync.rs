@@ -2705,8 +2705,8 @@ mod tests {
         //
         // - two of them receive a `m.room.encryption` event
         // - the last one does not receive a `m.room.encryption`.
-        // - the first one is configured with a `required_state` for this event,
-        //   the others have nothing.
+        // - the first one is configured with a `required_state` for this event, the
+        //   others have nothing.
         //
         // The trick is that, since sliding sync makes an union of all the
         // `required_state`s, then all rooms are technically requesting a
