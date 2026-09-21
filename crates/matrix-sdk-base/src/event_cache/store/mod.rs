@@ -156,8 +156,8 @@ pub enum EventCacheStoreError {
     #[error(transparent)]
     Backend(Arc<dyn std::error::Error + Send + Sync>),
 
-    /// The store is locked with a passphrase and an incorrect passphrase
-    /// was given.
+    /// The store is locked with a passphrase and an incorrect passphrase was
+    /// given.
     #[error("The event cache store failed to be unlocked")]
     Locked,
 
@@ -214,8 +214,8 @@ impl From<EventCacheStoreError> for CrossProcessLockError {
 /// An `EventCacheStore` specific result type.
 pub type Result<T, E = EventCacheStoreError> = std::result::Result<T, E>;
 
-/// A type that wraps the [`EventCacheStore`] but implements [`TryLock`] to
-/// make it usable inside the cross process lock.
+/// A type that wraps the [`EventCacheStore`] but implements [`TryLock`] to make
+/// it usable inside the cross process lock.
 #[derive(Clone, Debug)]
 struct LockableEventCacheStore(Arc<DynEventCacheStore>);
 

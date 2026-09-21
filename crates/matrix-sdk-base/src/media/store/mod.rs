@@ -145,11 +145,11 @@ impl MediaStoreLock {
             // The lock is clean: no other hold acquired it, all good!
             CrossProcessLockState::Clean(guard) => guard,
 
-            // The lock is dirty: another holder acquired it since the last time we acquired it.
-            // It's not a problem in the case of the `MediaStore` because this API is
-            // “stateless” at the time of writing (2025-11-11). There is nothing
-            // that can be out-of-sync: all the state is in the database,
-            // nothing in memory.
+            // The lock is dirty: another holder acquired it since the last time
+            // we acquired it. It's not a problem in the case of the
+            // `MediaStore` because this API is “stateless” at the time of
+            // writing (2025-11-11). There is nothing that can be out-of-sync:
+            // all the state is in the database, nothing in memory.
             CrossProcessLockState::Dirty(guard) => {
                 guard.clear_dirty();
 
@@ -161,9 +161,8 @@ impl MediaStoreLock {
     }
 }
 
-/// An RAII implementation of a “scoped lock” of an [`MediaStoreLock`].
-/// When this structure is dropped (falls out of scope), the lock will be
-/// unlocked.
+/// An RAII implementation of a “scoped lock” of an [`MediaStoreLock`]. When
+/// this structure is dropped (falls out of scope), the lock will be unlocked.
 pub struct MediaStoreLockGuard<'a> {
     /// The cross process lock guard.
     #[allow(unused)]
@@ -188,8 +187,8 @@ impl Deref for MediaStoreLockGuard<'_> {
     }
 }
 
-/// A type that wraps the [`MediaStore`] but implements [`TryLock`] to
-/// make it usable inside the cross process lock.
+/// A type that wraps the [`MediaStore`] but implements [`TryLock`] to make it
+/// usable inside the cross process lock.
 #[derive(Clone, Debug)]
 struct LockableMediaStore(Arc<DynMediaStore>);
 

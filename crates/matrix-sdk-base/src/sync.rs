@@ -98,8 +98,8 @@ impl RoomUpdates {
             .chain(self.knocked.keys())
     }
 
-    /// Returns whether or not this update contains any changes to the list
-    /// of invited, joined, knocked or left rooms.
+    /// Returns whether or not this update contains any changes to the list of
+    /// invited, joined, knocked or left rooms.
     pub fn is_empty(&self) -> bool {
         self.invited.is_empty()
             && self.joined.is_empty()
@@ -201,8 +201,8 @@ pub struct JoinedRoomUpdate {
     /// Updates to the state.
     ///
     /// If `since` is missing or `full_state` is true, the start point of the
-    /// update is the beginning of the timeline. Otherwise, the start point
-    /// is the time specified in `since`.
+    /// update is the beginning of the timeline. Otherwise, the start point is
+    /// the time specified in `since`.
     ///
     /// If `state_after` was used, the end point of the update is the end of the
     /// `timeline`. Otherwise, the end point of these updates is the start of
@@ -216,8 +216,8 @@ pub struct JoinedRoomUpdate {
     pub ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
     /// Collection of ambiguity changes that room member events trigger.
     ///
-    /// This is a map of event ID of the `m.room.member` event to the
-    /// details of the ambiguity change.
+    /// This is a map of event ID of the `m.room.member` event to the details of
+    /// the ambiguity change.
     pub ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     /// Collection of avatar changes that room member events trigger.
     pub avatar_changes: Option<BTreeMap<OwnedUserId, Option<OwnedMxcUri>>>,
@@ -287,8 +287,8 @@ pub struct LeftRoomUpdate {
     /// Updates to the state.
     ///
     /// If `since` is missing or `full_state` is true, the start point of the
-    /// update is the beginning of the timeline. Otherwise, the start point
-    /// is the time specified in `since`.
+    /// update is the beginning of the timeline. Otherwise, the start point is
+    /// the time specified in `since`.
     ///
     /// If `state_after` was used, the end point of the update is the end of the
     /// `timeline`. Otherwise, the end point of these updates is the start of
@@ -299,8 +299,8 @@ pub struct LeftRoomUpdate {
     pub account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
     /// Collection of ambiguity changes that room member events trigger.
     ///
-    /// This is a map of event ID of the `m.room.member` event to the
-    /// details of the ambiguity change.
+    /// This is a map of event ID of the `m.room.member` event to the details of
+    /// the ambiguity change.
     pub ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
 }
 

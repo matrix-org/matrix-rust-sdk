@@ -146,8 +146,8 @@ fn on_room_info<F>(
     }
 }
 
-// Helper to update the fully-read marker event id on the `RoomInfo` and
-// notify subscribers when the value changes.
+// Helper to update the fully-read marker event id on the `RoomInfo` and notify
+// subscribers when the value changes.
 fn on_fully_read_marker(
     room_id: &RoomId,
     content: &FullyReadEventContent,
@@ -181,8 +181,8 @@ fn on_unread_marker(
     }
 
     if room_info.base_info.is_marked_unread != content.unread {
-        // Notify the room list about a manual read marker change if the
-        // value's changed.
+        // Notify the room list about a manual read marker change if the value's
+        // changed.
         room_info_notable_updates
             .entry(room_id.to_owned())
             .or_default()
