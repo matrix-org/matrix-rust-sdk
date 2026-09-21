@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::Arc, time::Duration};
+use std::{assert_matches, sync::Arc, time::Duration};
 
-use assert_matches2::{assert_let, assert_matches};
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use futures_util::{FutureExt as _, StreamExt as _};

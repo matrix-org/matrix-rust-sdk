@@ -1,6 +1,6 @@
-use std::time::Duration;
+use std::{assert_matches, time::Duration};
 
-use assert_matches2::{assert_let, assert_matches};
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::{
@@ -952,7 +952,7 @@ async fn test_pinned_events_listener_task_reloads_events_when_ids_change() {
         .expect("Stream timed out")
         .expect("Got stream diff");
     assert_eq!(diffs.diffs.len(), 1);
-    assert_matches!(&diffs.diffs[0], VectorDiff::Append { values });
+    assert_let!(VectorDiff::Append { values } = &diffs.diffs[0]);
     assert_eq!(values.len(), 1);
     assert_eq!(values[0].event_id(), Some(event_id1));
 
@@ -970,7 +970,8 @@ async fn test_pinned_events_listener_task_reloads_events_when_ids_change() {
         .expect("Got stream diff");
     assert_eq!(diffs.diffs.len(), 2);
     assert_matches!(&diffs.diffs[0], VectorDiff::Clear);
-    assert_matches!(&diffs.diffs[1], VectorDiff::Append { values });
+
+    assert_let!(VectorDiff::Append { values } = &diffs.diffs[1]);
     assert_eq!(values.len(), 2);
     assert_eq!(values[0].event_id(), Some(event_id1));
     assert_eq!(values[1].event_id(), Some(event_id2));
@@ -987,7 +988,8 @@ async fn test_pinned_events_listener_task_reloads_events_when_ids_change() {
         .expect("Got stream diff");
     assert_eq!(diffs.diffs.len(), 2);
     assert_matches!(&diffs.diffs[0], VectorDiff::Clear);
-    assert_matches!(&diffs.diffs[1], VectorDiff::Append { values });
+
+    assert_let!(VectorDiff::Append { values } = &diffs.diffs[1]);
     assert_eq!(values.len(), 1);
     assert_eq!(values[0].event_id(), Some(event_id1));
 }

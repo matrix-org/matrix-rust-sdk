@@ -1351,8 +1351,6 @@ mod tests {
     use std::collections::HashMap;
 
     use assert_matches2::assert_let;
-    #[cfg(feature = "e2e-encryption")]
-    use assert_matches2::assert_matches;
     use futures_util::FutureExt as _;
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{
@@ -2091,9 +2089,8 @@ mod tests {
 
         // Yup, we now have some invite details.
         assert_eq!(joined_room.state(), RoomState::Joined);
-        assert_matches!(
-            client.get_pending_key_bundle_details_for_room(known_room_id).await,
-            Ok(Some(details))
+        assert_let!(
+            Ok(Some(details)) = client.get_pending_key_bundle_details_for_room(known_room_id).await
         );
         assert_eq!(details.inviter, user_id);
 

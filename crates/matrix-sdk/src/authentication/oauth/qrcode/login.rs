@@ -484,9 +484,9 @@ impl<'a> LoginWithGeneratedQrCode<'a> {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod test {
-    use std::time::Duration;
+    use std::{assert_matches, time::Duration};
 
-    use assert_matches2::{assert_let, assert_matches};
+    use assert_matches2::assert_let;
     use futures_util::StreamExt;
     use matrix_sdk_base::crypto::types::{
         SecretsBundle,

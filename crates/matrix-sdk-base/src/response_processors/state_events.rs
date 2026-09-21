@@ -571,7 +571,8 @@ async fn decrypt_state_event(
 
 #[cfg(test)]
 mod tests {
-    use assert_matches2::assert_matches;
+    use std::assert_matches;
+
     use matrix_sdk_test::{
         DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, TestResult, async_test,
         event_factory::EventFactory,

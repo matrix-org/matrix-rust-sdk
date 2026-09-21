@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{iter, sync::Arc};
+use std::{assert_matches, iter, sync::Arc};
 
-use assert_matches2::{assert_let, assert_matches};
+use assert_matches2::assert_let;
 use matrix_sdk_common::deserialized_responses::{
     DeviceLinkProblem, ShieldState, VerificationLevel, VerificationState,
 };

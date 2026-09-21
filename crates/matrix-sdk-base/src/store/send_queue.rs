@@ -543,7 +543,9 @@ impl fmt::Debug for QueuedRequest {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches2::{assert_let, assert_matches};
+    use std::assert_matches;
+
+    use assert_matches2::assert_let;
 
     use super::DependentQueuedRequestKind;
 

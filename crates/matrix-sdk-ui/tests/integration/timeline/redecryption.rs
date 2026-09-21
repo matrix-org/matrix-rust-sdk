@@ -1,6 +1,6 @@
-use std::sync::Arc;
+use std::{assert_matches, sync::Arc};
 
-use assert_matches2::assert_matches;
+use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::pin_mut;
 use matrix_sdk::{
@@ -131,7 +131,7 @@ async fn test_redecryption(
     let updates = assert_next_with_timeout!(stream);
     let utd_item = &updates[0];
 
-    assert_matches!(utd_item, VectorDiff::PushBack { value });
+    assert_let!(VectorDiff::PushBack { value } = utd_item);
     assert!(
         value.as_event().unwrap().content().is_unable_to_decrypt(),
         "Initially we should receive a UTD"
@@ -164,7 +164,7 @@ async fn test_redecryption_after_late_to_device() {
         "m.room.message",
         json!({"body": "It's a secret to everybody", "msgtype": "m.text"}),
         |decrypted_item| {
-            assert_matches!(decrypted_item, VectorDiff::Set { index: _, value });
+            assert_let!(VectorDiff::Set { index: _, value } = decrypted_item);
 
             let event = value.as_event().expect("The value should be an event");
 

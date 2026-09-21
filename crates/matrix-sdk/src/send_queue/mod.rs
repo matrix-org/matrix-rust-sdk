@@ -3260,9 +3260,9 @@ fn canonicalize_dependent_requests(
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use std::{sync::Arc, time::Duration};
+    use std::{assert_matches, sync::Arc, time::Duration};
 
-    use assert_matches2::{assert_let, assert_matches};
+    use assert_matches2::assert_let;
     use matrix_sdk_base::store::{
         ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind,
         SerializableEventContent,
