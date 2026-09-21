@@ -355,7 +355,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     pub async fn reload(
         &mut self,
         preprocessing: ReloadPreprocessing,
-    ) -> Result<Vec<VectorDiff<Event>>> {
+    ) -> Result<(Vec<VectorDiff<Event>>, Option<ThreadSummary>)> {
         match preprocessing {
             ReloadPreprocessing::ForgetAll => {
                 // Clear the `LinkedChunk` and broadcast the updates to the
@@ -376,7 +376,9 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
 
         self.state.shrink_to_last_reloaded_chunk(&self.store).await?;
 
-        Ok(self.thread_linked_chunk_mut().updates_as_vector_diffs())
+        let thread_summary = self.update_thread_summary().await?;
+
+        Ok((self.thread_linked_chunk_mut().updates_as_vector_diffs(), thread_summary))
     }
 
     #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]

@@ -150,6 +150,7 @@ async fn test_ignored_user_empties_threads() {
     let thread_root = event_id!("$thread_root");
     let first_reply_event_id = event_id!("$first_reply");
     let second_reply_event_id = event_id!("$second_reply");
+    let third_reply_event_id = event_id!("$third_reply");
 
     // Given a room with a thread, that has two replies.
     server
@@ -197,6 +198,9 @@ async fn test_ignored_user_empties_threads() {
         );
         assert_eq!(diffs.len(), 1);
         assert_let!(VectorDiff::Clear = &diffs[0]);
+
+        // The thread summary is cleared too.
+        assert_let_timeout!(Ok(ThreadEventCacheUpdate::UpdateSummary(None)) = thread_stream.recv());
     }
 
     // Receiving new events still works.
@@ -207,6 +211,7 @@ async fn test_ignored_user_empties_threads() {
                 JoinedRoomBuilder::new(room_id).add_timeline_event(
                     f.text_msg("i don't like this dexter")
                         .in_thread(thread_root, second_reply_event_id)
+                        .event_id(third_reply_event_id)
                         .sender(ivan),
                 ),
             );
@@ -224,6 +229,13 @@ async fn test_ignored_user_empties_threads() {
         assert_let!(VectorDiff::Append { values: events } = &diffs[0]);
         assert_eq!(events.len(), 1);
         assert_event_matches_msg(&events[0], "i don't like this dexter");
+
+        // The thread summary is updated.
+        assert_let_timeout!(
+            Ok(ThreadEventCacheUpdate::UpdateSummary(Some(summary))) = thread_stream.recv()
+        );
+        assert_eq!(summary.latest_reply.as_deref(), Some(third_reply_event_id));
+        assert_eq!(summary.num_replies, 1);
     }
 
     // That's all, folks!
