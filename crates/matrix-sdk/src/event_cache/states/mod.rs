@@ -520,7 +520,8 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                     _tracing_timer: None,
                 };
 
-                let updates_as_vector_diffs = thread_state.reload(preprocessing).await?;
+                let (updates_as_vector_diffs, thread_summary) =
+                    thread_state.reload(preprocessing).await?;
                 thread_state.update_sender.send(
                     thread::ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
                         diffs: updates_as_vector_diffs,
@@ -528,6 +529,9 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                     }),
                     Some(room::RoomEventCacheGenericUpdate { room_id: room_id.clone() }),
                 );
+                thread_state
+                    .update_sender
+                    .send(thread::ThreadEventCacheUpdate::UpdateSummary(thread_summary), None);
             }
 
             // Pinned events.
