@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use matrix_sdk_base::deserialized_responses::ThreadSummary;
 use ruma::events::receipt::ReceiptEventContent;
 use tokio::sync::broadcast::{Receiver, Sender};
 
@@ -22,6 +23,17 @@ use super::super::{super::RoomEventCacheGenericUpdate, TimelineVectorDiffs};
 pub enum ThreadEventCacheUpdate {
     /// The thread has received updates for the timeline as _diffs_.
     UpdateTimelineEvents(TimelineVectorDiffs),
+
+    /// The thread summary has been updated.
+    ///
+    /// One can either observe [`ThreadInfo`] with
+    /// [`ThreadEventCache::subscribe_to_thread_info`], or —if one is already
+    /// listening to these updates— one can use this particular update to see
+    /// new thread summary.
+    ///
+    /// [`ThreadInfo`]: matrix_sdk_base::event_cache::thread::ThreadInfo
+    /// [`ThreadEventCache::subscribe_to_thread_info`]: super::ThreadEventCache::subscribe_to_thread_info
+    UpdateSummary(Option<ThreadSummary>),
 
     /// The thread has received a new read receipt event.
     AddReadReceiptEvent {

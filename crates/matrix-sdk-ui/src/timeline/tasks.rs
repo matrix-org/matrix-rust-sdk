@@ -189,6 +189,14 @@ pub(in crate::timeline) async fn thread_updates_task(
                 }
             }
 
+            ThreadEventCacheUpdate::UpdateSummary(_) => {
+                trace!("Received a new thread summary update; ignore it");
+
+                // A Thread Timeline doesn't care about the thread summary, yet.
+                // For the moment, only the Main/Unthreaded Timeline contains
+                // thread roots, which care about the thread summaries.
+            }
+
             ThreadEventCacheUpdate::AddReadReceiptEvent { event } => {
                 trace!("Received a new read receipt event from sync.");
 
