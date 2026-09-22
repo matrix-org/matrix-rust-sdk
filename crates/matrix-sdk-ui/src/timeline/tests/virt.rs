@@ -82,8 +82,8 @@ async fn test_date_divider() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     item.as_event().unwrap();
 
-    // The other events are in the past so a local event always creates a new date
-    // divider.
+    // The other events are in the past so a local event always creates a new
+    // date divider.
     let date_divider =
         assert_next_matches!(stream, VectorDiff::Insert { index: 5, value } => value);
     assert!(date_divider.is_date_divider());
@@ -99,8 +99,7 @@ async fn test_update_read_marker() {
     let f = &timeline.factory;
     timeline.handle_live_event(f.text_msg("A").sender(&own_user)).await;
 
-    // Timeline: [A].
-    // No read marker.
+    // Timeline: [A]. No read marker.
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_id1 = item.as_event().unwrap().event_id().unwrap().to_owned();
 

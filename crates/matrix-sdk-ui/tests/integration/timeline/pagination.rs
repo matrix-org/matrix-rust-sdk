@@ -127,8 +127,9 @@ async fn test_back_pagination() {
         let _mock = server
             .mock_room_messages()
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                // Usually there would be a few events here, but we just want to test
-                // that the timeline start item is added when there is no end token
+                // Usually there would be a few events here, but we just want to
+                // test that the timeline start item is added when there is no
+                // end token
                 "chunk": [],
                 "start": "t47409-4357353_219380_26003_2269"
             })))
@@ -196,7 +197,8 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
         .ok(RoomMessagesResponseTemplate::default().events({
             // Return 30 events in this pagination.
             let mut events = Vec::new();
-            // Invert indices, so that in the event cache they end ordered from $0 to $29.
+            // Invert indices, so that in the event cache they end ordered from
+            // $0 to $29.
             for i in (0..30).rev() {
                 events.push(
                     f.text_msg(format!("hello world {i}"))
@@ -236,8 +238,8 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
         assert_eq!(event_item.event_id().unwrap(), expected_event_id);
     }
 
-    // After the loop, the last index that's been peeked is 2*17+1 == 35.
-    // These three happen differently, because we're getting closer to the initial
+    // After the loop, the last index that's been peeked is 2*17+1 == 35. These
+    // three happen differently, because we're getting closer to the initial
     // maximum skip count value.
     {
         assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[36]);
@@ -265,8 +267,8 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
     assert_pending!(timeline_stream);
     assert_next_eq!(back_pagination_status, PaginationStatus::Idle { hit_timeline_start: false });
 
-    // If we back-paginate again, we'd get all the previous items, by adjusting the
-    // skip count, but not hitting network.
+    // If we back-paginate again, we'd get all the previous items, by adjusting
+    // the skip count, but not hitting network.
     timeline.paginate_backwards(30).await.unwrap();
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
@@ -310,8 +312,8 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
     let (initial_pagination_status2, mut back_pagination_status2) =
         timeline2.live_back_pagination_status().await.unwrap();
 
-    // …so a caller must have the information that we haven't hit the timeline start
-    // yet.
+    // …so a caller must have the information that we haven't hit the timeline
+    // start yet.
     assert_eq!(initial_pagination_status2, PaginationStatus::Idle { hit_timeline_start: false });
 
     // A small pagination should only update the skip count.
@@ -326,8 +328,8 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
         value.as_event().unwrap();
     }
 
-    // A final pagination will get all the timeline items, as well as the timeline
-    // start.
+    // A final pagination will get all the timeline items, as well as the
+    // timeline start.
     let hit_start = timeline2.paginate_backwards(20).await.unwrap();
     assert!(hit_start);
 
@@ -356,8 +358,8 @@ async fn test_back_pagination_highlighted() {
     let client = server.client_builder().build().await;
 
     let f = EventFactory::new().sender(user_id!("@example:localhost"));
-    // We need the member event and power levels locally so the push rules processor
-    // works.
+    // We need the member event and power levels locally so the push rules
+    // processor works.
     let room = server
         .sync_room(
             &client,
@@ -581,6 +583,7 @@ async fn test_timeline_reset_while_paginating() {
         .await;
 
     // The pagination with the first token will be hit twice:
+    //
     // - first, before the sync response comes, then the gap is stored in the cache.
     // - second, after all other gaps have been resolved, we get back to resolving
     //   this one.
@@ -670,8 +673,8 @@ async fn test_timeline_reset_while_paginating() {
 
         let (status, _) = timeline.live_back_pagination_status().await.unwrap();
 
-        // Timeline start reached because second pagination response contains no end
-        // field.
+        // Timeline start reached because second pagination response contains no
+        // end field.
         assert_eq!(status, PaginationStatus::Idle { hit_timeline_start: true });
     };
 
@@ -686,8 +689,8 @@ async fn test_timeline_reset_while_paginating() {
     // field.
     assert!(hit_start);
 
-    // No events in back-pagination responses, start of timeline + date divider +
-    // all events from the previous syncs are present.
+    // No events in back-pagination responses, start of timeline + date
+    // divider + all events from the previous syncs are present.
     assert_eq!(timeline.items().await.len(), 4);
 
     // Make sure both pagination mocks were called.
@@ -1018,8 +1021,8 @@ async fn test_back_pagination_aborted() {
     // The spawned task should finish with a cancellation.
     assert!(paginate.await.unwrap_err().is_cancelled());
 
-    // But since the pagination task is owned by the event cache, it continues in
-    // the background.
+    // But since the pagination task is owned by the event cache, it continues
+    // in the background.
     assert_let_timeout!(
         Duration::from_secs(2),
         Some(PaginationStatus::Idle { hit_timeline_start }) = back_pagination_status.next()
@@ -1130,8 +1133,8 @@ async fn test_lazy_back_pagination() {
         // … until we receive `$ev29`: the last received event, and the 19th item.
         append "$ev29";
 
-        // The day divider is inserted before `$ev0`, so it shifts items to
-        // the right: `$ev10` becomes part of the stream.
+        // The day divider is inserted before `$ev0`, so it shifts items to the
+        // right: `$ev10` becomes part of the stream.
         //
         // This is the 20th item, hurray!
         prepend "$ev10";
@@ -1146,8 +1149,8 @@ async fn test_lazy_back_pagination() {
 
         assert!(hit_end_of_timeline.not());
 
-        // Oh, 5 new items, without even hitting the network because the timeline
-        // already has these!
+        // Oh, 5 new items, without even hitting the network because the
+        // timeline already has these!
         assert_timeline_stream! {
             [timeline_stream]
             prepend "$ev9";
@@ -1176,8 +1179,8 @@ async fn test_lazy_back_pagination() {
     }
 
     // This time, let's run another backwards pagination of 6 items. 2 items are
-    // from in-memory events, 1 item is a virtual item, and 3 will be created from
-    // events fetched from the network.
+    // from in-memory events, 1 item is a virtual item, and 3 will be created
+    // from events fetched from the network.
     {
         let network_pagination = mock_server
             .mock_room_messages()
@@ -1208,10 +1211,11 @@ async fn test_lazy_back_pagination() {
             prepend "$ev0";
             prepend --- date divider ---;
         };
-        // And 3 other items representing the events received from the network backwards
-        // pagination.
+        // And 3 other items representing the events received from the network
+        // backwards pagination.
         //
-        // They are inserted after the date divider, hence the indices 1, 2 and 3.
+        // They are inserted after the date divider, hence the indices 1, 2 and
+        // 3.
         assert_timeline_stream! {
             [timeline_stream]
             insert[1] "$ev102";
@@ -1224,9 +1228,9 @@ async fn test_lazy_back_pagination() {
         drop(network_pagination);
     }
 
-    // Finally, let's run a last backwards pagination of 5 items, fully hitting the
-    // network, but 2 will be returned because the beginning of the timeline is
-    // reached.
+    // Finally, let's run a last backwards pagination of 5 items, fully hitting
+    // the network, but 2 will be returned because the beginning of the timeline
+    // is reached.
     {
         let network_pagination = mock_server
             .mock_room_messages()
@@ -1248,8 +1252,8 @@ async fn test_lazy_back_pagination() {
 
         let hit_end_of_timeline = timeline.paginate_backwards(5).await.unwrap();
 
-        // There was no previous-batch token in the previous /messages response, so
-        // we've hit the start of the timeline.
+        // There was no previous-batch token in the previous /messages response,
+        // so we've hit the start of the timeline.
         assert!(hit_end_of_timeline);
 
         // The start of the timeline is inserted as its own timeline update.
@@ -1290,8 +1294,8 @@ async fn test_from_an_empty_timeline_paginate_zero_event_and_then_sync_some_even
         let _network_pagination = mock_server
             .mock_room_messages()
             .ok(
-                // No previous batch token, the beginning of the timeline is reached.
-                // It returns zero event, we want an empty timeline.
+                // No previous batch token, the beginning of the timeline is
+                // reached. It returns zero event, we want an empty timeline.
                 RoomMessagesResponseTemplate::default(),
             )
             .mock_once()
@@ -1377,8 +1381,8 @@ async fn test_timeline_start_properly_inserted_when_created() {
             .mock_room_messages()
             .match_from("previous-batch")
             .ok(
-                // No previous batch token, the beginning of the timeline is reached.
-                // It returns zero event, we want an empty timeline.
+                // No previous batch token, the beginning of the timeline is
+                // reached. It returns zero event, we want an empty timeline.
                 RoomMessagesResponseTemplate::default(),
             )
             .mock_once()
@@ -1397,9 +1401,9 @@ async fn test_timeline_start_properly_inserted_when_created() {
         assert_pending!(stream);
     }
 
-    // Create a new timeline while this one is alive (so that the room event cache
-    // doesn't unload the linked chunk), and make sure it contains the timeline
-    // start as soon as possible.
+    // Create a new timeline while this one is alive (so that the room event
+    // cache doesn't unload the linked chunk), and make sure it contains the
+    // timeline start as soon as possible.
     let timeline2 = room.timeline().await.unwrap();
 
     let (items, mut stream2) = timeline2.subscribe().await;

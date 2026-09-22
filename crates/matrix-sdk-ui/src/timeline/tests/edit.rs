@@ -577,7 +577,8 @@ async fn test_edit_remote_echo_before_sent_leaves_no_pending_state() {
     let txn_id = timeline.handle_local_event(local_edit(original_id, "edited")).await;
     assert_next_matches!(stream, VectorDiff::Set { index: 0, .. });
 
-    // The remote echo of the edit arrives before the send queue reports the send.
+    // The remote echo of the edit arrives before the send queue reports the
+    // send.
     let edit_id = event_id!("$edit");
     timeline
         .handle_live_event(
