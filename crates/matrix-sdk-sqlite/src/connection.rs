@@ -174,8 +174,8 @@ pub(crate) struct SqliteConnections {
 
 /// Close a store by taking its connections out.
 ///
-/// After this returns, any new call to `read()` or `write()` through the
-/// store will fail with [`crate::error::Error::StoreClosed`] until
+/// After this returns, any new call to `read()` or `write()` through the store
+/// will fail with [`crate::error::Error::StoreClosed`] until
 /// [`reopen_connections`] is called.
 ///
 /// Idempotent: if the store is already closed this is a no-op.
@@ -188,9 +188,9 @@ pub(crate) async fn close_connections(connections: &Mutex<Option<SqliteConnectio
 
     let SqliteConnections { pool, write_connection } = conns;
 
-    // Close the pool. Idle read connections are dropped immediately;
-    // in-flight reads complete and their connections are discarded (not
-    // recycled) on release. New pool.get() calls return PoolError::Closed.
+    // Close the pool. Idle read connections are dropped immediately; in-flight
+    // reads complete and their connections are discarded (not recycled) on
+    // release. New pool.get() calls return PoolError::Closed.
     pool.close();
 
     let status = pool.status();
@@ -201,8 +201,8 @@ pub(crate) async fn close_connections(connections: &Mutex<Option<SqliteConnectio
         "{label} pause: pool closed"
     );
 
-    // Close the write connection: wait for any in-flight write to finish,
-    // run a WAL checkpoint, then drop on a blocking thread.
+    // Close the write connection: wait for any in-flight write to finish, run a
+    // WAL checkpoint, then drop on a blocking thread.
     close_connection(write_connection).await;
 
     let status = pool.status();
@@ -213,10 +213,9 @@ pub(crate) async fn close_connections(connections: &Mutex<Option<SqliteConnectio
         "{label} pause: write connection released"
     );
 
-    // Wait for any in-flight read connections to drain.
-    // The write connection has already been released above, so
-    // pool.status().size == 0 now correctly means every connection is gone
-    // and no SQLite file locks are held.
+    // Wait for any in-flight read connections to drain. The write connection
+    // has already been released above, so pool.status().size == 0 now correctly
+    // means every connection is gone and no SQLite file locks are held.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     while pool.status().size > 0 {
         if tokio::time::Instant::now() >= deadline {
