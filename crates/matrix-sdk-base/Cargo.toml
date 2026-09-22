@@ -105,6 +105,7 @@ serde_json.workspace = true
 strass = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 tracing.workspace = true
 unicode-normalization.workspace = true
 uniffi = { workspace = true, optional = true }
