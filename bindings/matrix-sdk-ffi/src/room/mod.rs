@@ -81,6 +81,8 @@ use crate::{
 
 mod power_levels;
 pub mod room_info;
+#[cfg(feature = "unstable-msc4354")]
+mod sticky_events;
 
 #[derive(Debug, Clone, uniffi::Enum)]
 pub enum Membership {

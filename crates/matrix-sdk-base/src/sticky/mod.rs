@@ -113,6 +113,7 @@ impl StickyEvent {
 
 /// Why a sticky event disappeared from the map of a room.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum RemovalReason {
     /// The event stopped being sticky.
     Expired,
