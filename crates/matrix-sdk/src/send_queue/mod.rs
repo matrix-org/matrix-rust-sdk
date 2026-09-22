@@ -304,6 +304,7 @@ impl SendQueue {
             self.client
                 .task_monitor()
                 .spawn_infinite_task("send_queue_session_change", Self::session_change_task(client))
+                .abort_on_drop()
         });
 
         let mut map = data.rooms.write().unwrap();
