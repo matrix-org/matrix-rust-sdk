@@ -323,9 +323,10 @@ impl FromMatrixDriverResponse for DownloadFileResponse {
 }
 
 /// Response for a `get_rtc_transports` request.
-/// [https://github.com/matrix-org/matrix-spec-proposals/pull/4515][https-github-com-matrix-org-matrix-spec-proposals-pull-4515]
 ///
-/// [https-github-com-matrix-org-matrix-spec-proposals-pull-4515]: https://github.com/matrix-org/matrix-spec-proposals/pull/4515
+/// [Specification].
+///
+/// [Specification]: https://github.com/matrix-org/matrix-spec-proposals/pull/4515
 #[derive(Serialize, Debug)]
 pub(crate) struct RtcTransportsResponse {
     /// The RTC transports advertised by the homeserver.

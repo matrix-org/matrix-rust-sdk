@@ -3800,10 +3800,9 @@ impl Client {
     /// cached value or with a `/_matrix/client/v1/media/config` request if it's
     /// missing.
     ///
-    /// Check the spec for more info:
-    /// [https://spec.matrix.org/v1.14/client-server-api/#get_matrixclientv1mediaconfig][https-spec-matrix-org-v1-14-client-server-api-get-matrixclientv1mediaconfig]
+    /// Check [the specification for more info][spec].
     ///
-    /// [https-spec-matrix-org-v1-14-client-server-api-get-matrixclientv1mediaconfig]: https://spec.matrix.org/v1.14/client-server-api/#get_matrixclientv1mediaconfig
+    /// [spec]: https://spec.matrix.org/v1.14/client-server-api/#get_matrixclientv1mediaconfig
     pub async fn load_or_fetch_max_upload_size(&self) -> Result<UInt> {
         let max_upload_size_lock = self.inner.server_max_upload_size.lock().await;
         if let Some(data) = max_upload_size_lock.get() {

@@ -137,9 +137,7 @@ impl Device {
     /// # anyhow::Ok(()) };
     /// ```
     ///
-    /// [`request_verification_with_methods()`]:
-    ///
-    /// # Method.request_verification_with_methods
+    /// [`request_verification_with_methods()`]: #method.request_verification_with_methods
     pub async fn request_verification(&self) -> Result<VerificationRequest> {
         let (verification, request) = self.inner.request_verification();
         self.client.send_verification_request(request).await?;

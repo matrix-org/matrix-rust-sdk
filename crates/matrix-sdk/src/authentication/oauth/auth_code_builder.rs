@@ -84,13 +84,12 @@ impl OAuthAuthCodeUrlBuilder {
     /// `https://app.example.com/?server_name=example.org&login_hint=alice` In
     /// this instance it is up to the external party to make ensure that the
     /// hint is known to work with their identity provider. For more information
-    /// see `login_hint` in
-    /// [https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest][https-openid-net-specs-openid-connect-core-1-0-html-authrequest]
+    /// see `login_hint` in [the specification]
     ///
     /// The following methods are mutually exclusive: [`Self::login_hint()`] and
     /// [`Self::user_id_hint()`].
     ///
-    /// [https-openid-net-specs-openid-connect-core-1-0-html-authrequest]: https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
+    /// [the specification]: https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
     pub fn login_hint(mut self, login_hint: String) -> Self {
         self.login_hint = Some(login_hint);
         self
