@@ -228,8 +228,8 @@ pub fn is_room_alias_format_valid(alias: String) -> bool {
     has_valid_format && is_lowercase && RoomAliasId::parse(alias).is_ok()
 }
 
-/// Given a pair of optional `body` and `formatted_body` parameters,
-/// returns a formatted body.
+/// Given a pair of optional `body` and `formatted_body` parameters, returns a
+/// formatted body.
 ///
 /// Return the formatted body if available, or interpret the `body` parameter as
 /// markdown, if provided.

@@ -137,8 +137,8 @@ macro_rules! assert_next_with_timeout {
 /// Asserts the next item in a `Receiver` can be loaded in the given timeout in
 /// milliseconds.
 ///
-/// This macro waits for the next item from a `Receiver` or, if no
-/// item is received within the specified timeout, the macro panics.
+/// This macro waits for the next item from a `Receiver` or, if no item is
+/// received within the specified timeout, the macro panics.
 ///
 /// # Parameters
 ///
@@ -214,11 +214,11 @@ macro_rules! assert_next_matches_with_timeout {
 ///
 /// # Arguments
 ///
-/// * `$stream` - The asynchronous stream to retrieve the next item from.
-/// * `$expected` - The expected value to assert against.
-/// * `$timeout ms` (optional) - A timeout in milliseconds (e.g., `200ms`).
+/// - `$stream` - The asynchronous stream to retrieve the next item from.
+/// - `$expected` - The expected value to assert against.
+/// - `$timeout ms` (optional) - A timeout in milliseconds (e.g., `200ms`).
 ///   Defaults to `100ms`.
-/// * `$msg` (optional) - A formatted message string for assertion failure.
+/// - `$msg` (optional) - A formatted message string for assertion failure.
 ///
 /// # Examples
 ///
@@ -308,8 +308,8 @@ macro_rules! assert_decrypted_message_eq {
     }};
 }
 
-/// Given a [`TimelineEvent`], assert that the event is a decrypted state
-/// event, and that its content matches the given pattern via a let binding.
+/// Given a [`TimelineEvent`], assert that the event is a decrypted state event,
+/// and that its content matches the given pattern via a let binding.
 ///
 /// If more than one argument is provided, these will be used as an error
 /// message if the content does not match the provided pattern.

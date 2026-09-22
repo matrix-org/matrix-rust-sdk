@@ -34,8 +34,8 @@ pub struct DeviceUpdates {
     /// The list of newly discovered devices.
     ///
     /// A device being in this list does not necessarily mean that the device
-    /// was just created, it just means that it's the first time we're
-    /// seeing this device.
+    /// was just created, it just means that it's the first time we're seeing
+    /// this device.
     pub new: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Device>>,
     /// The list of changed devices.
     pub changed: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Device>>,
@@ -138,7 +138,8 @@ impl Device {
     /// ```
     ///
     /// [`request_verification_with_methods()`]:
-    /// #method.request_verification_with_methods
+    ///
+    /// # Method.request_verification_with_methods
     pub async fn request_verification(&self) -> Result<VerificationRequest> {
         let (verification, request) = self.inner.request_verification();
         self.client.send_verification_request(request).await?;
@@ -153,7 +154,7 @@ impl Device {
     ///
     /// # Arguments
     ///
-    /// * `methods` - The verification methods that we want to support. Must be
+    /// - `methods` - The verification methods that we want to support. Must be
     ///   non-empty.
     ///
     /// # Panics
@@ -259,11 +260,11 @@ impl Device {
     ///
     /// Manual verification may be more convenient to use, i.e. both devices
     /// need to be online and available to interactively verify each other.
-    /// Despite the convenience, interactive verifications should be
-    /// generally preferred. Manually verifying a device won't notify the
-    /// other device, the one being verified, that they should also verify
-    /// us. This means that device `A` will consider device `B` to be
-    /// verified, but not the other way around.
+    /// Despite the convenience, interactive verifications should be generally
+    /// preferred. Manually verifying a device won't notify the other device,
+    /// the one being verified, that they should also verify us. This means that
+    /// device `A` will consider device `B` to be verified, but not the other
+    /// way around.
     ///
     /// # Examples
     ///
@@ -316,10 +317,10 @@ impl Device {
     ///
     /// Cross signing verification uses signatures over devices and user
     /// identities to check if a device is considered to be verified. The
-    /// signatures can be uploaded to the homeserver, this allows us to
-    /// share the verification state with other devices. Devices only need to
-    /// verify a user identity, if the user identity has verified and signed
-    /// the device we can consider the device to be verified as well.
+    /// signatures can be uploaded to the homeserver, this allows us to share
+    /// the verification state with other devices. Devices only need to verify a
+    /// user identity, if the user identity has verified and signed the device
+    /// we can consider the device to be verified as well.
     ///
     /// Devices are usually cross signing verified using interactive
     /// verification, which can be started using the
@@ -333,18 +334,18 @@ impl Device {
     /// Such a device can mark our own user as verified using the
     /// [`UserIdentity::verify()`] method.
     ///
-    /// ### Verification of devices belonging to our own user.
+    /// ### Verification of devices belonging to our own user
     ///
     /// If the device belongs to our own user, the device will be considered to
     /// be verified if:
     ///
-    /// * The device has been signed by our self-signing key
-    /// * Our own user identity is considered to be [verified]
+    /// - The device has been signed by our self-signing key
+    /// - Our own user identity is considered to be [verified]
     ///
     /// In other words we need to find a valid signature chain from our user
     /// identity to the device:
     ///
-    ///```text
+    /// ```text
     ///         ┌─────────────────────────────────────┐    ┌─────────────┐
     ///         │           Own User Identity         │    │   Device    │
     ///         ├──────────────────┬──────────────────┤───►├─────────────┤
@@ -352,15 +353,15 @@ impl Device {
     ///         └──────────────────┴──────────────────┘    └─────────────┘
     /// ```
     ///
-    /// ### Verification of devices belonging to other users.
+    /// ### Verification of devices belonging to other users
     ///
     /// If the device belongs to some other user it will be considered to be
     /// verified if:
     ///
-    /// * The device has been signed by the user's self-signing key
-    /// * The user's master-signing key has been signed by our own user-signing
+    /// - The device has been signed by the user's self-signing key
+    /// - The user's master-signing key has been signed by our own user-signing
     ///   key, i.e. our own identity trusts the other users identity.
-    /// * Our own user identity is considered to be [verified]
+    /// - Our own user identity is considered to be [verified]
     ///
     /// ```text
     ///             ┌─────────────────────────────────────┐
@@ -431,10 +432,10 @@ impl Device {
     ///
     /// Cross-signing verification uses signatures over devices and user
     /// identities to check if a device is considered to be verified. The
-    /// signatures can be uploaded to the homeserver, this allows us to
-    /// share the verification state with other devices. Devices only need to
-    /// verify a user identity, if the user identity has verified and signed
-    /// the device we can consider the device to be verified as well.
+    /// signatures can be uploaded to the homeserver, this allows us to share
+    /// the verification state with other devices. Devices only need to verify a
+    /// user identity, if the user identity has verified and signed the device
+    /// we can consider the device to be verified as well.
     ///
     /// Devices are usually cross-signing verified using interactive
     /// verification, which can be started using the
@@ -448,18 +449,18 @@ impl Device {
     /// Such a device can mark our own user as verified using the
     /// [`UserIdentity::verify()`] method.
     ///
-    /// ### Verification of devices belonging to our own user.
+    /// ### Verification of devices belonging to our own user
     ///
     /// If the device belongs to our own user, the device will be considered to
     /// be verified if:
     ///
-    /// * The device has been signed by our self-signing key
-    /// * Our own user identity is considered to be [verified]
+    /// - The device has been signed by our self-signing key
+    /// - Our own user identity is considered to be [verified]
     ///
     /// In other words we need to find a valid signature chain from our user
     /// identity to the device:
     ///
-    ///```text
+    /// ```text
     ///         ┌─────────────────────────────────────┐    ┌─────────────┐
     ///         │           Own User Identity         │    │   Device    │
     ///         ├──────────────────┬──────────────────┤───►├─────────────┤
@@ -467,15 +468,15 @@ impl Device {
     ///         └──────────────────┴──────────────────┘    └─────────────┘
     /// ```
     ///
-    /// ### Verification of devices belonging to other users.
+    /// ### Verification of devices belonging to other users
     ///
     /// If the device belongs to some other user it will be considered to be
     /// verified if:
     ///
-    /// * The device has been signed by the user's self-signing key
-    /// * The user's master-signing key has been signed by our own user-signing
+    /// - The device has been signed by the user's self-signing key
+    /// - The user's master-signing key has been signed by our own user-signing
     ///   key, i.e. our own identity trusts the other users identity.
-    /// * Our own user identity is considered to be [verified]
+    /// - Our own user identity is considered to be [verified]
     ///
     /// ```text
     ///             ┌─────────────────────────────────────┐
@@ -539,12 +540,12 @@ impl Device {
 
     /// Set the local trust state of the device to the given state.
     ///
-    /// This won't affect any cross signing verification state, this only sets
-    /// a flag marking to have the given trust state.
+    /// This won't affect any cross signing verification state, this only sets a
+    /// flag marking to have the given trust state.
     ///
     /// # Arguments
     ///
-    /// * `trust_state` - The new trust state that should be set for the device.
+    /// - `trust_state` - The new trust state that should be set for the device.
     pub async fn set_local_trust(&self, trust_state: LocalTrust) -> Result<(), CryptoStoreError> {
         self.inner.set_local_trust(trust_state).await
     }

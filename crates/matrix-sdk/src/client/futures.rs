@@ -69,8 +69,7 @@ impl<R> SendRequest<R> {
         self
     }
 
-    /// Get a subscriber to observe the progress of sending the request
-    /// body.
+    /// Get a subscriber to observe the progress of sending the request body.
     pub fn subscribe_to_send_progress(&self) -> Subscriber<TransmissionProgress> {
         self.send_progress.subscribe()
     }
@@ -94,13 +93,14 @@ where
             No,
         }
 
-        // split out so this only get compiled once,
-        // not monomorphized per request type
+        // split out so this only get compiled once, not monomorphized per
+        // request type
         async fn handle_unknown_token_error(
             e: &HttpError,
             client: &Client,
         ) -> HttpResult<RetryRequest> {
-            // An `M_UNKNOWN_TOKEN` error can potentially be fixed with a token refresh.
+            // An `M_UNKNOWN_TOKEN` error can potentially be fixed with a token
+            // refresh.
             let Some(ErrorKind::UnknownToken(unknown_token_data)) = e.client_api_error_kind()
             else {
                 return Ok(RetryRequest::No);
@@ -108,7 +108,8 @@ where
 
             trace!("Token refresh: Unknown token error received.");
 
-            // If automatic token refresh isn't supported, there is nothing more to do.
+            // If automatic token refresh isn't supported, there is nothing more
+            // to do.
             if !client.inner.auth_ctx.handle_refresh_tokens {
                 trace!("Token refresh: Automatic refresh disabled.");
                 client.broadcast_unknown_token(unknown_token_data);
@@ -120,7 +121,8 @@ where
                 match &refresh_error {
                     RefreshTokenError::RefreshTokenRequired => {
                         trace!("Token refresh: The session doesn't have a refresh token.");
-                        // Refreshing access tokens is not supported by this `Session`, ignore.
+                        // Refreshing access tokens is not supported by this
+                        // `Session`, ignore.
                         client.broadcast_unknown_token(unknown_token_data);
                         Ok(RetryRequest::No)
                     }
@@ -136,21 +138,23 @@ where
                                     "Token refresh: OAuth 2.0 refresh_token rejected \
                                          with invalid grant"
                                 );
-                                // The refresh was denied, signal to sign out the user.
+                                // The refresh was denied, signal to sign out
+                                // the user.
                                 client.broadcast_unknown_token(unknown_token_data);
                             }
                             _ => {
                                 trace!("Token refresh: OAuth 2.0 refresh encountered a problem.");
-                                // The refresh failed for other reasons, no
-                                // need to sign out.
+                                // The refresh failed for other reasons, no need
+                                // to sign out.
                             }
                         }
                         Err(HttpError::RefreshToken(refresh_error))
                     }
 
                     RefreshTokenError::MatrixAuth(http_error) => {
-                        // Only an answer from the homeserver means the token is gone. A
-                        // transport failure or a 5xx says nothing about the session.
+                        // Only an answer from the homeserver means the token is
+                        // gone. A transport failure or a 5xx says nothing about
+                        // the session.
                         let rejected = http_error
                             .as_client_api_error()
                             .is_some_and(|error| !error.status_code.is_server_error());
@@ -214,8 +218,7 @@ impl SendMediaUploadRequest {
         self
     }
 
-    /// Get a subscriber to observe the progress of sending the request
-    /// body.
+    /// Get a subscriber to observe the progress of sending the request body.
     pub fn subscribe_to_send_progress(&self) -> Subscriber<TransmissionProgress> {
         self.send_request.send_progress.subscribe()
     }

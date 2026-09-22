@@ -46,17 +46,17 @@ const ROOM_BATCH: usize = 100;
 /// Number of paginations allowed per room, per week, in a search backfill.
 ///
 /// Bounds how long a single very active room can occupy a concurrency slot: a
-/// room that doesn't reach the week's floor within this many batches is
-/// retried on the next sweep, rather than blocking higher-priority work
-/// indefinitely (there's no preemption, so requests must be self-limiting).
+/// room that doesn't reach the week's floor within this many batches is retried
+/// on the next sweep, rather than blocking higher-priority work indefinitely
+/// (there's no preemption, so requests must be self-limiting).
 const SEARCH_MAX_BATCHES_PER_ROOM: usize = 10;
 
 /// How aggressively a search backfill runs.
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum SearchBackfillStrategy {
-    /// The app is in the foreground: pause between paginations so this
-    /// doesn't compete with interactive traffic.
+    /// The app is in the foreground: pause between paginations so this doesn't
+    /// compete with interactive traffic.
     Foreground,
     /// A time-boxed background task (e.g. iOS `BGAppRefreshTask`) where there's
     /// no interactive traffic to protect.
@@ -75,18 +75,17 @@ impl SearchBackfillStrategy {
 }
 
 impl EventCache {
-    /// Sweep every room, back-paginating message history down to a
-    /// 3 months floor (`MAX_BACKFILL_WEEKS`) to populate the search index (and
-    /// the event cache).
+    /// Sweep every room, back-paginating message history down to a 3 months
+    /// floor (`MAX_BACKFILL_WEEKS`) to populate the search index (and the event
+    /// cache).
     ///
     /// Coverage is front-loaded by recency: the last week is filled for all
     /// rooms first, then the previous week, and so on, in batches of rooms.
     ///
     /// `strategy` paces how fast new rooms are introduced into the sweep:
     /// [`SearchBackfillStrategy::Foreground`] spaces them out so this doesn't
-    /// compete with interactive traffic.
-    /// [`SearchBackfillStrategy::Background`] introduces them as fast as the
-    /// concurrency cap allows.
+    /// compete with interactive traffic. [`SearchBackfillStrategy::Background`]
+    /// introduces them as fast as the concurrency cap allows.
     ///
     /// No-ops if automatic back-pagination is disabled.
     pub async fn run_search_backfill(&self, strategy: SearchBackfillStrategy) {
@@ -303,7 +302,8 @@ mod tests {
         );
         assert_matches!(update.diffs[0], VectorDiff::Clear);
 
-        // `/messages` returns two events and no end token → start of timeline reached.
+        // `/messages` returns two events and no end token → start of timeline
+        // reached.
         server
             .mock_room_messages()
             .match_from("prev_batch")
@@ -315,8 +315,8 @@ mod tests {
             .mount()
             .await;
 
-        // The single room drains on the first week and is skipped afterwards, so only
-        // one `/messages` call happens (guaranteed by `mock_once`).
+        // The single room drains on the first week and is skipped afterwards,
+        // so only one `/messages` call happens (guaranteed by `mock_once`).
         event_cache.run_search_backfill(SearchBackfillStrategy::Foreground).await;
 
         assert_let_timeout!(

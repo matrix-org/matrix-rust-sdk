@@ -81,9 +81,9 @@ pub enum QrAuthMessage {
     },
 
     /// Message containing end-to-end encryption related secrets, the new device
-    /// can use these secrets to mark itself as verified, connect to a room
-    /// key backup, and login other devices via a QR login. Sent by the
-    /// existing device.
+    /// can use these secrets to mark itself as verified, connect to a room key
+    /// backup, and login other devices via a QR login. Sent by the existing
+    /// device.
     #[serde(rename = "m.login.secrets")]
     LoginSecrets(SecretsBundle),
 }
@@ -119,8 +119,8 @@ pub struct AuthorizationGrant {
     pub verification_uri: EndUserVerificationUrl,
 
     /// The verification URL, with the user code pre-filled, which the user
-    /// should open to log the new device in. If this URL is available, the
-    /// user should be presented with it instead of the one in the
+    /// should open to log the new device in. If this URL is available, the user
+    /// should be presented with it instead of the one in the
     /// [`AuthorizationGrant::verification_uri`] field.
     pub verification_uri_complete: Option<VerificationUriComplete>,
 }
