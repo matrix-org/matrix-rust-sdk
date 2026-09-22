@@ -23,7 +23,7 @@ use crate::{Client, HttpError, HttpResult, client::caches::CachedValue};
 
 /// Helper to check what [`Capabilities`] are supported by the homeserver.
 ///
-/// Spec: <https://spec.matrix.org/latest/client-server-api/#capabilities-negotiation>
+/// [Specification](https://spec.matrix.org/latest/client-server-api/#capabilities-negotiation).
 #[derive(Debug, Clone)]
 pub struct HomeserverCapabilities {
     client: Client,
@@ -52,10 +52,7 @@ impl HomeserverCapabilities {
     /// This will first check the `m.profile_fields` capability and use it if
     /// present, or fall back to `m.set_displayname` otherwise.
     ///
-    /// Spec:
-    /// [https://spec.matrix.org/latest/client-server-api/#mset_displayname-capability][https-spec-matrix-org-latest-client-server-api-mset-displayname-capability]
-    ///
-    /// [https-spec-matrix-org-latest-client-server-api-mset-displayname-capability]: https://spec.matrix.org/latest/client-server-api/#mset_displayname-capability
+    /// [Specification](https://spec.matrix.org/latest/client-server-api/#mset_displayname-capability).
     pub async fn can_change_displayname(&self) -> crate::Result<bool> {
         let capabilities = self.profile_capabilities().await?;
 
@@ -71,10 +68,7 @@ impl HomeserverCapabilities {
     /// This will first check the `m.profile_fields` capability and use it if
     /// present, or fall back to `m.set_avatar_url` otherwise.
     ///
-    /// Spec:
-    /// [https://spec.matrix.org/latest/client-server-api/#mset_avatar_url-capability][https-spec-matrix-org-latest-client-server-api-mset-avatar-url-capability]
-    ///
-    /// [https-spec-matrix-org-latest-client-server-api-mset-avatar-url-capability]: https://spec.matrix.org/latest/client-server-api/#mset_avatar_url-capability
+    /// [Specification](https://spec.matrix.org/latest/client-server-api/#mset_avatar_url-capability).
     pub async fn can_change_avatar(&self) -> crate::Result<bool> {
         let capabilities = self.profile_capabilities().await?;
 
@@ -88,10 +82,7 @@ impl HomeserverCapabilities {
     /// Returns whether the user can add, remove, or change 3PID associations on
     /// their account.
     ///
-    /// Spec:
-    /// [https://spec.matrix.org/latest/client-server-api/#m3pid_changes-capability][https-spec-matrix-org-latest-client-server-api-m3pid-changes-capability]
-    ///
-    /// [https-spec-matrix-org-latest-client-server-api-m3pid-changes-capability]: https://spec.matrix.org/latest/client-server-api/#m3pid_changes-capability
+    /// [Specification](https://spec.matrix.org/latest/client-server-api/#m3pid_changes-capability).
     pub async fn can_change_thirdparty_ids(&self) -> crate::Result<bool> {
         let capabilities = self.load_or_fetch_homeserver_capabilities().await?;
         Ok(capabilities.thirdparty_id_changes.enabled)
@@ -104,10 +95,7 @@ impl HomeserverCapabilities {
     /// When not listed, clients SHOULD assume the user is unable to generate
     /// tokens.
     ///
-    /// Spec:
-    /// [https://spec.matrix.org/latest/client-server-api/#mget_login_token-capability][https-spec-matrix-org-latest-client-server-api-mget-login-token-capability]
-    ///
-    /// [https-spec-matrix-org-latest-client-server-api-mget-login-token-capability]: https://spec.matrix.org/latest/client-server-api/#mget_login_token-capability
+    /// [Specification](https://spec.matrix.org/latest/client-server-api/#mget_login_token-capability).
     pub async fn can_get_login_token(&self) -> crate::Result<bool> {
         let capabilities = self.load_or_fetch_homeserver_capabilities().await?;
         Ok(capabilities.get_login_token.enabled)
@@ -115,7 +103,7 @@ impl HomeserverCapabilities {
 
     /// Returns which profile fields the user is able to change.
     ///
-    /// Spec: <https://spec.matrix.org/latest/client-server-api/#mprofile_fields-capability>
+    /// [Specification](https://spec.matrix.org/latest/client-server-api/#mprofile_fields-capability).
     pub async fn extended_profile_fields(&self) -> crate::Result<ProfileFieldsCapability> {
         Ok(self
             .profile_capabilities()
@@ -126,7 +114,7 @@ impl HomeserverCapabilities {
 
     /// Returns the room versions supported by the server.
     ///
-    /// Spec: <https://spec.matrix.org/latest/client-server-api/#mroom_versions-capability>
+    /// [Specification](https://spec.matrix.org/latest/client-server-api/#mroom_versions-capability).
     pub async fn room_versions(&self) -> crate::Result<RoomVersionsCapability> {
         let capabilities = self.load_or_fetch_homeserver_capabilities().await?;
         Ok(capabilities.room_versions)
@@ -134,7 +122,7 @@ impl HomeserverCapabilities {
 
     /// Returns whether the user can perform account moderation actions.
     ///
-    /// Spec: <https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3capabilities_response-200_accountmoderationcapability>
+    /// [Specification](https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3capabilities_response-200_accountmoderationcapability).
     pub async fn account_moderation(&self) -> crate::Result<AccountModerationCapability> {
         let capabilities = self.load_or_fetch_homeserver_capabilities().await?;
         Ok(capabilities.account_moderation)
@@ -143,10 +131,7 @@ impl HomeserverCapabilities {
     /// Returns whether or not the server automatically forgets rooms which the
     /// user has left.
     ///
-    /// Spec:
-    /// [https://spec.matrix.org/latest/client-server-api/#mforget_forced_upon_leave-capability][https-spec-matrix-org-latest-client-server-api-mforget-forced-upon-leave-capability]
-    ///
-    /// [https-spec-matrix-org-latest-client-server-api-mforget-forced-upon-leave-capability]: https://spec.matrix.org/latest/client-server-api/#mforget_forced_upon_leave-capability
+    /// [Specification](https://spec.matrix.org/latest/client-server-api/#mforget_forced_upon_leave-capability).
     pub async fn forgets_room_when_leaving(&self) -> crate::Result<bool> {
         let capabilities = self.load_or_fetch_homeserver_capabilities().await?;
         Ok(capabilities.forget_forced_upon_leave.enabled)

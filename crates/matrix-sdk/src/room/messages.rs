@@ -38,11 +38,9 @@ use crate::Result;
 
 /// Options for [`messages`][super::Room::messages].
 ///
-/// See that method and
-/// [https://spec.matrix.org/v1.3/client-server-api/#get_matrixclientv3roomsroomidmessages][https-spec-matrix-org-v1-3-client-server-api-get-matrixclientv3roomsroomidmessages]
-/// for details.
+/// See that method and [the specification][spec] for more details.
 ///
-/// [https-spec-matrix-org-v1-3-client-server-api-get-matrixclientv3roomsroomidmessages]: https://spec.matrix.org/v1.3/client-server-api/#get_matrixclientv3roomsroomidmessages
+/// [spec]: https://spec.matrix.org/v1.3/client-server-api/#get_matrixclientv3roomsroomidmessages
 #[non_exhaustive]
 pub struct MessagesOptions {
     /// The token to start returning events from.

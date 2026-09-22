@@ -182,10 +182,7 @@ impl UserIdentity {
     /// # anyhow::Ok(()) };
     /// ```
     ///
-    /// [`request_verification_with_methods()`]:
-    ///
-    /// # Method.request_verification_with_methods
-    ///
+    /// [`request_verification_with_methods()`]: #method.request_verification_with_methods
     /// [`verification`]: crate::encryption::verification
     pub async fn request_verification(
         &self,

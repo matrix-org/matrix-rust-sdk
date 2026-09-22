@@ -79,15 +79,13 @@ impl<'a> RoomPrivacySettings<'a> {
     ///   removes the existing main canonical alias.
     /// - `alt_aliases` - The list of alternative aliases for this room.
     ///
-    /// See
-    /// [https://spec.matrix.org/v1.12/client-server-api/#mroomcanonical_alias][https-spec-matrix-org-v1-12-client-server-api-mroomcanonical-alias]
-    /// for more info about the canonical alias.
+    /// See [the specification][spec] for more info about the canonical alias.
     ///
     /// Note that publishing the alias in the room directory is done separately,
     /// and a room alias must have already been published before it can be set
     /// as the canonical alias.
     ///
-    /// [https-spec-matrix-org-v1-12-client-server-api-mroomcanonical-alias]: https://spec.matrix.org/v1.12/client-server-api/#mroomcanonical_alias
+    /// [spec]: https://spec.matrix.org/v1.12/client-server-api/#mroomcanonical_alias
     pub async fn update_canonical_alias(
         &'a self,
         alias: Option<OwnedRoomAliasId>,
@@ -115,11 +113,9 @@ impl<'a> RoomPrivacySettings<'a> {
     /// The history visibility controls whether a user can see the events that
     /// happened in a room before they joined.
     ///
-    /// See
-    /// [https://spec.matrix.org/v1.12/client-server-api/#mroomcanonical_alias][https-spec-matrix-org-v1-12-client-server-api-mroomcanonical-alias]
-    /// for more info.
+    /// See [the specification][spec] for more info.
     ///
-    /// [https-spec-matrix-org-v1-12-client-server-api-mroomcanonical-alias]: https://spec.matrix.org/v1.12/client-server-api/#mroomcanonical_alias
+    /// [spec]: https://spec.matrix.org/v1.12/client-server-api/#mroomcanonical_alias
     pub async fn update_room_history_visibility(
         &'a self,
         new_value: HistoryVisibility,
@@ -138,11 +134,9 @@ impl<'a> RoomPrivacySettings<'a> {
     /// The join rules controls if and how a new user can get access to the
     /// room.
     ///
-    /// See
-    /// [https://spec.matrix.org/v1.12/client-server-api/#mroomjoin_rules][https-spec-matrix-org-v1-12-client-server-api-mroomjoin-rules]
-    /// for more info.
+    /// See [the specification][spec] for more info.
     ///
-    /// [https-spec-matrix-org-v1-12-client-server-api-mroomjoin-rules]: https://spec.matrix.org/v1.12/client-server-api/#mroomjoin_rules
+    /// [spec]: https://spec.matrix.org/v1.12/client-server-api/#mroomjoin_rules
     pub async fn update_join_rule(&'a self, new_rule: JoinRule) -> Result<()> {
         let request = send_state_event::v3::Request::new(
             self.room.room_id().to_owned(),
