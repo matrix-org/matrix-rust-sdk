@@ -138,10 +138,10 @@ impl SqliteStoreConfig {
     ///
     /// The following defaults are set:
     ///
-    /// * The `pool_max_size` is set to the number of physical CPU, so one
+    /// - The `pool_max_size` is set to the number of physical CPU, so one
     ///   connection per physical thread,
-    /// * The `cache_size` is set to 500Kib,
-    /// * The `journal_size_limit` is set to 2Mib.
+    /// - The `cache_size` is set to 500Kib,
+    /// - The `journal_size_limit` is set to 2Mib.
     pub fn with_low_memory_config<P>(path: P) -> Self
     where
         P: AsRef<Path>,
@@ -252,12 +252,12 @@ impl SqliteStoreConfig {
 
     /// Limit the size of the WAL file, in **bytes**.
     ///
-    /// By default, while the DB connections of the databases are open, [the
-    /// size of the WAL file can keep increasing][size_wal_file] depending on
-    /// the size needed for the transactions. A critical case is `VACUUM`
-    /// which basically writes the content of the DB file to the WAL file
-    /// before writing it back to the DB file, so we end up taking twice the
-    /// size of the database.
+    /// By default, while the DB connections of the databases are open,
+    /// [the size of the WAL file can keep increasing][size_wal_file] depending
+    /// on the size needed for the transactions. A critical case is `VACUUM`
+    /// which basically writes the content of the DB file to the WAL file before
+    /// writing it back to the DB file, so we end up taking twice the size of
+    /// the database.
     ///
     /// By setting this limit, the WAL file is truncated after its content is
     /// written to the database, if it is bigger than the limit.
