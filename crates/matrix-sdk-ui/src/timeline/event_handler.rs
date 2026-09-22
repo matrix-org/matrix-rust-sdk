@@ -60,9 +60,7 @@ use super::{
 };
 use crate::{
     timeline::{
-        TimelineUniqueId,
-        algorithms::rfind_event_item,
-        controller::aggregations::{AggregationSendHandle, PendingEdit},
+        TimelineUniqueId, algorithms::rfind_event_item, controller::aggregations::PendingEdit,
         event_item::OtherMessageLike,
     },
     unable_to_decrypt_hook::UtdHookManager,
@@ -732,11 +730,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     fn new_aggregation(&self, kind: AggregationKind) -> Aggregation {
         let own_id = self.ctx.flow.timeline_item_id();
         match &self.ctx.flow {
-            Flow::Local { send_handle, .. } => Aggregation::new_local(
-                own_id,
-                kind,
-                send_handle.clone().map(AggregationSendHandle::Event),
-            ),
+            Flow::Local { send_handle, .. } => {
+                Aggregation::new_local(own_id, kind, send_handle.clone())
+            }
             Flow::Remote { .. } => Aggregation::new(own_id, kind),
         }
     }

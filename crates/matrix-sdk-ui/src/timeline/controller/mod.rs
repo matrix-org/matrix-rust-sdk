@@ -32,10 +32,7 @@ use matrix_sdk::{
         RoomEventCache, Subscriber as EventCacheSubscriber, ThreadEventCache,
         ThreadEventCacheUpdate,
     },
-    send_queue::{
-        LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
-        SendRedactionHandle,
-    },
+    send_queue::{LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle},
     task_monitor::BackgroundTaskHandle,
 };
 use ruma::{
@@ -709,7 +706,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         &self,
         item_id: &TimelineEventItemId,
         target: SendTarget,
-    ) -> Result<Option<AggregationSendHandle>, Error> {
+    ) -> Result<Option<SendHandle>, Error> {
         let state = self.state.read().await;
 
         let Some((_, item)) = rfind_event_by_item_id(&state.items, item_id) else {
@@ -721,7 +718,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         let aggregations = &state.meta.aggregations;
 
         let handle = match &target {
-            SendTarget::Event => item.local_echo_send_handle().map(AggregationSendHandle::Event),
+            SendTarget::Event => item.local_echo_send_handle(),
             SendTarget::Edit => aggregations
                 .pending_send_handle(&target_id, |kind| matches!(kind, AggregationKind::Edit(_))),
             SendTarget::Redaction => aggregations
@@ -1332,7 +1329,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     async fn handle_local_reaction(
         &self,
         reaction_key: String,
-        send_handle: SendReactionHandle,
+        send_handle: SendHandle,
         applies_to: OwnedTransactionId,
     ) {
         let mut state = self.state.write().await;
@@ -1348,7 +1345,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 sender: self.room_data_provider.own_user_id().to_owned(),
                 timestamp: MilliSecondsSinceUnixEpoch::now(),
             },
-            Some(AggregationSendHandle::Reaction(send_handle)),
+            Some(send_handle),
         );
 
         tr.meta.aggregations.add(target.clone(), aggregation.clone());
@@ -1368,7 +1365,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         &self,
         txn_id: OwnedTransactionId,
         redacts: OwnedEventId,
-        send_handle: Option<SendRedactionHandle>,
+        send_handle: Option<SendHandle>,
     ) {
         let mut state = self.state.write().await;
         let mut tr = state.transaction();
@@ -1378,7 +1375,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         let aggregation = Aggregation::new_local(
             TimelineEventItemId::TransactionId(txn_id),
             AggregationKind::Redaction,
-            send_handle.map(AggregationSendHandle::Redaction),
+            send_handle,
         );
 
         tr.meta.aggregations.add(target.clone(), aggregation.clone());

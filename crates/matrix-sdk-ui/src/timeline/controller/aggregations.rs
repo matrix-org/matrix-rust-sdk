@@ -41,12 +41,8 @@ use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
 use as_variant::as_variant;
 use matrix_sdk::{
-    check_validity_of_replacement_events,
-    deserialized_responses::EncryptionInfo,
-    send_queue::{
-        RoomSendQueueError, RoomSendQueueStorageError, SendHandle, SendReactionHandle,
-        SendRedactionHandle,
-    },
+    check_validity_of_replacement_events, deserialized_responses::EncryptionInfo,
+    send_queue::SendHandle,
 };
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
@@ -163,35 +159,6 @@ pub(crate) enum AggregationKind {
     },
 }
 
-/// The handle to abort an aggregation while it's still a local echo.
-#[derive(Clone, Debug)]
-pub(crate) enum AggregationSendHandle {
-    /// The aggregation was queued as a regular event.
-    Event(SendHandle),
-    /// A reaction to a local echo, queued as a child request of that echo.
-    Reaction(SendReactionHandle),
-    /// A redaction, queued as a dedicated request.
-    Redaction(SendRedactionHandle),
-}
-
-impl AggregationSendHandle {
-    pub async fn abort(&self) -> Result<bool, RoomSendQueueStorageError> {
-        match self {
-            Self::Event(handle) => handle.abort().await,
-            Self::Reaction(handle) => handle.abort().await,
-            Self::Redaction(handle) => handle.abort().await,
-        }
-    }
-
-    pub async fn unwedge(&self) -> Result<(), RoomSendQueueError> {
-        match self {
-            Self::Event(handle) => handle.unwedge().await,
-            Self::Reaction(handle) => handle.unwedge().await,
-            Self::Redaction(handle) => handle.unwedge().await,
-        }
-    }
-}
-
 /// An aggregation is an event related to another event (for instance a
 /// reaction, a poll's response, etc.).
 ///
@@ -213,7 +180,7 @@ pub(crate) struct Aggregation {
     pub send_state: Option<EventSendState>,
 
     /// Lets one of our local echoes be aborted while it's still pending.
-    pub send_handle: Option<AggregationSendHandle>,
+    pub send_handle: Option<SendHandle>,
 }
 
 /// Get the poll state from a given [`TimelineItemContent`].
@@ -280,7 +247,7 @@ impl Aggregation {
     pub fn new_local(
         own_id: TimelineEventItemId,
         kind: AggregationKind,
-        send_handle: Option<AggregationSendHandle>,
+        send_handle: Option<SendHandle>,
     ) -> Self {
         Self {
             kind,
@@ -949,7 +916,7 @@ impl Aggregations {
         &self,
         target: &TimelineEventItemId,
         matches_kind: impl Fn(&AggregationKind) -> bool,
-    ) -> Option<AggregationSendHandle> {
+    ) -> Option<SendHandle> {
         self.related_events
             .get(target)?
             .iter()
