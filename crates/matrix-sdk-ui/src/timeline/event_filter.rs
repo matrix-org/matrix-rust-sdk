@@ -33,9 +33,10 @@ impl TimelineEventFilter {
     ///
     /// # Arguments
     ///
-    /// * `event` - The event to run the filter on.
+    /// - `event` - The event to run the filter on.
     ///
     /// # Returns
+    ///
     /// `true` if the filter allows the event or `false` otherwise.
     pub fn filter(&self, event: &AnySyncTimelineEvent) -> bool {
         match self {
@@ -54,8 +55,8 @@ pub enum TimelineEventCondition {
     /// The event is an `m.room.member` event that represents a membership
     /// change (join, leave, etc.).
     MembershipChange(MembershipChangeFilter),
-    /// The event is an `m.room.member` event that represents a profile
-    /// change (displayname or avatar URL).
+    /// The event is an `m.room.member` event that represents a profile change
+    /// (displayname or avatar URL).
     ProfileChange,
     /// The event is a custom message-like event type.
     AnyCustomMessageLikeEvent,
@@ -87,9 +88,10 @@ impl TimelineEventCondition {
     ///
     /// # Arguments
     ///
-    /// * `event` - The event to test the condition against.
+    /// - `event` - The event to test the condition against.
     ///
     /// # Returns
+    ///
     /// `true` if the condition matches or `false` otherwise.
     fn matches(&self, event: &AnySyncTimelineEvent) -> bool {
         match self {

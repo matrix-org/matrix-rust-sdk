@@ -51,14 +51,14 @@ pub struct ThreadListItem {
     /// The latest event in the thread (i.e. the most recent reply), if
     /// available.
     ///
-    /// This is initially populated from the server's bundled thread summary
-    /// and is updated in real time as new events arrive via sync.
+    /// This is initially populated from the server's bundled thread summary and
+    /// is updated in real time as new events arrive via sync.
     pub latest_event: Option<ThreadListItemEvent>,
 
     /// The number of replies in this thread (excluding the root event).
     ///
-    /// This is initially populated from the server's bundled thread summary
-    /// and is updated in real time as new events arrive via sync.
+    /// This is initially populated from the server's bundled thread summary and
+    /// is updated in real time as new events arrive via sync.
     pub num_replies: u32,
 }
 
@@ -167,8 +167,8 @@ impl ThreadListService {
     /// Creates a new [`ThreadListService`] for the given room.
     ///
     /// This immediately spawns a background task that listens to the room's
-    /// event cache for live updates. The task self-bootstraps by performing
-    /// the async event cache subscription internally.
+    /// event cache for live updates. The task self-bootstraps by performing the
+    /// async event cache subscription internally.
     pub fn new(room: Room) -> Self {
         let items: Arc<Mutex<ObservableVector<ThreadListItem>>> =
             Arc::new(Mutex::new(ObservableVector::new()));
@@ -273,7 +273,8 @@ impl ThreadListService {
 
         let mut pagination_token = self.token.lock().await;
 
-        // Build the options for this page, using the current token if we have one.
+        // Build the options for this page, using the current token if we have
+        // one.
         let from = match &*pagination_token {
             PaginationToken::HasMore(token) => Some(token.clone()),
             _ => None,
@@ -283,7 +284,8 @@ impl ThreadListService {
 
         match self.load_thread_list(opts).await {
             Ok(thread_list) => {
-                // Update the pagination token based on whether there are more pages.
+                // Update the pagination token based on whether there are more
+                // pages.
                 *pagination_token = match &thread_list.prev_batch_token {
                     Some(token) => PaginationToken::HasMore(token.clone()),
                     None => PaginationToken::HitEnd,
@@ -307,10 +309,10 @@ impl ThreadListService {
 
     /// Resets the service back to its initial state.
     ///
-    /// Clears all loaded items, discards the current pagination token, and
-    /// sets the pagination state to `Idle { end_reached: false }`.  The next
-    /// call to [`Self::paginate`] will therefore start from the beginning of
-    /// the thread list.
+    /// Clears all loaded items, discards the current pagination token, and sets
+    /// the pagination state to `Idle { end_reached: false }`. The next call to
+    /// [`Self::paginate`] will therefore start from the beginning of the thread
+    /// list.
     pub async fn reset(&self) {
         let mut pagination_token = self.token.lock().await;
         *pagination_token = PaginationToken::None;
@@ -405,7 +407,8 @@ impl ThreadListService {
                 let new_events = Self::collect_events_from_diffs(timeline_diffs.diffs);
 
                 for event in new_events {
-                    // Check if this event has a thread relation pointing to a known root.
+                    // Check if this event has a thread relation pointing to a
+                    // known root.
                     let Some(thread_root) = extract_thread_root(event.raw()) else { continue };
 
                     // Find the position of this thread root in our list.
@@ -415,12 +418,14 @@ impl ThreadListService {
                     };
 
                     if let Some(index) = position {
-                        // Build the latest event representation from the raw event.
+                        // Build the latest event representation from the raw
+                        // event.
                         if let Some(latest_event) = Self::build_event(room, event).await {
                             let mut guard = items.lock();
 
-                            // Re-check the position — the vector may have changed while
-                            // we were awaiting the profile lookup above.
+                            // Re-check the position — the vector may have
+                            // changed while we were awaiting the profile lookup
+                            // above.
                             if index < guard.len()
                                 && guard[index].root_event.event_id == thread_root
                             {
@@ -650,7 +655,7 @@ mod tests {
     }
 
     /// When the server returns an error, [`ThreadListService::paginate`] must
-    /// propagate the error *and* reset the pagination state back to
+    /// propagate the error _and_ reset the pagination state back to
     /// `Idle { end_reached: false }` so that the caller can retry.
     #[async_test]
     async fn test_pagination_error() {
@@ -666,7 +671,7 @@ mod tests {
         // Pagination must surface the server error.
         service.paginate().await.expect_err("paginate should fail on a 500 response");
 
-        // The state must be reset so the caller can retry; it must *not* be
+        // The state must be reset so the caller can retry; it must _not_ be
         // stuck in `Loading`.
         assert_eq!(
             service.pagination_state(),
@@ -923,8 +928,8 @@ mod tests {
         ));
     }
 
-    /// Builds a [`ThreadListService`] and makes the room known to the client
-    /// by performing a sync.
+    /// Builds a [`ThreadListService`] and makes the room known to the client by
+    /// performing a sync.
     async fn make_service(server: &MatrixMockServer) -> ThreadListService {
         let client = server.client_builder().build().await;
         let room_id = room_id!("!a:b.c");
