@@ -140,7 +140,7 @@ use std::{
     ops::Not,
     str::FromStr as _,
     sync::{
-        Arc, RwLock,
+        Arc, OnceLock, RwLock,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -188,7 +188,7 @@ use tracing::{debug, error, info, instrument, trace, warn};
 #[cfg(feature = "unstable-msc4354")]
 use crate::utils::sticky_duration_ms;
 use crate::{
-    Client, Media, Room, TransmissionProgress,
+    Client, Media, Room, SessionChange, TransmissionProgress,
     client::WeakClient,
     config::RequestConfig,
     error::RetryKind,
@@ -245,6 +245,49 @@ impl SendQueue {
         }
     }
 
+    /// Watches for the session getting a working access token again and
+    /// unwedges the requests that were wedged because it didn't have one.
+    async fn session_change_task(client: WeakClient) {
+        let Some(strong_client) = client.get() else { return };
+        let mut session_changes = strong_client.subscribe_to_session_changes();
+        // Don't keep the client alive just by listening.
+        drop(strong_client);
+
+        loop {
+            match session_changes.recv().await {
+                Ok(SessionChange::TokensRefreshed) => {
+                    let Some(client) = client.get() else { break };
+                    client.send_queue().unwedge_requests_with_expired_token().await;
+                }
+
+                Ok(SessionChange::UnknownToken(_)) => {}
+
+                Err(broadcast::error::RecvError::Lagged(num)) => {
+                    warn!(num, "missed some session changes");
+                }
+
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    }
+
+    /// Unwedge every request that was wedged because the access token had been
+    /// rejected, in every room that has unsent requests.
+    async fn unwedge_requests_with_expired_token(&self) {
+        let room_ids = match self.client.state_store().load_rooms_with_unsent_requests().await {
+            Ok(room_ids) => room_ids,
+            Err(err) => {
+                warn!("error when loading rooms with unsent requests: {err}");
+                return;
+            }
+        };
+
+        for room_id in room_ids {
+            let Some(room) = self.client.get_room(&room_id) else { continue };
+            self.for_room(room).unwedge_requests_with_expired_token().await;
+        }
+    }
+
     /// Tiny helper to get the send queue's global context from the [`Client`].
     #[inline(always)]
     fn data(&self) -> &SendQueueData {
@@ -255,6 +298,13 @@ impl SendQueue {
     /// memoized rooms mapping.
     pub(crate) fn for_room(&self, room: Room) -> RoomSendQueue {
         let data = self.data();
+
+        data.session_change_task.get_or_init(|| {
+            let client = WeakClient::from_client(&self.client);
+            self.client
+                .task_monitor()
+                .spawn_infinite_task("send_queue_session_change", Self::session_change_task(client))
+        });
 
         let mut map = data.rooms.write().unwrap();
 
@@ -417,6 +467,9 @@ pub(super) struct SendQueueData {
 
     /// Will media upload progress be reported via send queue updates?
     report_media_upload_progress: Arc<AtomicBool>,
+
+    /// Task watching for the session getting a working access token again.
+    session_change_task: OnceLock<BackgroundTaskHandle>,
 }
 
 impl SendQueueData {
@@ -432,6 +485,7 @@ impl SendQueueData {
             error_sender,
             is_dropping: Arc::new(false.into()),
             report_media_upload_progress: Arc::new(false.into()),
+            session_change_task: OnceLock::new(),
         }
     }
 }
@@ -1316,6 +1370,24 @@ impl RoomSendQueue {
             .send(SendQueueUpdate { room_id: self.inner.room.room_id().to_owned(), update });
     }
 
+    /// Clear the wedged status of every request that was wedged because the
+    /// access token had been rejected.
+    async fn unwedge_requests_with_expired_token(&self) {
+        let transaction_ids = match self.inner.queue.requests_with_expired_token().await {
+            Ok(transaction_ids) => transaction_ids,
+            Err(err) => {
+                warn!("error when looking for requests wedged by an expired token: {err}");
+                return;
+            }
+        };
+
+        for transaction_id in transaction_ids {
+            if let Err(err) = self.unwedge_request(&transaction_id).await {
+                warn!(%transaction_id, "error when unwedging a request: {err}");
+            }
+        }
+    }
+
     /// Clear a request's wedged status and wake the queue up so it's tried
     /// again.
     async fn unwedge_request(
@@ -1374,6 +1446,10 @@ impl From<&crate::Error> for QueueWedgeError {
 
             // Flatten errors of `Self` type.
             crate::Error::SendQueueWedgeError(error) => *error.clone(),
+
+            crate::Error::Http(error) if error.is_rejected_token() => {
+                QueueWedgeError::ExpiredAccessToken
+            }
 
             _ => QueueWedgeError::GenericApiError { msg: value.to_string() },
         }
@@ -1647,6 +1723,25 @@ impl QueueStorage {
             .state_store()
             .update_send_queue_request_status(&self.room_id, transaction_id, None)
             .await?)
+    }
+
+    /// The transaction ids of the requests that were wedged because the
+    /// access token had been rejected.
+    async fn requests_with_expired_token(
+        &self,
+    ) -> Result<Vec<OwnedTransactionId>, RoomSendQueueStorageError> {
+        Ok(self
+            .store
+            .lock()
+            .await
+            .client()?
+            .state_store()
+            .load_send_queue_requests(&self.room_id)
+            .await?
+            .into_iter()
+            .filter(|request| matches!(request.error, Some(QueueWedgeError::ExpiredAccessToken)))
+            .map(|request| request.transaction_id)
+            .collect())
     }
 
     /// Marks a request pushed with [`Self::push`] and identified with the given
