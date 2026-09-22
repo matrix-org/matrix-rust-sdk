@@ -67,16 +67,16 @@ impl SlidingSyncList {
     /// request generator is generated. Since requests are calculated based on
     /// the request generator, changing the sync-mode is equivalent to
     /// “resetting” the list. The ranges and the state will be updated when the
-    /// next request will be sent and a response will be received. The
-    /// maximum number of rooms won't change.
+    /// next request will be sent and a response will be received. The maximum
+    /// number of rooms won't change.
     pub fn set_sync_mode<M>(&self, sync_mode: M)
     where
         M: Into<SlidingSyncMode>,
     {
         self.inner.set_sync_mode(sync_mode.into());
 
-        // When the sync mode is changed, the sync loop must skip over any work in its
-        // iteration and jump to the next iteration.
+        // When the sync mode is changed, the sync loop must skip over any work
+        // in its iteration and jump to the next iteration.
         self.inner.internal_channel_send_if_possible(
             SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
         );
@@ -162,8 +162,9 @@ impl SlidingSyncList {
     ///   server.
     #[instrument(skip(self), fields(name = self.name()))]
     pub(super) fn update(&mut self, maximum_number_of_rooms: Option<u32>) -> Result<bool, Error> {
-        // Make sure to update the generator state first; ordering matters because
-        // `update_room_list` observes the latest ranges in the response.
+        // Make sure to update the generator state first; ordering matters
+        // because `update_room_list` observes the latest ranges in the
+        // response.
         if let Some(maximum_number_of_rooms) = maximum_number_of_rooms {
             self.inner.update_request_generator_state(maximum_number_of_rooms)?;
         }
@@ -211,9 +212,8 @@ pub(super) struct SlidingSyncListInner {
     /// given list.
     ///
     /// It's not the total rooms that have been fetched. The server tells the
-    /// client that it's possible to fetch this amount of rooms maximum.
-    /// Since this number can change according to the list filters, it's
-    /// observable.
+    /// client that it's possible to fetch this amount of rooms maximum. Since
+    /// this number can change according to the list filters, it's observable.
     maximum_number_of_rooms: SharedObservable<Option<u32>>,
 
     /// The request generator, i.e. a type that yields the appropriate list
@@ -273,7 +273,8 @@ impl SlidingSyncListInner {
     /// Update the state to the next request, and return it.
     fn next_request(&self) -> Result<http::request::List, Error> {
         let ranges = {
-            // Use a dedicated scope to ensure the lock is released before continuing.
+            // Use a dedicated scope to ensure the lock is released before
+            // continuing.
             let mut request_generator = self.request_generator.write().unwrap();
             request_generator.generate_next_ranges(self.maximum_number_of_rooms.get())?
         };

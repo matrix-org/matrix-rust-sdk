@@ -31,8 +31,8 @@ fn test_openid_request_handling_works() {
     let (mut machine, _) =
         WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), true);
 
-    // Widget requests an open ID token, since we don't have any caching yet,
-    // we reply with a pending response right away.
+    // Widget requests an open ID token, since we don't have any caching yet, we
+    // reply with a pending response right away.
     let actions = {
         let mut actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
             "api": "fromWidget",
@@ -112,8 +112,8 @@ fn test_openid_fail_results_in_response_blocked() {
     let (mut machine, _) =
         WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), true);
 
-    // Widget requests an open ID token, since we don't have any caching yet,
-    // we reply with a pending response right away.
+    // Widget requests an open ID token, since we don't have any caching yet, we
+    // reply with a pending response right away.
     let mut actions = {
         let mut actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
             "api": "fromWidget",

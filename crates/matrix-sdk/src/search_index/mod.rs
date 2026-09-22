@@ -119,8 +119,8 @@ impl SearchIndexGuard<'_> {
     /// Handle a [`RoomIndexOperation`] in the [`RoomIndex`] of a given
     /// [`RoomId`]
     ///
-    /// This which will add/remove/edit an event in the index based on the
-    /// event type.
+    /// This which will add/remove/edit an event in the index based on the event
+    /// type.
     ///
     /// Prefer [`SearchIndexGuard::bulk_execute`] for multiple operations.
     pub(crate) fn execute(
@@ -141,8 +141,8 @@ impl SearchIndexGuard<'_> {
     /// Handle a [`RoomIndexOperation`] in the [`RoomIndex`] of a given
     /// [`RoomId`]
     ///
-    /// This which will add/remove/edit an event in the index based on the
-    /// event type.
+    /// This which will add/remove/edit an event in the index based on the event
+    /// type.
     pub(crate) fn bulk_execute(
         &mut self,
         operations: Vec<RoomIndexOperation>,

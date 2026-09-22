@@ -215,9 +215,9 @@ impl SlidingSyncBuilder {
     /// Sets a custom timeout duration for the sliding sync polling endpoint.
     ///
     /// This is the maximum time to wait before the sliding sync server returns
-    /// the long-polling request. If no events (or other data) become
-    /// available before this time elapses, the server will a return a
-    /// response with empty fields.
+    /// the long-polling request. If no events (or other data) become available
+    /// before this time elapses, the server will a return a response with empty
+    /// fields.
     ///
     /// There's an additional network timeout on top of that that can be
     /// configured with [`Self::network_timeout`].
@@ -229,8 +229,8 @@ impl SlidingSyncBuilder {
     /// Sets a custom network timeout for the sliding sync polling.
     ///
     /// This is not the polling timeout that can be configured with
-    /// [`Self::poll_timeout`], but an additional timeout that will be
-    /// added to the former.
+    /// [`Self::poll_timeout`], but an additional timeout that will be added to
+    /// the former.
     pub fn network_timeout(mut self, timeout: Duration) -> Self {
         self.network_timeout = timeout;
         self
@@ -275,8 +275,9 @@ impl SlidingSyncBuilder {
             cfg_if! {
                 if #[cfg(feature = "e2e-encryption")] {
                     if self.share_pos {
-                        // If the sliding sync instance is configured to share its current sync
-                        // position, we will restore it from the cache.
+                        // If the sliding sync instance is configured to share
+                        // its current sync position, we will restore it from
+                        // the cache.
                         (true, super::cache::restore_sliding_sync_state(&client, &self.storage_key).await?.and_then(|fields| fields.pos))
                     } else {
                         (false, None)

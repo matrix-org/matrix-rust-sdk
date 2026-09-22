@@ -97,8 +97,9 @@ impl FromWidgetErrorResponse {
     pub(crate) fn from_error(error: Error) -> Self {
         match error {
             Error::Http(e) => FromWidgetErrorResponse::from_http_error(*e),
-            // For UnknownError's we do not want to have the `unknown error` bit in the message.
-            // Hence we only convert the inner error to a string.
+            // For UnknownError's we do not want to have the `unknown error` bit
+            // in the message. Hence we only convert the inner error to a
+            // string.
             Error::UnknownError(e) => FromWidgetErrorResponse::from_string(e.to_string()),
             _ => FromWidgetErrorResponse::from_string(error.to_string()),
         }
@@ -110,12 +111,11 @@ impl FromWidgetErrorResponse {
     }
 }
 
-/// Serializable section of an error response send by the client as a
-/// response to a [`FromWidgetRequest`].
+/// Serializable section of an error response send by the client as a response
+/// to a [`FromWidgetRequest`].
 #[derive(Serialize)]
 struct FromWidgetError {
-    /// Unspecified error message text that caused this widget action to
-    /// fail.
+    /// Unspecified error message text that caused this widget action to fail.
     ///
     /// This is useful to prompt the user on an issue but cannot be used to
     /// decide on how to deal with the error.
@@ -133,7 +133,8 @@ struct FromWidgetMatrixErrorBody {
     http_status: u32,
 
     /// Standard error response including the `errorcode` and the `error`
-    /// message as defined in the [spec](https://spec.matrix.org/v1.12/client-server-api/#standard-error-response).
+    /// message as defined in the
+    /// [spec](https://spec.matrix.org/v1.12/client-server-api/#standard-error-response).
     response: StandardErrorBody,
 }
 
@@ -262,9 +263,9 @@ impl From<delayed_state_event::unstable::Response> for SendEventResponse {
 /// A wrapper type for the empty okay response from
 /// [`update_delayed_event`](update_delayed_event::unstable_v1::Response)
 /// which derives Serialize. (The response struct from Ruma does not derive
-/// serialize)
-/// This is intentionally an empty tuple struct (not a unit struct), so that it
-/// serializes to `{}` instead of `Null` when returned to the widget as json.
+/// serialize) This is intentionally an empty tuple struct (not a unit struct),
+/// so that it serializes to `{}` instead of `Null` when returned to the widget
+/// as json.
 #[derive(Serialize, Debug)]
 pub(crate) struct UpdateDelayedEventResponse {}
 impl From<update_delayed_event::unstable_v1::Response> for UpdateDelayedEventResponse {
@@ -273,8 +274,9 @@ impl From<update_delayed_event::unstable_v1::Response> for UpdateDelayedEventRes
     }
 }
 
-/// Response for a send-to-device request.
-/// The failure map contains recipients that didn't receive the content due to:
+/// Response for a send-to-device request. The failure map contains recipients
+/// that didn't receive the content due to:
+///
 /// - Recipient devices not being found
 /// - Encryption failures (e.g., missing one-time keys)
 /// - Network/Server errors during sending
@@ -300,8 +302,8 @@ impl FromMatrixDriverResponse for SendToDeviceEventResponse {
 /// https://github.com/matrix-org/matrix-spec-proposals/pull/4039
 #[derive(Serialize, Debug)]
 pub(crate) struct DownloadFileResponse {
-    // The binary file content in a format that can cross the
-    // widget-driver-api boundary.
+    // The binary file content in a format that can cross the widget-driver-api
+    // boundary.
     #[serde(rename = "file")]
     pub(crate) file_data_base64: Base64,
 }
@@ -321,7 +323,9 @@ impl FromMatrixDriverResponse for DownloadFileResponse {
 }
 
 /// Response for a `get_rtc_transports` request.
-/// <https://github.com/matrix-org/matrix-spec-proposals/pull/4515>
+/// [https://github.com/matrix-org/matrix-spec-proposals/pull/4515][https-github-com-matrix-org-matrix-spec-proposals-pull-4515]
+///
+/// [https-github-com-matrix-org-matrix-spec-proposals-pull-4515]: https://github.com/matrix-org/matrix-spec-proposals/pull/4515
 #[derive(Serialize, Debug)]
 pub(crate) struct RtcTransportsResponse {
     /// The RTC transports advertised by the homeserver.

@@ -119,7 +119,8 @@ fn mock_jpeg_upload<'a>(
 ) -> MatrixMock<'a> {
     let mxc = mxc.to_owned();
     mock.mock_upload().expect_mime_type("image/jpeg").respond_with(move |_req: &Request| {
-        // Wait for the signal from the main task that we can process this query.
+        // Wait for the signal from the main task that we can process this
+        // query.
         let mock_lock = lock.clone();
         std::thread::spawn(move || {
             tokio::runtime::Runtime::new().unwrap().block_on(async {
@@ -158,8 +159,8 @@ macro_rules! assert_update {
         (txn, send_handle, room_message)
     }};
 
-    // Check the next stream event is a local echo for a message with the content $body.
-    // Returns a tuple of (transaction_id, send_handle).
+    // Check the next stream event is a local echo for a message with the
+    // content $body. Returns a tuple of (transaction_id, send_handle).
     (($global_watch:ident, $watch:ident) => local echo { body = $body:expr }) => {{
         let (txn, send_handle, room_message) = assert_update!(($global_watch, $watch) => local echo event);
         assert_eq!(room_message.body(), $body);
@@ -223,8 +224,8 @@ macro_rules! assert_update {
         }
     }};
 
-    // Check the next stream event is a local echo for a reaction with the content $key which
-    // applies to the local echo with transaction id $parent.
+    // Check the next stream event is a local echo for a reaction with the
+    // content $key which applies to the local echo with transaction id $parent.
     (($global_watch:ident, $watch:ident) => local reaction { key = $key:expr, parent = $parent_txn_id:expr }) => {{
         assert_let!(
             Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
@@ -265,8 +266,8 @@ macro_rules! assert_update {
         txn
     }};
 
-    // Check the next stream event is an edit event, and that the
-    // transaction id is the one we expect.
+    // Check the next stream event is an edit event, and that the transaction id
+    // is the one we expect.
     (($global_watch:ident, $watch:ident) => edit local echo { txn = $transaction_id:expr }) => {{
         assert_let!(
             Ok(Ok(RoomSendQueueUpdate::ReplacedLocalEvent {
@@ -284,8 +285,8 @@ macro_rules! assert_update {
         _msg
     }};
 
-    // Check the next stream event is an edit for a local echo with the content $body, and that the
-    // transaction id is the one we expect.
+    // Check the next stream event is an edit for a local echo with the content
+    // $body, and that the transaction id is the one we expect.
     (($global_watch:ident, $watch:ident) => edit { body = $body:expr, txn = $transaction_id:expr }) => {{
         let msg = assert_update!(($global_watch, $watch) => edit local echo { txn = $transaction_id });
         assert_eq!(msg.body(), $body);
@@ -302,8 +303,8 @@ macro_rules! assert_update {
         $(assert_eq!(_txn, $txn);)?
     };
 
-    // Check the next stream event is a sent event, with optional checks on txn=$txn and
-    // event_id=$event_id.
+    // Check the next stream event is a sent event, with optional checks on
+    // txn=$txn and event_id=$event_id.
     (($global_watch:ident, $watch:ident) => sent { $(txn=$txn:expr,)? $(event_id=$event_id:expr)? }) => {
         assert_let!(
             Ok(Ok(RoomSendQueueUpdate::SentEvent { event_id: _event_id, transaction_id: _txn })) =
@@ -315,8 +316,8 @@ macro_rules! assert_update {
         $(assert_eq!(_txn, $txn);)?
     };
 
-    // Check the next stream event is a send error, with optional assertions on the recoverable
-    // status and transaction id.
+    // Check the next stream event is a send error, with optional assertions on
+    // the recoverable status and transaction id.
     //
     // Returns the error for additional checks.
     (($global_watch:ident, $watch:ident) => error { $(recoverable=$recoverable:expr,)? $(txn=$txn:expr)? }) => {{
@@ -444,7 +445,8 @@ async fn test_smoke() {
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
 
-    // When the queue is enabled and I send message in some order, it does send it.
+    // When the queue is enabled and I send message in some order, it does send
+    // it.
     let event_id = event_id!("$1");
 
     let lock = Arc::new(Mutex::new(()));
@@ -456,7 +458,8 @@ async fn test_smoke() {
 
     mock.mock_room_send()
         .respond_with(move |_req: &Request| {
-            // Wait for the signal from the main thread that we can process this query.
+            // Wait for the signal from the main thread that we can process this
+            // query.
             let mock_lock = mock_lock.clone();
             std::thread::spawn(move || {
                 tokio::runtime::Runtime::new().unwrap().block_on(async {
@@ -513,7 +516,8 @@ async fn test_smoke_raw() {
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
 
-    // When the queue is enabled and I send message in some order, it does send it.
+    // When the queue is enabled and I send message in some order, it does send
+    // it.
     let event_id = event_id!("$1");
 
     mock.mock_room_state_encryption().plain().mount().await;
@@ -579,7 +583,8 @@ async fn test_error_then_locally_reenabling() {
     let scoped_send = mock
         .mock_room_send()
         .respond_with(move |_req: &Request| {
-            // Wait for the signal from the main thread that we can process this query.
+            // Wait for the signal from the main thread that we can process this
+            // query.
             let mock_lock = mock_lock.clone();
             std::thread::spawn(move || {
                 tokio::runtime::Runtime::new().unwrap().block_on(async {
@@ -614,8 +619,8 @@ async fn test_error_then_locally_reenabling() {
 
     // The exponential backoff used when retrying a request introduces a bit of
     // non-determinism, so let it fail after a large amount of time (10
-    // seconds).
-    // It's the same transaction id that's used to signal the send error.
+    // seconds). It's the same transaction id that's used to signal the send
+    // error.
     let error = assert_update!((global_watch, watch) => error { recoverable=true, txn=txn1 });
     let error = error.as_client_api_error().unwrap();
     assert_eq!(error.status_code, 500);
@@ -689,8 +694,8 @@ async fn test_error_then_globally_reenabling() {
 
     // The exponential backoff used when retrying a request introduces a bit of
     // non-determinism, so let it fail after a large amount of time (10
-    // seconds).
-    // It's the same transaction id that's used to signal the send error.
+    // seconds). It's the same transaction id that's used to signal the send
+    // error.
     assert_update!((global_watch, watch) => error { txn=txn1 });
 
     // The send queue is still globally enabled,
@@ -852,7 +857,8 @@ async fn test_cancellation() {
     let num_request = std::sync::Mutex::new(1);
     mock.mock_room_send()
         .respond_with(move |_req: &Request| {
-            // Wait for the signal from the main thread that we can process this query.
+            // Wait for the signal from the main thread that we can process this
+            // query.
             let mock_lock = mock_lock.clone();
             std::thread::spawn(move || {
                 tokio::runtime::Runtime::new().unwrap().block_on(async {
@@ -895,26 +901,26 @@ async fn test_cancellation() {
     // Let the background task start now.
     yield_now().await;
 
-    // While the first item is being sent, the system records the intent to abort
-    // it.
+    // While the first item is being sent, the system records the intent to
+    // abort it.
     assert!(handle1.abort().await.unwrap());
     assert_update!((global_watch, watch) => cancelled { txn = txn1 });
     assert!(watch.is_empty());
 
-    // The second item is pending, so we can abort it, using the handle returned by
-    // `send()`.
+    // The second item is pending, so we can abort it, using the handle returned
+    // by `send()`.
     assert!(handle2.abort().await.unwrap());
     assert_update!((global_watch, watch) => cancelled { txn = txn2 });
     assert!(watch.is_empty());
 
-    // The third item is pending, so we can abort it, using the handle received from
-    // the update.
+    // The third item is pending, so we can abort it, using the handle received
+    // from the update.
     assert!(handle3.abort().await.unwrap());
     assert_update!((global_watch, watch) => cancelled { txn = txn3 });
     assert!(watch.is_empty());
 
-    // The fourth item is pending, so we can abort it, using an handle provided by
-    // the initial array of values.
+    // The fourth item is pending, so we can abort it, using an handle provided
+    // by the initial array of values.
     let (mut local_echoes, _) = q.subscribe().await.unwrap();
 
     // At this point, local echoes = txn1, txn4, txn5.
@@ -941,9 +947,9 @@ async fn test_cancellation() {
 
 #[async_test]
 async fn test_edit() {
-    // Simplified version of test_cancellation: we don't test for *every single way*
-    // to edit a local echo, since if the cancellation test passes, all ways
-    // would work here too similarly.
+    // Simplified version of test_cancellation: we don't test for
+    // _every single way_ to edit a local echo, since if the cancellation test
+    // passes, all ways would work here too similarly.
 
     let mock = MatrixMockServer::new().await;
 
@@ -970,7 +976,8 @@ async fn test_edit() {
     let num_request = std::sync::Mutex::new(1);
     mock.mock_room_send()
         .respond_with(move |_req: &Request| {
-            // Wait for the signal from the main thread that we can process this query.
+            // Wait for the signal from the main thread that we can process this
+            // query.
             let mock_lock = mock_lock.clone();
             std::thread::spawn(move || {
                 tokio::runtime::Runtime::new().unwrap().block_on(async {
@@ -993,8 +1000,8 @@ async fn test_edit() {
         .mount()
         .await;
 
-    // The /event endpoint is used to retrieve the original event, during creation
-    // of the edit event.
+    // The /event endpoint is used to retrieve the original event, during
+    // creation of the edit event.
     mock.mock_room_event()
         .room(room_id)
         .ok(EventFactory::new()
@@ -1018,8 +1025,8 @@ async fn test_edit() {
     // Let the background task start now.
     yield_now().await;
 
-    // While the first item is being sent, the system remembers the intent to edit
-    // it, and will send it later.
+    // While the first item is being sent, the system remembers the intent to
+    // edit it, and will send it later.
     assert!(
         handle1
             .edit(RoomMessageEventContent::text_plain("it's never too late!").into())
@@ -1028,8 +1035,8 @@ async fn test_edit() {
     );
     assert_update!((global_watch, watch) => edit { body = "it's never too late!", txn = txn1 });
 
-    // The second item is pending, so we can edit it, using the handle returned by
-    // `send()`.
+    // The second item is pending, so we can edit it, using the handle returned
+    // by `send()`.
     assert!(
         handle2
             .edit(RoomMessageEventContent::text_plain("new content, who diz").into())
@@ -1082,7 +1089,8 @@ async fn test_edit_with_poll_start() {
     let num_request = std::sync::Mutex::new(1);
     mock.mock_room_send()
         .respond_with(move |_req: &Request| {
-            // Wait for the signal from the main thread that we can process this query.
+            // Wait for the signal from the main thread that we can process this
+            // query.
             let mock_lock = mock_lock.clone();
             std::thread::spawn(move || {
                 tokio::runtime::Runtime::new().unwrap().block_on(async {
@@ -1106,8 +1114,8 @@ async fn test_edit_with_poll_start() {
         .mount()
         .await;
 
-    // The /event endpoint is used to retrieve the original event, during creation
-    // of the edit event.
+    // The /event endpoint is used to retrieve the original event, during
+    // creation of the edit event.
     mock.mock_room_event()
         .ok(EventFactory::new()
             .poll_start("poll_start", "question", vec!["Answer A"])
@@ -1218,7 +1226,8 @@ async fn test_edit_while_being_sent_and_fails() {
 
     mock.mock_room_send()
         .respond_with(move |_req: &Request| {
-            // Wait for the signal from the main thread that we can process this query.
+            // Wait for the signal from the main thread that we can process this
+            // query.
             let mock_lock = mock_lock.clone();
             std::thread::spawn(move || {
                 tokio::runtime::Runtime::new().unwrap().block_on(async {
@@ -1243,8 +1252,8 @@ async fn test_edit_while_being_sent_and_fails() {
     // Let the background task start now.
     yield_now().await;
 
-    // While the first item is being sent, the system remembers the intent to edit
-    // it, and will send it later.
+    // While the first item is being sent, the system remembers the intent to
+    // edit it, and will send it later.
     assert!(
         handle
             .edit(RoomMessageEventContent::text_plain("it's never too late!").into())
@@ -1261,8 +1270,8 @@ async fn test_edit_while_being_sent_and_fails() {
 
     assert!(watch.is_empty());
 
-    // Looking back at the local echoes will indicate a local echo for `it's never
-    // too late`.
+    // Looking back at the local echoes will indicate a local echo for
+    // `it's never too late`.
     let (local_echoes, _) = q.subscribe().await.unwrap();
     assert_eq!(local_echoes.len(), 1);
     assert_eq!(local_echoes[0].transaction_id, txn1);
@@ -1376,7 +1385,8 @@ async fn test_abort_after_disable() {
     let report = errors.recv().await.unwrap();
     assert_eq!(report.room_id, room.room_id());
 
-    // The room updates will report the error, then the cancelled event, eventually.
+    // The room updates will report the error, then the cancelled event,
+    // eventually.
     assert_update!((global_watch, watch) => error { recoverable=true, });
 
     // The room queue has been disabled, but not the client wide one.
@@ -1467,7 +1477,8 @@ async fn test_abort_while_being_sent_and_fails() {
 
     mock.mock_room_send()
         .respond_with(move |_req: &Request| {
-            // Wait for the signal from the main thread that we can process this query.
+            // Wait for the signal from the main thread that we can process this
+            // query.
             let mock_lock = mock_lock.clone();
             std::thread::spawn(move || {
                 tokio::runtime::Runtime::new().unwrap().block_on(async {
@@ -1492,8 +1503,8 @@ async fn test_abort_while_being_sent_and_fails() {
     // Let the background task start now.
     yield_now().await;
 
-    // While the item is being sent, the system remembers the intent to redact it
-    // later.
+    // While the item is being sent, the system remembers the intent to redact
+    // it later.
     assert!(handle.abort().await.unwrap());
     assert_update!((global_watch, watch) => cancelled { txn = txn1 });
 
@@ -1505,8 +1516,8 @@ async fn test_abort_while_being_sent_and_fails() {
 
     assert!(watch.is_empty());
 
-    // Looking back at the local echoes will indicate a local echo for `it's never
-    // too late`.
+    // Looking back at the local echoes will indicate a local echo for
+    // `it's never too late`.
     let (local_echoes, _) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
 }
@@ -1551,8 +1562,8 @@ async fn test_abort_with_reason_while_being_sent_then_sent() {
     // Let the background task pick the request up.
     sleep(Duration::from_millis(250)).await;
 
-    // While the item is being sent, the system remembers the intent to redact it
-    // later, along with the reason.
+    // While the item is being sent, the system remembers the intent to redact
+    // it later, along with the reason.
     assert!(handle.abort_with_reason(Some("changed my mind".to_owned())).await.unwrap());
     assert_update!((global_watch, watch) => cancelled { txn = txn });
 
@@ -1604,9 +1615,10 @@ async fn test_unrecoverable_errors() {
 
     mock.mock_room_state_encryption().plain().mount().await;
 
-    // Respond to the first /send with an unrecoverable error. The success mock for
-    // the second message is only mounted after the wedged message gets cancelled,
-    // so a request sneaking past the wedge fails loudly regardless of timing.
+    // Respond to the first /send with an unrecoverable error. The success mock
+    // for the second message is only mounted after the wedged message gets
+    // cancelled, so a request sneaking past the wedge fails loudly regardless
+    // of timing.
     mock.mock_room_send().error_too_large().mock_once().mount().await;
 
     // Queue two messages.
@@ -1627,17 +1639,17 @@ async fn test_unrecoverable_errors() {
     assert_eq!(report.room_id, room.room_id());
     assert!(!report.is_recoverable);
 
-    // The room updates will report the error for the first message as unrecoverable
-    // too.
+    // The room updates will report the error for the first message as
+    // unrecoverable too.
     assert_update!((global_watch, watch) => error { recoverable=false, txn=txn1 });
 
-    // The queue stays enabled: the wedged request alone blocks it, which preserves
-    // ordering without stopping the room from ever sending again.
+    // The queue stays enabled: the wedged request alone blocks it, which
+    // preserves ordering without stopping the room from ever sending again.
     assert!(room.send_queue().is_enabled());
 
-    // The second message is NOT sent: the wedged first message blocks the queue, so
-    // messages aren't sent out of order. Its success mock is only mounted below, so
-    // a request sneaking past the wedge fails loudly.
+    // The second message is NOT sent: the wedged first message blocks the
+    // queue, so messages aren't sent out of order. Its success mock is only
+    // mounted below, so a request sneaking past the wedge fails loudly.
     //
     // Cancelling the wedged message unblocks the queue.
     mock.mock_room_send().ok(event_id!("$42")).mock_once().mount().await;
@@ -1700,8 +1712,8 @@ async fn test_unwedge_unrecoverable_errors() {
     assert_eq!(report.room_id, room.room_id());
     assert!(!report.is_recoverable);
 
-    // The room updates will report the error for the first message as unrecoverable
-    // too.
+    // The room updates will report the error for the first message as
+    // unrecoverable too.
     assert_update!((global_watch, watch) => error { recoverable=false, txn=txn1 });
 
     // The queue stays enabled; only the wedged request blocks it.
@@ -1798,10 +1810,10 @@ async fn test_unwedge_redaction() {
 
 #[async_test]
 async fn test_no_network_access_error_is_recoverable() {
-    // This is subtle, but for the `drop(server)` below to be effectful, it needs to
-    // not be a pooled wiremock server (the default), which will keep the dropped
-    // server in a static. Using the line below will create a "bare" server,
-    // which is effectively dropped upon `drop()`.
+    // This is subtle, but for the `drop(server)` below to be effectful, it
+    // needs to not be a pooled wiremock server (the default), which will keep
+    // the dropped server in a static. Using the line below will create a "bare"
+    // server, which is effectively dropped upon `drop()`.
     let server = wiremock::MockServer::builder().start().await;
     let mock = MatrixMockServer::from_server(server);
     let client = mock.client_builder().build().await;
@@ -1810,8 +1822,8 @@ async fn test_no_network_access_error_is_recoverable() {
     let room_id = room_id!("!a:b.c");
     let room = mock.sync_joined_room(&client, room_id).await;
 
-    // Dropping the server: any subsequent attempt to connect mimics an unreachable
-    // server, which might be caused by missing network.
+    // Dropping the server: any subsequent attempt to connect mimics an
+    // unreachable server, which might be caused by missing network.
     drop(mock);
 
     let mut errors = client.send_queue().subscribe_errors();
@@ -1843,8 +1855,8 @@ async fn test_no_network_access_error_is_recoverable() {
     assert_eq!(report.room_id, room.room_id());
     assert!(report.is_recoverable);
 
-    // The room updates will report the error for the first message as recoverable
-    // too.
+    // The room updates will report the error for the first message as
+    // recoverable too.
     assert_update!((global_watch, watch) => error { recoverable=true, txn=txn1});
 
     // The room queue is disabled, because the error was recoverable.
@@ -1959,7 +1971,8 @@ async fn test_reactions() {
 
     mock.mock_room_send()
         .respond_with(move |_req: &Request| {
-            // Wait for the signal from the main thread that we can process this query.
+            // Wait for the signal from the main thread that we can process this
+            // query.
             let mock_lock = mock_lock.clone();
             let event_id = std::thread::spawn(move || {
                 tokio::runtime::Runtime::new().unwrap().block_on(async {
@@ -1980,8 +1993,8 @@ async fn test_reactions() {
         .mount()
         .await;
 
-    // Sending of the second emoji has started; abort it, it will result in a redact
-    // request.
+    // Sending of the second emoji has started; abort it, it will result in a
+    // redact request.
     mock.mock_room_redact().ok(event_id!("$3")).expect(1).mount().await;
 
     // Send a message.
@@ -2039,8 +2052,8 @@ async fn test_reactions() {
     let lock_guard = lock.lock().await;
     assert!(watch.is_empty());
 
-    // Abort sending of the second emoji. It was being sent, so it's first cancelled
-    // *then* sent and redacted.
+    // Abort sending of the second emoji. It was being sent, so it's first
+    // cancelled _then_ sent and redacted.
     let aborted = emoji_handle2.abort().await.unwrap();
     assert!(aborted);
     assert_update!((global_watch, watch) => cancelled { txn = emoji2_txn });
@@ -2055,7 +2068,8 @@ async fn test_reactions() {
     // The final emoji is sent.
     assert_update!((global_watch, watch) => sent { txn = emoji3_txn, event_id = event_id!("$2") });
 
-    // Cancelling sending of the third emoji fails because it's been sent already.
+    // Cancelling sending of the third emoji fails because it's been sent
+    // already.
     assert!(emoji_handle3.abort().await.unwrap().not());
 
     assert!(watch.is_empty());
@@ -2070,8 +2084,8 @@ async fn test_redaction() {
     client.event_cache().subscribe().unwrap();
 
     let room_id = room_id!("!a:b.c");
-    // Create a non-empty room, so that the Event Cache is not empty, and we can see
-    // the Send Queue injecting events in the Event Cache.
+    // Create a non-empty room, so that the Event Cache is not empty, and we can
+    // see the Send Queue injecting events in the Event Cache.
     let room = server
         .sync_room(
             &client,
@@ -2091,12 +2105,14 @@ async fn test_redaction() {
     let (local_echoes, mut watch) = queue.subscribe().await.unwrap();
 
     // ----------------------
+    //
     // Sanity check: the cache and queue are empty at the start.
     assert_eq!(events.len(), 1);
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
 
     // ----------------------
+    //
     // Send a message in the room.
     let content = RoomMessageEventContent::text_plain("hello world");
     let msg_event_id = owned_event_id!("$1");
@@ -2104,10 +2120,12 @@ async fn test_redaction() {
     queue.send(content.into()).await.unwrap();
 
     // ----------------------
+    //
     // Observe the local echo.
     let (txn, _) = assert_update!((global_watch, watch) => local echo { body = "hello world" });
 
     // ----------------------
+    //
     // The event is sent, at some point.
     assert_update!((global_watch, watch) => sent {
         txn = txn,
@@ -2115,6 +2133,7 @@ async fn test_redaction() {
     });
 
     // ----------------------
+    //
     // Observe the event getting added to the cache.
     assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(up)) = stream.recv());
     assert_eq!(up.diffs.len(), 1);
@@ -2123,6 +2142,7 @@ async fn test_redaction() {
     assert_eq!(values[0].event_id().unwrap(), msg_event_id);
 
     // ----------------------
+    //
     // Send a redaction for the event.
     let redacts = msg_event_id.clone();
     let reason = Some("whatever");
@@ -2131,10 +2151,12 @@ async fn test_redaction() {
     queue.redact(redacts.clone(), reason).await.expect("queuing the redaction works");
 
     // ----------------------
+    //
     // Observe the local echo.
     let txn = assert_update!((global_watch, watch) => local echo redaction { redacts = redacts, reason = reason.map(str::to_owned) });
 
     // ----------------------
+    //
     // The redaction event is sent, at some point.
     assert_update!((global_watch, watch) => sent {
         txn = txn,
@@ -2142,6 +2164,7 @@ async fn test_redaction() {
     });
 
     // ----------------------
+    //
     // Observe the redaction getting applied in the cache.
     assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(up)) = stream.recv());
     assert_eq!(up.diffs.len(), 2);
@@ -2176,6 +2199,7 @@ async fn test_media_uploads() {
     assert!(local_echoes.is_empty());
 
     // ----------------------
+    //
     // Create the media to send, with a thumbnail.
     let filename = "surprise.jpeg.exe";
     let content_type = mime::IMAGE_JPEG;
@@ -2216,6 +2240,7 @@ async fn test_media_uploads() {
         .info(attachment_info);
 
     // ----------------------
+    //
     // Prepare endpoints.
     mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
@@ -2246,6 +2271,7 @@ async fn test_media_uploads() {
         .await;
 
     // ----------------------
+    //
     // Send the media.
     assert!(watch.is_empty());
     q.send_attachment(filename, content_type, data, config)
@@ -2253,6 +2279,7 @@ async fn test_media_uploads() {
         .expect("queuing the attachment works");
 
     // ----------------------
+    //
     // Observe the local echo.
     let (txn, send_handle, content) = assert_update!((global_watch, watch) => local echo event);
     assert_eq!(txn, transaction_id);
@@ -2302,6 +2329,7 @@ async fn test_media_uploads() {
     assert_eq!(file_media, b"hello world");
 
     // ----------------------
+    //
     // Thumbnail.
 
     // Check metadata.
@@ -2311,7 +2339,8 @@ async fn test_media_uploads() {
     assert_eq!(tinfo.size, Some(uint!(42)));
     assert_eq!(tinfo.mimetype.as_deref(), Some("image/jpeg"));
 
-    // Check the thumbnail source: it should reference the send queue local storage.
+    // Check the thumbnail source: it should reference the send queue local
+    // storage.
     let local_thumbnail_source = info.thumbnail_source.unwrap();
     assert_let!(MediaSource::Plain(mxc) = &local_thumbnail_source);
     assert!(mxc.to_string().starts_with("mxc://send-queue.localhost/"), "{mxc}");
@@ -2347,6 +2376,7 @@ async fn test_media_uploads() {
     assert_eq!(thumbnail_media, b"thumbnail");
 
     // ----------------------
+    //
     // Send handle operations.
 
     // This operation should be invalid, we shouldn't turn a media into a
@@ -2357,6 +2387,7 @@ async fn test_media_uploads() {
     );
 
     // ----------------------
+    //
     // Let the upload progress.
     assert!(watch.is_empty());
     drop(block_upload);
@@ -2419,8 +2450,8 @@ async fn test_media_uploads() {
         .expect("media should be found");
     assert_eq!(thumbnail_media_as_file, b"thumbnail");
 
-    // The thumbnail can be retrieved as a thumbnail of itself, using
-    // the sent media MXC URI:
+    // The thumbnail can be retrieved as a thumbnail of itself, using the sent
+    // media MXC URI:
     let thumbnail_media_as_thumbnail = client
         .media()
         .get_media_content(
@@ -2434,7 +2465,8 @@ async fn test_media_uploads() {
         .expect("media should be found");
     assert_eq!(thumbnail_media_as_thumbnail, b"thumbnail");
 
-    // The local URI for the thumbnail does not work anymore (it's been renamed).
+    // The local URI for the thumbnail does not work anymore (it's been
+    // renamed).
     client
         .media()
         .get_media_content(
@@ -2471,6 +2503,7 @@ async fn test_gallery_uploads() {
     assert!(local_echoes.is_empty());
 
     // ----------------------
+    //
     // Create the medias to send, with thumbnails.
     let filename1 = "surprise.jpeg.exe";
     let content_type1 = mime::IMAGE_JPEG;
@@ -2543,6 +2576,7 @@ async fn test_gallery_uploads() {
         }));
 
     // ----------------------
+    //
     // Prepare endpoints.
     mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
@@ -2581,11 +2615,13 @@ async fn test_gallery_uploads() {
         .await;
 
     // ----------------------
+    //
     // Send the media.
     assert!(watch.is_empty());
     q.send_gallery(gallery).await.expect("queuing the gallery works");
 
     // ----------------------
+    //
     // Observe the local echo.
     let (txn, send_handle, content) = assert_update!((global_watch, watch) => local echo event);
     assert_eq!(txn, transaction_id);
@@ -2611,6 +2647,7 @@ async fn test_gallery_uploads() {
     assert_eq!(gallery_content.itemtypes.len(), 2);
 
     // ----------------------
+    //
     // Media 1.
     assert_let!(GalleryItemType::Image(img_content) = gallery_content.itemtypes.first().unwrap());
     assert_eq!(img_content.filename.as_deref().unwrap(), filename1);
@@ -2641,6 +2678,7 @@ async fn test_gallery_uploads() {
     assert_eq!(file_media, b"hello world");
 
     // ----------------------
+    //
     // Thumbnail 1.
 
     // Check metadata.
@@ -2650,7 +2688,8 @@ async fn test_gallery_uploads() {
     assert_eq!(tinfo.size, Some(uint!(42)));
     assert_eq!(tinfo.mimetype.as_deref(), Some("image/jpeg"));
 
-    // Check the thumbnail source: it should reference the send queue local storage.
+    // Check the thumbnail source: it should reference the send queue local
+    // storage.
     let local_thumbnail_source1 = info.thumbnail_source.as_ref().unwrap();
     assert_let!(MediaSource::Plain(mxc) = &local_thumbnail_source1);
     assert!(mxc.to_string().starts_with("mxc://send-queue.localhost/"), "{mxc}");
@@ -2686,6 +2725,7 @@ async fn test_gallery_uploads() {
     assert_eq!(thumbnail_media, b"thumbnail");
 
     // ----------------------
+    //
     // Media 2.
     assert_let!(GalleryItemType::Image(img_content) = gallery_content.itemtypes.get(1).unwrap());
     assert_eq!(img_content.filename.as_deref().unwrap(), filename2);
@@ -2716,6 +2756,7 @@ async fn test_gallery_uploads() {
     assert_eq!(file_media, b"hello again");
 
     // ----------------------
+    //
     // Thumbnail 2.
 
     // Check metadata.
@@ -2725,7 +2766,8 @@ async fn test_gallery_uploads() {
     assert_eq!(tinfo.size, Some(uint!(44)));
     assert_eq!(tinfo.mimetype.as_deref(), Some("image/jpeg"));
 
-    // Check the thumbnail source: it should reference the send queue local storage.
+    // Check the thumbnail source: it should reference the send queue local
+    // storage.
     let local_thumbnail_source2 = info.thumbnail_source.as_ref().unwrap();
     assert_let!(MediaSource::Plain(mxc) = &local_thumbnail_source2);
     assert!(mxc.to_string().starts_with("mxc://send-queue.localhost/"), "{mxc}");
@@ -2761,6 +2803,7 @@ async fn test_gallery_uploads() {
     assert_eq!(thumbnail_media, b"another thumbnail");
 
     // ----------------------
+    //
     // Send handle operations.
 
     // This operation should be invalid, we shouldn't turn a gallery into a
@@ -2771,6 +2814,7 @@ async fn test_gallery_uploads() {
     );
 
     // ----------------------
+    //
     // Let the upload progress.
     assert!(watch.is_empty());
     drop(block_upload);
@@ -2802,6 +2846,7 @@ async fn test_gallery_uploads() {
     assert_eq!(gallery_content.itemtypes.len(), 2);
 
     // ----------------------
+    //
     // Media & thumbnail 1.
     assert_let!(GalleryItemType::Image(new_content) = gallery_content.itemtypes.first().unwrap());
 
@@ -2849,6 +2894,7 @@ async fn test_gallery_uploads() {
         .expect_err("media with local URI should not be found");
 
     // ----------------------
+    //
     // Media & thumbnail 2.
     assert_let!(GalleryItemType::Image(new_content) = gallery_content.itemtypes.get(1).unwrap());
 
@@ -2921,6 +2967,7 @@ async fn test_media_upload_with_extra_content() {
     assert!(local_echoes.is_empty());
 
     // ----------------------
+    //
     // Create the media to send, with extra content fields.
     let mut extra_content = serde_json::Map::new();
     extra_content.insert("com.example.key".to_owned(), json!("@alice:example.org"));
@@ -2932,6 +2979,7 @@ async fn test_media_upload_with_extra_content() {
         .extra_content(Some(extra_content));
 
     // ----------------------
+    //
     // Prepare endpoints, capturing the body of the send request.
     mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
@@ -2950,6 +2998,7 @@ async fn test_media_upload_with_extra_content() {
         .await;
 
     // ----------------------
+    //
     // Send the media and wait for it to be sent.
     q.send_attachment("village.jpg", mime::IMAGE_JPEG, b"hello world".to_vec(), config)
         .await
@@ -3089,8 +3138,8 @@ async fn test_media_upload_retry_with_520_http_status_code() {
     assert_let!(MessageType::Image(img_content) = content.msgtype);
     assert_eq!(img_content.body, filename);
 
-    // A 520 is a transient (recoverable) server error: let the upload stumble and
-    // the queue disable itself, keeping the request in the queue.
+    // A 520 is a transient (recoverable) server error: let the upload stumble
+    // and the queue disable itself, keeping the request in the queue.
     let error = assert_update!((global_watch, watch) => error { recoverable=true, txn=event_txn });
     let error = error.as_client_api_error().unwrap();
     assert_eq!(error.status_code, 520);
@@ -3144,8 +3193,8 @@ async fn test_unwedging_media_upload() {
     mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
 
-    // Fail for the first attempt with an error indicating the media's too large,
-    // wedging the upload.
+    // Fail for the first attempt with an error indicating the media's too
+    // large, wedging the upload.
     mock.mock_upload().error_too_large().mock_once().mount().await;
 
     // Send the media.
@@ -3158,8 +3207,8 @@ async fn test_unwedging_media_upload() {
     assert_let!(MessageType::Image(img_content) = content.msgtype);
     assert_eq!(img_content.body, filename);
 
-    // Although the actual error happens on the file upload transaction id, it must
-    // be reported with the *event* transaction id.
+    // Although the actual error happens on the file upload transaction id, it
+    // must be reported with the _event_ transaction id.
     let error = assert_update!((global_watch, watch) => error { recoverable=false, txn=event_txn });
     let error = error.as_client_api_error().unwrap();
     assert_eq!(error.status_code, 413);
@@ -3217,7 +3266,8 @@ async fn test_wedged_gallery_upload_error_is_reflected_on_local_echo() {
     mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
 
-    // The upload fails with an error indicating the media's too large, wedging it.
+    // The upload fails with an error indicating the media's too large, wedging
+    // it.
     mock.mock_upload().error_too_large().mock_once().mount().await;
 
     // Send a single-item gallery, without a thumbnail.
@@ -3236,14 +3286,15 @@ async fn test_wedged_gallery_upload_error_is_reflected_on_local_echo() {
     let (event_txn, _send_handle, _content) =
         assert_update!((global_watch, watch) => local echo event);
 
-    // Although the actual error happens on the file upload transaction id, it must
-    // be reported with the *event* transaction id.
+    // Although the actual error happens on the file upload transaction id, it
+    // must be reported with the _event_ transaction id.
     let error = assert_update!((global_watch, watch) => error { recoverable=false, txn=event_txn });
     assert_eq!(error.as_client_api_error().unwrap().status_code, 413);
     assert!(q.is_enabled());
 
-    // The wedged upload is reflected on the gallery event's local echo: a client
-    // restarting here must see the gallery as failed, not as still being sent.
+    // The wedged upload is reflected on the gallery event's local echo: a
+    // client restarting here must see the gallery as failed, not as still being
+    // sent.
     let (local_echoes, _) = q.subscribe().await.unwrap();
     assert_eq!(local_echoes.len(), 1);
     assert_let!(LocalEchoContent::Event { send_error, .. } = &local_echoes[0].content);
@@ -3251,6 +3302,7 @@ async fn test_wedged_gallery_upload_error_is_reflected_on_local_echo() {
 }
 
 /// Aborts an ongoing media upload and checks post-conditions:
+///
 /// - we could abort
 /// - we get the notification about the aborted upload
 /// - the medias aren't present in the cache store
@@ -3293,8 +3345,8 @@ async fn abort_and_verify(
 
 #[async_test]
 async fn test_media_event_is_sent_in_order() {
-    // Test that despite happening in multiple requests, sending a media maintains
-    // the ordering.
+    // Test that despite happening in multiple requests, sending a media
+    // maintains the ordering.
     let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
@@ -3358,7 +3410,7 @@ async fn test_media_event_is_sent_in_order() {
     assert_update!((global_watch, watch) => edit local echo { txn = event_txn });
 
     // This is the main thing we're testing: the media must be effectively sent
-    // *before* the text message, despite implementation details (the media is
+    // _before_ the text message, despite implementation details (the media is
     // sent over multiple send queue requests).
 
     assert_update!((global_watch, watch) => sent { txn = event_txn, event_id = event_id!("$media") });
@@ -3460,8 +3512,8 @@ async fn test_cancel_upload_with_thumbnail_active() {
     mock.mock_room_state_encryption().plain().mount().await;
     mock.mock_room_send().ok(event_id!("$msg")).mock_once().mount().await;
 
-    // Have the thumbnail upload take forever and time out, if continued. This will
-    // be interrupted when aborting, so this will never have to complete.
+    // Have the thumbnail upload take forever and time out, if continued. This
+    // will be interrupted when aborting, so this will never have to complete.
     mock.mock_upload()
         .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(60)))
         .expect(1)
@@ -3671,8 +3723,8 @@ async fn test_cancel_upload_while_sending_event() {
         .mount()
         .await;
 
-    // Sending of the media event will take 1 second, so we can abort it while it's
-    // happening.
+    // Sending of the media event will take 1 second, so we can abort it while
+    // it's happening.
     mock.mock_room_send()
         .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(1)).set_body_json(
             json!({
@@ -3685,8 +3737,8 @@ async fn test_cancel_upload_while_sending_event() {
         .mount()
         .await;
 
-    // A redaction will happen because the abort happens after the event is getting
-    // sent.
+    // A redaction will happen because the abort happens after the event is
+    // getting sent.
     mock.mock_room_redact().ok(event_id!("$redaction")).mock_once().mount().await;
 
     // Send the media.
@@ -3728,8 +3780,8 @@ async fn test_cancel_upload_while_sending_event() {
         .await
         .unwrap_err();
 
-    // But it does contain the media with the remote URI, which hasn't been removed
-    // from the remote server.
+    // But it does contain the media with the remote URI, which hasn't been
+    // removed from the remote server.
     client
         .media()
         .get_media_content(
@@ -4100,8 +4152,8 @@ async fn test_update_caption_while_sending_media_event() {
         .mount()
         .await;
 
-    // The /event endpoint is used to retrieve the original event, during creation
-    // of the edit event.
+    // The /event endpoint is used to retrieve the original event, during
+    // creation of the edit event.
     mock.mock_room_event()
         .room(room_id)
         .ok(EventFactory::new()
@@ -4166,7 +4218,8 @@ async fn test_update_caption_while_sending_media_event() {
     sleep(Duration::from_secs(1)).await;
     assert_update!((global_watch, watch) => sent { txn = upload_txn, });
 
-    // Then the edit event is set, with another transaction id we don't know about.
+    // Then the edit event is set, with another transaction id we don't know
+    // about.
     assert_update!((global_watch, watch) => sent {});
 
     // That's all, folks!
@@ -4228,8 +4281,8 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
     // Check the endpoints have been correctly called.
     server.server().reset().await;
 
-    // Now, if I send a message in a thread I've already subscribed to, in automatic
-    // mode, this promotes the subscription to manual.
+    // Now, if I send a message in a thread I've already subscribed to, in
+    // automatic mode, this promotes the subscription to manual.
 
     // Subscribed, automatically.
     server
@@ -4308,10 +4361,9 @@ async fn test_sending_event_still_saves_sync_gap() {
 
     server.mock_room_state_encryption().plain().mount().await;
 
-    // The room receives one event from the sync.
-    // This is mandatory, otherwise the event will not be inserted in the Event
-    // Cache by the Send Queue (because the Event Cache is empty, see the
-    // documentation of
+    // The room receives one event from the sync. This is mandatory, otherwise
+    // the event will not be inserted in the Event Cache by the Send Queue
+    // (because the Event Cache is empty, see the documentation of
     // `RoomEventCacheInner::test_sending_event_still_saves_sync_gap`).
     server
         .mock_sync()
@@ -4349,8 +4401,8 @@ async fn test_sending_event_still_saves_sync_gap() {
     assert_eq!(values.len(), 1);
     assert_eq!(values[0].event_id().unwrap(), "$msg_now");
 
-    // Now, assume that a /sync response comes with only this message as part of the
-    // response, and with a previous gap.
+    // Now, assume that a /sync response comes with only this message as part of
+    // the response, and with a previous gap.
     server
         .mock_sync()
         .ok_and_run(&client, |builder| {
@@ -4363,16 +4415,16 @@ async fn test_sending_event_still_saves_sync_gap() {
         })
         .await;
 
-    // After syncing, since a gap was saved, the cache should unload the chunk and
-    // reload the latest one (that includes the remote-echo).
+    // After syncing, since a gap was saved, the cache should unload the chunk
+    // and reload the latest one (that includes the remote-echo).
     assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(update)) = stream.recv());
     assert_eq!(update.diffs.len(), 2);
     assert_let!(VectorDiff::Clear = &update.diffs[0]);
     assert_let!(VectorDiff::Append { values } = &update.diffs[1]);
     assert_eq!(values[0].event_id().unwrap(), "$msg_now");
 
-    // When paginating with this previous batch token, we should get new events from
-    // this room.
+    // When paginating with this previous batch token, we should get new events
+    // from this room.
     server
         .mock_room_messages()
         .match_from("prev_batch")

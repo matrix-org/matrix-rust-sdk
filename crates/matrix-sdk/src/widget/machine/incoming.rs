@@ -66,31 +66,30 @@ pub(crate) enum IncomingMessage {
 }
 
 pub(crate) enum MatrixDriverResponse {
-    /// Client acquired capabilities from the user.
-    /// A response to a [`MatrixDriverRequestData::AcquireCapabilities`]
-    /// command.
+    /// Client acquired capabilities from the user. A response to a
+    /// [`MatrixDriverRequestData::AcquireCapabilities`] command.
     CapabilitiesAcquired(Capabilities),
-    /// Client got OpenId token for a given request ID.
-    /// A response to a [`MatrixDriverRequestData::GetOpenId`] command.
+    /// Client got OpenId token for a given request ID. A response to a
+    /// [`MatrixDriverRequestData::GetOpenId`] command.
     OpenIdReceived(request_openid_token::v3::Response),
-    /// Client read some Matrix event(s).
-    /// A response to a [`MatrixDriverRequestData::ReadEvents`] command.
+    /// Client read some Matrix event(s). A response to a
+    /// [`MatrixDriverRequestData::ReadEvents`] command.
     EventsRead(Vec<Raw<AnyTimelineEvent>>),
-    /// Client read some Matrix room state entries.
-    /// A response to a [`MatrixDriverRequestData::ReadState`] command.
+    /// Client read some Matrix room state entries. A response to a
+    /// [`MatrixDriverRequestData::ReadState`] command.
     StateRead(Vec<Raw<AnyStateEvent>>),
-    /// Client sent some Matrix event. The response contains the event ID.
-    /// A response to a [`MatrixDriverRequestData::SendEvent`] command.
+    /// Client sent some Matrix event. The response contains the event ID. A
+    /// response to a [`MatrixDriverRequestData::SendEvent`] command.
     EventSent(SendEventResponse),
     /// A response to a `Action::SendToDevice` command.
     ToDeviceSent(SendToDeviceEventResponse),
-    /// Client updated a delayed event.
-    /// A response to a [`MatrixDriverRequestData::UpdateDelayedEvent`] command.
+    /// Client updated a delayed event. A response to a
+    /// [`MatrixDriverRequestData::UpdateDelayedEvent`] command.
     DelayedEventUpdated(delayed_events::update_delayed_event::unstable_v1::Response),
     /// The client successfully downloaded a file from a widget action.
     FileDownloaded(DownloadFileResponse),
-    /// Client fetched the RTC transports advertised by the homeserver.
-    /// A response to a [`MatrixDriverRequestData::GetRtcTransports`] command.
+    /// Client fetched the RTC transports advertised by the homeserver. A
+    /// response to a [`MatrixDriverRequestData::GetRtcTransports`] command.
     RtcTransportsReceived(Vec<RtcTransport>),
 }
 

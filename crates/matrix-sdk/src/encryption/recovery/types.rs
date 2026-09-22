@@ -67,8 +67,8 @@ pub enum EnableProgress {
     /// the server-side key backup.
     ///
     /// Not all room keys may have been backed up, the client will try to back
-    /// them up again at a later point. If you'd like to wait for the backup
-    /// to finish again you can use the [`Backups::wait_for_steady_state()`]
+    /// them up again at a later point. If you'd like to wait for the backup to
+    /// finish again you can use the [`Backups::wait_for_steady_state()`]
     /// method.
     RoomKeyUploadError,
     /// Recovery has been successfully enabled, this is the final state.
@@ -105,8 +105,8 @@ pub enum RecoveryState {
 #[ruma_event(type = "m.secret_storage.default_key", kind = GlobalAccountData)]
 pub(super) struct SecretStorageDisabledContent {}
 
-/// A global account data event which tells us that a new backup should
-/// be automatically created.
+/// A global account data event which tells us that a new backup should be
+/// automatically created.
 ///
 /// This event is defined in [MSC4287].
 ///
