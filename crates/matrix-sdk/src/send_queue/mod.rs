@@ -631,7 +631,7 @@ impl RoomSendQueue {
         &self,
         redacts: OwnedEventId,
         reason: Option<&str>,
-    ) -> Result<SendRedactionHandle, RoomSendQueueError> {
+    ) -> Result<SendHandle, RoomSendQueueError> {
         let Some(room) = self.inner.room.get() else {
             return Err(RoomSendQueueError::RoomDisappeared);
         };
@@ -650,8 +650,12 @@ impl RoomSendQueue {
 
         self.inner.notifier.notify_one();
 
-        let send_handle =
-            SendRedactionHandle { room: self.clone(), transaction_id: transaction_id.clone() };
+        let send_handle = SendHandle {
+            room: self.clone(),
+            transaction_id: transaction_id.clone(),
+            media_handles: vec![],
+            created_at,
+        };
 
         self.send_update(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             transaction_id,
@@ -1738,14 +1742,22 @@ impl QueueStorage {
         serializable: SerializableEventContent,
     ) -> Result<bool, RoomSendQueueStorageError> {
         let guard = self.store.lock().await;
+        let client = guard.client()?;
+        let store = client.state_store();
+
+        // Only an event the user composed has content to replace: a redaction or a
+        // reaction has nothing to put the new content into.
+        if !store.load_send_queue_requests(&self.room_id).await?.iter().any(|request| {
+            request.transaction_id == transaction_id && is_own_event_request(request)
+        }) {
+            return Ok(false);
+        }
 
         if guard.being_sent.as_ref().map(|info| info.transaction_id.as_ref())
             == Some(transaction_id)
         {
             // Save the intent to edit the associated event.
-            guard
-                .client()?
-                .state_store()
+            store
                 .save_dependent_queued_request(
                     &self.room_id,
                     transaction_id,
@@ -1757,9 +1769,6 @@ impl QueueStorage {
 
             return Ok(true);
         }
-
-        let client = guard.client()?;
-        let store = client.state_store();
 
         let request = QueuedRequestKind::Event {
             content: serializable,
@@ -2078,8 +2087,12 @@ impl QueueStorage {
 
         let requests = store.load_send_queue_requests(&self.room_id).await?;
 
-        // If the target event has been already sent, abort immediately.
-        if !requests.iter().any(|item| item.transaction_id == transaction_id) {
+        // If the target event has been already sent, or isn't something that can be
+        // reacted to in the first place, abort immediately.
+        if !requests
+            .iter()
+            .any(|item| item.transaction_id == transaction_id && is_own_event_request(item))
+        {
             // We didn't find it as a queued request; try to find it as a
             // dependent queued request.
             let dependent_requests = store.load_dependent_queued_requests(&self.room_id).await?;
@@ -2161,9 +2174,11 @@ impl QueueStorage {
                         LocalEchoContent::Redaction {
                             redacts,
                             reason,
-                            send_handle: SendRedactionHandle {
+                            send_handle: SendHandle {
                                 room: room.clone(),
                                 transaction_id: queued.transaction_id,
+                                media_handles: vec![],
+                                created_at: queued.created_at,
                             },
                             send_error: queued.error,
                         }
@@ -2187,9 +2202,11 @@ impl QueueStorage {
                     transaction_id: dep.own_transaction_id.clone().into(),
                     content: LocalEchoContent::React {
                         key,
-                        send_handle: SendReactionHandle {
+                        send_handle: SendHandle {
                             room: room.clone(),
-                            transaction_id: dep.own_transaction_id,
+                            transaction_id: dep.own_transaction_id.into(),
+                            media_handles: vec![],
+                            created_at: dep.created_at,
                         },
                         applies_to: dep.parent_transaction_id,
                     },
@@ -2676,7 +2693,7 @@ pub enum LocalEchoContent {
         /// The key with which the local echo has been reacted to.
         key: String,
         /// A handle to manipulate the sending of the reaction.
-        send_handle: SendReactionHandle,
+        send_handle: SendHandle,
         /// The local echo which has been reacted to.
         applies_to: OwnedTransactionId,
     },
@@ -2688,7 +2705,7 @@ pub enum LocalEchoContent {
         /// The reason for the event being redacted.
         reason: Option<String>,
         /// A handle to manipulate the sending of the associated event.
-        send_handle: SendRedactionHandle,
+        send_handle: SendHandle,
         /// Whether trying to send this local echo failed in the past with an
         /// unrecoverable error (see [`SendQueueRoomError::is_recoverable`]).
         send_error: Option<QueueWedgeError>,
@@ -2980,6 +2997,10 @@ impl<'a> IntoFuture for SendRawEvent<'a> {
 }
 
 /// A handle to manipulate an event that was scheduled to be sent to a room.
+///
+/// The event may be a room message, a media upload, a redaction or a reaction;
+/// [`Self::edit`] and [`Self::react`] only apply to the first two, and return
+/// `false`/`None` for the others.
 #[derive(Clone, Debug)]
 pub struct SendHandle {
     /// Link to the send queue used to send this request.
@@ -3068,7 +3089,13 @@ impl SendHandle {
             // below, that handles aborting sending of an event.
         }
 
-        if queue.cancel_event(&self.transaction_id, reason).await? {
+        // A reaction is queued as a dependent request of the event it applies to, so
+        // it has no entry in the main queue as long as that event hasn't been sent.
+        let aborted =
+            queue.remove_dependent_send_queue_request(&self.transaction_id.clone().into()).await?
+                || queue.cancel_event(&self.transaction_id, reason).await?;
+
+        if aborted {
             trace!("successful abort");
 
             // Wake up the queue, in case it was blocked on this request being
@@ -3224,7 +3251,7 @@ impl SendHandle {
     pub async fn react(
         &self,
         key: String,
-    ) -> Result<Option<SendReactionHandle>, RoomSendQueueStorageError> {
+    ) -> Result<Option<SendHandle>, RoomSendQueueStorageError> {
         trace!("received an intent to react");
 
         let created_at = MilliSecondsSinceUnixEpoch::now();
@@ -3238,9 +3265,11 @@ impl SendHandle {
             self.room.inner.notifier.notify_one();
 
             // Propagate a new local event.
-            let send_handle = SendReactionHandle {
+            let send_handle = SendHandle {
                 room: self.room.clone(),
-                transaction_id: reaction_txn_id.clone(),
+                transaction_id: reaction_txn_id.clone().into(),
+                media_handles: vec![],
+                created_at,
             };
 
             self.room.send_update(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
@@ -3262,114 +3291,17 @@ impl SendHandle {
     }
 }
 
-/// A handle to execute actions on the sending of a reaction.
-#[derive(Clone, Debug)]
-pub struct SendReactionHandle {
-    /// Reference to the send queue for the room where this reaction was sent.
-    room: RoomSendQueue,
-    /// The own transaction id for the reaction.
-    transaction_id: ChildTransactionId,
-}
-
-impl SendReactionHandle {
-    /// Creates a new [`SendReactionHandle`].
-    #[cfg(test)]
-    pub(crate) fn new(room: RoomSendQueue, transaction_id: ChildTransactionId) -> Self {
-        Self { room, transaction_id }
-    }
-
-    /// Abort the sending of the reaction.
-    ///
-    /// Will return true if the reaction could be aborted, false if it's been
-    /// sent (and there's no matching local echo anymore).
-    pub async fn abort(&self) -> Result<bool, RoomSendQueueStorageError> {
-        if self.room.inner.queue.remove_dependent_send_queue_request(&self.transaction_id).await? {
-            // Simple case: the reaction was found in the dependent event list.
-
-            // Propagate a cancelled update too.
-            self.room.send_update(RoomSendQueueUpdate::CancelledLocalEvent {
-                transaction_id: self.transaction_id.clone().into(),
-            });
-
-            return Ok(true);
-        }
-
-        // The reaction has already been queued for sending, try to abort it
-        // using a regular abort.
-        let handle = SendHandle {
-            room: self.room.clone(),
-            transaction_id: self.transaction_id.clone().into(),
-            media_handles: vec![],
-            created_at: MilliSecondsSinceUnixEpoch::now(),
-        };
-
-        handle.abort().await
-    }
-
-    /// Unwedge the reaction and try to send it again.
-    ///
-    /// A reaction still waiting on its parent to be sent can't be wedged;
-    /// unwedging it only wakes the queue.
-    pub async fn unwedge(&self) -> Result<(), RoomSendQueueError> {
-        self.room.unwedge_request(&self.transaction_id).await
-    }
-
-    /// The transaction id that will be used to send this reaction later.
-    pub fn transaction_id(&self) -> &TransactionId {
-        &self.transaction_id
-    }
-}
-
-/// A handle to manipulate a redaction event that was scheduled to be sent to a
-/// room.
-#[derive(Clone, Debug)]
-pub struct SendRedactionHandle {
-    /// Link to the send queue used to send this request.
-    room: RoomSendQueue,
-
-    /// Transaction id used for the sent request.
-    transaction_id: OwnedTransactionId,
-}
-
-impl SendRedactionHandle {
-    /// Creates a new [`SendRedactionHandle`].
-    #[cfg(test)]
-    pub(crate) fn new(room: RoomSendQueue, transaction_id: OwnedTransactionId) -> Self {
-        Self { room, transaction_id }
-    }
-
-    /// Abort the sending of the redaction.
-    ///
-    /// Will return true if the redaction could be aborted, false if it's been
-    /// sent (and there's no matching local echo anymore).
-    pub async fn abort(&self) -> Result<bool, RoomSendQueueStorageError> {
-        trace!("received a redaction abort request");
-
-        let queue = &self.room.inner.queue;
-
-        if queue.cancel_event(&self.transaction_id, None).await? {
-            trace!("successful redaction abort");
-
-            // Wake up the queue, in case it was blocked on this request being
-            // wedged.
-            self.room.inner.notifier.notify_one();
-
-            // Propagate a cancelled update too.
-            self.room.send_update(RoomSendQueueUpdate::CancelledLocalEvent {
-                transaction_id: self.transaction_id.clone(),
-            });
-
-            Ok(true)
-        } else {
-            debug!("local echo of redaction didn't exist anymore, can't abort");
-            Ok(false)
-        }
-    }
-
-    /// Unwedge the redaction and try to send it again.
-    pub async fn unwedge(&self) -> Result<(), RoomSendQueueError> {
-        self.room.unwedge_request(&self.transaction_id).await
-    }
+/// Whether a queued request is an event the user composed, as opposed to a
+/// redaction or a reaction.
+///
+/// A reaction is queued as a dependent request at first, but graduates into a
+/// request of its own, under the same transaction id, once the event it
+/// applies to has been sent; so being an event is not enough to tell the two
+/// apart.
+fn is_own_event_request(request: &QueuedRequest) -> bool {
+    request.as_event().is_some_and(|content| {
+        TimelineEventType::from(content.raw().1) != TimelineEventType::Reaction
+    })
 }
 
 /// From a given source of [`DependentQueuedRequest`], return only the most
