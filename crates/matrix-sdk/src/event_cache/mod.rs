@@ -80,6 +80,7 @@ pub use self::{
             RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
             pagination::RoomPagination,
         },
+        specific_events::SpecificEventsCache,
         subscriber::Subscriber,
         thread::{ThreadEventCache, ThreadEventCacheUpdate, pagination::ThreadPagination},
     },
@@ -134,6 +135,16 @@ pub enum EventCacheError {
         event_focused_id: EventFocusedCacheKey,
     },
 
+    /// Specific-events cache is not found.
+    #[error("Specific-events cache `{instance_id}` of room `{room_id}` is not found.")]
+    SpecificEventsNotFound {
+        /// The room ID of the specific-events cache.
+        room_id: OwnedRoomId,
+
+        /// The instance ID of the specific-events cache.
+        instance_id: u64,
+    },
+
     /// A new cache was inserted at an occupied place, i.e. where an existing
     /// cache state was present.
     #[error("The state of a cache is not found")]
@@ -173,6 +184,10 @@ pub enum EventCacheError {
     /// list, incorrectly.
     #[error("Unable to load any of the pinned events.")]
     UnableToLoadPinnedEvents,
+
+    /// None of the events of a specific-events cache could be loaded.
+    #[error("Unable to load any of the specific events.")]
+    UnableToLoadSpecificEvents,
 
     /// An error happened when reading the metadata of a linked chunk, upon
     /// reload.
@@ -449,6 +464,34 @@ impl EventCache {
         let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
 
         Ok((caches_for_room.pinned_events().await?.clone(), drop_handles))
+    }
+
+    /// Create a view over the [`EventCache`] for a caller-supplied set of
+    /// event IDs, loaded together with their reactions and edits and kept up
+    /// to date from sync.
+    ///
+    /// Each call creates a new cache. It lives in memory only, for as long as
+    /// the caller keeps the returned handle (or a clone of it): once they are
+    /// all dropped, the cache is forgotten and its subscribers stop receiving
+    /// updates. The same happens to existing handles after
+    /// [`Self::forget_room`].
+    pub async fn specific_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<(SpecificEventsCache, Arc<EventCacheDropHandles>)> {
+        let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
+            return Err(EventCacheError::NotSubscribedYet);
+        };
+
+        let cache =
+            self.inner.all_caches_for_room(room_id).await?.specific_events(event_ids).await?;
+
+        // Load with no lock on the room's caches held: loading goes through the event
+        // cache, which takes it too.
+        cache.reload().await?;
+
+        Ok((cache, drop_handles))
     }
 
     /// Return an event-focused view over the [`EventCache`].

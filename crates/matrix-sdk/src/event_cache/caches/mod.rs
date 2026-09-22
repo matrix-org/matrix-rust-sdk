@@ -40,6 +40,7 @@ pub mod pagination;
 pub mod pinned_events;
 mod read_receipts;
 pub mod room;
+pub mod specific_events;
 pub mod subscriber;
 pub mod thread;
 
@@ -68,6 +69,14 @@ pub(super) struct Caches {
     // An `Arc` is used to get an owned lock.
     pub event_focused:
         Arc<RwLock<HashMap<event_focused::EventFocusedCacheKey, event_focused::EventFocusedCache>>>,
+
+    /// All the [`SpecificEventsCache`], created on demand.
+    ///
+    /// They are held weakly: a cache lives as long as the caller keeps a handle
+    /// on it, see [`Self::live_specific_events`].
+    ///
+    /// [`SpecificEventsCache`]: specific_events::SpecificEventsCache
+    specific_events: Arc<RwLock<Vec<specific_events::WeakSpecificEventsCache>>>,
 
     /// Internals data, used to lazily create caches.
     internals: CachesInternals,
@@ -160,6 +169,7 @@ impl Caches {
             threads: Arc::new(RwLock::new(HashMap::new())),
             pinned_events: OnceCell::new(),
             event_focused: Arc::new(RwLock::new(HashMap::new())),
+            specific_events: Arc::new(RwLock::new(Vec::new())),
             internals: CachesInternals {
                 state: state.clone(),
                 auto_shrink_sender,
@@ -287,9 +297,62 @@ impl Caches {
         )
     }
 
+    /// Create a [`SpecificEventsCache`] for the given set of event IDs. It
+    /// isn't loaded yet.
+    ///
+    /// [`SpecificEventsCache`]: specific_events::SpecificEventsCache
+    pub async fn specific_events(
+        &self,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<specific_events::SpecificEventsCache> {
+        let cache = specific_events::SpecificEventsCache::new(
+            self.room.weak_room().clone(),
+            event_ids,
+            &self.internals.state,
+        )
+        .await?;
+
+        self.specific_events.write().await.push(cache.downgrade());
+
+        Ok(cache)
+    }
+
+    /// Return the [`SpecificEventsCache`]s still in use, forgetting the ones
+    /// whose handles have all been dropped, along with their state.
+    ///
+    /// [`SpecificEventsCache`]: specific_events::SpecificEventsCache
+    pub(super) async fn live_specific_events(
+        &self,
+    ) -> Result<Vec<specific_events::SpecificEventsCache>> {
+        let mut live = Vec::new();
+        let mut dropped = Vec::new();
+
+        self.specific_events.write().await.retain(|cache| match cache.upgrade() {
+            Some(cache) => {
+                live.push(cache);
+                true
+            }
+            None => {
+                dropped.push(cache.instance_id());
+                false
+            }
+        });
+
+        for instance_id in dropped {
+            let selector = states::selectors::SpecificEventsStateSelector::new(
+                self.room.room_id().to_owned(),
+                instance_id,
+            );
+            self.internals.state.remove_specific_events(&selector).await?;
+        }
+
+        Ok(live)
+    }
+
     /// Update all the event caches with a [`JoinedRoomUpdate`].
     pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
-        let Self { room, threads: _, pinned_events, event_focused, internals } = &self;
+        let Self { room, threads: _, pinned_events, event_focused, specific_events: _, internals } =
+            &self;
 
         // This method will compute a `JoinedRoomUpdate` for each cache. The game is to
         // avoid cloning useless data or to clone as few data as possible. That's a fun
@@ -392,12 +455,27 @@ impl Caches {
             let _ = event_focused;
         }
 
+        // Specific-events.
+        for specific_events in self.live_specific_events().await? {
+            let updates = JoinedRoomUpdate {
+                timeline: aggregator::aggregate_timeline_for_pinned_events(
+                    &original_timeline,
+                    &specific_events.state().read().await?.current_event_ids(),
+                    &internals.room_version_rules.redaction,
+                ),
+                ..Default::default()
+            };
+
+            specific_events.handle_joined_room_update(updates).await?;
+        }
+
         Ok(())
     }
 
     /// Update all the event caches with a [`LeftRoomUpdate`].
     pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
-        let Self { room, threads: _, pinned_events, event_focused, internals } = &self;
+        let Self { room, threads: _, pinned_events, event_focused, specific_events: _, internals } =
+            &self;
 
         // This method will compute a `JoinedRoomUpdate` for each cache. The game is to
         // avoid cloning useless data or to clone as few data as possible. That's a fun
@@ -469,6 +547,20 @@ impl Caches {
             let _ = event_focused;
         }
 
+        // Specific-events.
+        for specific_events in self.live_specific_events().await? {
+            let updates = LeftRoomUpdate {
+                timeline: aggregator::aggregate_timeline_for_pinned_events(
+                    &original_timeline,
+                    &specific_events.state().read().await?.current_event_ids(),
+                    &internals.room_version_rules.redaction,
+                ),
+                ..Default::default()
+            };
+
+            specific_events.handle_left_room_update(updates).await?;
+        }
+
         Ok(())
     }
 
@@ -491,6 +583,11 @@ impl Caches {
             for event_focused in event_focused.values() {
                 events.extend(event_focused.events().await?);
             }
+        }
+
+        // The specific-events caches also only live in memory.
+        for specific_events in self.live_specific_events().await? {
+            events.extend(specific_events.events().await?);
         }
 
         Ok(events.into_iter())
@@ -518,7 +615,7 @@ impl Caches {
             state.store.get_room_events(self.room.room_id(), event_type, session_id).await?
         };
 
-        // The only cache to not store its events is the event-focused cache. Its events
+        // The event-focused and specific-events caches don't store their events; they
         // only live in memory.
         {
             let event_focused = self.event_focused.read().await;
@@ -533,6 +630,17 @@ impl Caches {
                         .filter(|event| session_id == event.kind.session_id()),
                 );
             }
+        }
+
+        for specific_events in self.live_specific_events().await? {
+            events.extend(
+                specific_events
+                    .events()
+                    .await?
+                    .into_iter()
+                    .filter(|event| event_type == event.kind.event_type().as_deref())
+                    .filter(|event| session_id == event.kind.session_id()),
+            );
         }
 
         Ok(events.into_iter())

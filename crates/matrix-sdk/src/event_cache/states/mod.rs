@@ -37,6 +37,7 @@ use super::{
         event_focused::{EventFocusedCacheKey, EventFocusedCacheState},
         pinned_events::PinnedEventsCacheState,
         room::{self, RoomEventCacheState},
+        specific_events::SpecificEventsCacheState,
         thread::{self, ThreadEventCacheState},
     },
 };
@@ -55,6 +56,7 @@ pub(super) struct StateForRoom {
     threads: HashMap<OwnedEventId, ThreadEventCacheState>,
     pinned_events: Option<PinnedEventsCacheState>,
     event_focused: HashMap<EventFocusedCacheKey, EventFocusedCacheState>,
+    specific_events: HashMap<u64, SpecificEventsCacheState>,
 }
 
 /// State for the entire Event Cache.
@@ -302,6 +304,17 @@ impl StateLock {
             .then(|| CacheStateLock::new(cache_state_selector, self.clone()))
             .ok_or_else(|| EventCacheError::CacheStateAlreadyExists)
     }
+
+    /// Remove the state of a specific-events cache, once the cache is gone.
+    #[instrument(skip_all)]
+    pub(super) async fn remove_specific_events(
+        &self,
+        cache_state_selector: &selectors::SpecificEventsStateSelector,
+    ) -> Result<()> {
+        cache_state_selector.remove(&mut self.write().await?.state);
+
+        Ok(())
+    }
 }
 
 impl fmt::Debug for StateLock {
@@ -489,8 +502,10 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
         trace!("Reloading the state");
 
         // Iterate over all states and reload them.
-        for (room_id, StateForRoom { room, threads, pinned_events, event_focused }) in
-            self.state.by_room.iter_mut()
+        for (
+            room_id,
+            StateForRoom { room, threads, pinned_events, event_focused, specific_events },
+        ) in self.state.by_room.iter_mut()
         {
             // Room.
             if let Some(room_state) = room {
@@ -557,6 +572,10 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                     origin: EventsOrigin::Cache,
                 });
             }
+
+            // Specific-events caches load through the event cache, which would need this
+            // very lock; their in-memory content stays valid, so they aren't reloaded here.
+            let _ = specific_events;
         }
 
         Ok(())
