@@ -213,6 +213,11 @@ pub enum QueueWedgeError {
     #[error("Own verification is required")]
     CrossVerificationRequired,
 
+    /// The homeserver rejected the session's access token and the request can't
+    /// go out until the session has a working one again.
+    #[error("The access token was rejected")]
+    ExpiredAccessToken,
+
     /// Media content was cached in the media store, but has disappeared before
     /// we could upload it.
     #[error("Media content disappeared")]

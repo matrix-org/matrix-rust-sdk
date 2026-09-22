@@ -122,6 +122,16 @@ impl HttpError {
         self.as_client_api_error().and_then(ruma::api::error::Error::error_kind)
     }
 
+    /// Whether the homeserver rejected the access token this request was sent
+    /// with.
+    pub(crate) fn is_rejected_token(&self) -> bool {
+        match self {
+            Self::RefreshToken(_) => true,
+            Self::Cached(inner) => inner.is_rejected_token(),
+            _ => matches!(self.client_api_error_kind(), Some(ErrorKind::UnknownToken(_))),
+        }
+    }
+
     /// Try to destructure the error into a user-interactive auth info.
     ///
     /// Some requests require user-interactive auth, doing such a request will

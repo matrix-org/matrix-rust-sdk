@@ -7,6 +7,7 @@ use matrix_sdk::attachment::{GalleryConfig, GalleryItemInfo};
 use matrix_sdk::{
     Client, MemoryStore, ThreadingSupport, assert_let_timeout,
     attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo, Thumbnail},
+    authentication::matrix::MatrixSession,
     config::StoreConfig,
     event_cache::RoomEventCacheUpdate,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
@@ -15,7 +16,11 @@ use matrix_sdk::{
         AbstractProgress, LocalEcho, LocalEchoContent, RoomSendQueue, RoomSendQueueError,
         RoomSendQueueStorageError, RoomSendQueueUpdate, SendHandle, SendQueueUpdate,
     },
-    test_utils::mocks::{MatrixMock, MatrixMockServer, RoomMessagesResponseTemplate},
+    store::RoomLoadSettings,
+    test_utils::{
+        client::{mock_session_meta, mock_session_tokens_with_refresh},
+        mocks::{MatrixMock, MatrixMockServer, RoomMessagesResponseTemplate},
+    },
 };
 use matrix_sdk_base::media::store::MemoryMediaStore;
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
@@ -54,7 +59,10 @@ use tokio::{
     task::yield_now,
     time::{sleep, timeout},
 };
-use wiremock::{Request, ResponseTemplate};
+use wiremock::{
+    Mock, Request, ResponseTemplate,
+    matchers::{method, path},
+};
 
 /// Queues an attachment whenever the actual data/mime type etc. don't matter.
 ///
@@ -1958,6 +1966,66 @@ async fn test_unwedge_unrecoverable_errors() {
 
     // Then eventually sent and a remote echo received
     assert_update!((global_watch, watch) => sent { txn=txn1, event_id=event_id!("$42") });
+}
+
+#[async_test]
+async fn test_request_wedged_by_a_rejected_token_is_unwedged_on_refresh() {
+    let mock = MatrixMockServer::new().await;
+
+    // A session with a refresh token so it can get a working access token back.
+    let client = mock.client_builder().unlogged().build().await;
+    client
+        .matrix_auth()
+        .restore_session(
+            MatrixSession { meta: mock_session_meta(), tokens: mock_session_tokens_with_refresh() },
+            RoomLoadSettings::default(),
+        )
+        .await
+        .unwrap();
+
+    let room_id = room_id!("!a:b.c");
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let mut errors = client.send_queue().subscribe_errors();
+    client.send_queue().set_enabled(true).await;
+
+    let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+    let (_, mut watch) = q.subscribe().await.unwrap();
+
+    mock.verify_and_reset().await;
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // The first /send is answered with a rejected access token, the second one goes
+    // through.
+    mock.mock_room_send().error_unknown_token(false).mock_once().mount().await;
+    mock.mock_room_send().ok(event_id!("$42")).mock_once().mount().await;
+
+    q.send(RoomMessageEventContent::text_plain("hello").into()).await.unwrap();
+
+    let (txn, _) = assert_update!((global_watch, watch) => local echo { body = "hello" });
+
+    // The request is wedged, and stays that way on its own.
+    let report = errors.recv().await.unwrap();
+    assert!(!report.is_recoverable);
+    assert_update!((global_watch, watch) => error { recoverable = false, txn = txn });
+    assert!(watch.is_empty());
+
+    // The session gets a working access token again.
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/v3/refresh"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "5678",
+        })))
+        .mount(mock.server())
+        .await;
+
+    client.matrix_auth().refresh_access_token().await.unwrap();
+
+    // Which is enough for the request to go out, without anyone unwedging it by
+    // hand.
+    assert_update!((global_watch, watch) => retry { txn = txn });
+    assert_update!((global_watch, watch) => sent { txn = txn, event_id = event_id!("$42") });
 }
 
 #[async_test]
