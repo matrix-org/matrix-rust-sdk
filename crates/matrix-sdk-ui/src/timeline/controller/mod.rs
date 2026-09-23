@@ -155,7 +155,7 @@ pub(in crate::timeline) enum TimelineFocusKind {
     /// A live timeline for a thread.
     Thread {
         /// The root event for the current thread.
-        root_event_id: OwnedEventId,
+        thread_id: OwnedEventId,
 
         /// The cache holding all the events for this focus.
         event_cache: ThreadEventCache,
@@ -213,12 +213,13 @@ impl TimelineFocusKind {
         self.thread_root().is_some()
     }
 
-    /// If the focus is a thread, returns its root event ID.
+    /// If the focus is a thread or event-focused, returns its thread root event
+    /// ID if any.
     fn thread_root(&self) -> Option<&EventId> {
         match self {
             TimelineFocusKind::Event { thread_root, .. } => thread_root.get().map(|v| &**v),
             TimelineFocusKind::Live { .. } | TimelineFocusKind::PinnedEvents { .. } => None,
-            TimelineFocusKind::Thread { root_event_id, .. } => Some(root_event_id),
+            TimelineFocusKind::Thread { thread_id, .. } => Some(thread_id),
         }
     }
 }
@@ -437,15 +438,15 @@ impl<P: RoomDataProvider> TimelineController<P> {
                         .await?
                         .0,
                     focused_event_id: target.clone(),
-                    // This will be initialized in `Self::init_focus`.
+                    // This will be initialised in `Self::init_focus`.
                     thread_root: OnceLock::new(),
                     thread_mode: *thread_mode,
                 }
             }
 
-            TimelineFocus::Thread { root_event_id, .. } => TimelineFocusKind::Thread {
-                event_cache: event_cache.thread(room_id, root_event_id).await?.0,
-                root_event_id: root_event_id.clone(),
+            TimelineFocus::Thread { thread_id, .. } => TimelineFocusKind::Thread {
+                event_cache: event_cache.thread(room_id, thread_id).await?.0,
+                thread_id: thread_id.clone(),
             },
 
             TimelineFocus::PinnedEvents => TimelineFocusKind::PinnedEvents {
