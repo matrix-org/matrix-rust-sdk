@@ -16,7 +16,7 @@
 //! to access some fields.
 
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, UInt,
     events::{
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         MessageLikeEventType,
@@ -26,6 +26,7 @@ use ruma::{
     serde::Raw,
 };
 use serde::Deserialize;
+use serde_json::value::RawValue;
 
 #[derive(Deserialize)]
 struct RelatesTo {
@@ -61,8 +62,9 @@ pub fn extract_thread_root_from_content(
 
 /// Try to extract the thread root from a timeline event, if provided.
 ///
-/// The thread root is the field located at `content`.`m.relates_to`.`event_id`,
-/// if the field at `content`.`m.relates_to`.`rel_type` is `m.thread`.
+/// The thread root is the field located at
+/// `"content"."m.relates_to"."event_id"`, if the field at
+/// `"content"."m.relates_to"."rel_type"` is `m.thread`.
 ///
 /// Returns `None` if we couldn't find a thread root, or if there was an issue
 /// during deserialization.
@@ -103,24 +105,55 @@ pub fn extract_redaction_target(
     redaction.redacts(redaction_rules).map(ToOwned::to_owned)
 }
 
+#[derive(Deserialize)]
+struct UnsignedRelations<Relations> {
+    #[serde(rename = "m.relations")]
+    relations: Option<Relations>,
+}
+
+#[derive(Deserialize)]
+struct ThreadRelation<BundledThread> {
+    #[serde(rename = "m.thread")]
+    thread: Option<BundledThread>,
+}
+
 /// Try to extract a bundled thread of a timeline event, if available.
 pub fn extract_bundled_thread(event: &Raw<AnySyncTimelineEvent>) -> Option<BundledThread> {
+    extract_thread_relation::<BundledThread>(event)
+}
+
+/// Try to extract whether the event is a thread root, i.e. if it has an
+/// `"unsigned"."m.relations"."m.thread"` field, i.e. if the event has a thread
+/// summary/bundled thread.
+///
+/// This is the question-variant of [`extract_bundled_thread`]. This latter will
+/// deserialise the whole [`BundledThread`] whilst this function will just look
+/// at the path.
+pub fn extract_is_thread_root(event: &Raw<AnySyncTimelineEvent>) -> bool {
     #[derive(Deserialize)]
-    struct Unsigned {
-        #[serde(rename = "m.relations")]
-        relations: Option<Relations>,
+    struct LightBundledThread<'a> {
+        // Should be `Raw<AnySyncMessageLikeEvent>` but we don't want to deserialise the full
+        // event.
+        #[allow(unused)]
+        #[serde(borrow)]
+        latest_event: &'a RawValue,
+        #[allow(unused)]
+        count: UInt,
+        #[allow(unused)]
+        current_user_participated: bool,
     }
 
-    #[derive(Deserialize)]
-    struct Relations {
-        #[serde(rename = "m.thread")]
-        thread: Option<BundledThread>,
-    }
+    extract_thread_relation::<LightBundledThread<'_>>(event).is_some()
+}
 
-    match event.get_field::<Unsigned>("unsigned") {
-        Ok(Some(Unsigned { relations: Some(Relations { thread: Some(bundled_thread) }) })) => {
-            Some(bundled_thread)
-        }
+fn extract_thread_relation<'de, O>(event: &'de Raw<AnySyncTimelineEvent>) -> Option<O>
+where
+    O: Deserialize<'de>,
+{
+    match event.get_field::<UnsignedRelations<ThreadRelation<O>>>("unsigned") {
+        Ok(Some(UnsignedRelations {
+            relations: Some(ThreadRelation { thread: Some(bundled_thread) }),
+        })) => Some(bundled_thread),
         Ok(_) | Err(_) => None,
     }
 }
@@ -145,13 +178,15 @@ pub fn extract_timestamp(
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Not;
+
     use assert_matches::assert_matches;
     use ruma::{UInt, event_id, owned_event_id};
     use serde_json::json;
 
     use super::{
-        MilliSecondsSinceUnixEpoch, Raw, RelationType, extract_bundled_thread, extract_relation,
-        extract_thread_root, extract_timestamp,
+        MilliSecondsSinceUnixEpoch, Raw, RelationType, extract_bundled_thread,
+        extract_is_thread_root, extract_relation, extract_thread_root, extract_timestamp,
     };
 
     #[test]
@@ -244,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_bundled_thread() {
+    fn test_extract_bundled_thread_and_is_thread_root() {
         // When there's a bundled thread summary, we can extract it.
         let event = Raw::new(&json!({
             "event_id": "$eid:example.com",
@@ -276,6 +311,7 @@ mod tests {
         .cast_unchecked();
 
         assert!(extract_bundled_thread(&event).is_some());
+        assert!(extract_is_thread_root(&event));
 
         // When there's not a bundled thread summary, we can assert it with
         // certainty.
@@ -289,6 +325,7 @@ mod tests {
         .cast_unchecked();
 
         assert!(extract_bundled_thread(&event).is_none());
+        assert!(extract_is_thread_root(&event).not());
 
         // When there's a bundled replace, we can assert there's no thread
         // summary.
@@ -319,8 +356,10 @@ mod tests {
         .cast_unchecked();
 
         assert!(extract_bundled_thread(&event).is_none());
+        assert!(extract_is_thread_root(&event).not());
 
-        // When the bundled thread summary is malformed, we return `None`.
+        // When the bundled thread summary is malformed, we return `None` for the
+        // `extract_bundled_thread` and `false` for `extract_is_thread_root`.
         let event = Raw::new(&json!({
             "event_id": "$eid:example.com",
             "type": "m.room.message",
@@ -338,6 +377,7 @@ mod tests {
         .cast_unchecked();
 
         assert!(extract_bundled_thread(&event).is_none());
+        assert!(extract_is_thread_root(&event).not());
     }
 
     #[test]
