@@ -67,7 +67,7 @@ impl TryFrom<TimelineFocus> for matrix_sdk_ui::timeline::TimelineFocus {
                     }
                 })?;
 
-                Ok(Self::Thread { root_event_id: parsed_root_event_id })
+                Ok(Self::Thread { thread_id: parsed_root_event_id })
             }
             TimelineFocus::PinnedEvents => Ok(Self::PinnedEvents),
         }

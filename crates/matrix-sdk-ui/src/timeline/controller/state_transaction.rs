@@ -624,11 +624,11 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 thread_root.is_none() || !hide_threaded_events
             }
 
-            TimelineFocusKind::Thread { root_event_id, .. } => {
+            TimelineFocusKind::Thread { thread_id, .. } => {
                 // Add new items only for the thread root and the thread
                 // replies.
-                event.event_id() == root_event_id
-                    || thread_root.as_ref().is_some_and(|r| r == root_event_id)
+                event.event_id() == thread_id
+                    || thread_root.as_ref().is_some_and(|r| r == thread_id)
             }
         }
     }

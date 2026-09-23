@@ -917,7 +917,7 @@ async fn test_send_single_receipt_threaded() {
 
     let timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id.to_owned() })
+        .with_focus(TimelineFocus::Thread { thread_id: thread_root_event_id.to_owned() })
         .build()
         .await
         .unwrap();
