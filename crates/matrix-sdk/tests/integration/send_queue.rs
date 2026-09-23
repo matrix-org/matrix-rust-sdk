@@ -551,6 +551,133 @@ async fn test_smoke_raw() {
     assert!(watch.is_empty());
 }
 
+#[cfg(feature = "unstable-msc4354")]
+#[async_test]
+async fn test_send_sticky() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // A typed event, sticky for five minutes.
+    mock.mock_room_send()
+        .body_matches_partial_json(json!({ "body": "typed" }))
+        .with_sticky_duration(Duration::from_secs(300))
+        .ok(event_id!("$typed"))
+        .mock_once()
+        .mount()
+        .await;
+
+    q.send(RoomMessageEventContent::text_plain("typed").into())
+        .with_sticky_duration(Duration::from_secs(300))
+        .await
+        .unwrap();
+
+    let (txn, _) = assert_update!((global_watch, watch) => local echo { body = "typed" });
+    assert_update!((global_watch, watch) => sent { txn = txn, event_id = event_id!("$typed") });
+
+    // A raw event, sticky for a minute.
+    mock.mock_room_send()
+        .for_type("m.rtc.member".into())
+        .with_sticky_duration(Duration::from_secs(60))
+        .ok(event_id!("$raw"))
+        .mock_once()
+        .mount()
+        .await;
+
+    let raw = Raw::from_json_string(r#"{"msc4354_sticky_key": "laptop"}"#.to_owned()).unwrap();
+    q.send_raw(raw, "m.rtc.member".to_owned())
+        .with_sticky_duration(Duration::from_secs(60))
+        .await
+        .unwrap();
+
+    assert_let!(
+        Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho { transaction_id: txn, .. }))) =
+            timeout(Duration::from_secs(1), watch.recv()).await
+    );
+    assert_matches!(
+        global_watch.recv().await,
+        Ok(SendQueueUpdate { update: RoomSendQueueUpdate::NewLocalEvent(_), .. })
+    );
+    assert_update!((global_watch, watch) => sent { txn = txn, event_id = event_id!("$raw") });
+
+    // An event that isn't marked sticky.
+    mock.mock_room_send()
+        .body_matches_partial_json(json!({ "body": "regular" }))
+        .without_sticky_duration()
+        .ok(event_id!("$regular"))
+        .mock_once()
+        .mount()
+        .await;
+
+    q.send(RoomMessageEventContent::text_plain("regular").into()).await.unwrap();
+
+    let (txn, _) = assert_update!((global_watch, watch) => local echo { body = "regular" });
+    assert_update!((global_watch, watch) => sent { txn = txn, event_id = event_id!("$regular") });
+
+    assert!(watch.is_empty());
+}
+
+#[cfg(feature = "unstable-msc4354")]
+#[async_test]
+async fn test_editing_a_sticky_event_keeps_it_sticky() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // Only the edited content may reach the server, and it must still be
+    // sticky.
+    mock.mock_room_send()
+        .body_matches_partial_json(json!({ "body": "edited" }))
+        .with_sticky_duration(Duration::from_secs(300))
+        .ok(event_id!("$edited"))
+        .mock_once()
+        .mount()
+        .await;
+
+    // Hold the queue back, so that the edit applies to the local echo rather
+    // than becoming an edit event of its own.
+    client.send_queue().set_enabled(false).await;
+
+    let handle = q
+        .send(RoomMessageEventContent::text_plain("original").into())
+        .with_sticky_duration(Duration::from_secs(300))
+        .await
+        .unwrap();
+    let (txn, _) = assert_update!((global_watch, watch) => local echo { body = "original" });
+
+    assert!(handle.edit(RoomMessageEventContent::text_plain("edited").into()).await.unwrap());
+    assert_update!((global_watch, watch) => edit { body = "edited", txn = txn });
+
+    client.send_queue().set_enabled(true).await;
+
+    assert_update!((global_watch, watch) => sent { txn = txn, event_id = event_id!("$edited") });
+    assert!(watch.is_empty());
+}
+
 #[async_test]
 async fn test_error_then_locally_reenabling() {
     let mock = MatrixMockServer::new().await;

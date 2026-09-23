@@ -166,6 +166,8 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::{boxed_into_future, locks::Mutex as SyncMutex};
 use mime::Mime;
+#[cfg(feature = "unstable-msc4354")]
+use ruma::events::sticky::StickyDurationMs;
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
     TransactionId,
@@ -183,6 +185,8 @@ use ruma::{
 use tokio::sync::{Mutex, Notify, OwnedMutexGuard, broadcast, oneshot};
 use tracing::{debug, error, info, instrument, trace, warn};
 
+#[cfg(feature = "unstable-msc4354")]
+use crate::utils::sticky_duration_ms;
 use crate::{
     Client, Media, Room, TransmissionProgress,
     client::WeakClient,
@@ -536,6 +540,8 @@ impl RoomSendQueue {
         SendRawEvent {
             queue: self,
             content: SerializableEventContent::from_raw(content, event_type),
+            #[cfg(feature = "unstable-msc4354")]
+            sticky_duration: None,
         }
     }
 
@@ -543,6 +549,7 @@ impl RoomSendQueue {
     async fn send_serialized(
         &self,
         content: SerializableEventContent,
+        #[cfg(feature = "unstable-msc4354")] sticky_duration: Option<StickyDurationMs>,
     ) -> Result<SendHandle, RoomSendQueueError> {
         let Some(room) = self.inner.room.get() else {
             return Err(RoomSendQueueError::RoomDisappeared);
@@ -551,8 +558,14 @@ impl RoomSendQueue {
             return Err(RoomSendQueueError::RoomNotJoined);
         }
 
+        let request = QueuedRequestKind::Event {
+            content: content.clone(),
+            #[cfg(feature = "unstable-msc4354")]
+            sticky_duration,
+        };
+
         let created_at = MilliSecondsSinceUnixEpoch::now();
-        let transaction_id = self.inner.queue.push(content.clone().into(), created_at).await?;
+        let transaction_id = self.inner.queue.push(request, created_at).await?;
         trace!(%transaction_id, "manager sends a raw event to the background task");
 
         self.inner.notifier.notify_one();
@@ -591,7 +604,13 @@ impl RoomSendQueue {
     /// re-enabled by the caller (e.g. after network is back, or when something
     /// has been done about the faulty requests).
     pub fn send(&self, content: AnyMessageLikeEventContent) -> SendEvent<'_> {
-        SendEvent { queue: self, content, extra_content: None }
+        SendEvent {
+            queue: self,
+            content,
+            extra_content: None,
+            #[cfg(feature = "unstable-msc4354")]
+            sticky_duration: None,
+        }
     }
 
     /// Queues a redaction of another event for sending it to this room.
@@ -1108,14 +1127,27 @@ impl RoomSendQueue {
         progress: Option<SharedObservable<TransmissionProgress>>,
     ) -> Result<(Option<SentRequestKey>, Option<EncryptionInfo>), crate::Error> {
         match request.kind {
-            QueuedRequestKind::Event { content } => {
+            QueuedRequestKind::Event {
+                content,
+                #[cfg(feature = "unstable-msc4354")]
+                sticky_duration,
+            } => {
                 let (event, event_type) = content.into_raw();
 
-                let result = room
+                let future = room
                     .send_raw(&event_type, &event)
                     .with_transaction_id(&request.transaction_id)
-                    .with_request_config(RequestConfig::short_retry())
-                    .await?;
+                    .with_request_config(RequestConfig::short_retry());
+
+                #[cfg(feature = "unstable-msc4354")]
+                let future = match sticky_duration {
+                    Some(duration) => {
+                        future.with_sticky_duration(Duration::from_millis(duration.get().into()))
+                    }
+                    None => future,
+                };
+
+                let result = future.await?;
 
                 trace!(txn_id = %request.transaction_id, event_id = %result.response.event_id, "event successfully sent");
 
@@ -1726,13 +1758,40 @@ impl QueueStorage {
             return Ok(true);
         }
 
-        let edited = guard
-            .client()?
-            .state_store()
-            .update_send_queue_request(&self.room_id, transaction_id, serializable.into())
-            .await?;
+        let client = guard.client()?;
+        let store = client.state_store();
+
+        let request = QueuedRequestKind::Event {
+            content: serializable,
+            #[cfg(feature = "unstable-msc4354")]
+            sticky_duration: self.sticky_duration_of(store, transaction_id).await?,
+        };
+
+        let edited =
+            store.update_send_queue_request(&self.room_id, transaction_id, request).await?;
 
         Ok(edited)
+    }
+
+    /// The sticky duration of the queued event `transaction_id`, if it is
+    /// queued and sticky.
+    #[cfg(feature = "unstable-msc4354")]
+    async fn sticky_duration_of(
+        &self,
+        store: &DynStateStore,
+        transaction_id: &TransactionId,
+    ) -> Result<Option<StickyDurationMs>, RoomSendQueueStorageError> {
+        let sticky_duration = store
+            .load_send_queue_requests(&self.room_id)
+            .await?
+            .into_iter()
+            .find(|request| request.transaction_id == *transaction_id)
+            .and_then(|request| match request.kind {
+                QueuedRequestKind::Event { sticky_duration, .. } => sticky_duration,
+                _ => None,
+            });
+
+        Ok(sticky_duration)
     }
 
     /// Push requests (and dependents) to upload a media.
@@ -2080,7 +2139,7 @@ impl QueueStorage {
             Some(LocalEcho {
                 transaction_id: queued.transaction_id.clone(),
                 content: match queued.kind {
-                    QueuedRequestKind::Event { content } => LocalEchoContent::Event {
+                    QueuedRequestKind::Event { content, .. } => LocalEchoContent::Event {
                         serialized_event: content,
                         send_handle: SendHandle {
                             room: room.clone(),
@@ -2325,12 +2384,18 @@ impl QueueStorage {
                         .map_err(RoomSendQueueStorageError::StateStoreError)?;
                 } else {
                     // The parent event is still local; update the local echo.
+                    let parent_transaction_id = &dependent_request.parent_transaction_id;
+
+                    let request = QueuedRequestKind::Event {
+                        content: new_content,
+                        #[cfg(feature = "unstable-msc4354")]
+                        sticky_duration: self
+                            .sticky_duration_of(store, parent_transaction_id)
+                            .await?,
+                    };
+
                     let edited = store
-                        .update_send_queue_request(
-                            &self.room_id,
-                            &dependent_request.parent_transaction_id,
-                            new_content.into(),
-                        )
+                        .update_send_queue_request(&self.room_id, parent_transaction_id, request)
                         .await
                         .map_err(RoomSendQueueStorageError::StateStoreError)?;
 
@@ -2825,6 +2890,8 @@ pub struct SendEvent<'a> {
     queue: &'a RoomSendQueue,
     content: AnyMessageLikeEventContent,
     extra_content: Option<serde_json::Map<String, serde_json::Value>>,
+    #[cfg(feature = "unstable-msc4354")]
+    sticky_duration: Option<StickyDurationMs>,
 }
 
 impl<'a> SendEvent<'a> {
@@ -2836,6 +2903,17 @@ impl<'a> SendEvent<'a> {
         extra_content: serde_json::Map<String, serde_json::Value>,
     ) -> Self {
         self.extra_content = Some(extra_content);
+        self
+    }
+
+    /// Send the event as a sticky event for `duration`, clamped to one hour.
+    ///
+    /// Note that if the homeserver doesn't support sticky events, it will
+    /// ignore the duration and send the event unsticky. Server support can
+    /// be checked with [`Client::supports_sticky_events`].
+    #[cfg(feature = "unstable-msc4354")]
+    pub fn with_sticky_duration(mut self, duration: Duration) -> Self {
+        self.sticky_duration = Some(sticky_duration_ms(duration));
         self
     }
 }
@@ -2851,7 +2929,13 @@ impl<'a> IntoFuture for SendEvent<'a> {
                     .map_err(RoomSendQueueStorageError::JsonSerialization)?,
                 self.extra_content,
             )?;
-            self.queue.send_serialized(serialized).await
+            self.queue
+                .send_serialized(
+                    serialized,
+                    #[cfg(feature = "unstable-msc4354")]
+                    self.sticky_duration,
+                )
+                .await
         })
     }
 }
@@ -2861,6 +2945,21 @@ impl<'a> IntoFuture for SendEvent<'a> {
 pub struct SendRawEvent<'a> {
     queue: &'a RoomSendQueue,
     content: SerializableEventContent,
+    #[cfg(feature = "unstable-msc4354")]
+    sticky_duration: Option<StickyDurationMs>,
+}
+
+impl SendRawEvent<'_> {
+    /// Send the event as a sticky event for `duration`, clamped to one hour.
+    ///
+    /// Note that if the homeserver doesn't support sticky events, it will
+    /// ignore the duration and send the event unsticky. Server support can
+    /// be checked with [`Client::supports_sticky_events`].
+    #[cfg(feature = "unstable-msc4354")]
+    pub fn with_sticky_duration(mut self, duration: Duration) -> Self {
+        self.sticky_duration = Some(sticky_duration_ms(duration));
+        self
+    }
 }
 
 impl<'a> IntoFuture for SendRawEvent<'a> {
@@ -2868,7 +2967,15 @@ impl<'a> IntoFuture for SendRawEvent<'a> {
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        Box::pin(async move { self.queue.send_serialized(self.content).await })
+        Box::pin(async move {
+            self.queue
+                .send_serialized(
+                    self.content,
+                    #[cfg(feature = "unstable-msc4354")]
+                    self.sticky_duration,
+                )
+                .await
+        })
     }
 }
 
