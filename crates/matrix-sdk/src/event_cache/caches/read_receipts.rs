@@ -206,12 +206,14 @@ trait ReadReceiptsExt {
     fn reset(&mut self);
 
     /// Try to find the event to which the receipt attaches to, and if found,
-    /// will update the notification count in the room.
+    /// will update the notification count in the room with the following
+    /// events matching `should_count`.
     fn find_and_process_events<'a>(
         &mut self,
         receipt_event_id: &EventId,
         user_id: &UserId,
         events: impl Iterator<Item = &'a TimelineEvent>,
+        should_count: impl Fn(&TimelineEvent) -> bool,
     ) -> bool;
 }
 
@@ -259,6 +261,7 @@ impl ReadReceiptsExt for ReadReceipts {
         receipt_event_id: &EventId,
         user_id: &UserId,
         events: impl Iterator<Item = &'a TimelineEvent>,
+        should_count: impl Fn(&TimelineEvent) -> bool,
     ) -> bool {
         let mut counting_receipts = false;
 
@@ -276,7 +279,7 @@ impl ReadReceiptsExt for ReadReceipts {
                 continue;
             }
 
-            if counting_receipts {
+            if counting_receipts && should_count(event) {
                 self.process_event(event, user_id);
             }
         }
@@ -491,9 +494,11 @@ where
 
     let mut receipt = None;
 
-    for (event, event_id) in linked_chunk.revents().filter_map(|(_pos, event)| {
-        event_filter.filter(event).then_some((event, event.event_id()?))
-    }) {
+    // Don't filter here: clients without thread support send unthreaded
+    // receipts, which may point to in-thread events.
+    for (event, event_id) in
+        linked_chunk.revents().filter_map(|(_pos, event)| Some((event, event.event_id()?)))
+    {
         if receipt.is_none() {
             // Try to see if the latest active receipt is still the most recent
             // receipt.
@@ -504,8 +509,8 @@ where
                 receipt = Some(event_id.to_owned());
             }
             // Try to find an implicit read receipt (i.e. an event sent by the
-            // current user).
-            else if event.sender().as_deref() == Some(user_id) {
+            // current user). Sending an in-thread event doesn't read the room.
+            else if event_filter.filter(event) && event.sender().as_deref() == Some(user_id) {
                 trace!(implicit = %event_id, "found an implicit receipt; stopping search");
                 receipt = Some(event_id.to_owned());
             }
@@ -622,13 +627,13 @@ pub(crate) async fn compute_unread_counts<T>(
         read_receipts.latest_active = Some(LatestReadReceipt { event_id: event_id.clone() });
 
         // The event for the receipt is in the linked chunk, so we'll find it
-        // and can count safely from here.
+        // and can count safely from here. The receipt may point to a
+        // filtered-out event, so only filter the counted events.
         read_receipts.find_and_process_events(
             &event_id,
             user_id,
-            linked_chunk
-                .events()
-                .filter_map(|(_pos, event)| event_filter.filter(event).then_some(event)),
+            linked_chunk.events().map(|(_pos, event)| event),
+            |event| event_filter.filter(event),
         );
 
         debug!(?read_receipts, "after finding a better receipt");
@@ -765,7 +770,7 @@ mod tests {
 
     use matrix_sdk_base::{read_receipts::ReadReceipts, store::MemoryStore};
     use matrix_sdk_common::{deserialized_responses::TimelineEvent, ring_buffer::RingBuffer};
-    use matrix_sdk_test::{ALICE, event_factory::EventFactory};
+    use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
     use ruma::{
         EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId, event_id,
         events::{
@@ -779,7 +784,8 @@ mod tests {
 
     use super::{
         EventFilter, MaybeReceiptEventContent, ReadReceiptsExt as _, Receipts,
-        RoomReadReceiptEventFilter, marks_as_unread, select_best_receipt, stop_on_event_ids,
+        RoomReadReceiptEventFilter, compute_unread_counts, marks_as_unread, select_best_receipt,
+        stop_on_event_ids,
     };
     use crate::event_cache::caches::{
         event_linked_chunk::EventLinkedChunk, pagination::BackPaginationOutcome,
@@ -974,7 +980,7 @@ mod tests {
         // When provided with no events, we report not finding the event to
         // which the receipt relates.
         let mut receipts = ReadReceipts::default();
-        assert!(receipts.find_and_process_events(ev0, user_id, [].iter()).not());
+        assert!(receipts.find_and_process_events(ev0, user_id, [].iter(), |_| true).not());
         assert_eq!(receipts.num_unread, 0);
         assert_eq!(receipts.num_notifications, 0);
         assert_eq!(receipts.num_mentions, 0);
@@ -997,7 +1003,9 @@ mod tests {
         };
         assert!(
             receipts
-                .find_and_process_events(ev0, user_id, [make_event(event_id!("$1"))].iter())
+                .find_and_process_events(ev0, user_id, [make_event(event_id!("$1"))].iter(), |_| {
+                    true
+                })
                 .not()
         );
         assert_eq!(receipts.num_unread, 42);
@@ -1013,7 +1021,7 @@ mod tests {
             num_mentions: 37,
             ..Default::default()
         };
-        assert!(receipts.find_and_process_events(ev0, user_id, [make_event(ev0)].iter()));
+        assert!(receipts.find_and_process_events(ev0, user_id, [make_event(ev0)].iter(), |_| true));
         assert_eq!(receipts.num_unread, 0);
         assert_eq!(receipts.num_notifications, 0);
         assert_eq!(receipts.num_mentions, 0);
@@ -1037,6 +1045,7 @@ mod tests {
                         make_event(event_id!("$3"))
                     ]
                     .iter(),
+                    |_| true,
                 )
                 .not()
         );
@@ -1063,6 +1072,7 @@ mod tests {
                     make_event(event_id!("$3"))
                 ]
                 .iter(),
+                |_| true,
             )
         );
         assert_eq!(receipts.num_unread, 2);
@@ -1089,6 +1099,7 @@ mod tests {
                     make_event(event_id!("$3"))
                 ]
                 .iter(),
+                |_| true,
             )
         );
         assert_eq!(receipts.num_unread, 2);
@@ -1159,6 +1170,53 @@ mod tests {
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 0);
         assert_eq!(receipts.num_notifications, 0);
+    }
+
+    /// Clients without thread support send unthreaded receipts on in-thread
+    /// events.
+    #[async_test]
+    async fn test_unthreaded_receipt_on_an_in_thread_event() {
+        let room_id = room_id!("!roomid:example.org");
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let own_user_id = user_id!("@not_alice:example.org");
+
+        let mut linked_chunk = EventLinkedChunk::new();
+        linked_chunk.push_events(vec![
+            f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
+            f.text_msg("Event 2").event_id(event_id!("$2")).into_event(),
+            f.text_msg("In thread")
+                .in_thread(event_id!("$1"), event_id!("$1"))
+                .event_id(event_id!("$thread"))
+                .into_event(),
+            f.text_msg("Event 3").event_id(event_id!("$3")).into_event(),
+        ]);
+
+        let receipt_event = f
+            .read_receipts()
+            .add(event_id!("$thread"), own_user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+            .into_content();
+
+        let state_store = MemoryStore::new();
+        let event_filter = RoomReadReceiptEventFilter {
+            room_id,
+            with_threading_support: true,
+            state_store: &state_store,
+        };
+
+        let mut receipts = ReadReceipts::default();
+        compute_unread_counts(
+            own_user_id,
+            Some(&receipt_event),
+            &linked_chunk,
+            &event_filter,
+            &mut receipts,
+            None,
+        )
+        .await;
+
+        assert_eq!(receipts.latest_active.unwrap().event_id, "$thread");
+        assert_eq!(receipts.num_unread, 1);
+        assert!(receipts.pending.is_empty());
     }
 
     #[test]
