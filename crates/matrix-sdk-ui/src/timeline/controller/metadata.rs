@@ -18,7 +18,7 @@ use std::{
 };
 
 use imbl::Vector;
-use matrix_sdk::deserialized_responses::EncryptionInfo;
+use matrix_sdk::{deserialized_responses::EncryptionInfo, event_cache::EventCache};
 use ruma::{
     EventId, OwnedEventId, OwnedUserId, UserId,
     events::{
@@ -67,6 +67,15 @@ pub(in crate::timeline) struct TimelineMetadata {
     ///
     /// This value is constant over the lifetime of the metadata.
     internal_id_prefix: Option<String>,
+
+    /// The [`EventCache`] instance.
+    ///
+    /// If you want to access the cache tied to a particular timeline, look
+    /// inside [`TimelineFocusKind`]. Otherwise, if you need to access a method
+    /// global to all caches, you can use this value.
+    ///
+    /// [`TimelineFocusKind`]: super::TimelineFocusKind
+    pub(super) event_cache: EventCache,
 
     /// The `count` value for the `Skip` higher-order stream used by the
     /// `TimelineSubscriber`. See its documentation to learn more.
@@ -149,6 +158,7 @@ pub(in crate::timeline) struct TimelineMetadata {
 
 impl TimelineMetadata {
     pub(in crate::timeline) fn new(
+        event_cache: EventCache,
         own_user_id: OwnedUserId,
         room_version_rules: RoomVersionRules,
         internal_id_prefix: Option<String>,
@@ -156,6 +166,7 @@ impl TimelineMetadata {
         is_room_encrypted: bool,
     ) -> Self {
         Self {
+            event_cache,
             subscriber_skip_count: SkipCount::new(),
             own_user_id,
             next_internal_id: Default::default(),

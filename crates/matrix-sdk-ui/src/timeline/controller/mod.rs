@@ -456,6 +456,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
         let focus = Arc::new(focus);
         let state = Arc::new(RwLock::new(TimelineState::new(
+            event_cache.clone(),
             focus.clone(),
             room_data_provider.own_user_id().to_owned(),
             room_data_provider.room_version_rules(),

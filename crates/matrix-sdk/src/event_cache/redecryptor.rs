@@ -571,7 +571,7 @@ impl EventCache {
             {
                 let new_thread_summary = thread_cache.update_thread_summary().await?;
 
-                all_caches.room.update_thread_summary(&thread_id, new_thread_summary).await?;
+                all_caches.room.update_thread_summary(&thread_id, new_thread_summary)?;
             }
         }
 

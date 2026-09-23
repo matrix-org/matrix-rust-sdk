@@ -24,7 +24,7 @@
 //! This avoids potential race conditions where a sync could be done, but the
 //! processing by the event cache isn't, at the time we check the unread counts.
 
-use std::time::Duration;
+use std::{ops::Not, time::Duration};
 
 use matrix_sdk::{assert_let_timeout, sleep::sleep, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
@@ -260,7 +260,11 @@ async fn test_unread_count_receipt_only_no_new_message() {
         )
         .await;
 
-    assert_let_timeout!(Ok(_) = thread_updates.recv());
+    // Wait for all updates to come.
+    while thread_updates.is_empty().not() {
+        assert_let_timeout!(Ok(_) = thread_updates.recv());
+        sleep(Duration::from_millis(500)).await;
+    }
 
     // Only ev3 (after the receipt) is unread now.
     assert_eq!(thread.num_unread_messages().await.unwrap(), 1);
@@ -412,7 +416,11 @@ async fn test_unread_count_accumulates_across_syncs() {
         )
         .await;
 
-    assert_let_timeout!(Ok(_) = thread_updates.recv());
+    // Wait for all updates to come.
+    while thread_updates.is_empty().not() {
+        assert_let_timeout!(Ok(_) = thread_updates.recv());
+        sleep(Duration::from_millis(500)).await;
+    }
 
     // Three messages are now unread in total.
     assert_eq!(thread.num_unread_messages().await.unwrap(), 3);
@@ -701,7 +709,11 @@ async fn test_unread_counts_updated_after_duplicate_only_sync_response() {
         )
         .await;
 
-    assert_let_timeout!(Ok(_) = thread_updates.recv());
+    // Wait for all updates to come.
+    while thread_updates.is_empty().not() {
+        assert_let_timeout!(Ok(_) = thread_updates.recv());
+        sleep(Duration::from_millis(500)).await;
+    }
 
     // The message counts are properly updated (zero new message unread after
     // $2).
