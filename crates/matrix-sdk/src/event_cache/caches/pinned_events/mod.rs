@@ -28,7 +28,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
     events::{relation::RelationType, room::redaction::SyncRoomRedactionEvent},
     room_version_rules::RoomVersionRules,
 };
@@ -491,6 +491,11 @@ impl PinnedEventsCache {
             .abort_on_drop();
 
         Ok(Self { inner, _task: Arc::new(task) })
+    }
+
+    /// Get the room ID of this cache.
+    pub fn room_id(&self) -> &RoomId {
+        &self.inner.room_id
     }
 
     /// Return a reference to the state.
