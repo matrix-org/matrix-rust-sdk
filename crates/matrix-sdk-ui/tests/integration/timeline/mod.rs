@@ -84,7 +84,7 @@ async fn test_timeline_is_threaded() {
     {
         // A thread timeline is threaded.
         let timeline = TimelineBuilder::new(&room)
-            .with_focus(TimelineFocus::Thread { root_event_id: owned_event_id!("$thread_root") })
+            .with_focus(TimelineFocus::Thread { thread_id: owned_event_id!("$thread_root") })
             .build()
             .await
             .unwrap();

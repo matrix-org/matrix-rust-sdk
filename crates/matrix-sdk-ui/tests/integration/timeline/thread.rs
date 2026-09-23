@@ -76,7 +76,7 @@ async fn test_new_empty_thread() {
     let room = server.sync_joined_room(&client, room_id).await;
 
     let timeline = TimelineBuilder::new(&room)
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id })
+        .with_focus(TimelineFocus::Thread { thread_id: thread_root_event_id })
         .build()
         .await
         .unwrap();
@@ -158,7 +158,7 @@ async fn test_thread_backpagination() {
     let room = server.sync_joined_room(&client, room_id).await;
 
     let timeline = TimelineBuilder::new(&room)
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id.clone() })
+        .with_focus(TimelineFocus::Thread { thread_id: thread_root_event_id.clone() })
         .build()
         .await
         .unwrap();
@@ -883,7 +883,7 @@ async fn test_thread_filtering_for_sync() {
 
     let thread_timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id.clone() })
+        .with_focus(TimelineFocus::Thread { thread_id: thread_root_event_id.clone() })
         .build()
         .await
         .unwrap();
@@ -1030,7 +1030,7 @@ async fn test_thread_timeline_gets_related_events_from_sync() {
 
     let timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id.clone() })
+        .with_focus(TimelineFocus::Thread { thread_id: thread_root_event_id.clone() })
         .build()
         .await
         .unwrap();
@@ -1090,7 +1090,7 @@ async fn test_thread_timeline_gets_related_events_from_sync() {
     // event.
     let other_timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id })
+        .with_focus(TimelineFocus::Thread { thread_id: thread_root_event_id })
         .build()
         .await
         .unwrap();
@@ -1124,7 +1124,7 @@ async fn test_thread_timeline_gets_local_echoes() {
 
     let timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id.clone() })
+        .with_focus(TimelineFocus::Thread { thread_id: thread_root_event_id.clone() })
         .build()
         .await
         .unwrap();
@@ -1261,7 +1261,7 @@ async fn test_thread_timeline_can_send_edit() {
 
     let timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id.clone() })
+        .with_focus(TimelineFocus::Thread { thread_id: thread_root_event_id.clone() })
         .build()
         .await
         .unwrap();
@@ -1345,7 +1345,7 @@ async fn test_send_sticker_thread() {
 
     let timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id.clone() })
+        .with_focus(TimelineFocus::Thread { thread_id: thread_root_event_id.clone() })
         .build()
         .await
         .unwrap();
@@ -1423,7 +1423,7 @@ async fn test_send_poll_thread() {
 
     let timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id.clone() })
+        .with_focus(TimelineFocus::Thread { thread_id: thread_root_event_id.clone() })
         .build()
         .await
         .unwrap();
@@ -1511,7 +1511,7 @@ async fn test_sending_read_receipt_with_no_events_doesnt_unset_read_flag() {
     // Create a threaded timeline, with no events in it.
     let timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id.clone() })
+        .with_focus(TimelineFocus::Thread { thread_id: thread_root_event_id.clone() })
         .build()
         .await
         .unwrap();
@@ -1546,7 +1546,7 @@ async fn test_read_receipts() {
     // Create a threaded timeline, with no events in it.
     let timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root.clone() })
+        .with_focus(TimelineFocus::Thread { thread_id: thread_root.clone() })
         .build()
         .await
         .unwrap();
@@ -1708,7 +1708,7 @@ async fn test_initial_read_receipts_are_correctly_populated() {
     // Create a threaded timeline.
     let timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root.clone() })
+        .with_focus(TimelineFocus::Thread { thread_id: thread_root.clone() })
         .build()
         .await
         .unwrap();
@@ -1868,7 +1868,7 @@ async fn test_send_read_receipts() {
     // Create a threaded timeline.
     let timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root.clone() })
+        .with_focus(TimelineFocus::Thread { thread_id: thread_root.clone() })
         .build()
         .await
         .unwrap();
@@ -2042,7 +2042,7 @@ async fn test_send_read_receipt_moves_real_receipt_forward() {
 
     let timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root.clone() })
+        .with_focus(TimelineFocus::Thread { thread_id: thread_root.clone() })
         .build()
         .await
         .unwrap();
@@ -2108,7 +2108,7 @@ async fn test_send_read_receipt_with_only_own_events_is_a_no_op() {
 
     let timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root.clone() })
+        .with_focus(TimelineFocus::Thread { thread_id: thread_root.clone() })
         .build()
         .await
         .unwrap();
@@ -2229,7 +2229,7 @@ async fn test_redacted_replied_to_is_updated() {
     let room = server.sync_joined_room(&client, room_id).await;
 
     let timeline = TimelineBuilder::new(&room)
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root.to_owned() })
+        .with_focus(TimelineFocus::Thread { thread_id: thread_root.to_owned() })
         .build()
         .await
         .unwrap();

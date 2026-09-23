@@ -122,7 +122,7 @@ async fn test_send_attachment_from_file() -> TestResult {
     // Queue sending of an attachment in the thread.
     let thread_timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: event_id.to_owned() })
+        .with_focus(TimelineFocus::Thread { thread_id: event_id.to_owned() })
         .build()
         .await?;
     let config = AttachmentConfig {
