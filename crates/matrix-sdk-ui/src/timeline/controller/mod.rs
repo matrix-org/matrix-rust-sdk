@@ -39,7 +39,7 @@ use matrix_sdk::{
     task_monitor::BackgroundTaskHandle,
 };
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
     TransactionId, UserId,
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     events::{
@@ -168,6 +168,15 @@ pub(in crate::timeline) enum TimelineFocusKind {
 }
 
 impl TimelineFocusKind {
+    /// Get the room ID of this timeline.
+    pub(super) fn room_id(&self) -> &RoomId {
+        match self {
+            TimelineFocusKind::Live { event_cache, .. } => event_cache.room_id(),
+            TimelineFocusKind::Thread { event_cache, .. } => event_cache.room_id(),
+            TimelineFocusKind::Event { event_cache, .. } => event_cache.room_id(),
+            TimelineFocusKind::PinnedEvents { event_cache } => event_cache.room_id(),
+        }
+    }
     /// Returns the [`ReceiptThread`] that should be used for the current
     /// timeline focus.
     ///

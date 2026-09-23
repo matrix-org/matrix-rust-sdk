@@ -38,7 +38,7 @@ use matrix_sdk_base::{
     linked_chunk::OwnedLinkedChunkId,
 };
 use matrix_sdk_common::{linked_chunk::ChunkIdentifier, serde_helpers::extract_thread_root};
-use ruma::{OwnedEventId, UInt, api::Direction};
+use ruma::{OwnedEventId, OwnedRoomId, RoomId, UInt, api::Direction};
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{instrument, trace};
 
@@ -567,6 +567,7 @@ impl EventFocusedCacheState {
 /// This is a shallow data structure, and can be cloned cheaply.
 #[derive(Clone)]
 pub struct EventFocusedCache {
+    room_id: OwnedRoomId,
     inner: Arc<CacheStateLock<EventFocusedStateSelector>>,
 }
 
@@ -578,9 +579,11 @@ impl EventFocusedCache {
         state: &StateLock,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
     ) -> Result<Self> {
+        let room_id = room.room_id().to_owned();
+
         let cache_state = state
             .try_insert_once_with(
-                EventFocusedStateSelector::new(room.room_id().to_owned(), key.clone()),
+                EventFocusedStateSelector::new(room_id.clone(), key.clone()),
                 |_store_guard| async {
                     Ok(EventFocusedCacheState {
                         room,
@@ -598,7 +601,12 @@ impl EventFocusedCache {
             )
             .await?;
 
-        Ok(Self { inner: Arc::new(cache_state) })
+        Ok(Self { room_id, inner: Arc::new(cache_state) })
+    }
+
+    /// Get the room ID of this cache.
+    pub fn room_id(&self) -> &RoomId {
+        &self.room_id
     }
 
     /// Read all current events.
