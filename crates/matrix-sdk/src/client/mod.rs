@@ -3056,6 +3056,15 @@ impl Client {
         Ok(self.unstable_features().await?.contains(&FeatureFlag::from("org.matrix.msc4028")))
     }
 
+    /// Check whether the homeserver supports sticky events.
+    ///
+    /// This is async and fallible as it may use the network to retrieve the
+    /// server supported features, if they aren't cached already.
+    #[cfg(feature = "unstable-msc4354")]
+    pub async fn supports_sticky_events(&self) -> HttpResult<bool> {
+        Ok(self.unstable_features().await?.contains(&FeatureFlag::from("org.matrix.msc4354")))
+    }
+
     /// Get information of all our own devices.
     ///
     /// # Examples
@@ -4610,6 +4619,26 @@ pub(crate) mod tests {
 
         let msc4028_enabled = client.can_homeserver_push_encrypted_event_to_device().await.unwrap();
         assert!(msc4028_enabled);
+    }
+
+    #[cfg(feature = "unstable-msc4354")]
+    #[async_test]
+    async fn test_supports_sticky_events() {
+        // A homeserver that doesn't advertise the feature.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().no_server_versions().build().await;
+
+        server.mock_versions().ok().mock_once().mount().await;
+
+        assert!(!client.supports_sticky_events().await.unwrap());
+
+        // A homeserver that does.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().no_server_versions().build().await;
+
+        server.mock_versions().with_sticky_events().ok().mock_once().mount().await;
+
+        assert!(client.supports_sticky_events().await.unwrap());
     }
 
     #[async_test]

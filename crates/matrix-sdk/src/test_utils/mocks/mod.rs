@@ -2219,6 +2219,26 @@ impl wiremock::Match for ExpectedAccessToken {
 pub struct RoomSendEndpoint;
 
 impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
+    /// Ensures that the request marks the event as sticky (MSC4354) for
+    /// exactly `duration`.
+    pub fn with_sticky_duration(self, duration: Duration) -> Self {
+        Self {
+            mock: self.mock.and(query_param(
+                "org.matrix.msc4354.sticky_duration_ms",
+                duration.as_millis().to_string(),
+            )),
+            ..self
+        }
+    }
+
+    /// Ensures that the request does not mark the event as sticky (MSC4354).
+    pub fn without_sticky_duration(self) -> Self {
+        Self {
+            mock: self.mock.and(query_param_is_missing("org.matrix.msc4354.sticky_duration_ms")),
+            ..self
+        }
+    }
+
     /// Ensures that the body of the request is a superset of the provided
     /// `body` parameter.
     ///
@@ -3703,6 +3723,11 @@ impl<'a> MockEndpoint<'a, VersionsEndpoint> {
     /// Indicate that global profile sync is supported by this homeserver.
     pub fn with_profiles_sliding_sync_extension(self) -> Self {
         self.with_feature("org.matrix.msc4262", true)
+    }
+
+    /// Indicate that sticky events (MSC4354) are supported by this homeserver.
+    pub fn with_sticky_events(self) -> Self {
+        self.with_feature("org.matrix.msc4354", true)
     }
 
     /// Set the supported versions in the response of this endpoint.
