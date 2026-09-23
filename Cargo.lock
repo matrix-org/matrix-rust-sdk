@@ -6428,9 +6428,9 @@ dependencies = [
 
 [[package]]
 name = "strass"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9b1717d5e0d8c70cc8e82022d592d238c628c52c1ff33b1babb22df93700a73"
+checksum = "17d0028ffa58c967c3401d6f3eab15f85637772139c0fd8f0ce59dabdf69a75a"
 
 [[package]]
 name = "stream_assert"
