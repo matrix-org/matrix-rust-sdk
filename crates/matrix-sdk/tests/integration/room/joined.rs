@@ -1494,3 +1494,81 @@ async fn test_set_own_member_display_name() {
 
     room.set_own_member_display_name(Some(new_name.to_owned())).await.unwrap();
 }
+
+#[cfg(feature = "unstable-msc4354")]
+#[async_test]
+async fn test_send_sticky_event() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room = server.sync_joined_room(&client, room_id!("!room:localhost")).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    // A raw sticky event carries the duration as a query parameter.
+    server
+        .mock_room_send()
+        .for_type("m.rtc.member".into())
+        .body_matches_partial_json(json!({ "msc4354_sticky_key": "laptop" }))
+        .with_sticky_duration(Duration::from_secs(300))
+        .ok(event_id!("$sticky"))
+        .mock_once()
+        .mount()
+        .await;
+
+    let result = room
+        .send_raw(
+            "m.rtc.member",
+            json!({ "msc4354_sticky_key": "laptop", "application": "m.call" }),
+        )
+        .with_sticky_duration(Duration::from_secs(300))
+        .await
+        .unwrap();
+    assert_eq!(result.response.event_id, event_id!("$sticky"));
+
+    // So does a typed one.
+    server
+        .mock_room_send()
+        .for_type("m.room.message".into())
+        .with_sticky_duration(Duration::from_secs(60))
+        .ok(event_id!("$sticky_message"))
+        .mock_once()
+        .mount()
+        .await;
+
+    let result = room
+        .send(RoomMessageEventContent::text_plain("hello"))
+        .with_sticky_duration(Duration::from_secs(60))
+        .await
+        .unwrap();
+    assert_eq!(result.response.event_id, event_id!("$sticky_message"));
+
+    // A duration beyond what MSC4354 allows is clamped to one hour.
+    server
+        .mock_room_send()
+        .for_type("m.room.message".into())
+        .with_sticky_duration(Duration::from_secs(3600))
+        .ok(event_id!("$sticky_clamped"))
+        .mock_once()
+        .mount()
+        .await;
+
+    let result = room
+        .send(RoomMessageEventContent::text_plain("hello"))
+        .with_sticky_duration(Duration::from_secs(7200))
+        .await
+        .unwrap();
+    assert_eq!(result.response.event_id, event_id!("$sticky_clamped"));
+
+    // An event that isn't marked sticky carries no duration.
+    server
+        .mock_room_send()
+        .for_type("m.room.message".into())
+        .without_sticky_duration()
+        .ok(event_id!("$regular"))
+        .mock_once()
+        .mount()
+        .await;
+
+    let result = room.send(RoomMessageEventContent::text_plain("hello")).await.unwrap();
+    assert_eq!(result.response.event_id, event_id!("$regular"));
+}
