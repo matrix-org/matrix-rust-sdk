@@ -444,42 +444,6 @@ impl ThreadSummary {
     }
 }
 
-/// The status of a thread summary.
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
-pub enum ThreadSummaryStatus {
-    /// We don't know if the event has a thread summary.
-    #[default]
-    Unknown,
-    /// The event has no thread summary.
-    None,
-    /// The event has a thread summary, which is bundled in the event itself.
-    Some(ThreadSummary),
-}
-
-impl ThreadSummaryStatus {
-    /// Create a [`ThreadSummaryStatus`] from an optional thread summary.
-    pub fn from_opt(summary: Option<ThreadSummary>) -> Self {
-        match summary {
-            None => ThreadSummaryStatus::None,
-            Some(summary) => ThreadSummaryStatus::Some(summary),
-        }
-    }
-
-    /// Is the thread status of this event unknown?
-    fn is_unknown(&self) -> bool {
-        matches!(self, ThreadSummaryStatus::Unknown)
-    }
-
-    /// Transforms the [`ThreadSummaryStatus`] into an optional thread summary,
-    /// for cases where we don't care about distinguishing unknown and none.
-    pub fn summary(&self) -> Option<&ThreadSummary> {
-        match self {
-            ThreadSummaryStatus::Unknown | ThreadSummaryStatus::None => None,
-            ThreadSummaryStatus::Some(thread_summary) => Some(thread_summary),
-        }
-    }
-}
-
 /// Represents a matrix room event that has been returned from a Matrix
 /// client-server API endpoint such as `/sync` or `/messages`, after initial
 /// processing.
@@ -530,10 +494,6 @@ pub struct TimelineEvent {
     /// or that they could be computed but there were none.
     #[serde(skip_serializing_if = "skip_serialize_push_actions")]
     push_actions: Option<Vec<Action>>,
-
-    /// If the event is part of a thread, a thread summary.
-    #[serde(default, skip_serializing_if = "ThreadSummaryStatus::is_unknown")]
-    pub thread_summary: ThreadSummaryStatus,
 }
 
 // Don't serialize push actions if they're `None` or an empty vec.
@@ -622,26 +582,9 @@ impl TimelineEvent {
     ) -> Self {
         let raw = kind.raw();
 
-        let bundled_thread = extract_bundled_thread(raw);
         let timestamp = extract_timestamp(raw, max_timestamp);
 
-        Self {
-            event_id: kind.parse_event_id(),
-            kind,
-            push_actions,
-            timestamp,
-            thread_summary: match bundled_thread {
-                Some(bundled_thread) => ThreadSummaryStatus::Some(ThreadSummary::new(
-                    bundled_thread
-                        .latest_event
-                        .get_field::<OwnedEventId>("event_id")
-                        .ok()
-                        .flatten(),
-                    bundled_thread.count,
-                )),
-                None => ThreadSummaryStatus::None,
-            },
-        }
+        Self { event_id: kind.parse_event_id(), kind, push_actions, timestamp }
     }
 
     /// Transform this [`TimelineEvent`] into another [`TimelineEvent`] with the
@@ -671,7 +614,6 @@ impl TimelineEvent {
             kind,
             timestamp: self.timestamp,
             push_actions,
-            thread_summary: self.thread_summary.clone(),
         }
     }
 
@@ -693,7 +635,6 @@ impl TimelineEvent {
             kind: TimelineEventKind::UnableToDecrypt { event: self.raw().clone(), utd_info },
             timestamp: self.timestamp,
             push_actions: None,
-            thread_summary: self.thread_summary.clone(),
         }
     }
 
@@ -1406,20 +1347,11 @@ struct SyncTimelineEventDeserializationHelperV1 {
     /// The push actions associated with this event.
     #[serde(default)]
     push_actions: Vec<Action>,
-
-    /// If the event is part of a thread, a thread summary.
-    #[serde(default)]
-    thread_summary: ThreadSummaryStatus,
 }
 
 impl From<SyncTimelineEventDeserializationHelperV1> for TimelineEvent {
     fn from(value: SyncTimelineEventDeserializationHelperV1) -> Self {
-        let SyncTimelineEventDeserializationHelperV1 {
-            kind,
-            timestamp,
-            push_actions,
-            thread_summary,
-        } = value;
+        let SyncTimelineEventDeserializationHelperV1 { kind, timestamp, push_actions } = value;
 
         // If `timestamp` is `None`, it is very likely that the event was
         // serialised before the addition of the `timestamp` field. We _could_
@@ -1435,7 +1367,6 @@ impl From<SyncTimelineEventDeserializationHelperV1> for TimelineEvent {
             kind,
             timestamp,
             push_actions: Some(push_actions),
-            thread_summary,
         }
     }
 }
@@ -1500,8 +1431,6 @@ impl From<SyncTimelineEventDeserializationHelperV0> for TimelineEvent {
             kind,
             timestamp,
             push_actions: Some(push_actions),
-            // No serialized events had a thread summary at this version of the struct.
-            thread_summary: ThreadSummaryStatus::Unknown,
         }
     }
 }
@@ -1606,7 +1535,6 @@ mod tests {
         UnableToDecryptReason, UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel,
         VerificationState, WithheldCode,
     };
-    use crate::deserialized_responses::{ThreadSummary, ThreadSummaryStatus};
 
     fn example_event() -> serde_json::Value {
         json!({
@@ -1766,7 +1694,6 @@ mod tests {
             kind,
             timestamp: Some(MilliSecondsSinceUnixEpoch(UInt::new_saturating(2189))),
             push_actions: Default::default(),
-            thread_summary: ThreadSummaryStatus::Unknown,
         };
 
         let serialized = serde_json::to_value(&room_event).unwrap();
@@ -1898,61 +1825,6 @@ mod tests {
                 })
             });
         });
-    }
-
-    #[test]
-    fn test_creating_or_deserializing_an_event_extracts_summary() {
-        let event = json!({
-            "event_id": "$eid:example.com",
-            "type": "m.room.message",
-            "sender": "@alice:example.com",
-            "origin_server_ts": 42,
-            "content": {
-                "body": "Hello, world!",
-            },
-            "unsigned": {
-                "m.relations": {
-                    "m.thread": {
-                        "latest_event": {
-                            "event_id": "$latest_event:example.com",
-                            "type": "m.room.message",
-                            "sender": "@bob:example.com",
-                            "origin_server_ts": 42,
-                            "content": {
-                                "body": "Hello to you too!",
-                                "msgtype": "m.text",
-                            }
-                        },
-                        "count": 2,
-                        "current_user_participated": true,
-                    }
-                }
-            }
-        });
-
-        let raw = Raw::new(&event).unwrap().cast_unchecked();
-
-        // When creating a timeline event from a raw event, the thread summary
-        // is always extracted, if available.
-        let timeline_event = TimelineEvent::from_plaintext(raw);
-        assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Some(ThreadSummary { num_replies, latest_reply }) => {
-            assert_eq!(num_replies, 2);
-            assert_eq!(latest_reply.as_deref(), Some(event_id!("$latest_event:example.com")));
-        });
-
-        // When deserializing an old serialized timeline event, the thread
-        // summary is also extracted, if it wasn't serialized.
-        let serialized_timeline_item = json!({
-            "kind": {
-                "PlainText": {
-                    "event": event
-                }
-            }
-        });
-
-        let timeline_event: TimelineEvent =
-            serde_json::from_value(serialized_timeline_item).unwrap();
-        assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Unknown);
     }
 
     #[test]
@@ -2212,10 +2084,6 @@ mod tests {
             kind,
             timestamp: Some(MilliSecondsSinceUnixEpoch(UInt::new_saturating(2189))),
             push_actions: Default::default(),
-            thread_summary: ThreadSummaryStatus::Some(ThreadSummary {
-                num_replies: 2,
-                latest_reply: None,
-            }),
         };
 
         with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
