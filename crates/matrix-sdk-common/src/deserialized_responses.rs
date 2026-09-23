@@ -34,7 +34,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::{
     debug::{DebugRawEvent, DebugStructExt},
-    serde_helpers::{extract_bundled_thread, extract_timestamp},
+    serde_helpers::{extract_bundled_thread, extract_is_thread_root, extract_timestamp},
 };
 
 const AUTHENTICITY_NOT_GUARANTEED: &str =
@@ -873,6 +873,12 @@ impl TimelineEvent {
     /// decrypted) Matrix event within.
     pub fn into_raw(self) -> Raw<AnySyncTimelineEvent> {
         self.kind.into_raw()
+    }
+
+    /// Checks whether this event is a thread root, i.e. in-thread events are
+    /// attached to it.
+    pub fn is_thread_root(&self) -> bool {
+        extract_is_thread_root(self.raw())
     }
 
     /// If this event is a thread root, find, parse, and create the
