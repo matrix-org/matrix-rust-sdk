@@ -441,13 +441,16 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
-    ) -> Result<ThreadInfo, Self::Error> {
+        insert_default_if_missing: bool,
+    ) -> Result<Option<ThreadInfo>, Self::Error> {
         let _timer = timer!("method");
 
         let transaction = self.transaction(&[keys::THREADS], IdbTransactionMode::Readonly)?;
 
         if let Some(thread) = transaction.load_thread_info(room_id, thread_id).await? {
-            return Ok(thread.info);
+            return Ok(Some(thread.info));
+        } else if !insert_default_if_missing {
+            return Ok(None);
         }
 
         drop(transaction);
@@ -462,7 +465,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         transaction.update_thread_info(&thread)?;
         transaction.commit().await?;
 
-        Ok(thread.info)
+        Ok(Some(thread.info))
     }
 
     #[instrument(skip(self))]

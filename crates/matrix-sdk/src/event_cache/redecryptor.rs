@@ -1422,8 +1422,9 @@ mod tests {
             &self,
             room_id: &RoomId,
             thread_id: &EventId,
-        ) -> Result<ThreadInfo, Self::Error> {
-            self.memory_store.load_thread_info(room_id, thread_id).await
+            insert_default_if_missing: bool,
+        ) -> Result<Option<ThreadInfo>, Self::Error> {
+            self.memory_store.load_thread_info(room_id, thread_id, insert_default_if_missing).await
         }
 
         async fn update_thread_info(

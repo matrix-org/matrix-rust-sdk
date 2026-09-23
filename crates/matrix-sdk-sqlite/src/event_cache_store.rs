@@ -1411,14 +1411,15 @@ impl EventCacheStore for SqliteEventCacheStore {
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
-    ) -> Result<ThreadInfo, Self::Error> {
+        insert_default_if_missing: bool,
+    ) -> Result<Option<ThreadInfo>, Self::Error> {
         let linked_chunk_id = LinkedChunkId::Thread(room_id, thread_id);
         let hashed_linked_chunk_id =
             self.encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &linked_chunk_id);
         let encryption = self.encryption.clone();
 
         // First off, try by selecting the thread info. It's the most common
-        // case. If it doesn't exist, create an empty one.
+        // case.
         //
         // We do that with 2 transactions.
         let maybe_thread_info = self
@@ -1442,12 +1443,15 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await?;
 
         if let Some(thread_info) = maybe_thread_info {
-            return Ok(thread_info);
+            return Ok(Some(thread_info));
+        } else if !insert_default_if_missing {
+            // The thread info doesn't exit, but we don't want to create one.
+            return Ok(None);
         }
 
-        // The thread doesn't exist, let's create it.
+        // The thread info doesn't exist, and we want to create it!
 
-        let thread_info = ThreadInfo::new();
+        let thread_info = ThreadInfo::default();
         let hashed_linked_chunk_id =
             self.encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &linked_chunk_id);
         let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
@@ -1466,7 +1470,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             })
             .await?;
 
-        Ok(thread_info)
+        Ok(Some(thread_info))
     }
 
     async fn update_thread_info(
