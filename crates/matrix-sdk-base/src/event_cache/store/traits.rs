@@ -99,8 +99,10 @@ pub trait EventCacheStore: AsyncTraitDeps {
 
     /// Load the [`ThreadInfo`] associated to `room_id` and `thread_id`.
     ///
-    /// If the `ThreadInfo` does not exist, this method **must create** it.
-    /// Consequently, this method is also a way to remember a thread.
+    /// If `insert_default_if_missing` is `true`, this method **must create and
+    /// insert** the `ThreadInfo` if it doesn't exist. Consequently, in this
+    /// context, this method is also a way to remember a thread, and will
+    /// always return `Some(_)`.
     ///
     /// It does nothing regarding events or linked chunks. This is important if
     /// one wants to list all threads, or remove specific events or linked
@@ -109,7 +111,8 @@ pub trait EventCacheStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
-    ) -> Result<ThreadInfo, Self::Error>;
+        insert_default_if_missing: bool,
+    ) -> Result<Option<ThreadInfo>, Self::Error>;
 
     /// Update the [`ThreadInfo`] associated to `room_id` and `thread_id`.
     ///
@@ -288,8 +291,12 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
-    ) -> Result<ThreadInfo, Self::Error> {
-        self.0.load_thread_info(room_id, thread_id).await.map_err(Into::into)
+        insert_default_if_missing: bool,
+    ) -> Result<Option<ThreadInfo>, Self::Error> {
+        self.0
+            .load_thread_info(room_id, thread_id, insert_default_if_missing)
+            .await
+            .map_err(Into::into)
     }
 
     async fn update_thread_info(
