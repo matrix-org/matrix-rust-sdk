@@ -279,6 +279,17 @@ impl From<QueryString> for UrlOrQuery {
     }
 }
 
+/// Convert a `Duration` into the sticky duration of a request, clamped one
+/// hour.
+#[cfg(feature = "unstable-msc4354")]
+pub(crate) fn sticky_duration_ms(
+    duration: std::time::Duration,
+) -> ruma::events::sticky::StickyDurationMs {
+    ruma::events::sticky::StickyDurationMs::new_clamped(
+        u64::try_from(duration.as_millis()).unwrap_or(u64::MAX),
+    )
+}
+
 #[cfg(test)]
 mod test {
     #[cfg(feature = "markdown")]
