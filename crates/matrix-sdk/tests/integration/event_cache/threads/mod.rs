@@ -1,6 +1,6 @@
 mod read_receipts;
 
-use std::time::Duration;
+use std::{ops::Not, time::Duration};
 
 use eyeball_im::VectorDiff;
 use imbl::Vector;
@@ -48,6 +48,11 @@ async fn wait_for_initial_events(
         }
 
         events.extend(vector);
+
+        if stream.is_empty().not() {
+            assert_let_timeout!(Ok(ThreadEventCacheUpdate::UpdateSummary(_)) = stream.recv());
+        }
+
         events
     } else {
         events
@@ -129,6 +134,8 @@ async fn test_thread_contains_its_root_event() {
     assert_eq!(diffs.len(), 1);
     assert_let!(VectorDiff::Insert { index: 0, value } = &diffs[0]);
     assert_eq!(value.event_id(), Some(thread_root_id));
+
+    assert!(thread_stream.is_empty());
 }
 
 #[async_test]
@@ -752,18 +759,6 @@ async fn test_redact_touches_threads() {
         assert_eq!(room_events[1].event_id(), Some(thread_resp1.as_ref()));
         assert_eq!(room_events[2].event_id(), Some(thread_resp2.as_ref()));
 
-        // `TimelineEvent.thread_summary` is updated.
-        //
-        // TODO: Should be removed.
-        assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
-                room_stream.recv()
-        );
-        assert_eq!(diffs.len(), 1);
-
-        assert_let!(VectorDiff::Set { index: 0, value: event } = &diffs[0]);
-        assert_eq!(event.event_id(), Some(thread_root_id.as_ref()));
-
         // Update about the thread summary inside the room.
         assert_let_timeout!(
             Ok(RoomEventCacheUpdate::UpdateThreadSummary {
@@ -852,12 +847,6 @@ async fn test_redact_touches_threads() {
             assert!(deserialized.is_redacted());
         }
 
-        assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
-                room_stream.recv()
-        );
-        assert_eq!(diffs.len(), 1);
-
         // The thread summary is updated inside the room.
         {
             assert_let_timeout!(
@@ -941,16 +930,8 @@ async fn test_redact_touches_threads() {
             assert!(deserialized.is_redacted());
         }
 
-        assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
-                room_stream.recv()
-        );
-        assert_eq!(diffs.len(), 1);
-
         // The thread summary is removed inside the room.
         {
-            assert_let!(VectorDiff::Set { index: 0, value: new_root } = &diffs[0]);
-            assert_eq!(new_root.event_id(), Some(thread_root_id.as_ref()));
             assert_let_timeout!(
                 Ok(RoomEventCacheUpdate::UpdateThreadSummary { thread_root, thread_summary }) =
                     room_stream.recv()
@@ -977,7 +958,6 @@ async fn test_edits_touches_threads() {
     event_cache.subscribe().unwrap();
 
     let thread_root_id = s.thread_root;
-    let thread_resp2 = s.events[1].get_field::<OwnedEventId>("event_id").unwrap().unwrap();
 
     s.server.sync_joined_room(&s.client, &s.room_id).await;
 
@@ -999,19 +979,6 @@ async fn test_edits_touches_threads() {
         .await;
 
     wait_for_initial_events(thread_events, &mut thread_stream).await;
-
-    // Check the initial thread updates.
-    {
-        // The thread summary is updated.
-        assert_let_timeout!(
-            Ok(ThreadEventCacheUpdate::UpdateSummary(Some(summary))) = thread_stream.recv()
-        );
-        assert_eq!(summary.latest_reply.as_ref(), Some(&thread_resp2));
-        assert_eq!(summary.num_replies, 2);
-
-        // That's it!
-        assert!(thread_stream.is_empty());
-    }
 
     let (room_events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -1047,27 +1014,7 @@ async fn test_edits_touches_threads() {
             assert_eq!(new_events[0].event_id(), Some(first_edit));
         }
 
-        // Second update: the `TimelineEvent::thread_summary` is updated.
-        //
-        // TODO: remove soon.
-        {
-            assert_let_timeout!(
-                Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
-                    room_stream.recv()
-            );
-            assert_eq!(diffs.len(), 1);
-
-            // The thread summary is updated.
-            {
-                assert_let!(VectorDiff::Set { index: 0, value: new_root } = &diffs[0]);
-                assert_eq!(new_root.event_id(), Some(thread_root_id.as_ref()));
-                let summary = new_root.thread_summary.summary().unwrap();
-                assert_eq!(summary.latest_reply.as_deref(), Some(first_edit));
-                assert_eq!(summary.num_replies, 2);
-            }
-        }
-
-        // Third update: the thread summary in `ThreadInfo` is updated.
+        // Second update: the thread summary in `ThreadInfo` is updated.
         {
             assert_let_timeout!(
                 Ok(RoomEventCacheUpdate::UpdateThreadSummary {
@@ -1144,30 +1091,7 @@ async fn test_edits_touches_threads() {
             assert_eq!(new_events[0].event_id(), Some(second_edit));
         }
 
-        // Second update: `TimelineEvent::thread_summary` is updated.
-        //
-        // TODO: remove soon.
-        {
-            assert_let_timeout!(
-                Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
-                    room_stream.recv()
-            );
-            assert_eq!(diffs.len(), 1);
-
-            // The thread summary is updated but… to the same value! It is
-            // always updated as soon as an update happens in the cache.
-            {
-                assert_let!(VectorDiff::Set { index: 0, value: new_root } = &diffs[0]);
-                assert_eq!(new_root.event_id(), Some(thread_root_id.as_ref()));
-                let summary = new_root.thread_summary.summary().unwrap();
-                // But the `latest_reply` is still `first_edit`, not
-                // `second_edit`!
-                assert_eq!(summary.latest_reply.as_deref(), Some(first_edit));
-                assert_eq!(summary.num_replies, 2);
-            }
-        }
-
-        // Third update: the thread summary in `ThreadInfo` is updated.
+        // Second update: the thread summary in `ThreadInfo` is updated.
         {
             assert_let_timeout!(
                 Ok(RoomEventCacheUpdate::UpdateThreadSummary {
@@ -1216,10 +1140,8 @@ async fn test_edits_touches_threads() {
         assert!(thread_stream.is_empty());
     }
 
-    let room_events = room_event_cache.events().await.unwrap();
-    let first = room_events.first().unwrap();
-    let thread_summary = first.thread_summary.summary().unwrap();
+    let thread_info = event_cache.thread_info(&s.room_id, &thread_root_id).await.unwrap().unwrap();
 
     // The latest reply should still be our first edit, not the second one.
-    assert_eq!(thread_summary.latest_reply.as_deref(), Some(first_edit));
+    assert_eq!(thread_info.latest_event.as_deref(), Some(first_edit));
 }

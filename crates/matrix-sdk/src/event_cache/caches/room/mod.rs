@@ -264,35 +264,19 @@ impl RoomEventCache {
         Ok(())
     }
 
-    pub(in super::super) async fn update_thread_summary(
+    pub(in super::super) fn update_thread_summary(
         &self,
         thread_id: &EventId,
         new_thread_summary: Option<ThreadSummary>,
     ) -> Result<()> {
-        let timeline_event_diffs = self
-            .inner
-            .state
-            .write()
-            .await?
-            .update_thread_summary(thread_id, new_thread_summary.clone())
-            .await?;
-
-        if !timeline_event_diffs.is_empty() {
-            self.inner.update_sender.send(
-                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                    diffs: timeline_event_diffs,
-                    origin: EventsOrigin::Sync,
-                }),
-                Some(RoomEventCacheGenericUpdate { room_id: self.inner.room_id.clone() }),
-            );
-        }
-
+        // Nothing to do here apart of sending an update. The `ThreadSummary` is stored
+        // inside `ThreadInfo` already, this cache doesn't need to hold it.
         self.inner.update_sender.send(
             RoomEventCacheUpdate::UpdateThreadSummary {
                 thread_root: thread_id.to_owned(),
                 thread_summary: new_thread_summary,
             },
-            None,
+            Some(RoomEventCacheGenericUpdate { room_id: self.inner.room_id.clone() }),
         );
 
         Ok(())

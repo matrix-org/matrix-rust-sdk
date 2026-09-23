@@ -17,6 +17,7 @@ use std::sync::Arc;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
     deserialized_responses::{ThreadSummary, TimelineEvent},
+    event_cache::EventCache,
     send_queue::SendHandle,
 };
 use ruma::{
@@ -52,7 +53,9 @@ pub(in crate::timeline) struct TimelineState<P: RoomDataProvider> {
 }
 
 impl<P: RoomDataProvider> TimelineState<P> {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
+        event_cache: EventCache,
         focus: Arc<TimelineFocusKind>,
         own_user_id: OwnedUserId,
         room_version_rules: RoomVersionRules,
@@ -64,6 +67,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
         Self {
             items: ObservableItems::new(),
             meta: TimelineMetadata::new(
+                event_cache,
                 own_user_id,
                 room_version_rules,
                 internal_id_prefix,
