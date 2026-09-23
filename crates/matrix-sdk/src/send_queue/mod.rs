@@ -528,10 +528,21 @@ impl RoomSendQueue {
     /// sending queue will be disabled, and it will need to be manually
     /// re-enabled by the caller (e.g. after network is back, or when something
     /// has been done about the faulty requests).
-    pub async fn send_raw(
+    pub fn send_raw(
         &self,
         content: Raw<AnyMessageLikeEventContent>,
         event_type: String,
+    ) -> SendRawEvent<'_> {
+        SendRawEvent {
+            queue: self,
+            content: SerializableEventContent::from_raw(content, event_type),
+        }
+    }
+
+    /// Queues an already serialized event for sending it to this room.
+    async fn send_serialized(
+        &self,
+        content: SerializableEventContent,
     ) -> Result<SendHandle, RoomSendQueueError> {
         let Some(room) = self.inner.room.get() else {
             return Err(RoomSendQueueError::RoomDisappeared);
@@ -539,8 +550,6 @@ impl RoomSendQueue {
         if room.state() != RoomState::Joined {
             return Err(RoomSendQueueError::RoomNotJoined);
         }
-
-        let content = SerializableEventContent::from_raw(content, event_type);
 
         let created_at = MilliSecondsSinceUnixEpoch::now();
         let transaction_id = self.inner.queue.push(content.clone().into(), created_at).await?;
@@ -2842,9 +2851,24 @@ impl<'a> IntoFuture for SendEvent<'a> {
                     .map_err(RoomSendQueueStorageError::JsonSerialization)?,
                 self.extra_content,
             )?;
-            let (raw, event_type) = serialized.into_raw();
-            self.queue.send_raw(raw, event_type).await
+            self.queue.send_serialized(serialized).await
         })
+    }
+}
+
+/// Future returned by [`RoomSendQueue::send_raw`].
+#[allow(missing_debug_implementations)]
+pub struct SendRawEvent<'a> {
+    queue: &'a RoomSendQueue,
+    content: SerializableEventContent,
+}
+
+impl<'a> IntoFuture for SendRawEvent<'a> {
+    type Output = Result<SendHandle, RoomSendQueueError>;
+    boxed_into_future!(extra_bounds: 'a);
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move { self.queue.send_serialized(self.content).await })
     }
 }
 
