@@ -136,7 +136,10 @@ impl ThreadEventCacheState {
         //
         // It will register the thread in the list of threads. It does nothing
         // regarding events or linked chunks.
-        let thread_info = store_guard.load_thread_info(&room_id, &thread_id).await?;
+        let thread_info = store_guard
+            .load_thread_info(&room_id, &thread_id, true)
+            .await?
+            .expect("The default `ThreadInfo` has been created, it cannot be `None`");
 
         // Load the full linked chunk's metadata, so as to feed the order
         // tracker.
