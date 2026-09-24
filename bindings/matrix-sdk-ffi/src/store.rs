@@ -55,8 +55,8 @@ mod sqlite {
         data_path: String,
 
         /// The path that the client will use to store its caches. This path can
-        /// be the same as the data path if you prefer to keep
-        /// everything in one place.
+        /// be the same as the data path if you prefer to keep everything in one
+        /// place.
         cache_path: String,
     }
 
@@ -120,12 +120,11 @@ mod sqlite {
         /// remove their brute-force protection.
         ///
         /// This migrates a passphrase-based store whose passphrase was created
-        /// by base64-encoding a randomly generated key to a key-based
-        /// setup.
+        /// by base64-encoding a randomly generated key to a key-based setup.
         ///
         /// Once this function has been called,
-        /// [`SqliteStoreBuilder::passphrase`] can no longer be used with
-        /// the passphrase.
+        /// [`SqliteStoreBuilder::passphrase`] can no longer be used with the
+        /// passphrase.
         ///
         /// [`SqliteStoreBuilder::key`] can be used with the original key,
         /// before it was base64-encoded.
@@ -199,8 +198,8 @@ mod sqlite {
         /// Tell the client that the system is memory constrained, like in a
         /// push notification process for example.
         ///
-        /// So far, at the time of writing (2025-04-07), it changes
-        /// the defaults of [`SqliteStoreConfig`]. Please check
+        /// So far, at the time of writing (2025-04-07), it changes the defaults
+        /// of [`SqliteStoreConfig`]. Please check
         /// [`SqliteStoreConfig::with_low_memory_config`].
         pub fn system_is_memory_constrained(self: Arc<Self>) -> Arc<Self> {
             let mut builder = unwrap_or_clone_arc(self);

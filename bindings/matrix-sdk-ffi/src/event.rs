@@ -284,13 +284,13 @@ impl From<RumaTimelineEventType> for FfiTimelineEventType {
 }
 
 #[derive(uniffi::Enum)]
-// A note about this `allow(clippy::large_enum_variant)`.
-// In order to reduce the size of `TimelineEventContent`, we would need to
-// put some parts in a `Box`, or an `Arc`. Sadly, it doesn't play well with
-// UniFFI. We would need to change the `uniffi::Record` of the subtypes into
-// `uniffi::Object`, which is a radical change. It would simplify the memory
-// usage, but it would slow down the performance around the FFI border. Thus,
-// let's consider this is a false-positive lint in this particular case.
+// A note about this `allow(clippy::large_enum_variant)`. In order to reduce the
+// size of `TimelineEventContent`, we would need to put some parts in a `Box`,
+// or an `Arc`. Sadly, it doesn't play well with UniFFI. We would need to change
+// the `uniffi::Record` of the subtypes into `uniffi::Object`, which is a
+// radical change. It would simplify the memory usage, but it would slow down
+// the performance around the FFI border. Thus, let's consider this is a
+// false-positive lint in this particular case.
 #[allow(clippy::large_enum_variant)]
 pub enum TimelineEventContent {
     MessageLike { content: MessageLikeEventContent },
@@ -366,13 +366,13 @@ impl TryFrom<AnySyncStateEvent> for StateEventContent {
 }
 
 #[derive(uniffi::Enum)]
-// A note about this `allow(clippy::large_enum_variant)`.
-// In order to reduce the size of `MessageLineEventContent`, we would need to
-// put some parts in a `Box`, or an `Arc`. Sadly, it doesn't play well with
-// UniFFI. We would need to change the `uniffi::Record` of the subtypes into
-// `uniffi::Object`, which is a radical change. It would simplify the memory
-// usage, but it would slow down the performance around the FFI border. Thus,
-// let's consider this is a false-positive lint in this particular case.
+// A note about this `allow(clippy::large_enum_variant)`. In order to reduce the
+// size of `MessageLineEventContent`, we would need to put some parts in a
+// `Box`, or an `Arc`. Sadly, it doesn't play well with UniFFI. We would need to
+// change the `uniffi::Record` of the subtypes into `uniffi::Object`, which is a
+// radical change. It would simplify the memory usage, but it would slow down
+// the performance around the FFI border. Thus, let's consider this is a
+// false-positive lint in this particular case.
 #[allow(clippy::large_enum_variant)]
 pub enum MessageLikeEventContent {
     CallAnswer,
