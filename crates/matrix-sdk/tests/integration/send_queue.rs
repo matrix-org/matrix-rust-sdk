@@ -136,8 +136,8 @@ fn mock_jpeg_upload<'a>(
     })
 }
 
-/// Mocks the already-sent image event whose attachment a media edit replaces;
-/// it is read to validate the edit before anything is queued.
+/// Mocks the already-sent image event a media edit replaces the attachment of;
+/// the send queue reads it before queuing the edit.
 async fn mock_edited_image_event(
     mock: &MatrixMockServer,
     own_user_id: &UserId,
@@ -4518,18 +4518,30 @@ async fn test_edit_with_attachment() {
     // The local echo is a replacement of the edited event, carrying the new media
     // (served from the local cache) in both the fallback content and the
     // canonical copy inside the relation.
-    let (txn, _send_handle, content) = assert_update!((global_watch, watch) => local echo event);
+    let (txn, send_handle, content) = assert_update!((global_watch, watch) => local echo event);
     assert_eq!(txn, transaction_id);
 
     assert_let!(Some(Relation::Replacement(replacement)) = &content.relates_to);
     assert_eq!(replacement.event_id, edited_event_id);
     assert_let!(MessageType::Image(new_image) = &replacement.new_content.msgtype);
+    assert_eq!(new_image.caption(), Some("new caption"));
     assert_let!(MediaSource::Plain(mxc) = &new_image.source);
     assert!(mxc.to_string().starts_with("mxc://send-queue.localhost/"), "{mxc}");
 
     assert_let!(MessageType::Image(fallback_image) = &content.msgtype);
     assert_let!(MediaSource::Plain(mxc) = &fallback_image.source);
     assert!(mxc.to_string().starts_with("mxc://send-queue.localhost/"), "{mxc}");
+
+    // The caption can still be changed through the handle while the upload is
+    // pending; both copies follow.
+    send_handle.edit_media_caption(Some("final caption".to_owned()), None, None).await.unwrap();
+
+    let content = assert_update!((global_watch, watch) => edit local echo { txn = transaction_id });
+    assert_let!(Some(Relation::Replacement(replacement)) = &content.relates_to);
+    assert_let!(MessageType::Image(new_image) = &replacement.new_content.msgtype);
+    assert_eq!(new_image.caption(), Some("final caption"));
+    assert_let!(MessageType::Image(fallback_image) = &content.msgtype);
+    assert_eq!(fallback_image.caption(), Some("final caption"));
 
     // Let the upload finish.
     drop(block_upload);
@@ -4540,13 +4552,13 @@ async fn test_edit_with_attachment() {
     });
 
     // Once the upload completes, the queued event is finalized: both copies now
-    // point at the uploaded media.
+    // point at the uploaded media, and keep the edited caption.
     let msg = assert_update!((global_watch, watch) => edit local echo { txn = transaction_id });
 
     assert_let!(Some(Relation::Replacement(replacement)) = &msg.relates_to);
     assert_eq!(replacement.event_id, edited_event_id);
     assert_let!(MessageType::Image(new_image) = &replacement.new_content.msgtype);
-    assert_eq!(new_image.caption(), Some("new caption"));
+    assert_eq!(new_image.caption(), Some("final caption"));
     assert_let!(MediaSource::Plain(mxc) = &new_image.source);
     assert_eq!(*mxc, mxc_uri!("mxc://sdk.rs/media").to_owned());
 

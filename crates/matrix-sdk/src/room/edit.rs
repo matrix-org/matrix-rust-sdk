@@ -24,7 +24,7 @@ use ruma::{
             UnstablePollStartEventContent,
         },
         room::message::{
-            FormattedBody, MessageType, ReplacementMetadata, RoomMessageEventContent,
+            FormattedBody, MessageType, Relation, ReplacementMetadata, RoomMessageEventContent,
             RoomMessageEventContentWithoutRelation,
         },
     },
@@ -287,9 +287,40 @@ pub(crate) fn update_media_caption(
     formatted_caption: Option<FormattedBody>,
     mentions: Option<Mentions>,
 ) -> bool {
-    content.mentions = mentions;
+    content.mentions = mentions.clone();
 
-    match &mut content.msgtype {
+    if !update_media_msgtype_caption(
+        &mut content.msgtype,
+        caption.clone(),
+        formatted_caption.clone(),
+    ) {
+        return false;
+    }
+
+    // A media edit (see `RoomSendQueue::edit_with_attachment`) keeps the canonical
+    // copy of the new content inside the replacement relation; update it too,
+    // or the fallback content and the canonical content would disagree.
+    if let Some(Relation::Replacement(replacement)) = &mut content.relates_to {
+        replacement.new_content.mentions = mentions;
+        update_media_msgtype_caption(
+            &mut replacement.new_content.msgtype,
+            caption,
+            formatted_caption,
+        );
+    }
+
+    true
+}
+
+/// Sets the caption of a single [`MessageType`].
+///
+/// Returns false if it's not a media message type.
+fn update_media_msgtype_caption(
+    msgtype: &mut MessageType,
+    caption: Option<String>,
+    formatted_caption: Option<FormattedBody>,
+) -> bool {
+    match msgtype {
         MessageType::Audio(event) => {
             set_caption!(event, caption);
             event.formatted = formatted_caption;
@@ -330,13 +361,18 @@ mod tests {
         EventId, OwnedEventId, event_id,
         events::{
             AnyMessageLikeEventContent, AnySyncTimelineEvent, Mentions,
-            room::message::{MessageType, Relation, RoomMessageEventContentWithoutRelation},
+            room::message::{
+                ImageMessageEventContent, MessageType, Relation, ReplacementMetadata,
+                RoomMessageEventContentWithoutRelation,
+            },
         },
         owned_mxc_uri, owned_user_id, user_id,
     };
     use strass::assert_let;
 
-    use super::{EditError, EventSource, make_edit_event, validate_attachment_edit};
+    use super::{
+        EditError, EventSource, make_edit_event, update_media_caption, validate_attachment_edit,
+    };
     use crate::{Error, room::edit::EditedContent};
 
     #[derive(Default)]
@@ -621,6 +657,39 @@ mod tests {
         assert_let!(Some(mentions) = repl.new_content.mentions);
         assert!(!mentions.room);
         assert_eq!(mentions.user_ids.into_iter().collect::<Vec<_>>(), vec![mentioned_user_id]);
+    }
+
+    #[test]
+    fn test_update_media_caption_of_a_replacement() {
+        // The local echo of a media edit: a replacement whose canonical content is
+        // inside the relation.
+        let image = MessageType::Image(ImageMessageEventContent::plain(
+            "rickroll.gif".to_owned(),
+            owned_mxc_uri!("mxc://sdk.rs/rickroll"),
+        ));
+        let mut content = RoomMessageEventContentWithoutRelation::new(image)
+            .make_replacement(ReplacementMetadata::new(event_id!("$1").to_owned(), None));
+
+        let mentioned_user_id = owned_user_id!("@crepe:saucisse.bzh");
+        assert!(update_media_caption(
+            &mut content,
+            Some("Best joke ever".to_owned()),
+            None,
+            Some(Mentions::with_user_ids([mentioned_user_id.clone()]))
+        ));
+
+        // Both copies carry the new caption and mentions.
+        assert_let!(MessageType::Image(image) = &content.msgtype);
+        assert_eq!(image.caption(), Some("Best joke ever"));
+        assert_let!(Some(mentions) = &content.mentions);
+        assert!(mentions.user_ids.contains(&mentioned_user_id));
+
+        assert_let!(Some(Relation::Replacement(repl)) = &content.relates_to);
+        assert_let!(MessageType::Image(new_image) = &repl.new_content.msgtype);
+        assert_eq!(new_image.filename(), "rickroll.gif");
+        assert_eq!(new_image.caption(), Some("Best joke ever"));
+        assert_let!(Some(mentions) = &repl.new_content.mentions);
+        assert!(mentions.user_ids.contains(&mentioned_user_id));
     }
 
     #[async_test]

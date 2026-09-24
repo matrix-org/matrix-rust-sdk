@@ -72,10 +72,9 @@ use crate::{
 fn update_media_event_after_upload(echo: &mut RoomMessageEventContent, sent: SentMediaInfo) {
     update_media_msgtype_after_upload(&mut echo.msgtype, &sent);
 
-    // A media edit (see `RoomSendQueue::edit_with_attachment`) stores the canonical
-    // copy of the new content inside the replacement relation; patch it the
-    // same way, or the fallback content and the canonical content would point
-    // at different files.
+    // A media edit (see `RoomSendQueue::edit_with_attachment`) keeps the canonical
+    // copy of the new content inside the replacement relation; patch it too,
+    // or the two copies would point at different files.
     if let Some(Relation::Replacement(replacement)) = &mut echo.relates_to {
         update_media_msgtype_after_upload(&mut replacement.new_content.msgtype, &sent);
     }
@@ -224,39 +223,21 @@ impl RoomSendQueue {
         self.send_attachment_impl(filename.into(), content_type, data, config, None).await
     }
 
-    /// Queues an edit turning an already-sent message into a media one, using
-    /// the send queue: it replaces the attachment of a media message, or adds
-    /// one to a message which had none.
+    /// Queues an edit replacing the attachment of a message the current user
+    /// sent, or adding one to a message which had none.
     ///
-    /// The new attachment (and its optional thumbnail) is uploaded the same
-    /// way [`Self::send_attachment`] uploads one: the uploads are queued,
-    /// persisted, and survive an application restart, including while
-    /// offline. Once they complete, an `m.replace` edit of `edited_event_id`
-    /// carrying the new media is sent.
+    /// The upload and the `m.replace` it resolves into go through the send
+    /// queue like [`Self::send_attachment`], so they survive a restart.
+    /// Nothing is queued until the edited event has been read, though: if it
+    /// isn't cached while offline, this fails with
+    /// [`EditError::Fetch`](crate::room::edit::EditError::Fetch).
     ///
-    /// Note that nothing is queued until the edited event has been validated,
-    /// which requires reading it: it is looked up in the event cache first,
-    /// and fetched from the homeserver when it's missing there. Calling this
-    /// for an event that isn't cached while offline thus fails with
-    /// [`EditError::Fetch`](crate::room::edit::EditError::Fetch), and has no
-    /// effect.
+    /// Nothing of the original content is carried over: the caption in
+    /// `config` is the whole new text, and its `reply` is ignored, as a
+    /// replacement carries no other relation. The previous attachment stays
+    /// in the room's edit history.
     ///
-    /// The target must be an `m.room.message` sent by the current user. It
-    /// doesn't have to hold media, and if it does, the new attachment can be
-    /// of another kind: an image can be replaced by a file, for instance.
-    /// Nothing of the original content is carried over, so the text to keep
-    /// goes into the [`AttachmentConfig`]'s caption.
-    ///
-    /// Any `reply` set on the [`AttachmentConfig`] is ignored: a replacement
-    /// carries no other relation.
-    ///
-    /// A replaced attachment is not deleted (Matrix media can't be deleted
-    /// client-side), and the original event remains visible in the room's
-    /// edit history, like the previous body of an edited text message does:
-    /// replacing an attachment is a correction, not a removal.
-    ///
-    /// Aborting the returned handle cancels the uploads and drops the edit;
-    /// the original event is left untouched.
+    /// Aborting the returned handle cancels the upload and drops the edit.
     #[instrument(skip_all, fields(event_txn, %edited_event_id))]
     pub async fn edit_with_attachment(
         &self,
@@ -340,10 +321,9 @@ impl RoomSendQueue {
             .map_err(|_| RoomSendQueueError::FailedToCreateAttachment)?;
 
         // For an edit, wrap the media content into a replacement of the edited event.
-        // The upload chain is oblivious to the relation: the local echo travels
-        // through it unchanged, and `update_media_event_after_upload` patches
-        // the uploaded sources into both the fallback content and the
-        // replacement's canonical copy.
+        // The upload chain doesn't care about the relation; once the upload is
+        // done, `update_media_event_after_upload` patches both copies of the
+        // content.
         let event_content = if let Some((edited_event_id, original_mentions)) = replaces {
             RoomMessageEventContentWithoutRelation::from(event_content)
                 .make_replacement(ReplacementMetadata::new(edited_event_id, original_mentions))
