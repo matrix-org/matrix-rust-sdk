@@ -198,10 +198,7 @@ impl Room {
         duration_ms: u64,
     ) -> Result<String, ClientError> {
         let content_json: serde_json::Value =
-            serde_json::from_str(&content).map_err(|e| ClientError::Generic {
-                msg: format!("Failed to parse JSON: {e}"),
-                details: Some(format!("{e:?}")),
-            })?;
+            serde_json::from_str(&content).map_err(|e| matrix_sdk::Error::SerdeJson(e))?;
 
         let response = self
             .inner
