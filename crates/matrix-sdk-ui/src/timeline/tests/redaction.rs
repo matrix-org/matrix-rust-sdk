@@ -15,7 +15,6 @@
 use std::sync::Arc;
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use imbl::vector;
 use matrix_sdk_base::store::QueueWedgeError;
@@ -28,6 +27,7 @@ use ruma::{
     },
     owned_event_id,
 };
+use strass::assert_let;
 use stream_assert::{assert_next_matches, assert_pending};
 
 use super::TestTimeline;
@@ -258,8 +258,8 @@ async fn test_local_and_remote_echo_of_redaction() {
     );
     assert!(original_json.is_some());
 
-    // Now redact the message. We first emit the local echo of the redaction event.
-    // The timeline event should be marked as being under redaction.
+    // Now redact the message. We first emit the local echo of the redaction
+    // event. The timeline event should be marked as being under redaction.
     timeline.handle_local_redaction(event_id.clone()).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().is_redacted());
@@ -270,8 +270,8 @@ async fn test_local_and_remote_echo_of_redaction() {
     );
     assert!(original_json.is_none());
 
-    // Then comes the remote echo of the redaction event. The timeline event should
-    // now be redacted.
+    // Then comes the remote echo of the redaction event. The timeline event
+    // should now be redacted.
     timeline.handle_live_event(f.redaction(&event_id).sender(&ALICE)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().is_redacted());

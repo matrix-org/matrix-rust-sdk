@@ -24,8 +24,8 @@ pub struct KeysQueryRequest {
     /// servers. 10 seconds is the recommended default.
     pub timeout: Option<Duration>,
 
-    /// The keys to be downloaded. An empty list indicates all devices for
-    /// the corresponding user.
+    /// The keys to be downloaded. An empty list indicates all devices for the
+    /// corresponding user.
     pub device_keys: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
 }
 

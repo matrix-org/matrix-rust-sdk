@@ -74,8 +74,8 @@ impl From<matrix_sdk::room_directory_search::RoomDescription> for RoomDescriptio
     }
 }
 
-/// A helper for performing room searches in the room directory.
-/// The way this is intended to be used is:
+/// A helper for performing room searches in the room directory. The way this is
+/// intended to be used is:
 ///
 /// 1. Register a callback using [`RoomDirectorySearch::results`].
 /// 2. Start the room search with [`RoomDirectorySearch::search`].
@@ -102,9 +102,9 @@ impl RoomDirectorySearch {
 
     /// Starts a filtered search for the server.
     ///
-    /// If the `filter` is not provided it will search for all the rooms.
-    /// You can specify a `batch_size` to control the number of rooms to fetch
-    /// per request.
+    /// If the `filter` is not provided it will search for all the rooms. You
+    /// can specify a `batch_size` to control the number of rooms to fetch per
+    /// request.
     ///
     /// If the `via_server` is not provided it will search in the current
     /// homeserver by default.

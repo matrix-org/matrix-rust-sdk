@@ -194,7 +194,8 @@ impl SpaceService {
             })
             .abort_on_drop();
 
-        // Make sure to also update the currently joined spaces for the initial values.
+        // Make sure to also update the currently joined spaces for the initial
+        // values.
         let (spaces, filters, graph) = Self::build_space_state(&client).await;
         Self::update_space_state_if_needed(
             Vector::from(spaces),
@@ -221,8 +222,8 @@ impl SpaceService {
     }
 
     /// Returns a list of all the top-level joined spaces. It will eagerly
-    /// compute the latest version and also notify subscribers if there were
-    /// any changes.
+    /// compute the latest version and also notify subscribers if there were any
+    /// changes.
     pub async fn top_level_joined_spaces(&self) -> Vec<SpaceRoom> {
         let (top_level_joined_spaces, filters, graph) = Self::build_space_state(&self.client).await;
 
@@ -238,12 +239,12 @@ impl SpaceService {
     }
 
     /// Space filters provide access to a custom subset of the space graph that
-    /// can be used in tandem with the [`crate::RoomListService`] to narrow
-    /// down the presented rooms. A [`crate::room_list_service::RoomList`]'s
+    /// can be used in tandem with the [`crate::RoomListService`] to narrow down
+    /// the presented rooms. A [`crate::room_list_service::RoomList`]'s
     /// [`crate::room_list_service::RoomListDynamicEntriesController`] can take
     /// a filter, which in this case can be a
-    /// [`crate::room_list_service::filters::new_filter_identifiers`]
-    /// pointing to the space descendants retrieved from the filters.
+    /// [`crate::room_list_service::filters::new_filter_identifiers`] pointing
+    /// to the space descendants retrieved from the filters.
     ///
     /// They are limited to the first 2 levels of the graph, with the first
     /// level only containing direct descendants while the second holds the rest
@@ -359,10 +360,9 @@ impl SpaceService {
     ///
     /// The returned IDs are always joined spaces, as that's all the space graph
     /// includes. Note that an empty result either means that the child is a
-    /// top-level space (which has no direct parents) or the child isn't
-    /// part of the space graph at all.
-    /// See [`Self::top_level_ancestors_of()`] if you need that particular level
-    /// of detail.
+    /// top-level space (which has no direct parents) or the child isn't part of
+    /// the space graph at all. See [`Self::top_level_ancestors_of()`] if you
+    /// need that particular level of detail.
     ///
     /// Note: Unlike [`Self::top_level_joined_spaces()`], this method does not
     /// recompute the space graph nor notify subscribers about changes.
@@ -488,9 +488,9 @@ impl SpaceService {
             // Redacting state is a "weird" thing to do, so send {} instead.
             // https://github.com/matrix-org/matrix-spec/issues/2252
             //
-            // Specifically, "The redaction of the state doesn't participate in state
-            // resolution so behaves quite differently from e.g. sending an empty form of
-            // that state events".
+            // Specifically, "The redaction of the state doesn't participate in
+            // state resolution so behaves quite differently from e.g. sending
+            // an empty form of that state events".
             space_room
                 .send_state_event_raw("m.space.child", child_id.as_str(), serde_json::json!({}))
                 .await
@@ -581,8 +581,8 @@ impl SpaceService {
         // And also store `m.space.child` ordering info for later use
         let mut space_child_states = HashMap::<OwnedRoomId, SpaceRoomChildState>::new();
 
-        // Iterate over all joined spaces and populate the graph with edges based
-        // on `m.space.parent` and `m.space.child` state events.
+        // Iterate over all joined spaces and populate the graph with edges
+        // based on `m.space.parent` and `m.space.child` state events.
         for space in joined_spaces.iter() {
             graph.add_node(space.room_id().to_owned());
 
@@ -686,9 +686,9 @@ impl SpaceService {
         (top_level_spaces, space_filters, graph)
     }
 
-    /// Build the 2 levels required for space filters.
-    /// As per product requirements, the first level space filters only include
-    /// direct descendants while second level ones contain *all* descendants.
+    /// Build the 2 levels required for space filters. As per product
+    /// requirements, the first level space filters only include direct
+    /// descendants while second level ones contain _all_ descendants.
     ///
     /// The sorting mechanism is different between first level spaces/filters
     /// and second level ones so while the former are already sorted at this
@@ -774,13 +774,13 @@ pub struct SpaceFilter {
     /// The underlying [`SpaceRoom`]
     pub space_room: SpaceRoom,
 
-    /// The level of the space filter in the tree/hierarchy.
-    /// At this point in time the filters are limited to the first 2 levels.
+    /// The level of the space filter in the tree/hierarchy. At this point in
+    /// time the filters are limited to the first 2 levels.
     pub level: u8,
 
-    /// The room identifiers of the descendants of this space.
-    /// For top level spaces (level 0) these will be direct descendants while
-    /// for first level spaces they will be all other descendants, recursively.
+    /// The room identifiers of the descendants of this space. For top level
+    /// spaces (level 0) these will be direct descendants while for first level
+    /// spaces they will be all other descendants, recursively.
     pub descendants: Vec<OwnedRoomId>,
 }
 
@@ -788,7 +788,6 @@ pub struct SpaceFilter {
 mod tests {
     use std::collections::BTreeMap;
 
-    use assert_matches2::assert_let;
     use eyeball_im::VectorDiff;
     use futures_util::{StreamExt, pin_mut};
     use matrix_sdk::{room::ParentSpace, test_utils::mocks::MatrixMockServer};
@@ -801,6 +800,7 @@ mod tests {
         owned_room_id, room_id, serde::Raw,
     };
     use serde_json::json;
+    use strass::assert_let;
     use stream_assert::{assert_next_eq, assert_pending};
 
     use super::*;
@@ -927,8 +927,8 @@ mod tests {
             )
             .await;
 
-        // Build the `SpaceService` and expect the room to show up with no updates
-        // pending
+        // Build the `SpaceService` and expect the room to show up with no
+        // updates pending
 
         let space_service = SpaceService::new(client.clone()).await;
 
@@ -948,8 +948,8 @@ mod tests {
             vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0).await]
         );
 
-        // And the stream is still pending as the initial values were
-        // already set.
+        // And the stream is still pending as the initial values were already
+        // set.
         assert_pending!(joined_spaces_subscriber);
 
         // Join the second space
@@ -1230,7 +1230,8 @@ mod tests {
 
     #[async_test]
     async fn test_editable_spaces() {
-        // Given a space hierarchy where the user is admin of some spaces and subspaces.
+        // Given a space hierarchy where the user is admin of some spaces and
+        // subspaces.
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
@@ -1353,8 +1354,8 @@ mod tests {
 
     #[async_test]
     async fn test_joined_parent_ids_of_child() {
-        // Given a space with three parent spaces, two of which are joined,
-        // and a plain room.
+        // Given a space with three parent spaces, two of which are joined, and
+        // a plain room.
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
@@ -1404,10 +1405,10 @@ mod tests {
         // When retrieving the parent IDs of the child space.
         let parent_ids = space_service.joined_parent_ids_of_child(child_space_id).await;
 
-        // Then only the two joined parent spaces are returned, ordered by room ID.
-        // The unjoined one never made it into the graph in the first place, since
-        // `m.space.parent` events pointing at a room that isn't a joined space are
-        // dropped while building it.
+        // Then only the two joined parent spaces are returned, ordered by room
+        // ID. The unjoined one never made it into the graph in the first place,
+        // since `m.space.parent` events pointing at a room that isn't a joined
+        // space are dropped while building it.
         assert_eq!(parent_ids, vec![parent_space_id_1.to_owned(), parent_space_id_2.to_owned()]);
 
         // And the result matches the one of the more expensive
@@ -1443,8 +1444,8 @@ mod tests {
 
     #[async_test]
     async fn test_top_level_ancestors_of() {
-        // Given two top-level spaces sharing a subspace, which in turn contains a
-        // plain room.
+        // Given two top-level spaces sharing a subspace, which in turn contains
+        // a plain room.
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
@@ -1508,8 +1509,8 @@ mod tests {
             HashSet::from([top_level_space_id_1.to_owned()])
         );
 
-        // And a room the graph doesn't know about has no ancestors, which is how it
-        // can be told apart from a top-level space.
+        // And a room the graph doesn't know about has no ancestors, which is
+        // how it can be told apart from a top-level space.
         assert!(
             space_service
                 .top_level_ancestors_of(room_id!("!unknown_room:example.org"))
@@ -1559,10 +1560,10 @@ mod tests {
         let space_service = SpaceService::new(client.clone()).await;
 
         // Then the walk terminates, on the cycle-free graph the service builds:
-        // one of the two back edges has been removed, leaving a single root that
-        // both spaces resolve to. Which of the two it is depends on the order the
-        // de-cycling happens to visit them in, which isn't part of the contract,
-        // so it isn't asserted here.
+        // one of the two back edges has been removed, leaving a single root
+        // that both spaces resolve to. Which of the two it is depends on the
+        // order the de-cycling happens to visit them in, which isn't part of
+        // the contract, so it isn't asserted here.
         let ancestors_of_1 = space_service.top_level_ancestors_of(space_id_1).await;
         let ancestors_of_2 = space_service.top_level_ancestors_of(space_id_2).await;
 
@@ -1661,7 +1662,8 @@ mod tests {
 
     #[async_test]
     async fn test_add_child_to_space_without_space_admin() {
-        // Given a space and child room where the user is a regular member of both.
+        // Given a space and child room where the user is a regular member of
+        // both.
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
@@ -1705,15 +1707,15 @@ mod tests {
         let result =
             space_service.add_child_to_space(child_id.to_owned(), space_id.to_owned()).await;
 
-        // Then the operation fails when trying to set the space child event and the
-        // parent event is not attempted.
+        // Then the operation fails when trying to set the space child event and
+        // the parent event is not attempted.
         assert!(result.is_err());
     }
 
     #[async_test]
     async fn test_add_child_to_space_without_child_admin() {
-        // Given a space and child room where the user is admin of the space but not of
-        // the child.
+        // Given a space and child room where the user is admin of the space but
+        // not of the child.
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
@@ -1759,8 +1761,8 @@ mod tests {
             space_service.add_child_to_space(child_id.to_owned(), space_id.to_owned()).await;
 
         error!("result: {:?}", result);
-        // Then the operation succeeds in setting the space child event and the parent
-        // event is not attempted.
+        // Then the operation succeeds in setting the space child event and the
+        // parent event is not attempted.
         assert!(result.is_ok());
     }
 
@@ -1863,14 +1865,15 @@ mod tests {
         let result =
             space_service.remove_child_from_space(child_id.to_owned(), parent_id.to_owned()).await;
 
-        // Then the child event is removed successfully and the parent event removal is
-        // not attempted.
+        // Then the child event is removed successfully and the parent event
+        // removal is not attempted.
         assert!(result.is_ok());
     }
 
     #[async_test]
     async fn test_remove_child_from_space_without_child_event() {
-        // Given a space with a child where the space's m.space.child event wasn't set.
+        // Given a space with a child where the space's m.space.child event
+        // wasn't set.
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
@@ -1915,14 +1918,15 @@ mod tests {
         let result =
             space_service.remove_child_from_space(child_id.to_owned(), parent_id.to_owned()).await;
 
-        // Then the parent event is removed successfully and the child event removal is
-        // not attempted.
+        // Then the parent event is removed successfully and the child event
+        // removal is not attempted.
         assert!(result.is_ok());
     }
 
     #[async_test]
     async fn test_remove_unknown_child_from_space() {
-        // Given a space with a child room that is unknown (not in the client store).
+        // Given a space with a child room that is unknown (not in the client
+        // store).
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
@@ -1932,7 +1936,8 @@ mod tests {
 
         let space_child_event_id = event_id!("$1");
         server.mock_set_space_child().ok(space_child_event_id.to_owned()).expect(1).mount().await;
-        // The parent event should not be attempted since the child room is unknown.
+        // The parent event should not be attempted since the child room is
+        // unknown.
         server.mock_set_space_parent().unauthorized().expect(0).mount().await;
 
         let parent_id = room_id!("!parent_space:example.org");
@@ -1964,8 +1969,9 @@ mod tests {
             .remove_child_from_space(unknown_child_id.to_owned(), parent_id.to_owned())
             .await;
 
-        // Then the operation succeeds: the child event is removed from the space,
-        // and the parent event removal is skipped since the child room is unknown.
+        // Then the operation succeeds: the child event is removed from the
+        // space, and the parent event removal is skipped since the child room
+        // is unknown.
         assert!(result.is_ok());
     }
 
@@ -1992,8 +1998,8 @@ mod tests {
             )
             .await;
 
-        // Build the `SpaceService` and expect the room to show up with no updates
-        // pending
+        // Build the `SpaceService` and expect the room to show up with no
+        // updates pending
         let space_service = SpaceService::new(client.clone()).await;
 
         let (initial_values, joined_spaces_subscriber) =

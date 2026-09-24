@@ -14,8 +14,8 @@
 
 use crate::serializer::safe_encode::types::SafeEncodeSerializer;
 
-/// A conversion trait for preparing high-level types into indexed types
-/// which are better suited for storage in IndexedDB.
+/// A conversion trait for preparing high-level types into indexed types which
+/// are better suited for storage in IndexedDB.
 ///
 /// Note that the functions below take an [`IndexeddbSerializer`] as an
 /// argument, which provides the necessary context for encryption and
@@ -56,10 +56,10 @@ pub trait IndexedKey<T: Indexed> {
     /// Encodes the key components into a type that can be used as a key in
     /// IndexedDB.
     ///
-    /// Note that this function takes an [`IndexeddbSerializer`] as an
-    /// argument, which provides the necessary context for encryption and
-    /// decryption, in the case that certain components of the key must be
-    /// encrypted before storage.
+    /// Note that this function takes an [`IndexeddbSerializer`] as an argument,
+    /// which provides the necessary context for encryption and decryption, in
+    /// the case that certain components of the key must be encrypted before
+    /// storage.
     fn encode(components: Self::KeyComponents<'_>, serializer: &SafeEncodeSerializer) -> Self;
 }
 

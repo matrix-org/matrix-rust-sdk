@@ -34,8 +34,8 @@ pub fn create(c: &mut Criterion) {
         let raw_room_id = format!("!arsgratiaartis{room_nth:04}:example.com");
 
         let room_id = if room_nth % 10 == 9 {
-            // Make 1 in 10 rooms use a room v12 ID, which is a base64 hash similar to an
-            // event ID.
+            // Make 1 in 10 rooms use a room v12 ID, which is a base64 hash
+            // similar to an event ID.
             RoomId::new_v2(&base64_sha256_hash(raw_room_id.as_bytes())).unwrap()
         } else {
             OwnedRoomId::try_from(raw_room_id).unwrap()

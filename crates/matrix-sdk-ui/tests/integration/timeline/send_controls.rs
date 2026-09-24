@@ -1,5 +1,4 @@
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::{
@@ -14,6 +13,7 @@ use ruma::{
     events::room::message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
     room_id,
 };
+use strass::assert_let;
 use stream_assert::assert_pending;
 
 fn text_edit(body: &str) -> EditedContent {
@@ -716,8 +716,8 @@ async fn test_abort_unblocks_the_rest_of_the_queue() {
     let timeline = room.timeline().await.unwrap();
     let (_, mut stream) = timeline.subscribe().await;
 
-    // The first message wedges. The success mock is only mounted further down, so a
-    // request sneaking past the wedge fails loudly.
+    // The first message wedges. The success mock is only mounted further down,
+    // so a request sneaking past the wedge fails loudly.
     server.mock_room_send().error_too_large().mock_once().mount().await;
 
     timeline.send(RoomMessageEventContent::text_plain("first").into()).await.unwrap();

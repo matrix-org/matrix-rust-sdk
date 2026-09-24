@@ -50,9 +50,10 @@ pub(super) async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Res
         return Ok(());
     }
 
-    // 0.b. We should only share room history if the *current* visibility allows it.
-    //      Note: the specification states we should assume `shared` if no event
-    //      exists, see https://spec.matrix.org/v1.17/client-server-api/#server-behaviour-7.
+    // 0.b. We should only share room history if the _current_ visibility allows
+    // it. Note: the specification states we should assume `shared` if no event
+    // exists, see
+    // https://spec.matrix.org/v1.17/client-server-api/#server-behaviour-7.
     if matches!(
         room.history_visibility_or_default(),
         HistoryVisibility::Joined | HistoryVisibility::Invited
@@ -139,15 +140,15 @@ pub(super) async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Res
 ///
 /// # Arguments
 ///
-/// * `room` - The room for which the key bundle acceptance is being evaluated.
-/// * `bundle_info` - Information about the room key bundle being evaluated.
+/// - `room` - The room for which the key bundle acceptance is being evaluated.
+/// - `bundle_info` - Information about the room key bundle being evaluated.
 ///
 /// # Returns
 ///
 /// Returns `true` if the key bundle should be accepted, otherwise `false`.
 pub(crate) async fn should_accept_key_bundle(room: &Room, bundle_info: &RoomKeyBundleInfo) -> bool {
-    // If we don't have any invite acceptance details, then this client wasn't the
-    // one that accepted the invite.
+    // If we don't have any invite acceptance details, then this client wasn't
+    // the one that accepted the invite.
     let Ok(Some(details)) =
         room.client.base_client().get_pending_key_bundle_details_for_room(room.room_id()).await
     else {
@@ -178,7 +179,7 @@ pub(crate) async fn should_accept_key_bundle(room: &Room, bundle_info: &RoomKeyB
 ///
 /// # Arguments
 ///
-/// * `details` - The details of the pending key bundle, including the invite
+/// - `details` - The details of the pending key bundle, including the invite
 ///   acceptance timestamp.
 ///
 /// # Returns
@@ -188,8 +189,8 @@ pub(crate) async fn should_accept_key_bundle(room: &Room, bundle_info: &RoomKeyB
 pub(crate) fn should_process_room_pending_key_bundle_details(
     details: &RoomPendingKeyBundleDetails,
 ) -> bool {
-    // We accept historic room key bundles up to one day after we have accepted an
-    // invite.
+    // We accept historic room key bundles up to one day after we have accepted
+    // an invite.
     const DAY: Duration = Duration::from_secs(24 * 60 * 60);
 
     details
@@ -206,17 +207,17 @@ pub(crate) fn should_process_room_pending_key_bundle_details(
 ///
 /// # Arguments
 ///
-/// * `room` - The room we were invited to, for which we want to check if a room
+/// - `room` - The room we were invited to, for which we want to check if a room
 ///   key bundle was received.
 ///
-/// * `inviter` - The user who invited us to the room and is expected to have
+/// - `inviter` - The user who invited us to the room and is expected to have
 ///   sent the room key bundle.
 ///
 /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 #[instrument(skip(room), fields(room_id = ?room.room_id(), bundle_sender))]
 pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Result<()> {
-    // TODO: retry this if it gets interrupted or it fails.
-    // TODO: do this in the background.
+    // TODO: retry this if it gets interrupted or it fails. TODO: do this in the
+    // background.
 
     let client = &room.client;
     let olm_machine = client.olm_machine().await;
@@ -236,11 +237,10 @@ pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Re
 
     tracing::Span::current().record("bundle_sender", bundle_info.sender_user.as_str());
 
-    // Ensure that we get a fresh list of devices for the inviter, in case we need
-    // to recalculate the `SenderData`.
-    // XXX: is this necessary, given (with exclude-insecure-devices), we should have
-    // checked that the inviter device was cross-signed when we received the
-    // to-device message?
+    // Ensure that we get a fresh list of devices for the inviter, in case we
+    // need to recalculate the `SenderData`. XXX: is this necessary, given (with
+    // exclude-insecure-devices), we should have checked that the inviter device
+    // was cross-signed when we received the to-device message?
     let (req_id, request) =
         olm_machine.query_keys_for_users(iter::once(bundle_info.sender_user.as_ref()));
 
@@ -261,17 +261,17 @@ pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Re
     {
         Ok(bundle_content) => bundle_content,
         Err(err) => {
-            // If we encountered an HTTP client error, we should check the status code to
-            // see if we have been sent a bogus link.
+            // If we encountered an HTTP client error, we should check the
+            // status code to see if we have been sent a bogus link.
             let Some(err) = err.client_api_error_kind() else {
-                // Some other error occurred, which we may be able to recover from at the next
-                // client startup.
+                // Some other error occurred, which we may be able to recover
+                // from at the next client startup.
                 return Ok(());
             };
 
             if ErrorKind::NotFound == *err {
-                // Clear the pending flag since checking these details again at startup are
-                // guaranteed to fail.
+                // Clear the pending flag since checking these details again at
+                // startup are guaranteed to fail.
                 olm_machine.store().clear_room_pending_key_bundle(room.room_id()).await?;
             }
 
@@ -301,9 +301,9 @@ pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Re
     // olm_machine.store().clear_received_room_key_bundle_data(room.room_id(),
     // user_id).await?;
 
-    // If we have reached this point, the bundle was either successfully imported,
-    // or was malformed and failed to deserialise. In either case, we can clear
-    // the room pending state.
+    // If we have reached this point, the bundle was either successfully
+    // imported, or was malformed and failed to deserialise. In either case, we
+    // can clear the room pending state.
     olm_machine.store().clear_room_pending_key_bundle(room.room_id()).await?;
 
     Ok(())

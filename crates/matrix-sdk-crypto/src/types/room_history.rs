@@ -59,8 +59,8 @@ impl RoomKeyBundle {
 ///
 /// Note: unlike a room key received via an `m.room_key` message (i.e., a
 /// [`RoomKeyContent`]), we have no direct proof that the original sender
-/// actually created this session; rather, we have to take the word of
-/// whoever sent us this key bundle.
+/// actually created this session; rather, we have to take the word of whoever
+/// sent us this key bundle.
 #[derive(Deserialize, Serialize)]
 pub struct HistoricRoomKey {
     /// The encryption algorithm that the session uses.

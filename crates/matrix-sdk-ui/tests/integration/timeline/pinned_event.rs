@@ -1,6 +1,5 @@
-use std::time::Duration;
+use std::{assert_matches, time::Duration};
 
-use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::{
@@ -30,6 +29,7 @@ use ruma::{
     serde::Raw,
     user_id,
 };
+use strass::assert_let;
 use stream_assert::assert_pending;
 use tokio::time::sleep;
 use wiremock::ResponseTemplate;
@@ -61,8 +61,8 @@ async fn test_new_pinned_events_are_not_added_on_sync() {
         .mount()
         .await;
 
-    // Load initial timeline items: a `m.room.pinned_events` with events $1 and $2
-    // pinned
+    // Load initial timeline items: a `m.room.pinned_events` with events
+    // $1 and $2 pinned
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec!["$1", "$2"])
         .mock_and_sync(&client, &server)
@@ -91,8 +91,8 @@ async fn test_new_pinned_events_are_not_added_on_sync() {
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
     assert_pending!(timeline_stream);
 
-    // Load new pinned event contents from sync, $2 was pinned but wasn't available
-    // before
+    // Load new pinned event contents from sync, $2 was pinned but wasn't
+    // available before
     let event_2 = f
         .text_msg("pinned message!")
         .event_id(event_id!("$2"))
@@ -105,8 +105,8 @@ async fn test_new_pinned_events_are_not_added_on_sync() {
         .await
         .expect("Room should be synced");
 
-    // Event $2 was received through sync, but it wasn't added to the pinned event
-    // timeline.
+    // Event $2 was received through sync, but it wasn't added to the pinned
+    // event timeline.
     assert_pending!(timeline_stream);
 }
 
@@ -139,7 +139,8 @@ async fn test_pinned_event_with_reaction() {
         .mount()
         .await;
 
-    // Load initial timeline items: a `m.room.pinned_events` with event $1 pinned
+    // Load initial timeline items: a `m.room.pinned_events` with event $1
+    // pinned
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec!["$1"])
         .mock_and_sync(&client, &server)
@@ -213,7 +214,8 @@ async fn test_pinned_event_with_paginated_reactions() {
         .mount()
         .await;
 
-    // Load initial timeline items: a `m.room.pinned_events` with event $1 pinned
+    // Load initial timeline items: a `m.room.pinned_events` with event $1
+    // pinned
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec!["$1"])
         .mock_and_sync(&client, &server)
@@ -431,8 +433,8 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
         .mount()
         .await;
 
-    // Load initial timeline items: a `m.room.pinned_events` with event $1 and $2
-    // pinned
+    // Load initial timeline items: a `m.room.pinned_events` with event
+    // $1 and $2 pinned
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec!["$1", "$2"])
         .mock_and_sync(&client, &server)
@@ -466,8 +468,8 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     drop(timeline);
     drop(room);
 
-    // Set up a sync response with only the pinned event ids and no events, so if
-    // they exist later we know they come from the cache
+    // Set up a sync response with only the pinned event ids and no events, so
+    // if they exist later we know they come from the cache
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec!["$1", "$2"])
         .mock_and_sync(&client, &server)
@@ -494,8 +496,9 @@ async fn test_pinned_timeline_with_pinned_event_ids_and_empty_result_fails() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    // Load initial timeline items: a `m.room.pinned_events` with event $1 and $2
-    // pinned, but they're not available neither in the cache nor in the HS
+    // Load initial timeline items: a `m.room.pinned_events` with event
+    // $1 and $2 pinned, but they're not available neither in the cache nor in
+    // the HS
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec!["$1", "$2"])
         .mock_and_sync(&client, &server)
@@ -691,8 +694,8 @@ async fn test_edited_events_are_reflected_in_sync() {
         .mount()
         .await;
 
-    // Load initial timeline items: a text message and a `m.room.pinned_events` with
-    // event $1.
+    // Load initial timeline items: a text message and a `m.room.pinned_events`
+    // with event $1.
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec!["$1"])
         .mock_and_sync(&client, &server)
@@ -781,8 +784,8 @@ async fn test_redacted_events_are_reflected_in_sync() {
         .mount()
         .await;
 
-    // Load initial timeline items: a text message and a `m.room.pinned_events` with
-    // event $1
+    // Load initial timeline items: a text message and a `m.room.pinned_events`
+    // with event $1
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec![pinned_event_id.as_str()])
         .mock_and_sync(&client, &server)
@@ -893,8 +896,8 @@ async fn test_ensure_max_concurrency_is_observed() {
     // Abort handle to stop requests from being processed.
     handle.abort();
 
-    // The real check happens here, based on the `max_concurrent_requests` expected
-    // value set above for the mock endpoint.
+    // The real check happens here, based on the `max_concurrent_requests`
+    // expected value set above for the mock endpoint.
     server.server().verify().await;
 }
 
@@ -952,7 +955,7 @@ async fn test_pinned_events_listener_task_reloads_events_when_ids_change() {
         .expect("Stream timed out")
         .expect("Got stream diff");
     assert_eq!(diffs.diffs.len(), 1);
-    assert_matches!(&diffs.diffs[0], VectorDiff::Append { values });
+    assert_let!(VectorDiff::Append { values } = &diffs.diffs[0]);
     assert_eq!(values.len(), 1);
     assert_eq!(values[0].event_id(), Some(event_id1));
 
@@ -970,7 +973,8 @@ async fn test_pinned_events_listener_task_reloads_events_when_ids_change() {
         .expect("Got stream diff");
     assert_eq!(diffs.diffs.len(), 2);
     assert_matches!(&diffs.diffs[0], VectorDiff::Clear);
-    assert_matches!(&diffs.diffs[1], VectorDiff::Append { values });
+
+    assert_let!(VectorDiff::Append { values } = &diffs.diffs[1]);
     assert_eq!(values.len(), 2);
     assert_eq!(values[0].event_id(), Some(event_id1));
     assert_eq!(values[1].event_id(), Some(event_id2));
@@ -987,7 +991,8 @@ async fn test_pinned_events_listener_task_reloads_events_when_ids_change() {
         .expect("Got stream diff");
     assert_eq!(diffs.diffs.len(), 2);
     assert_matches!(&diffs.diffs[0], VectorDiff::Clear);
-    assert_matches!(&diffs.diffs[1], VectorDiff::Append { values });
+
+    assert_let!(VectorDiff::Append { values } = &diffs.diffs[1]);
     assert_eq!(values.len(), 1);
     assert_eq!(values[0].event_id(), Some(event_id1));
 }

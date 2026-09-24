@@ -16,8 +16,8 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{ImplItem, Item, TraitItem};
 
-/// Attribute to specify the async runtime parameter for the `uniffi`
-/// export macros if there any `async fn`s in the input.
+/// Attribute to specify the async runtime parameter for the `uniffi` export
+/// macros if there any `async fn`s in the input.
 #[proc_macro_attribute]
 pub fn export(attr: TokenStream, input: TokenStream) -> TokenStream {
     do_export(attr.into(), input.into()).into()

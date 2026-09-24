@@ -263,6 +263,7 @@ macro_rules! set_caption {
     ($event:expr, $caption:expr) => {
         let filename = $event.filename().to_owned();
         // As a reminder:
+        //
         // - body and no filename set means the body is the filename
         // - body and filename set means the body is the caption, and filename is the
         //   filename.
@@ -321,9 +322,8 @@ pub(crate) fn update_media_caption(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{assert_matches, collections::BTreeMap};
 
-    use assert_matches2::{assert_let, assert_matches};
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
@@ -334,6 +334,7 @@ mod tests {
         },
         owned_mxc_uri, owned_user_id, user_id,
     };
+    use strass::assert_let;
 
     use super::{EditError, EventSource, make_edit_event, validate_attachment_edit};
     use crate::{Error, room::edit::EditedContent};

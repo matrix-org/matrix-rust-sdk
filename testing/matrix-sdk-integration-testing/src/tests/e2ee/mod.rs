@@ -5,7 +5,6 @@ use std::{
 
 use anyhow::Result;
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use assign::assign;
 use matrix_sdk::{
     Client, assert_next_eq_with_timeout,
@@ -38,6 +37,7 @@ use matrix_sdk_ui::{
     sync_service::SyncService,
 };
 use similar_asserts::assert_eq;
+use strass::assert_let;
 use tracing::{debug, warn};
 
 use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};

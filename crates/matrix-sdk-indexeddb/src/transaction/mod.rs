@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-// Allow dead code here, as this module is still in the process
-// of being developed, so some functions will be used later on.
-// Once development is complete, we can remove this line and
-// clean up any dead code.
+// Allow dead code here, as this module is still in the process of being
+// developed, so some functions will be used later on. Once development is
+// complete, we can remove this line and clean up any dead code.
 #![allow(dead_code)]
 
 use futures_util::TryStreamExt;
@@ -162,8 +161,8 @@ impl<'a> Transaction<'a> {
         self.get_items_by_key::<T, K>(range).await
     }
 
-    /// Query IndexedDB for items that match the given key. If
-    /// more than one item is found, an error is returned.
+    /// Query IndexedDB for items that match the given key. If more than one
+    /// item is found, an error is returned.
     pub async fn get_item_by_key<T, K>(&self, key: K) -> Result<Option<T>, TransactionError>
     where
         T: Indexed,
@@ -361,11 +360,11 @@ impl<'a> Transaction<'a> {
         Ok((state, None))
     }
 
-    /// Adds an item to the corresponding IndexedDB object
-    /// store, i.e., `T::OBJECT_STORE`. If an item with the same key already
-    /// exists, it will be rejected. When the item is successfully added, the
-    /// function returns the intermediary type [`Indexed::IndexedType`] in case
-    /// inspection is needed.
+    /// Adds an item to the corresponding IndexedDB object store, i.e.,
+    /// `T::OBJECT_STORE`. If an item with the same key already exists, it will
+    /// be rejected. When the item is successfully added, the function returns
+    /// the intermediary type [`Indexed::IndexedType`] in case inspection is
+    /// needed.
     pub fn add_item<T>(&self, item: &T) -> Result<T::IndexedType, TransactionError>
     where
         T: Indexed + Serialize,
@@ -380,11 +379,11 @@ impl<'a> Transaction<'a> {
         Ok(output.indexed)
     }
 
-    /// Puts an item in the corresponding IndexedDB object
-    /// store, i.e., `T::OBJECT_STORE`. If an item with the same key already
-    /// exists, it will be overwritten. When the item is successfully put, the
-    /// function returns the intermediary type [`Indexed::IndexedType`] in case
-    /// inspection is needed.
+    /// Puts an item in the corresponding IndexedDB object store, i.e.,
+    /// `T::OBJECT_STORE`. If an item with the same key already exists, it will
+    /// be overwritten. When the item is successfully put, the function returns
+    /// the intermediary type [`Indexed::IndexedType`] in case inspection is
+    /// needed.
     pub fn put_item<T>(&self, item: &T) -> Result<T::IndexedType, TransactionError>
     where
         T: Indexed + Serialize,
@@ -399,12 +398,11 @@ impl<'a> Transaction<'a> {
         Ok(output.indexed)
     }
 
-    /// Puts an item in the corresponding IndexedDB object
-    /// store, i.e., `T::OBJECT_STORE`, if `T::IndexedType` meets the criteria
-    /// defined by `f`. If an item with the same key already
-    /// exists, it will be overwritten. When the item is successfully put, the
-    /// function returns the intermediary type [`Indexed::IndexedType`] in case
-    /// inspection is needed.
+    /// Puts an item in the corresponding IndexedDB object store, i.e.,
+    /// `T::OBJECT_STORE`, if `T::IndexedType` meets the criteria defined by
+    /// `f`. If an item with the same key already exists, it will be
+    /// overwritten. When the item is successfully put, the function returns the
+    /// intermediary type [`Indexed::IndexedType`] in case inspection is needed.
     pub fn put_item_if<T>(
         &self,
         item: &T,
@@ -427,11 +425,11 @@ impl<'a> Transaction<'a> {
         }
     }
 
-    /// Update items in the given key component range by reading them,
-    /// applying the function `F`, and then writing them back to IndexedDB.
+    /// Update items in the given key component range by reading them, applying
+    /// the function `F`, and then writing them back to IndexedDB.
     ///
-    /// Note that this is a potentially expensive operation, as IndexedDB
-    /// does not provide modification utilities.
+    /// Note that this is a potentially expensive operation, as IndexedDB does
+    /// not provide modification utilities.
     pub async fn update_items_by_key_components<'b, T, K, F>(
         &self,
         range: impl Into<IndexedKeyRange<K::KeyComponents<'b>>>,
@@ -477,8 +475,7 @@ impl<'a> Transaction<'a> {
         Ok(())
     }
 
-    /// Delete items in the given key component range from
-    /// IndexedDB
+    /// Delete items in the given key component range from IndexedDB
     pub async fn delete_items_by_key_components<'b, T, K>(
         &self,
         range: impl Into<IndexedKeyRange<K::KeyComponents<'b>>>,
@@ -491,8 +488,7 @@ impl<'a> Transaction<'a> {
         self.delete_items_by_key::<T, K>(range).await
     }
 
-    /// Delete item that matches the given key components from
-    /// IndexedDB
+    /// Delete item that matches the given key components from IndexedDB
     pub async fn delete_item_by_key<'b, T, K>(
         &self,
         key: K::KeyComponents<'b>,

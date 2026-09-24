@@ -40,13 +40,10 @@ use super::{
 ///
 /// # Arguments
 ///
-/// * `http_service` - The service to use for making HTTP requests.
-///
-/// * `registration_endpoint` - The URL of the issuer's Registration endpoint.
-///
-/// * `client_metadata` - The metadata to register with the issuer.
-///
-/// * `software_statement` - A JWT that asserts metadata values about the client
+/// - `http_service` - The service to use for making HTTP requests.
+/// - `registration_endpoint` - The URL of the issuer's Registration endpoint.
+/// - `client_metadata` - The metadata to register with the issuer.
+/// - `software_statement` - A JWT that asserts metadata values about the client
 ///   software that should be signed.
 ///
 /// # Errors

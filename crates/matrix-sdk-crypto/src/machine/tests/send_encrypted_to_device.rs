@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use assert_matches2::{assert_let, assert_matches};
+use std::assert_matches;
+
 use insta::assert_json_snapshot;
 use matrix_sdk_common::deserialized_responses::{
     AlgorithmInfo, ProcessedToDeviceEvent, ToDeviceUnableToDecryptReason, VerificationLevel,
@@ -24,6 +25,7 @@ use ruma::{
     to_device::DeviceIdOrAllDevices,
 };
 use serde_json::{Value, json, value::to_raw_value};
+use strass::assert_let;
 
 use crate::{
     CrossSigningBootstrapRequests, DecryptionSettings, DeviceData, EncryptionSettings,
@@ -97,12 +99,12 @@ async fn test_send_encrypted_to_device() {
 
     assert_eq!(encryption_info.sender, alice.user_id().to_owned());
 
-    assert_matches!(&encryption_info.sender_device, Some(sender_device));
+    let sender_device = encryption_info.sender_device.as_ref().unwrap();
     assert_eq!(sender_device.to_owned(), alice.device_id().to_owned());
 
-    assert_matches!(
-        &encryption_info.algorithm_info,
-        AlgorithmInfo::OlmV1Curve25519AesSha2 { curve25519_public_key_base64 }
+    assert_let!(
+        AlgorithmInfo::OlmV1Curve25519AesSha2 { curve25519_public_key_base64 } =
+            &encryption_info.algorithm_info
     );
     let alice_device =
         alice.get_device(alice.user_id(), alice.device_id(), None).await.unwrap().unwrap();
@@ -120,7 +122,8 @@ async fn test_send_encrypted_to_device() {
 /// Test what happens when the sending device is deleted before the to-device
 /// event arrives. (It should still be successfully decrypted.)
 ///
-/// Regression test for https://github.com/matrix-org/matrix-rust-sdk/issues/5768.
+/// Regression test for
+/// https://github.com/matrix-org/matrix-rust-sdk/issues/5768.
 #[async_test]
 async fn test_encrypted_to_device_from_deleted_device() {
     let (alice, bob) =
@@ -152,7 +155,7 @@ async fn test_encrypted_to_device_from_deleted_device() {
     assert_eq!(decrypted_event.event_type().to_string(), custom_event_type.to_owned());
 
     assert_eq!(encryption_info.sender, alice.user_id().to_owned());
-    assert_matches!(&encryption_info.sender_device, Some(sender_device));
+    let sender_device = encryption_info.sender_device.as_ref().unwrap();
     assert_eq!(sender_device.to_owned(), alice.device_id().to_owned());
 }
 
@@ -624,7 +627,7 @@ async fn test_processed_to_device_variants() {
     });
 
     let processed_event = &processed[3];
-    assert_matches!(processed_event, ProcessedToDeviceEvent::UnableToDecrypt { utd_info, .. });
+    assert_let!(ProcessedToDeviceEvent::UnableToDecrypt { utd_info, .. } = processed_event);
     assert_eq!(utd_info.reason, ToDeviceUnableToDecryptReason::DecryptionFailure);
 
     insta::with_settings!({ prepend_module_to_snapshot => false }, {
@@ -661,13 +664,13 @@ async fn test_send_encrypted_to_device_no_session() {
 }
 
 /// Create a new [`OutboundGroupSession`], and build a to-device event to share
-/// it with another [`OlmMachine`], *without* sending the MSC4147 sender data.
+/// it with another [`OlmMachine`], _without_ sending the MSC4147 sender data.
 ///
 /// # Arguments
 ///
-/// * `alice` - sending device.
-/// * `bob` - receiving device.
-/// * `room_id` - room to create a session for.
+/// - `alice` - sending device.
+/// - `bob` - receiving device.
+/// - `room_id` - room to create a session for.
 async fn create_and_share_session_without_sender_data(
     alice: &OlmMachine,
     bob: &OlmMachine,
@@ -684,8 +687,8 @@ async fn create_and_share_session_without_sender_data(
         .await
         .unwrap();
 
-    // In future, we might want to save the session to the store, to better match
-    // the behaviour of the real implementation. See
+    // In future, we might want to save the session to the store, to better
+    // match the behaviour of the real implementation. See
     // `GroupSessionManager::share_room_key` for inspiration on how to do that.
 
     let bob_device = alice

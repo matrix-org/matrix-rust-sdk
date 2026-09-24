@@ -142,9 +142,8 @@ pub enum TimelineItemContent {
 }
 
 impl TimelineItemContent {
-    /// Returns the raw Matrix event type string (e.g. `"m.room.message"`),
-    /// or `None` when the original type is not available (e.g. redacted
-    /// events).
+    /// Returns the raw Matrix event type string (e.g. `"m.room.message"`), or
+    /// `None` when the original type is not available (e.g. redacted events).
     pub fn event_type_str(&self) -> Option<String> {
         match self {
             Self::MsgLike(msg) => Some(match &msg.kind {
@@ -244,7 +243,8 @@ impl TimelineItemContent {
                 None
             }
             [_, _, ..] => {
-                // There is no meaningful single content to extract in that case.
+                // There is no meaningful single content to extract in that
+                // case.
                 warn!("Ignoring event that produced multiple timeline actions");
                 None
             }
@@ -272,8 +272,8 @@ impl TimelineItemContent {
         matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::LiveLocation(_), .. }))
     }
 
-    /// If `self` is of the [`MsgLike`][Self::MsgLike] variant, return the
-    /// inner [`Message`].
+    /// If `self` is of the [`MsgLike`][Self::MsgLike] variant, return the inner
+    /// [`Message`].
     pub fn as_message(&self) -> Option<&Message> {
         as_variant!(self, Self::MsgLike(MsgLikeContent {
             kind: MsgLikeKind::Message(message),
@@ -287,8 +287,8 @@ impl TimelineItemContent {
         matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::Message(_), .. }))
     }
 
-    /// If `self` is of the [`MsgLike`][Self::MsgLike] variant, return the
-    /// inner [`PollState`].
+    /// If `self` is of the [`MsgLike`][Self::MsgLike] variant, return the inner
+    /// [`PollState`].
     pub fn as_poll(&self) -> Option<&PollState> {
         as_variant!(self, Self::MsgLike(MsgLikeContent {
             kind: MsgLikeKind::Poll(poll_state),
@@ -799,7 +799,8 @@ impl AnyOtherStateEventContentChange {
     /// `AnyStateEventContentChange`.
     ///
     /// Panics if the event content does not match one of the variants.
-    // This could be a `From` implementation but we don't want it in the public API.
+    // This could be a `From` implementation but we don't want it in the public
+    // API.
     pub(crate) fn with_event_content(content: AnyStateEventContentChange) -> Self {
         let event_type = content.event_type();
 
@@ -943,7 +944,6 @@ impl OtherState {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches2::assert_let;
     use matrix_sdk_test::ALICE;
     use ruma::{
         assign,
@@ -955,6 +955,7 @@ mod tests {
         },
         room_version_rules::RedactionRules,
     };
+    use strass::assert_let;
 
     use super::{MembershipChange, RoomMembershipChange, TimelineItemContent};
 

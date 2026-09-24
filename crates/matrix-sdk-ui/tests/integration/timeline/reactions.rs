@@ -12,22 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
+use std::{assert_matches, time::Duration};
 
-use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{EventSendState, RoomExt as _};
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
+use strass::assert_let;
 use stream_assert::assert_pending;
 use tokio::time::sleep;
 
 #[async_test]
 async fn test_abort_before_being_sent() {
-    // This test checks that a reaction could be aborted *before* or *while* it's
-    // being sent by the send queue.
+    // This test checks that a reaction could be aborted _before_ or _while_
+    // it's being sent by the send queue.
 
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
@@ -71,7 +71,8 @@ async fn test_abort_before_being_sent() {
 
     // Now we try to add two reactions to this message…
 
-    // Mock the send endpoint with a delay, to give us time to abort the sending.
+    // Mock the send endpoint with a delay, to give us time to abort the
+    // sending.
     server
         .mock_room_send()
         .ok_with_delay(event_id!("$2"), Duration::from_millis(150))
@@ -134,8 +135,8 @@ async fn test_abort_before_being_sent() {
         assert_pending!(stream);
     }
 
-    // Then we remove the first one; because it was being sent, it should lead to a
-    // redaction event.
+    // Then we remove the first one; because it was being sent, it should lead
+    // to a redaction event.
     timeline.toggle_reaction(&item_id, "👍").await.unwrap();
 
     {
@@ -154,8 +155,8 @@ async fn test_abort_before_being_sent() {
         assert_pending!(stream);
     }
 
-    // But because the first one was being sent, this one won't and the local echo
-    // could be discarded.
+    // But because the first one was being sent, this one won't and the local
+    // echo could be discarded.
     timeline.toggle_reaction(&item_id, "🥰").await.unwrap();
 
     {
@@ -177,7 +178,7 @@ async fn test_abort_before_being_sent() {
     assert_eq!(timeline_updates.len(), 1);
 
     // The remote event comes in.
-    assert_matches!(&timeline_updates[0], VectorDiff::Set { index: 1, value: remote_event });
+    assert_let!(VectorDiff::Set { index: 1, value: remote_event } = &timeline_updates[0]);
     let remote_event = remote_event.as_event().unwrap();
     assert_eq!(remote_event.event_id(), Some(event_id));
     assert_eq!(remote_event.reactions().len(), 1);
@@ -187,8 +188,8 @@ async fn test_abort_before_being_sent() {
 
 #[async_test]
 async fn test_redact_failed() {
-    // This test checks that if a reaction redaction failed, then we re-insert the
-    // reaction after displaying it was removed.
+    // This test checks that if a reaction redaction failed, then we re-insert
+    // the reaction after displaying it was removed.
 
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
@@ -258,8 +259,8 @@ async fn test_redact_failed() {
 
 #[async_test]
 async fn test_local_reaction_to_local_echo() {
-    // This test checks that if a reaction redaction failed, then we re-insert the
-    // reaction after displaying it was removed.
+    // This test checks that if a reaction redaction failed, then we re-insert
+    // the reaction after displaying it was removed.
 
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
@@ -275,9 +276,8 @@ async fn test_local_reaction_to_local_echo() {
 
     assert!(initial_items.is_empty());
 
-    // Mock for the first message.
-    // Add a duration to the response, so we can check other things in the
-    // meanwhile.
+    // Mock for the first message. Add a duration to the response, so we can
+    // check other things in the meanwhile.
     server
         .mock_room_send()
         .ok_with_delay(event_id!("$0"), Duration::from_millis(150))
@@ -358,8 +358,8 @@ async fn test_local_reaction_to_local_echo() {
         assert_pending!(stream);
     }
 
-    // Remove second reaction. It's immediately removed, since it was a local echo,
-    // and it wasn't being sent.
+    // Remove second reaction. It's immediately removed, since it was a local
+    // echo, and it wasn't being sent.
     timeline.toggle_reaction(&item_id, key2).await.unwrap();
 
     {

@@ -15,7 +15,6 @@
 use std::time::Duration;
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
@@ -30,6 +29,7 @@ use ruma::{
     },
     room_id, user_id,
 };
+use strass::assert_let;
 use stream_assert::assert_pending;
 
 #[async_test]
@@ -47,8 +47,8 @@ async fn test_batched() {
 
     let hdl = spawn(async move {
         let next_batch = timeline_stream.next().await.unwrap();
-        // There can be more than three updates because we add things like
-        // date dividers and implicit read receipts
+        // There can be more than three updates because we add things like date
+        // dividers and implicit read receipts
         assert!(next_batch.len() >= 3);
     });
 
@@ -136,7 +136,8 @@ async fn test_event_filter() {
     // The implicit read receipt of Alice is moving from Alice's message...
     assert_let!(VectorDiff::Set { index: 1, value: first } = &timeline_updates[1]);
     assert_eq!(first.as_event().unwrap().read_receipts().len(), 0, "no more implicit read receipt");
-    // … to Alice's edit. But since this item isn't visible, it's lost in the weeds!
+    // … to Alice's edit. But since this item isn't visible, it's lost in the
+    // weeds!
 
     // The edit is applied to the first event.
     assert_let!(VectorDiff::Set { index: 1, value: first } = &timeline_updates[2]);

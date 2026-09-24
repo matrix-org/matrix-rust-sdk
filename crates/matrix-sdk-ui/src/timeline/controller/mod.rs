@@ -172,8 +172,8 @@ impl TimelineFocusKind {
     /// timeline focus.
     ///
     /// Live and event timelines will use the unthreaded read receipt type in
-    /// general, unless they hide in-thread events, in which case they will
-    /// use the main thread.
+    /// general, unless they hide in-thread events, in which case they will use
+    /// the main thread.
     pub(super) fn receipt_thread(&self) -> ReceiptThread {
         if let Some(thread_root) = self.thread_root() {
             ReceiptThread::Thread(thread_root.to_owned())
@@ -283,12 +283,12 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, rules: &RoomVersionRul
     match event {
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) => {
             if ev.redacts(&rules.redaction).is_some() {
-                // This is a redaction of an existing message, we'll only update the previous
-                // message and not render a new entry.
+                // This is a redaction of an existing message, we'll only update
+                // the previous message and not render a new entry.
                 false
             } else {
-                // This is a redacted entry, that we'll show only if the redacted entity wasn't
-                // a reaction.
+                // This is a redacted entry, that we'll show only if the
+                // redacted entity wasn't a reaction.
                 ev.event_type() != MessageLikeEventType::Reaction
             }
         }
@@ -296,8 +296,8 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, rules: &RoomVersionRul
         AnySyncTimelineEvent::MessageLike(msg) => {
             match msg.original_content() {
                 None => {
-                    // This is a redacted entry, that we'll show only if the redacted entity wasn't
-                    // a reaction.
+                    // This is a redacted entry, that we'll show only if the
+                    // redacted entity wasn't a reaction.
                     msg.event_type() != MessageLikeEventType::Reaction
                 }
 
@@ -342,8 +342,8 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, rules: &RoomVersionRul
                         // their parent `beacon_info` state event's timeline
                         // item. They are never rendered as standalone items.
                         AnyMessageLikeEventContent::Beacon(_) => false,
-                        // Ignore decline events, the matching RtcNotification event will be updated
-                        // to reflect the decline.
+                        // Ignore decline events, the matching RtcNotification
+                        // event will be updated to reflect the decline.
                         AnyMessageLikeEventContent::RtcDecline(_) => false,
 
                         _ => false,
@@ -459,9 +459,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
     }
 
     /// Listens to encryption state changes for the room in
-    /// [`matrix_sdk_base::RoomInfo`] and applies the new value to the
-    /// existing timeline items. This will then cause a refresh of those
-    /// timeline items.
+    /// [`matrix_sdk_base::RoomInfo`] and applies the new value to the existing
+    /// timeline items. This will then cause a refresh of those timeline items.
     pub async fn handle_encryption_state_changes(&self) {
         let mut room_info = self.room_data_provider.room_info();
 
@@ -473,8 +472,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
         };
 
         if room_info.get().encryption_state().is_encrypted() {
-            // If the room was already encrypted, it won't toggle to unencrypted, so we can
-            // shut down this task early.
+            // If the room was already encrypted, it won't toggle to
+            // unencrypted, so we can shut down this task early.
             mark_encrypted().await;
             return;
         }
@@ -482,8 +481,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
         while let Some(info) = room_info.next().await {
             if info.encryption_state().is_encrypted() {
                 mark_encrypted().await;
-                // Once the room is encrypted, it cannot switch back to unencrypted, so our work
-                // here is done.
+                // Once the room is encrypted, it cannot switch back to
+                // unencrypted, so our work here is done.
                 break;
             }
         }
@@ -579,7 +578,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
         let user_id = self.room_data_provider.own_user_id();
         let target = item.identifier();
 
-        // The item says whether we reacted; the registry has the handle and event id.
+        // The item says whether we reacted; the registry has the handle and
+        // event id.
         let has_reaction =
             item.reactions().get(key).is_some_and(|by_user| by_user.contains_key(user_id));
         let previous = has_reaction
@@ -610,9 +610,9 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 }
 
                 TimelineItemHandle::Remote(event_id) => {
-                    // Add a reaction through the room data provider.
-                    // No need to reflect the effect locally, since the local echo handling will
-                    // take care of it.
+                    // Add a reaction through the room data provider. No need to
+                    // reflect the effect locally, since the local echo handling
+                    // will take care of it.
                     trace!("adding a reaction to a remote echo");
                     let annotation = Annotation::new(event_id.to_owned(), key.to_owned());
                     self.room_data_provider
@@ -626,11 +626,13 @@ impl<P: RoomDataProvider> TimelineController<P> {
         trace!("removing a previous reaction");
 
         if previous.is_local() {
-            // Aborting the local echo is enough: its discard removes the reaction.
+            // Aborting the local echo is enough: its discard removes the
+            // reaction.
             if let Some(handle) = &previous.send_handle {
                 if !handle.abort().await.map_err(|err| Error::SendQueueError(err.into()))? {
-                    // Impossible state: the reaction has moved from local to echo under our
-                    // feet, but the timeline was supposed to be locked!
+                    // Impossible state: the reaction has moved from local to
+                    // echo under our feet, but the timeline was supposed to be
+                    // locked!
                     warn!("unexpectedly unable to abort sending of local reaction");
                 }
             } else {
@@ -644,7 +646,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
             return Ok(false);
         };
 
-        // Assume the redaction will work; we'll re-add the reaction if it didn't.
+        // Assume the redaction will work; we'll re-add the reaction if it
+        // didn't.
         let Some(annotated_event_id) =
             item.as_remote().map(|event_item| event_item.event_id.clone())
         else {
@@ -799,11 +802,11 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 .await;
         }
 
-        // Replace the events if either the current event list or the new one aren't
-        // empty.
-        // Previously we just had to check the new one wasn't empty because
-        // we did a clear operation before so the current one would always be empty, but
-        // now we may want to replace a populated timeline with an empty one.
+        // Replace the events if either the current event list or the new one
+        // aren't empty. Previously we just had to check the new one wasn't
+        // empty because we did a clear operation before so the current one
+        // would always be empty, but now we may want to replace a populated
+        // timeline with an empty one.
         let mut events = events.into_iter().peekable();
         if !state.items.is_empty() || events.peek().is_some() {
             state
@@ -842,7 +845,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
         let mut state = self.state.write().await;
         let mut txn = state.transaction();
 
-        // Store the current active call info in metadata for new RtcNotification items
+        // Store the current active call info in metadata for new
+        // RtcNotification items
         txn.meta.active_call = maybe_active_call.clone();
 
         if let Some(existing_event_id) = &txn.meta.active_rtc_notification_event_id {
@@ -925,8 +929,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
         let new_event_id: Option<&EventId> =
             as_variant!(&send_state, EventSendState::Sent { event_id } => event_id);
 
-        // The local echoes are always at the end of the timeline, we must first make
-        // sure the remote echo hasn't showed up yet.
+        // The local echoes are always at the end of the timeline, we must first
+        // make sure the remote echo hasn't showed up yet.
         if rfind_event_item(&txn.items, |it| {
             new_event_id.is_some() && it.event_id() == new_event_id && it.as_remote().is_some()
         })
@@ -938,7 +942,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             let local_echo = rfind_event_item(&txn.items, |it| it.transaction_id() == Some(txn_id));
 
             // If there's both the remote echo and a local echo, that means the
-            // remote echo was received before the response *and* contained no
+            // remote echo was received before the response _and_ contained no
             // transaction ID (and thus duplicated the local echo).
             if let Some((idx, _)) = local_echo {
                 warn!("Message echo got duplicated, removing the local one");
@@ -990,8 +994,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
             error!(?existing_event_id, ?new_event_id, "Local echo already marked as sent");
         }
 
-        // If the event has just been marked as sent, update the aggregations mapping to
-        // take that into account.
+        // If the event has just been marked as sent, update the aggregations
+        // mapping to take that into account.
         if let Some(new_event_id) = new_event_id {
             txn.meta.aggregations.mark_target_as_sent(txn_id.to_owned(), new_event_id.to_owned());
         }
@@ -1012,8 +1016,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
             txn.items.remove(idx);
 
-            // A read marker or a date divider may have been inserted before the local echo.
-            // Ensure both are up to date.
+            // A read marker or a date divider may have been inserted before the
+            // local echo. Ensure both are up to date.
             let mut adjuster = DateDividerAdjuster::new(self.settings.date_divider_mode.clone());
             adjuster.run(&mut txn.items, &mut txn.meta);
 
@@ -1025,8 +1029,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
             return true;
         }
 
-        // Avoid multiple mutable and immutable borrows of the lock guard by explicitly
-        // dereferencing it once.
+        // Avoid multiple mutable and immutable borrows of the lock guard by
+        // explicitly dereferencing it once.
         let mut txn = state.transaction();
 
         // Look if this was a local aggregation.
@@ -1037,7 +1041,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
             Ok(val) => val,
             Err(err) => {
                 warn!("error when discarding local echo for an aggregation: {err}");
-                // The aggregation has been found, it's just that we couldn't discard it.
+                // The aggregation has been found, it's just that we couldn't
+                // discard it.
                 true
             }
         };
@@ -1055,10 +1060,10 @@ impl<P: RoomDataProvider> TimelineController<P> {
         content: AnyMessageLikeEventContent,
     ) -> bool {
         let AnyMessageLikeEventContent::RoomMessage(content) = content else {
-            // Ideally, we'd support replacing local echoes for a reaction, etc., but
-            // handling RoomMessage should be sufficient in most cases. Worst
-            // case, the local echo will be sent Soon™ and we'll get another chance at
-            // editing the event then.
+            // Ideally, we'd support replacing local echoes for a reaction,
+            // etc., but handling RoomMessage should be sufficient in most
+            // cases. Worst case, the local echo will be sent Soon™ and we'll
+            // get another chance at editing the event then.
             warn!("Replacing a local echo for a non-RoomMessage-like event NYI");
             return false;
         };
@@ -1087,8 +1092,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
             return false;
         };
 
-        // Reuse the previous local echo's state, but reset the send state to not sent
-        // (per API contract).
+        // Reuse the previous local echo's state, but reset the send state to
+        // not sent (per API contract).
         let ti_kind = {
             let Some(prev_local_item) = prev_item.as_local() else {
                 warn!("We looked for a local item, but it transitioned as remote??");
@@ -1115,8 +1120,8 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
         txn.items.replace(idx, new_item);
 
-        // This doesn't change the original sending time, so there's no need to adjust
-        // date dividers.
+        // This doesn't change the original sending time, so there's no need to
+        // adjust date dividers.
 
         txn.commit();
 
@@ -1509,8 +1514,9 @@ impl TimelineController {
                 match event_cache.pagination().status().get() {
                     PaginationStatus::Idle { hit_timeline_start } => {
                         if hit_timeline_start {
-                            // Eagerly insert the timeline start item, since pagination claims
-                            // we've already hit the timeline start.
+                            // Eagerly insert the timeline start item, since
+                            // pagination claims we've already hit the timeline
+                            // start.
                             self.insert_timeline_start_if_missing().await;
                         }
                     }
@@ -1531,8 +1537,8 @@ impl TimelineController {
 
                 let has_events = !events.is_empty();
 
-                // Ask the cache for the thread root, if it managed to extract one or decided
-                // that the target event was the thread root.
+                // Ask the cache for the thread root, if it managed to extract
+                // one or decided that the target event was the thread root.
                 if let Some(thread_root) = event_cache.thread_root().await? {
                     focus_thread_root.get_or_init(|| thread_root);
                 }
@@ -1613,8 +1619,8 @@ impl TimelineController {
     /// threaded events and secondary relations.
     ///
     /// Returns whether there were any events added to the timeline, and a
-    /// receiver to return updates after the initial events have been
-    /// inserted in the timeline.
+    /// receiver to return updates after the initial events have been inserted
+    /// in the timeline.
     pub(super) async fn init_with_thread_root(
         &self,
         event_cache: &ThreadEventCache,
@@ -1622,14 +1628,14 @@ impl TimelineController {
         let (events, subscriber) = event_cache.subscribe().await?;
         let has_events = !events.is_empty();
 
-        // For each event, we also need to find the related events, as they don't
-        // include the thread relationship, they won't be included in
-        // the initial list of events.
+        // For each event, we also need to find the related events, as they
+        // don't include the thread relationship, they won't be included in the
+        // initial list of events.
         //
         // The lookups are independent store queries, so run them together
-        // rather than awaiting them one after the other. `try_join_all`
-        // keeps the input order, so the related events are collected in the
-        // same order as before.
+        // rather than awaiting them one after the other. `try_join_all` keeps
+        // the input order, so the related events are collected in the same
+        // order as before.
         let lookups = events
             .iter()
             .filter_map(|event| event.event_id())
@@ -1697,8 +1703,8 @@ impl TimelineController {
         )
         .await?;
 
-        // We need to be sure to have the latest position of the event as it might have
-        // changed while waiting for the request.
+        // We need to be sure to have the latest position of the event as it
+        // might have changed while waiting for the request.
         let mut state = self.state.write().await;
         let (index, item) = rfind_event_by_id(&state.items, &remote_item.event_id)
             .ok_or(Error::EventNotInTimeline(TimelineEventItemId::EventId(event_id.to_owned())))?;
@@ -1720,8 +1726,8 @@ impl TimelineController {
             return Ok(());
         };
 
-        // Now that we've received the content of the replied-to event, replace the
-        // replied-to content in the item with it.
+        // Now that we've received the content of the replied-to event, replace
+        // the replied-to content in the item with it.
         trace!("Updating in-reply-to details");
         let internal_id = item.internal_id.to_owned();
         let mut item = item.clone();
@@ -1756,9 +1762,9 @@ impl TimelineController {
     /// target.
     ///
     /// The returned event may differ from `event_id`: a read receipt should not
-    /// point at one of the user's own events (see the Matrix spec's [Receipts
-    /// module]), so if `event_id` is one of theirs, the latest unread event
-    /// before it that is targeted instead.
+    /// point at one of the user's own events (see the Matrix spec's
+    /// [Receipts module]), so if `event_id` is one of theirs, the latest unread
+    /// event before it that is targeted instead.
     ///
     /// - When there's no such earlier event and `is_marking_room_as_read` is
     ///   `false`, [`SendReceiptDecision::DoNotSend`] is returned.
@@ -1779,8 +1785,8 @@ impl TimelineController {
         let room = self.room();
         let all_remote_events = state.items.all_remote_events();
 
-        // Resolve the event the receipt should target, redirecting away from the
-        // user's own events for read receipts.
+        // Resolve the event the receipt should target, redirecting away from
+        // the user's own events for read receipts.
         let target_event_id = match receipt_type {
             SendReceiptType::Read | SendReceiptType::ReadPrivate => {
                 let is_own_event = all_remote_events
@@ -1828,9 +1834,10 @@ impl TimelineController {
 
                     match previous_event {
                         Some(event_id) => event_id,
-                        // Nothing from another user to point at. When marking the room as read,
-                        // fall back to the user's own event so the homeserver still recomputes
-                        // its push/badge count; otherwise there's nothing to send.
+                        // Nothing from another user to point at. When marking
+                        // the room as read, fall back to the user's own event
+                        // so the homeserver still recomputes its push/badge
+                        // count; otherwise there's nothing to send.
                         None if is_marking_room_as_read => event_id.to_owned(),
                         None => return SendReceiptDecision::DoNotSend,
                     }
@@ -1857,8 +1864,9 @@ impl TimelineController {
                 .await
                 .map(|(event_id, _)| event_id),
 
-            // Implicit read receipts are saved as public read receipts, so get the latest. It also
-            // doesn't make sense to have a private read receipt behind a public one.
+            // Implicit read receipts are saved as public read receipts, so get
+            // the latest. It also doesn't make sense to have a private read
+            // receipt behind a public one.
             SendReceiptType::ReadPrivate => state
                 .latest_user_read_receipt(
                     own_user_id,
@@ -1874,7 +1882,8 @@ impl TimelineController {
             _ => None,
         };
 
-        // Don't send anything if the resolved event isn't more recent than that.
+        // Don't send anything if the resolved event isn't more recent than
+        // that.
         if let Some(previous_event_id) = previous_event_id {
             trace!(%previous_event_id, "found a previous receipt");
             if let Some(relative_pos) = TimelineMetadata::compare_events_positions(
@@ -1887,8 +1896,8 @@ impl TimelineController {
             }
         }
 
-        // No previous receipt was found (or it's an unknown one): let the server
-        // handle it.
+        // No previous receipt was found (or it's an unknown one): let the
+        // server handle it.
         SendReceiptDecision::SendTo(target_event_id)
     }
 
@@ -1900,7 +1909,8 @@ impl TimelineController {
             TimelineFocusKind::Thread { .. } => false,
             TimelineFocusKind::Live { hide_threaded_events, .. } => *hide_threaded_events,
             TimelineFocusKind::Event { .. } => {
-                // For event-focused timelines, filtering is handled in the event cache layer.
+                // For event-focused timelines, filtering is handled in the
+                // event cache layer.
                 false
             }
             TimelineFocusKind::PinnedEvents { .. } => true,
@@ -1913,14 +1923,16 @@ impl TimelineController {
             .rev()
             .filter_map(|event_meta| {
                 if !filter_out_thread_events {
-                    // For an unthreaded timeline, the last event is always the latest event.
+                    // For an unthreaded timeline, the last event is always the
+                    // latest event.
                     Some(event_meta.event_id.clone())
                 } else if event_meta.thread_root_id.is_none() {
-                    // For the main-thread timeline, only non-threaded events are valid candidates
-                    // for the latest event.
+                    // For the main-thread timeline, only non-threaded events
+                    // are valid candidates for the latest event.
                     //
-                    // But! An event could be an aggregation that relate to an in-thread
-                    // event. In this case, it's not a valid latest event.
+                    // But! An event could be an aggregation that relate to an
+                    // in-thread event. In this case, it's not a valid latest
+                    // event.
                     if let Some(TimelineEventItemId::EventId(target_event_id)) =
                         state.meta.aggregations.is_aggregation_of(&TimelineEventItemId::EventId(
                             event_meta.event_id.clone(),
@@ -1929,16 +1941,18 @@ impl TimelineController {
                             state.items.all_remote_events().get_by_event_id(target_event_id)
                         && target_meta.thread_root_id.is_some()
                     {
-                        // This event is an aggregation of an in-thread event, so skip it.
+                        // This event is an aggregation of an in-thread event,
+                        // so skip it.
                         None
                     } else {
-                        // Not in a thread, and not the aggregation of an in-thread event, so it's
-                        // a valid candidate for the latest event.
+                        // Not in a thread, and not the aggregation of an
+                        // in-thread event, so it's a valid candidate for the
+                        // latest event.
                         Some(event_meta.event_id.clone())
                     }
                 } else {
-                    // An in-thread event, when we're filtering out threaded events, is never a
-                    // valid candidate for the latest event.
+                    // An in-thread event, when we're filtering out threaded
+                    // events, is never a valid candidate for the latest event.
                     None
                 }
             })
@@ -1962,17 +1976,18 @@ impl TimelineController {
     /// of the timeline.
     ///
     /// This only changes the global pagination status of this room, in one
-    /// case: if the timeline has a skip count greater than 0, it will
-    /// ensure that the pagination status says that we haven't reached the
-    /// timeline start yet.
+    /// case: if the timeline has a skip count greater than 0, it will ensure
+    /// that the pagination status says that we haven't reached the timeline
+    /// start yet.
     pub(super) async fn map_pagination_status(&self, status: PaginationStatus) -> PaginationStatus {
         match status {
             PaginationStatus::Idle { hit_timeline_start } => {
                 if hit_timeline_start {
                     let state = self.state.read().await;
-                    // If the skip count is greater than 0, it means that a subsequent pagination
-                    // could return more items, so pretend we didn't get the information that the
-                    // timeline start was hit.
+                    // If the skip count is greater than 0, it means that a
+                    // subsequent pagination could return more items, so pretend
+                    // we didn't get the information that the timeline start was
+                    // hit.
                     if state.meta.subscriber_skip_count.get() > 0 {
                         return PaginationStatus::Idle { hit_timeline_start: false };
                     }
@@ -2024,8 +2039,8 @@ async fn fetch_replied_to_event<P: RoomDataProvider>(
         return Ok(details);
     }
 
-    // Replace the item with a new timeline item that has the fetching status of the
-    // replied-to event to pending.
+    // Replace the item with a new timeline item that has the fetching status of
+    // the replied-to event to pending.
     trace!("Setting in-reply-to details to pending");
     let in_reply_to_details =
         InReplyToDetails { event_id: in_reply_to.to_owned(), event: TimelineDetails::Pending };

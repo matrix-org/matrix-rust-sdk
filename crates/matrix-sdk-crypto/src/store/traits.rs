@@ -64,19 +64,20 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// Save the set of changes to the store.
     ///
     /// This is an updated version of `save_changes` that will replace it as
-    /// #2624 makes progress.
+    ///
+    /// # 2624 makes progress
     ///
     /// # Arguments
     ///
-    /// * `changes` - The set of changes that should be stored.
+    /// - `changes` - The set of changes that should be stored.
     async fn save_pending_changes(&self, changes: PendingChanges) -> Result<(), Self::Error>;
 
     /// Save a list of inbound group sessions to the store.
     ///
     /// # Arguments
     ///
-    /// * `sessions` - The sessions to be saved.
-    /// * `backed_up_to_version` - If the keys should be marked as having been
+    /// - `sessions` - The sessions to be saved.
+    /// - `backed_up_to_version` - If the keys should be marked as having been
     ///   backed up, the version of the backup.
     ///
     /// Note: some implementations ignore `backup_version` and assume the
@@ -97,22 +98,20 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// Get the inbound group session from our store.
     ///
     /// # Arguments
-    /// * `room_id` - The room id of the room that the session belongs to.
     ///
-    /// * `sender_key` - The sender key that sent us the session.
-    ///
-    /// * `session_id` - The unique id of the session.
+    /// - `room_id` - The room id of the room that the session belongs to.
+    /// - `sender_key` - The sender key that sent us the session.
+    /// - `session_id` - The unique id of the session.
     async fn get_inbound_group_session(
         &self,
         room_id: &RoomId,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>, Self::Error>;
 
-    /// Get withheld info for this key.
-    /// Allows to know if the session was not sent on purpose.
-    /// This only returns withheld info sent by the owner of the group session,
-    /// not the one you can get from a response to a key request from
-    /// another of your device.
+    /// Get withheld info for this key. Allows to know if the session was not
+    /// sent on purpose. This only returns withheld info sent by the owner of
+    /// the group session, not the one you can get from a response to a key
+    /// request from another of your device.
     async fn get_withheld_info(
         &self,
         room_id: &RoomId,
@@ -126,7 +125,8 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
     ///
     /// # Arguments
-    /// * `room_id` - The ID of the room to return withheld sessions for.
+    ///
+    /// - `room_id` - The ID of the room to return withheld sessions for.
     async fn get_withheld_sessions_by_room_id(
         &self,
         room_id: &RoomId,
@@ -145,7 +145,8 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// Get all the inbound group sessions for a given room.
     ///
     /// # Arguments
-    /// * `room_id` - The ID of the room to return sessions for.
+    ///
+    /// - `room_id` - The ID of the room to return sessions for.
     async fn get_inbound_group_sessions_by_room_id(
         &self,
         room_id: &RoomId,
@@ -156,27 +157,27 @@ pub trait CryptoStore: AsyncTraitDeps {
     ///
     /// Sessions are not necessarily returned in any specific order, but the
     /// returned batches are consistent: if this function is called repeatedly
-    /// with `after_session_id` set to the session ID from the last result
-    /// from the previous call, until an empty result is returned, then
-    /// eventually all matching sessions are returned. (New sessions that are
-    /// added in the course of iteration may or may not be returned.)
+    /// with `after_session_id` set to the session ID from the last result from
+    /// the previous call, until an empty result is returned, then eventually
+    /// all matching sessions are returned. (New sessions that are added in the
+    /// course of iteration may or may not be returned.)
     ///
     /// This function is used when the device information is updated via a
-    /// `/keys/query` response and we want to update the sender data based
-    /// on the new information.
+    /// `/keys/query` response and we want to update the sender data based on
+    /// the new information.
     ///
     /// # Arguments
     ///
-    /// * `curve_key` - only return sessions created by the device with this
+    /// - `curve_key` - only return sessions created by the device with this
     ///   curve key.
     ///
-    /// * `sender_data_type` - only return sessions whose [`SenderData`] record
+    /// - `sender_data_type` - only return sessions whose [`SenderData`] record
     ///   is in this state.
     ///
-    /// * `after_session_id` - return the sessions after this id, or start at
+    /// - `after_session_id` - return the sessions after this id, or start at
     ///   the earliest if this is None.
     ///
-    /// * `limit` - return a maximum of this many sessions.
+    /// - `limit` - return a maximum of this many sessions.
     async fn get_inbound_group_sessions_for_device_batch(
         &self,
         curve_key: Curve25519PublicKey,
@@ -213,10 +214,10 @@ pub trait CryptoStore: AsyncTraitDeps {
     ///
     /// Note: this is mostly implemented by stores that ignore the
     /// `backup_version` argument on `inbound_group_sessions_for_backup` and
-    /// `mark_inbound_group_sessions_as_backed_up`. Implementations that
-    /// pay attention to the supplied backup version probably don't need to
-    /// update their storage when the current backup version changes, so have
-    /// empty implementations of this method.
+    /// `mark_inbound_group_sessions_as_backed_up`. Implementations that pay
+    /// attention to the supplied backup version probably don't need to update
+    /// their storage when the current backup version changes, so have empty
+    /// implementations of this method.
     async fn reset_backup_state(&self) -> Result<(), Self::Error>;
 
     /// Get the backup keys we have stored.
@@ -230,8 +231,8 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// Deletes the previously stored dehydrated device pickle key.
     async fn delete_dehydrated_device_pickle_key(&self) -> Result<(), Self::Error>;
 
-    /// Get the outbound group session we have stored that is used for the
-    /// given room.
+    /// Get the outbound group session we have stored that is used for the given
+    /// room.
     async fn get_outbound_group_session(
         &self,
         room_id: &RoomId,
@@ -294,7 +295,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `request_id` - The unique request id that identifies this outgoing
+    /// - `request_id` - The unique request id that identifies this outgoing
     /// secret request.
     async fn get_outgoing_secret_requests(
         &self,
@@ -306,7 +307,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `key_info` - The key info of an outgoing secret request.
+    /// - `key_info` - The key info of an outgoing secret request.
     async fn get_secret_request_by_info(
         &self,
         secret_info: &SecretInfo,
@@ -320,7 +321,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `request_id` - The unique request id that identifies this outgoing key
+    /// - `request_id` - The unique request id that identifies this outgoing key
     /// request.
     async fn delete_outgoing_secret_requests(
         &self,
@@ -343,7 +344,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The room id of the room
+    /// - `room_id` - The room id of the room
     async fn get_room_settings(
         &self,
         room_id: &RoomId,
@@ -743,7 +744,7 @@ where
         let ptr: *const T = Arc::into_raw(self);
         let ptr_erased = ptr as *const EraseCryptoStoreError<T>;
         // SAFETY: EraseCryptoStoreError is repr(transparent) so T and
-        //         EraseCryptoStoreError<T> have the same layout and ABI
+        // EraseCryptoStoreError<T> have the same layout and ABI
         unsafe { Arc::from_raw(ptr_erased) }
     }
 }

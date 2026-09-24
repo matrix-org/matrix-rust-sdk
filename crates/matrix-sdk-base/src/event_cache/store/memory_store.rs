@@ -40,11 +40,10 @@ use super::{
 ///
 /// Default if no other is configured at startup.
 ///
-/// Note that this store is not transactional. This is particularly
-/// relevant when calling [`EventCacheStore::handle_linked_chunk_updates`],
-/// which consumes a list of [`Update`]s. When processing this list, if
-/// one of the [`Update`]s fails, the previous updates in the list
-/// will not be reversed.
+/// Note that this store is not transactional. This is particularly relevant
+/// when calling [`EventCacheStore::handle_linked_chunk_updates`], which
+/// consumes a list of [`Update`]s. When processing this list, if one of the
+/// [`Update`]s fails, the previous updates in the list will not be reversed.
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
     inner: Arc<StdRwLock<MemoryStoreInner>>,
@@ -313,8 +312,8 @@ impl EventCacheStore for MemoryStore {
             .collect();
 
         // Remove any duplicate events which may exist in both a room and thread
-        // linked chunk. Additionally, remove any position information from non-room
-        // linked chunks.
+        // linked chunk. Additionally, remove any position information from
+        // non-room linked chunks.
         let mut deduplicated = HashMap::new();
         for (linked_chunk_id, (event, position)) in related_events {
             let event_id = event
@@ -327,8 +326,8 @@ impl EventCacheStore for MemoryStore {
                     deduplicated.insert(event_id, (event, position));
                 }
                 _ => {
-                    // Remove position information from events that come
-                    // from any other type of linked chunk
+                    // Remove position information from events that come from
+                    // any other type of linked chunk
                     deduplicated.entry(event_id).or_insert_with(|| (event, None));
                 }
             }

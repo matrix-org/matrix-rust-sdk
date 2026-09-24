@@ -7,7 +7,6 @@ use std::{
 };
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use futures_util::pin_mut;
 use matrix_sdk::{assert_next_with_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_base::crypto::CollectStrategy;
@@ -23,6 +22,7 @@ use ruma::{
     to_device::DeviceIdOrAllDevices,
 };
 use serde_json::json;
+use strass::assert_let;
 use wiremock::{
     Mock, ResponseTemplate,
     matchers::{method, path_regex},
@@ -33,8 +33,8 @@ use crate::{recipients_of, record_sent_encrypted_to_device};
 #[async_test]
 async fn test_encrypt_and_send_to_device() {
     // ===========
-    // Happy path, will encrypt and send
-    // ============
+    //
+    // # Happy path, will encrypt and send
 
     let matrix_mock_server = MatrixMockServer::new().await;
     matrix_mock_server.mock_crypto_endpoints_preset().await;
@@ -81,7 +81,8 @@ async fn test_encrypt_and_send_to_device() {
     let sent_messages = sent_messages.lock();
     assert_eq!(sent_messages.len(), 1, "a single to-device request should have been sent");
 
-    // The message must have been encrypted for Bob's device, and for nobody else.
+    // The message must have been encrypted for Bob's device, and for nobody
+    // else.
     assert_eq!(
         recipients_of(&sent_messages[0]),
         BTreeMap::from([(
@@ -94,8 +95,8 @@ async fn test_encrypt_and_send_to_device() {
 #[async_test]
 async fn test_encrypt_and_send_to_device_report_failures_server() {
     // ===========
-    // Error case, when the to-device fails to send
-    // ============
+    //
+    // # Error case, when the to-device fails to send
 
     let matrix_mock_server = MatrixMockServer::new().await;
     matrix_mock_server.mock_crypto_endpoints_preset().await;
@@ -156,8 +157,8 @@ async fn test_encrypt_and_send_to_device_report_failures_server() {
 #[async_test]
 async fn test_to_device_event_handler_olm_encryption_info() {
     // ===========
-    // Happy path, will encrypt and send
-    // ============
+    //
+    // # Happy path, will encrypt and send
     let server = MatrixMockServer::new().await;
     server.mock_crypto_endpoints_preset().await;
 
@@ -226,8 +227,8 @@ async fn test_to_device_event_handler_olm_encryption_info() {
 #[async_test]
 async fn test_encrypt_and_send_to_device_report_failures_encryption_error() {
     // ===========
-    // Error case, when the encryption fails
-    // ============
+    //
+    // # Error case, when the encryption fails
 
     let matrix_mock_server = MatrixMockServer::new().await;
     matrix_mock_server.mock_crypto_endpoints_preset().await;
@@ -325,7 +326,8 @@ async fn test_send_encrypted_to_device() {
     let sent_messages = sent_messages.lock();
     assert_eq!(sent_messages.len(), 1, "a single to-device request should have been sent");
 
-    // The message must have been sent to the requested device, and to nobody else.
+    // The message must have been sent to the requested device, and to nobody
+    // else.
     assert_eq!(
         recipients_of(&sent_messages[0]),
         BTreeMap::from([(

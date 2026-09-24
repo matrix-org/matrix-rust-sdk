@@ -53,23 +53,26 @@ impl RecoveryViewState {
         let recovery_state = self.client.encryption().recovery().state();
 
         match (&mut self.mode, recovery_state) {
-            // We were in the unknown mode, showing a throbber, but now we figured out that
-            // recovery either exists and there's nothing much to do, or we can enable it.
+            // We were in the unknown mode, showing a throbber, but now we
+            // figured out that recovery either exists and there's nothing much
+            // to do, or we can enable it.
             //
-            // Let's switch to our default view which allows recovery to be disabled or enabled.
+            // Let's switch to our default view which allows recovery to be
+            // disabled or enabled.
             (Mode::Unknown, RecoveryState::Disabled | RecoveryState::Enabled) => {
                 self.mode = Mode::Default { view: DefaultRecoveryView::new(self.client.clone()) };
             }
 
-            // The recovery state changed to incomplete, we go into the incomplete view so users
-            // can input the recovery key or reset recovery.
+            // The recovery state changed to incomplete, we go into the
+            // incomplete view so users can input the recovery key or reset
+            // recovery.
             (Mode::Unknown, RecoveryState::Incomplete) => {
                 let view = RecoveringView::new(self.client.clone());
                 self.mode = Mode::Incomplete { view }
             }
 
-            // We were showing the incomplete view but someone disabled recovery on another device,
-            // let's change the screen to reflect that.
+            // We were showing the incomplete view but someone disabled recovery
+            // on another device, let's change the screen to reflect that.
             (Mode::Incomplete { view }, RecoveryState::Disabled) => {
                 if view.is_idle() {
                     self.mode =
@@ -97,8 +100,8 @@ impl RecoveryViewState {
             | (Mode::Unknown, RecoveryState::Unknown) => {}
 
             // The recovery state changed back to `Unknown`? This can never
-            // happen but let's just go back to the `Unknown` view
-            // showing a throbber.
+            // happen but let's just go back to the `Unknown` view showing a
+            // throbber.
             (Mode::Default { .. }, RecoveryState::Unknown)
             | (Mode::Incomplete { .. }, RecoveryState::Unknown) => {
                 self.mode = Mode::Unknown;

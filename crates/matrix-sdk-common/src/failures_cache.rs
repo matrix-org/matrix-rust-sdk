@@ -56,8 +56,7 @@ struct FailuresItem {
     duration: Duration,
 
     /// Number of times that this item has failed after it was first added to
-    /// the cache. (In other words, one less than the total number of
-    /// failures.)
+    /// the cache. (In other words, one less than the total number of failures.)
     failure_count: u8,
 }
 
@@ -108,12 +107,12 @@ where
     ///
     /// # Returns
     ///
-    ///  * `None` if this key is not in the failure cache. (It has never failed,
-    ///    or it has been [`FailuresCache::remove()`]d since the last failure.)
+    /// - `None` if this key is not in the failure cache. (It has never failed,
+    ///   or it has been [`FailuresCache::remove()`]d since the last failure.)
     ///
-    ///  * `Some(u8)`: the number of times it has failed since it was first
-    ///    added to the failure cache. (In other words, one less than the total
-    ///    number of failures.)
+    /// - `Some(u8)`: the number of times it has failed since it was first added
+    ///   to the failure cache. (In other words, one less than the total number
+    ///   of failures.)
     pub fn failure_count<Q>(&self, key: &Q) -> Option<u8>
     where
         T: Borrow<Q>,
@@ -127,7 +126,7 @@ where
     ///
     /// The returned duration will follow this sequence if the default
     /// multiplier and `max_delay` values are used, values are in minutes:
-    ///      [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 15.0]
+    /// [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 15.0]
     fn calculate_delay(&self, failure_count: u8) -> Duration {
         let exponential_backoff = 2u64.saturating_pow(failure_count.into());
         let delay = exponential_backoff.saturating_mul(self.inner.backoff_multiplier);

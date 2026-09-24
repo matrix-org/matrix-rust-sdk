@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::Arc, time::Duration};
+use std::{assert_matches, sync::Arc, time::Duration};
 
-use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use futures_util::{FutureExt as _, StreamExt as _};
@@ -27,6 +26,7 @@ use ruma::{
     events::{AnyMessageLikeEventContent, reaction::ReactionEventContent, relation::Annotation},
     owned_event_id, server_name, uint,
 };
+use strass::assert_let;
 use stream_assert::{assert_next_matches, assert_pending};
 use tokio::time::timeout;
 
@@ -280,8 +280,8 @@ async fn send_first_message(
 
 #[async_test]
 async fn test_reinserted_item_keeps_reactions() {
-    // This test checks that after deduplicating events, the reactions attached to
-    // the deduplicated event are not lost.
+    // This test checks that after deduplicating events, the reactions attached
+    // to the deduplicated event are not lost.
     let timeline = TestTimeline::new().await;
     let f = &timeline.factory;
 

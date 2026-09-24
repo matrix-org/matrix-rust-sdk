@@ -62,6 +62,7 @@ mod deduplicator;
 mod persistence;
 #[cfg(feature = "e2e-encryption")]
 mod redecryptor;
+mod search_backfill;
 mod states;
 mod tasks;
 
@@ -82,6 +83,7 @@ pub use self::{
         subscriber::Subscriber,
         thread::{ThreadEventCache, ThreadEventCacheUpdate, pagination::ThreadPagination},
     },
+    search_backfill::SearchBackfillStrategy,
 };
 use self::{
     caches::{Caches, room::RoomEventCacheLinkedChunkUpdate, subscriber::AutoShrinkMessage},
@@ -167,8 +169,8 @@ pub enum EventCacheError {
     LinkedChunkLoader(#[from] LazyLoaderError),
 
     /// An error happened when trying to load pinned events; none of them could
-    /// be loaded, which would otherwise result in an empty pinned events
-    /// list, incorrectly.
+    /// be loaded, which would otherwise result in an empty pinned events list,
+    /// incorrectly.
     #[error("Unable to load any of the pinned events.")]
     UnableToLoadPinnedEvents,
 
@@ -196,19 +198,18 @@ pub struct EventCacheDropHandles {
     _auto_shrink_linked_chunk_task: BackgroundTaskHandle,
 
     /// A background task listening to room and send queue updates, and
-    /// automatically subscribing the user to threads when needed, based on
-    /// the semantics of MSC4306.
+    /// automatically subscribing the user to threads when needed, based on the
+    /// semantics of MSC4306.
     ///
     /// One important constraint is that there is only one such task per
-    /// [`EventCache`], so it does listen to *all* rooms at the same time.
+    /// [`EventCache`], so it does listen to _all_ rooms at the same time.
     _thread_subscriber_task: BackgroundTaskHandle,
 
-    /// A background task listening to room updates, and
-    /// automatically handling search index operations add/remove/edit
-    /// depending on the event type.
+    /// A background task listening to room updates, and automatically handling
+    /// search index operations add/remove/edit depending on the event type.
     ///
     /// One important constraint is that there is only one such task per
-    /// [`EventCache`], so it does listen to *all* rooms at the same time.
+    /// [`EventCache`], so it does listen to _all_ rooms at the same time.
     #[cfg(feature = "experimental-search")]
     _search_indexing_task: BackgroundTaskHandle,
 
@@ -571,7 +572,7 @@ struct EventCacheInner {
     /// Handles to keep alive the task listening to updates.
     drop_handles: OnceLock<Arc<EventCacheDropHandles>>,
 
-    /// A sender for notifications that a room *may* need to be auto-shrunk.
+    /// A sender for notifications that a room _may_ need to be auto-shrunk.
     ///
     /// Needs to live here, so it may be passed to each [`RoomEventCache`]
     /// instance.
@@ -591,8 +592,8 @@ struct EventCacheInner {
     /// A sender for a persisted linked chunk update.
     ///
     /// This is used to notify that some linked chunk has persisted some updates
-    /// to a store, during sync or a back-pagination of *any* linked chunk.
-    /// This can be used by observers to look for new events.
+    /// to a store, during sync or a back-pagination of _any_ linked chunk. This
+    /// can be used by observers to look for new events.
     ///
     /// See doc comment of [`RoomEventCacheLinkedChunkUpdate`].
     linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
@@ -628,8 +629,8 @@ impl EventCacheInner {
 
     /// Clear a single room's data.
     async fn forget_room(&self, room_id: &RoomId) -> Result<()> {
-        // The constraints are very similar to what we do in `clear_all_rooms`. See this
-        // information to understand them.
+        // The constraints are very similar to what we do in `clear_all_rooms`.
+        // See this information to understand them.
 
         let mut caches_for_all_rooms = self.by_room.write().await;
         self.state.clear_and_reload(&caches_for_all_rooms, Some(room_id)).await?;
@@ -644,11 +645,11 @@ impl EventCacheInner {
     async fn clear_all_rooms(&self) -> Result<()> {
         // Okay, here's where things get delicate.
         //
-        // On the one hand, `by_room` may include storage for *some* caches
-        // that we know about, but not *all* of them. Any cache that hasn't been
+        // On the one hand, `by_room` may include storage for _some_ caches that
+        // we know about, but not _all_ of them. Any cache that hasn't been
         // loaded in the client, or touched by a sync, will remain unloaded in
         // memory, so it will be missing from `self.by_room`. As a result, we
-        // need to make sure that we're hitting the storage backend to *really*
+        // need to make sure that we're hitting the storage backend to _really_
         // clear all the caches, including those that haven't been loaded yet.
         //
         // On the other hand, one must NOT clear the `by_room` map, because if
@@ -656,16 +657,16 @@ impl EventCacheInner {
         // update for that cache, since re-creating the cache would create a
         // new, unrelated sender.
         //
-        // So we need to *keep* the caches in `by_room` alive, while clearing
+        // So we need to _keep_ the caches in `by_room` alive, while clearing
         // them in the store backend.
         //
         // As a result, for a short while, the in-memory linked chunks will be
         // desynchronised from the storage. We need to be careful then. During
-        // that short while, we don't want *anyone* to touch the linked chunks
+        // that short while, we don't want _anyone_ to touch the linked chunks
         // (be it in memory or in the storage).
         //
-        // And since that requirement applies to *any* cache in `by_room` at the
-        // same time, we'll have to take the lock for *all* the live caches and
+        // And since that requirement applies to _any_ cache in `by_room` at the
+        // same time, we'll have to take the lock for _all_ the live caches and
         // for the states, so as to properly clear the underlying storage.
 
         // We acquire an exclusive access to `by_room`.
@@ -680,10 +681,10 @@ impl EventCacheInner {
     /// Handles a single set of room updates at once.
     #[instrument(skip(self, updates))]
     async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
-        // NOTE: We tried to make this concurrent at some point, but it turned out to be
-        // a performance regression, even for large sync updates. Lacking time
-        // to investigate, this code remains sequential for now. See also
-        // https://github.com/matrix-org/matrix-rust-sdk/pull/5426.
+        // NOTE: We tried to make this concurrent at some point, but it turned
+        // out to be a performance regression, even for large sync updates.
+        // Lacking time to investigate, this code remains sequential for now.
+        // See also https://github.com/matrix-org/matrix-rust-sdk/pull/5426.
 
         // Left rooms.
         for (room_id, left_room_update) in updates.left {
@@ -715,8 +716,8 @@ impl EventCacheInner {
 
         // Invited rooms.
         //
-        // We don't handle `updates.invite` because they contain stripped-state events,
-        // which is not handled by the Event Cache for the moment.
+        // We don't handle `updates.invite` because they contain stripped-state
+        // events, which is not handled by the Event Cache for the moment.
 
         Ok(())
     }
@@ -726,20 +727,21 @@ impl EventCacheInner {
         &self,
         room_id: &RoomId,
     ) -> Result<OwnedRwLockReadGuard<CachesByRoom, Caches>> {
-        // Fast path: the entry exists; let's acquire a read lock, it's cheaper than a
-        // write lock.
+        // Fast path: the entry exists; let's acquire a read lock, it's cheaper
+        // than a write lock.
         match OwnedRwLockReadGuard::try_map(self.by_room.clone().read_owned().await, |by_room| {
             by_room.get(room_id)
         }) {
             Ok(caches) => Ok(caches),
 
             Err(by_room_guard) => {
-                // Slow-path: the entry doesn't exist; let's acquire a write lock.
+                // Slow-path: the entry doesn't exist; let's acquire a write
+                // lock.
                 drop(by_room_guard);
                 let by_room_guard = self.by_room.clone().write_owned().await;
 
-                // In the meanwhile, some other caller might have obtained write access and done
-                // the same, so check for existence again.
+                // In the meanwhile, some other caller might have obtained write
+                // access and done the same, so check for existence again.
                 let mut by_room_guard =
                     match OwnedRwLockWriteGuard::try_downgrade_map(by_room_guard, |by_room| {
                         by_room.get(room_id)
@@ -753,8 +755,8 @@ impl EventCacheInner {
                     room_id,
                     self.generic_update_sender.clone(),
                     self.linked_chunk_update_sender.clone(),
-                    // SAFETY: we must have subscribed before reaching this code, otherwise
-                    // something is very wrong.
+                    // SAFETY: we must have subscribed before reaching this
+                    // code, otherwise something is very wrong.
                     self.auto_shrink_sender.get().cloned().expect(
                         "we must have called `EventCache::subscribe()` before calling here.",
                     ),
@@ -815,13 +817,13 @@ mod tests {
 
         let event_cache = client.event_cache();
 
-        // If I create a room event subscriber for a room before subscribing the event
-        // cache,
+        // If I create a room event subscriber for a room before subscribing the
+        // event cache,
         let room_id = room_id!("!omelette:fromage.fr");
         let result = event_cache.room(room_id).await;
 
-        // Then it fails, because one must explicitly call `.subscribe()` on the event
-        // cache.
+        // Then it fails, because one must explicitly call `.subscribe()` on the
+        // event cache.
         assert_matches!(result, Err(EventCacheError::NotSubscribedYet));
     }
 
@@ -881,8 +883,8 @@ mod tests {
         let found2 = room_event_cache.find_event(eid2).await.unwrap().unwrap();
         assert_event_matches_msg(&found2, "you");
 
-        // Retrieving the event with id3 from the room which doesn't contain it will
-        // fail…
+        // Retrieving the event with id3 from the room which doesn't contain it
+        // will fail…
         assert!(room_event_cache.find_event(eid3).await.unwrap().is_none());
     }
 

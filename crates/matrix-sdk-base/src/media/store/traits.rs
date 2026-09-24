@@ -27,8 +27,8 @@ use crate::media::{
     store::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy, MediaStoreError},
 };
 
-/// An abstract trait that can be used to implement different store backends
-/// for the media of the SDK.
+/// An abstract trait that can be used to implement different store backends for
+/// the media of the SDK.
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 pub trait MediaStore: AsyncTraitDeps {
@@ -64,18 +64,17 @@ pub trait MediaStore: AsyncTraitDeps {
     /// uploading some content, or creating an empty MXC URI).
     ///
     /// ⚠ No check is performed to ensure that the media formats are consistent,
-    /// i.e. it's possible to update with a thumbnail key a media that was
-    /// keyed as a file before. The caller is responsible of ensuring that
-    /// the replacement makes sense, according to their use case.
+    /// i.e. it's possible to update with a thumbnail key a media that was keyed
+    /// as a file before. The caller is responsible of ensuring that the
+    /// replacement makes sense, according to their use case.
     ///
     /// This should not raise an error when the `from` parameter points to an
     /// unknown media, and it should silently continue in this case.
     ///
     /// # Arguments
     ///
-    /// * `from` - The previous `MediaRequest` of the file.
-    ///
-    /// * `to` - The new `MediaRequest` of the file.
+    /// - `from` - The previous `MediaRequest` of the file.
+    /// - `to` - The new `MediaRequest` of the file.
     async fn replace_media_key(
         &self,
         from: &MediaRequestParameters,
@@ -110,7 +109,7 @@ pub trait MediaStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `uri` - The `MxcUri` of the media files.
+    /// - `uri` - The `MxcUri` of the media files.
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<(), Self::Error>;
 
     /// Set the `MediaRetentionPolicy` to use for deciding whether to store or
@@ -118,7 +117,7 @@ pub trait MediaStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `policy` - The `MediaRetentionPolicy` to use.
+    /// - `policy` - The `MediaRetentionPolicy` to use.
     async fn set_media_retention_policy(
         &self,
         policy: MediaRetentionPolicy,
@@ -134,9 +133,8 @@ pub trait MediaStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `request` - The `MediaRequestParameters` of the file.
-    ///
-    /// * `ignore_policy` - Whether the current `MediaRetentionPolicy` should be
+    /// - `request` - The `MediaRequestParameters` of the file.
+    /// - `ignore_policy` - Whether the current `MediaRetentionPolicy` should be
     ///   ignored.
     async fn set_ignore_media_retention_policy(
         &self,
@@ -172,8 +170,8 @@ pub trait MediaStore: AsyncTraitDeps {
     async fn get_size(&self) -> Result<Option<usize>, Self::Error>;
 }
 
-/// An abstract trait that can be used to implement different store backends
-/// for the media cache of the SDK.
+/// An abstract trait that can be used to implement different store backends for
+/// the media cache of the SDK.
 ///
 /// The main purposes of this trait are to be able to centralize where we handle
 /// [`MediaRetentionPolicy`] by wrapping this in a [`MediaService`], and to
@@ -204,17 +202,15 @@ pub trait MediaStoreInner: AsyncTraitDeps + Clone {
     ///
     /// # Arguments
     ///
-    /// * `request` - The `MediaRequestParameters` of the file.
-    ///
-    /// * `content` - The content of the file.
-    ///
-    /// * `current_time` - The current time, to set the last access time of the
+    /// - `request` - The `MediaRequestParameters` of the file.
+    /// - `content` - The content of the file.
+    /// - `current_time` - The current time, to set the last access time of the
     ///   media.
     ///
-    /// * `policy` - The media retention policy, to check whether the media is
+    /// - `policy` - The media retention policy, to check whether the media is
     ///   too big to be cached.
     ///
-    /// * `ignore_policy` - Whether the `MediaRetentionPolicy` should be ignored
+    /// - `ignore_policy` - Whether the `MediaRetentionPolicy` should be ignored
     ///   for this media. This setting should be persisted alongside the media
     ///   and taken into account whenever the policy is used.
     async fn add_media_content_inner(
@@ -235,9 +231,8 @@ pub trait MediaStoreInner: AsyncTraitDeps + Clone {
     ///
     /// # Arguments
     ///
-    /// * `request` - The `MediaRequestParameters` of the file.
-    ///
-    /// * `ignore_policy` - Whether the current `MediaRetentionPolicy` should be
+    /// - `request` - The `MediaRequestParameters` of the file.
+    /// - `ignore_policy` - Whether the current `MediaRetentionPolicy` should be
     ///   ignored.
     async fn set_ignore_media_retention_policy_inner(
         &self,
@@ -249,9 +244,8 @@ pub trait MediaStoreInner: AsyncTraitDeps + Clone {
     ///
     /// # Arguments
     ///
-    /// * `request` - The `MediaRequestParameters` of the file.
-    ///
-    /// * `current_time` - The current time, to update the last access time of
+    /// - `request` - The `MediaRequestParameters` of the file.
+    /// - `current_time` - The current time, to update the last access time of
     ///   the media.
     async fn get_media_content_inner(
         &self,
@@ -262,16 +256,16 @@ pub trait MediaStoreInner: AsyncTraitDeps + Clone {
     /// Clean up the media cache with the given policy.
     ///
     /// For the integration tests, it is expected that content that does not
-    /// pass the last access expiry and max file size criteria will be
-    /// removed first. After that, the remaining cache size should be
-    /// computed to compare against the max cache size criteria.
+    /// pass the last access expiry and max file size criteria will be removed
+    /// first. After that, the remaining cache size should be computed to
+    /// compare against the max cache size criteria.
     ///
     /// # Arguments
     ///
-    /// * `policy` - The media retention policy to use for the cleanup. The
+    /// - `policy` - The media retention policy to use for the cleanup. The
     ///   `cleanup_frequency` will be ignored.
     ///
-    /// * `current_time` - The current time, to be used to check for expired
+    /// - `current_time` - The current time, to be used to check for expired
     ///   content and to be stored as the time of the last media cache cleanup.
     async fn clean_inner(
         &self,
@@ -420,7 +414,7 @@ where
         let ptr: *const T = Arc::into_raw(self);
         let ptr_erased = ptr as *const EraseMediaStoreError<T>;
         // SAFETY: EraseMediaStoreError is repr(transparent) so T and
-        //         EraseMediaStoreError<T> have the same layout and ABI
+        // EraseMediaStoreError<T> have the same layout and ABI
         unsafe { Arc::from_raw(ptr_erased) }
     }
 }

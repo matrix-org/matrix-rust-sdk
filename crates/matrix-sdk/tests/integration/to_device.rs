@@ -203,7 +203,8 @@ async fn test_subscribe_to_custom_to_device_messages_stops_on_drop() {
     drop(stream);
 
     // Dropping the stream deregisters the event handler; a message received
-    // afterwards has nobody to go to, and in particular doesn't pile up anywhere.
+    // afterwards has nobody to go to, and in particular doesn't pile up
+    // anywhere.
     server
         .mock_sync()
         .ok_and_run(&client, |builder| {
@@ -215,8 +216,8 @@ async fn test_subscribe_to_custom_to_device_messages_stops_on_drop() {
         })
         .await;
 
-    // A new subscription only sees what arrives after it was created: the message
-    // sent while nobody was subscribed is gone, not buffered.
+    // A new subscription only sees what arrives after it was created: the
+    // message sent while nobody was subscribed is gone, not buffered.
     let stream = client.subscribe_to_custom_to_device_messages(vec![custom("m.custom.wanted")]);
     pin_mut!(stream);
     assert_pending!(stream);
@@ -232,8 +233,8 @@ async fn test_subscribe_to_custom_to_device_messages_stops_on_drop() {
         })
         .await;
 
-    // …and the new subscription does work: only the message that arrived after it
-    // was created comes through.
+    // …and the new subscription does work: only the message that arrived after
+    // it was created comes through.
     let message = assert_next_with_timeout!(stream);
     assert_eq!(
         message.raw.get_field::<JsonValue>("content").unwrap().unwrap(),

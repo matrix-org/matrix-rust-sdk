@@ -170,8 +170,8 @@ impl OlmMachineBuilder {
         }
     }
 
-    /// Set the [`CryptoStore`] implementation that will be used to store
-    /// the encryption keys.
+    /// Set the [`CryptoStore`] implementation that will be used to store the
+    /// encryption keys.
     ///
     /// If this is not populated before [`OlmMachineBuilder::build`] is called,
     /// a new [`MemoryStore`] will be created.
@@ -184,8 +184,8 @@ impl OlmMachineBuilder {
 
     /// Set a custom [`vodozemac::olm::Account`] to be used for the identity and
     /// one-time keys of this [`OlmMachine`]. If this is not set before
-    /// [`OlmMachineBuilder::build`] is called, a new default one or one
-    /// from the store will be used.
+    /// [`OlmMachineBuilder::build`] is called, a new default one or one from
+    /// the store will be used.
     ///
     /// If an account is provided and one already exists in the store for this
     /// [`UserId`]/[`DeviceId`] combination, an error will be raised. This is
@@ -244,14 +244,12 @@ pub struct OlmMachineInner {
     user_id: OwnedUserId,
     /// The unique device ID of the device that holds this account.
     device_id: OwnedDeviceId,
-    /// The private part of our cross signing identity.
-    /// Used to sign devices and other users, might be missing if some other
-    /// device bootstrapped cross signing or cross signing isn't bootstrapped at
-    /// all.
+    /// The private part of our cross signing identity. Used to sign devices and
+    /// other users, might be missing if some other device bootstrapped cross
+    /// signing or cross signing isn't bootstrapped at all.
     user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-    /// Store for the encryption keys.
-    /// Persists all the encryption keys so a client can resume the session
-    /// without the need to create new keys.
+    /// Store for the encryption keys. Persists all the encryption keys so a
+    /// client can resume the session without the need to create new keys.
     store: Store,
     /// A state machine that handles Olm sessions creation.
     session_manager: SessionManager,
@@ -291,9 +289,8 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The unique id of the user that owns this machine.
-    ///
-    /// * `device_id` - The unique id of the device that owns this machine.
+    /// - `user_id` - The unique id of the user that owns this machine.
+    /// - `device_id` - The unique id of the device that owns this machine.
     pub async fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
         OlmMachineBuilder::new(user_id, device_id)
             .build()
@@ -462,9 +459,9 @@ impl OlmMachine {
 
                 let device = DeviceData::from_account(&account);
 
-                // We just created this device from our own Olm `Account`. Since we are the
-                // owners of the private keys of this device we can safely mark
-                // the device as verified.
+                // We just created this device from our own Olm `Account`. Since
+                // we are the owners of the private keys of this device we can
+                // safely mark the device as verified.
                 device.set_trust_state(LocalTrust::Verified);
 
                 let changes = Changes {
@@ -523,8 +520,8 @@ impl OlmMachine {
             x509_signer,
         );
 
-        // FIXME: We might want in the future a more generic high-level data migration
-        // mechanism (at the store wrapper layer).
+        // FIXME: We might want in the future a more generic high-level data
+        // migration mechanism (at the store wrapper layer).
         Self::migration_post_verified_latch_support(&store, &identity_manager).await?;
 
         Ok(Self::new_helper(
@@ -537,11 +534,10 @@ impl OlmMachine {
         ))
     }
 
-    // The sdk now support verified identity change detection.
-    // This introduces a new local flag (`verified_latch` on
-    // `OtherUserIdentityData`). In order to ensure that this flag is up-to-date and
-    // for the sake of simplicity we force a re-download of tracked users by marking
-    // them as dirty.
+    // The sdk now support verified identity change detection. This introduces a
+    // new local flag (`verified_latch` on `OtherUserIdentityData`). In order to
+    // ensure that this flag is up-to-date and for the sake of simplicity we
+    // force a re-download of tracked users by marking them as dirty.
     //
     // pub(crate) visibility for testing.
     pub(crate) async fn migration_post_verified_latch_support(
@@ -607,8 +603,7 @@ impl OlmMachine {
     /// Enable or disable room key requests.
     ///
     /// Room key requests allow the device to request room keys that it might
-    /// have missed in the original share using `m.room_key_request`
-    /// events.
+    /// have missed in the original share using `m.room_key_request` events.
     ///
     /// See also [`OlmMachine::set_room_key_forwarding_enabled`] and
     /// [`OlmMachine::are_room_key_requests_enabled`].
@@ -648,8 +643,8 @@ impl OlmMachine {
     /// Get the outgoing requests that need to be sent out.
     ///
     /// This returns a list of [`OutgoingRequest`]. Those requests need to be
-    /// sent out to the server and the responses need to be passed back to
-    /// the state machine using [`mark_request_as_sent`].
+    /// sent out to the server and the responses need to be passed back to the
+    /// state machine using [`mark_request_as_sent`].
     ///
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
     pub async fn outgoing_requests(&self) -> StoreResult<Vec<OutgoingRequest>> {
@@ -700,7 +695,7 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `users` - list of users whose keys should be queried
+    /// - `users` - list of users whose keys should be queried
     ///
     /// # Returns
     ///
@@ -721,10 +716,10 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `request_id` - The unique id of the request that was sent out. This is
+    /// - `request_id` - The unique id of the request that was sent out. This is
     ///   needed to couple the response with the now sent out request.
     ///
-    /// * `response` - The response that was received from the server after the
+    /// - `response` - The response that was received from the server after the
     ///   outgoing request was sent out.
     pub async fn mark_request_as_sent<'a>(
         &self,
@@ -801,8 +796,8 @@ impl OlmMachine {
     ) -> Result<CrossSigningBootstrapRequests, BootstrapCrossSigningError> {
         // Don't hold the lock, otherwise we might deadlock in
         // `bootstrap_cross_signing()` on `account` if a sync task is already
-        // running (which locks `account`), or we will deadlock
-        // in `upload_device_keys()` which locks private identity again.
+        // running (which locks `account`), or we will deadlock in
+        // `upload_device_keys()` which locks private identity again.
         let identity = self.inner.user_identity.lock().await.clone();
 
         let (upload_signing_keys_req, upload_signatures_req) = if reset || identity.is_empty().await
@@ -848,9 +843,9 @@ impl OlmMachine {
             (upload_signing_keys_req, upload_signatures_req)
         };
 
-        // If there are any *device* keys to upload (i.e. the account isn't shared),
-        // upload them before we upload the signatures, since the signatures may
-        // reference keys to be uploaded.
+        // If there are any _device_ keys to upload (i.e. the account isn't
+        // shared), upload them before we upload the signatures, since the
+        // signatures may reference keys to be uploaded.
         let upload_keys_req =
             self.upload_device_keys().await?.map(|(_, request)| OutgoingRequest::from(request));
 
@@ -864,9 +859,9 @@ impl OlmMachine {
     /// Upload the device keys for this [`OlmMachine`].
     ///
     /// **Warning**: Do not use this method if
-    /// [`OlmMachine::outgoing_requests()`] is already in use. This method
-    /// is intended for explicitly uploading the device keys before starting
-    /// a sync and before using [`OlmMachine::outgoing_requests()`].
+    /// [`OlmMachine::outgoing_requests()`] is already in use. This method is
+    /// intended for explicitly uploading the device keys before starting a sync
+    /// and before using [`OlmMachine::outgoing_requests()`].
     ///
     /// # Returns
     ///
@@ -885,7 +880,7 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `response` - The response of the `/keys/upload` request that the
+    /// - `response` - The response of the `/keys/upload` request that the
     ///   client performed.
     async fn receive_keys_upload_response(&self, response: &UploadKeysResponse) -> OlmResult<()> {
         self.inner
@@ -898,8 +893,8 @@ impl OlmMachine {
             .await
     }
 
-    /// Get a key claiming request for the user/device pairs that we are
-    /// missing Olm sessions for.
+    /// Get a key claiming request for the user/device pairs that we are missing
+    /// Olm sessions for.
     ///
     /// Returns None if no key claiming request needs to be sent out.
     ///
@@ -939,7 +934,7 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `response` - The response of the `/keys/query` request that the client
+    /// - `response` - The response of the `/keys/query` request that the client
     ///   performed.
     async fn receive_keys_query_response(
         &self,
@@ -965,10 +960,10 @@ impl OlmMachine {
         // This will mark the device as verified if the user identity (i.e., the
         // cross-signing keys) is also marked as verified.
         //
-        // This approach eliminates the need to upload signatures in a separate request,
-        // ensuring that other users/devices will never encounter this device
-        // without a signature from their user identity. Consequently, they will
-        // never see the device as unverified.
+        // This approach eliminates the need to upload signatures in a separate
+        // request, ensuring that other users/devices will never encounter this
+        // device without a signature from their user identity. Consequently,
+        // they will never see the device as unverified.
         if let Some(device_keys) = &mut device_keys {
             let private_identity = self.store().private_identity();
             let guard = private_identity.lock().await;
@@ -998,8 +993,8 @@ impl OlmMachine {
     /// `Err(DecryptToDeviceError::OlmError)`.
     ///
     /// If we are in strict "exclude insecure devices" mode and the sender
-    /// device is not verified, and the decrypted event type is not on the
-    /// allow list, returns `Err(DecryptToDeviceError::UnverifiedSender)`
+    /// device is not verified, and the decrypted event type is not on the allow
+    /// list, returns `Err(DecryptToDeviceError::UnverifiedSender)`
     ///
     /// (The allow list of types that are processed even if the sender is
     /// unverified is: `m.room_key`, `m.room_key.withheld`,
@@ -1013,7 +1008,7 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `event` - The to-device event that should be decrypted.
+    /// - `event` - The to-device event that should be decrypted.
     async fn decrypt_to_device_event(
         &self,
         transaction: &mut StoreTransaction,
@@ -1031,7 +1026,8 @@ impl OlmMachine {
         // Return early if the sending device is a dehydrated device
         self.check_to_device_event_is_not_from_dehydrated_device(&decrypted, &event.sender).await?;
 
-        // Device is not dehydrated: handle it as normal e.g. create a Megolm session
+        // Device is not dehydrated: handle it as normal e.g. create a Megolm
+        // session
         self.handle_decrypted_to_device_event(transaction.cache(), &mut decrypted, changes).await?;
 
         Ok(decrypted)
@@ -1040,8 +1036,8 @@ impl OlmMachine {
     #[instrument(
         skip_all,
         // This function is only ever called by add_room_key via
-        // handle_decrypted_to_device_event, so sender, sender_key, and algorithm are
-        // already recorded.
+        // handle_decrypted_to_device_event, so sender, sender_key, and
+        // algorithm are already recorded.
         fields(room_id = ? content.room_id, session_id, message_index, shared_history = content.shared_history)
     )]
     async fn handle_key(
@@ -1109,9 +1105,9 @@ impl OlmMachine {
             return Ok(());
         };
 
-        // NOTE: We already checked that `sender_device_keys` matches the actual sender
-        // of the message when we decrypted the message, which included doing
-        // `DeviceData::try_from` on it, so it can't fail.
+        // NOTE: We already checked that `sender_device_keys` matches the actual
+        // sender of the message when we decrypted the message, which included
+        // doing `DeviceData::try_from` on it, so it can't fail.
 
         let sender_device_data =
             DeviceData::try_from(sender_device_keys).expect("failed to verify sender device keys");
@@ -1185,15 +1181,15 @@ impl OlmMachine {
 
     /// Encrypt a room message for the given room.
     ///
-    /// Beware that a room key needs to be shared before this method
-    /// can be called using the [`OlmMachine::share_room_key`] method.
+    /// Beware that a room key needs to be shared before this method can be
+    /// called using the [`OlmMachine::share_room_key`] method.
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The id of the room for which the message should be
+    /// - `room_id` - The id of the room for which the message should be
     ///   encrypted.
     ///
-    /// * `content` - The plaintext content of the message that should be
+    /// - `content` - The plaintext content of the message that should be
     ///   encrypted.
     ///
     /// # Panics
@@ -1217,13 +1213,13 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The id of the room for which the message should be
+    /// - `room_id` - The id of the room for which the message should be
     ///   encrypted.
     ///
-    /// * `content` - The plaintext content of the message that should be
+    /// - `content` - The plaintext content of the message that should be
     ///   encrypted as a raw JSON value.
     ///
-    /// * `event_type` - The plaintext type of the event.
+    /// - `event_type` - The plaintext type of the event.
     ///
     /// # Panics
     ///
@@ -1282,13 +1278,13 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The id of the room for which the event should be
+    /// - `room_id` - The id of the room for which the event should be
     ///   encrypted.
     ///
-    /// * `content` - The plaintext content of the event that should be
+    /// - `content` - The plaintext content of the event that should be
     ///   encrypted.
     ///
-    /// * `state_key` - The associated state key of the event.
+    /// - `state_key` - The associated state key of the event.
     #[cfg(feature = "experimental-encrypted-state-events")]
     pub async fn encrypt_state_event<C, K>(
         &self,
@@ -1309,20 +1305,18 @@ impl OlmMachine {
     /// Encrypt a state event for the given state event using its raw JSON
     /// content and state key.
     ///
-    /// This method is equivalent to [`OlmMachine::encrypt_state_event`]
-    /// method but operates on an arbitrary JSON value instead of strongly-typed
-    /// event content struct.
+    /// This method is equivalent to [`OlmMachine::encrypt_state_event`] method
+    /// but operates on an arbitrary JSON value instead of strongly-typed event
+    /// content struct.
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The id of the room for which the message should be
+    /// - `room_id` - The id of the room for which the message should be
     ///   encrypted.
     ///
-    /// * `event_type` - The type of the event.
-    ///
-    /// * `state_key` - The associated state key of the event.
-    ///
-    /// * `content` - The plaintext content of the event that should be
+    /// - `event_type` - The type of the event.
+    /// - `state_key` - The associated state key of the event.
+    /// - `content` - The plaintext content of the event that should be
     ///   encrypted as a raw JSON value.
     #[cfg(feature = "experimental-encrypted-state-events")]
     pub async fn encrypt_state_event_raw(
@@ -1356,8 +1350,7 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// `room_id` - The room id of the room where the room key will be
-    /// used.
+    /// `room_id` - The room id of the room where the room key will be used.
     ///
     /// `users` - The list of users that should receive the room key.
     ///
@@ -1382,15 +1375,14 @@ impl OlmMachine {
 
     /// Encrypts the given content using Olm for each of the given devices.
     ///
-    /// The 1-to-1 session must be established prior to this
-    /// call by using the [`OlmMachine::get_missing_sessions`] method or the
-    /// encryption will fail.
+    /// The 1-to-1 session must be established prior to this call by using the
+    /// [`OlmMachine::get_missing_sessions`] method or the encryption will fail.
     ///
-    /// The caller is responsible for sending the encrypted
-    /// event to the target device, and should do it ASAP to avoid out-of-order
-    /// messages.
+    /// The caller is responsible for sending the encrypted event to the target
+    /// device, and should do it ASAP to avoid out-of-order messages.
     ///
     /// # Returns
+    ///
     /// A list of `ToDeviceRequest` to send out the event, and the list of
     /// devices where encryption did not succeed (device excluded or no olm)
     #[cfg(feature = "experimental-send-custom-to-device")]
@@ -1520,8 +1512,8 @@ impl OlmMachine {
                     .receive_secret_event(cache, decrypted.result.sender_key, e, changes)
                     .await?;
 
-                // Set the secret name so other consumers of the event know
-                // what this event is about.
+                // Set the secret name so other consumers of the event know what
+                // this event is about.
                 if let Ok(ToDeviceEvents::SecretSend(mut e)) =
                     decrypted.result.raw_event.deserialize_as()
                 {
@@ -1627,8 +1619,8 @@ impl OlmMachine {
             // Encrypted events are handled elsewhere
             RoomEncrypted(_) => {}
 
-            // These are handled in `handle_decrypted_to_device_event` because we
-            // only accept them if they arrive encrypted.
+            // These are handled in `handle_decrypted_to_device_event` because
+            // we only accept them if they arrive encrypted.
             SecretSend(_) | RoomKey(_) | ForwardedRoomKey(_) => {}
         }
     }
@@ -1709,9 +1701,9 @@ impl OlmMachine {
     /// Return the same event, decrypted if possible.
     ///
     /// If we are in strict "exclude insecure devices" mode and the sender
-    /// device is not verified, and the decrypted event type is not on the
-    /// allow list, or if this event comes from a dehydrated device, this method
-    /// does not process it, and returns `None`.
+    /// device is not verified, and the decrypted event type is not on the allow
+    /// list, or if this event comes from a dehydrated device, this method does
+    /// not process it, and returns `None`.
     ///
     /// (The allow list of types that are processed even if the sender is
     /// unverified is: `m.room_key`, `m.room_key.withheld`,
@@ -1754,8 +1746,7 @@ impl OlmMachine {
             Err(DecryptToDeviceError::FromDehydratedDevice) => return None,
         };
 
-        // New sessions modify the account so we need to save that
-        // one as well.
+        // New sessions modify the account so we need to save that one as well.
         match decrypted.session {
             SessionType::New(s) | SessionType::Existing(s) => {
                 changes.sessions.push(s);
@@ -1820,9 +1811,9 @@ impl OlmMachine {
     ) -> OlmResult<bool> {
         // Does the to-device message include device info?
         if let Some(device_keys) = decrypted.result.event.sender_device_keys() {
-            // There is no need to check whether the device keys are signed correctly - any
-            // to-device message that claims to be from a dehydrated device is weird, so we
-            // will drop it.
+            // There is no need to check whether the device keys are signed
+            // correctly - any to-device message that claims to be from a
+            // dehydrated device is weird, so we will drop it.
 
             // Does the included device info say the device is dehydrated?
             if device_keys.dehydrated.unwrap_or(false) {
@@ -1853,9 +1844,9 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `sync_changes` - an [`EncryptionSyncChanges`] value, constructed from
+    /// - `sync_changes` - an [`EncryptionSyncChanges`] value, constructed from
     ///   a sync response.
-    /// * `decryption_settings` - Settings controlling how the to-device
+    /// - `decryption_settings` - Settings controlling how the to-device
     ///   messages passed in the [`EncryptionSyncChanges`] should be decrypted.
     ///
     /// # Returns
@@ -1881,9 +1872,9 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `sync_changes` - an [`EncryptionSyncChanges`] value, constructed from
+    /// - `sync_changes` - an [`EncryptionSyncChanges`] value, constructed from
     ///   a sync response.
-    /// * `decryption_settings` - Settings controlling how the to-device
+    /// - `decryption_settings` - Settings controlling how the to-device
     ///   messages passed in the [`EncryptionSyncChanges`] should be decrypted.
     ///
     /// # Returns
@@ -1902,8 +1893,8 @@ impl OlmMachine {
     /// [`OlmMachine::receive_sync_changes_msc4186`].
     ///
     /// There exist some semantic differences between the two sync APIs we
-    /// support, this is publicly exposed as different functions, but
-    /// internally we just use a simple boolean switch.
+    /// support, this is publicly exposed as different functions, but internally
+    /// we just use a simple boolean switch.
     ///
     /// Please take a look at the docs for [`OlmMachine::receive_sync_changes`]
     /// and [`Account::update_key_counts`] for more info.
@@ -1928,8 +1919,8 @@ impl OlmMachine {
             .preprocess_sync_changes(&mut store_transaction, sync_changes, decryption_settings)
             .await?;
 
-        // Technically save_changes also does the same work, so if it's slow we could
-        // refactor this to do it only once.
+        // Technically save_changes also does the same work, so if it's slow we
+        // could refactor this to do it only once.
         let room_key_updates: Vec<_> =
             changes.inbound_group_sessions.iter().map(RoomKeyInfo::from).collect();
 
@@ -1945,8 +1936,8 @@ impl OlmMachine {
     /// and the processed set of changes.
     ///
     /// If any of the to-device events in the supplied changes were sent from
-    /// dehydrated devices, these are not processed, and are omitted from
-    /// the returned list, as per MSC3814.
+    /// dehydrated devices, these are not processed, and are omitted from the
+    /// returned list, as per MSC3814.
     ///
     /// If we are in strict "exclude insecure devices" mode and the sender
     /// device of any event is not verified, and the decrypted event type is not
@@ -1968,13 +1959,13 @@ impl OlmMachine {
             .verification_machine
             .garbage_collect()
             .iter()
-            // These are `fake` to device events just serving as local echo
-            // in order that our own client can react quickly to cancelled transaction.
-            // Just use PlainText for that.
+            // These are `fake` to device events just serving as local echo in
+            // order that our own client can react quickly to cancelled
+            // transaction. Just use PlainText for that.
             .map(|e| ProcessedToDeviceEvent::PlainText(e.clone()))
             .collect();
-        // The account is automatically saved by the store transaction created by the
-        // caller.
+        // The account is automatically saved by the store transaction created
+        // by the caller.
         let mut changes = Default::default();
 
         if let Err(e) = self
@@ -2021,16 +2012,14 @@ impl OlmMachine {
     /// the key was already requested, otherwise it will return just the key
     /// request.
     ///
-    /// The request cancellation *must* be sent out before the request is sent
+    /// The request cancellation _must_ be sent out before the request is sent
     /// out, otherwise devices will ignore the key request.
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The id of the room where the key is used in.
-    ///
-    /// * `sender_key` - The curve25519 key of the sender that owns the key.
-    ///
-    /// * `session_id` - The id that uniquely identifies the session.
+    /// - `room_id` - The id of the room where the key is used in.
+    /// - `sender_key` - The curve25519 key of the sender that owns the key.
+    /// - `session_id` - The id that uniquely identifies the session.
     pub async fn request_room_key(
         &self,
         event: &Raw<EncryptedEvent>,
@@ -2043,14 +2032,14 @@ impl OlmMachine {
     /// Find whether an event decrypted via the supplied session is verified,
     /// and provide explanation of what is missing/wrong if not.
     ///
-    /// Stores the updated [`SenderData`] for the session in the store
-    /// if we find an updated value for it.
+    /// Stores the updated [`SenderData`] for the session in the store if we
+    /// find an updated value for it.
     ///
     /// # Arguments
     ///
-    /// * `session` - The inbound Megolm session that was used to decrypt the
+    /// - `session` - The inbound Megolm session that was used to decrypt the
     ///   event.
-    /// * `sender` - The `sender` of that event (as claimed by the envelope of
+    /// - `sender` - The `sender` of that event (as claimed by the envelope of
     ///   the event).
     async fn get_room_event_verification_state(
         &self,
@@ -2059,14 +2048,14 @@ impl OlmMachine {
     ) -> MegolmResult<(VerificationState, Option<OwnedDeviceId>)> {
         let sender_data = self.get_or_update_sender_data(session, sender).await?;
 
-        // If the user ID in the sender data doesn't match that in the event envelope,
-        // this event is not from who it appears to be from.
+        // If the user ID in the sender data doesn't match that in the event
+        // envelope, this event is not from who it appears to be from.
         //
-        // If `sender_data.user_id()` returns `None`, that means we don't have any
-        // information about the owner of the session (i.e. we have
+        // If `sender_data.user_id()` returns `None`, that means we don't have
+        // any information about the owner of the session (i.e. we have
         // `SenderData::UnknownDevice`); in that case we fall through to the
-        // logic in `sender_data_to_verification_state` which will pick an appropriate
-        // `DeviceLinkProblem` for `VerificationLevel::None`.
+        // logic in `sender_data_to_verification_state` which will pick an
+        // appropriate `DeviceLinkProblem` for `VerificationLevel::None`.
         let (verification_state, device_id) = match sender_data.user_id() {
             Some(i) if i != sender => {
                 (VerificationState::Unverified(VerificationLevel::MismatchedSender), None)
@@ -2087,37 +2076,39 @@ impl OlmMachine {
     /// recalculated verification state based on our current knowledge, and
     /// returns the more trusted of the two.
     ///
-    /// Stores the updated [`SenderData`] for the session in the store
-    /// if we find an updated value for it.
+    /// Stores the updated [`SenderData`] for the session in the store if we
+    /// find an updated value for it.
     ///
     /// # Arguments
     ///
-    /// * `session` - The Megolm session that was used to decrypt the event.
-    /// * `sender` - The claimed sender of that event.
+    /// - `session` - The Megolm session that was used to decrypt the event.
+    /// - `sender` - The claimed sender of that event.
     async fn get_or_update_sender_data(
         &self,
         session: &InboundGroupSession,
         sender: &UserId,
     ) -> MegolmResult<SenderData> {
         let sender_data = if session.sender_data.should_recalculate() {
-            // The session is not sure of the sender yet. Try to find a matching device
-            // belonging to the claimed sender of the recently-received event.
+            // The session is not sure of the sender yet. Try to find a matching
+            // device belonging to the claimed sender of the recently-received
+            // event.
             //
-            // It's worth noting that this could in theory result in unintuitive changes,
-            // like a session which initially appears to belong to Alice turning into a
-            // session which belongs to Bob [1]. This could mean that a session initially
-            // successfully decrypts events from Alice, but then stops decrypting those same
-            // events once we get an update.
+            // It's worth noting that this could in theory result in unintuitive
+            // changes, like a session which initially appears to belong to
+            // Alice turning into a session which belongs to Bob [1]. This could
+            // mean that a session initially successfully decrypts events from
+            // Alice, but then stops decrypting those same events once we get an
+            // update.
             //
-            // That's ok though: if we get good evidence that the session belongs to Bob,
-            // it's correct to update the session even if we previously had weak
-            // evidence it belonged to Alice.
+            // That's ok though: if we get good evidence that the session
+            // belongs to Bob, it's correct to update the session even if we
+            // previously had weak evidence it belonged to Alice.
             //
-            // [1] For example: maybe Alice and Bob both publish devices with the *same*
-            // keys (presumably because they are colluding). Initially we think
-            // the session belongs to Alice, but then we do a device lookup for
-            // Bob, we find a matching device with a cross-signature, so prefer
-            // that.
+            // [1] For example: maybe Alice and Bob both publish devices with
+            // the _same_ keys (presumably because they are colluding).
+            // Initially we think the session belongs to Alice, but then we do a
+            // device lookup for Bob, we find a matching device with a
+            // cross-signature, so prefer that.
             let calculated_sender_data = SenderDataFinder::find_using_curve_key(
                 self.store(),
                 session.sender_key(),
@@ -2147,8 +2138,8 @@ impl OlmMachine {
     }
 
     /// Request missing local secrets from our devices (cross signing private
-    /// keys, megolm backup). This will ask the sdk to create outgoing
-    /// request to get the missing secrets.
+    /// keys, megolm backup). This will ask the sdk to create outgoing request
+    /// to get the missing secrets.
     ///
     /// The requests will be processed as soon as `outgoing_requests()` is
     /// called to process them.
@@ -2159,7 +2150,7 @@ impl OlmMachine {
     /// requested
     ///
     /// # Examples
-    //
+    ///
     /// ```
     /// # async {
     /// # use matrix_sdk_crypto::OlmMachine;
@@ -2208,10 +2199,10 @@ impl OlmMachine {
     /// Push a secret to all of our other verified devices.
     ///
     /// This function assumes that we already have Olm sessions with the other
-    /// devices.  This can be done by calling
+    /// devices. This can be done by calling
     /// [`OlmMachine::get_missing_sessions()`].
     ///
-    /// * `secret_name` - The name of the secret to push
+    /// - `secret_name` - The name of the secret to push
     #[cfg(feature = "experimental-push-secrets")]
     pub async fn push_secret_to_verified_devices(
         &self,
@@ -2237,9 +2228,10 @@ impl OlmMachine {
             sender: sender.to_owned(),
             sender_device: device_id,
             forwarder: session.forwarder_data.as_ref().and_then(|data| {
-                // Per the comment on `KnownSenderData::device_id`, we should never encounter a
-                // `None` value here, but must still deal with an `Optional` for backwards
-                // compatibility. The approach below allows us to avoid unwrapping.
+                // Per the comment on `KnownSenderData::device_id`, we should
+                // never encounter a `None` value here, but must still deal with
+                // an `Optional` for backwards compatibility. The approach below
+                // allows us to avoid unwrapping.
                 data.device_id().map(|device_id| ForwarderInfo {
                     device_id: device_id.to_owned(),
                     user_id: data.user_id().to_owned(),
@@ -2268,11 +2260,11 @@ impl OlmMachine {
         let session =
             self.get_inbound_group_session_or_error(room_id, content.session_id()).await?;
 
-        // This function is only ever called by decrypt_room_event, so
-        // room_id, sender, algorithm and session_id are recorded already
+        // This function is only ever called by decrypt_room_event, so room_id,
+        // sender, algorithm and session_id are recorded already
         //
-        // While we already record the sender key in some cases from the event, the
-        // sender key in the event is deprecated, so let's record it now.
+        // While we already record the sender key in some cases from the event,
+        // the sender key in the event is deprecated, so let's record it now.
         Span::current().record("sender_key", debug(session.sender_key()));
 
         let result = session.decrypt(event).await;
@@ -2298,7 +2290,8 @@ impl OlmMachine {
                         .map(|e| e.content.withheld_code());
 
                     if withheld_code.is_some() {
-                        // Partially withheld, report with a withheld code if we have one.
+                        // Partially withheld, report with a withheld code if we
+                        // have one.
                         MegolmError::MissingRoomKey(withheld_code)
                     } else {
                         error
@@ -2310,8 +2303,8 @@ impl OlmMachine {
         }
     }
 
-    /// Check that a Megolm event satisfies the sender trust
-    /// requirement from the decryption settings.
+    /// Check that a Megolm event satisfies the sender trust requirement from
+    /// the decryption settings.
     ///
     /// If the requirement is not satisfied, returns
     /// [`MegolmError::SenderIdentityNotTrusted`].
@@ -2326,8 +2319,8 @@ impl OlmMachine {
             ?trust_requirement, "check_sender_trust_requirement",
         );
 
-        // VerificationState::Verified is acceptable for all TrustRequirement levels, so
-        // let's get that out of the way
+        // VerificationState::Verified is acceptable for all TrustRequirement
+        // levels, so let's get that out of the way
         let verification_level = match &encryption_info.verification_state {
             VerificationState::Verified => return Ok(()),
             VerificationState::Unverified(verification_level) => verification_level,
@@ -2337,8 +2330,9 @@ impl OlmMachine {
             TrustRequirement::Untrusted => true,
 
             TrustRequirement::CrossSignedOrLegacy => {
-                // `VerificationLevel::UnsignedDevice` and `VerificationLevel::None` correspond
-                // to `SenderData::DeviceInfo` and `SenderData::UnknownDevice`
+                // `VerificationLevel::UnsignedDevice` and
+                // `VerificationLevel::None` correspond to
+                // `SenderData::DeviceInfo` and `SenderData::UnknownDevice`
                 // respectively, and those cases may be acceptable if the reason
                 // for the lack of data is that the sessions were established
                 // before we started collecting SenderData.
@@ -2375,8 +2369,9 @@ impl OlmMachine {
                 }
             }
 
-            // If cross-signing of identities is required, the only acceptable unverified case
-            // is when the identity is signed but not yet verified by us.
+            // If cross-signing of identities is required, the only acceptable
+            // unverified case is when the identity is signed but not yet
+            // verified by us.
             TrustRequirement::CrossSigned => match verification_level {
                 VerificationLevel::UnverifiedIdentity => true,
 
@@ -2422,15 +2417,14 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `event` - The event that should be decrypted.
-    ///
-    /// * `room_id` - The ID of the room where the event was sent to.
+    /// - `event` - The event that should be decrypted.
+    /// - `room_id` - The ID of the room where the event was sent to.
     ///
     /// # Returns
     ///
     /// The decrypted event, if it was successfully decrypted. Otherwise,
-    /// information on the failure, unless the failure was due to an
-    /// internal error, in which case, an `Err` result.
+    /// information on the failure, unless the failure was due to an internal
+    /// error, in which case, an `Err` result.
     pub async fn try_decrypt_room_event(
         &self,
         raw_event: &Raw<EncryptedEvent>,
@@ -2505,8 +2499,8 @@ impl OlmMachine {
         if let Err(e) = &result {
             #[cfg(feature = "automatic-room-key-forwarding")]
             match e {
-                // Optimisation should we request if we received a withheld code?
-                // Maybe for some code there is no point
+                // Optimisation should we request if we received a withheld
+                // code? Maybe for some code there is no point
                 MegolmError::MissingRoomKey(_)
                 | MegolmError::Decryption(DecryptionError::UnknownMessageIndex(_, _)) => {
                     self.inner
@@ -2542,18 +2536,18 @@ impl OlmMachine {
     /// If the passed event is a state event, verify its outer packed state key
     /// matches the inner state key once unpacked.
     ///
-    /// * `original` - The original encrypted event received over the wire.
-    /// * `decrypted` - The decrypted event.
+    /// - `original` - The original encrypted event received over the wire.
+    /// - `decrypted` - The decrypted event.
     ///
     /// # Errors
     ///
     /// Returns an error if any of the following are true:
     ///
-    /// * The original event's state key failed to unpack;
-    /// * The decrypted event could not be deserialised;
-    /// * The unpacked event type does not match the type of the decrypted
+    /// - The original event's state key failed to unpack;
+    /// - The decrypted event could not be deserialised;
+    /// - The unpacked event type does not match the type of the decrypted
     ///   event;
-    /// * The unpacked event state key does not match the state key of the
+    /// - The unpacked event state key does not match the state key of the
     ///   decrypted event.
     #[cfg(feature = "experimental-encrypted-state-events")]
     fn verify_packed_state_key(
@@ -2579,7 +2573,8 @@ impl OlmMachine {
             .deserialize_as_unchecked()
             .map_err(|_| MegolmError::StateKeyVerificationFailed)?;
 
-        // Ensure we have a state key on the outer event iff there is one in the inner.
+        // Ensure we have a state key on the outer event iff there is one in the
+        // inner.
         let (raw_state_key, inner_state_key) = match (&original.state_key, &inner_state_key) {
             (Some(raw_state_key), Some(inner_state_key)) => (raw_state_key, inner_state_key),
             (None, None) => return Ok(()),
@@ -2607,10 +2602,10 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `main_event` - The event that may contain bundled encrypted events in
+    /// - `main_event` - The event that may contain bundled encrypted events in
     ///   its `unsigned` object.
     ///
-    /// * `room_id` - The ID of the room where the event was sent to.
+    /// - `room_id` - The ID of the room where the event was sent to.
     async fn decrypt_unsigned_events(
         &self,
         main_event: &mut JsonObject,
@@ -2683,9 +2678,10 @@ impl OlmMachine {
                     Some(UnsignedDecryptionResult::Decrypted(decrypted_event.encryption_info))
                 }
                 Err(err) => {
-                    // For now, we throw away crypto store errors and just treat the unsigned event
-                    // as unencrypted. Crypto store errors represent problems with the application
-                    // rather than normal UTD errors, so they should probably be propagated
+                    // For now, we throw away crypto store errors and just treat
+                    // the unsigned event as unencrypted. Crypto store errors
+                    // represent problems with the application rather than
+                    // normal UTD errors, so they should probably be propagated
                     // rather than swallowed.
                     let utd_info = megolm_error_to_utd_info(&raw_event, err).ok()?;
                     Some(UnsignedDecryptionResult::UnableToDecrypt(utd_info))
@@ -2698,8 +2694,8 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `event` - The event to get information for.
-    /// * `room_id` - The ID of the room where the event was sent to.
+    /// - `event` - The event to get information for.
+    /// - `room_id` - The ID of the room where the event was sent to.
     pub async fn is_room_key_available(
         &self,
         event: &Raw<EncryptedEvent>,
@@ -2716,13 +2712,14 @@ impl OlmMachine {
                 (&c.session_id, c.ciphertext.message_index())
             }
             RoomEventEncryptionScheme::Unknown(_) => {
-                // We don't support this encryption algorithm, so clearly don't have its key.
+                // We don't support this encryption algorithm, so clearly don't
+                // have its key.
                 return Ok(false);
             }
         };
 
-        // Check that we have the session in the store, and that its first known index
-        // predates the index of our message.
+        // Check that we have the session in the store, and that its first known
+        // index predates the index of our message.
         Ok(self
             .store()
             .get_inbound_group_session(room_id, session_id)
@@ -2734,15 +2731,15 @@ impl OlmMachine {
     /// Get encryption info for a decrypted timeline event.
     ///
     /// This recalculates the [`EncryptionInfo`] data that is returned by
-    /// [`OlmMachine::decrypt_room_event`], based on the current
-    /// verification status of the sender, etc.
+    /// [`OlmMachine::decrypt_room_event`], based on the current verification
+    /// status of the sender, etc.
     ///
     /// Returns an error for an unencrypted event.
     ///
     /// # Arguments
     ///
-    /// * `event` - The event to get information for.
-    /// * `room_id` - The ID of the room where the event was sent to.
+    /// - `event` - The event to get information for.
+    /// - `room_id` - The ID of the room where the event was sent to.
     #[instrument(skip(self, event), fields(event_id, sender, session_id))]
     pub async fn get_room_event_encryption_info(
         &self,
@@ -2771,16 +2768,16 @@ impl OlmMachine {
     /// Get encryption info for an event decrypted with a megolm session.
     ///
     /// This recalculates the [`EncryptionInfo`] data that is returned by
-    /// [`OlmMachine::decrypt_room_event`], based on the current
-    /// verification status of the sender, etc.
+    /// [`OlmMachine::decrypt_room_event`], based on the current verification
+    /// status of the sender, etc.
     ///
     /// Returns an error if the session can't be found.
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The ID of the room where the session is being used.
-    /// * `session_id` - The ID of the session to get information for.
-    /// * `sender` - The (claimed) sender of the event where the session was
+    /// - `room_id` - The ID of the room where the session is being used.
+    /// - `session_id` - The ID of the session to get information for.
+    /// - `sender` - The (claimed) sender of the event where the session was
     ///   used.
     pub async fn get_session_encryption_info(
         &self,
@@ -2795,13 +2792,13 @@ impl OlmMachine {
     /// Update the list of tracked users.
     ///
     /// The OlmMachine maintains a list of users whose devices we are keeping
-    /// track of: these are known as "tracked users". These must be users
-    /// that we share a room with, so that the server sends us updates for
-    /// their device lists.
+    /// track of: these are known as "tracked users". These must be users that
+    /// we share a room with, so that the server sends us updates for their
+    /// device lists.
     ///
     /// # Arguments
     ///
-    /// * `users` - An iterator over user ids that should be added to the list
+    /// - `users` - An iterator over user ids that should be added to the list
     ///   of tracked users
     ///
     /// Any users that hadn't been seen before will be flagged for a key query
@@ -2818,7 +2815,7 @@ impl OlmMachine {
 
     /// Mark all tracked users as dirty.
     ///
-    /// All users *whose device lists we are tracking* are flagged as needing a
+    /// All users _whose device lists we are tracking_ are flagged as needing a
     /// key query. Users whose devices we are not tracking are ignored.
     pub async fn mark_all_tracked_users_as_dirty(&self) -> StoreResult<()> {
         self.inner
@@ -2847,14 +2844,12 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The unique id of the user that the device belongs to.
-    ///
-    /// * `device_id` - The unique id of the device.
-    ///
-    /// * `timeout` - The amount of time we should wait before returning if the
+    /// - `user_id` - The unique id of the user that the device belongs to.
+    /// - `device_id` - The unique id of the device.
+    /// - `timeout` - The amount of time we should wait before returning if the
     /// user's device list has been marked as stale. **Note**, this assumes that
-    /// the requests from [`OlmMachine::outgoing_requests`] are being
-    /// processed and sent out.
+    /// the requests from [`OlmMachine::outgoing_requests`] are being processed
+    /// and sent out.
     ///
     /// Returns a `Device` if one is found and the crypto store didn't throw an
     /// error.
@@ -2887,12 +2882,11 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The unique id of the user that the identity belongs to
-    ///
-    /// * `timeout` - The amount of time we should wait before returning if the
+    /// - `user_id` - The unique id of the user that the identity belongs to
+    /// - `timeout` - The amount of time we should wait before returning if the
     /// user's device list has been marked as stale. **Note**, this assumes that
-    /// the requests from [`OlmMachine::outgoing_requests`] are being
-    /// processed and sent out.
+    /// the requests from [`OlmMachine::outgoing_requests`] are being processed
+    /// and sent out.
     ///
     /// Returns a [`UserIdentity`] enum if one is found and the crypto store
     /// didn't throw an error.
@@ -2910,12 +2904,11 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The unique id of the user that the devices belong to.
-    ///
-    /// * `timeout` - The amount of time we should wait before returning if the
+    /// - `user_id` - The unique id of the user that the devices belong to.
+    /// - `timeout` - The amount of time we should wait before returning if the
     /// user's device list has been marked as stale. **Note**, this assumes that
-    /// the requests from [`OlmMachine::outgoing_requests`] are being
-    /// processed and sent out.
+    /// the requests from [`OlmMachine::outgoing_requests`] are being processed
+    /// and sent out.
     ///
     /// # Examples
     ///
@@ -2997,8 +2990,8 @@ impl OlmMachine {
     /// Sign the given message using our device key and if available cross
     /// signing master key.
     ///
-    /// Presently, this should only be used for signing the server-side room
-    /// key backups.
+    /// Presently, this should only be used for signing the server-side room key
+    /// backups.
     pub async fn sign(&self, message: &str) -> Result<Signatures, CryptoStoreError> {
         let mut signatures = Signatures::new();
 
@@ -3037,8 +3030,8 @@ impl OlmMachine {
         &self,
         generation: &Mutex<Option<u64>>,
     ) -> StoreResult<()> {
-        // Avoid reentrant initialization by taking the lock for the entire's function
-        // scope.
+        // Avoid reentrant initialization by taking the lock for the entire's
+        // function scope.
         let mut gen_guard = generation.lock().await;
 
         let prev_generation =
@@ -3046,8 +3039,9 @@ impl OlmMachine {
 
         let generation = match prev_generation {
             Some(val) => {
-                // There was a value in the store. We need to signal that we're a different
-                // process, so we don't just reuse the value but increment it.
+                // There was a value in the store. We need to signal that we're
+                // a different process, so we don't just reuse the value but
+                // increment it.
                 u64::from_le_bytes(val.try_into().map_err(|_| {
                     CryptoStoreError::InvalidLockGeneration("invalid format".to_owned())
                 })?)
@@ -3078,7 +3072,7 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// * `generation` - The in-memory generation counter (or rather, the
+    /// - `generation` - The in-memory generation counter (or rather, the
     ///   `Mutex` wrapping it). This defines the "expected" generation on entry,
     ///   and, if we determine an update is needed, is updated to hold the "new"
     ///   generation.
@@ -3087,11 +3081,11 @@ impl OlmMachine {
     ///
     /// A tuple containing:
     ///
-    /// * A `bool`, set to `true` if another process has updated the generation
+    /// - A `bool`, set to `true` if another process has updated the generation
     ///   number in the `Store` since our expected value, and as such we've
     ///   incremented and updated it in the database. Otherwise, `false`.
     ///
-    /// * The (possibly updated) generation counter.
+    /// - The (possibly updated) generation counter.
     pub async fn maintain_crypto_store_generation(
         &'_ self,
         generation: &Mutex<Option<u64>>,
@@ -3099,6 +3093,7 @@ impl OlmMachine {
         let mut gen_guard = generation.lock().await;
 
         // The database value must be there:
+        //
         // - either we could initialize beforehand, thus write into the database,
         // - or we couldn't, and then another process was holding onto the database's
         //   lock, thus
@@ -3126,8 +3121,9 @@ impl OlmMachine {
                 actual_gen.max(*expected_gen).wrapping_add(1)
             }
             None => {
-                // Some other process hold onto the lock when initializing, so we must reload.
-                // Increment database value, and store it everywhere.
+                // Some other process hold onto the lock when initializing, so
+                // we must reload. Increment database value, and store it
+                // everywhere.
                 actual_gen.wrapping_add(1)
             }
         };
@@ -3183,24 +3179,26 @@ impl OlmMachine {
     ) -> Result<(), SetRoomSettingsError> {
         let store = &self.inner.store;
 
-        // We want to make sure that we do not race against a second concurrent call to
-        // `set_room_settings`. By way of an easy way to do so, we start a
-        // StoreTransaction. There's no need to commit() it: we're just using it as a
-        // lock guard.
+        // We want to make sure that we do not race against a second concurrent
+        // call to `set_room_settings`. By way of an easy way to do so, we start
+        // a StoreTransaction. There's no need to commit() it: we're just using
+        // it as a lock guard.
         let _store_transaction = store.transaction().await;
 
         let old_settings = store.get_room_settings(room_id).await?;
 
-        // We want to make sure that the change to the room settings does not represent
-        // a downgrade in security. The [E2EE implementation guide] recommends:
+        // We want to make sure that the change to the room settings does not
+        // represent a downgrade in security. The [E2EE implementation guide]
+        // recommends:
         //
-        //  > This flag should **not** be cleared if a later `m.room.encryption` event
-        //  > changes the configuration.
+        //  > This flag should **not** be cleared if a later `m.room.encryption`
+        //  > event changes the configuration.
         //
-        // (However, it doesn't really address how to handle changes to the rotation
-        // parameters, etc.) For now at least, we are very conservative here:
-        // any new settings are rejected if they differ from the existing settings.
-        // merit improvement (cf https://github.com/element-hq/element-meta/issues/69).
+        // (However, it doesn't really address how to handle changes to the
+        // rotation parameters, etc.) For now at least, we are very conservative
+        // here: any new settings are rejected if they differ from the existing
+        // settings. merit improvement (cf
+        // https://github.com/element-hq/element-meta/issues/69).
         //
         // [E2EE implementation guide]: https://matrix.org/docs/matrix-concepts/end-to-end-encryption/#handling-an-m-room-encryption-state-event
         if let Some(old_settings) = old_settings {
@@ -3406,12 +3404,11 @@ fn megolm_error_to_utd_info(
 
 /// An error that can occur during [`OlmMachine::decrypt_to_device_event`]:
 ///
-/// * because decryption failed, or
-///
-/// * because the sender device was not verified when we are in strict "exclude
+/// - because decryption failed, or
+/// - because the sender device was not verified when we are in strict "exclude
 ///   insecure devices" mode, or
 ///
-/// * because the sender device was a dehydrated device, which should never send
+/// - because the sender device was a dehydrated device, which should never send
 ///   any to-device messages.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum DecryptToDeviceError {
