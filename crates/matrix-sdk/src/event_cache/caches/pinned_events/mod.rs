@@ -428,20 +428,18 @@ impl PinnedEventsCacheState {
     }
 
     /// Returns whether this contains exactly the given pinned events,
-    /// along with the events related to them (reactions, edits, redactions, etc).
+    /// along with the events related to them (reactions, edits, redactions,
+    /// etc).
     ///
     /// Related events are ignored here when comparing the pinned event IDs
-    /// to all of the [`Self::current_event_ids`], as that would cause differences
-    /// if one pinned event has a related event, and then reload them all over again.
+    /// to all of the [`Self::current_event_ids`], as that would cause
+    /// differences if one pinned event has a related event, and then reload
+    /// them all over again.
     fn has_exactly_pinned_events(&self, pinned_event_ids: &[OwnedEventId]) -> bool {
-        let pinned_event_ids: BTreeSet<&EventId> = pinned_event_ids
-            .iter()
-            .map(|event_id| &**event_id)
-            .collect();
-        let event_ids: BTreeSet<&EventId> = self.chunk
-            .events()
-            .filter_map(|(_position, event)| event.event_id())
-            .collect();
+        let pinned_event_ids: BTreeSet<&EventId> =
+            pinned_event_ids.iter().map(|event_id| &**event_id).collect();
+        let event_ids: BTreeSet<&EventId> =
+            self.chunk.events().filter_map(|(_position, event)| event.event_id()).collect();
 
         if !pinned_event_ids.is_subset(&event_ids) {
             return false;
@@ -451,8 +449,7 @@ impl PinnedEventsCacheState {
         // just like `aggregate_timeline_for_pinned_events` does for a sync.
         // If not, then that event isn't pinned anymore.
         self.chunk.events().all(|(_position, event)| {
-            event.event_id().is_some_and(|event_id|
-                pinned_event_ids.contains(event_id))
+            event.event_id().is_some_and(|event_id| pinned_event_ids.contains(event_id))
                 || extract_relation(event.raw()).is_some_and(|(relation_type, related_event_id)| {
                     relation_type != RelationType::Thread && event_ids.contains(&*related_event_id)
                 })
@@ -692,15 +689,11 @@ impl PinnedEventsCache {
     /// previous time we loaded them. May return an error if there was an issue
     /// fetching the full events.
     async fn reload_pinned_events(room: Room) -> Result<Option<Vec<Event>>> {
-        let max_concurrent_requests = room.client()
-            .event_cache()
-            .config()
-            .max_pinned_events_concurrent_requests;
+        let max_concurrent_requests =
+            room.client().event_cache().config().max_pinned_events_concurrent_requests;
 
-        let pinned_event_ids = pinned_event_ids_to_load(
-            &room,
-            room.pinned_event_ids().unwrap_or_default(),
-        );
+        let pinned_event_ids =
+            pinned_event_ids_to_load(&room, room.pinned_event_ids().unwrap_or_default());
 
         if pinned_event_ids.is_empty() {
             return Ok(Some(Vec::new()));
