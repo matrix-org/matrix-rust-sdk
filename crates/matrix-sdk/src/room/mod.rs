@@ -4970,7 +4970,7 @@ pub enum ParentSpace {
     Unverifiable(OwnedRoomId),
 }
 
-trait EventSource {
+pub(crate) trait EventSource {
     fn get_event(
         &self,
         event_id: &EventId,

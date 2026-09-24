@@ -20,7 +20,7 @@ use futures_util::StreamExt;
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk::attachment::{AttachmentInfo, BaseFileInfo};
 use matrix_sdk::{
-    assert_let_timeout,
+    Client, assert_let_timeout,
     attachment::Thumbnail,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     send_queue::AbstractProgress,
@@ -30,21 +30,20 @@ use matrix_sdk_test::{
     ALICE, JoinedRoomBuilder, TestResult, async_test, event_factory::EventFactory,
 };
 use matrix_sdk_ui::timeline::{
-    AttachmentConfig, AttachmentSource, EventSendState, MediaUploadProgress, RoomExt, TimelineFocus,
+    AttachmentConfig, AttachmentSource, EventSendState, EventTimelineItem, MediaUploadProgress,
+    RoomExt, SendTarget, TimelineFocus,
 };
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk_ui::timeline::{GalleryConfig, GalleryItemInfo};
 #[cfg(feature = "unstable-msc4274")]
 use ruma::events::room::message::GalleryItemType;
-#[cfg(feature = "unstable-msc4274")]
-use ruma::owned_mxc_uri;
 use ruma::{
-    event_id,
+    OwnedMxcUri, RoomId, event_id,
     events::room::{
         MediaSource,
         message::{MessageType, TextMessageEventContent},
     },
-    mxc_uri, room_id, uint,
+    mxc_uri, owned_mxc_uri, room_id, uint,
 };
 use serde_json::json;
 use strass::assert_let;
@@ -760,6 +759,401 @@ async fn test_send_gallery_from_bytes() -> TestResult {
     }
 
     // That's all, folks!
+    assert_pending!(timeline_stream);
+    Ok(())
+}
+
+/// Sync an image event of ours, and make it available to the send queue's
+/// lookup of the edit target.
+async fn sync_own_image(mock: &MatrixMockServer, client: &Client, room_id: &RoomId) {
+    let f = EventFactory::new();
+    let image = || {
+        f.image("original.jpeg".to_owned(), owned_mxc_uri!("mxc://sdk.rs/original"))
+            .sender(client.user_id().unwrap())
+            .event_id(event_id!("$original"))
+    };
+
+    mock.sync_room(client, JoinedRoomBuilder::new(room_id).add_timeline_event(image())).await;
+
+    // The edit target is read before anything is queued; it's in the event cache
+    // already, but the send queue may still look it up.
+    mock.mock_room_event().match_event_id().ok(image().into()).mount().await;
+}
+
+/// The plain media source of an image item.
+fn image_uri(item: &EventTimelineItem) -> OwnedMxcUri {
+    assert_let!(Some(msg) = item.content().as_message());
+    assert_let!(MessageType::Image(image) = msg.msgtype());
+    assert_let!(MediaSource::Plain(uri) = &image.source);
+    uri.clone()
+}
+
+#[async_test]
+async fn test_edit_with_attachment() -> TestResult {
+    let mock = MatrixMockServer::new().await;
+    let client = mock.client_builder().build().await;
+
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = mock.sync_joined_room(&client, room_id).await;
+    let timeline = room.timeline().await?;
+
+    let (items, mut timeline_stream) =
+        timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
+    assert!(items.is_empty());
+
+    sync_own_image(&mock, &client, room_id).await;
+
+    assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
+    assert!(!item.content().as_message().unwrap().is_edited());
+    assert_eq!(image_uri(&item), "mxc://sdk.rs/original");
+    assert_pending!(timeline_stream);
+
+    // The upload takes a moment, so the local echo of the edit is observable before
+    // the media has been uploaded.
+    mock.mock_upload()
+        .expect_mime_type("image/jpeg")
+        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(1)).set_body_json(
+            json!({
+              "content_uri": "mxc://sdk.rs/new-media"
+            }),
+        ))
+        .mock_once()
+        .mount()
+        .await;
+
+    mock.mock_room_send().ok(event_id!("$edit")).mock_once().mount().await;
+
+    room.send_queue()
+        .edit_with_attachment(
+            event_id!("$original"),
+            "surprise.jpeg",
+            mime::IMAGE_JPEG,
+            b"hello world".to_vec(),
+            matrix_sdk::attachment::AttachmentConfig::new()
+                .caption(Some(TextMessageEventContent::plain("new caption"))),
+        )
+        .await?;
+
+    // The local echo of the edit is applied to the edited item, with the new media
+    // served from the local cache.
+    {
+        assert_let_timeout!(
+            Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()
+        );
+        assert_let!(Some(msg) = item.content().as_message());
+        assert!(msg.is_edited());
+        assert_eq!(get_filename_and_caption(msg.msgtype()), ("surprise.jpeg", Some("new caption")));
+        assert!(image_uri(&item).as_str().starts_with("mxc://send-queue.localhost/"));
+
+        // The edited event is remote, so the send state is the edit's.
+        assert_matches!(item.send_state(), None);
+        assert_matches!(
+            item.edit_send_state(),
+            Some(EventSendState::NotSentYet { progress: None })
+        );
+    }
+
+    // The upload progress is reported on the edit.
+    {
+        assert_let_timeout!(
+            Duration::from_secs(3),
+            Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()
+        );
+        assert_let!(
+            Some(EventSendState::NotSentYet {
+                progress: Some(MediaUploadProgress { index: 0, progress })
+            }) = item.edit_send_state()
+        );
+        assert_eq!(progress.current, progress.total);
+    }
+
+    // Once the upload completes, the item points at the uploaded media, while the
+    // edit itself is still pending.
+    {
+        assert_let_timeout!(
+            Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()
+        );
+        assert_let!(Some(msg) = item.content().as_message());
+        assert!(msg.is_edited());
+        assert_eq!(get_filename_and_caption(msg.msgtype()), ("surprise.jpeg", Some("new caption")));
+        assert_eq!(image_uri(&item), "mxc://sdk.rs/new-media");
+        assert_matches!(item.edit_send_state(), Some(EventSendState::NotSentYet { .. }));
+    }
+
+    // The edit is sent…
+    {
+        assert_let_timeout!(
+            Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()
+        );
+        assert_eq!(image_uri(&item), "mxc://sdk.rs/new-media");
+        assert_matches!(item.edit_send_state(), Some(EventSendState::Sent { event_id }) => {
+            assert_eq!(event_id, event_id!("$edit"));
+        });
+    }
+
+    // …and its remote echo replaces the local one.
+    {
+        assert_let_timeout!(
+            Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()
+        );
+        assert!(item.content().as_message().unwrap().is_edited());
+        assert_eq!(image_uri(&item), "mxc://sdk.rs/new-media");
+        assert_matches!(item.edit_send_state(), None);
+        assert_matches!(item.latest_edit_json(), Some(_));
+    }
+
+    assert_pending!(timeline_stream);
+    Ok(())
+}
+
+#[async_test]
+async fn test_edit_with_attachment_of_another_kind() -> TestResult {
+    let mock = MatrixMockServer::new().await;
+    let client = mock.client_builder().build().await;
+
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = mock.sync_joined_room(&client, room_id).await;
+    let timeline = room.timeline().await?;
+
+    let (_, mut timeline_stream) =
+        timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
+
+    sync_own_image(&mock, &client, room_id).await;
+
+    assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
+    assert_matches!(item.content().as_message().unwrap().msgtype(), MessageType::Image(_));
+
+    mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/manual")).mock_once().mount().await;
+    mock.mock_room_send().ok(event_id!("$edit")).mock_once().mount().await;
+
+    // Replace the image with a PDF.
+    room.send_queue()
+        .edit_with_attachment(
+            event_id!("$original"),
+            "manual.pdf",
+            mime::APPLICATION_PDF,
+            b"hello world".to_vec(),
+            matrix_sdk::attachment::AttachmentConfig::new(),
+        )
+        .await?;
+
+    // The item turns into a file right away, and stays one once the edit is
+    // echoed back.
+    loop {
+        assert_let_timeout!(
+            Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()
+        );
+        assert_let!(Some(msg) = item.content().as_message());
+        assert!(msg.is_edited());
+        assert_let!(MessageType::File(file) = msg.msgtype());
+        assert_eq!(file.filename(), "manual.pdf");
+
+        if item.edit_send_state().is_none() {
+            assert_let!(MediaSource::Plain(uri) = &file.source);
+            assert_eq!(uri, mxc_uri!("mxc://sdk.rs/manual"));
+            break;
+        }
+    }
+
+    assert_pending!(timeline_stream);
+    Ok(())
+}
+
+#[async_test]
+async fn test_edit_text_message_with_attachment() -> TestResult {
+    let mock = MatrixMockServer::new().await;
+    let client = mock.client_builder().build().await;
+
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = mock.sync_joined_room(&client, room_id).await;
+    let timeline = room.timeline().await?;
+
+    let (_, mut timeline_stream) =
+        timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
+
+    // A text message of ours.
+    let f = EventFactory::new();
+    let text = || {
+        f.text_msg("look at this").sender(client.user_id().unwrap()).event_id(event_id!("$text"))
+    };
+    mock.sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(text())).await;
+    mock.mock_room_event().match_event_id().ok(text().into()).mount().await;
+
+    assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
+    assert_matches!(item.content().as_message().unwrap().msgtype(), MessageType::Text(_));
+
+    mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/new-media")).mock_once().mount().await;
+    mock.mock_room_send().ok(event_id!("$edit")).mock_once().mount().await;
+
+    // Add an image to it, keeping the text as the caption.
+    room.send_queue()
+        .edit_with_attachment(
+            event_id!("$text"),
+            "surprise.jpeg",
+            mime::IMAGE_JPEG,
+            b"hello world".to_vec(),
+            matrix_sdk::attachment::AttachmentConfig::new()
+                .caption(Some(TextMessageEventContent::plain("look at this"))),
+        )
+        .await?;
+
+    // The item turns into an image right away, and stays one once the edit is
+    // echoed back.
+    loop {
+        assert_let_timeout!(
+            Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()
+        );
+        assert_let!(Some(msg) = item.content().as_message());
+        assert!(msg.is_edited());
+        assert_eq!(
+            get_filename_and_caption(msg.msgtype()),
+            ("surprise.jpeg", Some("look at this"))
+        );
+
+        if item.edit_send_state().is_none() {
+            assert_eq!(image_uri(&item), "mxc://sdk.rs/new-media");
+            break;
+        }
+    }
+
+    assert_pending!(timeline_stream);
+    Ok(())
+}
+
+#[async_test]
+async fn test_retry_failed_edit_with_attachment() -> TestResult {
+    let mock = MatrixMockServer::new().await;
+    let client = mock.client_builder().build().await;
+
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = mock.sync_joined_room(&client, room_id).await;
+    let timeline = room.timeline().await?;
+
+    let (_, mut timeline_stream) =
+        timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
+
+    sync_own_image(&mock, &client, room_id).await;
+
+    assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
+    let item_id = item.identifier();
+
+    // The media goes up, but the edit fails once before going out.
+    mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/new-media")).mock_once().mount().await;
+    mock.mock_room_send().error_too_large().mock_once().mount().await;
+    mock.mock_room_send().ok(event_id!("$edit")).mock_once().mount().await;
+
+    room.send_queue()
+        .edit_with_attachment(
+            event_id!("$original"),
+            "surprise.jpeg",
+            mime::IMAGE_JPEG,
+            b"hello world".to_vec(),
+            matrix_sdk::attachment::AttachmentConfig::new(),
+        )
+        .await?;
+
+    // The failure is surfaced on the edit. The media has been uploaded by then, so
+    // the item doesn't point at the local cache anymore.
+    let item = loop {
+        assert_let_timeout!(
+            Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()
+        );
+        if !matches!(item.edit_send_state(), Some(EventSendState::NotSentYet { .. })) {
+            break item;
+        }
+    };
+    assert_matches!(
+        item.edit_send_state(),
+        Some(EventSendState::SendingFailed { is_recoverable: false, .. })
+    );
+    assert_eq!(image_uri(&item), "mxc://sdk.rs/new-media");
+
+    assert!(timeline.retry_send(&item_id, SendTarget::Edit).await?);
+
+    // Pending again, sent, then echoed back.
+    assert_let_timeout!(Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next());
+    assert_matches!(item.edit_send_state(), Some(EventSendState::NotSentYet { .. }));
+
+    assert_let_timeout!(Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next());
+    assert_matches!(item.edit_send_state(), Some(EventSendState::Sent { .. }));
+
+    assert_let_timeout!(Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next());
+    assert_matches!(item.edit_send_state(), None);
+    assert_eq!(image_uri(&item), "mxc://sdk.rs/new-media");
+
+    assert_pending!(timeline_stream);
+    Ok(())
+}
+
+#[async_test]
+async fn test_abort_failed_edit_with_attachment() -> TestResult {
+    let mock = MatrixMockServer::new().await;
+    let client = mock.client_builder().build().await;
+
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = mock.sync_joined_room(&client, room_id).await;
+    let timeline = room.timeline().await?;
+
+    let (_, mut timeline_stream) =
+        timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
+
+    sync_own_image(&mock, &client, room_id).await;
+
+    assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
+    let item_id = item.identifier();
+
+    // The upload itself fails.
+    mock.mock_upload().error_too_large().mock_once().mount().await;
+
+    room.send_queue()
+        .edit_with_attachment(
+            event_id!("$original"),
+            "surprise.jpeg",
+            mime::IMAGE_JPEG,
+            b"hello world".to_vec(),
+            matrix_sdk::attachment::AttachmentConfig::new(),
+        )
+        .await?;
+
+    let item = loop {
+        assert_let_timeout!(
+            Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()
+        );
+        if !matches!(item.edit_send_state(), Some(EventSendState::NotSentYet { .. })) {
+            break item;
+        }
+    };
+    assert_matches!(
+        item.edit_send_state(),
+        Some(EventSendState::SendingFailed { is_recoverable: false, .. })
+    );
+    assert!(item.content().as_message().unwrap().is_edited());
+
+    assert!(timeline.abort_send(&item_id, SendTarget::Edit).await?);
+
+    // The original media is back, and nothing blocks the room's queue anymore.
+    assert_let_timeout!(Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next());
+    assert!(!item.content().as_message().unwrap().is_edited());
+    assert_eq!(image_uri(&item), "mxc://sdk.rs/original");
+    assert_matches!(item.edit_send_state(), None);
+
+    assert!(room.send_queue().subscribe().await?.0.is_empty());
+
     assert_pending!(timeline_stream);
     Ok(())
 }

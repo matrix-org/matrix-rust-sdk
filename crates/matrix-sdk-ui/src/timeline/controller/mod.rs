@@ -1071,6 +1071,20 @@ impl<P: RoomDataProvider> TimelineController<P> {
         let Some((idx, prev_item)) =
             rfind_event_item(&txn.items, |it| it.transaction_id() == Some(txn_id))
         else {
+            // Not a standalone item: maybe one of our pending edits.
+            if let Some(Relation::Replacement(replacement)) = content.relates_to
+                && txn.meta.aggregations.replace_local_edit(
+                    txn_id,
+                    replacement,
+                    &mut txn.items,
+                    &txn.meta.room_version_rules,
+                )
+            {
+                debug!("Replaced local echo of an edit");
+                txn.commit();
+                return true;
+            }
+
             debug!("Can't find local echo to replace");
             return false;
         };

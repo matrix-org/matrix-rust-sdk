@@ -24,7 +24,7 @@ use ruma::{
             UnstablePollStartEventContent,
         },
         room::message::{
-            FormattedBody, MessageType, ReplacementMetadata, RoomMessageEventContent,
+            FormattedBody, MessageType, Relation, ReplacementMetadata, RoomMessageEventContent,
             RoomMessageEventContentWithoutRelation,
         },
     },
@@ -217,6 +217,43 @@ async fn make_edit_event<S: EventSource>(
     }
 }
 
+/// Checks that `event_id` can be edited into a media message, and returns the
+/// original event's intentional mentions, to be carried into the
+/// replacement's metadata.
+///
+/// The target must be an `m.room.message` sent by the current user, holding
+/// media or not.
+pub(crate) async fn validate_attachment_edit<S: EventSource>(
+    source: S,
+    own_user_id: &UserId,
+    event_id: &EventId,
+) -> Result<Option<Mentions>, EditError> {
+    let target = source.get_event(event_id).await.map_err(|err| EditError::Fetch(Box::new(err)))?;
+
+    let event = target.raw().deserialize().map_err(EditError::Deserialize)?;
+
+    // The event must be message-like.
+    let AnySyncTimelineEvent::MessageLike(message_like_event) = event else {
+        return Err(EditError::StateEvent);
+    };
+
+    // The event must have been sent by the current user.
+    if message_like_event.sender() != own_user_id {
+        return Err(EditError::NotAuthor);
+    }
+
+    let AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(original)) =
+        message_like_event
+    else {
+        return Err(EditError::IncompatibleEditType {
+            target: message_like_event.event_type().to_string(),
+            new_content: "room message",
+        });
+    };
+
+    Ok(original.content.mentions)
+}
+
 /// Sets the caption of a media event content.
 ///
 /// Why a macro over a plain function: the event content types all differ from
@@ -250,9 +287,56 @@ pub(crate) fn update_media_caption(
     formatted_caption: Option<FormattedBody>,
     mentions: Option<Mentions>,
 ) -> bool {
-    content.mentions = mentions;
+    // A media edit (see `RoomSendQueue::edit_with_attachment`): update its
+    // canonical content, and rebuild the edit around it like any other, so the
+    // fallback and the mentions it notifies follow the same rules.
+    if let Some(Relation::Replacement(replacement)) = &content.relates_to {
+        let edited_event_id = replacement.event_id.clone();
+        let original_mentions = mentions_of_edited_event(
+            replacement.new_content.mentions.as_ref(),
+            content.mentions.as_ref(),
+        );
 
-    match &mut content.msgtype {
+        let mut new_content = replacement.new_content.clone();
+        if !update_media_msgtype_caption(&mut new_content.msgtype, caption, formatted_caption) {
+            return false;
+        }
+        new_content.mentions = mentions;
+
+        *content = new_content
+            .make_replacement(ReplacementMetadata::new(edited_event_id, original_mentions));
+        return true;
+    }
+
+    content.mentions = mentions;
+    update_media_msgtype_caption(&mut content.msgtype, caption, formatted_caption)
+}
+
+/// Recovers the mentions of the event an edit replaces: the edit's canonical
+/// content mentions everybody, and its top-level mentions only the users the
+/// edited event didn't already mention (see `make_replacement`).
+fn mentions_of_edited_event(
+    canonical: Option<&Mentions>,
+    notified: Option<&Mentions>,
+) -> Option<Mentions> {
+    let (canonical, notified) = (canonical?, notified?);
+
+    let mut mentions = Mentions::new();
+    mentions.user_ids =
+        canonical.user_ids.iter().filter(|u| !notified.user_ids.contains(*u)).cloned().collect();
+    mentions.room = canonical.room && !notified.room;
+    Some(mentions)
+}
+
+/// Sets the caption of a single [`MessageType`].
+///
+/// Returns false if it's not a media message type.
+fn update_media_msgtype_caption(
+    msgtype: &mut MessageType,
+    caption: Option<String>,
+    formatted_caption: Option<FormattedBody>,
+) -> bool {
+    match msgtype {
         MessageType::Audio(event) => {
             set_caption!(event, caption);
             event.formatted = formatted_caption;
@@ -293,13 +377,18 @@ mod tests {
         EventId, OwnedEventId, event_id,
         events::{
             AnyMessageLikeEventContent, AnySyncTimelineEvent, Mentions,
-            room::message::{MessageType, Relation, RoomMessageEventContentWithoutRelation},
+            room::message::{
+                ImageMessageEventContent, MessageType, Relation, ReplacementMetadata,
+                RoomMessageEventContentWithoutRelation,
+            },
         },
         owned_mxc_uri, owned_user_id, user_id,
     };
     use strass::assert_let;
 
-    use super::{EditError, EventSource, make_edit_event};
+    use super::{
+        EditError, EventSource, make_edit_event, update_media_caption, validate_attachment_edit,
+    };
     use crate::{Error, room::edit::EditedContent};
 
     #[derive(Default)]
@@ -586,6 +675,48 @@ mod tests {
         assert_eq!(mentions.user_ids.into_iter().collect::<Vec<_>>(), vec![mentioned_user_id]);
     }
 
+    #[test]
+    fn test_update_media_caption_of_a_replacement() {
+        let crepe = owned_user_id!("@crepe:saucisse.bzh");
+        let galette = owned_user_id!("@galette:saucisse.bzh");
+
+        // A pending media edit of an event which mentioned crepe already.
+        let image = MessageType::Image(ImageMessageEventContent::plain(
+            "rickroll.gif".to_owned(),
+            owned_mxc_uri!("mxc://sdk.rs/rickroll"),
+        ));
+        let mut content = RoomMessageEventContentWithoutRelation::new(image)
+            .add_mentions(Mentions::with_user_ids([crepe.clone()]))
+            .make_replacement(ReplacementMetadata::new(
+                event_id!("$1").to_owned(),
+                Some(Mentions::with_user_ids([crepe.clone()])),
+            ));
+
+        assert!(update_media_caption(
+            &mut content,
+            Some("Best joke ever".to_owned()),
+            None,
+            Some(Mentions::with_user_ids([crepe, galette.clone()]))
+        ));
+
+        // The fallback reads like any other caption edit, and only the newly
+        // mentioned user is notified.
+        assert_let!(MessageType::Image(image) = &content.msgtype);
+        assert_eq!(image.filename(), "rickroll.gif");
+        assert_eq!(image.caption(), Some("* Best joke ever"));
+        assert_let!(Some(notified) = &content.mentions);
+        assert_eq!(notified.user_ids.iter().collect::<Vec<_>>(), [&galette]);
+
+        // The canonical content has the new caption, and mentions both users.
+        assert_let!(Some(Relation::Replacement(repl)) = &content.relates_to);
+        assert_eq!(repl.event_id, event_id!("$1"));
+        assert_let!(MessageType::Image(new_image) = &repl.new_content.msgtype);
+        assert_eq!(new_image.filename(), "rickroll.gif");
+        assert_eq!(new_image.caption(), Some("Best joke ever"));
+        assert_let!(Some(mentions) = &repl.new_content.mentions);
+        assert_eq!(mentions.user_ids.len(), 2);
+    }
+
     #[async_test]
     async fn test_make_edit_event_success_with_response() {
         let event_id = event_id!("$1");
@@ -627,5 +758,95 @@ mod tests {
 
         assert_eq!(repl.event_id, resp_event_id);
         assert_eq!(repl.new_content.msgtype.body(), "uh i mean hi too");
+    }
+
+    fn image_event_cache(event_id: &EventId, sender: &ruma::UserId) -> TestEventCache {
+        let mut cache = TestEventCache::default();
+        let f = EventFactory::new();
+        cache.events.insert(
+            event_id.to_owned(),
+            f.image("rickroll.gif".to_owned(), owned_mxc_uri!("mxc://sdk.rs/rickroll"))
+                .event_id(event_id)
+                .sender(sender)
+                .into(),
+        );
+        cache
+    }
+
+    #[async_test]
+    async fn test_validate_attachment_edit() {
+        let event_id = event_id!("$1");
+        let own_user_id = user_id!("@me:saucisse.bzh");
+
+        let cache = image_event_cache(event_id, own_user_id);
+
+        assert_matches!(validate_attachment_edit(cache, own_user_id, event_id).await, Ok(None));
+    }
+
+    #[async_test]
+    async fn test_validate_attachment_edit_of_a_text_message() {
+        let event_id = event_id!("$1");
+        let own_user_id = user_id!("@me:saucisse.bzh");
+
+        let mut cache = TestEventCache::default();
+        let f = EventFactory::new();
+        cache.events.insert(
+            event_id.to_owned(),
+            f.text_msg("this is not a media").event_id(event_id).sender(own_user_id).into(),
+        );
+
+        assert_matches!(validate_attachment_edit(cache, own_user_id, event_id).await, Ok(None));
+    }
+
+    #[async_test]
+    async fn test_validate_attachment_edit_state_event() {
+        let event_id = event_id!("$1");
+        let own_user_id = user_id!("@me:saucisse.bzh");
+
+        let mut cache = TestEventCache::default();
+        let f = EventFactory::new();
+        cache.events.insert(
+            event_id.to_owned(),
+            f.room_name("The room name").event_id(event_id).sender(own_user_id).into(),
+        );
+
+        assert_matches!(
+            validate_attachment_edit(cache, own_user_id, event_id).await,
+            Err(EditError::StateEvent)
+        );
+    }
+
+    #[async_test]
+    async fn test_validate_attachment_edit_not_a_room_message() {
+        let event_id = event_id!("$1");
+        let own_user_id = user_id!("@me:saucisse.bzh");
+
+        let mut cache = TestEventCache::default();
+        let f = EventFactory::new();
+        cache.events.insert(
+            event_id.to_owned(),
+            f.poll_start("poll", "question", vec!["a", "b"])
+                .event_id(event_id)
+                .sender(own_user_id)
+                .into(),
+        );
+
+        assert_matches!(
+            validate_attachment_edit(cache, own_user_id, event_id).await,
+            Err(EditError::IncompatibleEditType { .. })
+        );
+    }
+
+    #[async_test]
+    async fn test_validate_attachment_edit_other_user() {
+        let event_id = event_id!("$1");
+        let own_user_id = user_id!("@me:saucisse.bzh");
+
+        let cache = image_event_cache(event_id, user_id!("@other:saucisse.bzh"));
+
+        assert_matches!(
+            validate_attachment_edit(cache, own_user_id, event_id).await,
+            Err(EditError::NotAuthor)
+        );
     }
 }
