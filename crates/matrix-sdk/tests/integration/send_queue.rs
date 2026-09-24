@@ -136,8 +136,8 @@ fn mock_jpeg_upload<'a>(
     })
 }
 
-/// Mocks the already-sent image event a media edit replaces the attachment of;
-/// the send queue reads it before queuing the edit.
+/// Mocks the sent image event whose attachment the edit replaces; the send
+/// queue reads it before queuing.
 async fn mock_edited_image_event(
     mock: &MatrixMockServer,
     own_user_id: &UserId,
