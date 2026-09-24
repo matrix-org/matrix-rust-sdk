@@ -717,6 +717,42 @@ impl Timeline {
         SendAttachment::new(self, source.into(), mime_type, config)
     }
 
+    /// Replaces the attachment of a message the current user sent, or adds one
+    /// to a message which had none, through the send queue.
+    ///
+    /// See [`RoomSendQueue::edit_with_attachment()`] for the details. The
+    /// `in_reply_to` of the `config` is ignored: an edit carries no other
+    /// relation.
+    ///
+    /// [`RoomSendQueue::edit_with_attachment()`]: matrix_sdk::send_queue::RoomSendQueue::edit_with_attachment
+    #[instrument(skip_all, fields(%event_id))]
+    pub async fn edit_with_attachment(
+        &self,
+        event_id: &EventId,
+        source: impl Into<AttachmentSource>,
+        mime_type: Mime,
+        config: AttachmentConfig,
+    ) -> Result<(), Error> {
+        let (data, filename) = source.into().try_into_bytes_and_filename()?;
+
+        let config = matrix_sdk::attachment::AttachmentConfig {
+            txn_id: config.txn_id,
+            info: config.info,
+            thumbnail: config.thumbnail,
+            caption: config.caption,
+            mentions: config.mentions,
+            extra_content: config.extra_content,
+            reply: None,
+        };
+
+        self.room()
+            .send_queue()
+            .edit_with_attachment(event_id, filename, mime_type, data, config)
+            .await?;
+
+        Ok(())
+    }
+
     /// Sends a media gallery to the room.
     ///
     /// If the encryption feature is enabled, this method will transparently
