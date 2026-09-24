@@ -1495,6 +1495,24 @@ impl OlmMachine {
         match &*decrypted.result.event {
             AnyDecryptedOlmEvent::RoomKey(e) => {
                 let session = self.add_room_key(decrypted.result.sender_key, e).await?;
+
+                // We don't know the device that sent us this room key, so events
+                // encrypted with it may fail the sender trust requirement. Query
+                // the sender's devices: once we learn about it, the session's
+                // sender data gets updated and its events can be decrypted.
+                if session
+                    .as_ref()
+                    .is_some_and(|s| matches!(s.sender_data, SenderData::UnknownDevice { .. }))
+                {
+                    self.inner
+                        .identity_manager
+                        .key_query_manager
+                        .synced(cache)
+                        .await?
+                        .mark_user_as_changed(&e.sender)
+                        .await?;
+                }
+
                 decrypted.inbound_group_session = session;
             }
             AnyDecryptedOlmEvent::ForwardedRoomKey(e) => {
