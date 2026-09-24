@@ -140,18 +140,18 @@ impl Room {
     ///
     /// The listener first receives a [`StickyEventsUpdate::Reset`] with the
     /// sticky events that are currently live, then a
-    /// [`StickyEventsUpdate::Changes`] for every change. Should it fall
-    /// behind and miss changes, it receives another
-    /// [`StickyEventsUpdate::Reset`] to catch up with.
+    /// [`StickyEventsUpdate::Changes`] for every change. Should it fall behind
+    /// and miss changes, it receives another [`StickyEventsUpdate::Reset`] to
+    /// catch up with.
     pub fn subscribe_to_sticky_events(
         self: Arc<Self>,
         listener: Box<dyn StickyEventsListener>,
     ) -> Arc<TaskHandle> {
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             // Subscribe before taking the snapshot, so that no change slips
-            // between the two. A change that made it into the snapshot *and*
-            // is delivered afterwards is harmless, as consumers apply changes
-            // by key.
+            // between the two. A change that made it into the snapshot _and_ is
+            // delivered afterwards is harmless, as consumers apply changes by
+            // key.
             let mut subscriber = self.inner.sticky_events().subscribe();
 
             listener.on_update(StickyEventsUpdate::Reset { events: self.sticky_events() });
@@ -159,8 +159,8 @@ impl Room {
             loop {
                 match subscriber.recv().await {
                     Ok(update) => listener.on_update(update.into()),
-                    // The channel doesn't replay what was missed, so start
-                    // over from the live set.
+                    // The channel doesn't replay what was missed, so start over
+                    // from the live set.
                     Err(RecvError::Lagged(_)) => {
                         listener
                             .on_update(StickyEventsUpdate::Reset { events: self.sticky_events() });

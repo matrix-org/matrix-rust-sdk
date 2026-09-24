@@ -39,8 +39,8 @@ pub struct Encryption {
     /// A reference to the FFI client.
     ///
     /// Note: we do this to make it so that the FFI `NotificationClient` keeps
-    /// the FFI `Client` and thus the SDK `Client` alive. Otherwise, we
-    /// would need to repeat the hack done in the FFI `Client::drop` method.
+    /// the FFI `Client` and thus the SDK `Client` alive. Otherwise, we would
+    /// need to repeat the hack done in the FFI `Client::drop` method.
     pub(crate) _client: Arc<Client>,
 }
 
@@ -438,8 +438,8 @@ impl SecretsBundleWithUserId {
     /// Does the bundle contain a backup key.
     ///
     /// Since enabling a backup is optional, the backup key might be missing
-    /// from the bundle. Returns `false` if the backup key is missing,
-    /// otherwise `true`.
+    /// from the bundle. Returns `false` if the backup key is missing, otherwise
+    /// `true`.
     pub fn contains_backup_key(&self) -> bool {
         self.inner.backup.is_some()
     }
@@ -585,12 +585,12 @@ pub trait DehydratedDeviceEventListener: SyncOutsideWasm + SendOutsideWasm {
 /// Settings for [`Encryption::start_dehydrated_devices`].
 #[derive(uniffi::Record)]
 pub struct StartDehydratedDevicesSettings {
-    /// Force generation of a fresh random pickle key on start, replacing
-    /// any existing entry in Secret Storage and the local cache.
+    /// Force generation of a fresh random pickle key on start, replacing any
+    /// existing entry in Secret Storage and the local cache.
     #[uniffi(default = false)]
     pub create_new_key: bool,
-    /// Whether to attempt to rehydrate the existing dehydrated device, if
-    /// any, before creating the next one.
+    /// Whether to attempt to rehydrate the existing dehydrated device, if any,
+    /// before creating the next one.
     #[uniffi(default = true)]
     pub rehydrate: bool,
     /// If `true`, the call becomes a no-op when no pickle key is cached
@@ -666,9 +666,9 @@ impl Encryption {
     /// Does a backup exist on the server?
     ///
     /// Because the homeserver doesn't notify us about changes to the backup
-    /// version, the [`BackupState`] and its listener are a bit crippled.
-    /// The `BackupState::Unknown` state might mean there is no backup at all or
-    /// a backup exists but we don't have access to it.
+    /// version, the [`BackupState`] and its listener are a bit crippled. The
+    /// `BackupState::Unknown` state might mean there is no backup at all or a
+    /// backup exists but we don't have access to it.
     ///
     /// Therefore it is necessary to poll the server for an answer every time
     /// you want to differentiate between those two states.
@@ -820,9 +820,9 @@ impl Encryption {
     ///
     /// This will create a new key backup if:
     ///
-    /// * Key backup is enabled and the backup decryption key is missing from
+    /// - Key backup is enabled and the backup decryption key is missing from
     ///   Recovery, or
-    /// * Key backup is enabled and the backup decryption key does not match the
+    /// - Key backup is enabled and the backup decryption key does not match the
     ///   public key
     pub async fn recover_and_fix_backup(&self, mut recovery_key: String) -> Result<()> {
         let result = self.inner.recovery().recover_and_fix_backup(&recovery_key).await;
@@ -860,19 +860,18 @@ impl Encryption {
     /// Get the E2EE identity of a user.
     ///
     /// This method always tries to fetch the identity from the store, which we
-    /// only have if the user is tracked, meaning that we are both members
-    /// of the same encrypted room. If no user is found locally, a request will
-    /// be made to the homeserver unless `fallback_to_server` is set to `false`.
+    /// only have if the user is tracked, meaning that we are both members of
+    /// the same encrypted room. If no user is found locally, a request will be
+    /// made to the homeserver unless `fallback_to_server` is set to `false`.
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user that the identity belongs to.
-    /// * `fallback_to_server` - Should we request the user identity from the
+    /// - `user_id` - The ID of the user that the identity belongs to.
+    /// - `fallback_to_server` - Should we request the user identity from the
     ///   homeserver if one isn't found locally.
     ///
-    /// Returns a `UserIdentity` if one is found. Returns an error if there
-    /// was an issue with the crypto store or with the request to the
-    /// homeserver.
+    /// Returns a `UserIdentity` if one is found. Returns an error if there was
+    /// an issue with the crypto store or with the request to the homeserver.
     ///
     /// This will always return `None` if the client hasn't been logged in.
     pub async fn user_identity(
@@ -902,8 +901,8 @@ impl Encryption {
         }
     }
 
-    /// This method will import all the private cross-signing keys and
-    /// the private part of a backup key and its accompanying version into the
+    /// This method will import all the private cross-signing keys and the
+    /// private part of a backup key and its accompanying version into the
     /// store.
     ///
     /// Importing all the secrets will mark the device as verified and enable
@@ -939,8 +938,8 @@ impl Encryption {
         }
     }
 
-    /// Return whether the homeserver advertises support for MSC3814
-    /// dehydrated devices.
+    /// Return whether the homeserver advertises support for MSC3814 dehydrated
+    /// devices.
     pub async fn is_dehydrated_device_supported(&self) -> Result<bool, DehydratedDeviceError> {
         Ok(self.inner.dehydrated_devices().is_supported().await?)
     }
@@ -973,18 +972,18 @@ impl Encryption {
         Ok(self.inner.dehydrated_devices().rehydrate(&key).await?)
     }
 
-    /// Delete the current dehydrated device, if one exists. Silent if no
-    /// device is on the server or the server does not implement MSC3814.
+    /// Delete the current dehydrated device, if one exists. Silent if no device
+    /// is on the server or the server does not implement MSC3814.
     pub async fn delete_dehydrated_device(&self) -> Result<(), DehydratedDeviceError> {
         Ok(self.inner.dehydrated_devices().delete().await?)
     }
 
-    /// Start using dehydrated devices for this client, resolving the pickle
-    /// key through Secret Storage and scheduling weekly rotation.
+    /// Start using dehydrated devices for this client, resolving the pickle key
+    /// through Secret Storage and scheduling weekly rotation.
     ///
-    /// The Rust-side copy of the recovery key is zeroized after Secret
-    /// Storage has been unlocked; the caller keeps responsibility for the
-    /// string it passed in.
+    /// The Rust-side copy of the recovery key is zeroized after Secret Storage
+    /// has been unlocked; the caller keeps responsibility for the string it
+    /// passed in.
     pub async fn start_dehydrated_devices(
         &self,
         mut recovery_key: String,
@@ -1015,16 +1014,16 @@ impl Encryption {
 
     /// Stop the scheduled dehydrated-device rotation.
     ///
-    /// Has no effect when no rotation is scheduled. Existing dehydrated
-    /// devices on the server are left in place; pair with
+    /// Has no effect when no rotation is scheduled. Existing dehydrated devices
+    /// on the server are left in place; pair with
     /// [`Encryption::delete_dehydrated_device`] to remove them.
     pub fn stop_dehydrated_devices(&self) {
         self.inner.dehydrated_devices().stop();
     }
 
-    /// Subscribe to lifecycle events emitted by the dehydrated-device
-    /// manager. The returned [`TaskHandle`] keeps the listener alive; drop
-    /// it to unsubscribe.
+    /// Subscribe to lifecycle events emitted by the dehydrated-device manager.
+    /// The returned [`TaskHandle`] keeps the listener alive; drop it to
+    /// unsubscribe.
     pub fn dehydrated_device_event_listener(
         &self,
         listener: Box<dyn DehydratedDeviceEventListener>,
@@ -1055,9 +1054,9 @@ impl UserIdentity {
     /// action "pinning".
     ///
     /// If the identity presented for the user changes later on, the newly
-    /// presented identity is considered to be in "pin violation". This
-    /// method explicitly accepts the new identity, allowing it to replace
-    /// the previously pinned one and bringing it out of pin violation.
+    /// presented identity is considered to be in "pin violation". This method
+    /// explicitly accepts the new identity, allowing it to replace the
+    /// previously pinned one and bringing it out of pin violation.
     ///
     /// UIs should display a warning to the user when encountering an identity
     /// which is not verified and is in pin violation.
@@ -1119,8 +1118,8 @@ impl IdentityResetHandle {
         self.inner.auth_type().into()
     }
 
-    /// This method starts the identity reset process and
-    /// will go through the following steps:
+    /// This method starts the identity reset process and will go through the
+    /// following steps:
     ///
     /// 1. Disable backing up room keys and delete the active backup
     /// 2. Disable recovery and delete secret storage
