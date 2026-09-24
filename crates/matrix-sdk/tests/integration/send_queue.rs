@@ -678,6 +678,87 @@ async fn test_editing_a_sticky_event_keeps_it_sticky() {
     assert!(watch.is_empty());
 }
 
+#[cfg(feature = "unstable-msc4354")]
+#[async_test]
+async fn test_editing_a_sticky_event_being_sent_keeps_it_sticky() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // The first attempt hangs until the main task releases the lock, leaving
+    // time for the edit to land while the event is being sent, then fails in a
+    // recoverable way.
+    let lock = Arc::new(Mutex::new(()));
+    let lock_guard = lock.lock().await;
+    let mock_lock = lock.clone();
+
+    let scoped_send = mock
+        .mock_room_send()
+        .respond_with(move |_req: &Request| {
+            let mock_lock = mock_lock.clone();
+            std::thread::spawn(move || {
+                tokio::runtime::Runtime::new().unwrap().block_on(async {
+                    drop(mock_lock.lock().await);
+                });
+            })
+            .join()
+            .unwrap();
+
+            ResponseTemplate::new(500)
+        })
+        .mount_as_scoped()
+        .await;
+
+    let handle = q
+        .send(RoomMessageEventContent::text_plain("original").into())
+        .with_sticky_duration(Duration::from_secs(300))
+        .await
+        .unwrap();
+    let (txn, _) = assert_update!((global_watch, watch) => local echo { body = "original" });
+
+    // Let the background task pick the event up and start sending it.
+    yield_now().await;
+
+    // The event is being sent, so the edit is recorded as a dependent request.
+    assert!(handle.edit(RoomMessageEventContent::text_plain("edited").into()).await.unwrap());
+    assert_update!((global_watch, watch) => edit { body = "edited", txn = txn });
+
+    // Let the first attempt fail.
+    drop(lock_guard);
+
+    assert_update!((global_watch, watch) => error { recoverable = true, txn = txn });
+    assert!(!room.send_queue().is_enabled());
+
+    // The dependent edit is applied to the local echo, which is still local
+    // since it was never sent. Only the edited content may reach the server on
+    // the next attempt, and it must still be sticky.
+    drop(scoped_send);
+    mock.mock_room_send()
+        .body_matches_partial_json(json!({ "body": "edited" }))
+        .with_sticky_duration(Duration::from_secs(300))
+        .ok(event_id!("$edited"))
+        .mock_once()
+        .mount()
+        .await;
+
+    room.send_queue().set_enabled(true);
+
+    assert_update!((global_watch, watch) => sent { txn = txn, event_id = event_id!("$edited") });
+    assert!(watch.is_empty());
+}
+
 #[async_test]
 async fn test_error_then_locally_reenabling() {
     let mock = MatrixMockServer::new().await;
