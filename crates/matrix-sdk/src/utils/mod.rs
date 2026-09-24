@@ -279,7 +279,7 @@ impl From<QueryString> for UrlOrQuery {
     }
 }
 
-/// Convert a `Duration` into the sticky duration of a request, clamped one
+/// Convert a `Duration` into the sticky duration of a request, clamped to one
 /// hour.
 #[cfg(feature = "unstable-msc4354")]
 pub(crate) fn sticky_duration_ms(
