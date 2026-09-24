@@ -3091,6 +3091,14 @@ impl SendHandle {
     ///
     /// Returns true if the event to be sent was replaced, false if not (i.e.
     /// the event had already been sent).
+    ///
+    /// This method should not be used for editing sticky events. Sticky events
+    /// are collected in an ephemeral map. Entries in that map need to be
+    /// updated by sending a replacing sticky event with updated content,
+    /// not by using an `m.replace` relation. Nevertheless, this method
+    /// applies edits of an _unsent_ sticky event on the queued event
+    /// directly because it is safe to do so. If, however, the event has
+    /// already been sent, the edit will be sent as an unsticky event.
     #[instrument(skip(self, new_content), fields(room_id = %self.room.inner.room.room_id(), txn_id = %self.transaction_id))]
     pub async fn edit_raw(
         &self,
@@ -3125,6 +3133,14 @@ impl SendHandle {
     ///
     /// Returns true if the event to be sent was replaced, false if not (i.e.
     /// the event had already been sent).
+    ///
+    /// This method should not be used for editing sticky events. Sticky events
+    /// are collected in an ephemeral map. Entries in that map need to be
+    /// updated by sending a replacing sticky event with updated content,
+    /// not by using an `m.replace` relation. Nevertheless, this method
+    /// applies edits of an _unsent_ sticky event on the queued event
+    /// directly because it is safe to do so. If, however, the event has
+    /// already been sent, the edit will be sent as an unsticky event.
     pub async fn edit(
         &self,
         new_content: AnyMessageLikeEventContent,
