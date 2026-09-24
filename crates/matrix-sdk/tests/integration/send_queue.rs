@@ -4541,7 +4541,7 @@ async fn test_edit_with_attachment() {
     assert_let!(MessageType::Image(new_image) = &replacement.new_content.msgtype);
     assert_eq!(new_image.caption(), Some("final caption"));
     assert_let!(MessageType::Image(fallback_image) = &content.msgtype);
-    assert_eq!(fallback_image.caption(), Some("final caption"));
+    assert_eq!(fallback_image.caption(), Some("* final caption"));
 
     // Let the upload finish.
     drop(block_upload);

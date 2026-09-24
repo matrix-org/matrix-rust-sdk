@@ -287,30 +287,45 @@ pub(crate) fn update_media_caption(
     formatted_caption: Option<FormattedBody>,
     mentions: Option<Mentions>,
 ) -> bool {
-    if !update_media_msgtype_caption(
-        &mut content.msgtype,
-        caption.clone(),
-        formatted_caption.clone(),
-    ) {
-        return false;
-    }
-
-    // A media edit (see `RoomSendQueue::edit_with_attachment`) keeps the canonical
-    // copy of the new content inside the replacement relation; update it too,
-    // or the fallback content and the canonical content would disagree. The
-    // top-level mentions are who the edit notifies, so they're left alone.
-    if let Some(Relation::Replacement(replacement)) = &mut content.relates_to {
-        replacement.new_content.mentions = mentions;
-        update_media_msgtype_caption(
-            &mut replacement.new_content.msgtype,
-            caption,
-            formatted_caption,
+    // A media edit (see `RoomSendQueue::edit_with_attachment`): update its
+    // canonical content, and rebuild the edit around it like any other, so the
+    // fallback and the mentions it notifies follow the same rules.
+    if let Some(Relation::Replacement(replacement)) = &content.relates_to {
+        let edited_event_id = replacement.event_id.clone();
+        let original_mentions = mentions_of_edited_event(
+            replacement.new_content.mentions.as_ref(),
+            content.mentions.as_ref(),
         );
-    } else {
-        content.mentions = mentions;
+
+        let mut new_content = replacement.new_content.clone();
+        if !update_media_msgtype_caption(&mut new_content.msgtype, caption, formatted_caption) {
+            return false;
+        }
+        new_content.mentions = mentions;
+
+        *content = new_content
+            .make_replacement(ReplacementMetadata::new(edited_event_id, original_mentions));
+        return true;
     }
 
-    true
+    content.mentions = mentions;
+    update_media_msgtype_caption(&mut content.msgtype, caption, formatted_caption)
+}
+
+/// Recovers the mentions of the event an edit replaces: the edit's canonical
+/// content mentions everybody, and its top-level mentions only the users the
+/// edited event didn't already mention (see `make_replacement`).
+fn mentions_of_edited_event(
+    canonical: Option<&Mentions>,
+    notified: Option<&Mentions>,
+) -> Option<Mentions> {
+    let (canonical, notified) = (canonical?, notified?);
+
+    let mut mentions = Mentions::new();
+    mentions.user_ids =
+        canonical.user_ids.iter().filter(|u| !notified.user_ids.contains(*u)).cloned().collect();
+    mentions.room = canonical.room && !notified.room;
+    Some(mentions)
 }
 
 /// Sets the caption of a single [`MessageType`].
@@ -662,35 +677,44 @@ mod tests {
 
     #[test]
     fn test_update_media_caption_of_a_replacement() {
-        // The local echo of a media edit: a replacement whose canonical content is
-        // inside the relation.
+        let crepe = owned_user_id!("@crepe:saucisse.bzh");
+        let galette = owned_user_id!("@galette:saucisse.bzh");
+
+        // A pending media edit of an event which mentioned crepe already.
         let image = MessageType::Image(ImageMessageEventContent::plain(
             "rickroll.gif".to_owned(),
             owned_mxc_uri!("mxc://sdk.rs/rickroll"),
         ));
         let mut content = RoomMessageEventContentWithoutRelation::new(image)
-            .make_replacement(ReplacementMetadata::new(event_id!("$1").to_owned(), None));
+            .add_mentions(Mentions::with_user_ids([crepe.clone()]))
+            .make_replacement(ReplacementMetadata::new(
+                event_id!("$1").to_owned(),
+                Some(Mentions::with_user_ids([crepe.clone()])),
+            ));
 
-        let mentioned_user_id = owned_user_id!("@crepe:saucisse.bzh");
         assert!(update_media_caption(
             &mut content,
             Some("Best joke ever".to_owned()),
             None,
-            Some(Mentions::with_user_ids([mentioned_user_id.clone()]))
+            Some(Mentions::with_user_ids([crepe, galette.clone()]))
         ));
 
-        // Both copies carry the new caption, but only the canonical one gets the
-        // mentions: the edit itself doesn't notify anybody again.
+        // The fallback reads like any other caption edit, and only the newly
+        // mentioned user is notified.
         assert_let!(MessageType::Image(image) = &content.msgtype);
-        assert_eq!(image.caption(), Some("Best joke ever"));
-        assert!(content.mentions.is_none());
+        assert_eq!(image.filename(), "rickroll.gif");
+        assert_eq!(image.caption(), Some("* Best joke ever"));
+        assert_let!(Some(notified) = &content.mentions);
+        assert_eq!(notified.user_ids.iter().collect::<Vec<_>>(), [&galette]);
 
+        // The canonical content has the new caption, and mentions both users.
         assert_let!(Some(Relation::Replacement(repl)) = &content.relates_to);
+        assert_eq!(repl.event_id, event_id!("$1"));
         assert_let!(MessageType::Image(new_image) = &repl.new_content.msgtype);
         assert_eq!(new_image.filename(), "rickroll.gif");
         assert_eq!(new_image.caption(), Some("Best joke ever"));
         assert_let!(Some(mentions) = &repl.new_content.mentions);
-        assert!(mentions.user_ids.contains(&mentioned_user_id));
+        assert_eq!(mentions.user_ids.len(), 2);
     }
 
     #[async_test]
