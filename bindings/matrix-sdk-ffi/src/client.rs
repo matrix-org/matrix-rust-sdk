@@ -2530,6 +2530,18 @@ impl Client {
     }
 }
 
+#[cfg(feature = "unstable-msc4354")]
+#[matrix_sdk_ffi_macros::export]
+impl Client {
+    /// Checks if the server supports sticky events.
+    ///
+    /// This is async and fallible as it may use the network to retrieve the
+    /// server supported features, if they aren't cached already.
+    pub async fn is_sticky_events_supported(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.supports_sticky_events().await?)
+    }
+}
+
 /// The outcome of a [`Client::send_encrypted_to_device_message`] call.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct SendToDeviceOutcome {
