@@ -287,8 +287,6 @@ pub(crate) fn update_media_caption(
     formatted_caption: Option<FormattedBody>,
     mentions: Option<Mentions>,
 ) -> bool {
-    content.mentions = mentions.clone();
-
     if !update_media_msgtype_caption(
         &mut content.msgtype,
         caption.clone(),
@@ -299,7 +297,8 @@ pub(crate) fn update_media_caption(
 
     // A media edit (see `RoomSendQueue::edit_with_attachment`) keeps the canonical
     // copy of the new content inside the replacement relation; update it too,
-    // or the fallback content and the canonical content would disagree.
+    // or the fallback content and the canonical content would disagree. The
+    // top-level mentions are who the edit notifies, so they're left alone.
     if let Some(Relation::Replacement(replacement)) = &mut content.relates_to {
         replacement.new_content.mentions = mentions;
         update_media_msgtype_caption(
@@ -307,6 +306,8 @@ pub(crate) fn update_media_caption(
             caption,
             formatted_caption,
         );
+    } else {
+        content.mentions = mentions;
     }
 
     true
@@ -678,11 +679,11 @@ mod tests {
             Some(Mentions::with_user_ids([mentioned_user_id.clone()]))
         ));
 
-        // Both copies carry the new caption and mentions.
+        // Both copies carry the new caption, but only the canonical one gets the
+        // mentions: the edit itself doesn't notify anybody again.
         assert_let!(MessageType::Image(image) = &content.msgtype);
         assert_eq!(image.caption(), Some("Best joke ever"));
-        assert_let!(Some(mentions) = &content.mentions);
-        assert!(mentions.user_ids.contains(&mentioned_user_id));
+        assert!(content.mentions.is_none());
 
         assert_let!(Some(Relation::Replacement(repl)) = &content.relates_to);
         assert_let!(MessageType::Image(new_image) = &repl.new_content.msgtype);
