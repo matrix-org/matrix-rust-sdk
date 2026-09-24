@@ -242,7 +242,7 @@ fn check_style() -> Result<()> {
 fn check_typos() -> Result<()> {
     let sh = sh();
     // FIXME: Print install instructions if command-not-found (needs an xshell
-    //        change: https://github.com/matklad/xshell/issues/46)
+    // change: https://github.com/matklad/xshell/issues/46)
     cmd!(sh, "typos").run()?;
     Ok(())
 }
