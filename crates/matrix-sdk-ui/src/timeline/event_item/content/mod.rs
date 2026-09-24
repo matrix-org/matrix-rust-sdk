@@ -548,6 +548,15 @@ impl EncryptedMessage {
             EncryptedMessage::Unknown => None,
         }
     }
+
+    /// Return the reason this message could not be decrypted, if it was
+    /// received via a Megolm session.
+    pub fn utd_cause(&self) -> Option<UtdCause> {
+        match self {
+            EncryptedMessage::MegolmV1AesSha2 { cause, .. } => Some(*cause),
+            EncryptedMessage::OlmV1Curve25519AesSha2 { .. } | EncryptedMessage::Unknown => None,
+        }
+    }
 }
 
 /// An `m.sticker` event.
@@ -944,6 +953,7 @@ impl OtherState {
 
 #[cfg(test)]
 mod tests {
+    use matrix_sdk_base::crypto::types::events::UtdCause;
     use matrix_sdk_test::ALICE;
     use ruma::{
         assign,
@@ -957,7 +967,22 @@ mod tests {
     };
     use strass::assert_let;
 
-    use super::{MembershipChange, RoomMembershipChange, TimelineItemContent};
+    use super::{EncryptedMessage, MembershipChange, RoomMembershipChange, TimelineItemContent};
+
+    #[test]
+    fn utd_cause_only_available_for_megolm() {
+        let olm = EncryptedMessage::OlmV1Curve25519AesSha2 { sender_key: "key".to_owned() };
+        assert_eq!(olm.utd_cause(), None);
+        assert_eq!(EncryptedMessage::Unknown.utd_cause(), None);
+
+        let megolm = EncryptedMessage::MegolmV1AesSha2 {
+            sender_key: None,
+            device_id: None,
+            session_id: "session".to_owned(),
+            cause: UtdCause::SentBeforeWeJoined,
+        };
+        assert_eq!(megolm.utd_cause(), Some(UtdCause::SentBeforeWeJoined));
+    }
 
     #[test]
     fn redact_membership_change() {
