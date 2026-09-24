@@ -929,7 +929,7 @@ impl QueueStorage {
 
         trace!("found the caption to edit as a request");
 
-        let QueuedRequestKind::Event { content: serialized_content } = found.kind else {
+        let QueuedRequestKind::Event { content: serialized_content, .. } = found.kind else {
             return Err(InvalidMediaCaptionEdit);
         };
 
@@ -965,13 +965,7 @@ impl QueueStorage {
         }
 
         // The request is not active: edit the local echo.
-        store
-            .update_send_queue_request(
-                &self.room_id,
-                txn,
-                QueuedRequestKind::Event { content: new_serialized },
-            )
-            .await?;
+        store.update_send_queue_request(&self.room_id, txn, new_serialized.into()).await?;
 
         trace!("media event was not being sent, updated local echo");
         Ok(Some(any_content))

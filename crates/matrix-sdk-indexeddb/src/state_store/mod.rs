@@ -554,8 +554,7 @@ fn created_now() -> MilliSecondsSinceUnixEpoch {
 
 impl PersistedQueuedRequest {
     fn into_queued_request(self) -> Option<QueuedRequest> {
-        let kind =
-            self.kind.or_else(|| self.event.map(|content| QueuedRequestKind::Event { content }))?;
+        let kind = self.kind.or_else(|| self.event.map(QueuedRequestKind::from))?;
 
         let error = match self.is_wedged {
             Some(true) => {

@@ -17,6 +17,8 @@
 use std::{collections::BTreeMap, fmt, ops::Deref};
 
 use as_variant::as_variant;
+#[cfg(feature = "unstable-msc4354")]
+use ruma::events::sticky::StickyDurationMs;
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedTransactionId, OwnedUserId,
     TransactionId, UInt,
@@ -88,6 +90,12 @@ pub enum QueuedRequestKind {
     Event {
         /// The content of the message-like event we'd like to send.
         content: SerializableEventContent,
+
+        /// How long the event should be sticky for, if it is to be sent as a
+        /// sticky event.
+        #[cfg(feature = "unstable-msc4354")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sticky_duration: Option<StickyDurationMs>,
     },
 
     /// Content to upload on the media server.
@@ -129,7 +137,11 @@ pub enum QueuedRequestKind {
 
 impl From<SerializableEventContent> for QueuedRequestKind {
     fn from(content: SerializableEventContent) -> Self {
-        Self::Event { content }
+        Self::Event {
+            content,
+            #[cfg(feature = "unstable-msc4354")]
+            sticky_duration: None,
+        }
     }
 }
 
@@ -161,7 +173,7 @@ pub struct QueuedRequest {
 impl QueuedRequest {
     /// Returns `Some` if the queued request is about sending an event.
     pub fn as_event(&self) -> Option<&SerializableEventContent> {
-        as_variant!(&self.kind, QueuedRequestKind::Event { content } => content)
+        as_variant!(&self.kind, QueuedRequestKind::Event { content, .. } => content)
     }
 
     /// True if the request couldn't be sent because of an unrecoverable API
