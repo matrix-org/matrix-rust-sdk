@@ -22,7 +22,7 @@ use matrix_sdk_base::{
     apply_redaction,
     event_cache::{Event, Gap},
     linked_chunk::{LinkedChunkId, OwnedLinkedChunkId, Position, Update},
-    serde_helpers::extract_redaction_target,
+    serde_helpers::{extract_redaction_target, extract_relation},
     sync::Timeline,
     task_monitor::BackgroundTaskHandle,
 };
@@ -426,6 +426,40 @@ impl PinnedEventsCacheState {
             .filter_map(|(_position, event)| event.event_id().map(ToOwned::to_owned))
             .collect()
     }
+
+    /// Returns whether this contains exactly the given pinned events,
+    /// along with the events related to them (reactions, edits, redactions, etc).
+    ///
+    /// Related events are ignored here when comparing the pinned event IDs
+    /// to all of the [`Self::current_event_ids`], as that would cause differences
+    /// if one pinned event has a related event, and then reload them all over again.
+    fn has_exactly_pinned_events(&self, pinned_event_ids: &[OwnedEventId]) -> bool {
+        let pinned_event_ids: BTreeSet<&EventId> = pinned_event_ids
+            .iter()
+            .map(|event_id| &**event_id)
+            .collect();
+        let event_ids: BTreeSet<&EventId> = self.chunk
+            .events()
+            .filter_map(|(_position, event)| event.event_id())
+            .collect();
+
+        if !pinned_event_ids.is_subset(&event_ids) {
+            return false;
+        }
+
+        // Every other event must relate to an event in this linked chunk,
+        // just like `aggregate_timeline_for_pinned_events` does for a sync.
+        // If not, then that event isn't pinned anymore.
+        self.chunk.events().all(|(_position, event)| {
+            event.event_id().is_some_and(|event_id|
+                pinned_event_ids.contains(event_id))
+                || extract_relation(event.raw()).is_some_and(|(relation_type, related_event_id)| {
+                    relation_type != RelationType::Thread && event_ids.contains(&*related_event_id)
+                })
+                || extract_redaction_target(event.raw(), &self.room_version_rules.redaction)
+                    .is_some_and(|redacted_event_id| event_ids.contains(&*redacted_event_id))
+        })
+    }
 }
 
 /// All the information related to room's pinned events..
@@ -593,13 +627,10 @@ impl PinnedEventsCache {
 
                 // Compare the initial list of pinned events to the one in the
                 // linked chunk.
-                let actual_pinned_events = room.pinned_event_ids().unwrap_or_default();
-                let reloaded_set =
-                    guard.state.current_event_ids().into_iter().collect::<BTreeSet<_>>();
+                let actual_pinned_events =
+                    pinned_event_ids_to_load(&room, room.pinned_event_ids().unwrap_or_default());
 
-                if actual_pinned_events.len() != reloaded_set.len()
-                    || actual_pinned_events.iter().any(|event_id| !reloaded_set.contains(event_id))
-                {
+                if !guard.state.has_exactly_pinned_events(&actual_pinned_events) {
                     // Reload the list of pinned events from network.
                     drop(guard);
                     reload_from_network(room.clone()).await;
@@ -622,6 +653,13 @@ impl PinnedEventsCache {
         while let Some(new_list) = stream.next().await {
             trace!("handling update");
 
+            let Some(room) = weak_room.get() else {
+                debug!("room has been dropped, ending pinned events listener task");
+                break;
+            };
+
+            let new_list = pinned_event_ids_to_load(&room, new_list);
+
             let guard = match inner.state.read().await {
                 Ok(guard) => guard,
                 Err(err) => {
@@ -631,20 +669,10 @@ impl PinnedEventsCache {
             };
 
             // Compare to the current linked chunk.
-            let current_set = guard.state.current_event_ids().into_iter().collect::<BTreeSet<_>>();
-
-            if !new_list.is_empty()
-                && new_list.len() == current_set.len()
-                && new_list.iter().all(|event_id| current_set.contains(event_id))
-            {
+            if guard.state.has_exactly_pinned_events(&new_list) {
                 // All the events in the pinned list are the same, don't reload.
                 continue;
             }
-
-            let Some(room) = weak_room.get() else {
-                debug!("room has been dropped, ending pinned events listener task");
-                break;
-            };
 
             drop(guard);
 
@@ -664,20 +692,15 @@ impl PinnedEventsCache {
     /// previous time we loaded them. May return an error if there was an issue
     /// fetching the full events.
     async fn reload_pinned_events(room: Room) -> Result<Option<Vec<Event>>> {
-        let (max_events_to_load, max_concurrent_requests) = {
-            let client = room.client();
-            let config = client.event_cache().config();
-            (config.max_pinned_events_to_load, config.max_pinned_events_concurrent_requests)
-        };
+        let max_concurrent_requests = room.client()
+            .event_cache()
+            .config()
+            .max_pinned_events_concurrent_requests;
 
-        let pinned_event_ids: Vec<OwnedEventId> = room
-            .pinned_event_ids()
-            .unwrap_or_default()
-            .into_iter()
-            .rev()
-            .take(max_events_to_load)
-            .rev()
-            .collect();
+        let pinned_event_ids = pinned_event_ids_to_load(
+            &room,
+            room.pinned_event_ids().unwrap_or_default(),
+        );
 
         if pinned_event_ids.is_empty() {
             return Ok(Some(Vec::new()));
@@ -747,6 +770,16 @@ impl fmt::Debug for PinnedEventsCache {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PinnedEventsCache").finish_non_exhaustive()
     }
+}
+
+/// Returns the IDs of the pinned events that this cache loads
+/// from the given list of all the room's pinned events.
+///
+/// This'll include only the most recently pinned ones, up to the limit of
+/// the chosen `max_pinned_events_to_load` cfg value.
+fn pinned_event_ids_to_load(room: &Room, pinned_event_ids: Vec<OwnedEventId>) -> Vec<OwnedEventId> {
+    let max_events_to_load = room.client().event_cache().config().max_pinned_events_to_load;
+    pinned_event_ids.into_iter().rev().take(max_events_to_load).rev().collect()
 }
 
 fn compare_pinned_items(a: &Event, b: &Event) -> Ordering {
