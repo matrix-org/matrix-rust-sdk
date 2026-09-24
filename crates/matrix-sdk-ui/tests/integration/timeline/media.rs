@@ -994,15 +994,20 @@ async fn test_edit_text_message_with_attachment() -> TestResult {
     mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/new-media")).mock_once().mount().await;
     mock.mock_room_send().ok(event_id!("$edit")).mock_once().mount().await;
 
-    // Add an image to it, keeping the text as the caption.
-    room.send_queue()
+    // Add an image to it, keeping the text as the caption; this time through the
+    // timeline.
+    timeline
         .edit_with_attachment(
             event_id!("$text"),
-            "surprise.jpeg",
+            AttachmentSource::Data {
+                bytes: b"hello world".to_vec(),
+                filename: "surprise.jpeg".to_owned(),
+            },
             mime::IMAGE_JPEG,
-            b"hello world".to_vec(),
-            matrix_sdk::attachment::AttachmentConfig::new()
-                .caption(Some(TextMessageEventContent::plain("look at this"))),
+            AttachmentConfig {
+                caption: Some(TextMessageEventContent::plain("look at this")),
+                ..Default::default()
+            },
         )
         .await?;
 
