@@ -15,7 +15,11 @@
 use std::sync::Arc;
 
 use eyeball_im::VectorDiff;
-use matrix_sdk::{deserialized_responses::TimelineEvent, send_queue::SendHandle};
+use matrix_sdk::{
+    deserialized_responses::{ThreadSummary, TimelineEvent},
+    event_cache::EventCache,
+    send_queue::SendHandle,
+};
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     events::{AnyMessageLikeEventContent, receipt::ReceiptEventContent},
@@ -49,7 +53,9 @@ pub(in crate::timeline) struct TimelineState<P: RoomDataProvider> {
 }
 
 impl<P: RoomDataProvider> TimelineState<P> {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
+        event_cache: EventCache,
         focus: Arc<TimelineFocusKind>,
         own_user_id: OwnedUserId,
         room_version_rules: RoomVersionRules,
@@ -61,6 +67,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
         Self {
             items: ObservableItems::new(),
             meta: TimelineMetadata::new(
+                event_cache,
                 own_user_id,
                 room_version_rules,
                 internal_id_prefix,
@@ -104,6 +111,19 @@ impl<P: RoomDataProvider> TimelineState<P> {
 
         let mut transaction = self.transaction();
         transaction.handle_remote_aggregations(diffs, origin, room_data, settings).await;
+        transaction.commit();
+    }
+
+    /// Handle an update of the thread summary of a single event that is a
+    /// thread root.
+    pub(super) async fn handle_thread_summary(
+        &mut self,
+        thread_root: OwnedEventId,
+        thread_summary: Option<ThreadSummary>,
+        room_data: &P,
+    ) {
+        let mut transaction = self.transaction();
+        transaction.handle_thread_summary(thread_root, thread_summary, room_data).await;
         transaction.commit();
     }
 
@@ -157,8 +177,8 @@ impl<P: RoomDataProvider> TimelineState<P> {
             TimelineFocusKind::Live { hide_threaded_events, .. } => {
                 thread_root.is_none() || !hide_threaded_events
             }
-            TimelineFocusKind::Thread { root_event_id, .. } => {
-                thread_root.as_ref().is_some_and(|r| r == root_event_id)
+            TimelineFocusKind::Thread { thread_id, .. } => {
+                thread_root.as_ref().is_some_and(|r| r == thread_id)
             }
             TimelineFocusKind::Event { .. } | TimelineFocusKind::PinnedEvents { .. } => {
                 // Don't add new items to these timelines; aggregations are

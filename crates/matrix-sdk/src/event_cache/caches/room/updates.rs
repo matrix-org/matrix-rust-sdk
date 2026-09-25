@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_base::{
-    deserialized_responses::AmbiguityChange,
+    deserialized_responses::{AmbiguityChange, ThreadSummary},
     event_cache::{Event, Gap},
     linked_chunk::{self, OwnedLinkedChunkId},
 };
@@ -49,6 +49,18 @@ pub enum RoomEventCacheUpdate {
 
     /// The room has received updates for the timeline as _diffs_.
     UpdateTimelineEvents(TimelineVectorDiffs),
+
+    /// An event, which is a thread root, has received an update for its thread
+    /// summary.
+    UpdateThreadSummary {
+        /// The event ID of the thread root.
+        ///
+        /// Also called _thread ID_.
+        thread_root: OwnedEventId,
+
+        /// The updated thread summary.
+        thread_summary: Option<ThreadSummary>,
+    },
 
     /// The room has received a new read receipt event.
     AddReadReceiptEvent {

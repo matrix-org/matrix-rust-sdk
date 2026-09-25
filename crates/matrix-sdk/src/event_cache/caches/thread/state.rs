@@ -136,7 +136,10 @@ impl ThreadEventCacheState {
         //
         // It will register the thread in the list of threads. It does nothing
         // regarding events or linked chunks.
-        let thread_info = store_guard.load_thread_info(&room_id, &thread_id).await?;
+        let thread_info = store_guard
+            .load_thread_info(&room_id, &thread_id, true)
+            .await?
+            .expect("The default `ThreadInfo` has been created, it cannot be `None`");
 
         // Load the full linked chunk's metadata, so as to feed the order
         // tracker.
@@ -300,89 +303,6 @@ impl<'a> StateLockReadGuard<'a, ThreadEventCacheState> {
         &self.state.subscribers_handle
     }
 
-    /// Compute and return the [`ThreadSummary`] for this thread.
-    pub async fn compute_thread_summary(&self) -> Result<Option<ThreadSummary>> {
-        // Find the latest event ID.
-        let latest_event_id = {
-            // Find the last non-edit, non-redaction, non-redacted event.
-            //
-            // TODO(@hywan): This is inefficient. We are bending the
-            // `LatestEvent` API here. Ultimately, we want to delegate the
-            // computation of `ThreadSummary` to `LatestEvent` instead of
-            // committing crimes like these ones.
-            let mut latest_event_id = self
-                .thread_linked_chunk()
-                .revents()
-                .find(|(_position, event)| {
-                    crate::latest_events::filter_timeline_event(
-                        event,
-                        None,
-                        &self.state.own_user_id,
-                        None,
-                    )
-                    .is_break()
-                })
-                .and_then(|(_position, event)| event.event_id().map(ToOwned::to_owned));
-
-            // If there's an edit to the latest event in the thread, use the
-            // latest edit event ID as the latest event ID for the thread
-            // summary.
-            //
-            // TODO(@hywan): This is one of the inefficiency I am talking about
-            // above.
-            if let Some(event_id) = &latest_event_id
-                && let Some((original_event, edits)) = self
-                    .find_event_with_relations(event_id, Some(vec![RelationType::Replacement]))
-                    .await?
-            {
-                let latest_valid_edit = edits.into_iter().rfind(|edit| {
-                    let original_json = original_event.raw();
-                    let original_encryption_info = original_event.encryption_info();
-                    let replacement_json = edit.raw();
-                    let replacement_encryption_info = edit.encryption_info();
-
-                    check_validity_of_replacement_events(
-                        original_json,
-                        original_encryption_info.map(|v| &**v),
-                        replacement_json,
-                        replacement_encryption_info.map(|v| &**v),
-                    )
-                    .is_ok()
-                });
-
-                if let Some(latest_valid_edit) = latest_valid_edit {
-                    latest_event_id = latest_valid_edit.event_id().map(ToOwned::to_owned);
-                }
-            }
-
-            latest_event_id
-        };
-
-        // Compute the thread summary.
-
-        // Read the latest number of thread replies from the store.
-        //
-        // Implementation note: since this is based on the `m.relates_to` field,
-        // and that field can only be present on room messages, we don't have to
-        // worry about filtering out aggregation events (like
-        // reactions/edits/etc.). Pretty neat, huh?
-        let num_replies = {
-            let thread_replies = self
-                .store
-                .find_event_relations(&self.room_id, &self.thread_id, Some(&[RelationType::Thread]))
-                .await?;
-            thread_replies.len().try_into().unwrap_or(u32::MAX)
-        };
-
-        let summary = if num_replies > 0 {
-            Some(ThreadSummary { num_replies, latest_reply: latest_event_id })
-        } else {
-            None
-        };
-
-        Ok(summary)
-    }
-
     /// See documentation of [`find_event`].
     pub(in super::super) async fn find_event(
         &self,
@@ -438,7 +358,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     pub async fn reload(
         &mut self,
         preprocessing: ReloadPreprocessing,
-    ) -> Result<Vec<VectorDiff<Event>>> {
+    ) -> Result<(Vec<VectorDiff<Event>>, Option<ThreadSummary>)> {
         match preprocessing {
             ReloadPreprocessing::ForgetAll => {
                 // Clear the `LinkedChunk` and broadcast the updates to the
@@ -459,7 +379,9 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
 
         self.state.shrink_to_last_reloaded_chunk(&self.store).await?;
 
-        Ok(self.thread_linked_chunk_mut().updates_as_vector_diffs())
+        let thread_summary = self.update_thread_summary().await?;
+
+        Ok((self.thread_linked_chunk_mut().updates_as_vector_diffs(), thread_summary))
     }
 
     #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
@@ -590,29 +512,129 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         .await;
 
         if prev_read_receipts != read_receipts {
-            // The read receipt has changed! Do a little dance to update the
-            // `ThreadInfo` in the store.
-            let mut thread_info = self.state.thread_info.write().await;
-
-            ObservableWriteGuard::update(&mut thread_info, |thread_info| {
-                thread_info.read_receipts = read_receipts;
-            });
-
-            let room_id = &self.state.room_id;
-            let thread_id = &self.state.thread_id;
-
-            if let Err(error) =
-                self.store.update_thread_info(room_id, thread_id, &thread_info).await
+            // The read receipt has changed!
+            if let Err(error) = self
+                .update_thread_info(|thread_info| {
+                    thread_info.read_receipts = read_receipts;
+                })
+                .await
             {
-                error!(?room_id, ?thread_id, ?error, "Failed to update the `ThreadInfo`");
+                error!(?self.state.room_id, ?self.state.thread_id, ?error, "Failed to update the `ThreadInfo`");
             }
         }
 
         Ok(())
     }
 
-    /// If the given event is a redaction, try to retrieve the to-be-redacted
-    /// event in the chunk, and replace it by the redacted form.
+    /// Update the [`ThreadSummary`] for this thread, and return a copy of it.
+    pub(super) async fn update_thread_summary(&mut self) -> Result<Option<ThreadSummary>> {
+        // Find the latest event ID.
+        let latest_event_id = {
+            // Find the last non-edit, non-redaction, non-redacted event.
+            //
+            // TODO(@hywan): This is inefficient. We are bending the
+            // `LatestEvent` API here. Ultimately, we want to delegate the
+            // computation of `ThreadSummary` to `LatestEvent` instead of
+            // committing crimes like these ones.
+            let mut latest_event_id = self
+                .thread_linked_chunk()
+                .revents()
+                .find(|(_position, event)| {
+                    crate::latest_events::filter_timeline_event(
+                        event,
+                        None,
+                        &self.state.own_user_id,
+                        None,
+                    )
+                    .is_break()
+                })
+                .and_then(|(_position, event)| event.event_id().map(ToOwned::to_owned));
+
+            // If there's an edit to the latest event in the thread, use the
+            // latest edit event ID as the latest event ID for the thread
+            // summary.
+            //
+            // TODO(@hywan): This is one of the inefficiency I am talking about
+            // above.
+            if let Some(event_id) = &latest_event_id
+                && let Some((original_event, edits)) = self
+                    .find_event_with_relations(event_id, Some(vec![RelationType::Replacement]))
+                    .await?
+            {
+                let latest_valid_edit = edits.into_iter().rfind(|edit| {
+                    let original_json = original_event.raw();
+                    let original_encryption_info = original_event.encryption_info();
+                    let replacement_json = edit.raw();
+                    let replacement_encryption_info = edit.encryption_info();
+
+                    check_validity_of_replacement_events(
+                        original_json,
+                        original_encryption_info.map(|v| &**v),
+                        replacement_json,
+                        replacement_encryption_info.map(|v| &**v),
+                    )
+                    .is_ok()
+                });
+
+                if let Some(latest_valid_edit) = latest_valid_edit {
+                    latest_event_id = latest_valid_edit.event_id().map(ToOwned::to_owned);
+                }
+            }
+
+            latest_event_id
+        };
+
+        // Compute and update the thread summary.
+
+        // Read the latest number of thread replies from the store.
+        //
+        // Implementation note: since this is based on the `m.relates_to`
+        // field, and that field can only be present on room messages, we
+        // don't have to worry about filtering out aggregation events (like
+        // reactions/edits/etc.). Pretty neat, huh?
+        let num_replies = self
+            .store
+            .find_event_relations(&self.room_id, &self.thread_id, Some(&[RelationType::Thread]))
+            .await?
+            .len();
+
+        let thread_summary = if num_replies > 0 {
+            let thread_summary = ThreadSummary::new(latest_event_id, num_replies);
+
+            self.update_thread_info(|thread_info| {
+                thread_info.latest_event = thread_summary.latest_reply.clone();
+                thread_info.number_of_replies = thread_summary.num_replies;
+            })
+            .await?;
+
+            Some(thread_summary)
+        } else {
+            None
+        };
+
+        Ok(thread_summary)
+    }
+
+    /// Update the [`ThreadInfo`].
+    ///
+    /// No updates is emitted.
+    async fn update_thread_info<F>(&mut self, update: F) -> Result<()>
+    where
+        F: FnOnce(&mut ThreadInfo),
+    {
+        let mut thread_info = self.state.thread_info.write().await;
+
+        ObservableWriteGuard::update(&mut thread_info, update);
+
+        Ok(self
+            .store
+            .update_thread_info(&self.state.room_id, &self.state.thread_id, &thread_info)
+            .await?)
+    }
+
+    /// If the given event is a redaction, try to retrieve the
+    /// to-be-redacted event in the chunk, and replace it by the
+    /// redacted form.
     #[instrument(skip_all)]
     async fn maybe_apply_new_redaction(&mut self, event: &Event) -> Result<()> {
         let Some(event_id) =
@@ -660,6 +682,22 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         event_id: &EventId,
     ) -> Result<Option<(EventLocation, Event)>> {
         find_event(event_id, &self.room_id, &self.thread_linked_chunk, &self.store).await
+    }
+
+    /// See documentation of [`find_event_with_relations`].
+    pub async fn find_event_with_relations(
+        &self,
+        event_id: &EventId,
+        filters: Option<Vec<RelationType>>,
+    ) -> Result<Option<(Event, Vec<Event>)>> {
+        find_event_with_relations(
+            event_id,
+            &self.room_id,
+            filters,
+            &self.thread_linked_chunk,
+            &self.store,
+        )
+        .await
     }
 
     /// Replaces a single event, be it saved in memory or in the store.

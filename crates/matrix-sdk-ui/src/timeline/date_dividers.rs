@@ -659,6 +659,8 @@ enum DateDividerInsertError {
 
 #[cfg(test)]
 mod tests {
+    use matrix_sdk::{Client, test_utils::mocks::MatrixMockServer};
+    use matrix_sdk_test::async_test;
     use ruma::{
         MilliSecondsSinceUnixEpoch, owned_event_id, owned_user_id,
         room_version_rules::RoomVersionRules, uint,
@@ -698,16 +700,26 @@ mod tests {
         )
     }
 
-    fn test_metadata() -> TimelineMetadata {
-        TimelineMetadata::new(owned_user_id!("@a:b.c"), RoomVersionRules::V11, None, None, false)
+    fn test_metadata(client: &Client) -> TimelineMetadata {
+        TimelineMetadata::new(
+            client.event_cache().clone(),
+            owned_user_id!("@a:b.c"),
+            RoomVersionRules::V11,
+            None,
+            None,
+            false,
+        )
     }
 
-    #[test]
-    fn test_no_trailing_date_divider() {
+    #[async_test]
+    async fn test_no_trailing_date_divider() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
         let mut items = ObservableItems::new();
         let mut txn = items.transaction();
 
-        let mut meta = test_metadata();
+        let mut meta = test_metadata(&client);
 
         let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
         let timestamp_next_day =
@@ -739,12 +751,15 @@ mod tests {
         assert!(iter.next().is_none());
     }
 
-    #[test]
-    fn test_read_marker_in_between_event_and_date_divider() {
+    #[async_test]
+    async fn test_read_marker_in_between_event_and_date_divider() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
         let mut items = ObservableItems::new();
         let mut txn = items.transaction();
 
-        let mut meta = test_metadata();
+        let mut meta = test_metadata(&client);
 
         let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
         let timestamp_next_day =
@@ -774,12 +789,15 @@ mod tests {
         assert!(iter.next().is_none());
     }
 
-    #[test]
-    fn test_read_marker_in_between_date_dividers() {
+    #[async_test]
+    async fn test_read_marker_in_between_date_dividers() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
         let mut items = ObservableItems::new();
         let mut txn = items.transaction();
 
-        let mut meta = test_metadata();
+        let mut meta = test_metadata(&client);
 
         let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
         let timestamp_next_day =
@@ -808,12 +826,15 @@ mod tests {
         assert!(iter.next().is_none());
     }
 
-    #[test]
-    fn test_remove_all_date_dividers() {
+    #[async_test]
+    async fn test_remove_all_date_dividers() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
         let mut items = ObservableItems::new();
         let mut txn = items.transaction();
 
-        let mut meta = test_metadata();
+        let mut meta = test_metadata(&client);
 
         let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
         let timestamp_next_day =
@@ -838,12 +859,15 @@ mod tests {
         assert!(iter.next().is_none());
     }
 
-    #[test]
-    fn test_event_read_marker_spurious_date_divider() {
+    #[async_test]
+    async fn test_event_read_marker_spurious_date_divider() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
         let mut items = ObservableItems::new();
         let mut txn = items.transaction();
 
-        let mut meta = test_metadata();
+        let mut meta = test_metadata(&client);
 
         let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
 
@@ -864,12 +888,15 @@ mod tests {
         assert!(iter.next().is_none());
     }
 
-    #[test]
-    fn test_multiple_trailing_date_dividers() {
+    #[async_test]
+    async fn test_multiple_trailing_date_dividers() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
         let mut items = ObservableItems::new();
         let mut txn = items.transaction();
 
-        let mut meta = test_metadata();
+        let mut meta = test_metadata(&client);
 
         let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
 
@@ -888,12 +915,15 @@ mod tests {
         assert!(iter.next().is_none());
     }
 
-    #[test]
-    fn test_start_with_read_marker() {
+    #[async_test]
+    async fn test_start_with_read_marker() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
         let mut items = ObservableItems::new();
         let mut txn = items.transaction();
 
-        let mut meta = test_metadata();
+        let mut meta = test_metadata(&client);
         let timestamp = MilliSecondsSinceUnixEpoch(uint!(42));
 
         txn.push_back(meta.new_timeline_item(VirtualTimelineItem::ReadMarker), None);
@@ -912,12 +942,15 @@ mod tests {
         assert!(iter.next().is_none());
     }
 
-    #[test]
-    fn test_daily_divider_mode() {
+    #[async_test]
+    async fn test_daily_divider_mode() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
         let mut items = ObservableItems::new();
         let mut txn = items.transaction();
 
-        let mut meta = test_metadata();
+        let mut meta = test_metadata(&client);
 
         txn.push_back(
             meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(0)))),
@@ -948,12 +981,15 @@ mod tests {
         assert!(iter.next().is_none());
     }
 
-    #[test]
-    fn test_monthly_divider_mode() {
+    #[async_test]
+    async fn test_monthly_divider_mode() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
         let mut items = ObservableItems::new();
         let mut txn = items.transaction();
 
-        let mut meta = test_metadata();
+        let mut meta = test_metadata(&client);
 
         txn.push_back(
             // Start one day later than the origin, to make this test pass on

@@ -22,6 +22,7 @@ use std::{fmt, sync::Arc};
 
 use eyeball::AsyncLock;
 use matrix_sdk_base::{
+    deserialized_responses::ThreadSummary,
     event_cache::{Event, thread::ThreadInfo},
     read_receipts::ReadReceipts,
     sync::Timeline,
@@ -294,6 +295,19 @@ impl ThreadEventCache {
         }
 
         Ok(())
+    }
+
+    /// Update the [`ThreadSummary`] for this thread, and return a copy of it.
+    pub(in super::super) async fn update_thread_summary(&self) -> Result<Option<ThreadSummary>> {
+        let mut state = self.inner.state.write().await?;
+
+        let maybe_thread_summary = state.update_thread_summary().await?;
+
+        state
+            .update_sender
+            .send(ThreadEventCacheUpdate::UpdateSummary(maybe_thread_summary.clone()), None);
+
+        Ok(maybe_thread_summary)
     }
 
     /// Find a single event in this thread.
@@ -1223,6 +1237,13 @@ mod timed_tests {
                         );
                     }
                 );
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    ThreadEventCacheUpdate::UpdateSummary(Some(summary)) => {
+                        assert_eq!(summary.latest_reply.as_deref(), Some(thread_event_id_1));
+                        assert_eq!(summary.num_replies, 2);
+                    }
+                );
 
                 // Load one more event with a backpagination.
                 thread_event_cache.pagination().run_backwards_once(1).await.unwrap();
@@ -1241,6 +1262,8 @@ mod timed_tests {
                         );
                     }
                 );
+
+                assert!(updates_stream.is_empty());
             }
 
             // Fourth, because `thread_event_cache_p0` has locked the store
@@ -1272,6 +1295,13 @@ mod timed_tests {
                                 assert_eq!(events[0].event_id(), Some(thread_event_id_1));
                             }
                         );
+                    }
+                );
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    ThreadEventCacheUpdate::UpdateSummary(Some(summary)) => {
+                        assert_eq!(summary.latest_reply.as_deref(), Some(thread_event_id_1));
+                        assert_eq!(summary.num_replies, 2);
                     }
                 );
 

@@ -36,8 +36,11 @@ use std::{
 };
 
 use matrix_sdk_base::{
-    cross_process_lock::CrossProcessLockError,
-    event_cache::store::{EventCacheStoreError, EventCacheStoreLock},
+    cross_process_lock::{CrossProcessLockError, MappedCrossProcessLockState},
+    event_cache::{
+        store::{EventCacheStoreError, EventCacheStoreLock},
+        thread::ThreadInfo,
+    },
     linked_chunk::lazy_loader::LazyLoaderError,
     sync::RoomUpdates,
     task_monitor::BackgroundTaskHandle,
@@ -472,6 +475,27 @@ impl EventCache {
                 .clone(),
             drop_handles,
         ))
+    }
+
+    /// Get the [`ThreadInfo`] of a thread, if any.
+    pub async fn thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<Option<ThreadInfo>> {
+        let Some(client) = self.inner.client.get() else {
+            return Ok(None);
+        };
+
+        // We can go directly on the store. I don't think we need to go throw the
+        // `State`, as the data cannot be outdated/dirty: the store is the source of
+        // truth.
+        let store = match client.event_cache_store().lock().await? {
+            MappedCrossProcessLockState::Clean(store)
+            | MappedCrossProcessLockState::Dirty(store) => store,
+        };
+
+        Ok(store.load_thread_info(room_id, thread_id, false).await?)
     }
 
     /// Forget all caches related to a single room.

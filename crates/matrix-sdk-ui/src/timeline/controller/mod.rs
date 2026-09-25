@@ -26,7 +26,7 @@ use futures_core::Stream;
 use futures_util::future::try_join_all;
 use imbl::{HashSet, Vector};
 use matrix_sdk::{
-    deserialized_responses::TimelineEvent,
+    deserialized_responses::{ThreadSummary, TimelineEvent},
     event_cache::{
         DecryptionRetryRequest, EventCache, EventFocusedCache, PaginationStatus, PinnedEventsCache,
         RoomEventCache, Subscriber as EventCacheSubscriber, ThreadEventCache,
@@ -36,7 +36,7 @@ use matrix_sdk::{
     task_monitor::BackgroundTaskHandle,
 };
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
     TransactionId, UserId,
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     events::{
@@ -152,7 +152,7 @@ pub(in crate::timeline) enum TimelineFocusKind {
     /// A live timeline for a thread.
     Thread {
         /// The root event for the current thread.
-        root_event_id: OwnedEventId,
+        thread_id: OwnedEventId,
 
         /// The cache holding all the events for this focus.
         event_cache: ThreadEventCache,
@@ -165,6 +165,15 @@ pub(in crate::timeline) enum TimelineFocusKind {
 }
 
 impl TimelineFocusKind {
+    /// Get the room ID of this timeline.
+    pub(super) fn room_id(&self) -> &RoomId {
+        match self {
+            TimelineFocusKind::Live { event_cache, .. } => event_cache.room_id(),
+            TimelineFocusKind::Thread { event_cache, .. } => event_cache.room_id(),
+            TimelineFocusKind::Event { event_cache, .. } => event_cache.room_id(),
+            TimelineFocusKind::PinnedEvents { event_cache } => event_cache.room_id(),
+        }
+    }
     /// Returns the [`ReceiptThread`] that should be used for the current
     /// timeline focus.
     ///
@@ -201,12 +210,13 @@ impl TimelineFocusKind {
         self.thread_root().is_some()
     }
 
-    /// If the focus is a thread, returns its root event ID.
+    /// If the focus is a thread or event-focused, returns its thread root event
+    /// ID if any.
     fn thread_root(&self) -> Option<&EventId> {
         match self {
             TimelineFocusKind::Event { thread_root, .. } => thread_root.get().map(|v| &**v),
             TimelineFocusKind::Live { .. } | TimelineFocusKind::PinnedEvents { .. } => None,
-            TimelineFocusKind::Thread { root_event_id, .. } => Some(root_event_id),
+            TimelineFocusKind::Thread { thread_id, .. } => Some(thread_id),
         }
     }
 }
@@ -425,15 +435,15 @@ impl<P: RoomDataProvider> TimelineController<P> {
                         .await?
                         .0,
                     focused_event_id: target.clone(),
-                    // This will be initialized in `Self::init_focus`.
+                    // This will be initialised in `Self::init_focus`.
                     thread_root: OnceLock::new(),
                     thread_mode: *thread_mode,
                 }
             }
 
-            TimelineFocus::Thread { root_event_id, .. } => TimelineFocusKind::Thread {
-                event_cache: event_cache.thread(room_id, root_event_id).await?.0,
-                root_event_id: root_event_id.clone(),
+            TimelineFocus::Thread { thread_id, .. } => TimelineFocusKind::Thread {
+                event_cache: event_cache.thread(room_id, thread_id).await?.0,
+                thread_id: thread_id.clone(),
             },
 
             TimelineFocus::PinnedEvents => TimelineFocusKind::PinnedEvents {
@@ -443,6 +453,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
         let focus = Arc::new(focus);
         let state = Arc::new(RwLock::new(TimelineState::new(
+            event_cache.clone(),
             focus.clone(),
             room_data_provider.own_user_id().to_owned(),
             room_data_provider.room_version_rules(),
@@ -768,6 +779,17 @@ impl<P: RoomDataProvider> TimelineController<P> {
         state
             .handle_remote_aggregations(diffs, origin, &self.room_data_provider, &self.settings)
             .await
+    }
+
+    /// Handle an update of the thread summary of a single event that is a
+    /// thread root.
+    pub(super) async fn handle_thread_summary(
+        &self,
+        thread_root: OwnedEventId,
+        thread_summary: Option<ThreadSummary>,
+    ) {
+        let mut state = self.state.write().await;
+        state.handle_thread_summary(thread_root, thread_summary, &self.room_data_provider).await
     }
 
     pub(super) async fn clear(&self) {

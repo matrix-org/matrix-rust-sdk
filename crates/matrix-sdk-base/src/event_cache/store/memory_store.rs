@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
     sync::{Arc, RwLock as StdRwLock},
 };
 
@@ -198,15 +198,23 @@ impl EventCacheStore for MemoryStore {
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
-    ) -> Result<ThreadInfo, Self::Error> {
+        insert_default_if_missing: bool,
+    ) -> Result<Option<ThreadInfo>, Self::Error> {
         let mut inner = self.inner.write().unwrap();
         let threads = &mut inner.threads;
 
         let key = (room_id.to_owned(), thread_id.to_owned());
+        let thread_info_entry = threads.entry(key);
 
-        let thread_info = threads.entry(key).or_default();
+        Ok(match thread_info_entry {
+            Entry::Occupied(entry) => Some(entry.get().clone()),
 
-        Ok(thread_info.clone())
+            Entry::Vacant(entry) if insert_default_if_missing => {
+                Some(entry.insert_entry(ThreadInfo::default()).get().clone())
+            }
+
+            Entry::Vacant(_) => None,
+        })
     }
 
     async fn update_thread_info(

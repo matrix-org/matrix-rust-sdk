@@ -17,7 +17,7 @@ use std::collections::{HashMap, HashSet};
 use eyeball_im::VectorDiff;
 use itertools::Itertools as _;
 use matrix_sdk::deserialized_responses::{
-    ThreadSummaryStatus, TimelineEvent, TimelineEventKind, UnsignedEventLocation,
+    ThreadSummary as SdkThreadSummary, TimelineEvent, TimelineEventKind, UnsignedEventLocation,
 };
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
@@ -27,10 +27,11 @@ use tracing::{debug, instrument, trace, warn};
 
 use super::{
     super::{
+        TimelineItem,
         controller::ObservableItemsTransactionEntry,
         date_dividers::DateDividerAdjuster,
         event_handler::{Flow, TimelineEventContext, TimelineEventHandler, TimelineItemPosition},
-        event_item::RemoteEventOrigin,
+        event_item::{RemoteEventOrigin, TimelineItemContent},
         traits::RoomDataProvider,
     },
     ObservableItems, ObservableItemsTransaction, TimelineMetadata, TimelineReadReceiptTracking,
@@ -437,6 +438,75 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         self.check_invariants();
     }
 
+    /// Handle an update of the thread summary of a single event that is a
+    /// thread root.
+    pub(super) async fn handle_thread_summary(
+        &mut self,
+        thread_root: OwnedEventId,
+        thread_summary: Option<SdkThreadSummary>,
+        room_data_provider: &P,
+    ) {
+        // First off, let's compute the timeline-flavoured thread summary.
+        let thread_summary =
+            if let Some(SdkThreadSummary { latest_reply, num_replies }) = thread_summary {
+                let latest_reply = if let Some(latest_reply) = latest_reply {
+                    self.fetch_latest_thread_reply(&latest_reply, room_data_provider).await
+                } else {
+                    None
+                };
+
+                Some(ThreadSummary {
+                    latest_event: TimelineDetails::from_initial_value(latest_reply),
+                    num_replies,
+                })
+            } else {
+                None
+            };
+
+        // Next, find the timeline item representing the thread root.
+        let Some((timeline_item_index, event_timeline_item, timeline_item_internal_id)) = self
+            .items
+            // Iterate the remotes and locals timeline items. We don't care
+            // about other regions.
+            .iter_remotes_and_locals_regions()
+            // It's likely the thread root is “recent” 🤞.
+            .rev()
+            // Find the timeline item that is the thread root.
+            .find_map(|(timeline_item_index, timeline_item)| {
+                let event_timeline_item = timeline_item.as_event()?;
+
+                (event_timeline_item.event_id() == Some(&thread_root)).then_some((
+                    timeline_item_index,
+                    event_timeline_item,
+                    &timeline_item.internal_id,
+                ))
+            })
+        else {
+            trace!(
+                "Received a thread summary update, but the thread root is not present in memory"
+            );
+            return;
+        };
+
+        let TimelineItemContent::MsgLike(timeline_item_content) = event_timeline_item.content()
+        else {
+            trace!("The thread root is not of kind `MsgLike`");
+            return;
+        };
+
+        // Next, update the timeline item representing the thread root.
+        let mut timeline_item_content = timeline_item_content.clone();
+        timeline_item_content.thread_summary = thread_summary;
+
+        let new_timeline_item = TimelineItem::new(
+            event_timeline_item.with_content(TimelineItemContent::MsgLike(timeline_item_content)),
+            timeline_item_internal_id.clone(),
+        );
+
+        // Finally, we can update the timeline item!
+        self.items.replace(timeline_item_index, new_timeline_item);
+    }
+
     fn check_invariants(&self) {
         self.check_no_duplicate_read_receipts();
         self.check_no_unused_unique_ids();
@@ -553,11 +623,11 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 thread_root.is_none() || !hide_threaded_events
             }
 
-            TimelineFocusKind::Thread { root_event_id, .. } => {
+            TimelineFocusKind::Thread { thread_id, .. } => {
                 // Add new items only for the thread root and the thread
                 // replies.
-                event.event_id() == root_event_id
-                    || thread_root.as_ref().is_some_and(|r| r == root_event_id)
+                event.event_id() == thread_id
+                    || thread_root.as_ref().is_some_and(|r| r == thread_id)
             }
         }
     }
@@ -730,16 +800,52 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         let is_highlighted =
             event.push_actions().is_some_and(|actions| actions.iter().any(Action::is_highlight));
 
-        let thread_summary = if let ThreadSummaryStatus::Some(ref summary) = event.thread_summary {
-            let latest_reply_item = if let Some(ref latest_reply) = summary.latest_reply {
-                self.fetch_latest_thread_reply(latest_reply, room_data_provider).await
+        // Try to fetch the `SdkThreadSummary`.
+        //
+        // Why are we doing that for all events? Using `TimelineEvent::is_thread_root`
+        // will not work in all cases. Imagine an event `$ev0`, a regular event, not a
+        // thread, then a thread is created later targeting `$ev0`: in this case `$ev0`
+        // has no thread summary when it's received first. It will have one if we get
+        // the event via a back-pagination and if the thread already exists though. It
+        // proves that using `TimelineEvent::is_thread_root` is not reliable in all
+        // cases.
+        //
+        // We have no choice here: we must fetch the `ThreadInfo` for each new event.
+        // Receiving a new event doesn't happen in a hot loop, so it should not impact
+        // performance too much.
+        let sdk_thread_summary = if let Some(event_id) = event.event_id() {
+            // Read the thread summary data from the `ThreadInfo` if it exists in the Event
+            // Cache, because they are the most up-to-date.
+            if let Ok(Some(thread_info)) =
+                self.meta.event_cache.thread_info(self.focus.room_id(), event_id).await
+            {
+                Some(SdkThreadSummary {
+                    latest_reply: thread_info.latest_event.clone(),
+                    num_replies: thread_info.number_of_replies,
+                })
+            }
+            // Ah, the thread summary data don't exist in a `ThreadInfo` in the Event Cache.
+            // Theoretically, the Event Cache **MUST HAVE** populated the `ThreadInfo`, but, in case
+            // something bad happened, let's fallback to the `ThreadSummary` from the
+            // `TimelineEvent`. It can be outdated but it's better than nothing.
+            else {
+                event.thread_summary()
+            }
+        } else {
+            None
+        };
+
+        // Map the `SdkThreadSummary` to a `ThreadSummary`.
+        let thread_summary = if let Some(thread_summary) = sdk_thread_summary {
+            let latest_reply_item = if let Some(ref latest_reply_id) = thread_summary.latest_reply {
+                self.fetch_latest_thread_reply(latest_reply_id, room_data_provider).await
             } else {
                 None
             };
 
             Some(ThreadSummary {
                 latest_event: TimelineDetails::from_initial_value(latest_reply_item),
-                num_replies: summary.num_replies,
+                num_replies: thread_summary.num_replies,
             })
         } else {
             None
@@ -1186,7 +1292,14 @@ mod tests {
 
         // When we check for duplicates
         let user_id = owned_user_id!("@foo:s.co");
-        let mut meta = TimelineMetadata::new(user_id, RoomVersionRules::V12, None, None, true);
+        let mut meta = TimelineMetadata::new(
+            event_cache.clone(),
+            user_id,
+            RoomVersionRules::V12,
+            None,
+            None,
+            true,
+        );
         let focus = TimelineFocusKind::Live {
             hide_threaded_events: false,
             event_cache: event_cache.room(room_id).await.unwrap().0,
@@ -1219,7 +1332,14 @@ mod tests {
 
         // When we check for duplicates
         let user_id = owned_user_id!("@foo:s.co");
-        let mut meta = TimelineMetadata::new(user_id, RoomVersionRules::V12, None, None, true);
+        let mut meta = TimelineMetadata::new(
+            event_cache.clone(),
+            user_id,
+            RoomVersionRules::V12,
+            None,
+            None,
+            true,
+        );
         let focus = TimelineFocusKind::Live {
             hide_threaded_events: false,
             event_cache: event_cache.room(room_id).await.unwrap().0,
@@ -1255,7 +1375,14 @@ mod tests {
 
         // When we check for duplicates
         let user_id = owned_user_id!("@foo:s.co");
-        let mut meta = TimelineMetadata::new(user_id, RoomVersionRules::V12, None, None, true);
+        let mut meta = TimelineMetadata::new(
+            event_cache.clone(),
+            user_id,
+            RoomVersionRules::V12,
+            None,
+            None,
+            true,
+        );
         let focus = TimelineFocusKind::Live {
             hide_threaded_events: false,
             event_cache: event_cache.room(room_id).await.unwrap().0,
