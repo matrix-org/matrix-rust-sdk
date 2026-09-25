@@ -50,7 +50,12 @@ pub enum QrAuthMessage {
         /// The device authorization grant the OAuth 2.0 server has given to the
         /// new device, contains the URL the existing device should use to
         /// confirm the log in.
-        device_authorization_grant: AuthorizationGrant,
+        ///
+        /// Only present if the [`LoginProtocolType::DeviceAuthorizationGrant`]
+        /// protocol was picked. Other protocols carry their data in a field
+        /// named after the protocol instead.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        device_authorization_grant: Option<AuthorizationGrant>,
         /// The protocol the new device has picked.
         protocol: LoginProtocolType,
         /// The device ID the new device will be using.
@@ -100,7 +105,7 @@ impl QrAuthMessage {
     ) -> QrAuthMessage {
         QrAuthMessage::LoginProtocol {
             device_id: device_id.to_base64(),
-            device_authorization_grant,
+            device_authorization_grant: Some(device_authorization_grant),
             protocol: LoginProtocolType::DeviceAuthorizationGrant,
         }
     }
@@ -207,6 +212,40 @@ mod test {
         assert_eq!(device_id, "wjLpTLRqbqBzLs63aYaEv2Boi6cFEbbM/sSRQ2oAKk4");
         let serialized = serde_json::to_value(&message).unwrap();
         assert_eq!(json, serialized);
+    }
+
+    #[test]
+    fn test_protocol_serialization_unknown_protocol() {
+        // A future protocol carries its data in a field named after it, and has
+        // no `device_authorization_grant` field.
+        let json = json!({
+            "type": "m.login.protocol",
+            "protocol": "org.example.future_protocol",
+            "org.example.future_protocol": {
+                "some": "data"
+            },
+            "device_id": "ABCDEFGH"
+        });
+
+        let message: QrAuthMessage = serde_json::from_value(json).unwrap();
+        assert_let!(
+            QrAuthMessage::LoginProtocol { protocol, device_authorization_grant, device_id } =
+                &message
+        );
+        assert_eq!(protocol.as_str(), "org.example.future_protocol");
+        assert!(device_authorization_grant.is_none());
+        assert_eq!(device_id, "ABCDEFGH");
+
+        // A missing grant must not be serialized as `null`.
+        let serialized = serde_json::to_value(&message).unwrap();
+        assert_eq!(
+            serialized,
+            json!({
+                "type": "m.login.protocol",
+                "protocol": "org.example.future_protocol",
+                "device_id": "ABCDEFGH"
+            })
+        );
     }
 
     #[test]
