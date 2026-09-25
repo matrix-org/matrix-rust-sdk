@@ -231,6 +231,11 @@ impl CryptoStore for MemoryStore {
         Ok(self.next_batch_token.read().await.clone())
     }
 
+    async fn delete_next_batch_token(&self) -> Result<()> {
+        *self.next_batch_token.write().await = None;
+        Ok(())
+    }
+
     async fn save_pending_changes(&self, changes: PendingChanges) -> Result<()> {
         let _guard = self.save_changes_lock.lock().await;
 
@@ -1693,6 +1698,10 @@ mod integration_tests {
 
         async fn next_batch_token(&self) -> Result<Option<String>, Self::Error> {
             self.0.next_batch_token().await
+        }
+
+        async fn delete_next_batch_token(&self) -> Result<(), Self::Error> {
+            self.0.delete_next_batch_token().await
         }
 
         async fn get_size(&self) -> Result<Option<usize>, Self::Error> {

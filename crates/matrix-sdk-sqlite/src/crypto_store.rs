@@ -1895,6 +1895,16 @@ impl CryptoStore for SqliteCryptoStore {
         }
     }
 
+    async fn delete_next_batch_token(&self) -> Result<(), Self::Error> {
+        let key = "next_batch_token".to_owned();
+        self.write()
+            .await?
+            .interact(move |conn| conn.execute("DELETE FROM kv WHERE key = ?1", (&key,)))
+            .await
+            .unwrap()?;
+        Ok(())
+    }
+
     async fn close(&self) -> Result<()> {
         connection::close_connections(&self.connections, "Crypto store").await;
         Ok(())
