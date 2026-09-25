@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Allow UniFFI to use methods marked as `#[deprecated]`.
+#![allow(deprecated)]
+
 use std::{collections::HashMap, fmt::Write as _, fs, panic, sync::Arc};
 
 use anyhow::{Context, Result};
@@ -94,54 +97,16 @@ impl Timeline {
     pub(crate) fn new(inner: matrix_sdk_ui::timeline::Timeline) -> Arc<Self> {
         Arc::new(Self { inner })
     }
-
-    fn send_attachment(
-        self: Arc<Self>,
-        params: UploadParameters,
-        attachment_info: AttachmentInfo,
-        mime_type: Option<String>,
-        thumbnail: Option<Thumbnail>,
-    ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
-        let (source, mime_type, attachment_config) =
-            build_attachment_config(params, attachment_info, mime_type, thumbnail)?;
-
-        let handle = SendAttachmentJoinHandle::new(get_runtime_handle().spawn(async move {
-            self.inner
-                .send_attachment(source, mime_type, attachment_config)
-                .use_send_queue()
-                .await
-                .map_err(|_| RoomError::FailedSendingAttachment)
-        }));
-
-        Ok(handle)
-    }
-
-    async fn edit_with_attachment(
-        &self,
-        event_id: String,
-        params: UploadParameters,
-        attachment_info: AttachmentInfo,
-        mime_type: Option<String>,
-        thumbnail: Option<Thumbnail>,
-    ) -> Result<(), ClientError> {
-        let event_id = EventId::parse(event_id)?;
-        let (source, mime_type, attachment_config) =
-            build_attachment_config(params, attachment_info, mime_type, thumbnail)?;
-
-        self.inner.edit_with_attachment(&event_id, source, mime_type, attachment_config).await?;
-
-        Ok(())
-    }
 }
 
 /// Builds the configuration shared by the methods sending or editing an
 /// attachment.
 fn build_attachment_config(
     params: UploadParameters,
-    attachment_info: AttachmentInfo,
-    mime_type: Option<String>,
-    thumbnail: Option<Thumbnail>,
+    attachment: AttachmentKind,
 ) -> Result<(UploadSource, Mime, AttachmentConfig), RoomError> {
+    let (attachment_info, mime_type, thumbnail) = attachment.into_parts()?;
+
     let mime_str = mime_type.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
 
     let mime_type = mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
@@ -259,6 +224,62 @@ pub enum UploadSource {
         /// Filename to associate with bytes
         filename: String,
     },
+}
+
+/// What kind of attachment is being sent or edited in, with the metadata that
+/// kind needs.
+#[derive(uniffi::Enum)]
+pub enum AttachmentKind {
+    Image { image_info: ImageInfo, thumbnail_source: Option<UploadSource> },
+    Video { video_info: VideoInfo, thumbnail_source: Option<UploadSource> },
+    Audio { audio_info: AudioInfo },
+    Voice { audio_info: AudioInfo, waveform: Vec<f32> },
+    File { file_info: FileInfo },
+}
+
+impl AttachmentKind {
+    fn into_parts(self) -> Result<(AttachmentInfo, Option<String>, Option<Thumbnail>), RoomError> {
+        Ok(match self {
+            Self::Image { image_info, thumbnail_source } => (
+                AttachmentInfo::Image(
+                    BaseImageInfo::try_from(&image_info)
+                        .map_err(|_| RoomError::InvalidAttachmentData)?,
+                ),
+                image_info.mimetype,
+                build_thumbnail_info(thumbnail_source, image_info.thumbnail_info)?,
+            ),
+            Self::Video { video_info, thumbnail_source } => (
+                AttachmentInfo::Video(
+                    BaseVideoInfo::try_from(&video_info)
+                        .map_err(|_| RoomError::InvalidAttachmentData)?,
+                ),
+                video_info.mimetype,
+                build_thumbnail_info(thumbnail_source, video_info.thumbnail_info)?,
+            ),
+            Self::Audio { audio_info } => (
+                AttachmentInfo::Audio(
+                    BaseAudioInfo::try_from(&audio_info)
+                        .map_err(|_| RoomError::InvalidAttachmentData)?,
+                ),
+                audio_info.mimetype,
+                None,
+            ),
+            Self::Voice { audio_info, waveform } => {
+                let mut info = BaseAudioInfo::try_from(&audio_info)
+                    .map_err(|_| RoomError::InvalidAttachmentData)?;
+                info.waveform = Some(waveform);
+                (AttachmentInfo::Voice(info), audio_info.mimetype, None)
+            }
+            Self::File { file_info } => (
+                AttachmentInfo::File(
+                    BaseFileInfo::try_from(&file_info)
+                        .map_err(|_| RoomError::InvalidAttachmentData)?,
+                ),
+                file_info.mimetype,
+                None,
+            ),
+        })
+    }
 }
 
 impl From<UploadSource> for AttachmentSource {
@@ -456,126 +477,94 @@ impl Timeline {
         }
     }
 
+    /// Sends an attachment, uploaded through the send queue.
+    pub fn send_attachment(
+        self: Arc<Self>,
+        params: UploadParameters,
+        attachment: AttachmentKind,
+    ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
+        let (source, mime_type, attachment_config) = build_attachment_config(params, attachment)?;
+
+        let handle = SendAttachmentJoinHandle::new(get_runtime_handle().spawn(async move {
+            self.inner
+                .send_attachment(source, mime_type, attachment_config)
+                .use_send_queue()
+                .await
+                .map_err(|_| RoomError::FailedSendingAttachment)
+        }));
+
+        Ok(handle)
+    }
+
+    /// Edits a message the current user sent into one with the given
+    /// attachment, replacing its attachment if it had one. The caption in
+    /// `params` is the whole new text: nothing of the original content is
+    /// kept, and `in_reply_to` is ignored.
+    pub async fn edit_with_attachment(
+        &self,
+        event_id: String,
+        params: UploadParameters,
+        attachment: AttachmentKind,
+    ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        let (source, mime_type, attachment_config) = build_attachment_config(params, attachment)?;
+
+        self.inner.edit_with_attachment(&event_id, source, mime_type, attachment_config).await?;
+
+        Ok(())
+    }
+
+    /// Deprecated: use [`Self::send_attachment`] with `AttachmentKind::Image`.
+    #[deprecated = "Use `Timeline::send_attachment` instead"]
     pub fn send_image(
         self: Arc<Self>,
         params: UploadParameters,
         thumbnail_source: Option<UploadSource>,
         image_info: ImageInfo,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
-        let attachment_info = AttachmentInfo::Image(
-            BaseImageInfo::try_from(&image_info).map_err(|_| RoomError::InvalidAttachmentData)?,
-        );
-        let thumbnail = build_thumbnail_info(thumbnail_source, image_info.thumbnail_info)?;
-        self.send_attachment(params, attachment_info, image_info.mimetype, thumbnail)
+        self.send_attachment(params, AttachmentKind::Image { image_info, thumbnail_source })
     }
 
+    /// Deprecated: use [`Self::send_attachment`] with `AttachmentKind::Video`.
+    #[deprecated = "Use `Timeline::send_attachment` instead"]
     pub fn send_video(
         self: Arc<Self>,
         params: UploadParameters,
         thumbnail_source: Option<UploadSource>,
         video_info: VideoInfo,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
-        let attachment_info = AttachmentInfo::Video(
-            BaseVideoInfo::try_from(&video_info).map_err(|_| RoomError::InvalidAttachmentData)?,
-        );
-        let thumbnail = build_thumbnail_info(thumbnail_source, video_info.thumbnail_info)?;
-        self.send_attachment(params, attachment_info, video_info.mimetype, thumbnail)
+        self.send_attachment(params, AttachmentKind::Video { video_info, thumbnail_source })
     }
 
+    /// Deprecated: use [`Self::send_attachment`] with `AttachmentKind::Audio`.
+    #[deprecated = "Use `Timeline::send_attachment` instead"]
     pub fn send_audio(
         self: Arc<Self>,
         params: UploadParameters,
         audio_info: AudioInfo,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
-        let attachment_info = AttachmentInfo::Audio(
-            BaseAudioInfo::try_from(&audio_info).map_err(|_| RoomError::InvalidAttachmentData)?,
-        );
-        self.send_attachment(params, attachment_info, audio_info.mimetype, None)
+        self.send_attachment(params, AttachmentKind::Audio { audio_info })
     }
 
+    /// Deprecated: use [`Self::send_attachment`] with `AttachmentKind::Voice`.
+    #[deprecated = "Use `Timeline::send_attachment` instead"]
     pub fn send_voice_message(
         self: Arc<Self>,
         params: UploadParameters,
         audio_info: AudioInfo,
         waveform: Vec<f32>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
-        let mut info =
-            BaseAudioInfo::try_from(&audio_info).map_err(|_| RoomError::InvalidAttachmentData)?;
-        info.waveform = Some(waveform);
-        self.send_attachment(params, AttachmentInfo::Voice(info), audio_info.mimetype, None)
+        self.send_attachment(params, AttachmentKind::Voice { audio_info, waveform })
     }
 
+    /// Deprecated: use [`Self::send_attachment`] with `AttachmentKind::File`.
+    #[deprecated = "Use `Timeline::send_attachment` instead"]
     pub fn send_file(
         self: Arc<Self>,
         params: UploadParameters,
         file_info: FileInfo,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
-        let attachment_info = AttachmentInfo::File(
-            BaseFileInfo::try_from(&file_info).map_err(|_| RoomError::InvalidAttachmentData)?,
-        );
-        self.send_attachment(params, attachment_info, file_info.mimetype, None)
-    }
-
-    /// Edits a message the current user sent into an image, replacing its
-    /// attachment if it had one. The caption in `params` is the whole new
-    /// text: nothing of the original content is kept, and `in_reply_to` is
-    /// ignored.
-    pub async fn edit_image(
-        &self,
-        event_id: String,
-        params: UploadParameters,
-        thumbnail_source: Option<UploadSource>,
-        image_info: ImageInfo,
-    ) -> Result<(), ClientError> {
-        let attachment_info = AttachmentInfo::Image(
-            BaseImageInfo::try_from(&image_info).map_err(|_| RoomError::InvalidAttachmentData)?,
-        );
-        let thumbnail = build_thumbnail_info(thumbnail_source, image_info.thumbnail_info)?;
-        self.edit_with_attachment(event_id, params, attachment_info, image_info.mimetype, thumbnail)
-            .await
-    }
-
-    /// Like [`Self::edit_image`], with a video.
-    pub async fn edit_video(
-        &self,
-        event_id: String,
-        params: UploadParameters,
-        thumbnail_source: Option<UploadSource>,
-        video_info: VideoInfo,
-    ) -> Result<(), ClientError> {
-        let attachment_info = AttachmentInfo::Video(
-            BaseVideoInfo::try_from(&video_info).map_err(|_| RoomError::InvalidAttachmentData)?,
-        );
-        let thumbnail = build_thumbnail_info(thumbnail_source, video_info.thumbnail_info)?;
-        self.edit_with_attachment(event_id, params, attachment_info, video_info.mimetype, thumbnail)
-            .await
-    }
-
-    /// Like [`Self::edit_image`], with an audio file.
-    pub async fn edit_audio(
-        &self,
-        event_id: String,
-        params: UploadParameters,
-        audio_info: AudioInfo,
-    ) -> Result<(), ClientError> {
-        let attachment_info = AttachmentInfo::Audio(
-            BaseAudioInfo::try_from(&audio_info).map_err(|_| RoomError::InvalidAttachmentData)?,
-        );
-        self.edit_with_attachment(event_id, params, attachment_info, audio_info.mimetype, None)
-            .await
-    }
-
-    /// Like [`Self::edit_image`], with a file.
-    pub async fn edit_file(
-        &self,
-        event_id: String,
-        params: UploadParameters,
-        file_info: FileInfo,
-    ) -> Result<(), ClientError> {
-        let attachment_info = AttachmentInfo::File(
-            BaseFileInfo::try_from(&file_info).map_err(|_| RoomError::InvalidAttachmentData)?,
-        );
-        self.edit_with_attachment(event_id, params, attachment_info, file_info.mimetype, None).await
+        self.send_attachment(params, AttachmentKind::File { file_info })
     }
 
     pub async fn create_poll(
