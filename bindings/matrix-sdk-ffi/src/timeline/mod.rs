@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Allow UniFFI to use methods marked as `#[deprecated]`.
+#![allow(deprecated)]
+
 use std::{collections::HashMap, fmt::Write as _, fs, panic, sync::Arc};
 
 use anyhow::{Context, Result};
@@ -511,6 +514,8 @@ impl Timeline {
         Ok(())
     }
 
+    /// Deprecated: use [`Self::send_attachment`] with `AttachmentKind::Image`.
+    #[deprecated = "Use `Timeline::send_attachment` instead"]
     pub fn send_image(
         self: Arc<Self>,
         params: UploadParameters,
@@ -520,6 +525,8 @@ impl Timeline {
         self.send_attachment(params, AttachmentKind::Image { image_info, thumbnail_source })
     }
 
+    /// Deprecated: use [`Self::send_attachment`] with `AttachmentKind::Video`.
+    #[deprecated = "Use `Timeline::send_attachment` instead"]
     pub fn send_video(
         self: Arc<Self>,
         params: UploadParameters,
@@ -529,6 +536,8 @@ impl Timeline {
         self.send_attachment(params, AttachmentKind::Video { video_info, thumbnail_source })
     }
 
+    /// Deprecated: use [`Self::send_attachment`] with `AttachmentKind::Audio`.
+    #[deprecated = "Use `Timeline::send_attachment` instead"]
     pub fn send_audio(
         self: Arc<Self>,
         params: UploadParameters,
@@ -537,6 +546,8 @@ impl Timeline {
         self.send_attachment(params, AttachmentKind::Audio { audio_info })
     }
 
+    /// Deprecated: use [`Self::send_attachment`] with `AttachmentKind::Voice`.
+    #[deprecated = "Use `Timeline::send_attachment` instead"]
     pub fn send_voice_message(
         self: Arc<Self>,
         params: UploadParameters,
@@ -546,6 +557,8 @@ impl Timeline {
         self.send_attachment(params, AttachmentKind::Voice { audio_info, waveform })
     }
 
+    /// Deprecated: use [`Self::send_attachment`] with `AttachmentKind::File`.
+    #[deprecated = "Use `Timeline::send_attachment` instead"]
     pub fn send_file(
         self: Arc<Self>,
         params: UploadParameters,
