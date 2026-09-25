@@ -94,38 +94,6 @@ impl Timeline {
     pub(crate) fn new(inner: matrix_sdk_ui::timeline::Timeline) -> Arc<Self> {
         Arc::new(Self { inner })
     }
-
-    fn send_attachment(
-        self: Arc<Self>,
-        params: UploadParameters,
-        attachment: AttachmentKind,
-    ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
-        let (source, mime_type, attachment_config) = build_attachment_config(params, attachment)?;
-
-        let handle = SendAttachmentJoinHandle::new(get_runtime_handle().spawn(async move {
-            self.inner
-                .send_attachment(source, mime_type, attachment_config)
-                .use_send_queue()
-                .await
-                .map_err(|_| RoomError::FailedSendingAttachment)
-        }));
-
-        Ok(handle)
-    }
-
-    async fn edit_with_attachment(
-        &self,
-        event_id: String,
-        params: UploadParameters,
-        attachment: AttachmentKind,
-    ) -> Result<(), ClientError> {
-        let event_id = EventId::parse(event_id)?;
-        let (source, mime_type, attachment_config) = build_attachment_config(params, attachment)?;
-
-        self.inner.edit_with_attachment(&event_id, source, mime_type, attachment_config).await?;
-
-        Ok(())
-    }
 }
 
 /// Builds the configuration shared by the methods sending or editing an
@@ -506,6 +474,43 @@ impl Timeline {
         }
     }
 
+    /// Sends an attachment, uploaded through the send queue.
+    pub fn send_attachment(
+        self: Arc<Self>,
+        params: UploadParameters,
+        attachment: AttachmentKind,
+    ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
+        let (source, mime_type, attachment_config) = build_attachment_config(params, attachment)?;
+
+        let handle = SendAttachmentJoinHandle::new(get_runtime_handle().spawn(async move {
+            self.inner
+                .send_attachment(source, mime_type, attachment_config)
+                .use_send_queue()
+                .await
+                .map_err(|_| RoomError::FailedSendingAttachment)
+        }));
+
+        Ok(handle)
+    }
+
+    /// Edits a message the current user sent into one with the given
+    /// attachment, replacing its attachment if it had one. The caption in
+    /// `params` is the whole new text: nothing of the original content is
+    /// kept, and `in_reply_to` is ignored.
+    pub async fn edit_with_attachment(
+        &self,
+        event_id: String,
+        params: UploadParameters,
+        attachment: AttachmentKind,
+    ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        let (source, mime_type, attachment_config) = build_attachment_config(params, attachment)?;
+
+        self.inner.edit_with_attachment(&event_id, source, mime_type, attachment_config).await?;
+
+        Ok(())
+    }
+
     pub fn send_image(
         self: Arc<Self>,
         params: UploadParameters,
@@ -547,61 +552,6 @@ impl Timeline {
         file_info: FileInfo,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         self.send_attachment(params, AttachmentKind::File { file_info })
-    }
-
-    /// Edits a message the current user sent into an image, replacing its
-    /// attachment if it had one. The caption in `params` is the whole new
-    /// text: nothing of the original content is kept, and `in_reply_to` is
-    /// ignored.
-    pub async fn edit_image(
-        &self,
-        event_id: String,
-        params: UploadParameters,
-        thumbnail_source: Option<UploadSource>,
-        image_info: ImageInfo,
-    ) -> Result<(), ClientError> {
-        self.edit_with_attachment(
-            event_id,
-            params,
-            AttachmentKind::Image { image_info, thumbnail_source },
-        )
-        .await
-    }
-
-    /// Like [`Self::edit_image`], with a video.
-    pub async fn edit_video(
-        &self,
-        event_id: String,
-        params: UploadParameters,
-        thumbnail_source: Option<UploadSource>,
-        video_info: VideoInfo,
-    ) -> Result<(), ClientError> {
-        self.edit_with_attachment(
-            event_id,
-            params,
-            AttachmentKind::Video { video_info, thumbnail_source },
-        )
-        .await
-    }
-
-    /// Like [`Self::edit_image`], with an audio file.
-    pub async fn edit_audio(
-        &self,
-        event_id: String,
-        params: UploadParameters,
-        audio_info: AudioInfo,
-    ) -> Result<(), ClientError> {
-        self.edit_with_attachment(event_id, params, AttachmentKind::Audio { audio_info }).await
-    }
-
-    /// Like [`Self::edit_image`], with a file.
-    pub async fn edit_file(
-        &self,
-        event_id: String,
-        params: UploadParameters,
-        file_info: FileInfo,
-    ) -> Result<(), ClientError> {
-        self.edit_with_attachment(event_id, params, AttachmentKind::File { file_info }).await
     }
 
     pub async fn create_poll(
