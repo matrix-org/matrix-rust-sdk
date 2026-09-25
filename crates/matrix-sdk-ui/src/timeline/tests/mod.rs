@@ -71,6 +71,7 @@ mod read_receipts;
 mod redaction;
 mod rtc;
 mod shields;
+mod thread;
 mod virt;
 
 /// A timeline instance used only for testing purposes in unit tests.
