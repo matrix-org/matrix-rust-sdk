@@ -134,7 +134,7 @@ pub(super) trait RoomDataProvider:
     /// told apart from it.
     fn load_event_receipts_batch<'a>(
         &'a self,
-        event_ids: &'a [OwnedEventId],
+        event_ids: &'a [&'a EventId],
         receipt_thread: &'a ReceiptThread,
     ) -> impl Future<Output = Option<HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>>>>
     + SendOutsideWasm
@@ -232,7 +232,7 @@ impl RoomDataProvider for Room {
 
     async fn load_event_receipts_batch<'a>(
         &'a self,
-        event_ids: &'a [OwnedEventId],
+        event_ids: &'a [&'a EventId],
         receipt_thread: &'a ReceiptThread,
     ) -> Option<HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>>> {
         match self.load_event_receipts_batch(ReceiptType::Read, receipt_thread, event_ids).await {

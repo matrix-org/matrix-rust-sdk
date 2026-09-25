@@ -3683,7 +3683,7 @@ impl Room {
         &self,
         receipt_type: ReceiptType,
         receipt_thread: &ReceiptThread,
-        event_ids: &'a [OwnedEventId],
+        event_ids: &[&'a EventId],
     ) -> Result<BTreeMap<&'a EventId, Vec<(OwnedUserId, Receipt)>>> {
         self.inner
             .load_event_receipts_batch(receipt_type, receipt_thread, event_ids)

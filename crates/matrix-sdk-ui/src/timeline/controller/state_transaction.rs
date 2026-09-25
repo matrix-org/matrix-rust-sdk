@@ -103,9 +103,9 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 
         let mut cached_profiles: HashMap<OwnedUserId, Option<Profile>> = HashMap::new();
 
-        // Read receipts are loaded for every added event. Load them in one batch
-        // rather than one store read per event.
-        let mut cached_receipts = if settings.track_read_receipts.is_enabled() {
+        // Read receipts are loaded for every added event. Prefetch them in one
+        // batch rather than one store read per event.
+        let mut prefetched_receipts = if settings.track_read_receipts.is_enabled() {
             let event_ids = diffs
                 .iter()
                 .flat_map(|diff| match diff {
@@ -113,9 +113,11 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     VectorDiff::PushFront { value }
                     | VectorDiff::PushBack { value }
                     | VectorDiff::Insert { value, .. } => vec![value],
+                    // `Set` replaces an event already in the timeline, whose read
+                    // receipts are loaded; they are not loaded again for it.
                     _ => Vec::new(),
                 })
-                .filter_map(|event| event.event_id().map(ToOwned::to_owned))
+                .filter_map(|event| event.event_id())
                 .collect::<Vec<_>>();
 
             self.prefetch_read_receipts(&event_ids, room_data_provider).await
@@ -139,7 +141,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                             settings,
                             &mut date_divider_adjuster,
                             &mut cached_profiles,
-                            &mut cached_receipts,
+                            &mut prefetched_receipts,
                             recycled_timeline_id,
                         )
                         .await;
@@ -157,7 +159,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         settings,
                         &mut date_divider_adjuster,
                         &mut cached_profiles,
-                        &mut cached_receipts,
+                        &mut prefetched_receipts,
                         recycled_timeline_id,
                     )
                     .await;
@@ -174,7 +176,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         settings,
                         &mut date_divider_adjuster,
                         &mut cached_profiles,
-                        &mut cached_receipts,
+                        &mut prefetched_receipts,
                         recycled_timeline_id,
                     )
                     .await;
@@ -191,7 +193,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         settings,
                         &mut date_divider_adjuster,
                         &mut cached_profiles,
-                        &mut cached_receipts,
+                        &mut prefetched_receipts,
                         recycled_timeline_id,
                     )
                     .await;
@@ -211,7 +213,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                             settings,
                             &mut date_divider_adjuster,
                             &mut cached_profiles,
-                            &mut cached_receipts,
+                            &mut prefetched_receipts,
                             None,
                         )
                         .await;
@@ -617,7 +619,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         raw: &Raw<AnySyncTimelineEvent>,
         deserialization_error: serde_json::Error,
         settings: &TimelineSettings,
-        receipts: &mut HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>>,
+        prefetched_receipts: &mut HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>>,
     ) -> Option<(
         OwnedEventId,
         OwnedUserId,
@@ -710,7 +712,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     position,
                     room_data_provider,
                     settings,
-                    receipts,
+                    prefetched_receipts,
                 )
                 .await;
                 None
@@ -755,7 +757,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         settings: &TimelineSettings,
         date_divider_adjuster: &mut DateDividerAdjuster,
         profiles: &mut HashMap<OwnedUserId, Option<Profile>>,
-        receipts: &mut HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>>,
+        prefetched_receipts: &mut HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>>,
         recycled_timeline_id: Option<TimelineUniqueId>,
     ) -> RemovedItem {
         let is_highlighted =
@@ -844,7 +846,14 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             // The event seems invalid…
             Err(e) => {
                 if let Some(tuple) = self
-                    .maybe_add_error_item(position, room_data_provider, &raw, e, settings, receipts)
+                    .maybe_add_error_item(
+                        position,
+                        room_data_provider,
+                        &raw,
+                        e,
+                        settings,
+                        prefetched_receipts,
+                    )
                     .await
                 {
                     tuple
@@ -868,7 +877,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             position,
             room_data_provider,
             settings,
-            receipts,
+            prefetched_receipts,
         )
         .await;
 
@@ -1072,7 +1081,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         position: TimelineItemPosition,
         room_data_provider: &P,
         settings: &TimelineSettings,
-        receipts: &mut HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>>,
+        prefetched_receipts: &mut HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>>,
     ) {
         let event_id = event_meta.event_id.clone();
 
@@ -1114,7 +1123,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     | TimelineItemPosition::At { .. }
             )
         {
-            self.load_read_receipts_for_event(&event_id, room_data_provider, receipts).await;
+            self.load_read_receipts_for_event(&event_id, room_data_provider, prefetched_receipts)
+                .await;
 
             self.maybe_add_implicit_read_receipt(&event_id, sender, timestamp);
         }

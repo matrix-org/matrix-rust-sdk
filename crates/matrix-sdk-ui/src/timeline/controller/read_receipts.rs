@@ -591,14 +591,14 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
     /// map is empty and every event is read on its own instead.
     pub(super) async fn prefetch_read_receipts(
         &self,
-        event_ids: &[OwnedEventId],
+        event_ids: &[&EventId],
         room_data_provider: &P,
     ) -> HashMap<OwnedEventId, IndexMap<OwnedUserId, Receipt>> {
         if event_ids.is_empty() {
             return HashMap::new();
         }
 
-        trace!(num_events = event_ids.len(), "prefetching the initial receipts of events");
+        trace!(num_events = event_ids.len(), "prefetching initial read receipts");
 
         let receipt_thread = self.focus.receipt_thread();
 
@@ -620,6 +620,10 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
                     return HashMap::new();
                 };
 
+                // Merge per event: extending the outer map directly would replace
+                // an event's main receipts with its unthreaded ones instead of
+                // combining them. Within an event, a user with both receipts is
+                // shown once, as in `load_read_receipts_for_event`.
                 for (event_id, event_receipts) in unthreaded_receipts {
                     main_receipts.entry(event_id).or_default().extend(event_receipts);
                 }
@@ -635,8 +639,10 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
                 receipts
             };
 
-        for event_id in event_ids {
-            receipts.entry(event_id.clone()).or_default();
+        for &event_id in event_ids {
+            if !receipts.contains_key(event_id) {
+                receipts.insert(event_id.to_owned(), IndexMap::new());
+            }
         }
 
         receipts
