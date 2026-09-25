@@ -32,9 +32,7 @@ use matrix_sdk::{
     encryption::{CrossSigningResetAuthType, recovery::RecoveryState},
     room::Room,
     ruma::{
-        api::client::{
-            discovery::get_authorization_server_metadata::v1::AccountManagementActionData, uiaa,
-        },
+        api::client::discovery::get_authorization_server_metadata::v1::AccountManagementActionData,
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
         serde::Raw,
     },
@@ -350,16 +348,14 @@ impl OAuthCli {
                         "This should never happen, this is after all the OAuth 2.0 example."
                     )
                 }
-                CrossSigningResetAuthType::OAuth(o) => {
+                CrossSigningResetAuthType::OAuth(oauth) => {
                     println!(
                         "To reset your end-to-end encryption cross-signing identity, \
                         you first need to approve it at {}",
-                        o.approval_url
+                        oauth.approval_url
                     );
 
-                    let mut oauth_data = uiaa::OAuth::new();
-                    oauth_data.session = o.session.clone();
-                    handle.auth(Some(uiaa::AuthData::OAuth(oauth_data))).await?;
+                    handle.auth(oauth.as_auth_data()).await?;
                 }
             }
         }

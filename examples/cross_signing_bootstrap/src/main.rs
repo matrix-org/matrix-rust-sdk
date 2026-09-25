@@ -25,7 +25,7 @@ async fn bootstrap(client: Client, user_id: OwnedUserId, password: String) -> Re
             CrossSigningResetAuthType::Uiaa(uiaa) => {
                 let mut password = uiaa::Password::new(user_id.into(), password);
                 password.session = uiaa.session.clone();
-                handle.auth(Some(uiaa::AuthData::Password(password))).await?;
+                handle.auth(uiaa::AuthData::Password(password)).await?;
             }
             CrossSigningResetAuthType::OAuth(oauth) => {
                 println!(
@@ -34,9 +34,7 @@ async fn bootstrap(client: Client, user_id: OwnedUserId, password: String) -> Re
                     oauth.approval_url
                 );
 
-                let mut oauth_data = uiaa::OAuth::new();
-                oauth_data.session = oauth.session.clone();
-                handle.auth(Some(uiaa::AuthData::OAuth(oauth_data))).await?;
+                handle.auth(oauth.as_auth_data()).await?;
             }
         }
     }

@@ -1125,8 +1125,8 @@ impl IdentityResetHandle {
     /// 2. Disable recovery and delete secret storage
     /// 3. Go through the cross-signing key reset flow
     /// 4. Finally, re-enable key backups only if they were enabled before
-    pub async fn reset(&self, auth: Option<AuthData>) -> Result<(), ClientError> {
-        self.inner.reset(auth.map(Into::into)).await.map_err(ClientError::from_err)
+    pub async fn reset(&self, auth: AuthData) -> Result<(), ClientError> {
+        self.inner.reset(auth.into()).await.map_err(ClientError::from_err)
     }
 
     pub async fn cancel(&self) {
@@ -1137,7 +1137,7 @@ impl IdentityResetHandle {
 #[derive(uniffi::Enum)]
 pub enum CrossSigningResetAuthType {
     /// The homeserver requires user-interactive authentication.
-    Uiaa,
+    Uiaa { session: Option<String> },
     /// OAuth is used for authentication and the user needs to open a URL to
     /// approve the upload of cross-signing keys.
     OAuth { info: OAuthCrossSigningResetInfo },
@@ -1146,7 +1146,9 @@ pub enum CrossSigningResetAuthType {
 impl From<&matrix_sdk::encryption::CrossSigningResetAuthType> for CrossSigningResetAuthType {
     fn from(value: &matrix_sdk::encryption::CrossSigningResetAuthType) -> Self {
         match value {
-            encryption::CrossSigningResetAuthType::Uiaa(_) => Self::Uiaa,
+            encryption::CrossSigningResetAuthType::Uiaa(info) => {
+                Self::Uiaa { session: info.session.clone() }
+            }
             encryption::CrossSigningResetAuthType::OAuth(info) => Self::OAuth { info: info.into() },
         }
     }
@@ -1156,10 +1158,20 @@ impl From<&matrix_sdk::encryption::CrossSigningResetAuthType> for CrossSigningRe
 pub struct OAuthCrossSigningResetInfo {
     /// The URL where the user can approve the reset of the cross-signing keys.
     pub approval_url: String,
+    /// The UIAA session token.
+    pub session: String,
 }
 
 impl From<&matrix_sdk::encryption::OAuthCrossSigningResetInfo> for OAuthCrossSigningResetInfo {
     fn from(value: &matrix_sdk::encryption::OAuthCrossSigningResetInfo) -> Self {
-        Self { approval_url: value.approval_url.to_string() }
+        Self { approval_url: value.approval_url.to_string(), session: value.session.clone() }
+    }
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl OAuthCrossSigningResetInfo {
+    /// Create UIAA [`AuthData`] to continue this reset session.
+    pub fn as_auth_data(&self) -> AuthData {
+        AuthData::OAuth { session: self.session.clone() }
     }
 }

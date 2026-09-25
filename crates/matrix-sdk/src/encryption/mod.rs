@@ -70,7 +70,7 @@ use ruma::{
             to_device::send_event_to_device::v3::{
                 Request as RumaToDeviceRequest, Response as ToDeviceResponse,
             },
-            uiaa::{AuthData, AuthType, OAuthParams, UiaaInfo},
+            uiaa::{AuthData, AuthType, OAuth as OAuthData, OAuthParams, UiaaInfo},
         },
         error::{ErrorBody, StandardErrorBody},
     },
@@ -367,7 +367,7 @@ impl CrossSigningResetHandle {
     /// Continue the cross-signing reset by either waiting for the
     /// authentication to be done on the side of the OAuth 2.0 server or by
     /// providing additional [`AuthData`] the homeserver requires.
-    pub async fn auth(&self, auth: Option<AuthData>) -> Result<()> {
+    pub async fn auth(&self, auth: AuthData) -> Result<()> {
         // Poll to see whether the reset has been authorized twice per second.
         const RETRY_EVERY: Duration = Duration::from_millis(500);
 
@@ -377,7 +377,7 @@ impl CrossSigningResetHandle {
         timeout(
             async {
                 let mut upload_request = self.upload_request.clone();
-                upload_request.auth = auth;
+                upload_request.auth = Some(auth);
 
                 debug!(
                     "Repeatedly PUTting to keys/device_signing/upload until it works \
@@ -460,7 +460,7 @@ pub struct OAuthCrossSigningResetInfo {
     pub approval_url: Url,
 
     /// Session key to use to complete the authentication.
-    pub session: Option<String>,
+    pub session: String,
 }
 
 impl OAuthCrossSigningResetInfo {
@@ -471,8 +471,17 @@ impl OAuthCrossSigningResetInfo {
 
         Ok(Some(OAuthCrossSigningResetInfo {
             approval_url: parameters.url.as_str().try_into()?,
-            session: auth_info.session.clone(),
+            session: auth_info
+                .session
+                .as_ref()
+                .ok_or_else(|| serde_json::Error::custom("UIAA info is missing a session token"))?
+                .to_owned(),
         }))
+    }
+
+    /// Create UIAA [`AuthData`] to continue this reset session.
+    pub fn as_auth_data(&self) -> AuthData {
+        AuthData::OAuth(assign!(OAuthData::new(), { session: Some(self.session.clone()) }))
     }
 }
 
@@ -1578,19 +1587,16 @@ impl Encryption {
     ///             let mut password = uiaa::Password::new(user_id, password);
     ///             password.session = uiaa.session;
     ///
-    ///             handle.auth(Some(uiaa::AuthData::Password(password))).await?;
+    ///             handle.auth(uiaa::AuthData::Password(password)).await?;
     ///         }
-    ///         CrossSigningResetAuthType::OAuth(o) => {
+    ///         CrossSigningResetAuthType::OAuth(oauth) => {
     ///             println!(
     ///                 "To reset your end-to-end encryption cross-signing identity, \
     ///                 you first need to approve it at {}",
-    ///                 o.approval_url
+    ///                 oauth.approval_url
     ///             );
     ///
-    ///             let mut oauth = uiaa::OAuth::new();
-    ///             oauth.session = o.session;
-    ///
-    ///             handle.auth(Some(uiaa::AuthData::OAuth(oauth))).await?;
+    ///             handle.auth(oauth.as_auth_data()).await?;
     ///         }
     ///     }
     /// }

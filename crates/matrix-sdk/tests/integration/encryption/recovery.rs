@@ -1014,7 +1014,7 @@ async fn test_reset_identity() {
     let mut password = uiaa::Password::new(user_id.to_owned().into(), "1234".to_owned());
     password.session = uiaa_info.session.clone();
     reset_handle
-        .reset(Some(uiaa::AuthData::Password(password)))
+        .reset(uiaa::AuthData::Password(password))
         .await
         .expect("Failed retrieving identity reset handle");
 
