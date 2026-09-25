@@ -5,7 +5,6 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use anyhow::{Result, ensure};
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use matrix_sdk::{
     RoomState,
     config::SyncSettings,
@@ -29,6 +28,7 @@ use matrix_sdk_ui::{
     },
     sync_service::SyncService,
 };
+use strass::assert_let;
 use tracing::warn;
 
 use crate::helpers::TestClientBuilder;

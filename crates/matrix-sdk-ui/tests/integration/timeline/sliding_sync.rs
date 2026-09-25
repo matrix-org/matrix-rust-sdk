@@ -16,7 +16,6 @@ use std::{pin::Pin, sync::Arc};
 
 use anyhow::{Context as _, Result};
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::{Stream, StreamExt, pin_mut};
 use matrix_sdk::{
@@ -29,6 +28,7 @@ use matrix_sdk_ui::timeline::{
 };
 use ruma::{RoomId, room_id, user_id};
 use serde_json::json;
+use strass::assert_let;
 use wiremock::{Match, Mock, Request, ResponseTemplate, http::Method};
 
 macro_rules! receive_response {
@@ -719,7 +719,8 @@ async fn test_timeline_refreshes_sender_profile_on_global_profile_update() -> Re
     assert_let!(TimelineDetails::Ready(profile) = alice_message.sender_profile());
     assert!(profile.status.is_none(), "The status should be unset before the profile update.");
 
-    // A sync carrying only a global profiles update for Alice with a new status.
+    // A sync carrying only a global profiles update for Alice with a new
+    // status.
     receive_response! {
         [server.server(), stream]
         {

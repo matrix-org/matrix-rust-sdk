@@ -152,9 +152,9 @@ impl ToDeviceEvents {
     ///
     /// The following secrets will be zeroized by this method:
     ///
-    /// * `m.room_key` - The `session_key` field.
-    /// * `m.forwarded_room_key` - The `session_key` field.
-    /// * `m.secret.send` - The `secret` field will be zeroized, unless the
+    /// - `m.room_key` - The `session_key` field.
+    /// - `m.forwarded_room_key` - The `session_key` field.
+    /// - `m.secret.send` - The `secret` field will be zeroized, unless the
     ///   secret name of the matching `m.secret.request` event was
     ///   `m.megolm_backup.v1`.
     ///
@@ -168,7 +168,6 @@ impl ToDeviceEvents {
     ///    [`AnyToDeviceEvent`] from Ruma will work.
     ///
     /// 2. Call `Raw::deserialize_as()` to deserialize into a less strict type.
-    ///
     /// 3. Pass the event over FFI, losing the exact type information, this will
     ///    most likely end up using a less strict type naturally.
     ///

@@ -54,8 +54,8 @@ pub trait RoomExt {
     /// Get a [`TimelineBuilder`] for this room.
     ///
     /// [`Timeline`] offers a higher-level API than event handlers, in treating
-    /// things like edits and reactions as updates of existing items rather
-    /// than new independent events.
+    /// things like edits and reactions as updates of existing items rather than
+    /// new independent events.
     ///
     /// This allows to customize settings of the [`Timeline`] before
     /// constructing it.
@@ -67,8 +67,8 @@ pub trait RoomExt {
     /// Create a [`ThreadListService`] for this room.
     ///
     /// The returned service provides a paginated, observable list of thread
-    /// roots for the room and can be used to page through threads and
-    /// subscribe to updates.
+    /// roots for the room and can be used to page through threads and subscribe
+    /// to updates.
     fn thread_list_service(&self) -> ThreadListService;
 }
 

@@ -28,8 +28,8 @@ use crate::{
 pub struct IndexeddbMediaStoreBuilder {
     // The name of the IndexedDB database which will be opened
     database_name: String,
-    // The store cipher, if any, to use when encrypting data
-    // before it is persisted to the IndexedDB database
+    // The store cipher, if any, to use when encrypting data before it is
+    // persisted to the IndexedDB database
     store_cipher: Option<Arc<StoreCipher>>,
 }
 
@@ -62,16 +62,16 @@ impl IndexeddbMediaStoreBuilder {
     }
 
     /// Sets the store cipher to use when encrypting data before it is persisted
-    /// to the IndexedDB database. By default, no store cipher is used -
-    /// i.e., data is not encrypted before it is persisted.
+    /// to the IndexedDB database. By default, no store cipher is used - i.e.,
+    /// data is not encrypted before it is persisted.
     pub fn store_cipher(mut self, store_cipher: Arc<StoreCipher>) -> Self {
         self.store_cipher = Some(store_cipher);
         self
     }
 
     /// Opens the IndexedDB database with the provided name. If successfully
-    /// opened, builds the [`IndexeddbMediaStore`] with that database
-    /// and the provided store cipher.
+    /// opened, builds the [`IndexeddbMediaStore`] with that database and the
+    /// provided store cipher.
     pub async fn build(self) -> Result<IndexeddbMediaStore, IndexeddbMediaStoreError> {
         Ok(IndexeddbMediaStore {
             inner: Rc::new(open_and_upgrade_db(&self.database_name).await?),

@@ -2,12 +2,12 @@
 
 #![allow(dead_code)]
 
-use assert_matches2::assert_let;
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, store::RoomLoadSettings};
 use ruma::{
     api::MatrixVersion,
     events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, room::message::MessageType},
 };
+use strass::assert_let;
 use url::Url;
 
 pub mod client;
@@ -137,8 +137,8 @@ macro_rules! assert_next_with_timeout {
 /// Asserts the next item in a `Receiver` can be loaded in the given timeout in
 /// milliseconds.
 ///
-/// This macro waits for the next item from a `Receiver` or, if no
-/// item is received within the specified timeout, the macro panics.
+/// This macro waits for the next item from a `Receiver` or, if no item is
+/// received within the specified timeout, the macro panics.
 ///
 /// # Parameters
 ///
@@ -214,11 +214,11 @@ macro_rules! assert_next_matches_with_timeout {
 ///
 /// # Arguments
 ///
-/// * `$stream` - The asynchronous stream to retrieve the next item from.
-/// * `$expected` - The expected value to assert against.
-/// * `$timeout ms` (optional) - A timeout in milliseconds (e.g., `200ms`).
+/// - `$stream` - The asynchronous stream to retrieve the next item from.
+/// - `$expected` - The expected value to assert against.
+/// - `$timeout ms` (optional) - A timeout in milliseconds (e.g., `200ms`).
 ///   Defaults to `100ms`.
-/// * `$msg` (optional) - A formatted message string for assertion failure.
+/// - `$msg` (optional) - A formatted message string for assertion failure.
 ///
 /// # Examples
 ///
@@ -287,20 +287,20 @@ macro_rules! assert_next_eq_with_timeout {
 #[macro_export]
 macro_rules! assert_decrypted_message_eq {
     ($event:expr, $expected:expr, $($msg:tt)*) => {{
-        assert_matches2::assert_let!($crate::deserialized_responses::TimelineEventKind::Decrypted(decrypted_event) = $event.kind);
+        strass::assert_let!($crate::deserialized_responses::TimelineEventKind::Decrypted(decrypted_event) = $event.kind);
 
         let deserialized_event = decrypted_event
             .event
             .deserialize()
             .expect("We should be able to deserialize the decrypted event");
 
-        assert_matches2::assert_let!(
+        strass::assert_let!(
             $crate::ruma::events::AnyTimelineEvent::MessageLike(deserialized_event) = deserialized_event
         );
 
         let content =
             deserialized_event.original_content().expect("The event should not have been redacted");
-        assert_matches2::assert_let!($crate::ruma::events::AnyMessageLikeEventContent::RoomMessage(content) = content);
+        strass::assert_let!($crate::ruma::events::AnyMessageLikeEventContent::RoomMessage(content) = content);
         assert_eq!(content.body(), $expected, $($msg)*);
     }};
     ($event:expr, $expected:expr) => {{
@@ -308,8 +308,8 @@ macro_rules! assert_decrypted_message_eq {
     }};
 }
 
-/// Given a [`TimelineEvent`], assert that the event is a decrypted state
-/// event, and that its content matches the given pattern via a let binding.
+/// Given a [`TimelineEvent`], assert that the event is a decrypted state event,
+/// and that its content matches the given pattern via a let binding.
 ///
 /// If more than one argument is provided, these will be used as an error
 /// message if the content does not match the provided pattern.
@@ -339,7 +339,7 @@ macro_rules! assert_decrypted_message_eq {
 #[macro_export]
 macro_rules! assert_let_decrypted_state_event_content {
     ($pat:pat = $event:expr, $($msg:tt)*) => {
-        assert_matches2::assert_let!(
+        strass::assert_let!(
             $crate::deserialized_responses::TimelineEventKind::Decrypted(decrypted_event) =
                 $event.kind,
             "Event was not decrypted"
@@ -353,7 +353,7 @@ macro_rules! assert_let_decrypted_state_event_content {
         let content =
             deserialized_event.original_content().expect("The event should not have been redacted");
 
-        assert_matches2::assert_let!($pat = content, $($msg)*);
+        strass::assert_let!($pat = content, $($msg)*);
     };
     ($pat:pat = $event:expr) => {
         assert_let_decrypted_state_event_content!(
@@ -396,7 +396,7 @@ macro_rules! assert_next_eq_with_timeout_impl {
 #[macro_export]
 macro_rules! assert_let_timeout {
     ($timeout:expr, $pat:pat = $future:expr) => {
-        assert_matches2::assert_let!(Ok($pat) = tokio::time::timeout($timeout, $future).await);
+        strass::assert_let!(Ok($pat) = tokio::time::timeout($timeout, $future).await);
     };
 
     ($pat:pat = $future:expr) => {

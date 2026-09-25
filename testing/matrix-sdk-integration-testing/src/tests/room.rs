@@ -1,7 +1,6 @@
-use std::{ops::Not as _, time::Duration};
+use std::{assert_matches, ops::Not as _, time::Duration};
 
 use anyhow::Result;
-use assert_matches2::{assert_let, assert_matches};
 use eyeball::Subscriber;
 use futures::FutureExt as _;
 use http::StatusCode;
@@ -32,6 +31,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_test::TestResult;
 use matrix_sdk_ui::{sync_service::SyncService, timeline::TimelineBuilder};
+use strass::assert_let;
 use tokio::{spawn, time::sleep};
 use tracing::{debug, error, warn};
 

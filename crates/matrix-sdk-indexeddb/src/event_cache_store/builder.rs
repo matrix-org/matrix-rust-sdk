@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-// At the moment, this builder is not public outside of the crate, so we
-// get a few dead code warnings; however, this will eventually be a public
-// type, at which point the line below can be removed.
+// At the moment, this builder is not public outside of the crate, so we get a
+// few dead code warnings; however, this will eventually be a public type, at
+// which point the line below can be removed.
 #![allow(dead_code)]
 
 use std::{rc::Rc, sync::Arc};
@@ -33,8 +33,8 @@ use crate::{
 pub struct IndexeddbEventCacheStoreBuilder {
     // The name of the IndexedDB database which will be opened
     database_name: String,
-    // The store cipher, if any, to use when encrypting data
-    // before it is persisted to the IndexedDB database
+    // The store cipher, if any, to use when encrypting data before it is
+    // persisted to the IndexedDB database
     store_cipher: Option<Arc<StoreCipher>>,
 }
 
@@ -67,16 +67,16 @@ impl IndexeddbEventCacheStoreBuilder {
     }
 
     /// Sets the store cipher to use when encrypting data before it is persisted
-    /// to the IndexedDB database. By default, no store cipher is used -
-    /// i.e., data is not encrypted before it is persisted.
+    /// to the IndexedDB database. By default, no store cipher is used - i.e.,
+    /// data is not encrypted before it is persisted.
     pub fn store_cipher(mut self, store_cipher: Arc<StoreCipher>) -> Self {
         self.store_cipher = Some(store_cipher);
         self
     }
 
     /// Opens the IndexedDB database with the provided name. If successfully
-    /// opened, builds the [`IndexeddbEventCacheStore`] with that database
-    /// and the provided store cipher.
+    /// opened, builds the [`IndexeddbEventCacheStore`] with that database and
+    /// the provided store cipher.
     pub async fn build(self) -> Result<IndexeddbEventCacheStore, IndexeddbEventCacheStoreError> {
         Ok(IndexeddbEventCacheStore {
             inner: Rc::new(open_and_upgrade_db(&self.database_name).await?),

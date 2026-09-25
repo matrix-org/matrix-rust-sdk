@@ -15,7 +15,6 @@
 use std::{sync::Arc, time::Duration};
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{assert_let_timeout, executor::spawn, test_utils::mocks::MatrixMockServer};
@@ -26,6 +25,7 @@ use ruma::{
     events::room::message::{MessageType, RoomMessageEventContent},
     room_id, user_id,
 };
+use strass::assert_let;
 use stream_assert::{assert_next_matches, assert_pending};
 use tokio::task::yield_now;
 
@@ -110,7 +110,8 @@ async fn test_echo() {
         )
         .await;
 
-    // The Event Cache deduplicates the first event, but we receive a second one.
+    // The Event Cache deduplicates the first event, but we receive a second
+    // one.
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 5);
 
@@ -146,8 +147,8 @@ async fn test_retry_failed() {
     let (_, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
-    // When trying to send an event, return with a 500 error, which is interpreted
-    // as a transient error.
+    // When trying to send an event, return with a 500 error, which is
+    // interpreted as a transient error.
     let scoped_faulty_send = server.mock_room_send().error500().expect(3).mount_as_scoped().await;
 
     timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into()).await.unwrap();
@@ -209,9 +210,10 @@ async fn test_dedup_by_event_id_late() {
 
     server
         .mock_room_send()
-        // Not great to use a timer for this, but it's what wiremock gives us right now.
-        // Ideally we'd wait on a channel to produce a value or sth. like that, but
-        // wiremock doesn't allow to handle multiple queries at the same time.
+        // Not great to use a timer for this, but it's what wiremock gives us
+        // right now. Ideally we'd wait on a channel to produce a value or sth.
+        // like that, but wiremock doesn't allow to handle multiple queries at
+        // the same time.
         .ok_with_delay(event_id, Duration::from_millis(500))
         .mount()
         .await;
@@ -260,8 +262,8 @@ async fn test_dedup_by_event_id_late() {
     assert_let_timeout!(Duration::from_secs(2), Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 6);
 
-    // Local echo and its date divider are removed.
-    // Timeline: [date-divider, remote-echo, date-divider]
+    // Local echo and its date divider are removed. Timeline: [date-divider,
+    // remote-echo, date-divider]
     assert_let!(VectorDiff::Remove { index: 3 } = &timeline_updates[0]);
 
     // Timeline: [date-divider, remote-echo]

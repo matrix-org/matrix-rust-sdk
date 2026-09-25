@@ -66,7 +66,7 @@ async fn test_send_location_beacon() {
 
     let response = room.send_location_beacon("geo:48.8588448,2.2943506".to_owned()).await.unwrap();
 
-    assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
+    assert_eq!("$h29iv0s8:example.com", response.event_id)
 }
 
 #[async_test]
@@ -178,8 +178,8 @@ async fn test_most_recent_event_in_stream() {
     // querying.
     assert_let_timeout!(Ok(_) = event_cache_updates_stream.recv());
 
-    // Create the stream after syncing all beacon events — the initial snapshot is
-    // loaded from the event cache and already reflects the latest beacon.
+    // Create the stream after syncing all beacon events — the initial snapshot
+    // is loaded from the event cache and already reflects the latest beacon.
     let live_locations_observer = room.live_locations_observer().await;
     let (mut shares, _stream) = live_locations_observer.subscribe();
 
@@ -238,7 +238,8 @@ async fn test_observe_single_live_location_share() {
     let (initial, stream) = live_locations_observer.subscribe();
     pin_mut!(stream);
 
-    // Initial snapshot contains the beacon_info from state (no last_location yet).
+    // Initial snapshot contains the beacon_info from state (no last_location
+    // yet).
     assert_eq!(initial.len(), 1);
     assert!(initial[0].last_location.is_none());
 
@@ -357,7 +358,8 @@ async fn test_location_update_for_already_tracked_user() {
     let (initial, stream) = live_locations_observer.subscribe();
     pin_mut!(stream);
 
-    // Initial snapshot contains the beacon_info from state (no last_location yet).
+    // Initial snapshot contains the beacon_info from state (no last_location
+    // yet).
     assert_eq!(initial.len(), 1);
     assert!(initial[0].last_location.is_none());
 
@@ -382,12 +384,13 @@ async fn test_location_update_for_already_tracked_user() {
     });
     assert_eq!(shares.len(), 1);
     let share = &shares[0];
-    assert_eq!(share.user_id, user_id!("@alice:localhost"));
+    assert_eq!(share.user_id, "@alice:localhost");
     let last_location = share.last_location.as_ref().expect("Expected last location");
     assert_eq!(last_location.location.uri, "geo:10,20;u=5");
     assert_eq!(share.beacon_info.description, Some("Alice location".to_owned()));
 
-    // Alice's second beacon — already tracked, beacon_info is reused from cache.
+    // Alice's second beacon — already tracked, beacon_info is reused from
+    // cache.
     server
         .sync_room(
             &client,
@@ -408,10 +411,11 @@ async fn test_location_update_for_already_tracked_user() {
     });
     assert_eq!(shares.len(), 1);
     let LiveLocationShare { user_id, last_location, beacon_info, .. } = shares[0].clone();
-    assert_eq!(user_id, user_id!("@alice:localhost"));
+    assert_eq!(user_id, "@alice:localhost");
     let last_location = last_location.expect("Expected last location");
     assert_eq!(last_location.location.uri, "geo:30,40;u=10");
-    // beacon_info is preserved from the initial share — not re-fetched from state.
+    // beacon_info is preserved from the initial share — not re-fetched from
+    // state.
     assert_eq!(beacon_info.description, Some("Alice location".to_owned()));
 }
 
@@ -443,7 +447,8 @@ async fn test_beacon_info_stop_removes_user_from_stream() {
     let (initial, stream) = live_locations_observer.subscribe();
     pin_mut!(stream);
 
-    // Initial snapshot contains the beacon_info from state (no last_location yet).
+    // Initial snapshot contains the beacon_info from state (no last_location
+    // yet).
     assert_eq!(initial.len(), 1);
     assert!(initial[0].last_location.is_none());
 
@@ -554,13 +559,13 @@ async fn test_multiple_users_in_stream() {
     let mut shares: Vec<_> = shares.into_iter().collect();
     shares.sort_by_key(|s| s.user_id.clone());
 
-    assert_eq!(shares[0].user_id, user_id!("@alice:localhost"));
+    assert_eq!(shares[0].user_id, "@alice:localhost");
     assert_eq!(
         shares[0].last_location.as_ref().expect("Expected last location").location.uri,
         "geo:10,20;u=5"
     );
 
-    assert_eq!(shares[1].user_id, user_id!("@bob:localhost"));
+    assert_eq!(shares[1].user_id, "@bob:localhost");
     assert_eq!(
         shares[1].last_location.as_ref().expect("Expected last location").location.uri,
         "geo:50,60;u=8"
@@ -621,7 +626,7 @@ async fn test_initial_load_contains_location_from_event_cache() {
     // Initial snapshot should contain both beacon_info AND last_location.
     assert_eq!(initial.len(), 1);
     let share = &initial[0];
-    assert_eq!(share.user_id, user_id!("@alice:localhost"));
+    assert_eq!(share.user_id, "@alice:localhost");
     assert_eq!(share.beacon_info.description, Some("Alice location".to_owned()));
 
     let last_location =

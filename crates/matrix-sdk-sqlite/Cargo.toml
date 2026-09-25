@@ -1,6 +1,6 @@
 [package]
 name = "matrix-sdk-sqlite"
-version = "0.18.0"
+version = "0.19.1"
 edition = "2024"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 description = "Sqlite storage backend for matrix-sdk"
@@ -19,6 +19,7 @@ crypto-store = ["dep:matrix-sdk-base", "dep:matrix-sdk-crypto"]
 event-cache-store = ["dep:matrix-sdk-base"]
 media-store = ["dep:matrix-sdk-base"]
 state-store = ["dep:matrix-sdk-base"]
+uniffi = ["dep:uniffi"]
 
 experimental-encrypted-state-events = [
     "matrix-sdk-crypto?/experimental-encrypted-state-events"
@@ -30,6 +31,7 @@ experimental-push-secrets = [
 [dependencies]
 as_variant.workspace = true
 async-trait.workspace = true
+base64.workspace = true
 deadpool = { version = "0.13", default-features = false, features = ["managed", "rt_tokio_1"] }
 deadpool-sync = { version = "0.2", default-features = false }
 itertools.workspace = true
@@ -39,13 +41,14 @@ matrix-sdk-store-encryption.workspace = true
 num_cpus = { version = "1.17.0", default-features = false }
 rmp-serde.workspace = true
 ruma.workspace = true
-rusqlite = { version = "0.40.1", default-features = false, features = ["limits", "fallible_uint", "cache"] }
+rusqlite = { version = "0.40.2", default-features = false, features = ["limits", "fallible_uint", "cache"] }
 serde.workspace = true
 serde_json.workspace = true
 serde_path_to_error = { version = "0.1.20", default-features = false }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs"] }
 tracing.workspace = true
+uniffi = { workspace = true, optional = true }
 vodozemac.workspace = true
 zeroize.workspace = true
 

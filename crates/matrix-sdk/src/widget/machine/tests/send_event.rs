@@ -1,5 +1,5 @@
-use assert_matches2::assert_let;
 use ruma::events::TimelineEventType;
+use strass::assert_let;
 
 use super::WIDGET_ID;
 use crate::widget::machine::{

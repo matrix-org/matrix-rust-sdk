@@ -7,7 +7,7 @@ license = "Apache-2.0"
 name = "matrix-sdk-common"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version.workspace = true
-version = "0.18.0"
+version = "0.19.1"
 
 [package.metadata.docs.rs]
 default-target = "x86_64-unknown-linux-gnu"
@@ -49,12 +49,12 @@ gloo-timers = { workspace = true, features = ["futures"] }
 tokio = { workspace = true, features = ["sync", "macros", "time"] }
 tracing-subscriber = { workspace = true, features = ["fmt", "ansi"] }
 wasm-bindgen.workspace = true
-wasm-bindgen-futures = { version = "0.4.76", optional = true }
+wasm-bindgen-futures = { version = "0.4.78", optional = true }
 web-sys = { workspace = true, features = ["console"] }
 
 [dev-dependencies]
 assert_matches.workspace = true
-assert_matches2.workspace = true
+strass.workspace = true
 insta.workspace = true
 matrix-sdk-test-macros = { path = "../../testing/matrix-sdk-test-macros" }
 matrix-sdk-test-utils.workspace = true

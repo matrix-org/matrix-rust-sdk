@@ -52,9 +52,8 @@ pub async fn update_or_set_if_room_is_newly_encrypted(
         && let Some(olm) = olm_machine
     {
         if !previous_room_encryption_state.is_encrypted() {
-            // The room turned on encryption in this sync, we need
-            // to also get all the existing users and mark them for
-            // tracking.
+            // The room turned on encryption in this sync, we need to also get
+            // all the existing users and mark them for tracking.
             let user_ids = state_store.get_user_ids(room_id, RoomMemberships::ACTIVE).await?;
             olm.update_tracked_users(user_ids.iter().map(AsRef::as_ref)).await?
         }

@@ -42,8 +42,8 @@ pub struct LiveLocationShare {
     pub user_id: String,
     /// The time when location sharing started.
     pub start_ts: u64,
-    /// The duration that the location sharing will be live.
-    /// Meaning that the location will stop being shared at ts + timeout.
+    /// The duration that the location sharing will be live. Meaning that the
+    /// location will stop being shared at ts + timeout.
     pub timeout: u64,
     /// The event ID of the beacon_info state event for this share.
     pub beacon_id: String,
@@ -83,8 +83,8 @@ pub enum LiveLocationShareUpdate {
 /// Listener for live location share updates.
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait LiveLocationsListener: SendOutsideWasm + SyncOutsideWasm + Debug {
-    /// Called with a batch of [`LiveLocationShareUpdate`]s whenever the list
-    /// of active shares changes.
+    /// Called with a batch of [`LiveLocationShareUpdate`]s whenever the list of
+    /// active shares changes.
     fn on_update(&self, updates: Vec<LiveLocationShareUpdate>);
 }
 
@@ -112,8 +112,8 @@ impl LiveLocationsObserver {
     /// current snapshot (if non-empty), then calls it again for every
     /// subsequent change that arrives from sync.
     ///
-    /// Returns a [`TaskHandle`] that, when dropped, stops the listener.
-    /// The event handlers remain registered for as long as this
+    /// Returns a [`TaskHandle`] that, when dropped, stops the listener. The
+    /// event handlers remain registered for as long as this
     /// [`LiveLocationsObserver`] object is alive.
     pub fn subscribe(&self, listener: Box<dyn LiveLocationsListener>) -> Arc<TaskHandle> {
         let (initial_values, mut stream) = self.inner.subscribe();

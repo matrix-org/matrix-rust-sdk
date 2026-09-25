@@ -112,7 +112,7 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The id of the user for which we wish to fetch the presence
+    /// - `user_id` - The id of the user for which we wish to fetch the presence
     /// event for.
     async fn get_presence_event(
         &self,
@@ -161,11 +161,9 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The id of the room to find events for.
-    ///
-    /// * `event_type` - The event type.
-    ///
-    /// * `state_keys` - The list of state keys to find.
+    /// - `room_id` - The id of the room to find events for.
+    /// - `event_type` - The event type.
+    /// - `state_keys` - The list of state keys to find.
     async fn get_state_events_for_keys(
         &self,
         room_id: &RoomId,
@@ -217,10 +215,9 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The id of the room for which the display name users should
+    /// - `room_id` - The id of the room for which the display name users should
     /// be fetched for.
-    ///
-    /// * `display_name` - The display name that the users use.
+    /// - `display_name` - The display name that the users use.
     async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
@@ -254,11 +251,10 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The id of the room for which the room account data event
+    /// - `room_id` - The id of the room for which the room account data event
     ///   should
     /// be fetched.
-    ///
-    /// * `event_type` - The event type of the room account data event.
+    /// - `event_type` - The event type of the room account data event.
     async fn get_room_account_data_event(
         &self,
         room_id: &RoomId,
@@ -269,14 +265,12 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The id of the room for which the receipt should be
+    /// - `room_id` - The id of the room for which the receipt should be
     ///   fetched.
     ///
-    /// * `receipt_type` - The type of the receipt.
-    ///
-    /// * `receipt_thread` - The thread a receipt applies to.
-    ///
-    /// * `user_id` - The id of the user for whom the receipt should be fetched.
+    /// - `receipt_type` - The type of the receipt.
+    /// - `receipt_thread` - The thread a receipt applies to.
+    /// - `user_id` - The id of the user for whom the receipt should be fetched.
     async fn get_user_room_receipt_event(
         &self,
         room_id: &RoomId,
@@ -289,14 +283,12 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The id of the room for which the receipts should be
+    /// - `room_id` - The id of the room for which the receipts should be
     ///   fetched.
     ///
-    /// * `receipt_type` - The type of the receipts.
-    ///
-    /// * `receipt_thread` - The thread a receipt applies to.
-    ///
-    /// * `event_id` - The id of the event for which the receipts should be
+    /// - `receipt_type` - The type of the receipts.
+    /// - `receipt_thread` - The thread a receipt applies to.
+    /// - `event_id` - The id of the event for which the receipts should be
     ///   fetched.
     async fn get_event_room_receipt_events(
         &self,
@@ -365,9 +357,8 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `key` - The key to insert data into
-    ///
-    /// * `value` - The value to insert
+    /// - `key` - The key to insert data into
+    /// - `value` - The value to insert
     async fn set_custom_value(
         &self,
         key: &[u8],
@@ -384,9 +375,8 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `key` - The key to insert data into
-    ///
-    /// * `value` - The value to insert
+    /// - `key` - The key to insert data into
+    /// - `value` - The value to insert
     async fn set_custom_value_no_read(
         &self,
         key: &[u8],
@@ -413,11 +403,11 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The `RoomId` of the send queue's room.
-    /// * `transaction_id` - The unique key identifying the event to be sent
+    /// - `room_id` - The `RoomId` of the send queue's room.
+    /// - `transaction_id` - The unique key identifying the event to be sent
     ///   (and its transaction). Note: this is expected to be randomly generated
     ///   and thus unique.
-    /// * `content` - Serializable event content to be sent.
+    /// - `content` - Serializable event content to be sent.
     async fn save_send_queue_request(
         &self,
         room_id: &RoomId,
@@ -432,10 +422,10 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The `RoomId` of the send queue's room.
-    /// * `transaction_id` - The unique key identifying the request to be sent
+    /// - `room_id` - The `RoomId` of the send queue's room.
+    /// - `transaction_id` - The unique key identifying the request to be sent
     ///   (and its transaction).
-    /// * `content` - Serializable event content to replace the original one.
+    /// - `content` - Serializable event content to replace the original one.
     ///
     /// Returns true if a request has been updated, or false otherwise.
     async fn update_send_queue_request(
@@ -541,8 +531,8 @@ pub trait StateStore: AsyncTraitDeps {
     /// bumpstamp is kept.
     ///
     /// If the new thread subscription has a bumpstamp that's lower than or
-    /// equal to a previous one, the existing subscription is kept, i.e.
-    /// this method must have no effect.
+    /// equal to a previous one, the existing subscription is kept, i.e. this
+    /// method must have no effect.
     async fn upsert_thread_subscriptions(
         &self,
         updates: Vec<(&RoomId, &EventId, StoredThreadSubscription)>,
@@ -1679,9 +1669,8 @@ impl<T> SaveLockedStateStore<T> {
 
 impl<T: StateStore> SaveLockedStateStore<T> {
     /// Provides a means of calling [`StateStore::save_changes`] when the caller
-    /// has already acquired the underlying [`Mutex`]. Returns an error if
-    /// the [`MutexGuard`] provided does not reference the underlying
-    /// [`Mutex`].
+    /// has already acquired the underlying [`Mutex`]. Returns an error if the
+    /// [`MutexGuard`] provided does not reference the underlying [`Mutex`].
     pub async fn save_changes_with_guard(
         &self,
         guard: &MutexGuard<'_, ()>,
@@ -1695,9 +1684,8 @@ impl<T: StateStore> SaveLockedStateStore<T> {
     }
 
     /// Provides a means of calling [`StateStore::remove_room`] when the caller
-    /// has already acquired the underlying [`Mutex`]. Returns an error if
-    /// the [`MutexGuard`] provided does not reference the underlying
-    /// [`Mutex`].
+    /// has already acquired the underlying [`Mutex`]. Returns an error if the
+    /// [`MutexGuard`] provided does not reference the underlying [`Mutex`].
     pub async fn remove_room_with_guard(
         &self,
         guard: &MutexGuard<'_, ()>,
@@ -2110,7 +2098,8 @@ pub trait StateStoreExt: StateStore {
             + RedactContent,
         C::Redacted: RedactedStateEventContent,
     {
-        // FIXME: Could be more efficient, if we had streaming store accessor functions
+        // FIXME: Could be more efficient, if we had streaming store accessor
+        // functions
         Ok(self
             .get_state_events(room_id, C::TYPE.into())
             .await?
@@ -2124,9 +2113,8 @@ pub trait StateStoreExt: StateStore {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The id of the room to find events for.
-    ///
-    /// * `state_keys` - The list of state keys to find.
+    /// - `room_id` - The id of the room to find events for.
+    /// - `state_keys` - The list of state keys to find.
     async fn get_state_events_for_keys_static<'a, C, K, I>(
         &self,
         room_id: &RoomId,
@@ -2169,7 +2157,7 @@ pub trait StateStoreExt: StateStore {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The id of the room for which the room account data event
+    /// - `room_id` - The id of the room for which the room account data event
     ///   should be fetched.
     async fn get_room_account_data_event_static<C>(
         &self,
@@ -2246,8 +2234,8 @@ impl SupportedVersionsResponse {
         let mut supported_versions =
             SupportedVersions::from_parts(&self.versions, &self.unstable_features);
 
-        // We need at least one supported version to be able to make requests, so we
-        // default to Matrix 1.0.
+        // We need at least one supported version to be able to make requests,
+        // so we default to Matrix 1.0.
         if supported_versions.versions.is_empty() {
             supported_versions.versions.insert(MatrixVersion::V1_0);
         }
@@ -2312,8 +2300,7 @@ pub enum StateStoreDataValue {
     /// keys.
     OneTimeKeyAlreadyUploaded,
 
-    /// A composer draft for the room.
-    /// To learn more, see [`ComposerDraft`].
+    /// A composer draft for the room. To learn more, see [`ComposerDraft`].
     ///
     /// [`ComposerDraft`]: Self::ComposerDraft
     ComposerDraft(ComposerDraft),
@@ -2353,7 +2340,7 @@ pub struct ThreadSubscriptionCatchupToken {
     /// subscriptions.
     ///
     /// In sliding sync, it must be set to the `pos` value of the sliding sync
-    /// *request*, which response received a `prev_batch` token.
+    /// _request_, which response received a `prev_batch` token.
     pub to: Option<String>,
 }
 
@@ -2572,8 +2559,7 @@ pub enum StateStoreDataKey<'a> {
     /// duplicate one-time keys.
     OneTimeKeyAlreadyUploaded,
 
-    /// A composer draft for the room.
-    /// To learn more, see [`ComposerDraft`].
+    /// A composer draft for the room. To learn more, see [`ComposerDraft`].
     ///
     /// [`ComposerDraft`]: Self::ComposerDraft
     ComposerDraft(&'a RoomId, Option<&'a EventId>),
@@ -2594,10 +2580,10 @@ impl StateStoreDataKey<'_> {
 
     /// Key to use for the [`SupportedVersions`][Self::SupportedVersions]
     /// variant.
-    pub const SUPPORTED_VERSIONS: &'static str = "server_capabilities"; // Note: this is the old name, kept for backwards compatibility.
+    // Note: this is the old name, kept for backwards compatibility.
+    pub const SUPPORTED_VERSIONS: &'static str = "server_capabilities";
 
-    /// Key to use for the [`WellKnown`][Self::WellKnown]
-    /// variant.
+    /// Key to use for the [`WellKnown`][Self::WellKnown] variant.
     pub const WELL_KNOWN: &'static str = "well_known";
 
     /// Key prefix to use for the [`Filter`][Self::Filter] variant.
@@ -2623,12 +2609,13 @@ impl StateStoreDataKey<'_> {
     /// variant.
     pub const COMPOSER_DRAFT: &'static str = "composer_draft";
 
-    /// Key prefix to use for the
-    /// [`SeenKnockRequests`][Self::SeenKnockRequests] variant.
+    /// Key prefix to use for the [`SeenKnockRequests`][Self::SeenKnockRequests]
+    /// variant.
     pub const SEEN_KNOCK_REQUESTS: &'static str = "seen_knock_requests";
 
     /// Key prefix to use for the
-    /// [`ThreadSubscriptionsCatchupTokens`][Self::ThreadSubscriptionsCatchupTokens] variant.
+    /// [`ThreadSubscriptionsCatchupTokens`][Self::ThreadSubscriptionsCatchupTokens]
+    /// variant.
     pub const THREAD_SUBSCRIPTIONS_CATCHUP_TOKENS: &'static str =
         "thread_subscriptions_catchup_tokens";
 
@@ -2649,8 +2636,9 @@ pub fn compare_thread_subscription_bump_stamps(
     new: &mut Option<u64>,
 ) -> bool {
     match (previous, &new) {
-        // If the previous subscription had a bump stamp, and the new one doesn't, keep the
-        // previous one; it should be updated soon via sync anyways.
+        // If the previous subscription had a bump stamp, and the new one
+        // doesn't, keep the previous one; it should be updated soon via sync
+        // anyways.
         (Some(prev_bump), None) => {
             *new = Some(prev_bump);
         }
@@ -2760,12 +2748,13 @@ mod tests {
                 }
             });
 
-            // Try to save changes to the state store while the lock is held by another task
+            // Try to save changes to the state store while the lock is held by
+            // another task
             let save_task =
                 spawn(async move { state_store.save_changes(&StateChanges::default()).await });
 
-            // Ensure that the second task does not progress until the first task has
-            // completed and therefore release the save lock
+            // Ensure that the second task does not progress until the first
+            // task has completed and therefore release the save lock
             assert_matches!(future::select(lock_task, save_task).await, Either::Left((_, save_task)) => {
                 timeout(Duration::from_millis(100), save_task)
                     .await
@@ -2789,13 +2778,13 @@ mod tests {
                 }
             });
 
-            // Try to remove room from the state store while the lock is held by another
-            // task
+            // Try to remove room from the state store while the lock is held by
+            // another task
             let remove_task =
                 spawn(async move { state_store.remove_room(room_id!("!room")).await });
 
-            // Ensure that the second task does not progress until the first task has
-            // completed and therefore release the save lock
+            // Ensure that the second task does not progress until the first
+            // task has completed and therefore release the save lock
             assert_matches!(future::select(lock_task, remove_task).await, Either::Left((_, remove_task)) => {
                 timeout(Duration::from_millis(100), remove_task)
                     .await

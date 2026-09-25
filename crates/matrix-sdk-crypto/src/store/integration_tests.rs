@@ -3,7 +3,8 @@
 /// You need to provide a `async fn get_store() -> StoreResult<impl StateStore>`
 /// providing a fresh store on the same level you invoke the macro.
 ///
-/// ## Usage Example:
+/// ## Usage example
+///
 /// ```no_run
 /// # use matrix_sdk_crypto::store::{
 /// #    MemoryStore as MyCryptoStore,
@@ -394,10 +395,12 @@ macro_rules! cryptostore_integration_tests {
                 );
             }
 
-            /// Test that the behaviour of a key imported from an *old* backup is correct
+            /// Test that the behaviour of a key imported from an _old_ backup
+            /// is correct
             ///
-            /// This currently only works on the MemoryStore, so is ignored. The other stores
-            /// are waiting for more work on https://github.com/element-hq/element-web/issues/26892.
+            /// This currently only works on the MemoryStore, so is ignored. The
+            /// other stores are waiting for more work on
+            /// https://github.com/element-hq/element-web/issues/26892.
             #[ignore]
             #[async_test]
             async fn test_save_inbound_group_session_from_old_backup() {
@@ -519,8 +522,8 @@ macro_rules! cryptostore_integration_tests {
                     assert_eq!(to_back_up_old.len(), 0);
                 }
 
-                // Some stores ignore backup_version and just reset when you tell them to. Tell
-                // them here.
+                // Some stores ignore backup_version and just reset when you
+                // tell them to. Tell them here.
                 store.reset_backup_state().await.expect("reset failed");
 
                 // When we ask what needs backing up to a different backup version
@@ -608,8 +611,9 @@ macro_rules! cryptostore_integration_tests {
 
                 drop(store);
 
-                // The last session is in a different room, so should not be returned by
-                // get_inbound_group_sessions_by_room_id. Remove it from the list.
+                // The last session is in a different room, so should not be
+                // returned by get_inbound_group_sessions_by_room_id. Remove it
+                // from the list.
                 sessions.pop();
 
                 let store = get_store(dir, None, false).await;
@@ -691,8 +695,8 @@ macro_rules! cryptostore_integration_tests {
                 // Then the matching session is returned
                 assert_eq!(sessions_2_d, vec![dev_2_keys], "device 2 sessions");
 
-                // And we can fetch device 1, keys in batches.
-                // We call the batch function repeatedly, to ensure it terminates correctly.
+                // And we can fetch device 1, keys in batches. We call the batch
+                // function repeatedly, to ensure it terminates correctly.
                 let mut sessions_1_k = Vec::new();
                 let mut previous_last_session_id: Option<String> = None;
                 loop {
@@ -730,9 +734,11 @@ macro_rules! cryptostore_integration_tests {
 
             /// Assert that two lists of sessions are the same, modulo ordering.
             ///
-            /// There is no requirement for `get_inbound_group_sessions_for_device_batch` to
-            /// return the results in a specific order. This helper ensures that the two lists
-            /// of inbound group sessions are equivalent, without worrying about the ordering.
+            /// There is no requirement for
+            /// `get_inbound_group_sessions_for_device_batch` to return the
+            /// results in a specific order. This helper ensures that the two
+            /// lists of inbound group sessions are equivalent, without worrying
+            /// about the ordering.
             fn assert_session_lists_eq<I, J>(actual: I, expected: J, message: &str)
                 where I: IntoIterator<Item = InboundGroupSession>, J: IntoIterator<Item = InboundGroupSession>
             {
@@ -1641,11 +1647,13 @@ macro_rules! cryptostore_integration_tests_time {
                 let acquired2 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
                 assert_eq!(acquired2, Some(1)); // same lock generation
 
-                // Should extend the lease automatically (same holder + time is ok).
+                // Should extend the lease automatically (same holder + time is
+                // ok).
                 let acquired3 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
                 assert_eq!(acquired3, Some(1)); // same lock generation
 
-                // Another attempt at taking the lock should fail, because it's taken.
+                // Another attempt at taking the lock should fail, because it's
+                // taken.
                 let acquired4 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
                 assert!(acquired4.is_none()); // not acquired
 

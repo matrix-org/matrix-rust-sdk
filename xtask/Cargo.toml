@@ -14,7 +14,7 @@ name = "xtask"
 test = false
 
 [dependencies]
-camino = { version = "1.2.2", default-features = false, features = ["serde1"] }
+camino = { version = "1.2.6", default-features = false, features = ["serde1"] }
 chrono.workspace = true
 clap = { workspace = true, features = ["derive"] }
 fs_extra = "1"
@@ -25,6 +25,8 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 uniffi_bindgen.workspace = true
 url.workspace = true
+# Please keep this at 0.2.2 as updates break stdin inheritance which the release
+# subcommand needs.
 xshell = "0.2.2"
 
 [lints]

@@ -44,8 +44,8 @@ impl<T> ChunkIterator<T> {
             let chunk_size = cmp::min(items.len(), chunk_size.try_into().unwrap());
             // Split the items vector.
             let mut tail = items.split_off(chunk_size);
-            // `Vec::split_off` returns the tail, and `items` contains the head. Let's
-            // swap them.
+            // `Vec::split_off` returns the tail, and `items` contains the head.
+            // Let's swap them.
             mem::swap(&mut tail, &mut items);
             // Finally, let's rename `tail` to `head`.
             let head = tail;

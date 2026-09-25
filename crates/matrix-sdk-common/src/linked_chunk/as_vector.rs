@@ -149,37 +149,37 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
     /// Map several [`Update`] into [`VectorDiff`].
     ///
     /// How does this type transform `Update` into `VectorDiff`? There is no
-    /// internal buffer of kind [`eyeball_im::ObservableVector<Item>`],
-    /// which could have been used to generate the `VectorDiff`s. They are
-    /// computed manually.
+    /// internal buffer of kind [`eyeball_im::ObservableVector<Item>`], which
+    /// could have been used to generate the `VectorDiff`s. They are computed
+    /// manually.
     ///
     /// The only buffered data is pairs of [`ChunkIdentifier`] and
     /// [`ChunkLength`]. The following rules must be respected (they are defined
     /// in [`Self::new`]):
     ///
-    /// * A chunk of kind [`ChunkContent::Gap`] has a length of 0,
-    /// * A chunk of kind [`ChunkContent::Items`] has a length equals to its
+    /// - A chunk of kind [`ChunkContent::Gap`] has a length of 0,
+    /// - A chunk of kind [`ChunkContent::Items`] has a length equals to its
     ///   number of items,
-    /// * The pairs must be ordered exactly like the chunks in [`LinkedChunk`],
+    /// - The pairs must be ordered exactly like the chunks in [`LinkedChunk`],
     ///   i.e. the first pair must represent the first chunk, the last pair must
     ///   represent the last chunk.
     ///
     /// The only thing this algorithm does is maintaining the pairs:
     ///
-    /// * [`Update::NewItemsChunk`] and [`Update::NewGapChunk`] are inserting a
+    /// - [`Update::NewItemsChunk`] and [`Update::NewGapChunk`] are inserting a
     ///   new pair with a chunk length of 0 at the appropriate index,
-    /// * [`Update::RemoveChunk`] is removing a pair, and is potentially
+    /// - [`Update::RemoveChunk`] is removing a pair, and is potentially
     ///   emitting [`VectorDiff`],
-    /// * [`Update::PushItems`] is increasing the length of the appropriate pair
+    /// - [`Update::PushItems`] is increasing the length of the appropriate pair
     ///   by the number of new items, and is potentially emitting
     ///   [`VectorDiff`],
-    /// * [`Update::DetachLastItems`] is decreasing the length of the
+    /// - [`Update::DetachLastItems`] is decreasing the length of the
     ///   appropriate pair by the number of items to be detached; no
     ///   [`VectorDiff`] is emitted,
-    /// * [`Update::StartReattachItems`] and [`Update::EndReattachItems`] are
+    /// - [`Update::StartReattachItems`] and [`Update::EndReattachItems`] are
     ///   respectively muting or unmuting the emission of [`VectorDiff`] by
     ///   [`Update::PushItems`],
-    /// * [`Update::Clear`] reinitialises the state.
+    /// - [`Update::Clear`] reinitialises the state.
     ///
     /// The only `VectorDiff` that are emitted are [`VectorDiff::Insert`],
     /// [`VectorDiff::Append`], [`VectorDiff::Remove`] and
@@ -193,15 +193,15 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
     /// until it finds the appropriate pair (given by
     /// [`Update::PushItems::at`]). This is _the offset_. To this offset, the
     /// algorithm adds the position's index of the new items (still given by
-    /// [`Update::PushItems::at`]). This is _the index_. This logic works
-    /// for all cases as long as pairs are maintained according to the rules
+    /// [`Update::PushItems::at`]). This is _the index_. This logic works for
+    /// all cases as long as pairs are maintained according to the rules
     /// hereinabove.
     ///
     /// That's a pretty memory compact and computation efficient way to map a
     /// `Vec<Update<Item, Gap>>` into a `Vec<VectorDiff<Item>>`. The larger the
-    /// `LinkedChunk` capacity is, the fewer pairs the algorithm will have
-    /// to handle, e.g. for 1'000 items and a `LinkedChunk` capacity of 128,
-    /// it's only 8 pairs, that is 256 bytes.
+    /// `LinkedChunk` capacity is, the fewer pairs the algorithm will have to
+    /// handle, e.g. for 1'000 items and a `LinkedChunk` capacity of 128, it's
+    /// only 8 pairs, that is 256 bytes.
     ///
     /// [`LinkedChunk`]: super::LinkedChunk
     /// [`ChunkContent::Gap`]: super::ChunkContent::Gap
@@ -214,33 +214,33 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
 
         // Flags specifying when updates are reattaching detached items.
         //
-        // TL;DR: This is an optimization to avoid that insertions in the middle of a
-        // chunk cause a large series of `VectorDiff::Remove` and
+        // TL;DR: This is an optimization to avoid that insertions in the middle
+        // of a chunk cause a large series of `VectorDiff::Remove` and
         // `VectorDiff::Insert` updates for the elements placed after the
         // inserted item.
         //
         // Why is it useful?
         //
-        // Imagine a `LinkedChunk::<3, char, ()>` containing `['a', 'b', 'c'] ['d']`. If
-        // one wants to insert [`w`, x`, 'y', 'z'] at position
-        // `Position(ChunkIdentifier(0), 1)`, i.e. at the position of `b`, here is what
-        // happens:
+        // Imagine a `LinkedChunk::<3, char, ()>` containing
+        // `['a', 'b', 'c'] ['d']`. If one wants to insert [`w`,
+        // x`, 'y', 'z'] at position `Position(ChunkIdentifier(0),
+        // 1)`, i.e. at the position of `b`, here is what happens:
         //
         // 1. `LinkedChunk` will split off `['a', 'b', 'c']` at index 1, the chunk
         //    becomes `['a']` and `b` and `c` are _detached_, thus we have:
         //
-        //     ['a'] ['d']
+        //    ['a'] ['d']
         //
         // 2. `LinkedChunk` will then insert `w`, `x`, `y` and `z` to get:
         //
-        //     ['a', 'w', 'x'] ['y', 'z'] ['d']
+        //    ['a', 'w', 'x'] ['y', 'z'] ['d']
         //
         // 3. `LinkedChunk` will now reattach `b` and `c` after `z`, like so:
         //
-        //     ['a', 'w', 'x'] ['y', 'z', 'b'] ['c'] ['d']
+        //    ['a', 'w', 'x'] ['y', 'z', 'b'] ['c'] ['d']
         //
-        // This detaching/reattaching approach makes it reliable and safe. Good. Now,
-        // what updates are we going to receive for each step?
+        // This detaching/reattaching approach makes it reliable and safe. Good.
+        // Now, what updates are we going to receive for each step?
         //
         // Step 1, detaching last items:
         //
@@ -288,14 +288,13 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
         //
         // To ensure an optimised behaviour of this algorithm:
         //
-        // * `Update::DetachLastItems` must not emit `VectorDiff::Remove`,
-        //
-        // * `Update::PushItems` must not emit `VectorDiff::Insert`s or
+        // - `Update::DetachLastItems` must not emit `VectorDiff::Remove`,
+        // - `Update::PushItems` must not emit `VectorDiff::Insert`s or
         //   `VectorDiff::Append`s if it happens after `StartReattachItems` and before
         //   `EndReattachItems`. However, `Self::chunks` must always be updated.
         //
-        // From the `VectorDiff` “point of view”, this optimisation aims at avoiding
-        // removing items to push them again later.
+        // From the `VectorDiff` “point of view”, this optimisation aims at
+        // avoiding removing items to push them again later.
         let mut reattaching = false;
         let mut detaching = false;
 
@@ -306,8 +305,9 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
                     match (previous, next) {
                         // New chunk at the end.
                         (Some(_previous), None) => {
-                            // No need to check `previous`. It's possible that the linked chunk is
-                            // lazily loaded, chunk by chunk. The `next` is always reliable, but the
+                            // No need to check `previous`. It's possible that
+                            // the linked chunk is lazily loaded, chunk by
+                            // chunk. The `next` is always reliable, but the
                             // `previous` might not exist in-memory yet.
 
                             self.chunks.push_back((*new, 0));
@@ -329,15 +329,19 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
                                 .chunks
                                 .iter()
                                 .position(|(chunk_identifier, _)| chunk_identifier == next)
-                                // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates` are not
-                                // buggy, and assuming `Self::chunks` is correctly initialized, it
-                                // is not possible to insert a chunk between two chunks where one
-                                // does not exist. If this predicate fails, it means `LinkedChunk`
-                                // or `ObservableUpdates` contain a bug.
+                                // SAFETY: Assuming `LinkedChunk` and
+                                // `ObservableUpdates` are not buggy, and
+                                // assuming `Self::chunks` is correctly
+                                // initialized, it is not possible to insert a
+                                // chunk between two chunks where one does not
+                                // exist. If this predicate fails, it means
+                                // `LinkedChunk` or `ObservableUpdates` contain
+                                // a bug.
                                 .expect("Inserting new chunk: The chunk is not found");
 
-                            // No need to check `previous`. It's possible that the linked chunk is
-                            // lazily loaded, chunk by chunk. The `next` is always reliable, but the
+                            // No need to check `previous`. It's possible that
+                            // the linked chunk is lazily loaded, chunk by
+                            // chunk. The `next` is always reliable, but the
                             // `previous` might not exist in-memory yet.
 
                             self.chunks.insert(next_chunk_index, (*new, 0));
@@ -367,7 +371,8 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
                         .remove(chunk_index)
                         .expect("Removing an index out of the bounds");
 
-                    // Removing at the same index because each `Remove` shifts items to the left.
+                    // Removing at the same index because each `Remove` shifts
+                    // items to the left.
                     acc.extend(repeat_n(VectorDiff::Remove { index: offset }, number_of_items));
                 }
 
@@ -386,7 +391,8 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
                         continue;
                     }
 
-                    // Optimisation: we can emit a `VectorDiff::Append` in this particular case.
+                    // Optimisation: we can emit a `VectorDiff::Append` in this
+                    // particular case.
                     if is_pushing_back && !detaching {
                         acc.extend([VectorDiff::Append { values: items.into() }]);
                     }
@@ -431,10 +437,12 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
                         .find_map(|(chunk_identifier, chunk_length)| {
                             (*chunk_identifier == expected_chunk_identifier).then_some(chunk_length)
                         })
-                        // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates` are not buggy, and
-                        // assuming `Self::chunks` is correctly initialized, it is not possible to
-                        // detach items from a chunk that does not exist. If this predicate fails,
-                        // it means `LinkedChunk` or `ObservableUpdates` contain a bug.
+                        // SAFETY: Assuming `LinkedChunk` and
+                        // `ObservableUpdates` are not buggy, and assuming
+                        // `Self::chunks` is correctly initialized, it is not
+                        // possible to detach items from a chunk that does not
+                        // exist. If this predicate fails, it means
+                        // `LinkedChunk` or `ObservableUpdates` contain a bug.
                         .expect("Detach last items: The chunk is not found");
 
                     *chunk_length = new_length;
@@ -491,9 +499,10 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
 
                 // Chunk has not been found.
                 ControlFlow::Continue(..) => {
-                    // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates` are not buggy, and
-                    // assuming `Self::chunks` is correctly initialized, it is not possible to work
-                    // on a chunk that does not exist. If this predicate fails, it means
+                    // SAFETY: Assuming `LinkedChunk` and `ObservableUpdates`
+                    // are not buggy, and assuming `Self::chunks` is correctly
+                    // initialized, it is not possible to work on a chunk that
+                    // does not exist. If this predicate fails, it means
                     // `LinkedChunk` or `ObservableUpdates` contain a bug.
                     panic!("The chunk is not found");
                 }
@@ -807,8 +816,8 @@ mod tests {
             assert_eq!(diffs.len(), 1);
             assert_matches!(&diffs[0], VectorDiff::Clear);
 
-            // 0 chunk in the `UpdateToVectorDiff` mapper, because the new chunk is lazily
-            // created.
+            // 0 chunk in the `UpdateToVectorDiff` mapper, because the new chunk
+            // is lazily created.
             let chunks = &as_vector.mapper.chunks;
             assert!(chunks.is_empty());
         }
@@ -870,8 +879,8 @@ mod tests {
 
         assert!(as_vector.take().is_empty());
 
-        // It's important to cause a change that will create new chunks, like pushing
-        // enough items.
+        // It's important to cause a change that will create new chunks, like
+        // pushing enough items.
         linked_chunk.push_items_back(['e', 'f', 'g']);
         #[rustfmt::skip]
         assert_items_eq!(linked_chunk, ['a', 'b', 'c'] ['d', 'e', 'f'] ['g']);
@@ -957,8 +966,8 @@ mod tests {
         let d_e_and_f = linked_chunk.item_position(|item| *item == 'f').unwrap().chunk_identifier();
         let updates = linked_chunk.updates().unwrap();
         updates.push(Update::RemoveChunk(d_e_and_f));
-        // Note that `linked_chunk` is getting out of sync with `AsVector`
-        // but it's just a test. Better, it's the end of the test.
+        // Note that `linked_chunk` is getting out of sync with `AsVector` but
+        // it's just a test. Better, it's the end of the test.
 
         // From an `ObservableVector` point of view, it would look like:
         //

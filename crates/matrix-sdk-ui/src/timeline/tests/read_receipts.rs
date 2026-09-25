@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{assert_matches, sync::Arc};
 
-use assert_matches2::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::assert_next_with_timeout;
 use matrix_sdk_test::{
@@ -459,11 +458,11 @@ async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
 async fn test_read_receipts_updates_on_message_decryption() {
     use std::io::Cursor;
 
-    use assert_matches2::assert_let;
     use matrix_sdk_base::crypto::decrypt_room_key_export;
     use ruma::events::room::encrypted::{
         EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
     };
+    use strass::assert_let;
 
     use crate::timeline::{EncryptedMessage, TimelineItemContent};
 
@@ -542,17 +541,17 @@ async fn test_read_receipts_updates_on_message_decryption() {
     let updates = assert_next_with_timeout!(stream);
 
     // The first event only has Carol's receipt.
-    assert_matches!(&updates[0], VectorDiff::PushBack { value });
+    assert_let!(VectorDiff::PushBack { value } = &updates[0]);
     let clear_event = value.as_event().unwrap();
     assert!(clear_event.content().is_message());
     assert_eq!(clear_event.read_receipts().len(), 1);
     assert!(clear_event.read_receipts().get(*CAROL).is_some());
 
-    assert_matches!(&updates[2], VectorDiff::PushFront { value });
+    assert_let!(VectorDiff::PushFront { value } = &updates[2]);
     assert!(value.is_date_divider());
 
     // The second event is encrypted and only has Bob's receipt.
-    assert_matches!(&updates[1], VectorDiff::PushBack { value });
+    assert_let!(VectorDiff::PushBack { value } = &updates[1]);
     let encrypted_event = value.as_event().unwrap();
 
     assert_let!(
@@ -584,7 +583,7 @@ async fn test_read_receipts_updates_on_message_decryption() {
 
     let updates = assert_next_with_timeout!(stream);
     // The first event now has both receipts.
-    assert_matches!(&updates[0], VectorDiff::Set { index: 1, value });
+    assert_let!(VectorDiff::Set { index: 1, value } = &updates[0]);
     let clear_event = value.as_event().unwrap();
     assert!(clear_event.content().is_message());
     assert_eq!(clear_event.read_receipts().len(), 2);
@@ -774,6 +773,7 @@ async fn test_clear_read_receipts() {
 #[async_test]
 async fn test_implicit_read_receipt_before_explicit_read_receipt() {
     // Test a timeline in this order:
+    //
     // 1. $alice_event: sent by alice, has no explicit read receipts.
     // 2. $bob_event: sent by bob, has no explicit read receipts.
     // 3. $carol_event: sent by carol, has the explicit read receipts of all users.
@@ -895,12 +895,12 @@ async fn test_threaded_latest_user_read_receipt() {
     // Implicit receipts are taken into account.
     let (receipt_event_id, receipt) =
         timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
-    assert_eq!(receipt_event_id, event_id!("$1"));
+    assert_eq!(receipt_event_id, "$1");
     assert_eq!(receipt.thread, receipt_thread);
 
     let (receipt_event_id, receipt) =
         timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
-    assert_eq!(receipt_event_id, event_id!("$2"));
+    assert_eq!(receipt_event_id, "$2");
     assert_eq!(receipt.thread, receipt_thread);
 
     timeline
@@ -910,13 +910,13 @@ async fn test_threaded_latest_user_read_receipt() {
     // Alice's latest read receipt is updated.
     let (receipt_event_id, receipt) =
         timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
-    assert_eq!(receipt_event_id, event_id!("$3"));
+    assert_eq!(receipt_event_id, "$3");
     assert_eq!(receipt.thread, receipt_thread);
 
     // But Bob's isn't.
     let (receipt_event_id, receipt) =
         timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
-    assert_eq!(receipt_event_id, event_id!("$2"));
+    assert_eq!(receipt_event_id, "$2");
     assert_eq!(receipt.thread, receipt_thread);
 
     // Bob sees Alice's message.
@@ -932,13 +932,13 @@ async fn test_threaded_latest_user_read_receipt() {
     // Alice's latest read receipt is at the same position.
     let (receipt_event_id, receipt) =
         timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
-    assert_eq!(receipt_event_id, event_id!("$3"));
+    assert_eq!(receipt_event_id, "$3");
     assert_eq!(receipt.thread, receipt_thread);
 
     // But Bob's has moved!
     let (receipt_event_id, receipt) =
         timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
-    assert_eq!(receipt_event_id, event_id!("$3"));
+    assert_eq!(receipt_event_id, "$3");
     assert_eq!(receipt.thread, receipt_thread);
 }
 

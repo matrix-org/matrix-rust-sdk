@@ -33,9 +33,10 @@ pub enum QrVerificationData {
     /// cross-signing key for the corresponding user.
     ///
     /// In this case, the QR code data includes:
-    ///  * The master cross-signing key of the displaying device's user.
-    ///  * What the displaying device believes is the master cross-signing key
-    ///    of the scanning device's user.
+    ///
+    /// - The master cross-signing key of the displaying device's user.
+    /// - What the displaying device believes is the master cross-signing key of
+    ///   the scanning device's user.
     ///
     /// After a successful verification, each device will trust the
     /// cross-signing key of the other user, and will upload a cross-signature
@@ -49,14 +50,15 @@ pub enum QrVerificationData {
     /// and the scanning device is new.
     ///
     /// In this case, the QR code data includes:
-    ///  * The master cross-signing key (which is trusted by the displaying
-    ///    device).
-    ///  * What the displaying device believes is the device key of the scanning
-    ///    device.
+    ///
+    /// - The master cross-signing key (which is trusted by the displaying
+    ///   device).
+    /// - What the displaying device believes is the device key of the scanning
+    ///   device.
     ///
     /// After a successful verification, the scanning device will be able to
-    /// trust the master key, and the displaying device will be able to
-    /// trust the scanning device's device key.
+    /// trust the master key, and the displaying device will be able to trust
+    /// the scanning device's device key.
     ///
     /// Since the displaying device should be cross-signed already, this means
     /// that the scanning device will now trust the displaying device.
@@ -73,8 +75,9 @@ pub enum QrVerificationData {
     /// scanning device is an existing device.
     ///
     /// In this case, the QR code data includes:
-    ///  * The displaying device's device key.
-    ///  * What the displaying device believes is the master cross-signing key.
+    ///
+    /// - The displaying device's device key.
+    /// - What the displaying device believes is the master cross-signing key.
     ///
     /// If the verification is successful, the scanning device will be able to
     /// trust the displaying device's device key, and the displaying device will
@@ -114,9 +117,10 @@ impl QrVerificationData {
     ///
     /// # Arguments
     ///
-    /// * `bytes` - The raw bytes of a decoded QR code.
+    /// - `bytes` - The raw bytes of a decoded QR code.
     ///
     /// # Examples
+    ///
     /// ```
     /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
@@ -145,6 +149,7 @@ impl QrVerificationData {
     /// base64.
     ///
     /// # Examples
+    ///
     /// ```
     /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
@@ -175,6 +180,7 @@ impl QrVerificationData {
     /// not valid base64.
     ///
     /// # Examples
+    ///
     /// ```
     /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
@@ -206,23 +212,23 @@ impl QrVerificationData {
     ///
     /// The byte slice consists of the following parts:
     ///
-    /// * the ASCII string MATRIX
-    /// * one byte indicating the QR code version (must be 0x02)
-    /// * one byte indicating the QR code verification mode. one of the
+    /// - the ASCII string MATRIX
+    /// - one byte indicating the QR code version (must be 0x02)
+    /// - one byte indicating the QR code verification mode. one of the
     ///   following values:
-    ///     * 0x00 verifying another user with cross-signing
-    ///     * 0x01 self-verifying in which the current device does trust the
-    ///       master key
-    ///     * 0x02 self-verifying in which the current device does not yet trust
-    ///       the master key
-    /// * the event ID or transaction_id of the associated verification request
+    ///   - 0x00 verifying another user with cross-signing
+    ///   - 0x01 self-verifying in which the current device does trust the
+    ///     master key
+    ///   - 0x02 self-verifying in which the current device does not yet trust
+    ///     the master key
+    /// - the event ID or transaction_id of the associated verification request
     ///   event, encoded as:
-    ///     * two bytes in network byte order (big-endian) indicating the length
-    ///       in bytes of the ID as a UTF-8 string
-    ///     * the ID as a UTF-8 string
-    /// * the first key, as 32 bytes
-    /// * the second key, as 32 bytes
-    /// * a random shared secret, as a byte string. as we do not share the
+    ///   - two bytes in network byte order (big-endian) indicating the length
+    ///     in bytes of the ID as a UTF-8 string
+    ///   - the ID as a UTF-8 string
+    /// - the first key, as 32 bytes
+    /// - the second key, as 32 bytes
+    /// - a random shared secret, as a byte string. as we do not share the
     ///   length of the secret, and it is not a fixed size, clients will just
     ///   use the remainder of binary string as the shared secret.
     ///
@@ -349,15 +355,14 @@ impl VerificationData {
     /// Create a new `VerificationData` struct that can be encoded as a QR code.
     ///
     /// # Arguments
-    /// * `flow_id` - The event ID or transaction ID of the
+    ///
+    /// - `flow_id` - The event ID or transaction ID of the
     ///   `m.key.verification.request` event that initiated the verification
     ///   flow this QR code should be part of.
     ///
-    /// * `first_master_key` - Our own cross signing master key.
-    ///
-    /// * `second_master_key` - The cross signing master key of the other user.
-    ///
-    /// * `shared_secret` - A random bytestring encoded as unpadded base64,
+    /// - `first_master_key` - Our own cross signing master key.
+    /// - `second_master_key` - The cross signing master key of the other user.
+    /// - `shared_secret` - A random bytestring encoded as unpadded base64,
     ///   needs to be at least 8 bytes long.
     pub fn new(
         flow_id: String,
@@ -368,13 +373,14 @@ impl VerificationData {
         Self { flow_id, first_master_key, second_master_key, shared_secret }
     }
 
-    /// Encode the `VerificationData` into a vector of bytes that can be
-    /// encoded as a QR code.
+    /// Encode the `VerificationData` into a vector of bytes that can be encoded
+    /// as a QR code.
     ///
     /// The encoding can fail if the master keys that should be encoded are not
     /// valid base64.
     ///
     /// # Examples
+    ///
     /// ```
     /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
@@ -432,8 +438,8 @@ impl From<VerificationData> for QrVerificationData {
 /// The non-encoded data for the second mode of QR code verification.
 ///
 /// This mode is used for verification between two devices of the same user
-/// where this device, that is creating this QR code, is trusting or owning
-/// the cross signing master key.
+/// where this device, that is creating this QR code, is trusting or owning the
+/// cross signing master key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SelfVerificationData {
     transaction_id: String,
@@ -449,15 +455,14 @@ impl SelfVerificationData {
     /// code.
     ///
     /// # Arguments
-    /// * `transaction_id` - The transaction id of this verification flow, the
+    ///
+    /// - `transaction_id` - The transaction id of this verification flow, the
     ///   transaction id was sent by the `m.key.verification.request` event that
     ///   initiated the verification flow this QR code should be part of.
     ///
-    /// * `master_key` - Our own cross signing master key.
-    ///
-    /// * `device_key` - The ed25519 key of the other device.
-    ///
-    /// * `shared_secret` - A random bytestring encoded as unpadded base64,
+    /// - `master_key` - Our own cross signing master key.
+    /// - `device_key` - The ed25519 key of the other device.
+    /// - `shared_secret` - A random bytestring encoded as unpadded base64,
     ///   needs to be at least 8 bytes long.
     pub fn new(
         transaction_id: String,
@@ -475,6 +480,7 @@ impl SelfVerificationData {
     /// base64.
     ///
     /// # Examples
+    ///
     /// ```
     /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
@@ -532,8 +538,8 @@ impl From<SelfVerificationData> for QrVerificationData {
 /// The non-encoded data for the third mode of QR code verification.
 ///
 /// This mode is used for verification between two devices of the same user
-/// where this device, that is creating this QR code, is not trusting the
-/// cross signing master key.
+/// where this device, that is creating this QR code, is not trusting the cross
+/// signing master key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SelfVerificationNoMasterKey {
     transaction_id: String,
@@ -549,15 +555,14 @@ impl SelfVerificationNoMasterKey {
     /// code.
     ///
     /// # Arguments
-    /// * `transaction_id` - The transaction id of this verification flow, the
+    ///
+    /// - `transaction_id` - The transaction id of this verification flow, the
     ///   transaction id was sent by the `m.key.verification.request` event that
     ///   initiated the verification flow this QR code should be part of.
     ///
-    /// * `device_key` - The ed25519 key of our own device.
-    ///
-    /// * `master_key` - Our own cross signing master key.
-    ///
-    /// * `shared_secret` - A random bytestring encoded as unpadded base64,
+    /// - `device_key` - The ed25519 key of our own device.
+    /// - `master_key` - Our own cross signing master key.
+    /// - `shared_secret` - A random bytestring encoded as unpadded base64,
     ///   needs to be at least 8 bytes long.
     pub fn new(
         transaction_id: String,
@@ -575,6 +580,7 @@ impl SelfVerificationNoMasterKey {
     /// base64.
     ///
     /// # Examples
+    ///
     /// ```
     /// # use matrix_sdk_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {

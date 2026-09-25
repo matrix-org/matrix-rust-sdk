@@ -54,12 +54,11 @@ const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
 const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
 /// The server name used to generate local MXC URIs.
 // This mustn't represent a potentially valid media server, otherwise it'd be
-// possible for an attacker to return malicious content under some
-// preconditions (e.g. the cache store has been cleared before the upload
-// took place). To mitigate against this, we use the .localhost TLD,
-// which is guaranteed to be on the local machine. As a result, the only attack
-// possible would be coming from the user themselves, which we consider a
-// non-threat.
+// possible for an attacker to return malicious content under some preconditions
+// (e.g. the cache store has been cleared before the upload took place). To
+// mitigate against this, we use the .localhost TLD, which is guaranteed to be
+// on the local machine. As a result, the only attack possible would be coming
+// from the user themselves, which we consider a non-threat.
 const LOCAL_MXC_SERVER_NAME: &str = "send-queue.localhost";
 
 /// A high-level API to interact with the media API.
@@ -121,8 +120,8 @@ impl fmt::Display for PersistError {
     }
 }
 
-/// A preallocated MXC URI created by [`Media::create_content_uri()`], and
-/// to be used with [`Media::upload_preallocated()`].
+/// A preallocated MXC URI created by [`Media::create_content_uri()`], and to be
+/// used with [`Media::upload_preallocated()`].
 #[derive(Debug)]
 pub struct PreallocatedMxcUri {
     /// The URI for the media URI.
@@ -172,6 +171,16 @@ pub trait MediaFetcher: SendOutsideWasm + SyncOutsideWasm + fmt::Debug {
         client: &'a Client,
         request: &'a MediaRequestParameters,
     ) -> BoxFuture<'a, Result<Vec<u8>, Error>>;
+
+    /// Fetches the media content for the given [`MediaRequestParameters`],
+    /// using the provided [RequestConfig]. Returns either a byte array or an
+    /// [`crate::Error`].
+    fn fetch_media_content_with_config<'a>(
+        &'a self,
+        client: &'a Client,
+        request: &'a MediaRequestParameters,
+        request_config: RequestConfig,
+    ) -> BoxFuture<'a, Result<Vec<u8>, Error>>;
 }
 
 impl Media {
@@ -183,12 +192,11 @@ impl Media {
     ///
     /// # Arguments
     ///
-    /// * `content_type` - The type of the media, this will be used as the
+    /// - `content_type` - The type of the media, this will be used as the
     ///   content-type header.
     ///
-    /// * `data` - Vector of bytes to be uploaded to the server.
-    ///
-    /// * `request_config` - Optional request configuration for the HTTP client,
+    /// - `data` - Vector of bytes to be uploaded to the server.
+    /// - `request_config` - Optional request configuration for the HTTP client,
     ///   overriding the default. If not provided, a reasonable timeout value is
     ///   inferred.
     ///
@@ -239,7 +247,7 @@ impl Media {
 
     /// Preallocates an MXC URI for a media that will be uploaded soon.
     ///
-    /// This preallocates an URI *before* any content is uploaded to the server.
+    /// This preallocates an URI _before_ any content is uploaded to the server.
     /// The resulting preallocated MXC URI can then be consumed with
     /// [`Media::upload_preallocated`].
     ///
@@ -288,8 +296,8 @@ impl Media {
         content_type: &Mime,
         data: Vec<u8>,
     ) -> Result<()> {
-        // Do a best-effort at reporting an expired MXC URI here; otherwise the server
-        // may complain about it later.
+        // Do a best-effort at reporting an expired MXC URI here; otherwise the
+        // server may complain about it later.
         if let Some(expire_date) = uri.expire_date
             && MilliSecondsSinceUnixEpoch::now() >= expire_date
         {
@@ -313,9 +321,11 @@ impl Media {
                     Err(Error::Media(MediaError::CannotOverwriteMedia))
                 }
 
-                // Unfortunately, the spec says a server will return 404 for either an expired MXC
-                // ID or a non-existing MXC ID. Do a best-effort guess to recognize an expired MXC
-                // ID based on the error string, which will work with Synapse (as of 2024-10-23).
+                // Unfortunately, the spec says a server will return 404 for
+                // either an expired MXC ID or a non-existing MXC ID. Do a
+                // best-effort guess to recognize an expired MXC ID based on the
+                // error string, which will work with Synapse (as of
+                // 2024-10-23).
                 Some(ErrorKind::Unknown) if err.to_string().contains("expired") => {
                     Err(Error::Media(MediaError::ExpiredPreallocatedMxcUri))
                 }
@@ -336,19 +346,17 @@ impl Media {
     ///
     /// # Arguments
     ///
-    /// * `request` - The `MediaRequest` of the content.
-    ///
-    /// * `filename` - The filename specified in the event. It is suggested to
+    /// - `request` - The `MediaRequest` of the content.
+    /// - `filename` - The filename specified in the event. It is suggested to
     ///   use the `filename()` method on the event's content instead of using
     ///   the `filename` field directly. If not provided, a random name will be
     ///   generated.
     ///
-    /// * `content_type` - The type of the media, this will be used to set the
+    /// - `content_type` - The type of the media, this will be used to set the
     ///   temporary file's extension when one isn't included in the filename.
     ///
-    /// * `use_cache` - If we should use the media cache for this request.
-    ///
-    /// * `temp_dir` - Path to a directory where temporary directories can be
+    /// - `use_cache` - If we should use the media cache for this request.
+    /// - `temp_dir` - Path to a directory where temporary directories can be
     ///   created. If not provided, a default, global temporary directory will
     ///   be used; this may not work properly on Android, where the default
     ///   location may require root access on some older Android versions.
@@ -398,8 +406,8 @@ impl Media {
                         .tempfile_in(&temp_dir)?;
                     (temp_file, Some(temp_dir))
                 }
-                // If the only thing we have is an inferred extension then use that together with a
-                // randomly generated file name
+                // If the only thing we have is an inferred extension then use
+                // that together with a randomly generated file name
                 (None, _, Some(inferred_extension)) => (
                     TempFileBuilder::new()
                         .suffix(&&(".".to_owned() + inferred_extension))
@@ -425,20 +433,19 @@ impl Media {
     ///
     /// # Arguments
     ///
-    /// * `request` - The `MediaRequest` of the content.
-    ///
-    /// * `use_cache` - If we should use the media cache for this request.
+    /// - `request` - The `MediaRequest` of the content.
+    /// - `use_cache` - If we should use the media cache for this request.
     pub async fn get_media_content(
         &self,
         request: &MediaRequestParameters,
         use_cache: bool,
     ) -> Result<Vec<u8>> {
-        // This is a local media. Force to read the media's content from the store: it
-        // cannot exist somewhere else!
+        // This is a local media. Force to read the media's content from the
+        // store: it cannot exist somewhere else!
         if Self::is_local_uri(&request.source) {
-            // Local medias are always cached with `MediaFormat::File`, be it the file
-            // itself or its thumbnail (see `RoomSendQueue::cache_media`), so ignore the
-            // requested format.
+            // Local medias are always cached with `MediaFormat::File`, be it
+            // the file itself or its thumbnail (see
+            // `RoomSendQueue::cache_media`), so ignore the requested format.
             let request = &MediaRequestParameters {
                 source: request.source.clone(),
                 format: MediaFormat::File,
@@ -455,8 +462,8 @@ impl Media {
             }
         }
 
-        // Read from the cache: if it doesn't exist, the execution continues by reading
-        // the media from the network.
+        // Read from the cache: if it doesn't exist, the execution continues by
+        // reading the media from the network.
         if use_cache
             && let Some(content) =
                 self.client.media_store().lock().await?.get_media_content(request).await?
@@ -494,12 +501,12 @@ impl Media {
         Ok(self.client.media_store().lock().await?.remove_media_content(request).await?)
     }
 
-    /// Delete all the media content corresponding to the given
-    /// uri from the store.
+    /// Delete all the media content corresponding to the given uri from the
+    /// store.
     ///
     /// # Arguments
     ///
-    /// * `uri` - The `MxcUri` of the files.
+    /// - `uri` - The `MxcUri` of the files.
     pub async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
         Ok(self.client.media_store().lock().await?.remove_media_content_for_uri(uri).await?)
     }
@@ -516,9 +523,8 @@ impl Media {
     ///
     /// # Arguments
     ///
-    /// * `event_content` - The media event content.
-    ///
-    /// * `use_cache` - If we should use the media cache for this file.
+    /// - `event_content` - The media event content.
+    /// - `use_cache` - If we should use the media cache for this file.
     pub async fn get_file(
         &self,
         event_content: &impl MediaEventContent,
@@ -541,7 +547,7 @@ impl Media {
     ///
     /// # Arguments
     ///
-    /// * `event_content` - The media event content.
+    /// - `event_content` - The media event content.
     pub async fn remove_file(&self, event_content: &impl MediaEventContent) -> Result<()> {
         if let Some(source) = event_content.source() {
             self.remove_media_content(&MediaRequestParameters {
@@ -566,12 +572,11 @@ impl Media {
     ///
     /// # Arguments
     ///
-    /// * `event_content` - The media event content.
-    ///
-    /// * `settings` - The _desired_ settings of the thumbnail. The actual
+    /// - `event_content` - The media event content.
+    /// - `settings` - The _desired_ settings of the thumbnail. The actual
     ///   thumbnail may not match the settings specified.
     ///
-    /// * `use_cache` - If we should use the media cache for this thumbnail.
+    /// - `use_cache` - If we should use the media cache for this thumbnail.
     pub async fn get_thumbnail(
         &self,
         event_content: &impl MediaEventContent,
@@ -595,9 +600,8 @@ impl Media {
     ///
     /// # Arguments
     ///
-    /// * `event_content` - The media event content.
-    ///
-    /// * `size` - The _desired_ settings of the thumbnail. Must match the
+    /// - `event_content` - The media event content.
+    /// - `size` - The _desired_ settings of the thumbnail. Must match the
     ///   settings requested with [`get_thumbnail`](#method.get_thumbnail).
     pub async fn remove_thumbnail(
         &self,
@@ -622,23 +626,22 @@ impl Media {
     /// returns an error, and that using it in an encrypted room discloses the
     /// URL to the homeserver.
     ///
-    /// Uses the authenticated endpoint when the homeserver supports it,
-    /// falling back to the deprecated unauthenticated one otherwise.
+    /// Uses the authenticated endpoint when the homeserver supports it, falling
+    /// back to the deprecated unauthenticated one otherwise.
     ///
     /// # Arguments
     ///
-    /// * `url` - The URL to get a preview of.
-    ///
-    /// * `ts` - The preferred point in time to return a preview for, if the
+    /// - `url` - The URL to get a preview of.
+    /// - `ts` - The preferred point in time to return a preview for, if the
     ///   homeserver supports returning previews for a given point in time.
     ///
     /// # Returns
     ///
     /// The OpenGraph-like data for the URL, if the homeserver returned any. It
     /// is returned as raw JSON, since the fields are not a fixed set: they
-    /// mirror OpenGraph, with the addition of `matrix:image:size` for the
-    /// image size in bytes, and `og:image` holding an MXC URI rather than an
-    /// HTTP URL.
+    /// mirror OpenGraph, with the addition of `matrix:image:size` for the image
+    /// size in bytes, and `og:image` holding an MXC URI rather than an HTTP
+    /// URL.
     ///
     /// # Examples
     ///
@@ -692,10 +695,10 @@ impl Media {
     ///
     /// It is used:
     ///
-    /// * When a media needs to be cached, to check that it does not exceed the
+    /// - When a media needs to be cached, to check that it does not exceed the
     ///   max file size.
     ///
-    /// * When [`Media::clean()`], to check that all media content in the store
+    /// - When [`Media::clean()`], to check that all media content in the store
     ///   fits those criteria.
     ///
     /// To apply the new policy to the media cache right away,
@@ -706,7 +709,7 @@ impl Media {
     ///
     /// # Arguments
     ///
-    /// * `policy` - The `MediaRetentionPolicy` to use.
+    /// - `policy` - The `MediaRetentionPolicy` to use.
     pub async fn set_media_retention_policy(&self, policy: MediaRetentionPolicy) -> Result<()> {
         self.client.media_store().lock().await?.set_media_retention_policy(policy).await?;
         Ok(())
@@ -810,13 +813,22 @@ impl MediaFetcher for DefaultMediaFetcher {
         client: &'a Client,
         request: &'a MediaRequestParameters,
     ) -> BoxFuture<'a, Result<Vec<u8>, Error>> {
-        Box::pin(async move {
-            let request_config = client
-                .request_config()
-                // Downloading a file should have no timeout as we don't know the network
-                // connectivity available for the user or the file size
-                .timeout(Some(Duration::MAX));
+        let request_config = client
+            .request_config()
+            // Downloading a file should have no timeout as we don't know the
+            // network connectivity available for the user or the file size
+            .timeout(Some(Duration::MAX));
 
+        self.fetch_media_content_with_config(client, request, request_config)
+    }
+
+    fn fetch_media_content_with_config<'a>(
+        &'a self,
+        client: &'a Client,
+        request: &'a MediaRequestParameters,
+        request_config: RequestConfig,
+    ) -> BoxFuture<'a, Result<Vec<u8>, Error>> {
+        Box::pin(async move {
             // Use the authenticated endpoints when the server supports it.
             let supported_versions = client.supported_versions().await?;
 
@@ -844,8 +856,8 @@ impl MediaFetcher for DefaultMediaFetcher {
                             file.as_ref().clone().into(),
                         )?;
 
-                        // Encrypted size should be the same as the decrypted size,
-                        // rounded up to a cipher block.
+                        // Encrypted size should be the same as the decrypted
+                        // size, rounded up to a cipher block.
                         let mut decrypted = Vec::with_capacity(content_len);
 
                         reader.read_to_end(&mut decrypted)?;

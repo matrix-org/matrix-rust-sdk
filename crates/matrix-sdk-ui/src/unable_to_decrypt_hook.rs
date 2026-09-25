@@ -55,9 +55,9 @@ pub struct UnableToDecryptInfo {
     pub event_id: OwnedEventId,
 
     /// If the event could be decrypted late (that is, the event was encrypted
-    /// at first, but could be decrypted later on), then this indicates the
-    /// time it took to decrypt the event. If it is not set, this is
-    /// considered a definite UTD.
+    /// at first, but could be decrypted later on), then this indicates the time
+    /// it took to decrypt the event. If it is not set, this is considered a
+    /// definite UTD.
     pub time_to_decrypt: Option<Duration>,
 
     /// What we know about what caused this UTD. E.g. was this event sent when
@@ -66,7 +66,7 @@ pub struct UnableToDecryptInfo {
 
     /// The difference between the event creation time (`origin_server_ts`) and
     /// the time our device was created. If negative, this event was sent
-    /// *before* our device was created.
+    /// _before_ our device was created.
     pub event_local_age_millis: i64,
 
     /// Whether the user had verified their own identity at the point they
@@ -94,8 +94,8 @@ struct PendingUtdReport {
     utd_info: UnableToDecryptInfo,
 }
 
-/// A manager over an existing [`UnableToDecryptHook`] that deduplicates UTDs
-/// on similar events, and adds basic consistency checks.
+/// A manager over an existing [`UnableToDecryptHook`] that deduplicates UTDs on
+/// similar events, and adds basic consistency checks.
 ///
 /// It can also implement a grace period before reporting an event as a UTD, if
 /// configured with [`Self::with_max_delay`]. Instead of immediately reporting
@@ -136,43 +136,52 @@ impl UtdHookManager {
     /// persistent data.
     pub fn new(parent: Arc<dyn UnableToDecryptHook>, client: Client) -> Self {
         let bloom_filter =
-            // Some slightly arbitrarily-chosen parameters here. We specify that, after 1000
-            // UTDs, we want to have a false-positive rate of 1%.
+            // Some slightly arbitrarily-chosen parameters here. We specify
+            // that, after 1000 UTDs, we want to have a false-positive rate of
+            // 1%.
             //
-            // The GrowableBloomFilter is based on a series of (partitioned) Bloom filters;
-            // once the first starts getting full (the expected false-positive
-            // rate gets too high), it adds another Bloom filter. Each new entry
-            // is recorded in the most recent Bloom filter; when querying, if
-            // *any* of the component filters show a match, that shows
-            // an overall match.
+            // The `GrowableBloomFilter` is based on a series of (partitioned)
+            // Bloom filters; once the first starts getting full (the expected
+            // false-positive rate gets too high), it adds another Bloom filter.
+            // Each new entry is recorded in the most recent Bloom filter; when
+            // querying, if _any_ of the component filters show a match, that
+            // shows an overall match.
             //
-            // The first component filter is created based on the parameters we give. For
-            // reasons derived in the paper [1], a partitioned Bloom filter with
-            // target false-positive rate `P` after `n` insertions requires a
-            // number of slices `k` given by:
+            // The first component filter is created based on the parameters we
+            // give. For reasons derived in the paper [1], a partitioned Bloom
+            // filter with target false-positive rate `P` after `n` insertions
+            // requires a number of slices `k` given by:
             //
+            // ```latex
             // k = log2(1/P) = -ln(P) / ln(2)
+            // ```
             //
             // ... where each slice has a number of bits `m` given by
             //
+            // ```latex
             // m = n / ln(2)
+            // ```
             //
-            // We have to have a whole number of slices and bits, so the total number of
-            // bits M is:
+            // We have to have a whole number of slices and bits, so the total
+            // number of bits M is:
             //
+            // ```latex
             // M = ceil(k) * ceil(m)
             //   = ceil(-ln(P) / ln(2)) * ceil(n / ln(2))
+            // ```
             //
             // In other words, our FP rate of 1% after 1000 insertions requires:
             //
+            // ```latex
             // M = ceil(-ln(0.01) / ln(2)) * ceil(1000 / ln(2))
             //   = 7 * 1443 = 10101 bits
+            // ```
             //
-            // So our filter starts off with 1263 bytes of data (plus a little overhead).
-            // Once we hit 1000 UTDs, we add a second component filter with a capacity
-            // double that of the original and target error rate 85% of the
-            // original (another 2526 bytes), which then lasts us until a total
-            // of 3000 UTDs.
+            // So our filter starts off with 1263 bytes of data (plus a little
+            // overhead). Once we hit 1000 UTDs, we add a second component
+            // filter with a capacity double that of the original and target
+            // error rate 85% of the original (another 2526 bytes), which then
+            // lasts us until a total of 3000 UTDs.
             //
             // [1]: https://gsd.di.uminho.pt/members/cbm/ps/dbloom.pdf
             GrowableBloomBuilder::new().estimated_insertions(1000).desired_error_ratio(0.01).build();
@@ -218,13 +227,14 @@ impl UtdHookManager {
     /// Pipe in any information that needs to be included in the final report.
     ///
     /// # Arguments
-    ///  * `event_id` - The ID of the event that could not be decrypted.
-    ///  * `cause` - Our best guess at the reason why the event can't be
-    ///    decrypted.
-    ///  * `event_timestamp` - The event's `origin_server_ts` field (or creation
-    ///    time for local echo).
-    ///  * `sender_user_id` - The Matrix user ID of the user that sent the
-    ///    undecryptable message.
+    ///
+    /// - `event_id` - The ID of the event that could not be decrypted.
+    /// - `cause` - Our best guess at the reason why the event can't be
+    ///   decrypted.
+    /// - `event_timestamp` - The event's `origin_server_ts` field (or creation
+    ///   time for local echo).
+    /// - `sender_user_id` - The Matrix user ID of the user that sent the
+    ///   undecryptable message.
     pub(crate) async fn on_utd(
         &self,
         event_id: &EventId,
@@ -233,12 +243,12 @@ impl UtdHookManager {
         sender_user_id: &UserId,
     ) {
         trace!(%event_id, "UtdHookManager: Observed UTD");
-        // Hold the lock on `reported_utds` throughout, to avoid races with other
-        // threads.
+        // Hold the lock on `reported_utds` throughout, to avoid races with
+        // other threads.
         let mut reported_utds_lock = self.reported_utds.lock().await;
 
-        // Check if this, or a previous instance of UtdHookManager, has already reported
-        // this UTD, and bail out if not.
+        // Check if this, or a previous instance of UtdHookManager, has already
+        // reported this UTD, and bail out if not.
         if reported_utds_lock.contains(event_id) {
             return;
         }
@@ -290,21 +300,21 @@ impl UtdHookManager {
         let client = self.client.clone();
         let owned_event_id = event_id.to_owned();
 
-        // Spawn a task that will wait for the given delay, and maybe call the parent
-        // hook then.
+        // Spawn a task that will wait for the given delay, and maybe call the
+        // parent hook then.
         let handle = self.client.task_monitor().spawn_finite_task("utd_hook", async move {
             // Wait for the given delay.
             sleep(max_delay).await;
 
-            // Make sure we take out the lock on `reported_utds` before removing the entry
-            // from `pending_delayed`, to ensure we don't race against another call to
-            // `on_utd` (which could otherwise see that the entry has been
-            // removed from `pending_delayed` but not yet added to
-            // `reported_utds`).
+            // Make sure we take out the lock on `reported_utds` before removing
+            // the entry from `pending_delayed`, to ensure we don't race against
+            // another call to `on_utd` (which could otherwise see that the
+            // entry has been removed from `pending_delayed` but not yet added
+            // to `reported_utds`).
             let mut reported_utds_lock = reported_utds.lock().await;
 
-            // Remove the task from the outstanding set. But if it's already been removed,
-            // it's been decrypted since the task was added!
+            // Remove the task from the outstanding set. But if it's already
+            // been removed, it's been decrypted since the task was added!
             let pending_report = pending_delayed.lock().unwrap().remove(&owned_event_id);
             if let Some(pending_report) = pending_report {
                 Self::report_utd(
@@ -331,12 +341,12 @@ impl UtdHookManager {
     /// before, it has no effect.
     pub(crate) async fn on_late_decrypt(&self, event_id: &EventId) {
         trace!(%event_id, "UtdHookManager: On late decrypt");
-        // Hold the lock on `reported_utds` throughout, to avoid races with other
-        // threads.
+        // Hold the lock on `reported_utds` throughout, to avoid races with
+        // other threads.
         let mut reported_utds_lock = self.reported_utds.lock().await;
 
-        // Only let the parent hook know about the late decryption if the event is
-        // a pending UTD. If so, remove the event from the pending list —
+        // Only let the parent hook know about the late decryption if the event
+        // is a pending UTD. If so, remove the event from the pending list —
         // doing so will cause the reporting task to no-op if it runs.
         let Some(pending_utd_report) = self.pending_delayed.lock().unwrap().remove(event_id) else {
             trace!(%event_id, "UtdHookManager: received a late decrypt report for an unknown utd");
@@ -384,14 +394,15 @@ impl Drop for UtdHookManager {
     fn drop(&mut self) {
         // Cancel all the outstanding delayed tasks to report UTDs.
         //
-        // Here, we don't take the lock on `reported_utd`s (indeed, we can't, since
-        // `reported_utds` has an async mutex, and `drop` has to be sync), but
-        // that's ok. We can't race against `on_utd` or `on_late_decrypt`, since
-        // they both have `&self` references which mean `drop` can't be called.
-        // We *could* race against one of the actual tasks to report
-        // UTDs, but that's ok too: either the report task will bail out when it sees
-        // the entry has been removed from `pending_delayed` (which is fine), or the
-        // report task will successfully report the UTD (which is fine).
+        // Here, we don't take the lock on `reported_utd`s (indeed, we can't,
+        // since `reported_utds` has an async mutex, and `drop` has to be sync),
+        // but that's ok. We can't race against `on_utd` or `on_late_decrypt`,
+        // since they both have `&self` references which mean `drop` can't be
+        // called. We _could_ race against one of the actual tasks to report
+        // UTDs, but that's ok too: either the report task will bail out when it
+        // sees the entry has been removed from `pending_delayed` (which is
+        // fine), or the report task will successfully report the UTD (which is
+        // fine).
         let mut pending_delayed = self.pending_delayed.lock().unwrap();
         for (_, pending_utd_report) in pending_delayed.drain() {
             pending_utd_report.report_task.abort();
@@ -403,7 +414,7 @@ impl Drop for UtdHookManager {
 mod tests {
     use matrix_sdk::test_utils::{logged_in_client, no_retry_test_client};
     use matrix_sdk_test::async_test;
-    use ruma::{event_id, owned_server_name, server_name, user_id};
+    use ruma::{event_id, owned_server_name, user_id};
 
     use super::*;
 
@@ -426,7 +437,8 @@ mod tests {
         // And I wrap with the UtdHookManager,
         let wrapper = UtdHookManager::new(hook.clone(), logged_in_client(None).await);
 
-        // And I call the `on_utd` method multiple times, sometimes on the same event,
+        // And I call the `on_utd` method multiple times, sometimes on the same
+        // event,
         let event_timestamp = MilliSecondsSinceUnixEpoch::now();
         let sender_user = user_id!("@example2:localhost");
         let federated_user = user_id!("@example2:example.com");
@@ -441,33 +453,33 @@ mod tests {
         {
             let utds = hook.utds.lock().unwrap();
             assert_eq!(utds.len(), 3);
-            assert_eq!(utds[0].event_id, event_id!("$1"));
-            assert_eq!(utds[1].event_id, event_id!("$2"));
-            assert_eq!(utds[2].event_id, event_id!("$3"));
+            assert_eq!(utds[0].event_id, "$1");
+            assert_eq!(utds[1].event_id, "$2");
+            assert_eq!(utds[2].event_id, "$3");
 
             // No event is a late-decryption event.
             assert!(utds[0].time_to_decrypt.is_none());
             assert!(utds[1].time_to_decrypt.is_none());
             assert!(utds[2].time_to_decrypt.is_none());
 
-            // event_local_age_millis should be a small positive number, because the
-            // timestamp we used was after we created the device
+            // event_local_age_millis should be a small positive number, because
+            // the timestamp we used was after we created the device
             let utd_local_age = utds[0].event_local_age_millis;
             assert!(utd_local_age >= 0);
             assert!(utd_local_age <= 1000);
 
-            assert_eq!(utds[0].sender_homeserver, server_name!("localhost"));
+            assert_eq!(utds[0].sender_homeserver, "localhost");
             assert_eq!(utds[0].own_homeserver, Some(owned_server_name!("localhost")));
 
-            assert_eq!(utds[1].sender_homeserver, server_name!("example.com"));
+            assert_eq!(utds[1].sender_homeserver, "example.com");
             assert_eq!(utds[1].own_homeserver, Some(owned_server_name!("localhost")));
         }
     }
 
     #[async_test]
     async fn test_deduplicates_utds_from_previous_session() {
-        // Use a single client for both hooks, so that both hooks are backed by the same
-        // memorystore.
+        // Use a single client for both hooks, so that both hooks are backed by
+        // the same memorystore.
         let client = no_retry_test_client(None).await;
 
         // Dummy hook 1, with the first UtdHookManager
@@ -497,9 +509,9 @@ mod tests {
             {
                 let utds = hook.utds.lock().unwrap();
                 assert_eq!(utds.len(), 2);
-                assert_eq!(utds[0].event_id, event_id!("$1"));
+                assert_eq!(utds[0].event_id, "$1");
                 assert!(utds[0].time_to_decrypt.is_none());
-                assert_eq!(utds[1].event_id, event_id!("$2"));
+                assert_eq!(utds[1].event_id, "$2");
                 assert!(utds[1].time_to_decrypt.is_none());
             }
         }
@@ -510,7 +522,8 @@ mod tests {
             let mut wrapper = UtdHookManager::new(hook.clone(), client.clone());
             wrapper.reload_from_store().await.unwrap();
 
-            // Call it with more events, some of which match the previous instance
+            // Call it with more events, some of which match the previous
+            // instance
             wrapper
                 .on_utd(
                     event_id!("$1"),
@@ -531,7 +544,7 @@ mod tests {
             // Only the *new* ones should be reported
             let utds = hook.utds.lock().unwrap();
             assert_eq!(utds.len(), 1);
-            assert_eq!(utds[0].event_id, event_id!("$3"));
+            assert_eq!(utds[0].event_id, "$3");
         }
     }
 
@@ -539,8 +552,8 @@ mod tests {
     /// session, are reported in the next session.
     #[async_test]
     async fn test_does_not_deduplicate_late_utds_from_previous_session() {
-        // Use a single client for both hooks, so that both hooks are backed by the same
-        // memorystore.
+        // Use a single client for both hooks, so that both hooks are backed by
+        // the same memorystore.
         let client = no_retry_test_client(None).await;
 
         // Dummy hook 1, with the first UtdHookManager
@@ -587,7 +600,7 @@ mod tests {
 
             let utds = hook.utds.lock().unwrap();
             assert_eq!(utds.len(), 1);
-            assert_eq!(utds[0].event_id, event_id!("$1"));
+            assert_eq!(utds[0].event_id, "$1");
         }
     }
 
@@ -599,8 +612,8 @@ mod tests {
         // And I wrap with the UtdHookManager,
         let wrapper = UtdHookManager::new(hook.clone(), no_retry_test_client(None).await);
 
-        // And I call the `on_late_decrypt` method before the event had been marked as
-        // utd,
+        // And I call the `on_late_decrypt` method before the event had been
+        // marked as utd,
         wrapper.on_late_decrypt(event_id!("$1")).await;
 
         // Then nothing is registered in the parent hook.
@@ -629,7 +642,7 @@ mod tests {
         {
             let utds = hook.utds.lock().unwrap();
             assert_eq!(utds.len(), 1);
-            assert_eq!(utds[0].event_id, event_id!("$1"));
+            assert_eq!(utds[0].event_id, "$1");
             assert!(utds[0].time_to_decrypt.is_none());
         }
 
@@ -642,7 +655,7 @@ mod tests {
             assert_eq!(utds.len(), 1);
 
             // The previous report is still there. (There was no grace period.)
-            assert_eq!(utds[0].event_id, event_id!("$1"));
+            assert_eq!(utds[0].event_id, "$1");
             assert!(utds[0].time_to_decrypt.is_none());
         }
     }
@@ -653,8 +666,8 @@ mod tests {
         // If I create a dummy hook,
         let hook = Arc::new(Dummy::default());
 
-        // And I wrap with the UtdHookManager, configured to delay reporting after 2
-        // seconds.
+        // And I wrap with the UtdHookManager, configured to delay reporting
+        // after 2 seconds.
         let wrapper = UtdHookManager::new(hook.clone(), no_retry_test_client(None).await)
             .with_max_delay(Duration::from_secs(2));
 
@@ -678,13 +691,14 @@ mod tests {
         assert!(hook.utds.lock().unwrap().is_empty());
         assert_eq!(wrapper.pending_delayed.lock().unwrap().len(), 1);
 
-        // But if I wait just a bit more, then it's getting notified as a definite UTD.
+        // But if I wait just a bit more, then it's getting notified as a
+        // definite UTD.
         sleep(Duration::from_millis(1500)).await;
 
         {
             let utds = hook.utds.lock().unwrap();
             assert_eq!(utds.len(), 1);
-            assert_eq!(utds[0].event_id, event_id!("$1"));
+            assert_eq!(utds[0].event_id, "$1");
             assert!(utds[0].time_to_decrypt.is_none());
         }
 
@@ -697,8 +711,8 @@ mod tests {
         // If I create a dummy hook,
         let hook = Arc::new(Dummy::default());
 
-        // And I wrap with the UtdHookManager, configured to delay reporting after 2
-        // seconds.
+        // And I wrap with the UtdHookManager, configured to delay reporting
+        // after 2 seconds.
         let wrapper = UtdHookManager::new(hook.clone(), no_retry_test_client(None).await)
             .with_max_delay(Duration::from_secs(2));
 
@@ -725,7 +739,7 @@ mod tests {
         {
             let utds = hook.utds.lock().unwrap();
             assert_eq!(utds.len(), 1);
-            assert_eq!(utds[0].event_id, event_id!("$1"));
+            assert_eq!(utds[0].event_id, "$1");
             assert!(utds[0].time_to_decrypt.is_some());
         }
 

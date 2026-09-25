@@ -149,9 +149,9 @@ async fn test_auto_sync_does_nothing_when_disabled() {
 
 #[async_test]
 async fn test_auto_sync_still_fires_delete_after_failed_put() {
-    // After a failed PUT the state machine must NOT get stuck: the next
-    // real transition (join → leave) should still fire. We update
-    // `was_in_call` optimistically for exactly this reason.
+    // After a failed PUT the state machine must NOT get stuck: the next real
+    // transition (join → leave) should still fire. We update `was_in_call`
+    // optimistically for exactly this reason.
     use wiremock::ResponseTemplate;
 
     let (mock_server, client) = make_client().await;

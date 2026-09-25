@@ -21,9 +21,9 @@ use crate::Result;
 
 /// Attempt to decrypt the given raw event into a [`TimelineEvent`].
 ///
-/// In the case of a decryption error, returns a [`TimelineEvent`]
-/// representing the decryption error; in the case of problems with our
-/// application, returns `Err`.
+/// In the case of a decryption error, returns a [`TimelineEvent`] representing
+/// the decryption error; in the case of problems with our application, returns
+/// `Err`.
 ///
 /// Returns `Ok(None)` if encryption is not configured.
 ///

@@ -226,8 +226,8 @@ async fn test_live_location_no_sent_in_clear_shield() {
 }
 
 #[async_test]
-/// Test a bug that was causing unable to decrypt messages to have a `message
-/// sent in clear` red warning.
+/// Test a bug that was causing unable to decrypt messages to have a
+/// `message sent in clear` red warning.
 async fn test_utd_shield() {
     // Given we are in an encrypted room
     let timeline = TestTimelineBuilder::new().room_encrypted(true).build().await;

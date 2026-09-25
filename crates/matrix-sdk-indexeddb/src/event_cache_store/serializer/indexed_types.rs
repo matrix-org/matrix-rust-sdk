@@ -252,8 +252,8 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Chunk, LinkedChunkId<'a>> for Index
 ///
 /// Note: it would be more convenient to represent this type with an optional
 /// Chunk ID, but unfortunately, this creates an issue when querying for objects
-/// that don't have a `next` value, because `None` serializes to `null` which
-/// is an invalid value in any part of an IndexedDB query.
+/// that don't have a `next` value, because `None` serializes to `null` which is
+/// an invalid value in any part of an IndexedDB query.
 ///
 /// Furthermore, each variant must serialize to the same type, so the `None`
 /// variant must contain a non-empty tuple.
@@ -319,8 +319,8 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Chunk, LinkedChunkId<'a>> for Index
 pub struct IndexedEvent {
     /// The primary key of the object store.
     pub id: IndexedEventIdKey,
-    /// An indexed key on the object store, which represent the event id of
-    /// the event.
+    /// An indexed key on the object store, which represent the event id of the
+    /// event.
     pub event_id: IndexedEventEventIdKey,
     /// An indexed key on the object store, which represents the room in which
     /// the event exists

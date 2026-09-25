@@ -6,7 +6,6 @@ use std::{
 };
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use growable_bloom_filter::GrowableBloomBuilder;
 use matrix_sdk_common::ttl::TtlValue;
 use matrix_sdk_test::{TestResult, event_factory::EventFactory};
@@ -45,7 +44,10 @@ use ruma::{
     uint, user_id,
 };
 use serde_json::json;
+use strass::assert_let;
 
+#[cfg(feature = "unstable-msc4354")]
+use super::QueuedRequestKind;
 use super::{
     DependentQueuedRequestKind, DisplayName, DynStateStore, RoomLoadSettings,
     SupportedVersionsResponse, WellKnownResponse, send_queue::SentRequestKey,
@@ -96,6 +98,10 @@ pub trait StateStoreIntegrationTests {
     async fn test_custom_storage(&self) -> TestResult;
     /// Test stripped and non-stripped room member saving.
     async fn test_stripped_non_stripped(&self) -> TestResult;
+    /// Test that a stripped room keeps its stripped state across saves.
+    async fn test_stripped_state_is_kept_across_saves(&self) -> TestResult;
+    /// Test that a room info only save doesn't drop the room's data.
+    async fn test_room_info_only_save_keeps_room_data(&self) -> TestResult;
     /// Test room removal.
     async fn test_room_removal(&self) -> TestResult;
     /// Test profile removal.
@@ -110,6 +116,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_send_queue_priority(&self) -> TestResult;
     /// Test operations related to send queue dependents.
     async fn test_send_queue_dependents(&self) -> TestResult;
+    /// Test that the sticky duration of a queued event survives a round-trip.
+    async fn test_send_queue_sticky_events(&self) -> TestResult;
     /// Test an update to a send queue dependent request.
     async fn test_update_send_queue_dependent(&self) -> TestResult;
     /// Test saving/restoring the supported versions of the server.
@@ -1195,6 +1203,127 @@ impl StateStoreIntegrationTests for DynStateStore {
         Ok(())
     }
 
+    async fn test_stripped_state_is_kept_across_saves(&self) -> TestResult {
+        // The server sends `invite_state`/`knock_state` once, so it must
+        // survive any later save.
+        for (room_id, room_state) in [
+            (room_id!("!test_stripped_state_invited:localhost"), RoomState::Invited),
+            (room_id!("!test_stripped_state_knocked:localhost"), RoomState::Knocked),
+        ] {
+            let user_id = user_id();
+
+            let mut changes = StateChanges::default();
+            changes.add_stripped_member(
+                room_id,
+                user_id,
+                custom_stripped_membership_event(user_id),
+            );
+
+            let f = EventFactory::new().sender(user_id).room(room_id);
+            let stripped_name_raw: Raw<AnyStrippedStateEvent> = f.room_name("room name").into();
+            let stripped_name_event =
+                RawStateEventWithKeys::try_from_raw_state_event(stripped_name_raw).unwrap();
+            changes
+                .stripped_state
+                .entry(room_id.to_owned())
+                .or_default()
+                .entry(stripped_name_event.event_type)
+                .or_default()
+                .insert(stripped_name_event.state_key, stripped_name_event.raw);
+
+            changes.add_room(RoomInfo::new(room_id, room_state));
+            self.save_changes(&changes).await?;
+
+            assert!(
+                self.get_state_event(room_id, StateEventType::RoomName, "").await?.is_some(),
+                "{room_state:?}: the stripped room name must be saved"
+            );
+            let member_event =
+                self.get_member_event(room_id, user_id).await?.unwrap().deserialize()?;
+            assert_matches!(member_event, MemberEvent::Stripped(_));
+
+            // A later sync only carries the room info.
+            let mut changes = StateChanges::default();
+            changes.add_room(RoomInfo::new(room_id, room_state));
+            self.save_changes(&changes).await?;
+
+            assert!(
+                self.get_state_event(room_id, StateEventType::RoomName, "").await?.is_some(),
+                "{room_state:?}: the stripped room name must survive a room info save"
+            );
+            assert!(
+                self.get_member_event(room_id, user_id).await?.is_some(),
+                "{room_state:?}: the stripped member must survive a room info save"
+            );
+            assert_eq!(
+                self.get_user_ids(room_id, RoomMemberships::empty()).await?,
+                vec![user_id.to_owned()],
+                "{room_state:?}: the stripped member must still be listed"
+            );
+        }
+
+        Ok(())
+    }
+
+    async fn test_room_info_only_save_keeps_room_data(&self) -> TestResult {
+        // A `StateChanges` carrying nothing but a `RoomInfo`, as
+        // `BaseClient::room_knocked` saves, has nothing to put in place of what
+        // it would delete, so it must delete nothing.
+        for (room_id, new_state) in [
+            (room_id!("!test_room_info_only_save_knocked:localhost"), RoomState::Knocked),
+            (room_id!("!test_room_info_only_save_invited:localhost"), RoomState::Invited),
+        ] {
+            let user_id = user_id();
+
+            let mut changes = StateChanges::default();
+            changes
+                .state
+                .entry(room_id.to_owned())
+                .or_default()
+                .entry(StateEventType::RoomMember)
+                .or_default()
+                .insert(user_id.into(), membership_event().cast());
+
+            let f = EventFactory::new().sender(user_id).room(room_id);
+            let name_raw: Raw<AnySyncStateEvent> = f.room_name("room name").into();
+            let name_event = name_raw.deserialize()?;
+            changes.add_state_event(room_id, name_event, name_raw);
+
+            changes.add_room(RoomInfo::new(room_id, RoomState::Left));
+            self.save_changes(&changes).await?;
+
+            let member_event =
+                self.get_member_event(room_id, user_id).await?.unwrap().deserialize()?;
+            assert_matches!(member_event, MemberEvent::Sync(_));
+            assert!(self.get_state_event(room_id, StateEventType::RoomName, "").await?.is_some());
+
+            // Knocking on (or being invited back to) the room.
+            let mut changes = StateChanges::default();
+            changes.add_room(RoomInfo::new(room_id, new_state));
+            self.save_changes(&changes).await?;
+
+            let member_event = self
+                .get_member_event(room_id, user_id)
+                .await?
+                .unwrap_or_else(|| {
+                    panic!("{new_state:?}: the member event must survive a room info only save")
+                })
+                .deserialize()?;
+            assert_matches!(member_event, MemberEvent::Sync(_));
+            assert!(
+                self.get_state_event(room_id, StateEventType::RoomName, "").await?.is_some(),
+                "{new_state:?}: the room name must survive a room info only save"
+            );
+            assert_eq!(
+                self.get_user_ids(room_id, RoomMemberships::empty()).await?,
+                vec![user_id.to_owned()],
+                "{new_state:?}: the member must still be listed"
+            );
+        }
+
+        Ok(())
+    }
+
     async fn test_room_removal(&self) -> TestResult {
         let room_id = room_id();
         let user_id = user_id();
@@ -1613,8 +1742,8 @@ impl StateStoreIntegrationTests for DynStateStore {
             assert_ne!(pending[i].transaction_id, txn0);
         }
 
-        // Now add one event for two other rooms, remove one of the events, and then
-        // query all the rooms which have outstanding unsent events.
+        // Now add one event for two other rooms, remove one of the events, and
+        // then query all the rooms which have outstanding unsent events.
 
         // Add one event for room2.
         let room_id2 = room_id!("!test_send_queue_two:localhost");
@@ -1708,8 +1837,8 @@ impl StateStoreIntegrationTests for DynStateStore {
         )
         .await?;
 
-        // The requests should be ordered from higher priority to lower, and when equal,
-        // should use the insertion order instead.
+        // The requests should be ordered from higher priority to lower, and
+        // when equal, should use the insertion order instead.
         let pending = self.load_send_queue_requests(room_id).await?;
 
         assert_eq!(pending.len(), 3);
@@ -1736,6 +1865,63 @@ impl StateStoreIntegrationTests for DynStateStore {
             assert_let!(AnyMessageLikeEventContent::RoomMessage(content) = deserialized);
             assert_eq!(content.body(), "low1");
         }
+
+        Ok(())
+    }
+
+    #[cfg(not(feature = "unstable-msc4354"))]
+    async fn test_send_queue_sticky_events(&self) -> TestResult {
+        Ok(()) // Dummy test when the feature is off because we cannot check features where the method is registered.
+    }
+
+    #[cfg(feature = "unstable-msc4354")]
+    async fn test_send_queue_sticky_events(&self) -> TestResult {
+        use ruma::events::sticky::StickyDurationMs;
+
+        let room_id = room_id!("!test_send_queue_sticky_events:localhost");
+
+        // A regular event isn't sticky.
+        let content =
+            SerializableEventContent::new(&RoomMessageEventContent::text_plain("regular").into())?;
+        let regular_txn = TransactionId::new();
+        self.save_send_queue_request(
+            room_id,
+            regular_txn.clone(),
+            MilliSecondsSinceUnixEpoch::now(),
+            content.into(),
+            0,
+        )
+        .await?;
+
+        // A sticky event keeps its duration across a round-trip.
+        let content =
+            SerializableEventContent::new(&RoomMessageEventContent::text_plain("sticky").into())?;
+        let sticky_txn = TransactionId::new();
+        self.save_send_queue_request(
+            room_id,
+            sticky_txn.clone(),
+            MilliSecondsSinceUnixEpoch::now(),
+            QueuedRequestKind::Event {
+                content,
+                sticky_duration: Some(StickyDurationMs::new_clamped(300_000u32)),
+            },
+            0,
+        )
+        .await?;
+
+        let pending = self.load_send_queue_requests(room_id).await?;
+        assert_eq!(pending.len(), 2);
+
+        assert_eq!(pending[0].transaction_id, regular_txn);
+        assert_matches!(&pending[0].kind, QueuedRequestKind::Event { sticky_duration: None, .. });
+
+        assert_eq!(pending[1].transaction_id, sticky_txn);
+        assert_matches!(
+            &pending[1].kind,
+            QueuedRequestKind::Event { sticky_duration: Some(duration), .. } => {
+                assert_eq!(duration.get(), 300_000);
+            }
+        );
 
         Ok(())
     }
@@ -1822,8 +2008,8 @@ impl StateStoreIntegrationTests for DynStateStore {
         // It worked.
         assert!(self.load_dependent_queued_requests(room_id).await?.is_empty());
 
-        // Now, inserting a dependent event and removing the original send queue event
-        // will NOT remove the dependent event.
+        // Now, inserting a dependent event and removing the original send queue
+        // event will NOT remove the dependent event.
         let txn1 = TransactionId::new();
         let event1 =
             SerializableEventContent::new(&RoomMessageEventContent::text_plain("hey2").into())?;
@@ -1940,8 +2126,8 @@ impl StateStoreIntegrationTests for DynStateStore {
         {
             let mut all_rooms = self.get_room_infos(&RoomLoadSettings::All).await?;
 
-            // (We need to sort by `room_id` so that the test is stable across all
-            // `StateStore` implementations).
+            // (We need to sort by `room_id` so that the test is stable across
+            // all `StateStore` implementations).
             all_rooms.sort_by(|a, b| a.room_id.cmp(&b.room_id));
 
             assert_eq!(all_rooms.len(), 2);
@@ -2085,7 +2271,8 @@ impl StateStoreIntegrationTests for DynStateStore {
             event_id!("$t6"),
         ];
         // Helper for building the input for `upsert_thread_subscriptions()`,
-        // which is of the type: Vec<(&RoomId, &EventId, StoredThreadSubscription)>
+        // which is of the type: Vec<(&RoomId, &EventId,
+        // StoredThreadSubscription)>
         let build_subscription_updates = |subs: &[StoredThreadSubscription]| {
             threads
                 .iter()
@@ -2339,7 +2526,8 @@ impl StateStoreIntegrationTests for DynStateStore {
 /// You need to provide a `async fn get_store() -> StoreResult<impl StateStore>`
 /// providing a fresh store on the same level you invoke the macro.
 ///
-/// ## Usage Example:
+/// ## Usage example
+///
 /// ```no_run
 /// # use matrix_sdk_base::store::{
 /// #    StateStore,
@@ -2465,6 +2653,18 @@ macro_rules! statestore_integration_tests {
             }
 
             #[async_test]
+            async fn test_stripped_state_is_kept_across_saves() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_stripped_state_is_kept_across_saves().await
+            }
+
+            #[async_test]
+            async fn test_room_info_only_save_keeps_room_data() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_room_info_only_save_keeps_room_data().await
+            }
+
+            #[async_test]
             async fn test_room_removal() -> TestResult {
                 let store = get_store().await?.into_state_store();
                 store.test_room_removal().await
@@ -2504,6 +2704,12 @@ macro_rules! statestore_integration_tests {
             async fn test_send_queue_dependents() -> TestResult {
                 let store = get_store().await?.into_state_store();
                 store.test_send_queue_dependents().await
+            }
+
+            #[async_test]
+            async fn test_send_queue_sticky_events() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_send_queue_sticky_events().await
             }
 
             #[async_test]

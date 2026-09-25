@@ -228,8 +228,8 @@ pub fn is_room_alias_format_valid(alias: String) -> bool {
     has_valid_format && is_lowercase && RoomAliasId::parse(alias).is_ok()
 }
 
-/// Given a pair of optional `body` and `formatted_body` parameters,
-/// returns a formatted body.
+/// Given a pair of optional `body` and `formatted_body` parameters, returns a
+/// formatted body.
 ///
 /// Return the formatted body if available, or interpret the `body` parameter as
 /// markdown, if provided.
@@ -279,12 +279,23 @@ impl From<QueryString> for UrlOrQuery {
     }
 }
 
+/// Convert a `Duration` into the sticky duration of a request, clamped to one
+/// hour.
+#[cfg(feature = "unstable-msc4354")]
+pub(crate) fn sticky_duration_ms(
+    duration: std::time::Duration,
+) -> ruma::events::sticky::StickyDurationMs {
+    ruma::events::sticky::StickyDurationMs::new_clamped(
+        u64::try_from(duration.as_millis()).unwrap_or(u64::MAX),
+    )
+}
+
 #[cfg(test)]
 mod test {
     #[cfg(feature = "markdown")]
-    use assert_matches2::{assert_let, assert_matches};
-    #[cfg(feature = "markdown")]
     use ruma::events::room::message::FormattedBody;
+    #[cfg(feature = "markdown")]
+    use strass::assert_let;
 
     #[cfg(feature = "markdown")]
     use crate::utils::formatted_body_from;
@@ -354,7 +365,7 @@ mod test {
     #[test]
     #[cfg(feature = "markdown")]
     fn test_formatted_body_from_nothing_returns_none() {
-        assert_matches!(formatted_body_from(None, None), None);
+        std::assert_matches!(formatted_body_from(None, None), None);
     }
 
     #[test]
