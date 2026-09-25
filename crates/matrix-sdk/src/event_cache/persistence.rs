@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use matrix_sdk_base::{
     deserialized_responses::TimelineEventKind,
@@ -21,6 +21,7 @@ use matrix_sdk_base::{
     linked_chunk::{ChunkMetadata, LinkedChunkId, OwnedLinkedChunkId, Update},
 };
 use ruma::{EventId, RoomId, events::relation::RelationType, serde::Raw};
+use serde_json::value::{RawValue, to_raw_value};
 use tokio::sync::broadcast::Sender;
 use tracing::trace;
 
@@ -256,27 +257,27 @@ fn strip_relations_from_event(ev: &mut Event) {
 ///
 /// Only replaces the present if it contained bundled relations.
 fn strip_relations_if_present<T>(event: &mut Raw<T>) {
-    // Most events carry no bundled relations. Look at the `unsigned` field alone
-    // before deserialising the whole event: `Raw::get_field` walks the JSON and
-    // only materialises that one field.
-    let unsigned = event.get_field::<serde_json::Map<String, serde_json::Value>>("unsigned");
-    if !matches!(&unsigned, Ok(Some(unsigned)) if unsigned.contains_key("m.relations")) {
-        return;
+    if let Some(stripped) = without_bundled_relations(event) {
+        *event = stripped;
     }
+}
 
-    // We're going to get rid of the `unsigned`/`m.relations` field, if it's
-    // present.
-    // Use a closure that returns an option so we can quickly short-circuit.
-    let mut closure = || -> Option<()> {
-        let mut val: serde_json::Value = event.deserialize_as().ok()?;
-        let unsigned = val.get_mut("unsigned")?;
-        let unsigned_obj = unsigned.as_object_mut()?;
-        if unsigned_obj.remove("m.relations").is_some() {
-            *event = Raw::new(&val).ok()?.cast_unchecked();
-        }
-        None
-    };
-    let _ = closure();
+/// Returns a copy of `event` without its bundled relations, or `None` if it
+/// has none.
+///
+/// Most events carry no bundled relations, so only the `unsigned` field is
+/// looked at first. Its values, and the event's top-level fields, are kept as
+/// raw JSON: nothing is parsed deeper than the keys, and the event is rebuilt
+/// around a new `unsigned`.
+fn without_bundled_relations<T>(event: &Raw<T>) -> Option<Raw<T>> {
+    let mut unsigned = event.get_field::<BTreeMap<String, &RawValue>>("unsigned").ok()??;
+    unsigned.remove("m.relations")?;
+    let unsigned = to_raw_value(&unsigned).ok()?;
+
+    let mut fields: BTreeMap<String, &RawValue> = serde_json::from_str(event.json().get()).ok()?;
+    fields.insert("unsigned".to_owned(), &unsigned);
+
+    Some(Raw::from_json(to_raw_value(&fields).ok()?))
 }
 
 /// Find a single event, first in-memory, then in-store.
