@@ -1896,6 +1896,10 @@ impl CryptoStore for SqliteCryptoStore {
         }
     }
 
+    async fn delete_next_batch_token(&self) -> Result<(), Self::Error> {
+        self.remove_custom_value("next_batch_token").await
+    }
+
     async fn close(&self) -> Result<()> {
         connection::close_connections(&self.connections, "Crypto store").await;
         Ok(())
