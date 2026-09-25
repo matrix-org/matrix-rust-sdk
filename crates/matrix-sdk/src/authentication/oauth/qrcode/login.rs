@@ -312,7 +312,7 @@ impl IntoFuture for LoginWithQrCode {
             // -- MSC4108 Secure channel setup steps 3-5
             trace!("Trying to establish the secure channel");
 
-            let channel = self.establish_secure_channel().await?;
+            let mut channel = self.establish_secure_channel().await?;
 
             trace!("Established the secure channel.");
 
@@ -328,8 +328,58 @@ impl IntoFuture for LoginWithQrCode {
             // matches.
             //
             // -- MSC4108 Secure channel setup step 7
-            // TODO: for MSC4388 always wait for `m.login.protocols`; check
-            // offered protocols; server swap if needed
+
+            if !matches!(channel.channel_variant(), ChannelVariant::Msc4108) {
+                // With MSC4388, the existing device always sends the
+                // m.login.protocols message first. The base URL from the QR
+                // code only identifies the rendezvous server, the base URL in
+                // this message is the authoritative homeserver for the login.
+                //
+                // -- MSC4108 OAuth 2.0 login step 1
+                let message = channel.receive_json().await?;
+
+                match message {
+                    QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4388 {
+                        protocols,
+                        base_url,
+                    }) => {
+                        // Verify that the device authorization grant is
+                        // supported.
+                        //
+                        // -- MSC4108 OAuth 2.0 login step 2
+                        if !protocols.contains(&LoginProtocolType::DeviceAuthorizationGrant) {
+                            channel
+                                .send_json(QrAuthMessage::LoginFailure {
+                                    reason: LoginFailureReason::UnsupportedProtocol,
+                                    homeserver: None,
+                                })
+                                .await?;
+
+                            return Err(QRCodeLoginError::LoginFailure {
+                                reason: LoginFailureReason::UnsupportedProtocol,
+                                homeserver: None,
+                            });
+                        }
+
+                        // Change the login homeserver if it is different from
+                        // the server hosting the rendezvous session.
+                        if self.client.homeserver() != base_url {
+                            self.client
+                                .switch_homeserver_and_re_resolve_well_known(base_url)
+                                .await
+                                .map_err(QRCodeLoginError::ServerReset)?;
+                        }
+                    }
+                    _ => {
+                        send_unexpected_message_error(&mut channel).await?;
+
+                        return Err(QRCodeLoginError::UnexpectedMessage {
+                            expected: "m.login.protocols",
+                            received: Box::new(message),
+                        });
+                    }
+                }
+            }
 
             // Now attempt to finish the login.
             //
@@ -570,6 +620,7 @@ mod test {
     use matrix_sdk_test::async_test;
     use serde_json::json;
     use strass::assert_let;
+    use url::Url;
 
     use super::*;
     use crate::{
@@ -672,9 +723,11 @@ mod test {
     /// existing device, of the QR login dance.
     async fn grant_login(
         alice: SecureChannel,
+        homeserver: Url,
         check_code_receiver: tokio::sync::oneshot::Receiver<u8>,
         behaviour: AliceBehaviour,
         token_response: TokenResponse,
+        msc_4388: bool,
     ) {
         let alice = alice.connect().await.expect("Alice should be able to connect the channel");
 
@@ -683,6 +736,21 @@ mod test {
 
         let mut alice =
             alice.confirm(check_code).expect("Alice should be able to confirm the secure channel");
+
+        if msc_4388 {
+            // With MSC4388, Alice sends the initial login protocols message
+            // first to inform Bob about the available login protocols and the
+            // homeserver to use.
+            let protocols = match behaviour {
+                AliceBehaviour::NoProtocols => vec![],
+                _ => vec![LoginProtocolType::DeviceAuthorizationGrant],
+            };
+            let message = QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4388 {
+                protocols,
+                base_url: homeserver,
+            });
+            alice.send_json(message).await.unwrap();
+        }
 
         if matches!(behaviour, AliceBehaviour::NoProtocols) {
             // Bob can't use any of the protocols, so he should tell us and
@@ -825,8 +893,17 @@ mod test {
                 }
             }
         });
-        let alice_task = spawn(async {
-            grant_login(alice, receiver, AliceBehaviour::HappyPath, TokenResponse::Ok).await
+        let alice_homeserver = rendezvous_server.homeserver_url.clone();
+        let alice_task = spawn(async move {
+            grant_login(
+                alice,
+                alice_homeserver,
+                receiver,
+                AliceBehaviour::HappyPath,
+                TokenResponse::Ok,
+                msc_4388,
+            )
+            .await
         });
 
         // Wait for all tasks to finish.
@@ -850,6 +927,130 @@ mod test {
     #[cfg(feature = "unstable-msc4388")]
     async fn test_qr_login_msc_4388() {
         test_qr_login(true).await;
+    }
+
+    /// With MSC4388, the base URL in the QR code only identifies the
+    /// rendezvous server. The homeserver to log in to is the one Alice sends in
+    /// the `m.login.protocols` message, so Bob needs to switch to it.
+    #[async_test]
+    #[cfg(feature = "unstable-msc4388")]
+    async fn test_qr_login_with_homeserver_swap_msc_4388() {
+        let initial_server = MatrixMockServer::new().await;
+        let rendezvous_server = MockedRendezvousServer::new(
+            initial_server.server(),
+            "abcdEFG12345",
+            Duration::MAX,
+            true,
+        )
+        .await;
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+
+        let login_server = MatrixMockServer::new().await;
+        let oauth_server = login_server.oauth();
+        oauth_server.mock_server_metadata().ok().expect(1).named("server_metadata").mount().await;
+        oauth_server.mock_registration().ok().expect(1).named("registration").mount().await;
+        oauth_server
+            .mock_device_authorization()
+            .ok()
+            .expect(1)
+            .named("device_authorization")
+            .mount()
+            .await;
+        oauth_server.mock_token().ok().expect(1).named("token").mount().await;
+
+        initial_server.mock_versions().ok().named("versions initial server").mount().await;
+        initial_server
+            .mock_well_known()
+            .ok()
+            .expect(1)
+            .named("well_known-initial-server")
+            .mount()
+            .await;
+
+        login_server.mock_well_known().ok().expect(1).named("well_known").mount().await;
+        login_server.mock_versions().ok().expect(1..).named("versions").mount().await;
+        login_server.mock_who_am_i().ok().expect(1).named("whoami").mount().await;
+        login_server.mock_upload_keys().ok().expect(1).named("upload_keys").mount().await;
+        login_server.mock_query_keys().ok().expect(1).named("query_keys").mount().await;
+
+        // Alice creates the rendezvous session on the initial server.
+        let client = HttpClient::new(reqwest::Client::new(), Default::default());
+        let alice = SecureChannel::reciprocate(client, &rendezvous_server.homeserver_url, true)
+            .await
+            .expect("Alice should be able to create a secure channel.");
+
+        assert_let!(
+            QrCodeIntentData::Msc4388 { base_url, .. } = &alice.qr_code_data().intent_data()
+        );
+        let initial_server_url: Url = initial_server.server().uri().parse().unwrap();
+        assert_eq!(base_url.as_url(), &initial_server_url);
+
+        // Bob builds his client from the URL in the QR code, i.e. the initial
+        // server.
+        let bob = Client::builder()
+            .server_name_or_homeserver_url(base_url.as_str())
+            .request_config(RequestConfig::new().disable_retry())
+            .build()
+            .await
+            .expect("We should be able to build the Client object from the URL in the QR code");
+        assert_eq!(bob.homeserver(), initial_server_url);
+
+        let login_server_url: Url = login_server.server().uri().parse().unwrap();
+        assert_ne!(initial_server_url, login_server_url);
+
+        let qr_code = alice.qr_code_data().clone();
+
+        let oauth = bob.oauth();
+        let registration_data = mock_client_metadata().into();
+        let login_bob = oauth.login_with_qr_code(Some(&registration_data)).scan(&qr_code);
+        let mut updates = login_bob.subscribe_to_progress();
+
+        let updates_task = spawn(async move {
+            let mut sender = Some(sender);
+
+            while let Some(update) = updates.next().await {
+                match update {
+                    LoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
+                        sender
+                            .take()
+                            .expect("The establishing secure channel update should be received only once")
+                            .send(check_code)
+                            .expect("Bob should be able to send the check code to Alice");
+                    }
+                    LoginProgress::Done => break,
+                    _ => (),
+                }
+            }
+        });
+
+        // Alice tells Bob to log in to the login server, not the server
+        // hosting the rendezvous session.
+        let alice_homeserver = login_server_url.clone();
+        let alice_task = spawn(async move {
+            grant_login(
+                alice,
+                alice_homeserver,
+                receiver,
+                AliceBehaviour::HappyPath,
+                TokenResponse::Ok,
+                true,
+            )
+            .await
+        });
+
+        // Wait for all tasks to finish.
+        login_bob.await.expect("Bob should be able to login");
+        alice_task.await.expect("Alice should have completed it's task successfully");
+        updates_task.await.unwrap();
+
+        assert!(bob.encryption().cross_signing_status().await.unwrap().is_complete());
+        let own_identity =
+            bob.encryption().get_user_identity(bob.user_id().unwrap()).await.unwrap().unwrap();
+
+        assert!(own_identity.is_verified());
+
+        // After login, Bob should have switched to the login server.
+        assert_eq!(bob.homeserver(), login_server_url);
     }
 
     async fn grant_login_with_generated_qr(
@@ -1392,9 +1593,20 @@ mod test {
             }
         });
 
+        let alice_homeserver = rendezvous_server.homeserver_url.clone();
         let alice_task =
             (!matches!(alice_behaviour, AliceBehaviour::LetSessionExpire)).then(|| {
-                spawn(async { grant_login(alice, receiver, alice_behaviour, token_response).await })
+                spawn(async move {
+                    grant_login(
+                        alice,
+                        alice_homeserver,
+                        receiver,
+                        alice_behaviour,
+                        token_response,
+                        msc_4388,
+                    )
+                    .await
+                })
             });
 
         let result = login_bob.await;
@@ -2042,8 +2254,17 @@ mod test {
                 }
             }
         });
+        let alice_homeserver = rendezvous_server.homeserver_url.clone();
         let _alice_task = spawn(async move {
-            grant_login(alice, receiver, AliceBehaviour::HappyPath, TokenResponse::Ok).await
+            grant_login(
+                alice,
+                alice_homeserver,
+                receiver,
+                AliceBehaviour::HappyPath,
+                TokenResponse::Ok,
+                false,
+            )
+            .await
         });
         let error = login_bob.await.unwrap_err();
 

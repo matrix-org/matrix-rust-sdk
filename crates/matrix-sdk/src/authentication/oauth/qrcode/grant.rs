@@ -479,13 +479,21 @@ impl IntoFuture for GrantLoginWithGeneratedQrCode {
             // -- MSC4108 Secure channel setup step 7
             let mut channel = channel.confirm(check_code)?;
 
-            // Since the QR code was generated on this existing device, the new
-            // device can derive the homeserver to use for logging in from the
-            // QR code and we don't need to send the m.login.protocols
-            // message.
+            // Inform the other device about the available login protocols and
+            // the homeserver to use. The MSC requires this message to always be
+            // sent first, but we only do so for the MSC4388 variant: with the
+            // MSC4108 variant the new device derives the homeserver from the
+            // QR code and doesn't expect this message, so we skip it to stay
+            // compatible with existing implementations.
             //
             // -- MSC4108 OAuth 2.0 login step 1
-            // TODO: for MSC4388 always send `m.login.protocols`
+            if !matches!(channel.channel_variant(), ChannelVariant::Msc4108) {
+                let message = QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4388 {
+                    protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
+                    base_url: self.client.homeserver(),
+                });
+                channel.send_json(message).await?;
+            }
 
             // Proceed with granting the login.
             //
@@ -574,6 +582,26 @@ mod test {
 
         // Let Alice know about the checkcode so she can verify the channel.
         check_code_tx.send(bob.check_code()).expect("Bob should be able to send the checkcode");
+
+        // With MSC4388, Alice informs us about the available login protocols
+        // even though we already know the homeserver from the QR code.
+        if let QrCodeIntentData::Msc4388 { base_url: qr_base_url, .. } = qr_code_data.intent_data()
+        {
+            let message = bob
+                .receive_json()
+                .await
+                .expect("Bob should receive the LoginProtocols message from Alice");
+
+            assert_let!(
+                QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4388 {
+                    protocols,
+                    base_url,
+                }) = message
+            );
+
+            assert_eq!(protocols, vec![LoginProtocolType::DeviceAuthorizationGrant]);
+            assert_eq!(&base_url, qr_base_url.as_url());
+        }
 
         match behaviour {
             BobBehaviour::UnexpectedMessageInsteadOfLoginProtocol => {
