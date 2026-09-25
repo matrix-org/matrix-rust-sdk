@@ -1019,6 +1019,14 @@ impl_crypto_store! {
         }
     }
 
+    async fn delete_next_batch_token(&self) -> Result<()> {
+        let transaction =
+            self.inner.transaction(keys::CORE).with_mode(TransactionMode::Readwrite).build()?;
+        transaction.object_store(keys::CORE)?.delete(&JsValue::from_str(keys::NEXT_BATCH_TOKEN)).build()?;
+        transaction.commit().await?;
+        Ok(())
+    }
+
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
         if let Some(pickle) = self
             .inner
