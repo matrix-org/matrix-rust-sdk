@@ -1465,6 +1465,14 @@ mod tests {
             self.memory_store.find_event_relations(room_id, event_id, filters).await
         }
 
+        async fn find_events_before_timestamp(
+            &self,
+            room_id: &RoomId,
+            cutoff_ms: u64,
+        ) -> Result<Vec<(Event, Position)>, Self::Error> {
+            self.memory_store.find_events_before_timestamp(room_id, cutoff_ms).await
+        }
+
         async fn get_room_events(
             &self,
             room_id: &RoomId,

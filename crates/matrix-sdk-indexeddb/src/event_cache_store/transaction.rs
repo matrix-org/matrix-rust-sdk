@@ -19,7 +19,7 @@ use matrix_sdk_base::{
     event_cache::{Event as RawEvent, Gap as RawGap},
     linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunkId, RawChunk},
 };
-use ruma::{EventId, RoomId, events::relation::RelationType};
+use ruma::{EventId, MilliSecondsSinceUnixEpoch, RoomId, UInt, events::relation::RelationType};
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
@@ -28,15 +28,16 @@ use crate::{
         serializer::indexed_types::{
             IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventError,
             IndexedEventEventIdKey, IndexedEventIdKey, IndexedEventPositionKey,
-            IndexedEventRelationKey, IndexedEventRoomKey, IndexedGapIdKey, IndexedLease,
-            IndexedLeaseIdKey, IndexedNextChunkIdKey, IndexedThread, IndexedThreadIdKey,
+            IndexedEventRelationKey, IndexedEventRoomKey, IndexedEventTimestampKey,
+            IndexedGapIdKey, IndexedLease, IndexedLeaseIdKey, IndexedNextChunkIdKey, IndexedThread,
+            IndexedThreadIdKey,
         },
         types::{Chunk, ChunkType, Event, Gap, Lease, Position, Thread},
     },
     serializer::indexed_type::{
         IndexedTypeSerializer,
         range::IndexedKeyRange,
-        traits::{Indexed, IndexedPrefixKeyBounds, IndexedPrefixKeyComponentBounds},
+        traits::{Indexed, IndexedKey, IndexedPrefixKeyBounds, IndexedPrefixKeyComponentBounds},
     },
     transaction::{Transaction, TransactionError},
 };
@@ -416,6 +417,28 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
             .map(|(event_id, relation_type)| (room_id, event_id, relation_type))
             .encoded(self.serializer().inner());
         self.get_items_by_key::<Event, IndexedEventRelationKey>(range).await
+    }
+
+    /// Query IndexedDB for events in the given room whose `origin_server_ts`
+    /// is strictly less than `cutoff_ms` milliseconds since the Unix epoch.
+    pub async fn get_events_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        cutoff_ms: u64,
+    ) -> Result<Vec<Event>, TransactionError> {
+        let lower = <IndexedEventTimestampKey as IndexedKey<Event>>::encode(
+            (room_id, MilliSecondsSinceUnixEpoch(UInt::from(0u32))),
+            self.serializer().inner(),
+        );
+        // Use cutoff_ms - 1 for exclusive upper bound since IndexedKeyRange::Bound
+        // is inclusive on both ends.
+        let upper_ts = cutoff_ms.saturating_sub(1);
+        let upper = <IndexedEventTimestampKey as IndexedKey<Event>>::encode(
+            (room_id, MilliSecondsSinceUnixEpoch(UInt::try_from(upper_ts).unwrap_or(UInt::MAX))),
+            self.serializer().inner(),
+        );
+        let range = IndexedKeyRange::Bound(lower, upper);
+        self.get_items_by_key::<Event, IndexedEventTimestampKey>(range).await
     }
 
     /// Query IndexedDB for events that are related to the given event in the

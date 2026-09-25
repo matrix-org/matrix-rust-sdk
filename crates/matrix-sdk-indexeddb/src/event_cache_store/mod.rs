@@ -653,6 +653,26 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     }
 
     #[instrument(skip(self))]
+    async fn find_events_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        cutoff_ms: u64,
+    ) -> Result<Vec<(Event, Position)>, IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
+
+        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+        let events = transaction.get_events_before_timestamp(room_id, cutoff_ms).await?;
+
+        Ok(events
+            .into_iter()
+            .filter_map(|event| {
+                let position = event.position().map(Into::into)?;
+                Some((Event::from(event), position))
+            })
+            .collect())
+    }
+
+    #[instrument(skip(self))]
     async fn get_room_events(
         &self,
         room_id: &RoomId,
