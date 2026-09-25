@@ -98,12 +98,9 @@ impl Timeline {
     fn send_attachment(
         self: Arc<Self>,
         params: UploadParameters,
-        attachment_info: AttachmentInfo,
-        mime_type: Option<String>,
-        thumbnail: Option<Thumbnail>,
+        attachment: AttachmentKind,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
-        let (source, mime_type, attachment_config) =
-            build_attachment_config(params, attachment_info, mime_type, thumbnail)?;
+        let (source, mime_type, attachment_config) = build_attachment_config(params, attachment)?;
 
         let handle = SendAttachmentJoinHandle::new(get_runtime_handle().spawn(async move {
             self.inner
@@ -120,13 +117,10 @@ impl Timeline {
         &self,
         event_id: String,
         params: UploadParameters,
-        attachment_info: AttachmentInfo,
-        mime_type: Option<String>,
-        thumbnail: Option<Thumbnail>,
+        attachment: AttachmentKind,
     ) -> Result<(), ClientError> {
         let event_id = EventId::parse(event_id)?;
-        let (source, mime_type, attachment_config) =
-            build_attachment_config(params, attachment_info, mime_type, thumbnail)?;
+        let (source, mime_type, attachment_config) = build_attachment_config(params, attachment)?;
 
         self.inner.edit_with_attachment(&event_id, source, mime_type, attachment_config).await?;
 
@@ -138,10 +132,10 @@ impl Timeline {
 /// attachment.
 fn build_attachment_config(
     params: UploadParameters,
-    attachment_info: AttachmentInfo,
-    mime_type: Option<String>,
-    thumbnail: Option<Thumbnail>,
+    attachment: AttachmentKind,
 ) -> Result<(UploadSource, Mime, AttachmentConfig), RoomError> {
+    let (attachment_info, mime_type, thumbnail) = attachment.into_parts()?;
+
     let mime_str = mime_type.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
 
     let mime_type = mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
@@ -259,6 +253,62 @@ pub enum UploadSource {
         /// Filename to associate with bytes
         filename: String,
     },
+}
+
+/// What kind of attachment is being sent or edited in, with the metadata that
+/// kind needs.
+#[derive(uniffi::Enum)]
+pub enum AttachmentKind {
+    Image { image_info: ImageInfo, thumbnail_source: Option<UploadSource> },
+    Video { video_info: VideoInfo, thumbnail_source: Option<UploadSource> },
+    Audio { audio_info: AudioInfo },
+    Voice { audio_info: AudioInfo, waveform: Vec<f32> },
+    File { file_info: FileInfo },
+}
+
+impl AttachmentKind {
+    fn into_parts(self) -> Result<(AttachmentInfo, Option<String>, Option<Thumbnail>), RoomError> {
+        Ok(match self {
+            Self::Image { image_info, thumbnail_source } => (
+                AttachmentInfo::Image(
+                    BaseImageInfo::try_from(&image_info)
+                        .map_err(|_| RoomError::InvalidAttachmentData)?,
+                ),
+                image_info.mimetype,
+                build_thumbnail_info(thumbnail_source, image_info.thumbnail_info)?,
+            ),
+            Self::Video { video_info, thumbnail_source } => (
+                AttachmentInfo::Video(
+                    BaseVideoInfo::try_from(&video_info)
+                        .map_err(|_| RoomError::InvalidAttachmentData)?,
+                ),
+                video_info.mimetype,
+                build_thumbnail_info(thumbnail_source, video_info.thumbnail_info)?,
+            ),
+            Self::Audio { audio_info } => (
+                AttachmentInfo::Audio(
+                    BaseAudioInfo::try_from(&audio_info)
+                        .map_err(|_| RoomError::InvalidAttachmentData)?,
+                ),
+                audio_info.mimetype,
+                None,
+            ),
+            Self::Voice { audio_info, waveform } => {
+                let mut info = BaseAudioInfo::try_from(&audio_info)
+                    .map_err(|_| RoomError::InvalidAttachmentData)?;
+                info.waveform = Some(waveform);
+                (AttachmentInfo::Voice(info), audio_info.mimetype, None)
+            }
+            Self::File { file_info } => (
+                AttachmentInfo::File(
+                    BaseFileInfo::try_from(&file_info)
+                        .map_err(|_| RoomError::InvalidAttachmentData)?,
+                ),
+                file_info.mimetype,
+                None,
+            ),
+        })
+    }
 }
 
 impl From<UploadSource> for AttachmentSource {
@@ -462,11 +512,7 @@ impl Timeline {
         thumbnail_source: Option<UploadSource>,
         image_info: ImageInfo,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
-        let attachment_info = AttachmentInfo::Image(
-            BaseImageInfo::try_from(&image_info).map_err(|_| RoomError::InvalidAttachmentData)?,
-        );
-        let thumbnail = build_thumbnail_info(thumbnail_source, image_info.thumbnail_info)?;
-        self.send_attachment(params, attachment_info, image_info.mimetype, thumbnail)
+        self.send_attachment(params, AttachmentKind::Image { image_info, thumbnail_source })
     }
 
     pub fn send_video(
@@ -475,11 +521,7 @@ impl Timeline {
         thumbnail_source: Option<UploadSource>,
         video_info: VideoInfo,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
-        let attachment_info = AttachmentInfo::Video(
-            BaseVideoInfo::try_from(&video_info).map_err(|_| RoomError::InvalidAttachmentData)?,
-        );
-        let thumbnail = build_thumbnail_info(thumbnail_source, video_info.thumbnail_info)?;
-        self.send_attachment(params, attachment_info, video_info.mimetype, thumbnail)
+        self.send_attachment(params, AttachmentKind::Video { video_info, thumbnail_source })
     }
 
     pub fn send_audio(
@@ -487,10 +529,7 @@ impl Timeline {
         params: UploadParameters,
         audio_info: AudioInfo,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
-        let attachment_info = AttachmentInfo::Audio(
-            BaseAudioInfo::try_from(&audio_info).map_err(|_| RoomError::InvalidAttachmentData)?,
-        );
-        self.send_attachment(params, attachment_info, audio_info.mimetype, None)
+        self.send_attachment(params, AttachmentKind::Audio { audio_info })
     }
 
     pub fn send_voice_message(
@@ -499,10 +538,7 @@ impl Timeline {
         audio_info: AudioInfo,
         waveform: Vec<f32>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
-        let mut info =
-            BaseAudioInfo::try_from(&audio_info).map_err(|_| RoomError::InvalidAttachmentData)?;
-        info.waveform = Some(waveform);
-        self.send_attachment(params, AttachmentInfo::Voice(info), audio_info.mimetype, None)
+        self.send_attachment(params, AttachmentKind::Voice { audio_info, waveform })
     }
 
     pub fn send_file(
@@ -510,10 +546,7 @@ impl Timeline {
         params: UploadParameters,
         file_info: FileInfo,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
-        let attachment_info = AttachmentInfo::File(
-            BaseFileInfo::try_from(&file_info).map_err(|_| RoomError::InvalidAttachmentData)?,
-        );
-        self.send_attachment(params, attachment_info, file_info.mimetype, None)
+        self.send_attachment(params, AttachmentKind::File { file_info })
     }
 
     /// Edits a message the current user sent into an image, replacing its
@@ -527,12 +560,12 @@ impl Timeline {
         thumbnail_source: Option<UploadSource>,
         image_info: ImageInfo,
     ) -> Result<(), ClientError> {
-        let attachment_info = AttachmentInfo::Image(
-            BaseImageInfo::try_from(&image_info).map_err(|_| RoomError::InvalidAttachmentData)?,
-        );
-        let thumbnail = build_thumbnail_info(thumbnail_source, image_info.thumbnail_info)?;
-        self.edit_with_attachment(event_id, params, attachment_info, image_info.mimetype, thumbnail)
-            .await
+        self.edit_with_attachment(
+            event_id,
+            params,
+            AttachmentKind::Image { image_info, thumbnail_source },
+        )
+        .await
     }
 
     /// Like [`Self::edit_image`], with a video.
@@ -543,12 +576,12 @@ impl Timeline {
         thumbnail_source: Option<UploadSource>,
         video_info: VideoInfo,
     ) -> Result<(), ClientError> {
-        let attachment_info = AttachmentInfo::Video(
-            BaseVideoInfo::try_from(&video_info).map_err(|_| RoomError::InvalidAttachmentData)?,
-        );
-        let thumbnail = build_thumbnail_info(thumbnail_source, video_info.thumbnail_info)?;
-        self.edit_with_attachment(event_id, params, attachment_info, video_info.mimetype, thumbnail)
-            .await
+        self.edit_with_attachment(
+            event_id,
+            params,
+            AttachmentKind::Video { video_info, thumbnail_source },
+        )
+        .await
     }
 
     /// Like [`Self::edit_image`], with an audio file.
@@ -558,11 +591,7 @@ impl Timeline {
         params: UploadParameters,
         audio_info: AudioInfo,
     ) -> Result<(), ClientError> {
-        let attachment_info = AttachmentInfo::Audio(
-            BaseAudioInfo::try_from(&audio_info).map_err(|_| RoomError::InvalidAttachmentData)?,
-        );
-        self.edit_with_attachment(event_id, params, attachment_info, audio_info.mimetype, None)
-            .await
+        self.edit_with_attachment(event_id, params, AttachmentKind::Audio { audio_info }).await
     }
 
     /// Like [`Self::edit_image`], with a file.
@@ -572,10 +601,7 @@ impl Timeline {
         params: UploadParameters,
         file_info: FileInfo,
     ) -> Result<(), ClientError> {
-        let attachment_info = AttachmentInfo::File(
-            BaseFileInfo::try_from(&file_info).map_err(|_| RoomError::InvalidAttachmentData)?,
-        );
-        self.edit_with_attachment(event_id, params, attachment_info, file_info.mimetype, None).await
+        self.edit_with_attachment(event_id, params, AttachmentKind::File { file_info }).await
     }
 
     pub async fn create_poll(
