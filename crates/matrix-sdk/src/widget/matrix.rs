@@ -15,12 +15,12 @@
 //! Matrix driver implementation that exposes Matrix functionality
 //! that is relevant for the widget API.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
-use as_variant::as_variant;
+use async_stream::stream;
+use futures_core::Stream;
 use matrix_sdk_base::{
-    crypto::CollectStrategy,
-    deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState},
+    deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaFormat, MediaRequestParameters},
     sync::State,
 };
@@ -52,8 +52,8 @@ use tracing::{error, trace, warn};
 
 use super::{StateKeySelector, machine::SendEventResponse};
 use crate::{
-    Client, Error, Result, Room, event_handler::EventHandlerDropGuard, room::MessagesOptions,
-    sync::RoomUpdate, widget::machine::SendToDeviceEventResponse,
+    Error, Result, Room, client::is_internal_to_device_type, event_handler::EventHandlerDropGuard,
+    room::MessagesOptions, sync::RoomUpdate, widget::machine::SendToDeviceEventResponse,
 };
 
 /// Thin wrapper around a [`Room`] that provides functionality relevant for
@@ -86,9 +86,9 @@ impl MatrixDriver {
     /// used as a fallback, unless well-known discovery was disabled with
     /// [`ClientBuilder::disable_well_known_lookup`].
     ///
-    /// Returns an error if neither source could provide transports, so that
-    /// the widget receives an error response (as opposed to an empty list,
-    /// which would be indistinguishable from a homeserver that advertises no
+    /// Returns an error if neither source could provide transports, so that the
+    /// widget receives an error response (as opposed to an empty list, which
+    /// would be indistinguishable from a homeserver that advertises no
     /// transports).
     ///
     /// [`Client::discover_rtc_transports`]: crate::Client::discover_rtc_transports
@@ -239,10 +239,11 @@ impl MatrixDriver {
         })
     }
 
-    /// Send a request to the `/delayed_events`` endpoint ([MSC4140](https://github.com/matrix-org/matrix-spec-proposals/pull/4140))
+    /// Send a request to the `/delayed_events`` endpoint
+    /// ([MSC4140](https://github.com/matrix-org/matrix-spec-proposals/pull/4140))
     /// This can be used to refresh cancel or send a Delayed Event (An Event
-    /// that is send ahead of time to the homeserver and gets distributed
-    /// once it times out.)
+    /// that is send ahead of time to the homeserver and gets distributed once
+    /// it times out.)
     pub(crate) async fn update_delayed_event(
         &self,
         delay_id: String,
@@ -252,8 +253,8 @@ impl MatrixDriver {
         self.room.client.send(r).await.map_err(|error| Error::Http(Box::new(error)))
     }
 
-    /// Starts forwarding new room events. Once the returned `EventReceiver`
-    /// is dropped, forwarding will be stopped.
+    /// Starts forwarding new room events. Once the returned `EventReceiver` is
+    /// dropped, forwarding will be stopped.
     pub(crate) fn events(&self) -> EventReceiver<Raw<AnyTimelineEvent>> {
         let (tx, rx) = unbounded_channel();
         let room_id = self.room.room_id().to_owned();
@@ -265,8 +266,8 @@ impl MatrixDriver {
         let drop_guard = self.room.client().event_handler_drop_guard(handle);
 
         // The receiver will get a combination of state and message like events.
-        // These always come from the timeline (rather than the state section of the
-        // sync).
+        // These always come from the timeline (rather than the state section of
+        // the sync).
         EventReceiver { rx, _drop_guard: drop_guard }
     }
 
@@ -275,29 +276,20 @@ impl MatrixDriver {
         StateUpdateReceiver { room_updates: self.room.subscribe_to_updates() }
     }
 
-    /// Starts forwarding new room events. Once the returned `EventReceiver`
-    /// is dropped, forwarding will be stopped.
-    pub(crate) fn to_device_events(&self) -> EventReceiver<Raw<AnyToDeviceEvent>> {
-        let (tx, rx) = unbounded_channel();
+    /// Starts forwarding new to-device messages. Once the returned stream is
+    /// dropped, forwarding will be stopped.
+    pub(crate) fn to_device_events(&self) -> impl Stream<Item = Raw<AnyToDeviceEvent>> + use<> {
+        let room = self.room.clone();
+        // Every custom to-device type: the widget machine filters by
+        // capability. The SDK's internal crypto traffic is already left out.
+        let messages = room.client().subscribe_to_custom_to_device_messages(vec![]);
 
-        let room_id = self.room.room_id().to_owned();
-        let to_device_handle = self.room.client().add_event_handler(
-            async move |raw: Raw<AnyToDeviceEvent>,
-                        encryption_info: Option<EncryptionInfo>,
-                        client: Client| {
-                // Some to-device traffic is used by the SDK for internal machinery.
-                // They should not be exposed to widgets.
-                if Self::should_filter_message_to_widget(&raw) {
-                    return;
-                }
+        stream! {
+            for await message in messages {
+                let room_id = room.room_id();
 
-                // Encryption can be enabled after the widget has been instantiated,
-                // we want to keep track of the latest status
-                let Some(room) = client.get_room(&room_id) else {
-                    warn!("Room {room_id} not found in client.");
-                    return;
-                };
-
+                // Encryption can be enabled after the widget has been
+                // instantiated, we want to keep track of the latest status
                 let room_encrypted = room
                     .latest_encryption_state()
                     .await
@@ -305,10 +297,11 @@ impl MatrixDriver {
                     // Default consider encrypted
                     .unwrap_or(true);
 
-                // Whether the to-device message reached us encrypted. `encryption_info` is
-                // `Some(..)` only when the message arrived as `m.room.encrypted` and was
-                // successfully Olm-decrypted by the SDK; clear (and UTD) messages carry `None`.
-                let encrypted = encryption_info.is_some();
+                // Whether the to-device message reached us encrypted.
+                // `encryption_info` is `Some(..)` only when the message arrived
+                // as `m.room.encrypted` and was successfully Olm-decrypted by
+                // the SDK; clear messages carry `None`.
+                let encrypted = message.encryption_info.is_some();
 
                 if room_encrypted && !encrypted {
                     // The room is encrypted so the to-device traffic should be too.
@@ -316,16 +309,17 @@ impl MatrixDriver {
                         ?room_id,
                         "Received to-device event in clear for a widget in an e2e room, dropping."
                     );
-                    return;
+                    continue;
                 }
 
-                // There are no per-room specific decryption settings (trust requirements), so
-                // we can just send it to the widget.
+                // There are no per-room specific decryption settings (trust
+                // requirements), so we can just send it to the widget.
 
-                // The raw to-device event contains more fields than the widget needs, so we
-                // clean it up to only type/content/sender and add the MSC3819 `encrypted`
-                // flag. It is ok to forward an encrypted to-device message even if the room is
-                // clear, so both cases go through the same path.
+                // The raw to-device event contains more fields than the widget
+                // needs, so we clean it up to only type/content/sender and add
+                // the MSC3819 `encrypted` flag. It is ok to forward an
+                // encrypted to-device message even if the room is clear, so
+                // both cases go through the same path.
                 #[derive(Deserialize, Serialize)]
                 struct CleanEventHelper<'a> {
                     #[serde(rename = "type")]
@@ -333,15 +327,16 @@ impl MatrixDriver {
                     #[serde(borrow)]
                     content: &'a RawJsonValue,
                     sender: String,
-                    // Never populated from the wire: it is always overwritten with the value
-                    // the SDK computed, so a remote sender cannot spoof it. (MSC3819 puts this
-                    // flag in the event's top-level namespace, this is not ideal;
-                    // ignoring any inbound value is the safe handling)
+                    // Never populated from the wire: it is always overwritten
+                    // with the value the SDK computed, so a remote sender
+                    // cannot spoof it. (MSC3819 puts this flag in the event's
+                    // top-level namespace, this is not ideal; ignoring any
+                    // inbound value is the safe handling)
                     #[serde(skip_deserializing)]
                     encrypted: bool,
                 }
 
-                let _ = serde_json::from_str::<CleanEventHelper<'_>>(raw.json().get())
+                let clean_event = serde_json::from_str::<CleanEventHelper<'_>>(message.raw.json().get())
                     .map(|mut clean_event_helper| {
                         // Important, always set the `encrypted` flag based on encryption_info
                         clean_event_helper.encrypted = encrypted;
@@ -349,60 +344,21 @@ impl MatrixDriver {
                     })
                     .and_then(|clean_event_helper| {
                         serde_json::value::to_raw_value(&clean_event_helper)
-                    })
-                    .map_err(|err| {
+                    });
+
+                match clean_event {
+                    Ok(clean_event) => yield Raw::from_json(clean_event),
+                    Err(err) => {
                         warn!(?room_id, "Unable to process to-device message for widget: {err}")
-                    })
-                    .map(|box_value| tx.send(Raw::from_json(box_value)));
-            },
-        );
-
-        let drop_guard = self.room.client().event_handler_drop_guard(to_device_handle);
-        EventReceiver { rx, _drop_guard: drop_guard }
-    }
-
-    fn should_filter_message_to_widget(raw_message: &Raw<AnyToDeviceEvent>) -> bool {
-        let Ok(Some(event_type)) = raw_message.get_field::<String>("type") else {
-            trace!("Invalid to-device message (no type) filtered out by widget driver.");
-            return true;
-        };
-
-        // Filter out all the internal crypto related traffic.
-        // The SDK has already zeroized the critical data, but let's not leak any
-        // information
-        let filtered = Self::is_internal_type(event_type.as_str());
-
-        if filtered {
-            trace!("To-device message of type <{event_type}> filtered out by widget driver.",);
+                    }
+                }
+            }
         }
-        filtered
-    }
-
-    fn is_internal_type(event_type: &str) -> bool {
-        matches!(
-            event_type,
-            "m.dummy"
-                | "m.room_key"
-                | "m.room_key_request"
-                | "m.forwarded_room_key"
-                | "m.key.verification.request"
-                | "m.key.verification.ready"
-                | "m.key.verification.start"
-                | "m.key.verification.cancel"
-                | "m.key.verification.accept"
-                | "m.key.verification.key"
-                | "m.key.verification.mac"
-                | "m.key.verification.done"
-                | "m.secret.request"
-                | "m.secret.send"
-                // drop utd traffic
-                | "m.room.encrypted"
-        )
     }
 
     /// If the room the widget is in is encrypted, then the to-device message
-    /// will be encrypted. If one of the named devices does not exist, then
-    /// the call will fail with an error.
+    /// will be encrypted. If one of the named devices does not exist, then the
+    /// call will fail with an error.
     pub(crate) async fn send_to_device(
         &self,
         event_type: ToDeviceEventType,
@@ -411,17 +367,16 @@ impl MatrixDriver {
             BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>,
         >,
     ) -> Result<SendToDeviceEventResponse> {
-        // TODO: block this at the negotiation stage, no reason to let widget believe
-        // they can do that
-        if Self::is_internal_type(&event_type.to_string()) {
+        // TODO: block this at the negotiation stage, no reason to let widget
+        // believe they can do that
+        if is_internal_to_device_type(&event_type) {
             warn!("Widget tried to send internal to-device message <{}>, ignoring", event_type);
-            // Silently return a success response, the widget will not receive the message
+            // Silently return a success response, the widget will not receive
+            // the message
             return Ok(Default::default());
         }
 
         let client = self.room.client();
-
-        let mut failures: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> = BTreeMap::new();
 
         let room_encrypted = self
             .room
@@ -431,143 +386,64 @@ impl MatrixDriver {
             // Default consider encrypted
             .unwrap_or(true);
 
-        if room_encrypted {
-            trace!("Sending to-device message in encrypted room <{}>", self.room.room_id());
-
-            // The widget-api uses a [user -> device -> content] map, but the
-            // crypto-sdk API allow to encrypt a given content for multiple recipients.
-            // Lets convert the [user -> device -> content] to a [content -> user -> device
-            // map].
-            let mut content_to_recipients_map: BTreeMap<
-                &str,
-                BTreeMap<OwnedUserId, Vec<DeviceIdOrAllDevices>>,
-            > = BTreeMap::new();
-
-            for (user_id, device_map) in messages.iter() {
-                for (device_id, content) in device_map.iter() {
-                    content_to_recipients_map
-                        .entry(content.json().get())
-                        .or_default()
-                        .entry(user_id.clone())
-                        .or_default()
-                        .push(device_id.to_owned());
-                }
-            }
-
-            // Encrypt and send this content
-            for (content, user_to_list_of_device_id_or_all) in content_to_recipients_map {
-                self.encrypt_and_send_content_to_devices_helper(
-                    &event_type,
-                    content,
-                    user_to_list_of_device_id_or_all,
-                    &mut failures,
-                )
-                .await?
-            }
-
-            let failures = failures
-                .into_iter()
-                .map(|(u, list_of_devices)| {
-                    (u.into(), list_of_devices.into_iter().map(|d| d.into()).collect())
-                })
-                .collect();
-
-            let response = SendToDeviceEventResponse { failures };
-            Ok(response)
-        } else {
-            // send in clear
+        if !room_encrypted {
+            // Send in clear, as a single request.
             let request = RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), messages);
             client.send(request).await?;
-            Ok(Default::default())
-        }
-    }
-
-    // Helper to encrypt a single content to several devices
-    async fn encrypt_and_send_content_to_devices_helper(
-        &self,
-        event_type: &ToDeviceEventType,
-        content: &str,
-        user_to_list_of_device_id_or_all: BTreeMap<OwnedUserId, Vec<DeviceIdOrAllDevices>>,
-        failures: &mut BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
-    ) -> Result<()> {
-        let client = self.room.client();
-        let mut recipient_devices = Vec::<_>::new();
-
-        for (user_id, recipient_device_ids) in user_to_list_of_device_id_or_all {
-            let user_devices = client.encryption().get_user_devices(&user_id).await?;
-
-            let user_devices = if recipient_device_ids.contains(&DeviceIdOrAllDevices::AllDevices) {
-                // If the user wants to send to all devices, there's nothing to filter and no
-                // need to inspect other entries in the user's device list.
-                let devices: Vec<_> = user_devices.devices().collect();
-                // TODO: What to do if the user has no devices?
-                if devices.is_empty() {
-                    warn!(
-                        "Recipient list contains `AllDevices` but no devices found for user {user_id}."
-                    )
-                }
-                // TODO: What if the `recipient_device_ids` has both
-                // `AllDevices` and other devices but one of the  other devices is not found.
-                if recipient_device_ids.len() > 1 {
-                    warn!(
-                        "The recipient_device_ids list for {user_id} contains both `AllDevices` and explicit `DeviceId` entries. Only consider `AllDevices`",
-                    );
-                }
-                devices
-            } else {
-                // If the user wants to send to only some devices, filter out any devices that
-                // aren't part of the recipient_device_ids list.
-                let filtered_devices = user_devices
-                    .devices()
-                    .map(|device| (device.device_id().to_owned(), device))
-                    .filter(|(device_id, _)| {
-                        recipient_device_ids
-                            .contains(&DeviceIdOrAllDevices::DeviceId(device_id.clone()))
-                    });
-
-                let (found_device_ids, devices): (BTreeSet<_>, Vec<_>) = filtered_devices.unzip();
-
-                let list_of_devices: BTreeSet<_> = recipient_device_ids
-                    .into_iter()
-                    .filter_map(|d| as_variant!(d, DeviceIdOrAllDevices::DeviceId))
-                    .collect();
-
-                // Let's now find any devices that are part of the recipient_device_ids list but
-                // were not found in our store.
-                let missing_devices: Vec<_> =
-                    list_of_devices.difference(&found_device_ids).map(|d| d.to_owned()).collect();
-                if !missing_devices.is_empty() {
-                    failures.insert(user_id, missing_devices);
-                }
-                devices
-            };
-
-            recipient_devices.extend(user_devices);
+            return Ok(Default::default());
         }
 
-        if !recipient_devices.is_empty() {
-            // need to group by content
-            let encrypt_and_send_failures = client
-                .encryption()
-                .encrypt_and_send_raw_to_device(
-                    recipient_devices.iter().collect(),
-                    &event_type.to_string(),
+        trace!("Sending to-device message in encrypted room <{}>", self.room.room_id());
+
+        // The widget-api uses a [user -> device -> content] map, but the SDK
+        // API sends a given content to multiple recipients. Let's convert the
+        // [user -> device -> content] to a [content -> user -> devices] map so
+        // that each distinct content is encrypted and sent once.
+        let mut content_to_recipients_map: BTreeMap<
+            &str,
+            BTreeMap<OwnedUserId, Vec<DeviceIdOrAllDevices>>,
+        > = BTreeMap::new();
+
+        for (user_id, device_map) in messages.iter() {
+            for (device_id, content) in device_map.iter() {
+                content_to_recipients_map
+                    .entry(content.json().get())
+                    .or_default()
+                    .entry(user_id.clone())
+                    .or_default()
+                    .push(device_id.to_owned());
+            }
+        }
+
+        let mut failures: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> = BTreeMap::new();
+
+        for (content, recipients) in content_to_recipients_map {
+            let content_failures = client
+                .send_encrypted_to_device(
+                    &event_type,
+                    recipients,
                     Raw::from_json_string(content.to_owned())?,
-                    CollectStrategy::AllDevices,
                 )
                 .await?;
 
-            for (user_id, device_id) in encrypt_and_send_failures {
-                failures.entry(user_id).or_default().push(device_id)
+            for (user_id, device_ids) in content_failures {
+                failures.entry(user_id).or_default().extend(device_ids);
             }
         }
 
-        Ok(())
+        let failures = failures
+            .into_iter()
+            .map(|(u, list_of_devices)| {
+                (u.into(), list_of_devices.into_iter().map(|d| d.into()).collect())
+            })
+            .collect();
+
+        Ok(SendToDeviceEventResponse { failures })
     }
 }
 
-/// A simple entity that wraps an `UnboundedReceiver`
-/// along with the drop guard for the room event handler.
+/// A simple entity that wraps an `UnboundedReceiver` along with the drop guard
+/// for the room event handler.
 pub(crate) struct EventReceiver<E> {
     rx: UnboundedReceiver<E>,
     _drop_guard: EventHandlerDropGuard,

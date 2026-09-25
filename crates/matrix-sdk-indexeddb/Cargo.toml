@@ -1,12 +1,11 @@
 [package]
 name = "matrix-sdk-indexeddb"
-version = "0.18.0"
+version = "0.19.1"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 description = "Web's IndexedDB Storage backend for matrix-sdk"
 license = "Apache-2.0"
 edition = "2024"
 rust-version.workspace = true
-readme = "README.md"
 
 [package.metadata.cargo-machete]
 ignored = ["serde_bytes"] # Used in the indexed types, by the IndexedMediaContentData (aka media content).
@@ -71,7 +70,7 @@ getrandom = { workspace = true, features = ["wasm_js"] }
 
 [dev-dependencies]
 assert_matches.workspace = true
-assert_matches2.workspace = true
+strass.workspace = true
 gloo-timers = { workspace = true, features = ["futures"] }
 matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-common = { workspace = true, features = ["js"] }

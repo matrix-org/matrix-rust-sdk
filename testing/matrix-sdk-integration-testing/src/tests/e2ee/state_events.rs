@@ -1,7 +1,6 @@
 use std::{ops::Deref, time::Duration};
 
 use anyhow::Result;
-use assert_matches2::assert_let;
 use assign::assign;
 use futures::{FutureExt, StreamExt, pin_mut};
 use matrix_sdk::{
@@ -15,6 +14,7 @@ use matrix_sdk::{
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_ui::sync_service::SyncService;
 use similar_asserts::assert_eq;
+use strass::assert_let;
 use tracing::{Instrument, info};
 
 use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};

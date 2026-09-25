@@ -50,7 +50,7 @@ fn fix_style() -> Result<()> {
 fn fix_typos() -> Result<()> {
     let sh = sh();
     // FIXME: Print install instructions if command-not-found (needs an xshell
-    //        change: https://github.com/matklad/xshell/issues/46)
+    // change: https://github.com/matklad/xshell/issues/46)
     cmd!(sh, "typos --write-changes").run()?;
     Ok(())
 }

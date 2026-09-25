@@ -32,8 +32,8 @@ impl UserSigningPubkey {
 
     /// Get the first available user-signing key.
     ///
-    /// There's usually only a single key so this will usually fetch the
-    /// only key.
+    /// There's usually only a single key so this will usually fetch the only
+    /// key.
     pub fn get_first_key(&self) -> Option<Ed25519PublicKey> {
         self.0.get_first_key_and_id().map(|(_, k)| k)
     }
@@ -42,7 +42,7 @@ impl UserSigningPubkey {
     ///
     /// # Arguments
     ///
-    /// * `master_key` - The master key that should be checked for a valid
+    /// - `master_key` - The master key that should be checked for a valid
     ///   signature.
     ///
     /// Returns an empty result if the signature check succeeded, otherwise a

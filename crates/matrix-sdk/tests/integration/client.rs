@@ -1,6 +1,5 @@
-use std::{collections::BTreeMap, ops::Not as _, time::Duration};
+use std::{assert_matches, collections::BTreeMap, ops::Not as _, time::Duration};
 
-use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt, pin_mut};
 use matrix_sdk::{
@@ -17,12 +16,11 @@ use matrix_sdk::{
         client::mock_matrix_session, mocks::MatrixMockServer, no_retry_test_client_with_server,
     },
 };
-use matrix_sdk_base::{RoomState, sync::RoomUpdates};
+use matrix_sdk_base::{RoomState, read_receipts::ReadReceipts, sync::RoomUpdates};
 use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, executor::spawn};
 use matrix_sdk_test::{
     DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, async_test,
     event_factory::EventFactory,
-    sync_state_event,
     test_json::{
         self,
         sync::{
@@ -63,6 +61,7 @@ use ruma::{
     uint, user_id,
 };
 use serde_json::{Value as JsonValue, json};
+use strass::assert_let;
 use stream_assert::{assert_next_matches, assert_pending};
 use tempfile::tempdir;
 #[cfg(feature = "sqlite")]
@@ -216,8 +215,8 @@ async fn test_join_room_by_id() {
         .await;
 
     assert_eq!(
-        // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId
-        // field
+        // this is the `join_by_room_id::Response` but since no PartialEq we
+        // check the RoomId field
         client.join_room_by_id(&DEFAULT_TEST_ROOM_ID).await.unwrap().room_id(),
         *DEFAULT_TEST_ROOM_ID
     );
@@ -235,8 +234,8 @@ async fn test_join_room_by_id_or_alias() {
         .await;
 
     assert_eq!(
-        // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId
-        // field
+        // this is the `join_by_room_id::Response` but since no PartialEq we
+        // check the RoomId field
         client
             .join_room_by_id_or_alias(
                 (&**DEFAULT_TEST_ROOM_ID).into(),
@@ -368,7 +367,7 @@ async fn test_room_update_channel() {
 
     assert_eq!(updates.account_data.len(), 1);
     assert_eq!(updates.ephemeral.len(), 1);
-    assert_matches!(updates.state, State::Before(state_events));
+    assert_let!(State::Before(state_events) = updates.state);
     assert_eq!(state_events.len(), 9);
 
     assert!(updates.timeline.limited);
@@ -399,7 +398,7 @@ async fn test_subscribe_all_room_updates() {
         let (room_id, update) = left.iter().next().unwrap();
 
         assert_eq!(room_id, *MIXED_LEFT_ROOM_ID);
-        assert_matches!(&update.state, State::Before(state_events));
+        assert_let!(State::Before(state_events) = &update.state);
         assert!(state_events.is_empty());
         assert_eq!(update.timeline.events.len(), 1);
         assert!(update.account_data.is_empty());
@@ -415,7 +414,7 @@ async fn test_subscribe_all_room_updates() {
 
         assert_eq!(update.account_data.len(), 1);
         assert_eq!(update.ephemeral.len(), 1);
-        assert_matches!(&update.state, State::Before(state_events));
+        assert_let!(State::Before(state_events) = &update.state);
         assert_eq!(state_events.len(), 1);
 
         assert!(update.timeline.limited);
@@ -474,8 +473,8 @@ async fn test_request_encryption_event_before_sending() {
                     "rotation_period_ms": 604800000,
                     "rotation_period_msgs": 100
                 }))
-                // Introduce a delay so the first `latest_encryption_state()` doesn't finish before
-                // we make the second call.
+                // Introduce a delay so the first `latest_encryption_state()`
+                // doesn't finish before we make the second call.
                 .set_delay(Duration::from_millis(50)),
         )
         .mount(&server)
@@ -973,6 +972,7 @@ async fn test_test_ambiguity_changes() {
     let example_id = user_id!("@example:localhost");
     let example_2_id = user_id!("@example2:localhost");
     let example_3_id = user_id!("@example3:localhost");
+    let f = EventFactory::new();
 
     let mut updates = BroadcastStream::new(client.subscribe_to_room_updates(&DEFAULT_TEST_ROOM_ID));
     assert_pending!(updates);
@@ -1025,30 +1025,14 @@ async fn test_test_ambiguity_changes() {
 
     let mut sync_builder = SyncResponseBuilder::new();
     let joined_room = JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_bulk([
-        sync_state_event!({
-            "content": {
-                "avatar_url": null,
-                "displayname": "example",
-                "membership": "join"
-            },
-            "event_id": example_2_rename_1_event_id,
-            "origin_server_ts": 151800140,
-            "sender": example_2_id,
-            "state_key": example_2_id,
-            "type": "m.room.member",
-        }),
-        sync_state_event!({
-            "content": {
-                "avatar_url": null,
-                "displayname": "example",
-                "membership": "join"
-            },
-            "event_id": example_3_join_event_id,
-            "origin_server_ts": 151800140,
-            "sender": example_3_id,
-            "state_key": example_3_id,
-            "type": "m.room.member",
-        }),
+        f.member(example_2_id)
+            .display_name("example")
+            .event_id(example_2_rename_1_event_id)
+            .into_raw_sync_state(),
+        f.member(example_3_id)
+            .display_name("example")
+            .event_id(example_3_join_event_id)
+            .into_raw_sync_state(),
     ]);
     sync_builder.add_joined_room(joined_room);
 
@@ -1097,19 +1081,11 @@ async fn test_test_ambiguity_changes() {
     // Rename example 2 to a unique name.
     let example_2_rename_2_event_id = event_id!("$example_2_rename_2");
 
-    let joined_room =
-        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_bulk([sync_state_event!({
-            "content": {
-                "avatar_url": null,
-                "displayname": "another example",
-                "membership": "join"
-            },
-            "event_id": example_2_rename_2_event_id,
-            "origin_server_ts": 151800140,
-            "sender": example_2_id,
-            "state_key": example_2_id,
-            "type": "m.room.member",
-        })]);
+    let joined_room = JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_event(
+        f.member(example_2_id)
+            .display_name("another example")
+            .event_id(example_2_rename_2_event_id),
+    );
     sync_builder.add_joined_room(joined_room);
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -1144,19 +1120,9 @@ async fn test_test_ambiguity_changes() {
     // Rename example 3, using the same name as example 2.
     let example_3_rename_event_id = event_id!("$example_3_rename");
 
-    let joined_room =
-        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_bulk([sync_state_event!({
-            "content": {
-                "avatar_url": null,
-                "displayname": "another example",
-                "membership": "join"
-            },
-            "event_id": example_3_rename_event_id,
-            "origin_server_ts": 151800140,
-            "sender": example_3_id,
-            "state_key": example_3_id,
-            "type": "m.room.member",
-        })]);
+    let joined_room = JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_event(
+        f.member(example_3_id).display_name("another example").event_id(example_3_rename_event_id),
+    );
     sync_builder.add_joined_room(joined_room);
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -1191,19 +1157,9 @@ async fn test_test_ambiguity_changes() {
     // Rename example, still using a unique name.
     let example_rename_event_id = event_id!("$example_rename");
 
-    let joined_room =
-        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_bulk([sync_state_event!({
-            "content": {
-                "avatar_url": null,
-                "displayname": "the first example",
-                "membership": "join"
-            },
-            "event_id": example_rename_event_id,
-            "origin_server_ts": 151800140,
-            "sender": example_id,
-            "state_key": example_id,
-            "type": "m.room.member",
-        })]);
+    let joined_room = JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_event(
+        f.member(example_id).display_name("the first example").event_id(example_rename_event_id),
+    );
     sync_builder.add_joined_room(joined_room);
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -1238,19 +1194,12 @@ async fn test_test_ambiguity_changes() {
     // Change avatar.
     let example_avatar_event_id = event_id!("$example_avatar");
 
-    let joined_room =
-        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_bulk([sync_state_event!({
-            "content": {
-                "avatar_url": "mxc://localhost/avatar",
-                "displayname": "the first example",
-                "membership": "join"
-            },
-            "event_id": example_avatar_event_id,
-            "origin_server_ts": 151800140,
-            "sender": example_id,
-            "state_key": example_id,
-            "type": "m.room.member",
-        })]);
+    let joined_room = JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_event(
+        f.member(example_id)
+            .avatar_url("mxc://localhost/avatar".into())
+            .display_name("the first example")
+            .event_id(example_avatar_event_id),
+    );
     sync_builder.add_joined_room(joined_room);
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -1273,6 +1222,7 @@ async fn test_avatar_url_changes() {
 
     let example_id = user_id!("@example:localhost");
     let example_2_id = user_id!("@example_2:localhost");
+    let f = EventFactory::new();
 
     let mut updates = BroadcastStream::new(client.subscribe_to_room_updates(&DEFAULT_TEST_ROOM_ID));
     assert_pending!(updates);
@@ -1298,30 +1248,14 @@ async fn test_avatar_url_changes() {
     // Now we sync a room member with an avatar URL.
     let mut sync_builder = SyncResponseBuilder::new();
     let joined_room = JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_bulk([
-        sync_state_event!({
-            "content": {
-                "avatar_url": "mxc://localhost/avatar",
-                "displayname": "the first example",
-                "membership": "join"
-            },
-            "event_id": event_id!("$example_avatar"),
-            "origin_server_ts": 151800140,
-            "sender": example_id,
-            "state_key": example_id,
-            "type": "m.room.member",
-        }),
-        sync_state_event!({
-            "content": {
-                "avatar_url": "mxc://localhost/avatar2",
-                "displayname": "the second example",
-                "membership": "join"
-            },
-            "event_id": event_id!("$example_avatar_2"),
-            "origin_server_ts": 151800140,
-            "sender": example_2_id,
-            "state_key": example_2_id,
-            "type": "m.room.member",
-        }),
+        f.member(example_id)
+            .avatar_url("mxc://localhost/avatar".into())
+            .display_name("the first example")
+            .into_raw_sync_state(),
+        f.member(example_2_id)
+            .avatar_url("mxc://localhost/avatar2".into())
+            .display_name("the second example")
+            .into_raw_sync_state(),
     ]);
     sync_builder.add_joined_room(joined_room);
 
@@ -1350,19 +1284,10 @@ async fn test_avatar_url_changes() {
     );
 
     // And after that, receive the first room member without an avatar URL.
+    let avatar_removal =
+        f.member(example_id).display_name("the first example").into_raw_sync_state();
     let joined_room =
-        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_bulk([sync_state_event!({
-            "content": {
-                "avatar_url": null,
-                "displayname": "the first example",
-                "membership": "join"
-            },
-            "event_id": event_id!("$example_avatar_removal"),
-            "origin_server_ts": 151800141,
-            "sender": example_id,
-            "state_key": example_id,
-            "type": "m.room.member",
-        })]);
+        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_event(avatar_removal.clone());
     sync_builder.add_joined_room(joined_room);
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -1375,19 +1300,7 @@ async fn test_avatar_url_changes() {
     assert_let!(Some(None) = changes.get(example_id));
 
     // If we receive the same event again, nothing should happen
-    let joined_room =
-        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_bulk([sync_state_event!({
-            "content": {
-                "avatar_url": null,
-                "displayname": "the first example",
-                "membership": "join"
-            },
-            "event_id": event_id!("$example_avatar_removal"),
-            "origin_server_ts": 151800141,
-            "sender": example_id,
-            "state_key": example_id,
-            "type": "m.room.member",
-        })]);
+    let joined_room = JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_event(avatar_removal);
     sync_builder.add_joined_room(joined_room);
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -1486,7 +1399,7 @@ async fn test_observe_own_beacon_info_updates_emits_room_id_event_id_and_content
 
     let update: BeaconInfoUpdate = stream.next().await.expect("expected a beacon_info update");
     assert_eq!(update.room_id, *DEFAULT_TEST_ROOM_ID);
-    assert_eq!(update.event_id, event_id!("$own_beacon_info"));
+    assert_eq!(update.event_id, "$own_beacon_info");
     assert_eq!(update.content.description, Some("Live Share".to_owned()));
     assert!(update.content.live);
 }
@@ -1575,6 +1488,54 @@ async fn test_observe_own_beacon_info_updates_stays_idle_without_matching_update
     server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
 
     assert!(stream.next().now_or_never().is_none());
+}
+
+#[async_test]
+async fn test_total_unread_notifications() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let f = EventFactory::new();
+
+    let set_num_notifications = async |room: &matrix_sdk::Room, num: u64| {
+        room.update_room_info(|mut room_info| {
+            room_info
+                .set_read_receipts(ReadReceipts { num_notifications: num, ..Default::default() });
+
+            (room_info, Default::default())
+        })
+        .await;
+    };
+
+    // A room with unread notifications contributes all of them.
+    let notifications_room = server.sync_joined_room(&client, room_id!("!a:b.c")).await;
+    set_num_notifications(&notifications_room, 3).await;
+
+    // A room the user marked as unread by hand has no count of its own, so it
+    // contributes one.
+    let marked_unread_room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!d:b.c")).add_account_data(f.marked_unread(true)),
+        )
+        .await;
+    assert!(marked_unread_room.is_marked_unread());
+
+    // A room that is both only needs the user's attention once, so it
+    // contributes its notifications and not one more.
+    let both_notifications_and_unread = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!e:b.c")).add_account_data(f.marked_unread(true)),
+        )
+        .await;
+    assert!(both_notifications_and_unread.is_marked_unread());
+    set_num_notifications(&both_notifications_and_unread, 2).await;
+
+    // A room we haven't joined doesn't contribute at all.
+    let invited_room = server.sync_room(&client, InvitedRoomBuilder::new(room_id!("!f:b.c"))).await;
+    set_num_notifications(&invited_room, 100).await;
+
+    assert_eq!(client.total_unread_notifications(), 3 + 1 + 2);
 }
 
 #[async_test]
@@ -1847,10 +1808,10 @@ async fn test_logout() {
     let oauth_client = server.client_builder().logged_in_with_oauth().build().await;
     let res = oauth_client.logout().await;
 
-    // This returns an error because it requires a HTTPS server URI, or to be able
-    // to call `OAuth::insecure_rewrite_https_to_http()`, but at least we are
-    // testing the OAuth branch inside `Client::logout()`.
-    assert_matches!(res, Err(Error::OAuth(oauth_error)));
+    // This returns an error because it requires a HTTPS server URI, or to be
+    // able to call `OAuth::insecure_rewrite_https_to_http()`, but at least we
+    // are testing the OAuth branch inside `Client::logout()`.
+    assert_let!(Err(Error::OAuth(oauth_error)) = res);
     assert_matches!(*oauth_error, OAuthError::Logout(OAuthTokenRevocationError::Url(_)));
 }
 
@@ -1894,7 +1855,7 @@ async fn test_room_sync_state_after() {
     assert_let!(RoomUpdate::Joined { updates, .. } = update);
 
     // We received the `state_after`.
-    assert_matches!(updates.state, State::After(state_events));
+    assert_let!(State::After(state_events) = updates.state);
     assert_eq!(state_events.len(), 5);
     assert_eq!(updates.timeline.events.len(), 2);
 
@@ -1934,8 +1895,8 @@ async fn test_server_version_without_auth() {
     // token has expired.
     server.mock_versions().expect_default_access_token().error_unknown_token(true).mount().await;
 
-    // If we do not provide an access token, all is fine as the endpoint does not
-    // require one.
+    // If we do not provide an access token, all is fine as the endpoint does
+    // not require one.
     server.mock_versions().expect_missing_access_token().ok().mount().await;
 
     let request_config = RequestConfig::new().disable_retry();

@@ -39,12 +39,11 @@ pub trait RoomIdentityProvider: core::fmt::Debug {
     fn member_identities(&self) -> BoxFuture<'_, Vec<UserIdentity>>;
 
     /// Return the [`UserIdentity`] of the user with the supplied ID (even if
-    /// they are not a member of this room) or None if this user does not
-    /// exist.
+    /// they are not a member of this room) or None if this user does not exist.
     fn user_identity<'a>(&'a self, user_id: &'a UserId) -> BoxFuture<'a, Option<UserIdentity>>;
 
-    /// Return the [`IdentityState`] of the supplied user identity.
-    /// Normally only overridden in tests.
+    /// Return the [`IdentityState`] of the supplied user identity. Normally
+    /// only overridden in tests.
     fn state_of(&self, user_identity: &UserIdentity) -> IdentityState {
         if user_identity.is_verified() {
             IdentityState::Verified
@@ -64,11 +63,11 @@ pub trait RoomIdentityProvider: core::fmt::Debug {
 
 /// The state of the identities in a given room - whether they are:
 ///
-/// * in pin violation (the identity changed after we accepted their identity),
-/// * verified (we manually did the emoji dance),
-/// * previously verified (we did the emoji dance and then their identity
+/// - in pin violation (the identity changed after we accepted their identity),
+/// - verified (we manually did the emoji dance),
+/// - previously verified (we did the emoji dance and then their identity
 ///   changed),
-/// * otherwise, they are pinned.
+/// - otherwise, they are pinned.
 #[derive(Debug)]
 pub struct RoomIdentityState<R: RoomIdentityProvider> {
     room: R,
@@ -136,15 +135,16 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
         &mut self,
         sync_room_member_event: Box<SyncRoomMemberEvent>,
     ) -> Vec<IdentityStatusChange> {
-        // Ignore redacted events - memberships should come through as new events, not
-        // redactions.
+        // Ignore redacted events - memberships should come through as new
+        // events, not redactions.
         if let SyncStateEvent::Original(event) = sync_room_member_event.deref() {
             let user_id = &event.state_key;
             // Ignore non-existent users, and changes to our own identity
             if let Some(user_identity @ UserIdentity::Other(_)) =
                 self.room.user_identity(user_id).await
             {
-                // Don't notify on membership changes of verified or pinned identities
+                // Don't notify on membership changes of verified or pinned
+                // identities
                 if matches!(
                     self.room.state_of(&user_identity),
                     IdentityState::Verified | IdentityState::Pinned
@@ -154,16 +154,16 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
 
                 match event.content.membership {
                     MembershipState::Join | MembershipState::Invite => {
-                        // They are joining the room - check whether we need to display a
-                        // warning to the user
+                        // They are joining the room - check whether we need to
+                        // display a warning to the user
                         if let Some(update) = self.update_user_state(user_id, &user_identity) {
                             return vec![update];
                         }
                     }
                     MembershipState::Leave | MembershipState::Ban => {
-                        // They are leaving the room - treat that as if they are becoming
-                        // Pinned, which means the UI will remove any banner it was displaying
-                        // for them.
+                        // They are leaving the room - treat that as if they are
+                        // becoming Pinned, which means the UI will remove any
+                        // banner it was displaying for them.
 
                         if let Some(update) =
                             self.update_user_state_to(user_id, IdentityState::Pinned)
@@ -227,10 +227,12 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
 /// changed in this room and we should either show or hide a warning.
 ///
 /// Examples of "significant" changes:
+///
 /// - pinned->unpinned
 /// - verification violation->verified
 ///
 /// Examples of "insignificant" changes:
+///
 /// - pinned->verified
 /// - verified->pinned
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -250,14 +252,14 @@ pub enum IdentityState {
     Verified,
 
     /// Either this is the first identity we have seen for this user, or the
-    /// user has acknowledged a change of identity explicitly e.g. by
-    /// clicking OK on a notification.
+    /// user has acknowledged a change of identity explicitly e.g. by clicking
+    /// OK on a notification.
     Pinned,
 
     /// The user's identity has changed since it was pinned. The user should be
-    /// notified about this and given the opportunity to acknowledge the
-    /// change, which will make the new identity pinned.
-    /// When the user acknowledges the change, the app should call
+    /// notified about this and given the opportunity to acknowledge the change,
+    /// which will make the new identity pinned. When the user acknowledges the
+    /// change, the app should call
     /// [`crate::OtherUserIdentity::pin_current_master_key`].
     PinViolation,
 
@@ -281,8 +283,8 @@ pub enum RoomIdentityChange {
     SyncRoomMemberEvent(Box<SyncRoomMemberEvent>),
 }
 
-/// What we know about the states of users in this room.
-/// Only stores users who _not_ in the Pinned stated.
+/// What we know about the states of users in this room. Only stores users who
+/// _not_ in the Pinned stated.
 #[derive(Debug)]
 struct KnownStates {
     known_states: HashMap<OwnedUserId, IdentityState>,
@@ -442,7 +444,8 @@ mod tests {
         let mut room = FakeRoom::new();
         let mut state = RoomIdentityState::new(room.clone()).await;
 
-        // When a new unpinned user identity appears but they are not in the room
+        // When a new unpinned user identity appears but they are not in the
+        // room
         let updates =
             identity_change(&mut room, user_id, IdentityState::PinViolation, true, false).await;
         let update = state.process_change(updates).await;

@@ -35,7 +35,8 @@ impl MockClientBuilder {
     /// using Matrix V1.12, and which will not attempt any network retry (by
     /// default).
     ///
-    /// If no homeserver is provided, `http://localhost` is used as a homeserver.
+    /// If no homeserver is provided, `http://localhost` is used as a
+    /// homeserver.
     pub fn new(homeserver: Option<&str>) -> Self {
         let homeserver = homeserver.unwrap_or("http://localhost");
 

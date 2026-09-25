@@ -26,7 +26,7 @@
 
 use std::time::Duration;
 
-use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
+use matrix_sdk::{assert_let_timeout, sleep::sleep, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
     event_id,
@@ -37,7 +37,6 @@ use ruma::{
     },
     room_id,
 };
-use tokio::time::sleep;
 
 /// Test that the unread count increases when new messages arrive and no read
 /// receipt is known.
@@ -57,6 +56,7 @@ async fn test_unread_count_new_message_no_receipt() {
     server.sync_joined_room(&client, room_id).await;
     let (thread, _drop_handles) = event_cache.thread(room_id, thread_id).await.unwrap();
     let (_, mut thread_updates) = thread.subscribe().await.unwrap();
+    let mut thread_info_updates = thread.subscribe_to_thread_info().await.unwrap();
 
     assert!(thread_updates.is_empty());
 
@@ -77,6 +77,9 @@ async fn test_unread_count_new_message_no_receipt() {
 
     // Both messages from Alice count as unread since there is no read receipt.
     assert_eq!(thread.num_unread_messages().await.unwrap(), 2);
+
+    // Asserting the `ThreadInfo` has received an update too.
+    assert!(thread_info_updates.next().await.is_some());
 }
 
 /// Test that the unread count only includes messages after the last known read
@@ -97,6 +100,8 @@ async fn test_unread_count_new_message_with_known_receipt() {
     server.sync_joined_room(&client, room_id).await;
     let (thread, _drop_handles) = event_cache.thread(room_id, thread_id).await.unwrap();
     let (_, mut thread_updates) = thread.subscribe().await.unwrap();
+    let mut thread_info_updates = thread.subscribe_to_thread_info().await.unwrap();
+
     assert!(thread_updates.is_empty());
 
     server
@@ -130,6 +135,9 @@ async fn test_unread_count_new_message_with_known_receipt() {
 
     // Only ev3 (after the receipt) is unread.
     assert_eq!(thread.num_unread_messages().await.unwrap(), 1);
+
+    // Asserting the `ThreadInfo` has received an update too.
+    assert!(thread_info_updates.next().await.is_some());
 }
 
 /// Test that a message sent by the current user creates an implicit read
@@ -150,6 +158,8 @@ async fn test_unread_count_implicit_receipt_own_message() {
     server.sync_joined_room(&client, room_id).await;
     let (thread, _drop_handles) = event_cache.thread(room_id, thread_id).await.unwrap();
     let (_, mut thread_updates) = thread.subscribe().await.unwrap();
+    let mut thread_info_updates = thread.subscribe_to_thread_info().await.unwrap();
+
     assert!(thread_updates.is_empty());
 
     server
@@ -184,7 +194,10 @@ async fn test_unread_count_implicit_receipt_own_message() {
     // implicit receipt.
     let read_receipts = thread.read_receipts().await.unwrap();
     assert_eq!(read_receipts.num_unread, 2);
-    assert_eq!(read_receipts.latest_active.unwrap().event_id, event_id!("$3"));
+    assert_eq!(read_receipts.latest_active.unwrap().event_id, "$3");
+
+    // Asserting the `ThreadInfo` has received an update too.
+    assert!(thread_info_updates.next().await.is_some());
 }
 
 /// Test that receiving only a new read receipt event (with no new messages)
@@ -205,6 +218,8 @@ async fn test_unread_count_receipt_only_no_new_message() {
     server.sync_joined_room(&client, room_id).await;
     let (thread, _drop_handles) = event_cache.thread(room_id, thread_id).await.unwrap();
     let (_, mut thread_updates) = thread.subscribe().await.unwrap();
+    let mut thread_info_updates = thread.subscribe_to_thread_info().await.unwrap();
+
     assert!(thread_updates.is_empty());
 
     // First sync: three messages from Alice, no receipt.
@@ -245,12 +260,13 @@ async fn test_unread_count_receipt_only_no_new_message() {
         )
         .await;
 
-    // Can't wait on `thread_updates` because there is no update “read receipt
-    // update” for threads.
-    sleep(Duration::from_millis(100)).await;
+    assert_let_timeout!(Ok(_) = thread_updates.recv());
 
     // Only ev3 (after the receipt) is unread now.
     assert_eq!(thread.num_unread_messages().await.unwrap(), 1);
+
+    // Asserting the `ThreadInfo` has received an update too.
+    assert!(thread_info_updates.next().await.is_some());
 }
 
 /// Test that a read receipt for an unknown event is stored as pending, and
@@ -271,6 +287,8 @@ async fn test_unread_count_pending_receipt() {
     server.sync_joined_room(&client, room_id).await;
     let (thread, _drop_handles) = event_cache.thread(room_id, thread_id).await.unwrap();
     let (_, mut thread_updates) = thread.subscribe().await.unwrap();
+    let mut thread_info_updates = thread.subscribe_to_thread_info().await.unwrap();
+
     assert!(thread_updates.is_empty());
 
     // First sync: three messages from Alice plus a receipt for a future event.
@@ -310,6 +328,9 @@ async fn test_unread_count_pending_receipt() {
     assert!(read_receipts.pending.iter().any(|id| id == event_id!("$future")));
     assert_eq!(read_receipts.pending.len(), 1);
 
+    // Asserting the `ThreadInfo` has received an update too.
+    assert!(thread_info_updates.next().await.is_some());
+
     // Second sync: $future arrives along with another message.
     server
         .sync_room(
@@ -328,10 +349,16 @@ async fn test_unread_count_pending_receipt() {
 
     assert_let_timeout!(Ok(_) = thread_updates.recv());
 
+    // Fix a bit of flakiness in some configuration.
+    sleep(Duration::from_millis(100)).await;
+
     // The pending receipt resolves: only ev4 (after $future) is unread.
     let read_receipts = thread.read_receipts().await.unwrap();
     assert_eq!(read_receipts.num_unread, 1);
     assert!(read_receipts.pending.is_empty());
+
+    // Asserting the `ThreadInfo` has received an update too.
+    assert!(thread_info_updates.next().await.is_some());
 }
 
 /// Test that unread counts accumulate across multiple syncs when no read
@@ -351,6 +378,8 @@ async fn test_unread_count_accumulates_across_syncs() {
     server.sync_joined_room(&client, room_id).await;
     let (thread, _drop_handles) = event_cache.thread(room_id, thread_id).await.unwrap();
     let (_, mut thread_updates) = thread.subscribe().await.unwrap();
+    let mut thread_info_updates = thread.subscribe_to_thread_info().await.unwrap();
+
     assert!(thread_updates.is_empty());
 
     // First sync: two messages.
@@ -368,8 +397,10 @@ async fn test_unread_count_accumulates_across_syncs() {
         .await;
 
     assert_let_timeout!(Ok(_) = thread_updates.recv());
-
     assert_eq!(thread.num_unread_messages().await.unwrap(), 2);
+
+    // Asserting the `ThreadInfo` has received an update too.
+    assert!(thread_info_updates.next().await.is_some());
 
     // Second sync: one more message, still no receipt.
     server
@@ -385,6 +416,9 @@ async fn test_unread_count_accumulates_across_syncs() {
 
     // Three messages are now unread in total.
     assert_eq!(thread.num_unread_messages().await.unwrap(), 3);
+
+    // Asserting the `ThreadInfo` has received an update too.
+    assert!(thread_info_updates.next().await.is_some());
 }
 
 /// Test that state events (e.g. a membership change) in the timeline do not
@@ -403,6 +437,7 @@ async fn test_state_event_does_not_increment_unread() {
 
     server.sync_joined_room(&client, room_id).await;
     let (thread, _drop_handles) = event_cache.thread(room_id, thread_id).await.unwrap();
+    let mut generic_room_updates = event_cache.subscribe_to_room_generic_updates();
 
     server
         .sync_room(
@@ -416,8 +451,7 @@ async fn test_state_event_does_not_increment_unread() {
         )
         .await;
 
-    sleep(Duration::from_millis(100)).await;
-
+    assert_let_timeout!(Ok(_) = generic_room_updates.recv());
     assert_eq!(thread.num_unread_messages().await.unwrap(), 0);
 }
 
@@ -437,6 +471,8 @@ async fn test_reaction_does_not_increment_unread() {
     server.sync_joined_room(&client, room_id).await;
     let (thread, _drop_handles) = event_cache.thread(room_id, thread_id).await.unwrap();
     let (_, mut thread_updates) = thread.subscribe().await.unwrap();
+    let mut thread_info_updates = thread.subscribe_to_thread_info().await.unwrap();
+
     assert!(thread_updates.is_empty());
 
     server
@@ -456,6 +492,9 @@ async fn test_reaction_does_not_increment_unread() {
 
     // Only the text message counts as unread, the reaction doesn't.
     assert_eq!(thread.num_unread_messages().await.unwrap(), 1);
+
+    // Asserting the `ThreadInfo` has received an update too.
+    assert!(thread_info_updates.next().await.is_some());
 }
 
 /// Test that messages with mentions increment the number of mentions.
@@ -476,12 +515,14 @@ async fn test_mentions_increments_unread_mentions() {
     let (_, mut thread_updates) = thread.subscribe().await.unwrap();
     assert!(thread_updates.is_empty());
 
-    // For mentions to be properly counted, we need to have a member event for the
-    // current user.
+    // For mentions to be properly counted, we need to have a member event for
+    // the current user.
     let member_event = f
         .member(client.user_id().unwrap())
         .membership(MembershipState::Join)
         .event_id(event_id!("$member"));
+
+    let mut thread_info_updates = thread.subscribe_to_thread_info().await.unwrap();
 
     server
         .sync_room(
@@ -502,6 +543,9 @@ async fn test_mentions_increments_unread_mentions() {
     // The message counts as unread and also increments the mentions count.
     assert_eq!(thread.num_unread_messages().await.unwrap(), 1);
     assert_eq!(thread.num_unread_mentions().await.unwrap(), 1);
+
+    // Asserting the `ThreadInfo` has received an update too.
+    assert!(thread_info_updates.next().await.is_some());
 }
 
 /// Test that the unread count computation doesn't skip a more-recent active
@@ -523,10 +567,12 @@ async fn test_compute_unread_counts_considers_active_receipt() {
 
     let (thread, _drop_handles) = event_cache.thread(room_id, thread_id).await.unwrap();
     let (_, mut thread_updates) = thread.subscribe().await.unwrap();
+    let mut thread_info_updates = thread.subscribe_to_thread_info().await.unwrap();
+
     assert!(thread_updates.is_empty());
 
-    // Starting with a room with 1 implicit receipt, then two messages from Alice,
-    // and a receipt on Alice's first message $2,
+    // Starting with a room with 1 implicit receipt, then two messages from
+    // Alice, and a receipt on Alice's first message $2,
     server
         .sync_room(
             &client,
@@ -561,8 +607,12 @@ async fn test_compute_unread_counts_considers_active_receipt() {
 
     assert_let_timeout!(Ok(_) = thread_updates.recv());
 
-    // The message counts are properly updated (one new message unread after $2).
+    // The message counts are properly updated (one new message unread after
+    // $2).
     assert_eq!(thread.num_unread_messages().await.unwrap(), 1);
+
+    // Asserting the `ThreadInfo` has received an update too.
+    assert!(thread_info_updates.next().await.is_some());
 
     // Provided a sync with one new message from Alice in the same room.
     server
@@ -576,8 +626,14 @@ async fn test_compute_unread_counts_considers_active_receipt() {
 
     assert_let_timeout!(Ok(_) = thread_updates.recv());
 
+    // Fix a bit of flakiness in some configuration.
+    sleep(Duration::from_millis(100)).await;
+
     // The message counts are properly updated (two messages after $2).
     assert_eq!(thread.num_unread_messages().await.unwrap(), 2);
+
+    // Asserting the `ThreadInfo` has received an update too.
+    assert!(thread_info_updates.next().await.is_some());
 }
 
 /// Test that the unread count gets updated when the sync update only contains
@@ -621,8 +677,10 @@ async fn test_unread_counts_updated_after_duplicate_only_sync_response() {
     // We receive the thread update for the two new messages.
     assert_let_timeout!(Ok(_) = thread_updates.recv());
 
-    // Then, provided a sync with a single duplicated message sent by somebody else,
-    // but a read receipt for the existing message $2,
+    let mut thread_info_updates = thread.subscribe_to_thread_info().await.unwrap();
+
+    // Then, provided a sync with a single duplicated message sent by somebody
+    // else, but a read receipt for the existing message $2,
     server
         .sync_room(
             &client,
@@ -643,13 +701,14 @@ async fn test_unread_counts_updated_after_duplicate_only_sync_response() {
         )
         .await;
 
-    // We don't get an update about the read receipt (because threads can't do
-    // that), and we don't get an update about new event because it's been
-    // deduplicated. So. Just wait a little bit :-].
-    sleep(Duration::from_millis(100)).await;
+    assert_let_timeout!(Ok(_) = thread_updates.recv());
 
-    // The message counts are properly updated (zero new message unread after $2).
+    // The message counts are properly updated (zero new message unread after
+    // $2).
     assert_eq!(thread.num_unread_messages().await.unwrap(), 0);
+
+    // Asserting the `ThreadInfo` has received an update too.
+    assert!(thread_info_updates.next().await.is_some());
 }
 
 /// Test that a read receipt saved in the state store but not marked as active
@@ -664,8 +723,9 @@ async fn test_read_receipt_from_store_used_as_latest_active() {
     let thread_id = event_id!("$t");
     let f = EventFactory::new().room(room_id).sender(*ALICE);
 
-    // Important test note: the read receipt must be in the state store *before* the
-    // event cache is subscribed to, so that it's not marked as active at start.
+    // Important test note: the read receipt must be in the state store _before_
+    // the event cache is subscribed to, so that it's not marked as active at
+    // start.
     server
         .sync_room(
             &client,
@@ -688,6 +748,8 @@ async fn test_read_receipt_from_store_used_as_latest_active() {
 
     let (thread, _drop_handles) = event_cache.thread(room_id, thread_id).await.unwrap();
     let (_, mut thread_updates) = thread.subscribe().await.unwrap();
+    let mut thread_info_updates = thread.subscribe_to_thread_info().await.unwrap();
+
     assert!(thread_updates.is_empty());
 
     server
@@ -714,4 +776,7 @@ async fn test_read_receipt_from_store_used_as_latest_active() {
 
     // Only ev3 (after the receipt) is unread.
     assert_eq!(thread.num_unread_messages().await.unwrap(), 1);
+
+    // Asserting the `ThreadInfo` has received an update too.
+    assert!(thread_info_updates.next().await.is_some());
 }

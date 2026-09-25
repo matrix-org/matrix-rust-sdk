@@ -30,6 +30,7 @@ use crate::{
 /// When we receive a to-device message establishing a megolm session (i.e. when
 /// [`crate::machine::OlmMachine::add_room_key`] is called):
 ///
+/// ```text
 /// ┌───────────────────────────────────────────────────────────────────┐
 /// │ A (start - we have a to-device message containing a room key)     │
 /// └───────────────────────────────────────────────────────────────────┘
@@ -119,6 +120,7 @@ use crate::{
 /// │                                                                   │
 /// │ Store this information with the session.                          │
 /// ╰───────────────────────────────────────────────────────────────────╯
+/// ```
 ///
 /// Note: the sender data may become out-of-date if we later verify the user. We
 /// have no plans to update it if so.
@@ -128,9 +130,9 @@ pub(crate) struct SenderDataFinder<'a> {
 }
 
 impl<'a> SenderDataFinder<'a> {
-    /// Find the device associated with the to-device message used to
-    /// create the InboundGroupSession we are about to create, and decide
-    /// whether we trust the sender.
+    /// Find the device associated with the to-device message used to create the
+    /// InboundGroupSession we are about to create, and decide whether we trust
+    /// the sender.
     pub(crate) async fn find_using_event(
         store: &'a Store,
         sender_curve_key: Curve25519PublicKey,
@@ -169,14 +171,16 @@ impl<'a> SenderDataFinder<'a> {
         sender_curve_key: Curve25519PublicKey,
         room_key_event: &'a DecryptedRoomKeyEvent,
     ) -> Result<SenderData, SessionDeviceKeysCheckError> {
-        // Does the to-device message contain the device_keys property from MSC4147?
+        // Does the to-device message contain the device_keys property from
+        // MSC4147?
         if let Some(sender_device_keys) = &room_key_event.sender_device_keys {
             // Yes: use the device keys to continue.
 
-            // Validate the signature of the DeviceKeys supplied. (We've actually already
-            // done this when decrypting the event, but doing it again here is
-            // relatively harmless and is the easiest way of getting hold of a
-            // DeviceData so that we can follow the rest of this logic).
+            // Validate the signature of the DeviceKeys supplied. (We've
+            // actually already done this when decrypting the event, but doing
+            // it again here is relatively harmless and is the easiest way of
+            // getting hold of a DeviceData so that we can follow the rest of
+            // this logic).
             let sender_device_data = DeviceData::try_from(sender_device_keys)?;
             Ok(self.have_device_data(sender_device_data).await?)
         } else {
@@ -191,8 +195,8 @@ impl<'a> SenderDataFinder<'a> {
         sender_curve_key: Curve25519PublicKey,
         sender_user_id: &UserId,
     ) -> Result<SenderData, SessionDeviceCheckError> {
-        // Does the locally-cached (in the store) devices list contain a device with the
-        // curve key of the sender of the to-device message?
+        // Does the locally-cached (in the store) devices list contain a device
+        // with the curve key of the sender of the to-device message?
         if let Some(sender_device) =
             self.store.get_device_from_curve_key(sender_user_id, sender_curve_key).await?
         {
@@ -201,11 +205,11 @@ impl<'a> SenderDataFinder<'a> {
         } else {
             // Step C (we don't know the sending device)
             //
-            // We have no device data for this session so we can't continue in the "fast
-            // lane" (blocking sync).
+            // We have no device data for this session so we can't continue in
+            // the "fast lane" (blocking sync).
             let sender_data = SenderData::UnknownDevice {
-                // This is not a legacy session since we did attempt to look
-                // up its sender data at the time of reception.
+                // This is not a legacy session since we did attempt to look up
+                // its sender data at the time of reception.
                 legacy_session: false,
                 owner_check_failed: false,
             };
@@ -229,12 +233,12 @@ impl<'a> SenderDataFinder<'a> {
         let device_is_owner = sender_device.is_owner_of_session(self.session)?;
 
         if !device_is_owner {
-            // Step E (the device does not own the session)
-            // Give up: something is wrong with the session.
+            // Step E (the device does not own the session) Give up: something
+            // is wrong with the session.
             Ok(SenderData::UnknownDevice { legacy_session: false, owner_check_failed: true })
         } else {
-            // Steps F, G, and H: we have a device, which may or may not be signed by the
-            // sender.
+            // Steps F, G, and H: we have a device, which may or may not be
+            // signed by the sender.
             Ok(SenderData::from_device(&sender_device))
         }
     }
@@ -328,9 +332,9 @@ impl From<SessionDeviceKeysCheckError> for OlmError {
 mod tests {
     use std::{ops::Deref as _, sync::Arc};
 
-    use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
     use ruma::{DeviceId, OwnedUserId, RoomId, UserId, device_id, room_id, user_id};
+    use strass::assert_let;
     use tokio::sync::Mutex;
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, megolm::SessionKey};
 
@@ -365,8 +369,8 @@ mod tests {
 
     #[async_test]
     async fn test_providing_no_device_data_returns_sender_data_with_no_device_info() {
-        // Given that the device is not in the store and the initial event has no device
-        // info
+        // Given that the device is not in the store and the initial event has
+        // no device info
         let setup = TestSetup::new(TestOptions::new()).await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
@@ -405,8 +409,8 @@ mod tests {
 
     #[async_test]
     async fn test_picks_up_device_info_from_the_store_if_missing_from_the_todevice_event() {
-        // Given that the device keys are not in the event but the device is in the
-        // store
+        // Given that the device keys are not in the event but the device is in
+        // the store
         let setup =
             TestSetup::new(TestOptions::new().store_contains_device().device_is_signed()).await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
@@ -425,8 +429,7 @@ mod tests {
 
     #[async_test]
     async fn test_adds_device_info_even_if_it_is_not_signed() {
-        // Given that the the device is in the store
-        // But it is not signed
+        // Given that the the device is in the store But it is not signed
         let setup = TestSetup::new(TestOptions::new().store_contains_device()).await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
@@ -436,8 +439,8 @@ mod tests {
             .await
             .unwrap();
 
-        // Then we store the device info even though it is useless, in case we want to
-        // check it matches up later.
+        // Then we store the device info even though it is useless, in case we
+        // want to check it matches up later.
         assert_let!(SenderData::DeviceInfo { device_keys, legacy_session } = sender_data);
         assert_eq!(&device_keys, setup.sender_device.as_device_keys());
         assert!(!legacy_session);
@@ -531,7 +534,8 @@ mod tests {
 
     #[async_test]
     async fn test_adds_sender_data_for_other_verified_device_and_user_using_device_from_event() {
-        // Given the device keys are in the event, and someone else sent the event
+        // Given the device keys are in the event, and someone else sent the
+        // event
         let setup = TestSetup::new(
             TestOptions::new()
                 .store_contains_sender_identity()
@@ -559,8 +563,8 @@ mod tests {
 
     #[async_test]
     async fn test_if_session_signing_does_not_match_device_return_an_error() {
-        // Given everything is the same as the above test
-        // except the session is not owned by the device
+        // Given everything is the same as the above test except the session is
+        // not owned by the device
         let setup = TestSetup::new(
             TestOptions::new()
                 .store_contains_sender_identity()
@@ -599,9 +603,8 @@ mod tests {
 
     #[async_test]
     async fn test_does_not_add_sender_data_for_a_device_missing_keys() {
-        // Given everything is the same as the successful test
-        // except the device does not own the session because
-        // it is imported.
+        // Given everything is the same as the successful test except the device
+        // does not own the session because it is imported.
         let setup = TestSetup::new(
             TestOptions::new()
                 .store_contains_sender_identity()
@@ -627,7 +630,8 @@ mod tests {
 
     #[async_test]
     async fn test_notes_master_key_is_verified_for_own_identity() {
-        // Given we can find the device, and we sent the event, and we are verified
+        // Given we can find the device, and we sent the event, and we are
+        // verified
         let setup = TestSetup::new(
             TestOptions::new()
                 .store_contains_device()
@@ -658,8 +662,8 @@ mod tests {
 
     #[async_test]
     async fn test_notes_master_key_is_verified_for_other_identity() {
-        // Given we can find the device, and someone else sent the event
-        // And the sender is verified
+        // Given we can find the device, and someone else sent the event And the
+        // sender is verified
         let setup = TestSetup::new(
             TestOptions::new()
                 .store_contains_device()
@@ -695,7 +699,8 @@ mod tests {
                 .await;
         let finder = SenderDataFinder::new(&setup.store, &setup.session);
 
-        // When we supply the device keys directly while asking for the sender data
+        // When we supply the device keys directly while asking for the sender
+        // data
         let sender_data = finder.have_device_data(setup.sender_device.inner.clone()).await.unwrap();
 
         // Then it is found using the device we supplied

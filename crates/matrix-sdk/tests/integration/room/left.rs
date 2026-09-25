@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use assert_matches2::assert_matches;
 use matrix_sdk::{config::SyncSettings, linked_chunk::LinkedChunkId};
 use matrix_sdk_base::{RoomInfoNotableUpdateReasons, RoomState};
 use matrix_sdk_test::{
@@ -13,6 +12,7 @@ use ruma::{
     user_id,
 };
 use serde_json::json;
+use strass::assert_let;
 use tokio::task::yield_now;
 use wiremock::{
     Mock, ResponseTemplate,
@@ -205,9 +205,9 @@ async fn test_forget_direct_room() {
         .expect("no m.direct account data")
         .deserialize()
         .expect("failed to deserialize m.direct account data");
-    assert_matches!(
-        direct_account_data.get(<&DirectUserIdentifier>::from(invited_user_id)),
-        Some(invited_user_dms)
+    assert_let!(
+        Some(invited_user_dms) =
+            direct_account_data.get(<&DirectUserIdentifier>::from(invited_user_id))
     );
     assert_eq!(invited_user_dms, &[DEFAULT_TEST_ROOM_ID.to_owned()]);
 

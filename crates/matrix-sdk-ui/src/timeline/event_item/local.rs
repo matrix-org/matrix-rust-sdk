@@ -23,8 +23,8 @@ use ruma::{EventId, OwnedEventId, OwnedTransactionId};
 
 use super::TimelineEventItemId;
 
-/// An item for an event that was created locally and not yet echoed back by
-/// the homeserver.
+/// An item for an event that was created locally and not yet echoed back by the
+/// homeserver.
 #[derive(Debug, Clone)]
 pub(in crate::timeline) struct LocalEventTimelineItem {
     /// The send state of this local event.
@@ -52,8 +52,7 @@ impl LocalEventTimelineItem {
 
     /// Get the event ID of this item.
     ///
-    /// Will be `Some` if and only if `send_state` is
-    /// `EventSendState::Sent`.
+    /// Will be `Some` if and only if `send_state` is `EventSendState::Sent`.
     pub fn event_id(&self) -> Option<&EventId> {
         as_variant!(&self.send_state, EventSendState::Sent { event_id } => event_id)
     }
@@ -81,8 +80,8 @@ pub enum EventSendState {
         /// Whether the error is considered recoverable or not.
         ///
         /// An error that's recoverable will disable the room's send queue,
-        /// while an unrecoverable error will be parked, until the user
-        /// decides to cancel sending it.
+        /// while an unrecoverable error will be parked, until it's retried or
+        /// aborted.
         is_recoverable: bool,
     },
     /// The local event has been sent successfully to the server.
@@ -96,9 +95,8 @@ pub enum EventSendState {
 /// possibly a thumbnail) being uploaded.
 #[derive(Clone, Debug)]
 pub struct MediaUploadProgress {
-    /// The index of the media within the transaction. A file and its
-    /// thumbnail share the same index. Will always be 0 for non-gallery
-    /// media uploads.
+    /// The index of the media within the transaction. A file and its thumbnail
+    /// share the same index. Will always be 0 for non-gallery media uploads.
     pub index: u64,
 
     /// The combined upload progress across the file and, if existing, its

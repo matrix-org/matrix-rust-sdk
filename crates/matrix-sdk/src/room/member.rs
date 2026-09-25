@@ -32,13 +32,12 @@ impl RoomMember {
 
     /// Gets the avatar of this member, if set.
     ///
-    /// Returns the avatar.
-    /// If a thumbnail is requested no guarantee on the size of the image is
-    /// given.
+    /// Returns the avatar. If a thumbnail is requested no guarantee on the size
+    /// of the image is given.
     ///
     /// # Arguments
     ///
-    /// * `format` - The desired format of the avatar.
+    /// - `format` - The desired format of the avatar.
     ///
     /// # Examples
     ///
@@ -68,8 +67,8 @@ impl RoomMember {
         Ok(Some(self.client.media().get_media_content(&request, true).await?))
     }
 
-    /// Adds the room member to the current account data's ignore list
-    /// which will ignore the user across all rooms.
+    /// Adds the room member to the current account data's ignore list which
+    /// will ignore the user across all rooms.
     pub async fn ignore(&self) -> Result<()> {
         self.client.account().ignore_user(self.inner.user_id()).await
     }
@@ -132,9 +131,9 @@ impl RoomMemberRole {
                 }
             }
             // This branch is only necessary because the enum is non-exhaustive.
-            // TODO: Use the `non_exhaustive_omitted_patterns` lint when it becomes stable to be
-            // warned when a variant is added.
-            // Tracking issue: https://github.com/rust-lang/rust/issues/89554
+            // TODO: Use the `non_exhaustive_omitted_patterns` lint when it
+            // becomes stable to be warned when a variant is added. Tracking
+            // issue: https://github.com/rust-lang/rust/issues/89554
             _ => unimplemented!(),
         }
     }

@@ -32,11 +32,11 @@ use super::{
     },
 };
 
-/// Load a linked chunk's full metadata, making sure the chunks are
-/// correct according to their links.
+/// Load a linked chunk's full metadata, making sure the chunks are correct
+/// according to their links.
 ///
-/// Returns `None` if there's no such linked chunk in the store, or an
-/// error if the linked chunk is malformed.
+/// Returns `None` if there's no such linked chunk in the store, or an error if
+/// the linked chunk is malformed.
 pub(super) async fn load_linked_chunk_metadata(
     store_guard: &EventCacheStoreLockGuard,
     linked_chunk_id: LinkedChunkId<'_>,
@@ -51,7 +51,8 @@ pub(super) async fn load_linked_chunk_metadata(
         return Ok(None);
     }
 
-    // Transform the vector into a hashmap, for quick lookup of the predecessors.
+    // Transform the vector into a hashmap, for quick lookup of the
+    // predecessors.
     let chunk_map: HashMap<_, _> = all_chunks.iter().map(|meta| (meta.identifier, meta)).collect();
 
     // Find a last chunk.
@@ -102,8 +103,8 @@ pub(super) async fn load_linked_chunk_metadata(
             break;
         };
 
-        // If the previous chunk is not in the map, then it's unknown
-        // and missing.
+        // If the previous chunk is not in the map, then it's unknown and
+        // missing.
         let Some(pred_meta) = chunk_map.get(&prev_id) else {
             return Err(EventCacheError::InvalidLinkedChunkMetadata {
                 details: format!(
@@ -114,7 +115,8 @@ pub(super) async fn load_linked_chunk_metadata(
             });
         };
 
-        // If the previous chunk isn't connected to the next, then the link is invalid.
+        // If the previous chunk isn't connected to the next, then the link is
+        // invalid.
         if pred_meta.next != Some(current.identifier) {
             return Err(EventCacheError::InvalidLinkedChunkMetadata {
                 details: format!(
@@ -131,8 +133,8 @@ pub(super) async fn load_linked_chunk_metadata(
 
     // At this point, `current` is the identifier of the first chunk.
     //
-    // Reorder the resulting vector, by going through the chain of `next` links, and
-    // swapping items into their final position.
+    // Reorder the resulting vector, by going through the chain of `next` links,
+    // and swapping items into their final position.
     //
     // Invariant in this loop: all items in [0..i[ are in their final, correct
     // position.
@@ -173,16 +175,17 @@ pub(super) async fn send_updates_to_store(
 
     // Strip relations from updates which insert or replace items.
     //
-    // The reason we're doing this, is that consumers of the event cache might look
-    // into bundled relations, and assume they're up to date. If we were to keep
-    // the relations in the events, when storing them, then it could be that
-    // they become outdated (as soon as a new relation comes over sync), so we'd
-    // need to update the bundled relations in this case, which would
-    // have a non-negligible cost, as we'd need to look up related events for each
+    // The reason we're doing this, is that consumers of the event cache might
+    // look into bundled relations, and assume they're up to date. If we were to
+    // keep the relations in the events, when storing them, then it could be
+    // that they become outdated (as soon as a new relation comes over sync), so
+    // we'd need to update the bundled relations in this case, which would have
+    // a non-negligible cost, as we'd need to look up related events for each
     // forwarded to a listener.
     //
-    // As a result, we choose to strip bundled relations from events when we forward
-    // them to the store, and consumers have to explicitly ask for relations.
+    // As a result, we choose to strip bundled relations from events when we
+    // forward them to the store, and consumers have to explicitly ask for
+    // relations.
     for update in updates.iter_mut() {
         match update {
             Update::PushItems { items, .. } => strip_relations_from_events(items),
@@ -199,11 +202,11 @@ pub(super) async fn send_updates_to_store(
         }
     }
 
-    // Spawn a task to make sure that all the changes are effectively forwarded to
-    // the store, even if the call to this method gets aborted.
+    // Spawn a task to make sure that all the changes are effectively forwarded
+    // to the store, even if the call to this method gets aborted.
     //
-    // The store cross-process locking involves an actual mutex, which ensures that
-    // storing updates happens in the expected order.
+    // The store cross-process locking involves an actual mutex, which ensures
+    // that storing updates happens in the expected order.
 
     let store = store.clone();
     let cloned_updates = updates.clone();
@@ -238,8 +241,8 @@ fn strip_relations_from_events(items: &mut [Event]) {
 fn strip_relations_from_event(ev: &mut Event) {
     match &mut ev.kind {
         TimelineEventKind::Decrypted(decrypted) => {
-            // Remove all information about encryption info for
-            // the bundled events.
+            // Remove all information about encryption info for the bundled
+            // events.
             decrypted.unsigned_encryption_info = None;
 
             // Remove the `unsigned`/`m.relations` field, if needs be.
@@ -287,8 +290,8 @@ pub async fn find_event(
     event_linked_chunk: &EventLinkedChunk,
     store: &EventCacheStoreLockGuard,
 ) -> Result<Option<(EventLocation, Event)>> {
-    // There are supposedly fewer events loaded in memory than in the store. Let's
-    // start by looking up in the `EventLinkedChunk`.
+    // There are supposedly fewer events loaded in memory than in the store.
+    // Let's start by looking up in the `EventLinkedChunk`.
     for (position, event) in event_linked_chunk.revents() {
         if event.event_id() == Some(event_id) {
             return Ok(Some((EventLocation::Memory(position), event.clone())));
@@ -300,11 +303,12 @@ pub async fn find_event(
 
 /// Find an event and all its relations in the persisted storage.
 ///
-/// This goes straight to the database, as a simplification; we don't
-/// expect to need to have to look up in memory events, or that
-/// all the related events are actually loaded.
+/// This goes straight to the database, as a simplification; we don't expect to
+/// need to have to look up in memory events, or that all the related events are
+/// actually loaded.
 ///
 /// The related events are sorted like this:
+///
 /// - events saved out-of-band with `save_events` (if this method exists on the
 ///   cache calling this function) will be located at the beginning of the
 ///   array.
@@ -334,11 +338,12 @@ pub async fn find_event_with_relations(
 
 /// Find all relations for an event in the persisted storage.
 ///
-/// This goes straight to the database, as a simplification; we don't
-/// expect to need to have to look up in memory events, or that
-/// all the related events are actually loaded.
+/// This goes straight to the database, as a simplification; we don't expect to
+/// need to have to look up in memory events, or that all the related events are
+/// actually loaded.
 ///
 /// The related events are sorted like this:
+///
 /// - events saved out-of-band with `save_events` (if this method exists on the
 ///   cache calling this function) will be located at the beginning of the
 ///   array.
@@ -351,8 +356,8 @@ pub async fn find_event_relations(
     event_linked_chunk: &EventLinkedChunk,
     store: &EventCacheStoreLockGuard,
 ) -> Result<Vec<Event>> {
-    // Initialize the stack with all the related events, to find the
-    // transitive closure of all the related events.
+    // Initialize the stack with all the related events, to find the transitive
+    // closure of all the related events.
     let mut related = store.find_event_relations(room_id, event_id, filters.as_deref()).await?;
     let mut stack = related
         .iter()
@@ -390,7 +395,8 @@ pub async fn find_event_relations(
 
     // Sort the results by their positions in the linked chunk, if available.
     //
-    // If an event doesn't have a known position, it goes to the start of the array.
+    // If an event doesn't have a known position, it goes to the start of the
+    // array.
     related.sort_by(|(_, lhs), (_, rhs)| {
         use std::cmp::Ordering;
 
@@ -402,9 +408,9 @@ pub async fn find_event_relations(
                 let lhs = event_linked_chunk.event_order(*lhs);
                 let rhs = event_linked_chunk.event_order(*rhs);
 
-                // The events should have a definite position, but in the case they don't,
-                // still consider that not having a position means you'll end at the start
-                // of the array.
+                // The events should have a definite position, but in the case
+                // they don't, still consider that not having a position means
+                // you'll end at the start of the array.
                 match (lhs, rhs) {
                     (None, None) => Ordering::Equal,
                     (None, Some(_)) => Ordering::Less,

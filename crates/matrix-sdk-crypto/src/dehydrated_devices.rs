@@ -79,8 +79,8 @@ pub enum DehydrationError {
     #[error("The pickle key has an invalid length, expected 32 bytes, got {0}")]
     PickleKeyLength(usize),
 
-    /// The dehydrated device could not be signed by our user identity,
-    /// we're missing the self-signing key.
+    /// The dehydrated device could not be signed by our user identity, we're
+    /// missing the self-signing key.
     #[error("The self-signing key is missing, can't create a dehydrated device")]
     MissingSigningKey(#[from] SignatureError),
 
@@ -127,20 +127,18 @@ impl DehydratedDevices {
     /// Rehydrate the dehydrated device.
     ///
     /// Once rehydrated, to-device events can be pushed into the
-    /// [`RehydratedDevice`] to collect the room keys the device has
-    /// received.
+    /// [`RehydratedDevice`] to collect the room keys the device has received.
     ///
     /// For more info see the example for the
     /// [`RehydratedDevice::receive_events()`] method.
     ///
     /// # Arguments
     ///
-    /// * `pickle_key` - The encryption key that was used to encrypt the private
+    /// - `pickle_key` - The encryption key that was used to encrypt the private
     ///   parts of the identity keys, and one-time keys of the device.
     ///
-    /// * `device_id` - The unique identifier of the device.
-    ///
-    /// * `device_data` - The encrypted data of the device, containing the
+    /// - `device_id` - The unique identifier of the device.
+    /// - `device_data` - The encrypted data of the device, containing the
     ///   private keys of the device.
     pub async fn rehydrate(
         &self,
@@ -204,10 +202,9 @@ impl RehydratedDevice {
     /// [`RehydratedDevice`].
     ///
     /// Most to-device events we feed into the [`RehydratedDevice`] will contain
-    /// room keys, the rehydrated device will pass these room keys into our
-    /// own [`OlmMachine`] which will persist them and make the room keys
-    /// available for use using the usual
-    /// [`OlmMachine::decrypt_room_event()`] method.
+    /// room keys, the rehydrated device will pass these room keys into our own
+    /// [`OlmMachine`] which will persist them and make the room keys available
+    /// for use using the usual [`OlmMachine::decrypt_room_event()`] method.
     ///
     /// Once the homeserver returns a response without any to-device events, we
     /// can safely delete the current dehydrated device and create a new one.
@@ -291,8 +288,8 @@ impl RehydratedDevice {
             unused_fallback_keys: None,
         };
 
-        // Let us first give the events to the rehydrated device, this will decrypt any
-        // encrypted to-device events and fetch out the room keys.
+        // Let us first give the events to the rehydrated device, this will
+        // decrypt any encrypted to-device events and fetch out the room keys.
         let mut rehydrated_transaction = self.rehydrated.store().transaction().await;
 
         let (_, changes) = self
@@ -329,9 +326,9 @@ impl DehydratedDevice {
     ///
     /// # Arguments
     ///
-    /// * `initial_device_display_name` - The human-readable name this device
+    /// - `initial_device_display_name` - The human-readable name this device
     ///   should have.
-    /// * `pickle_key` - The encryption key that should be used to encrypt the
+    /// - `pickle_key` - The encryption key that should be used to encrypt the
     ///   private parts of the identity keys, and one-time keys of the device.
     ///
     /// # Examples
@@ -449,8 +446,8 @@ mod tests {
         olm_machine
     }
 
-    // Insert some device keys into a [`OlmMachine`] making the [`Device`] available
-    // to the [`OlmMachine`].
+    // Insert some device keys into a [`OlmMachine`] making the [`Device`]
+    // available to the [`OlmMachine`].
     async fn receive_device_keys(
         olm_machine: &OlmMachine,
         user_id: &UserId,
@@ -552,7 +549,8 @@ mod tests {
         // Send a room key to the dehydrated device.
         let (event, group_session) = send_room_key(&alice, room_id, user_id()).await;
 
-        // Let's now create a new `OlmMachine` which doesn't know about the room key.
+        // Let's now create a new `OlmMachine` which doesn't know about the room
+        // key.
         let bob = get_olm_machine().await;
 
         let room_key = bob
@@ -579,7 +577,8 @@ mod tests {
         let decryption_settings =
             DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
 
-        // Push the to-device event containing the room key into the rehydrated device.
+        // Push the to-device event containing the room key into the rehydrated
+        // device.
         let ret = rehydrated
             .receive_events(vec![event], &decryption_settings)
             .await
@@ -587,8 +586,8 @@ mod tests {
 
         assert_eq!(ret.len(), 1, "The rehydrated device should have imported a room key");
 
-        // The `OlmMachine` now does know about the room key since the rehydrated device
-        // shared it with us.
+        // The `OlmMachine` now does know about the room key since the
+        // rehydrated device shared it with us.
         let room_key = bob
             .store()
             .get_inbound_group_session(room_id, group_session.session_id())
@@ -667,7 +666,8 @@ mod tests {
         // Send a room key to the dehydrated device.
         let (event, group_session) = send_room_key(&alice, room_id, user_id()).await;
 
-        // Let's now create a new `OlmMachine` which doesn't know about the room key.
+        // Let's now create a new `OlmMachine` which doesn't know about the room
+        // key.
         let bob = get_olm_machine().await;
 
         let room_key = bob
@@ -694,7 +694,8 @@ mod tests {
         let decryption_settings =
             DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
 
-        // Push the to-device event containing the room key into the rehydrated device.
+        // Push the to-device event containing the room key into the rehydrated
+        // device.
         let ret = rehydrated
             .receive_events(vec![event], &decryption_settings)
             .await
@@ -702,8 +703,8 @@ mod tests {
 
         assert_eq!(ret.len(), 1, "The rehydrated device should have imported a room key");
 
-        // The `OlmMachine` now does know about the room key since the rehydrated device
-        // shared it with us.
+        // The `OlmMachine` now does know about the room key since the
+        // rehydrated device shared it with us.
         let room_key = bob
             .store()
             .get_inbound_group_session(room_id, group_session.session_id())

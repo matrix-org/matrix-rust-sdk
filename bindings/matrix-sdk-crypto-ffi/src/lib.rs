@@ -132,8 +132,8 @@ pub struct PickledAccount {
 
 /// A pickled version of a `Session`.
 ///
-/// Holds all the information that needs to be stored in a database to restore
-/// a Session.
+/// Holds all the information that needs to be stored in a database to restore a
+/// Session.
 #[derive(Debug, Deserialize, Serialize, uniffi::Record)]
 pub struct PickledSession {
     /// The pickle string holding the Olm Session.
@@ -165,8 +165,8 @@ pub struct PickledInboundGroupSession {
     /// The list of claimed ed25519 that forwarded us this key. Will be empty if
     /// we directly received this session.
     pub forwarding_chains: Vec<String>,
-    /// Flag remembering if the session was directly sent to us by the sender
-    /// or if it was imported.
+    /// Flag remembering if the session was directly sent to us by the sender or
+    /// if it was imported.
     pub imported: bool,
     /// Flag remembering if the session has been backed up.
     pub backed_up: bool,
@@ -194,15 +194,13 @@ impl From<anyhow::Error> for MigrationError {
 ///
 /// # Arguments
 ///
-/// * `data` - The data that should be migrated over to the SQLite store.
-///
-/// * `path` - The path where the SQLite store should be created.
-///
-/// * `passphrase` - The passphrase that should be used to encrypt the data at
+/// - `data` - The data that should be migrated over to the SQLite store.
+/// - `path` - The path where the SQLite store should be created.
+/// - `passphrase` - The passphrase that should be used to encrypt the data at
 ///   rest in the SQLite store. **Warning**, if no passphrase is given, the
 ///   store and all its data will remain unencrypted.
 ///
-/// * `progress_listener` - A callback that can be used to introspect the
+/// - `progress_listener` - A callback that can be used to introspect the
 ///   progress of the migration.
 #[matrix_sdk_ffi_macros::export]
 pub fn migrate(
@@ -357,15 +355,13 @@ async fn save_changes(
 ///
 /// # Arguments
 ///
-/// * `data` - The data that should be migrated over to the SQLite store.
-///
-/// * `path` - The path where the SQLite store should be created.
-///
-/// * `passphrase` - The passphrase that should be used to encrypt the data at
+/// - `data` - The data that should be migrated over to the SQLite store.
+/// - `path` - The path where the SQLite store should be created.
+/// - `passphrase` - The passphrase that should be used to encrypt the data at
 ///   rest in the SQLite store. **Warning**, if no passphrase is given, the
 ///   store and all its data will remain unencrypted.
 ///
-/// * `progress_listener` - A callback that can be used to introspect the
+/// - `progress_listener` - A callback that can be used to introspect the
 ///   progress of the migration.
 #[matrix_sdk_ffi_macros::export]
 pub fn migrate_sessions(
@@ -434,8 +430,8 @@ fn collect_sessions(
     let mut sessions = Vec::new();
 
     // Create a DeviceKeys struct with enough information to get a working
-    // Session, but we will won't actually use the Sessions (and we'll clear
-    // the session cache after migration) so we don't need to worry about
+    // Session, but we will won't actually use the Sessions (and we'll clear the
+    // session cache after migration) so we don't need to worry about
     // signatures.
     let device_keys = DeviceKeys::new(
         user_id,
@@ -535,11 +531,9 @@ fn collect_sessions(
 ///
 /// # Arguments
 ///
-/// * `room_settings` - Map of room settings
-///
-/// * `path` - The path where the Sqlite store should be created.
-///
-/// * `passphrase` - The passphrase that should be used to encrypt the data at
+/// - `room_settings` - Map of room settings
+/// - `path` - The path where the Sqlite store should be created.
+/// - `passphrase` - The passphrase that should be used to encrypt the data at
 ///   rest in the Sqlite store. **Warning**, if no passphrase is given, the
 ///   store and all its data will remain unencrypted.
 #[matrix_sdk_ffi_macros::export]
@@ -625,13 +619,12 @@ pub enum HistoryVisibility {
     /// they were invited onwards.
     ///
     /// Events stop being accessible when the member's state changes to
-    /// something other than *invite* or *join*.
+    /// something other than _invite_ or _join_.
     Invited,
 
     /// Previous events are accessible to newly joined members from the point
-    /// they joined the room onwards.
-    /// Events stop being accessible when the member's state changes to
-    /// something other than *join*.
+    /// they joined the room onwards. Events stop being accessible when the
+    /// member's state changes to something other than _join_.
     Joined,
 
     /// Previous events are always accessible to newly joined members.

@@ -16,8 +16,8 @@
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 // AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-// THE SOFTWARE.
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
 
 use std::collections::BTreeMap;
 
@@ -78,8 +78,8 @@ impl CrossSigningKey {
     /// Get the Ed25519 cross-signing key (and its ID).
     ///
     /// Structurally, a cross-signing key could contain more than one actual
-    /// key. However, the spec [forbids this][cross_signing_key_spec] (see
-    /// the `keys` field description), so we just get the first one.
+    /// key. However, the spec [forbids this][cross_signing_key_spec] (see the
+    /// `keys` field description), so we just get the first one.
     ///
     /// [cross_signing_key_spec]: https//spec.matrix.org/v1.2/client-server-api/#post_matrixclientv3keysdevice_signingupload
     pub fn get_first_key_and_id(&self) -> Option<(&DeviceKeyId, Ed25519PublicKey)> {

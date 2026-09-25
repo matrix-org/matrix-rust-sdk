@@ -15,7 +15,6 @@
 use std::ops::Not;
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
@@ -42,6 +41,7 @@ use ruma::{
     owned_event_id, room_id, user_id,
 };
 use sliding_sync::assert_timeline_stream;
+use strass::assert_let;
 use stream_assert::assert_pending;
 
 mod decryption;
@@ -58,6 +58,7 @@ mod reactions;
 mod read_receipts;
 mod redecryption;
 mod replies;
+mod send_controls;
 mod subscribe;
 mod thread;
 
@@ -91,8 +92,8 @@ async fn test_timeline_is_threaded() {
     }
 
     {
-        // An event-focused timeline, focused on a non-thread event, isn't threaded when
-        // no context is requested.
+        // An event-focused timeline, focused on a non-thread event, isn't
+        // threaded when no context is requested.
         let f = EventFactory::new();
         let event_id = event_id!("$target1");
         let event =
@@ -118,8 +119,8 @@ async fn test_timeline_is_threaded() {
     }
 
     {
-        // But an event-focused timeline, focused on an in-thread event, is threaded
-        // when no context is requested \o/
+        // But an event-focused timeline, focused on an in-thread event, is
+        // threaded when no context is requested \o/
         let f = EventFactory::new();
         let thread_root = event_id!("$thread_root");
         let event_id = event_id!("$target2");
@@ -184,7 +185,8 @@ async fn test_timeline_is_threaded() {
     }
 
     {
-        // An event-focused timeline, focused on a non-thread event, isn't threaded.
+        // An event-focused timeline, focused on a non-thread event, isn't
+        // threaded.
         let f = EventFactory::new();
         let event = f
             .text_msg("hello world")
@@ -212,7 +214,8 @@ async fn test_timeline_is_threaded() {
     }
 
     {
-        // But an event-focused timeline, focused on an in-thread event, is threaded \o/
+        // But an event-focused timeline, focused on an in-thread event, is
+        // threaded \o/
         let f = EventFactory::new();
         let thread_root = event_id!("$thread_root");
         let event = f
@@ -243,7 +246,8 @@ async fn test_timeline_is_threaded() {
     }
 
     {
-        // An event-focused timeline, focused on a thread root, is also threaded \o/
+        // An event-focused timeline, focused on a thread root, is also threaded
+        // \o/
         let f = EventFactory::new();
         let event = f
             .text_msg("hey to you too")
@@ -326,7 +330,7 @@ async fn test_reaction() {
     assert_let!(Some(msg) = event_item.content().as_message());
     assert!(!msg.is_edited());
     assert_eq!(event_item.read_receipts().len(), 2);
-    assert_eq!(event_item.content().reactions().cloned().unwrap_or_default().len(), 0);
+    assert_eq!(event_item.reactions().len(), 0);
 
     // Then the reaction is taken into account.
     assert_let!(VectorDiff::Set { index: 0, value: updated_message } = &timeline_updates[2]);
@@ -334,7 +338,7 @@ async fn test_reaction() {
     assert_let!(Some(msg) = event_item.content().as_message());
     assert!(!msg.is_edited());
     assert_eq!(event_item.read_receipts().len(), 2);
-    let reactions = event_item.content().reactions().cloned().unwrap_or_default();
+    let reactions = event_item.reactions().clone();
     assert_eq!(reactions.len(), 1);
     let group = &reactions["👍"];
     assert_eq!(group.len(), 1);
@@ -362,7 +366,7 @@ async fn test_reaction() {
     let event_item = updated_message.as_event().unwrap();
     assert_let!(Some(msg) = event_item.content().as_message());
     assert!(!msg.is_edited());
-    assert_eq!(event_item.content().reactions().cloned().unwrap_or_default().len(), 0);
+    assert_eq!(event_item.reactions().len(), 0);
 
     assert_pending!(timeline_stream);
 }
@@ -454,10 +458,18 @@ async fn test_redact_message() {
     assert!(item.as_event().unwrap().content().is_redacted());
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-    assert_eq!(timeline_updates.len(), 1);
+    assert_eq!(timeline_updates.len(), 2);
 
+    // The redaction was sent, then its remote echo arrived.
     assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
-    assert!(item.as_event().unwrap().content().is_redacted());
+    let item = item.as_event().unwrap();
+    assert!(item.content().is_redacted());
+    assert_matches!(item.redaction_send_state(), Some(EventSendState::Sent { .. }));
+
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[1]);
+    let item = item.as_event().unwrap();
+    assert!(item.content().is_redacted());
+    assert_matches!(item.redaction_send_state(), None);
 
     // Redacting a local event works.
     timeline
@@ -543,8 +555,8 @@ async fn test_redact_local_sent_message() {
 
     assert_pending!(timeline_stream);
 
-    // Mock the redaction response for the event we just sent. Ensure it's called
-    // once.
+    // Mock the redaction response for the event we just sent. Ensure it's
+    // called once.
     server.mock_room_redact().ok(event_id!("$redaction_event_id")).mock_once().mount().await;
 
     // Let's redact the local echo with the remote handle.
@@ -759,8 +771,8 @@ async fn test_duplicate_maintains_correct_order() {
     let content = items[1].as_event().unwrap().content().as_message().unwrap().body();
     assert_eq!(content, "C");
 
-    // We receive multiple events, and C is now the last one (because we supposedly
-    // increased the timeline limit).
+    // We receive multiple events, and C is now the last one (because we
+    // supposedly increased the timeline limit).
     server
         .sync_room(
             &client,
@@ -830,9 +842,8 @@ async fn test_timeline_without_encryption_can_update() {
         )
         .await;
 
-    // Previously this would have panicked.
-    // We're creating a timeline without read receipts tracking to check only the
-    // encryption changes.
+    // Previously this would have panicked. We're creating a timeline without
+    // read receipts tracking to check only the encryption changes.
     let timeline = TimelineBuilder::new(&room).build().await.unwrap();
 
     let (items, mut stream) = timeline.subscribe().await;

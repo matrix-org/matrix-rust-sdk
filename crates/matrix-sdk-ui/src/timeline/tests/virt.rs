@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use chrono::{Datelike, TimeZone, Utc};
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt as _};
@@ -22,6 +21,7 @@ use ruma::{
     events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
     owned_event_id,
 };
+use strass::assert_let;
 use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
@@ -82,8 +82,8 @@ async fn test_date_divider() {
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     item.as_event().unwrap();
 
-    // The other events are in the past so a local event always creates a new date
-    // divider.
+    // The other events are in the past so a local event always creates a new
+    // date divider.
     let date_divider =
         assert_next_matches!(stream, VectorDiff::Insert { index: 5, value } => value);
     assert!(date_divider.is_date_divider());
@@ -99,8 +99,7 @@ async fn test_update_read_marker() {
     let f = &timeline.factory;
     timeline.handle_live_event(f.text_msg("A").sender(&own_user)).await;
 
-    // Timeline: [A].
-    // No read marker.
+    // Timeline: [A]. No read marker.
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_id1 = item.as_event().unwrap().event_id().unwrap().to_owned();
 
