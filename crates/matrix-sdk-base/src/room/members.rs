@@ -14,7 +14,7 @@
 
 use std::{
     collections::{BTreeSet, HashMap},
-    mem,
+    mem, slice,
     sync::Arc,
 };
 
@@ -193,15 +193,15 @@ impl Room {
             return Ok(None);
         };
 
-        let display_names = [event.display_name()];
-        let room_info = self.member_room_info(&display_names).await?;
+        let display_name = event.display_name();
+        let room_info = self.member_room_info(slice::from_ref(&display_name)).await?;
 
         Ok(Some(RoomMember::from_parts(
             event,
             profile,
             #[cfg(feature = "unstable-msc4426")]
             global_profile,
-            &display_names[0],
+            &display_name,
             &room_info,
         )))
     }
@@ -266,8 +266,8 @@ pub struct RoomMember {
 impl RoomMember {
     /// Build a member from its parts.
     ///
-    /// `display_name` must be the display name of `event`, which the caller
-    /// already computed to build `room_info`; it is not computed again here.
+    /// `display_name` must be the value returned by
+    /// [`MemberEvent::display_name`] for this `event`.
     pub(crate) fn from_parts(
         event: MemberEvent,
         profile: Option<MinimalRoomMemberEvent>,
