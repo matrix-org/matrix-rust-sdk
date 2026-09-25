@@ -116,8 +116,7 @@ pub fn members_benchmark(c: &mut Criterion) {
     let mut member_events: Vec<Raw<RoomMemberEvent>> = Vec::with_capacity(MEMBERS_IN_ROOM);
     for i in 0..MEMBERS_IN_ROOM {
         let user_id = OwnedUserId::try_from(format!("@user_{i}:matrix.org")).unwrap();
-        let display_name =
-            if i % 2 == 0 { "Alice Margatroid".to_owned() } else { format!("Member {i}") };
+        let display_name = if i % 2 == 0 { "Alice".to_owned() } else { format!("Member {i}") };
         let event = f
             .member(&user_id)
             .sender(&user_id)
