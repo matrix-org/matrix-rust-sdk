@@ -491,9 +491,9 @@ where
 
     let mut receipt = None;
 
-    for (event, event_id) in linked_chunk.revents().filter_map(|(_pos, event)| {
-        event_filter.filter(event).then_some((event, event.event_id()?))
-    }) {
+    for (event, event_id) in
+        linked_chunk.revents().filter_map(|(_pos, event)| Some((event, event.event_id()?)))
+    {
         if receipt.is_none() {
             // Try to see if the latest active receipt is still the most recent
             // receipt.
@@ -505,7 +505,7 @@ where
             }
             // Try to find an implicit read receipt (i.e. an event sent by the
             // current user).
-            else if event.sender().as_deref() == Some(user_id) {
+            else if event_filter.filter(event) && event.sender().as_deref() == Some(user_id) {
                 trace!(implicit = %event_id, "found an implicit receipt; stopping search");
                 receipt = Some(event_id.to_owned());
             }
@@ -626,9 +626,10 @@ pub(crate) async fn compute_unread_counts<T>(
         read_receipts.find_and_process_events(
             &event_id,
             user_id,
-            linked_chunk
-                .events()
-                .filter_map(|(_pos, event)| event_filter.filter(event).then_some(event)),
+            linked_chunk.events().filter_map(|(_pos, event)| {
+                (event_filter.filter(event) || event.event_id() == Some(&*event_id))
+                    .then_some(event)
+            }),
         );
 
         debug!(?read_receipts, "after finding a better receipt");
@@ -765,7 +766,7 @@ mod tests {
 
     use matrix_sdk_base::{read_receipts::ReadReceipts, store::MemoryStore};
     use matrix_sdk_common::{deserialized_responses::TimelineEvent, ring_buffer::RingBuffer};
-    use matrix_sdk_test::{ALICE, event_factory::EventFactory};
+    use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
     use ruma::{
         EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId, event_id,
         events::{
@@ -779,7 +780,8 @@ mod tests {
 
     use super::{
         EventFilter, MaybeReceiptEventContent, ReadReceiptsExt as _, Receipts,
-        RoomReadReceiptEventFilter, marks_as_unread, select_best_receipt, stop_on_event_ids,
+        RoomReadReceiptEventFilter, compute_unread_counts, marks_as_unread, select_best_receipt,
+        stop_on_event_ids,
     };
     use crate::event_cache::caches::{
         event_linked_chunk::EventLinkedChunk, pagination::BackPaginationOutcome,
@@ -1159,6 +1161,51 @@ mod tests {
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 0);
         assert_eq!(receipts.num_notifications, 0);
+    }
+
+    #[async_test]
+    async fn test_unthreaded_receipt_on_an_in_thread_event() {
+        let room_id = room_id!("!roomid:example.org");
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let own_user_id = user_id!("@not_alice:example.org");
+
+        let mut linked_chunk = EventLinkedChunk::new();
+        linked_chunk.push_events(vec![
+            f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
+            f.text_msg("Event 2").event_id(event_id!("$2")).into_event(),
+            f.text_msg("In thread")
+                .in_thread(event_id!("$1"), event_id!("$1"))
+                .event_id(event_id!("$thread"))
+                .into_event(),
+            f.text_msg("Event 3").event_id(event_id!("$3")).into_event(),
+        ]);
+
+        let receipt_event = f
+            .read_receipts()
+            .add(event_id!("$thread"), own_user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+            .into_content();
+
+        let state_store = MemoryStore::new();
+        let event_filter = RoomReadReceiptEventFilter {
+            room_id,
+            with_threading_support: true,
+            state_store: &state_store,
+        };
+
+        let mut receipts = ReadReceipts::default();
+        compute_unread_counts(
+            own_user_id,
+            Some(&receipt_event),
+            &linked_chunk,
+            &event_filter,
+            &mut receipts,
+            None,
+        )
+        .await;
+
+        assert_eq!(receipts.latest_active.unwrap().event_id, "$thread");
+        assert_eq!(receipts.num_unread, 1);
+        assert!(receipts.pending.is_empty());
     }
 
     #[test]
