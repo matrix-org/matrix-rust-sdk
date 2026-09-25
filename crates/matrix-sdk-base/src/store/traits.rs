@@ -303,10 +303,6 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// Events without receipts are absent from the returned map.
     ///
-    /// The default implementation reads the events one at a time. Backends
-    /// where each read has a fixed cost, such as opening a transaction, should
-    /// override it to serve the whole batch at once.
-    ///
     /// # Arguments
     ///
     /// * `room_id` - The id of the room for which the receipts should be
@@ -323,27 +319,8 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         receipt_thread: &ReceiptThread,
-        event_ids: &'a [OwnedEventId],
-    ) -> Result<BTreeMap<&'a EventId, Vec<(OwnedUserId, Receipt)>>, Self::Error> {
-        let mut receipts = BTreeMap::new();
-
-        for event_id in event_ids {
-            let event_receipts = self
-                .get_event_room_receipt_events(
-                    room_id,
-                    receipt_type.clone(),
-                    receipt_thread,
-                    event_id,
-                )
-                .await?;
-
-            if !event_receipts.is_empty() {
-                receipts.insert(event_id.as_ref(), event_receipts);
-            }
-        }
-
-        Ok(receipts)
-    }
+        event_ids: &[&'a EventId],
+    ) -> Result<BTreeMap<&'a EventId, Vec<(OwnedUserId, Receipt)>>, Self::Error>;
 
     /// Get arbitrary data from the custom store
     ///
@@ -756,7 +733,7 @@ impl<T: StateStore> StateStore for &T {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         receipt_thread: &ReceiptThread,
-        event_ids: &'a [OwnedEventId],
+        event_ids: &[&'a EventId],
     ) -> Result<BTreeMap<&'a EventId, Vec<(OwnedUserId, Receipt)>>, Self::Error> {
         (*self)
             .get_event_room_receipt_events_batch(room_id, receipt_type, receipt_thread, event_ids)
@@ -1094,7 +1071,7 @@ impl<T: StateStore + ?Sized> StateStore for Arc<T> {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         receipt_thread: &ReceiptThread,
-        event_ids: &'a [OwnedEventId],
+        event_ids: &[&'a EventId],
     ) -> Result<BTreeMap<&'a EventId, Vec<(OwnedUserId, Receipt)>>, Self::Error> {
         self.deref()
             .get_event_room_receipt_events_batch(room_id, receipt_type, receipt_thread, event_ids)
@@ -1444,7 +1421,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         receipt_thread: &ReceiptThread,
-        event_ids: &'a [OwnedEventId],
+        event_ids: &[&'a EventId],
     ) -> Result<BTreeMap<&'a EventId, Vec<(OwnedUserId, Receipt)>>, Self::Error> {
         self.0
             .get_event_room_receipt_events_batch(room_id, receipt_type, receipt_thread, event_ids)
@@ -1857,7 +1834,7 @@ impl<T: StateStore> StateStore for SaveLockedStateStore<T> {
         room_id: &RoomId,
         receipt_type: ReceiptType,
         receipt_thread: &ReceiptThread,
-        event_ids: &'a [OwnedEventId],
+        event_ids: &[&'a EventId],
     ) -> Result<BTreeMap<&'a EventId, Vec<(OwnedUserId, Receipt)>>, Self::Error> {
         self.store
             .get_event_room_receipt_events_batch(room_id, receipt_type, receipt_thread, event_ids)

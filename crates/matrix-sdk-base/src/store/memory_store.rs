@@ -811,6 +811,36 @@ impl StateStore for MemoryStore {
             .unwrap_or_default())
     }
 
+    async fn get_event_room_receipt_events_batch<'a>(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        receipt_thread: &ReceiptThread,
+        event_ids: &[&'a EventId],
+    ) -> Result<BTreeMap<&'a EventId, Vec<(OwnedUserId, Receipt)>>> {
+        let inner = self.inner.read().unwrap();
+
+        let Some(receipts) = inner.room_event_receipts.get(room_id).and_then(|receipts| {
+            receipts
+                .get(&(receipt_type.to_string(), receipt_thread.as_str().map(ToOwned::to_owned)))
+        }) else {
+            return Ok(BTreeMap::new());
+        };
+
+        Ok(event_ids
+            .iter()
+            .filter_map(|&event_id| {
+                let event_receipts = receipts.get(event_id).filter(|r| !r.is_empty())?;
+                let event_receipts = event_receipts
+                    .iter()
+                    .map(|(user_id, receipt)| (user_id.clone(), receipt.clone()))
+                    .collect();
+
+                Some((event_id, event_receipts))
+            })
+            .collect())
+    }
+
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         Ok(self.inner.read().unwrap().custom.get(key).cloned())
     }

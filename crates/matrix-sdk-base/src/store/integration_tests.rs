@@ -1092,8 +1092,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         changes.add_receipts(room_id, receipt_event);
         self.save_changes(&changes).await?;
 
-        let requested =
-            [first_event_id.to_owned(), second_event_id.to_owned(), third_event_id.to_owned()];
+        let requested = [first_event_id, second_event_id, third_event_id];
 
         // Events without receipts are absent from the map.
         let unthreaded_receipts = self

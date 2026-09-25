@@ -615,7 +615,7 @@ impl Room {
         &self,
         receipt_type: ReceiptType,
         receipt_thread: &ReceiptThread,
-        event_ids: &'a [OwnedEventId],
+        event_ids: &[&'a EventId],
     ) -> StoreResult<BTreeMap<&'a EventId, Vec<(OwnedUserId, Receipt)>>> {
         self.store
             .get_event_room_receipt_events_batch(
