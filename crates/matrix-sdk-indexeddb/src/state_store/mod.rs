@@ -1512,7 +1512,7 @@ impl_state_store!({
         room_id: &RoomId,
         receipt_type: ReceiptType,
         receipt_thread: &ReceiptThread,
-        event_ids: &'a [OwnedEventId],
+        event_ids: &[&'a EventId],
     ) -> Result<BTreeMap<&'a EventId, Vec<(OwnedUserId, Receipt)>>> {
         if event_ids.is_empty() {
             return Ok(BTreeMap::new());
@@ -1528,8 +1528,7 @@ impl_state_store!({
             .build()?;
         let store = tx.object_store(keys::ROOM_EVENT_RECEIPTS)?;
 
-        let requests = event_ids.iter().map(|event_id| {
-            let event_id: &EventId = event_id;
+        let requests = event_ids.iter().map(|&event_id| {
             let range = match receipt_thread.as_str() {
                 Some(thread_id) => self.encode_to_range(
                     keys::ROOM_EVENT_RECEIPTS,
