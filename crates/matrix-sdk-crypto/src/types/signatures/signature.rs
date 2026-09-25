@@ -21,11 +21,11 @@ use crate::types::InvalidSignature;
 #[cfg(feature = "experimental-x509-identity-verification")]
 use crate::types::{X509_SIGNATURE_ALGORITHM, X509Signature};
 
-/// Represents a potentially decoded signature (but *not* a validated one).
+/// Represents a potentially decoded signature (but _not_ a validated one).
 ///
 /// There are two important cases here:
 ///
-/// 1. If the claimed algorithm is supported *and* the payload has an expected
+/// 1. If the claimed algorithm is supported _and_ the payload has an expected
 ///    format, the signature will be represent by the enum variant corresponding
 ///    to that algorithm. For example, decodable Ed25519 signatures are
 ///    represented as `Ed25519(...)`.

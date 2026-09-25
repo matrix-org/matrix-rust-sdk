@@ -1,6 +1,5 @@
-use std::time::Duration;
+use std::{assert_matches, time::Duration};
 
-use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::{
@@ -30,6 +29,7 @@ use ruma::{
     serde::Raw,
     user_id,
 };
+use strass::assert_let;
 use stream_assert::assert_pending;
 use tokio::time::sleep;
 use wiremock::ResponseTemplate;
@@ -61,8 +61,8 @@ async fn test_new_pinned_events_are_not_added_on_sync() {
         .mount()
         .await;
 
-    // Load initial timeline items: a `m.room.pinned_events` with events $1 and $2
-    // pinned
+    // Load initial timeline items: a `m.room.pinned_events` with events
+    // $1 and $2 pinned
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec!["$1", "$2"])
         .mock_and_sync(&client, &server)
@@ -91,8 +91,8 @@ async fn test_new_pinned_events_are_not_added_on_sync() {
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
     assert_pending!(timeline_stream);
 
-    // Load new pinned event contents from sync, $2 was pinned but wasn't available
-    // before
+    // Load new pinned event contents from sync, $2 was pinned but wasn't
+    // available before
     let event_2 = f
         .text_msg("pinned message!")
         .event_id(event_id!("$2"))
@@ -105,8 +105,8 @@ async fn test_new_pinned_events_are_not_added_on_sync() {
         .await
         .expect("Room should be synced");
 
-    // Event $2 was received through sync, but it wasn't added to the pinned event
-    // timeline.
+    // Event $2 was received through sync, but it wasn't added to the pinned
+    // event timeline.
     assert_pending!(timeline_stream);
 }
 
@@ -139,7 +139,8 @@ async fn test_pinned_event_with_reaction() {
         .mount()
         .await;
 
-    // Load initial timeline items: a `m.room.pinned_events` with event $1 pinned
+    // Load initial timeline items: a `m.room.pinned_events` with event $1
+    // pinned
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec!["$1"])
         .mock_and_sync(&client, &server)
@@ -167,12 +168,7 @@ async fn test_pinned_event_with_reaction() {
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
     assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
-    let reactions = items[1]
-        .as_event()
-        .unwrap()
-        .content()
-        .reactions()
-        .expect("pinned event should have reactions");
+    let reactions = items[1].as_event().unwrap().reactions();
     assert_eq!(reactions.len(), 1);
     assert!(reactions.get("👀").is_some());
     assert_pending!(timeline_stream);
@@ -218,7 +214,8 @@ async fn test_pinned_event_with_paginated_reactions() {
         .mount()
         .await;
 
-    // Load initial timeline items: a `m.room.pinned_events` with event $1 pinned
+    // Load initial timeline items: a `m.room.pinned_events` with event $1
+    // pinned
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec!["$1"])
         .mock_and_sync(&client, &server)
@@ -246,12 +243,7 @@ async fn test_pinned_event_with_paginated_reactions() {
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
     assert!(items[0].is_date_divider());
     assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
-    let reactions = items[1]
-        .as_event()
-        .unwrap()
-        .content()
-        .reactions()
-        .expect("pinned event should have reactions");
+    let reactions = items[1].as_event().unwrap().reactions();
     assert_eq!(reactions.len(), 2);
     assert!(reactions.get("👀").is_some());
     assert!(reactions.get("🤔").is_some());
@@ -349,10 +341,10 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
     assert_let!(VectorDiff::Clear = &timeline_updates[0]);
 
     assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
-    assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$1"));
+    assert_eq!(value.as_event().unwrap().event_id().unwrap(), "$1");
 
     assert_let!(VectorDiff::PushBack { value } = &timeline_updates[2]);
-    assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$2"));
+    assert_eq!(value.as_event().unwrap().event_id().unwrap(), "$2");
 
     assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
     assert!(value.is_date_divider());
@@ -441,8 +433,8 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
         .mount()
         .await;
 
-    // Load initial timeline items: a `m.room.pinned_events` with event $1 and $2
-    // pinned
+    // Load initial timeline items: a `m.room.pinned_events` with event
+    // $1 and $2 pinned
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec!["$1", "$2"])
         .mock_and_sync(&client, &server)
@@ -476,8 +468,8 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     drop(timeline);
     drop(room);
 
-    // Set up a sync response with only the pinned event ids and no events, so if
-    // they exist later we know they come from the cache
+    // Set up a sync response with only the pinned event ids and no events, so
+    // if they exist later we know they come from the cache
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec!["$1", "$2"])
         .mock_and_sync(&client, &server)
@@ -504,8 +496,9 @@ async fn test_pinned_timeline_with_pinned_event_ids_and_empty_result_fails() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    // Load initial timeline items: a `m.room.pinned_events` with event $1 and $2
-    // pinned, but they're not available neither in the cache nor in the HS
+    // Load initial timeline items: a `m.room.pinned_events` with event
+    // $1 and $2 pinned, but they're not available neither in the cache nor in
+    // the HS
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec!["$1", "$2"])
         .mock_and_sync(&client, &server)
@@ -701,8 +694,8 @@ async fn test_edited_events_are_reflected_in_sync() {
         .mount()
         .await;
 
-    // Load initial timeline items: a text message and a `m.room.pinned_events` with
-    // event $1.
+    // Load initial timeline items: a text message and a `m.room.pinned_events`
+    // with event $1.
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec!["$1"])
         .mock_and_sync(&client, &server)
@@ -757,7 +750,7 @@ async fn test_edited_events_are_reflected_in_sync() {
     // The edit does replace the original event.
     assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
     let event = value.as_event().unwrap();
-    assert_eq!(event.event_id().unwrap(), event_id!("$1"));
+    assert_eq!(event.event_id().unwrap(), "$1");
     assert_eq!(event.content().as_message().unwrap().body(), "edited message!");
 
     // That's all, folks!
@@ -791,8 +784,8 @@ async fn test_redacted_events_are_reflected_in_sync() {
         .mount()
         .await;
 
-    // Load initial timeline items: a text message and a `m.room.pinned_events` with
-    // event $1
+    // Load initial timeline items: a text message and a `m.room.pinned_events`
+    // with event $1
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec![pinned_event_id.as_str()])
         .mock_and_sync(&client, &server)
@@ -903,8 +896,8 @@ async fn test_ensure_max_concurrency_is_observed() {
     // Abort handle to stop requests from being processed.
     handle.abort();
 
-    // The real check happens here, based on the `max_concurrent_requests` expected
-    // value set above for the mock endpoint.
+    // The real check happens here, based on the `max_concurrent_requests`
+    // expected value set above for the mock endpoint.
     server.server().verify().await;
 }
 
@@ -962,7 +955,7 @@ async fn test_pinned_events_listener_task_reloads_events_when_ids_change() {
         .expect("Stream timed out")
         .expect("Got stream diff");
     assert_eq!(diffs.diffs.len(), 1);
-    assert_matches!(&diffs.diffs[0], VectorDiff::Append { values });
+    assert_let!(VectorDiff::Append { values } = &diffs.diffs[0]);
     assert_eq!(values.len(), 1);
     assert_eq!(values[0].event_id(), Some(event_id1));
 
@@ -980,7 +973,8 @@ async fn test_pinned_events_listener_task_reloads_events_when_ids_change() {
         .expect("Got stream diff");
     assert_eq!(diffs.diffs.len(), 2);
     assert_matches!(&diffs.diffs[0], VectorDiff::Clear);
-    assert_matches!(&diffs.diffs[1], VectorDiff::Append { values });
+
+    assert_let!(VectorDiff::Append { values } = &diffs.diffs[1]);
     assert_eq!(values.len(), 2);
     assert_eq!(values[0].event_id(), Some(event_id1));
     assert_eq!(values[1].event_id(), Some(event_id2));
@@ -997,9 +991,175 @@ async fn test_pinned_events_listener_task_reloads_events_when_ids_change() {
         .expect("Got stream diff");
     assert_eq!(diffs.diffs.len(), 2);
     assert_matches!(&diffs.diffs[0], VectorDiff::Clear);
-    assert_matches!(&diffs.diffs[1], VectorDiff::Append { values });
+
+    assert_let!(VectorDiff::Append { values } = &diffs.diffs[1]);
     assert_eq!(values.len(), 1);
     assert_eq!(values[0].event_id(), Some(event_id1));
+}
+
+#[async_test]
+async fn test_pinned_events_listener_task_does_not_reload_events_when_ids_are_unchanged() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = owned_room_id!("!a_room:example.org");
+    let event_id1 = event_id!("$1");
+    let event_id2 = event_id!("$2");
+
+    let f = EventFactory::new().room(&room_id).sender(user_id!("@example:localhost"));
+    let joined_room_builder = JoinedRoomBuilder::new(&room_id).add_state_bulk(vec![
+        f.room_pinned_events(vec![event_id1.to_owned(), event_id2.to_owned()]).into(),
+    ]);
+
+    server.sync_room(&client, joined_room_builder).await;
+
+    let pinned_event_1 = f.text_msg("Event 1").event_id(event_id1).into_event();
+    let pinned_event_2 = f.text_msg("Event 2").event_id(event_id2).into_event();
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(pinned_event_1)
+        .named("fetch pinned_event_1")
+        .expect(1)
+        .mount()
+        .await;
+
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(pinned_event_2)
+        .named("fetch pinned_event_2")
+        .expect(1)
+        .mount()
+        .await;
+
+    // Only the first pinned event has a related event.
+    server
+        .mock_room_relations()
+        .match_target_event(event_id1.to_owned())
+        .ok(RoomRelationsResponseTemplate::default()
+            .events(vec![f.reaction(event_id1, "👍").into_raw_timeline()]))
+        .named("fetch the relations of pinned_event_1")
+        .expect(1)
+        .mount()
+        .await;
+
+    // The second pinned event has no related events to cache, so reloading it
+    // would request its relations again.
+    server
+        .mock_room_relations()
+        .match_target_event(event_id2.to_owned())
+        .ok(RoomRelationsResponseTemplate::default())
+        .named("fetch the relations of pinned_event_2")
+        .expect(1)
+        .mount()
+        .await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().expect("Subscribed to event cache");
+
+    let (pinned_events_cache, _handle) =
+        event_cache.pinned_events(&room_id).await.expect("Got pinned events cache");
+
+    let (_items, mut receiver) =
+        pinned_events_cache.subscribe().await.expect("Subscribed to pinned events cache");
+
+    // We get an initial diff with the pinned events and the reaction.
+    let diffs = timeout(receiver.recv(), Duration::from_secs(3))
+        .await
+        .expect("Stream timed out")
+        .expect("Got stream diff");
+    assert_eq!(diffs.diffs.len(), 1);
+    assert_let!(VectorDiff::Append { values } = &diffs.diffs[0]);
+    assert_eq!(values.len(), 3);
+
+    // A sync that doesn't change the pinned events still updates the room info,
+    // which notifies the listener task.
+    let joined_room_builder =
+        JoinedRoomBuilder::new(&room_id).add_timeline_event(f.text_msg("Not pinned"));
+    server.sync_room(&client, joined_room_builder).await;
+
+    // Give the listener task some time to (not) reload the pinned events.
+    sleep(Duration::from_millis(200)).await;
+    assert!(receiver.is_empty());
+
+    // The mocks check that the pinned events and their relations were only
+    // fetched once, when the mock server is dropped.
+}
+
+#[async_test]
+async fn test_pinned_events_listener_task_does_not_reload_events_after_a_redaction() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = owned_room_id!("!a_room:example.org");
+    let pinned_event_id = event_id!("$1");
+    let redaction_event_id = event_id!("$2");
+
+    let f = EventFactory::new().room(&room_id).sender(user_id!("@example:localhost"));
+    let joined_room_builder = JoinedRoomBuilder::new(&room_id)
+        .add_state_bulk(vec![f.room_pinned_events(vec![pinned_event_id.to_owned()]).into()]);
+
+    server.sync_room(&client, joined_room_builder).await;
+
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(f.text_msg("Event 1").event_id(pinned_event_id).into_event())
+        .named("fetch the pinned event")
+        .expect(1)
+        .mount()
+        .await;
+
+    // The redaction isn't a relation, so reloading the pinned event would
+    // request its relations again.
+    server
+        .mock_room_relations()
+        .match_target_event(pinned_event_id.to_owned())
+        .ok(RoomRelationsResponseTemplate::default())
+        .named("fetch the relations of the pinned event")
+        .expect(1)
+        .mount()
+        .await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().expect("Subscribed to event cache");
+
+    let (pinned_events_cache, _handle) =
+        event_cache.pinned_events(&room_id).await.expect("Got pinned events cache");
+
+    let (_items, mut receiver) =
+        pinned_events_cache.subscribe().await.expect("Subscribed to pinned events cache");
+
+    let diffs = timeout(receiver.recv(), Duration::from_secs(3))
+        .await
+        .expect("Stream timed out")
+        .expect("Got stream diff");
+    assert_eq!(diffs.diffs.len(), 1);
+    assert_let!(VectorDiff::Append { values } = &diffs.diffs[0]);
+    assert_eq!(values.len(), 1);
+    assert_eq!(values[0].event_id(), Some(pinned_event_id));
+
+    // The redaction of the pinned event gets added to the pinned events cache.
+    let joined_room_builder = JoinedRoomBuilder::new(&room_id)
+        .add_timeline_event(f.redaction(pinned_event_id).event_id(redaction_event_id));
+    server.sync_room(&client, joined_room_builder).await;
+
+    let diffs = timeout(receiver.recv(), Duration::from_secs(3))
+        .await
+        .expect("Stream timed out")
+        .expect("Got stream diff");
+    assert_eq!(diffs.diffs.len(), 1);
+    assert_let!(VectorDiff::Append { values } = &diffs.diffs[0]);
+    assert_eq!(values.len(), 1);
+    assert_eq!(values[0].event_id(), Some(redaction_event_id));
+
+    // Now that the cache holds the redaction, an unrelated sync notifies the
+    // listener task again, which must not reload the pinned events.
+    let joined_room_builder =
+        JoinedRoomBuilder::new(&room_id).add_timeline_event(f.text_msg("Not pinned"));
+    server.sync_room(&client, joined_room_builder).await;
+
+    sleep(Duration::from_millis(200)).await;
+    assert!(receiver.is_empty());
 }
 
 async fn mock_events_endpoint(

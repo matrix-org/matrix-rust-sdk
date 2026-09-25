@@ -86,18 +86,18 @@ impl MatrixAuth {
 
     /// Get the URL to use to log in via Single Sign-On.
     ///
-    /// Returns a URL that should be opened in a web browser to let the user
-    /// log in.
+    /// Returns a URL that should be opened in a web browser to let the user log
+    /// in.
     ///
     /// After a successful login, the loginToken received at the redirect URL
     /// should be used to log in with [`login_token`].
     ///
     /// # Arguments
     ///
-    /// * `redirect_url` - The URL that will receive a `loginToken` after a
+    /// - `redirect_url` - The URL that will receive a `loginToken` after a
     ///   successful SSO login.
     ///
-    /// * `idp_id` - The optional ID of the identity provider to log in with.
+    /// - `idp_id` - The optional ID of the identity provider to log in with.
     ///
     /// [`login_token`]: #method.login_token
     pub async fn get_sso_login_url(
@@ -142,10 +142,10 @@ impl MatrixAuth {
     ///
     /// # Arguments
     ///
-    /// * `user` - The user ID or user ID localpart of the user that should be
+    /// - `user` - The user ID or user ID localpart of the user that should be
     ///   logged into the homeserver.
     ///
-    /// * `password` - The password of the user.
+    /// - `password` - The password of the user.
     ///
     /// # Examples
     ///
@@ -192,10 +192,10 @@ impl MatrixAuth {
     ///
     /// # Arguments
     ///
-    /// * `login_type` - Identifier of the custom login type, e.g.
+    /// - `login_type` - Identifier of the custom login type, e.g.
     ///   `org.matrix.login.jwt`
     ///
-    /// * `data` - The additional data which should be attached to the login
+    /// - `data` - The additional data which should be attached to the login
     ///   request.
     ///
     /// # Examples
@@ -246,12 +246,12 @@ impl MatrixAuth {
     /// client after the first login.
     ///
     /// A device ID should be provided through [`LoginBuilder::device_id`] to
-    /// restore the correct stores, if the device ID isn't provided a new
-    /// device will be created.
+    /// restore the correct stores, if the device ID isn't provided a new device
+    /// will be created.
     ///
     /// # Arguments
     ///
-    /// * `token` - A login token.
+    /// - `token` - A login token.
     ///
     /// # Examples
     ///
@@ -289,12 +289,12 @@ impl MatrixAuth {
     }
 
     /// A higher level wrapper around the methods to complete an SSO login after
-    /// the user has logged in through a webview. This method should be used
-    /// in tandem with [`MatrixAuth::get_sso_login_url`].
+    /// the user has logged in through a webview. This method should be used in
+    /// tandem with [`MatrixAuth::get_sso_login_url`].
     ///
     /// # Arguments
     ///
-    /// * `url_or_query` - The full callback URL carrying the login token, or
+    /// - `url_or_query` - The full callback URL carrying the login token, or
     ///   only its query string.
     ///
     /// # Examples
@@ -348,15 +348,16 @@ impl MatrixAuth {
     /// Log into the server via Single Sign-On.
     ///
     /// This takes care of the whole SSO flow:
-    ///   * Spawn a local http server
-    ///   * Provide a callback to open the SSO login URL in a web browser
-    ///   * Wait for the local http server to get the loginToken
-    ///   * Call [`login_token`]
+    ///
+    /// - Spawn a local http server
+    /// - Provide a callback to open the SSO login URL in a web browser
+    /// - Wait for the local http server to get the loginToken
+    /// - Call [`login_token`]
     ///
     /// If cancellation is needed the method should be wrapped in a cancellable
     /// task. **Note** that users with root access to the system have the
-    /// ability to snoop in on the data/token that is passed to the local
-    /// HTTP server that will be spawned.
+    /// ability to snoop in on the data/token that is passed to the local HTTP
+    /// server that will be spawned.
     ///
     /// If you need more control over the SSO login process, you should use
     /// [`get_sso_login_url`] and [`login_token`] directly.
@@ -368,7 +369,7 @@ impl MatrixAuth {
     ///
     /// # Arguments
     ///
-    /// * `use_sso_login_url` - A callback that will receive the SSO Login URL.
+    /// - `use_sso_login_url` - A callback that will receive the SSO Login URL.
     ///   It should usually be used to open the SSO URL in a browser and must
     ///   return `Ok(())` if the URL was successfully opened. If it returns
     ///   `Err`, the error will be forwarded.
@@ -432,26 +433,25 @@ impl MatrixAuth {
     /// This method doesn't need to be called if
     /// [`ClientBuilder::handle_refresh_tokens()`] is called during construction
     /// of the `Client`. Otherwise, it should be called once when a refresh
-    /// token is available and an [`UnknownToken`] error is received.
-    /// If this call fails with another [`UnknownToken`] error, it means that
-    /// the session needs to be logged in again.
+    /// token is available and an [`UnknownToken`] error is received. If this
+    /// call fails with another [`UnknownToken`] error, it means that the
+    /// session needs to be logged in again.
     ///
     /// It can also be called at any time when a refresh token is available, it
     /// will invalidate the previous access token.
     ///
     /// The new tokens in the response will be used by the `Client` and should
     /// be persisted to be able to [restore the session]. The response will
-    /// always contain an access token that replaces the previous one. It
-    /// can also contain a refresh token, in which case it will also replace
-    /// the previous one.
+    /// always contain an access token that replaces the previous one. It can
+    /// also contain a refresh token, in which case it will also replace the
+    /// previous one.
     ///
     /// This method is protected behind a lock, so calling this method several
     /// times at once will only call the endpoint once and all subsequent calls
-    /// will wait for the result of the first call. The first call will
-    /// return `Ok(Some(response))` or the [`HttpError`] returned by the
-    /// endpoint, while the others will return `Ok(None)` if the token was
-    /// refreshed by the first call or a [`RefreshTokenError`] error, if it
-    /// failed.
+    /// will wait for the result of the first call. The first call will return
+    /// `Ok(Some(response))` or the [`HttpError`] returned by the endpoint,
+    /// while the others will return `Ok(None)` if the token was refreshed by
+    /// the first call or a [`RefreshTokenError`] error, if it failed.
     ///
     /// # Examples
     ///
@@ -518,7 +518,8 @@ impl MatrixAuth {
 
         let refresh_token_lock = &self.client.auth_ctx().refresh_token_lock;
         let Ok(mut guard) = refresh_token_lock.try_lock() else {
-            // Somebody else is also doing a token refresh; wait for it to finish first.
+            // Somebody else is also doing a token refresh; wait for it to
+            // finish first.
             return refresh_token_lock.lock().await.clone();
         };
 
@@ -573,7 +574,7 @@ impl MatrixAuth {
     ///
     /// # Arguments
     ///
-    /// * `registration` - The easiest way to create this request is using the
+    /// - `registration` - The easiest way to create this request is using the
     ///   [`register::v3::Request`] itself.
     ///
     /// # Examples
@@ -654,12 +655,24 @@ impl MatrixAuth {
     /// Alternatively, if the whole session isn't stored the [`login`] method
     /// can be used with a device ID.
     ///
+    /// # Persisting the store
+    ///
+    /// Restoring only reattaches the client to its stored state; it does not
+    /// recreate that state. The same persistent store used during the original
+    /// login (for example via [`ClientBuilder::sqlite_store()`]) must be
+    /// configured on the [`ClientBuilder`] when the session is restored,
+    /// otherwise the encryption keys and room state will not be available. When
+    /// the `e2e-encryption` feature is enabled, restoring on top of an
+    /// in-memory store will leave the client unable to send or receive
+    /// encrypted messages. See the [`persist_session`] example for a full
+    /// walk-through.
+    ///
     /// # Arguments
     ///
-    /// * `session` - A session that the user already has from a previous login
+    /// - `session` - A session that the user already has from a previous login
     ///   call.
     ///
-    /// * `room_load_settings` — Specify how many rooms must be restored; use
+    /// - `room_load_settings` — Specify how many rooms must be restored; use
     ///   `::default()` if you don't know which value to pick.
     ///
     /// # Panics
@@ -718,6 +731,9 @@ impl MatrixAuth {
     ///
     /// [`login`]: #method.login
     /// [`LoginBuilder::send()`]: crate::authentication::matrix::LoginBuilder::send
+    /// [`ClientBuilder`]: crate::ClientBuilder
+    /// [`ClientBuilder::sqlite_store()`]: crate::ClientBuilder::sqlite_store
+    /// [`persist_session`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples/persist_session
     #[instrument(skip_all)]
     pub async fn restore_session(
         &self,
@@ -741,7 +757,7 @@ impl MatrixAuth {
     ///
     /// # Arguments
     ///
-    /// * `response` - A successful login response.
+    /// - `response` - A successful login response.
     pub(crate) async fn receive_login_response(
         &self,
         response: &login::v3::Response,
@@ -764,9 +780,8 @@ impl MatrixAuth {
     ///
     /// # Arguments
     ///
-    /// * `session` — The session being opened.
-    ///
-    /// * `room_load_settings` — Specify how much rooms must be restored; use
+    /// - `session` — The session being opened.
+    /// - `room_load_settings` — Specify how much rooms must be restored; use
     ///   `::default()` if you don't know which value to pick.
     ///
     /// # Panic
@@ -778,8 +793,8 @@ impl MatrixAuth {
         room_load_settings: RoomLoadSettings,
         #[cfg(feature = "e2e-encryption")] login_info: Option<login::v3::LoginInfo>,
     ) -> Result<()> {
-        // This API doesn't have any data but by setting this variant we protect the
-        // user from using both authentication APIs at once.
+        // This API doesn't have any data but by setting this variant we protect
+        // the user from using both authentication APIs at once.
         self.client
             .auth_ctx()
             .auth_data

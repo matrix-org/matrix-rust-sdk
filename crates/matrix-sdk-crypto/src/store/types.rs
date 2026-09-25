@@ -157,9 +157,8 @@ pub struct TrackedUser {
     /// The user ID of the user.
     pub user_id: OwnedUserId,
     /// The outdate/dirty flag of the user, remembers if the list of devices for
-    /// the user is considered to be out of date. If the list of devices is
-    /// out of date, a `/keys/query` request should be sent out for this
-    /// user.
+    /// the user is considered to be out of date. If the list of devices is out
+    /// of date, a `/keys/query` request should be sent out for this user.
     pub dirty: bool,
 }
 
@@ -208,8 +207,8 @@ impl IdentityChanges {
         self.new.is_empty() && self.changed.is_empty()
     }
 
-    /// Convert the vectors contained in the [`IdentityChanges`] into
-    /// three maps from user id to user identity (new, updated, unchanged).
+    /// Convert the vectors contained in the [`IdentityChanges`] into three maps
+    /// from user id to user identity (new, updated, unchanged).
     pub(super) fn into_maps(
         self,
     ) -> (
@@ -254,8 +253,8 @@ pub struct DeviceUpdates {
     /// The list of newly discovered devices.
     ///
     /// A device being in this list does not necessarily mean that the device
-    /// was just created, it just means that it's the first time we're
-    /// seeing this device.
+    /// was just created, it just means that it's the first time we're seeing
+    /// this device.
     pub new: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Device>>,
     /// The list of changed devices.
     pub changed: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Device>>,
@@ -268,8 +267,8 @@ pub struct IdentityUpdates {
     /// The list of newly discovered user identities .
     ///
     /// A identity being in this list does not necessarily mean that the
-    /// identity was just created, it just means that it's the first time
-    /// we're seeing this identity.
+    /// identity was just created, it just means that it's the first time we're
+    /// seeing this identity.
     pub new: BTreeMap<OwnedUserId, UserIdentity>,
     /// The list of changed identities.
     pub changed: BTreeMap<OwnedUserId, UserIdentity>,
@@ -280,7 +279,7 @@ pub struct IdentityUpdates {
 /// The private part of a backup key.
 ///
 /// The private part of the key is not used on a regular basis. Rather, it is
-/// used only when we need to *recover* the backup.
+/// used only when we need to _recover_ the backup.
 ///
 /// Typically, this private key is itself encrypted and stored in server-side
 /// secret storage (SSSS), whence it can be retrieved when it is needed for a

@@ -23,11 +23,10 @@ experimental-encrypted-state-events = [
 [dev-dependencies]
 anyhow.workspace = true
 assert_matches.workspace = true
-assert_matches2.workspace = true
 assign = "1"
 eyeball.workspace = true
 eyeball-im.workspace = true
-futures = { version = "0.3.29", features = ["executor"] }
+futures = { version = "0.3.34", features = ["executor"] }
 futures-core.workspace = true
 futures-util.workspace = true
 http.workspace = true
@@ -42,10 +41,11 @@ matrix-sdk-ui = { workspace = true, default-features = true }
 rand.workspace = true
 rcgen = { workspace = true, features = ["aws_lc_rs", "pem", "x509-parser"] }
 reqwest.workspace = true
-rustls = { version = "0.23.42", default-features = false, features = ["aws_lc_rs"] }
+rustls = { workspace = true, default-features = false, features = ["aws_lc_rs"] }
 serde_json.workspace = true
 sha2.workspace = true
 similar-asserts.workspace = true
+strass.workspace = true
 stream_assert.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }

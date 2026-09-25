@@ -32,27 +32,24 @@ use tracing::warn;
 
 use crate::{Client, Room, client::WeakClient, event_handler::EventHandlerHandle};
 
-/// Owns the `m.call.member` event handler for auto-syncing the `m.call`
-/// profile field. Dropping this struct deregisters the handler.
-/// Holds a [`WeakClient`] rather than a strong `Client` to avoid a
-/// reference cycle.
+/// Owns the `m.call.member` event handler for auto-syncing the `m.call` profile
+/// field. Dropping this struct deregisters the handler. Holds a [`WeakClient`]
+/// rather than a strong `Client` to avoid a reference cycle.
 pub(crate) struct AutomaticCallStatus {
     handle: EventHandlerHandle,
     client: WeakClient,
 }
 
-/// Rooms in which this device is currently participating in an active
-/// MatrixRTC call. Maintained incrementally from `m.call.member` events.
+/// Rooms in which this device is currently participating in an active MatrixRTC
+/// call. Maintained incrementally from `m.call.member` events.
 type ActiveCallRooms = Arc<Mutex<HashSet<OwnedRoomId>>>;
 
 impl Client {
     /// Enable or disable automatic mirroring of this device's MatrixRTC
-    /// participation into the [MSC4426] `m.call` profile field. Off by
-    /// default.
+    /// participation into the [MSC4426] `m.call` profile field. Off by default.
     ///
     /// Toggling `false -> true` registers a typed event handler for
-    /// `m.call.member` state events. Toggling `true -> false` deregisters
-    /// it.
+    /// `m.call.member` state events. Toggling `true -> false` deregisters it.
     ///
     /// Toggling `true -> false` does NOT clear `m.call` on the server, you
     /// should call [`crate::Account::clear_call`] explicitly if that is
@@ -74,10 +71,10 @@ impl Client {
 impl AutomaticCallStatus {
     fn new(client: &Client) -> Self {
         // Start empty: `m.call` is shared across the user's devices, so we
-        // deliberately don't reconcile from current room state on start-up
-        // to avoid stomping on a status set by another device. The
-        // trade-off is that a crash/kill while on a call leaves `m.call`
-        // set until the user clears it manually.
+        // deliberately don't reconcile from current room state on start-up to
+        // avoid stomping on a status set by another device. The trade-off is
+        // that a crash/kill while on a call leaves `m.call` set until the user
+        // clears it manually.
         let rooms: ActiveCallRooms = Arc::new(Mutex::new(HashSet::new()));
         let handle = client.add_event_handler(
             async move |event: OriginalSyncStateEvent<CallMemberEventContent>,

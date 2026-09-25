@@ -65,8 +65,8 @@ impl MaybeSemaphore {
     async fn acquire(&self) -> MaybeSemaphorePermit<'_> {
         match self.0.as_ref() {
             Some(inner) => {
-                // This can only ever error if the semaphore was closed,
-                // which we never do, so we can safely ignore any error case
+                // This can only ever error if the semaphore was closed, which
+                // we never do, so we can safely ignore any error case
                 MaybeSemaphorePermit(inner.acquire().await.ok())
             }
             None => MaybeSemaphorePermit(None),
@@ -148,8 +148,8 @@ impl HttpClient {
         R::Authentication: SupportedAuthScheme,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
-        // some functions split out so they only get compiled once,
-        // not monomorphized per request type
+        // some functions split out so they only get compiled once, not
+        // monomorphized per request type
         fn make_span(client: &HttpClient, config: &RequestConfig) -> tracing::Span {
             tracing::info_span!(
                 "send",
@@ -169,8 +169,8 @@ impl HttpClient {
 
             let mut uri_parts = request.uri().clone().into_parts();
 
-            // Erase the query parameters for the sake of secrecy (in case a token is
-            // present).
+            // Erase the query parameters for the sake of secrecy (in case a
+            // token is present).
             if let Some(path_and_query) = &mut uri_parts.path_and_query {
                 *path_and_query =
                     path_and_query.path().try_into().expect("path is valid PathAndQuery");
@@ -181,8 +181,8 @@ impl HttpClient {
             let span = tracing::Span::current();
             span.record("method", debug(method)).record("uri", uri.to_string());
 
-            // POST, PUT, PATCH are the only methods that are reasonably used
-            // in conjunction with request bodies
+            // POST, PUT, PATCH are the only methods that are reasonably used in
+            // conjunction with request bodies
             if [Method::POST, Method::PUT, Method::PATCH].contains(method) {
                 let request_size = request.body().len().try_into().unwrap_or(u64::MAX);
                 span.record(
@@ -191,8 +191,8 @@ impl HttpClient {
                 );
             }
         }
-        // these macros expand to a lot of code, also want to skip monomorphization
-        // for them even though they might look super simple
+        // these macros expand to a lot of code, also want to skip
+        // monomorphization for them even though they might look super simple
         fn log_got_response() {
             debug!("Got response");
         }
@@ -214,8 +214,9 @@ impl HttpClient {
             // will be automatically dropped at the end of this function
             let _handle = self.concurrent_request_semaphore.acquire().await;
 
-            // There's a bunch of state in send_request, factor out a pinned inner
-            // future to reduce the size of futures that await this function.
+            // There's a bunch of state in send_request, factor out a pinned
+            // inner future to reduce the size of futures that await this
+            // function.
             match Box::pin(self.send_request::<R>(request, config, send_progress)).await {
                 Ok(response) => {
                     log_got_response();
@@ -321,9 +322,9 @@ impl SupportedPathBuilder for path_builder::VersionHistory {
         client: &crate::Client,
         skip_auth: bool,
     ) -> HttpResult<Cow<'static, SupportedVersions>> {
-        // We always enable "failsafe" mode for the GET /versions requests in this
-        // function. It disables trying to refresh the access token for those requests,
-        // to avoid possible deadlocks.
+        // We always enable "failsafe" mode for the GET /versions requests in
+        // this function. It disables trying to refresh the access token for
+        // those requests, to avoid possible deadlocks.
 
         if !client.auth_ctx().has_valid_access_token() {
             // Try to get the value in the cache.
@@ -331,8 +332,9 @@ impl SupportedPathBuilder for path_builder::VersionHistory {
                 return Ok(Cow::Owned(versions));
             }
 
-            // The request will skip auth so we might not get all the supported features, so
-            // just fetch the supported versions and don't cache them.
+            // The request will skip auth so we might not get all the supported
+            // features, so just fetch the supported versions and don't cache
+            // them.
             let response = client.fetch_server_versions_inner(true, None).await?;
 
             Ok(Cow::Owned(response.as_supported_versions()))
@@ -342,8 +344,8 @@ impl SupportedPathBuilder for path_builder::VersionHistory {
             let versions = if let Ok(Some(versions)) = cached_versions {
                 versions
             } else {
-                // If we're skipping auth we might not get all the supported features, so just
-                // fetch the versions and don't cache them.
+                // If we're skipping auth we might not get all the supported
+                // features, so just fetch the versions and don't cache them.
                 let request_config = RequestConfig::default().retry_limit(5).skip_auth();
                 let response =
                     client.fetch_server_versions_inner(true, Some(request_config)).await?;

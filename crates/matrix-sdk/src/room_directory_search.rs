@@ -135,16 +135,15 @@ impl RoomDirectorySearch {
 
     /// Starts a filtered search for the server.
     ///
-    /// If the `filter` is not provided it will search for all the rooms.
-    /// You can specify a `batch_size` to control the number of rooms to fetch
-    /// per request.
+    /// If the `filter` is not provided it will search for all the rooms. You
+    /// can specify a `batch_size` to control the number of rooms to fetch per
+    /// request.
     ///
     /// If the `via_server` is not provided it will search in the current
     /// homeserver by default.
     ///
     /// This method will clear the current search results and start a new one.
-    // Should never be used concurrently with another `next_page` or a
-    // `search`.
+    // Should never be used concurrently with another `next_page` or a `search`.
     pub async fn search(
         &mut self,
         filter: Option<String>,
@@ -160,8 +159,7 @@ impl RoomDirectorySearch {
     }
 
     /// Asks the server for the next page of the current search.
-    // Should never be used concurrently with another `next_page` or a
-    // `search`.
+    // Should never be used concurrently with another `next_page` or a `search`.
     pub async fn next_page(&mut self) -> Result<()> {
         if self.search_state.is_at_end() {
             return Ok(());
@@ -245,7 +243,8 @@ mod tests {
                 return false;
             };
 
-            // The body's `since` field is set equal to the matcher's next_token.
+            // The body's `since` field is set equal to the matcher's
+            // next_token.
             if !body.get_field::<String>("since").is_ok_and(|s| s == self.next_token) {
                 return false;
             }
@@ -254,8 +253,8 @@ mod tests {
                 return false;
             }
 
-            // The body's `filter` field has `generic_search_term` equal to the matcher's
-            // next_token.
+            // The body's `filter` field has `generic_search_term` equal to the
+            // matcher's next_token.
             if !body.get_field::<Filter>("filter").is_ok_and(|s| {
                 if self.filter_term.is_none() {
                     s.is_none() || s.is_some_and(|s| s.generic_search_term.is_none())

@@ -69,6 +69,7 @@ use crate::{
     },
     runtime::get_runtime_handle,
     task_handle::TaskHandle,
+    timeline::content::{Reaction, ReactionSenderData},
     utils::Timestamp,
 };
 
@@ -101,42 +102,12 @@ impl Timeline {
         mime_type: Option<String>,
         thumbnail: Option<Thumbnail>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
-        let mime_str = mime_type.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
-
-        let mime_type =
-            mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
-
-        let in_reply_to_event_id = params
-            .in_reply_to
-            .map(EventId::parse)
-            .transpose()
-            .map_err(|_| RoomError::InvalidRepliedToEventId)?;
-
-        let caption = params.caption.map(|caption| {
-            let formatted =
-                formatted_body_from(Some(&caption), params.formatted_caption.map(Into::into));
-            assign!(TextMessageEventContent::plain(caption), { formatted })
-        });
-
-        let extra_content: Option<serde_json::Map<String, serde_json::Value>> = params
-            .extra_content_json
-            .map(|json| serde_json::from_str(&json))
-            .transpose()
-            .map_err(|_| RoomError::InvalidAttachmentData)?;
-
-        let attachment_config = AttachmentConfig {
-            info: Some(attachment_info),
-            thumbnail,
-            caption,
-            mentions: params.mentions.map(Into::into),
-            in_reply_to: in_reply_to_event_id,
-            extra_content,
-            ..Default::default()
-        };
+        let (source, mime_type, attachment_config) =
+            build_attachment_config(params, attachment_info, mime_type, thumbnail)?;
 
         let handle = SendAttachmentJoinHandle::new(get_runtime_handle().spawn(async move {
             self.inner
-                .send_attachment(params.source, mime_type, attachment_config)
+                .send_attachment(source, mime_type, attachment_config)
                 .use_send_queue()
                 .await
                 .map_err(|_| RoomError::FailedSendingAttachment)
@@ -144,6 +115,66 @@ impl Timeline {
 
         Ok(handle)
     }
+
+    async fn edit_with_attachment(
+        &self,
+        event_id: String,
+        params: UploadParameters,
+        attachment_info: AttachmentInfo,
+        mime_type: Option<String>,
+        thumbnail: Option<Thumbnail>,
+    ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        let (source, mime_type, attachment_config) =
+            build_attachment_config(params, attachment_info, mime_type, thumbnail)?;
+
+        self.inner.edit_with_attachment(&event_id, source, mime_type, attachment_config).await?;
+
+        Ok(())
+    }
+}
+
+/// Builds the configuration shared by the methods sending or editing an
+/// attachment.
+fn build_attachment_config(
+    params: UploadParameters,
+    attachment_info: AttachmentInfo,
+    mime_type: Option<String>,
+    thumbnail: Option<Thumbnail>,
+) -> Result<(UploadSource, Mime, AttachmentConfig), RoomError> {
+    let mime_str = mime_type.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+
+    let mime_type = mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+
+    let in_reply_to_event_id = params
+        .in_reply_to
+        .map(EventId::parse)
+        .transpose()
+        .map_err(|_| RoomError::InvalidRepliedToEventId)?;
+
+    let caption = params.caption.map(|caption| {
+        let formatted =
+            formatted_body_from(Some(&caption), params.formatted_caption.map(Into::into));
+        assign!(TextMessageEventContent::plain(caption), { formatted })
+    });
+
+    let extra_content: Option<serde_json::Map<String, serde_json::Value>> = params
+        .extra_content_json
+        .map(|json| serde_json::from_str(&json))
+        .transpose()
+        .map_err(|_| RoomError::InvalidAttachmentData)?;
+
+    let attachment_config = AttachmentConfig {
+        info: Some(attachment_info),
+        thumbnail,
+        caption,
+        mentions: params.mentions.map(Into::into),
+        in_reply_to: in_reply_to_event_id,
+        extra_content,
+        ..Default::default()
+    };
+
+    Ok((params.source, mime_type, attachment_config))
 }
 
 fn build_thumbnail_info(
@@ -207,8 +238,8 @@ pub struct UploadParameters {
     mentions: Option<Mentions>,
     /// Optional Event ID to reply to.
     in_reply_to: Option<String>,
-    /// Optional additional top-level fields for the media event's content,
-    /// as a serialized JSON object.
+    /// Optional additional top-level fields for the media event's content, as a
+    /// serialized JSON object.
     #[uniffi(default = None)]
     extra_content_json: Option<String>,
 }
@@ -243,13 +274,12 @@ impl From<UploadSource> for AttachmentSource {
 /// possibly a thumbnail) being uploaded.
 #[derive(Clone, Copy, uniffi::Record)]
 pub struct MediaUploadProgress {
-    /// The index of the media within the transaction. A file and its
-    /// thumbnail share the same index. Will always be 0 for non-gallery
-    /// media uploads.
+    /// The index of the media within the transaction. A file and its thumbnail
+    /// share the same index. Will always be 0 for non-gallery media uploads.
     pub index: u64,
 
-    /// The current combined upload progress for both the file and,
-    /// if it exists, its thumbnail.
+    /// The current combined upload progress for both the file and, if it
+    /// exists, its thumbnail.
     pub progress: AbstractProgress,
 }
 
@@ -261,8 +291,8 @@ impl From<SdkMediaUploadProgress> for MediaUploadProgress {
 
 /// Progress of an operation in abstract units.
 ///
-/// Contrary to [`TransmissionProgress`], this allows tracking the progress
-/// of sending or receiving a payload in estimated pseudo units representing a
+/// Contrary to [`TransmissionProgress`], this allows tracking the progress of
+/// sending or receiving a payload in estimated pseudo units representing a
 /// percentage. This is helpful in cases where the exact progress in bytes isn't
 /// known, for instance, because encryption (which changes the size) happens on
 /// the fly.
@@ -288,14 +318,15 @@ impl Timeline {
     pub async fn add_listener(&self, listener: Box<dyn TimelineListener>) -> Arc<TaskHandle> {
         let (timeline_items, timeline_stream) = self.inner.subscribe().await;
 
-        // It's important that the initial items are passed *before* we forward the
-        // stream updates, with a guaranteed ordering. Otherwise, it could
+        // It's important that the initial items are passed _before_ we forward
+        // the stream updates, with a guaranteed ordering. Otherwise, it could
         // be that the listener be called before the initial items have been
         // handled by the caller. See #3535 for details.
 
-        // Note we pass initial items as a reset update, as a way to give the callers a
-        // unified way to handle the initial batch of items as well as other
-        // batches, instead of having a separate callback for the initial items.
+        // Note we pass initial items as a reset update, as a way to give the
+        // callers a unified way to handle the initial batch of items as well as
+        // other batches, instead of having a separate callback for the initial
+        // items.
         listener.on_update(vec![TimelineDiff::new(VectorDiff::Reset { values: timeline_items })]);
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
@@ -330,9 +361,9 @@ impl Timeline {
 
         // Send the current state even if it hasn't changed right away.
         //
-        // Note: don't do it in the spawned function, so that the caller is immediately
-        // aware of the current state, and this doesn't depend on the async runtime
-        // having an available worker
+        // Note: don't do it in the spawned function, so that the caller is
+        // immediately aware of the current state, and this doesn't depend on
+        // the async runtime having an available worker
         listener.on_update(initial);
 
         Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
@@ -370,13 +401,13 @@ impl Timeline {
     /// latest visible event.
     ///
     /// The latest visible event is determined from the timeline's focus kind
-    /// and whether or not it hides threaded events. If no latest event can
-    /// be determined and the timeline is live, the room's unread marker is
-    /// unset instead.
+    /// and whether or not it hides threaded events. If no latest event can be
+    /// determined and the timeline is live, the room's unread marker is unset
+    /// instead.
     ///
     /// # Arguments
     ///
-    /// * `receipt_type` - The type of receipt to send. When using
+    /// - `receipt_type` - The type of receipt to send. When using
     ///   [`ReceiptType::FullyRead`], an unthreaded receipt will be sent. This
     ///   works even if the latest event belongs to a thread, as a threaded
     ///   reply also belongs to the unthreaded timeline. Otherwise the receipt
@@ -391,8 +422,8 @@ impl Timeline {
         self.inner.latest_event_id().await.as_deref().map(ToString::to_string)
     }
 
-    /// Queues an event in the room's send queue so it's processed for
-    /// sending later.
+    /// Queues an event in the room's send queue so it's processed for sending
+    /// later.
     ///
     /// Returns an abort handle that allows to abort sending, if it hasn't
     /// happened yet.
@@ -403,8 +434,8 @@ impl Timeline {
         self.send_with_extra_content(msg, None).await
     }
 
-    /// Like [`Self::send`], but merges the given additional top-level fields
-    /// (a JSON object, encoded as a string) into the outgoing event's content.
+    /// Like [`Self::send`], but merges the given additional top-level fields (a
+    /// JSON object, encoded as a string) into the outgoing event's content.
     pub async fn send_with_extra_content(
         self: Arc<Self>,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
@@ -485,6 +516,68 @@ impl Timeline {
         self.send_attachment(params, attachment_info, file_info.mimetype, None)
     }
 
+    /// Edits a message the current user sent into an image, replacing its
+    /// attachment if it had one. The caption in `params` is the whole new
+    /// text: nothing of the original content is kept, and `in_reply_to` is
+    /// ignored.
+    pub async fn edit_image(
+        &self,
+        event_id: String,
+        params: UploadParameters,
+        thumbnail_source: Option<UploadSource>,
+        image_info: ImageInfo,
+    ) -> Result<(), ClientError> {
+        let attachment_info = AttachmentInfo::Image(
+            BaseImageInfo::try_from(&image_info).map_err(|_| RoomError::InvalidAttachmentData)?,
+        );
+        let thumbnail = build_thumbnail_info(thumbnail_source, image_info.thumbnail_info)?;
+        self.edit_with_attachment(event_id, params, attachment_info, image_info.mimetype, thumbnail)
+            .await
+    }
+
+    /// Like [`Self::edit_image`], with a video.
+    pub async fn edit_video(
+        &self,
+        event_id: String,
+        params: UploadParameters,
+        thumbnail_source: Option<UploadSource>,
+        video_info: VideoInfo,
+    ) -> Result<(), ClientError> {
+        let attachment_info = AttachmentInfo::Video(
+            BaseVideoInfo::try_from(&video_info).map_err(|_| RoomError::InvalidAttachmentData)?,
+        );
+        let thumbnail = build_thumbnail_info(thumbnail_source, video_info.thumbnail_info)?;
+        self.edit_with_attachment(event_id, params, attachment_info, video_info.mimetype, thumbnail)
+            .await
+    }
+
+    /// Like [`Self::edit_image`], with an audio file.
+    pub async fn edit_audio(
+        &self,
+        event_id: String,
+        params: UploadParameters,
+        audio_info: AudioInfo,
+    ) -> Result<(), ClientError> {
+        let attachment_info = AttachmentInfo::Audio(
+            BaseAudioInfo::try_from(&audio_info).map_err(|_| RoomError::InvalidAttachmentData)?,
+        );
+        self.edit_with_attachment(event_id, params, attachment_info, audio_info.mimetype, None)
+            .await
+    }
+
+    /// Like [`Self::edit_image`], with a file.
+    pub async fn edit_file(
+        &self,
+        event_id: String,
+        params: UploadParameters,
+        file_info: FileInfo,
+    ) -> Result<(), ClientError> {
+        let attachment_info = AttachmentInfo::File(
+            BaseFileInfo::try_from(&file_info).map_err(|_| RoomError::InvalidAttachmentData)?,
+        );
+        self.edit_with_attachment(event_id, params, attachment_info, file_info.mimetype, None).await
+    }
+
     pub async fn create_poll(
         self: Arc<Self>,
         question: String,
@@ -547,8 +640,8 @@ impl Timeline {
     /// Send a reply.
     ///
     /// If the replied to event has a thread relation, it is forwarded on the
-    /// reply so that clients that support threads can render the reply
-    /// inside the thread. Returns a handle to abort the pending send.
+    /// reply so that clients that support threads can render the reply inside
+    /// the thread. Returns a handle to abort the pending send.
     pub async fn send_reply(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
@@ -561,12 +654,12 @@ impl Timeline {
 
     /// Edits an event from the timeline.
     ///
-    /// If it was a local event, this will *try* to edit it, if it was not
-    /// being sent already. If the event was a remote event, then it will be
-    /// redacted by sending an edit request to the server.
+    /// If it was a local event, this will _try_ to edit it, if it was not being
+    /// sent already. If the event was a remote event, then it will be redacted
+    /// by sending an edit request to the server.
     ///
-    /// Returns whether the edit did happen. It can only return false for
-    /// local events that are being processed.
+    /// Returns whether the edit did happen. It can only return false for local
+    /// events that are being processed.
     pub async fn edit(
         &self,
         event_or_transaction_id: EventOrTransactionId,
@@ -580,8 +673,9 @@ impl Timeline {
             Ok(()) => Ok(()),
 
             Err(timeline::Error::EventNotInTimeline(_)) => {
-                // If we couldn't edit, assume it was an (remote) event that wasn't in the
-                // timeline, and try to edit it via the room itself.
+                // If we couldn't edit, assume it was an (remote) event that
+                // wasn't in the timeline, and try to edit it via the room
+                // itself.
                 let event_id = match event_or_transaction_id {
                     EventOrTransactionId::EventId { event_id } => EventId::parse(event_id)?,
                     EventOrTransactionId::TransactionId { .. } => {
@@ -696,7 +790,7 @@ impl Timeline {
 
     /// Get the current timeline item for the given event ID, if any.
     ///
-    /// Will return a remote event, *or* a local echo that has been sent but not
+    /// Will return a remote event, _or_ a local echo that has been sent but not
     /// yet replaced by a remote echo.
     ///
     /// It's preferable to store the timeline items in the model for your UI, if
@@ -717,9 +811,9 @@ impl Timeline {
 
     /// Get the edit history for the given event.
     ///
-    /// Returns all revisions of the event, in chronological order.
-    /// The first entry is the original event content, followed by each
-    /// edit in the order they were applied.
+    /// Returns all revisions of the event, in chronological order. The first
+    /// entry is the original event content, followed by each edit in the order
+    /// they were applied.
     pub async fn edit_revisions(
         &self,
         event_id: String,
@@ -739,7 +833,7 @@ impl Timeline {
     ///
     /// Only works for events that exist as timeline items.
     ///
-    /// If it was a local event, this will *try* to cancel it, if it was not
+    /// If it was a local event, this will _try_ to cancel it, if it was not
     /// being sent already. If the event was a remote event, then it will be
     /// redacted by sending a redaction request to the server.
     ///
@@ -750,6 +844,35 @@ impl Timeline {
         reason: Option<String>,
     ) -> Result<(), ClientError> {
         Ok(self.inner.redact(&(event_or_transaction_id.try_into()?), reason.as_deref()).await?)
+    }
+
+    /// Retry sending something on this item that failed, see [`SendTarget`].
+    ///
+    /// Only needed after an unrecoverable failure, which parks the request
+    /// until it's retried or aborted; a recoverable one goes out again when the
+    /// room's send queue is re-enabled.
+    ///
+    /// Returns `false` if there was nothing of that kind left to retry, e.g.
+    /// because it went out in the meantime.
+    pub async fn retry_send(
+        &self,
+        item_id: EventOrTransactionId,
+        target: SendTarget,
+    ) -> Result<bool, ClientError> {
+        Ok(self.inner.retry_send(&item_id.try_into()?, target.into()).await?)
+    }
+
+    /// Abort sending something on this item that hasn't gone out yet, see
+    /// [`SendTarget`].
+    ///
+    /// Returns `false` if there was nothing of that kind left to abort, e.g.
+    /// because it went out in the meantime.
+    pub async fn abort_send(
+        &self,
+        item_id: EventOrTransactionId,
+        target: SendTarget,
+    ) -> Result<bool, ClientError> {
+        Ok(self.inner.abort_send(&item_id.try_into()?, target.into()).await?)
     }
 
     /// Load the reply details for the given event id.
@@ -834,8 +957,8 @@ impl SendHandle {
 
 #[matrix_sdk_ffi_macros::export]
 impl SendHandle {
-    /// Try to abort the sending of the current event, with an optional
-    /// `reason` applied to the redaction when the event went out anyway.
+    /// Try to abort the sending of the current event, with an optional `reason`
+    /// applied to the redaction when the event went out anyway.
     ///
     /// If this returns `true`, then the sending could be aborted, because the
     /// event hasn't been sent yet. Otherwise, if this returns `false`, the
@@ -861,12 +984,12 @@ impl SendHandle {
     ///
     /// This is useful for example, when there's a
     /// `SessionRecipientCollectionError::VerifiedUserChangedIdentity` error;
-    /// the user may have re-verified on a different device and would now
-    /// like to send the failed message that's waiting on this device.
+    /// the user may have re-verified on a different device and would now like
+    /// to send the failed message that's waiting on this device.
     ///
     /// # Arguments
     ///
-    /// * `transaction_id` - The send queue transaction identifier of the local
+    /// - `transaction_id` - The send queue transaction identifier of the local
     ///   echo that should be unwedged.
     pub async fn try_resend(self: Arc<Self>) -> Result<(), ClientError> {
         let locked = self.inner.lock().await;
@@ -974,7 +1097,7 @@ pub struct TimelineItem(pub(crate) matrix_sdk_ui::timeline::TimelineItem);
 impl TimelineItem {
     pub(crate) fn from_arc(arc: Arc<matrix_sdk_ui::timeline::TimelineItem>) -> Arc<Self> {
         // SAFETY: This is valid because Self is a repr(transparent) wrapper
-        //         around the other Timeline type.
+        // around the other Timeline type.
         unsafe { Arc::from_raw(Arc::into_raw(arc) as _) }
     }
 }
@@ -1005,6 +1128,34 @@ impl TimelineItem {
     }
 }
 
+/// Which pending send on an item [`Timeline::retry_send`] and
+/// [`Timeline::abort_send`] act on.
+#[derive(Clone, uniffi::Enum)]
+pub enum SendTarget {
+    /// The item itself, while it's a local echo.
+    ///
+    /// Note that aborting one that's already in flight queues a redaction for
+    /// it, without a reason; use `SendHandle::abort` if one is needed.
+    Event,
+    /// Our pending edit of the item.
+    Edit,
+    /// Our pending redaction of the item.
+    Redaction,
+    /// Our pending reaction to the item with this key.
+    Reaction { key: String },
+}
+
+impl From<SendTarget> for matrix_sdk_ui::timeline::SendTarget {
+    fn from(value: SendTarget) -> Self {
+        match value {
+            SendTarget::Event => Self::Event,
+            SendTarget::Edit => Self::Edit,
+            SendTarget::Redaction => Self::Redaction,
+            SendTarget::Reaction { key } => Self::Reaction { key },
+        }
+    }
+}
+
 /// This type represents the “send state” of a local event timeline item.
 #[derive(Clone, uniffi::Enum)]
 pub enum EventSendState {
@@ -1024,8 +1175,8 @@ pub enum EventSendState {
         /// Whether the error is considered recoverable or not.
         ///
         /// An error that's recoverable will disable the room's send queue,
-        /// while an unrecoverable error will be parked, until the user
-        /// decides to cancel sending it.
+        /// while an unrecoverable error will be parked, until it's retried or
+        /// aborted.
         is_recoverable: bool,
     },
 
@@ -1089,11 +1240,16 @@ pub struct EventTimelineItem {
     is_own: bool,
     is_editable: bool,
     content: TimelineItemContent,
+    reactions: Vec<Reaction>,
     /// The raw Matrix event type string (e.g. `"m.room.message"`), or `None`
     /// when the original type is not available (e.g. redacted events).
     event_type_raw: Option<String>,
     timestamp: Timestamp,
     local_send_state: Option<EventSendState>,
+    /// Send state of our pending edit of this event, if any.
+    edit_send_state: Option<EventSendState>,
+    /// Send state of our pending redaction of this event, if any.
+    redaction_send_state: Option<EventSendState>,
     local_created_at: Option<u64>,
     read_receipts: HashMap<String, Receipt>,
     origin: Option<EventItemOrigin>,
@@ -1117,9 +1273,26 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
             is_own: item.is_own(),
             is_editable: item.is_editable(),
             content: item.content().clone().into(),
+            reactions: item
+                .reactions()
+                .iter()
+                .map(|(key, senders)| Reaction {
+                    key: key.to_owned(),
+                    senders: senders
+                        .iter()
+                        .map(|(sender_id, info)| ReactionSenderData {
+                            sender_id: sender_id.to_string(),
+                            timestamp: info.timestamp.into(),
+                            send_state: info.send_state.as_ref().map(|s| s.into()),
+                        })
+                        .collect(),
+                })
+                .collect(),
             event_type_raw: item.content().event_type_str(),
             timestamp: item.timestamp().into(),
             local_send_state: item.send_state().map(|s| s.into()),
+            edit_send_state: item.edit_send_state().map(|s| s.into()),
+            redaction_send_state: item.redaction_send_state().map(|s| s.into()),
             local_created_at: item.local_created_at().map(|t| t.0.into()),
             read_receipts,
             origin: item.origin(),

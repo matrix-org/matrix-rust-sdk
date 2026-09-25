@@ -79,8 +79,8 @@ impl RoomPowerLevels {
         self.inner.user_can_redact_own_event(&self.own_user_id)
     }
 
-    /// Returns true if the user with the given user_id is able to redact
-    /// their own messages in the room.
+    /// Returns true if the user with the given user_id is able to redact their
+    /// own messages in the room.
     ///
     /// The call may fail if there is an error in getting the power levels.
     pub fn can_user_redact_own(&self, user_id: String) -> Result<bool, ClientError> {

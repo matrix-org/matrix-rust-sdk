@@ -37,6 +37,9 @@ pub enum QrAuthMessage {
         /// The login protocols the existing device supports.
         protocols: Vec<LoginProtocolType>,
         /// The homeserver we're going to log in to.
+        ///
+        /// Note: this doesn't match the MSC which says that it is a server name
+        /// not a full URL
         homeserver: Url,
     },
 
@@ -81,9 +84,9 @@ pub enum QrAuthMessage {
     },
 
     /// Message containing end-to-end encryption related secrets, the new device
-    /// can use these secrets to mark itself as verified, connect to a room
-    /// key backup, and login other devices via a QR login. Sent by the
-    /// existing device.
+    /// can use these secrets to mark itself as verified, connect to a room key
+    /// backup, and login other devices via a QR login. Sent by the existing
+    /// device.
     #[serde(rename = "m.login.secrets")]
     LoginSecrets(SecretsBundle),
 }
@@ -119,8 +122,8 @@ pub struct AuthorizationGrant {
     pub verification_uri: EndUserVerificationUrl,
 
     /// The verification URL, with the user code pre-filled, which the user
-    /// should open to log the new device in. If this URL is available, the
-    /// user should be presented with it instead of the one in the
+    /// should open to log the new device in. If this URL is available, the user
+    /// should be presented with it instead of the one in the
     /// [`AuthorizationGrant::verification_uri`] field.
     pub verification_uri_complete: Option<VerificationUriComplete>,
 }
@@ -162,10 +165,10 @@ pub enum LoginProtocolType {
 
 #[cfg(test)]
 mod test {
-    use assert_matches2::assert_let;
     use matrix_sdk_base::crypto::types::BackupSecrets;
     use serde_json::json;
     use similar_asserts::assert_eq;
+    use strass::assert_let;
 
     use super::*;
 

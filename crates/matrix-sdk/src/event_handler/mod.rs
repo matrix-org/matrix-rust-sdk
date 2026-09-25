@@ -184,11 +184,11 @@ pub(crate) enum StaticEventTypePart {
 /// This trait is an abstraction for a certain kind of functions / closures,
 /// specifically:
 ///
-/// * They must have at least one argument, which is the event itself, a type
+/// - They must have at least one argument, which is the event itself, a type
 ///   that implements [`SyncEvent`]. Any additional arguments need to implement
 ///   the [`EventHandlerContext`] trait.
-/// * Their return type has to be one of: `()`, `Result<(), impl Display + Debug
-///   + 'static>` (if you are using `anyhow::Result` or `eyre::Result` you can
+/// - Their return type has to be one of: `()`, `Result<(), impl Display + Debug
+///   - 'static>` (if you are using `anyhow::Result` or `eyre::Result` you can
 ///   additionally enable the `anyhow` / `eyre` feature to get the verbose
 ///   `Debug` output printed on error)
 ///
@@ -203,12 +203,11 @@ pub(crate) enum StaticEventTypePart {
 /// `Ev` and `Ctx` are generic parameters rather than associated types because
 /// the argument list is a generic parameter for the `Fn` traits too, so a
 /// single type could implement `Fn` multiple times with different argument
-/// lists¹. Luckily, when calling [`Client::add_event_handler`] with a
-/// closure argument the trait solver takes into account that only a single one
-/// of the implementations applies (even though this could theoretically change
-/// through a dependency upgrade) and uses that rather than raising an ambiguity
-/// error. This is the same trick used by web frameworks like actix-web and
-/// axum.
+/// lists¹. Luckily, when calling [`Client::add_event_handler`] with a closure
+/// argument the trait solver takes into account that only a single one of the
+/// implementations applies (even though this could theoretically change through
+/// a dependency upgrade) and uses that rather than raising an ambiguity error.
+/// This is the same trick used by web frameworks like actix-web and axum.
 ///
 /// ¹ the only thing stopping such types from existing in stable Rust is that
 /// all manual implementations of the `Fn` traits require a Nightly feature
@@ -470,7 +469,8 @@ impl Client {
             )
             .await;
 
-            // Event handlers specifically for redacted OR unredacted timeline events
+            // Event handlers specifically for redacted OR unredacted timeline
+            // events
             self.call_event_handlers(
                 room,
                 raw_event,
@@ -537,8 +537,8 @@ impl Client {
         if !futures.is_empty() {
             debug!(amount = futures.len(), "Calling event handlers");
 
-            // Run the event handler futures with the `self.event_handlers.handlers`
-            // lock no longer being held.
+            // Run the event handler futures with the
+            // `self.event_handlers.handlers` lock no longer being held.
             while let Some(()) = futures.next().await {}
         }
     }
@@ -633,8 +633,9 @@ impl<T> ObservableEventHandler<T> {
     pub fn subscribe(&self) -> EventHandlerSubscriber<T> {
         EventHandlerSubscriber::new(
             self.shared_observable.subscribe(),
-            // The subscriber holds a weak non-owning reference to the event handler guard, so that
-            // it can detect when this observer is dropped, and can close the subscriber's stream.
+            // The subscriber holds a weak non-owning reference to the event
+            // handler guard, so that it can detect when this observer is
+            // dropped, and can close the subscriber's stream.
             Arc::downgrade(&self.event_handler_guard),
         )
     }
@@ -687,28 +688,29 @@ where
         let mut this = self.project();
 
         let Some(_) = this.event_handler_guard.upgrade() else {
-            // The `EventHandlerHandle` has been dropped via `EventHandlerDropGuard`. It
-            // means the `ObservableEventHandler` has been dropped. It's time to
-            // close this stream.
+            // The `EventHandlerHandle` has been dropped via
+            // `EventHandlerDropGuard`. It means the `ObservableEventHandler`
+            // has been dropped. It's time to close this stream.
             return Poll::Ready(None);
         };
 
-        // First off, the subscriber is of type `Subscriber<Option<T>>` because the
-        // `SharedObservable` starts with a `None` value to indicate it has no yet
-        // received any update. We want the `Stream` to return `T`, not `Option<T>`. We
-        // then filter out all `None` value.
+        // First off, the subscriber is of type `Subscriber<Option<T>>` because
+        // the `SharedObservable` starts with a `None` value to indicate it has
+        // no yet received any update. We want the `Stream` to return `T`, not
+        // `Option<T>`. We then filter out all `None` value.
         //
-        // Second, when a `None` value is met, we want to poll again (hence the `loop`).
-        // At best, there is a new value to return. At worst, the subscriber will return
-        // `Poll::Pending` and will register the wakers accordingly.
+        // Second, when a `None` value is met, we want to poll again (hence the
+        // `loop`). At best, there is a new value to return. At worst, the
+        // subscriber will return `Poll::Pending` and will register the wakers
+        // accordingly.
 
         loop {
             match this.subscriber.as_mut().poll_next(context) {
                 // Stream has been closed somehow.
                 Poll::Ready(None) => return Poll::Ready(None),
 
-                // The initial value (of the `SharedObservable` behind `self.subscriber`) has been
-                // polled. We want to filter it out.
+                // The initial value (of the `SharedObservable` behind
+                // `self.subscriber`) has been polled. We want to filter it out.
                 Poll::Ready(Some(None)) => {
                     // Loop over.
                     continue;
@@ -742,7 +744,6 @@ mod tests {
         },
     };
 
-    use assert_matches2::assert_let;
     use matrix_sdk_common::{deserialized_responses::EncryptionInfo, locks::Mutex};
     use matrix_sdk_test::SyncResponseBuilder;
     use ruma::{
@@ -765,6 +766,7 @@ mod tests {
         user_id,
     };
     use serde_json::json;
+    use strass::assert_let;
 
     use crate::{
         Client, Room,
@@ -929,8 +931,8 @@ mod tests {
         // Room name event handler for room name events in room B
         client.add_room_event_handler(
             room_id_b,
-            // lint is buggy: rustc wants the explicit conversion from ! to () here, but clippy
-            // thinks it's useless.
+            // lint is buggy: rustc wants the explicit conversion from ! to ()
+            // here, but clippy thinks it's useless.
             #[allow(clippy::unused_unit)]
             async move |_ev: OriginalSyncRoomNameEvent| -> () {
                 unreachable!("No room event in room B")
@@ -986,8 +988,8 @@ mod tests {
         });
 
         let handle_a = client.add_event_handler(
-            // lint is buggy: rustc wants the explicit conversion from ! to () here, but clippy
-            // thinks it's useless.
+            // lint is buggy: rustc wants the explicit conversion from ! to ()
+            // here, but clippy thinks it's useless.
             #[allow(clippy::unused_unit)]
             async move |_ev: OriginalSyncRoomMemberEvent| -> () {
                 panic!("handler should have been removed");
@@ -996,8 +998,8 @@ mod tests {
         let handle_b = client.add_room_event_handler(
             #[allow(unknown_lints, clippy::explicit_auto_deref)] // lint is buggy
             *DEFAULT_TEST_ROOM_ID,
-            // lint is buggy: rustc wants the explicit conversion from ! to () here, but clippy
-            // thinks it's useless.
+            // lint is buggy: rustc wants the explicit conversion from ! to ()
+            // here, but clippy thinks it's useless.
             #[allow(clippy::unused_unit)]
             async move |_ev: OriginalSyncRoomMemberEvent| -> () {
                 panic!("handler should have been removed");
@@ -1286,9 +1288,9 @@ mod tests {
 
     #[async_test]
     async fn test_observe_room_events_with_type_prefix() -> crate::Result<()> {
-        // To create an event handler for a room account data event type with prefix, we
-        // need to create a custom event type, none exist in the Matrix specification
-        // yet.
+        // To create an event handler for a room account data event type with
+        // prefix, we need to create a custom event type, none exist in the
+        // Matrix specification yet.
         #[derive(Debug, Clone, EventContent, Serialize)]
         #[ruma_event(type = "fake.event.*", kind = RoomAccountData)]
         struct AccountDataWithPrefixEventContent {

@@ -1,11 +1,9 @@
 [package]
 name = "matrix-sdk-ffi"
-version = "0.18.0"
+version = "0.19.1"
 edition = "2024"
-homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ffi"]
 license = "Apache-2.0"
-readme = "README.md"
 rust-version.workspace = true
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 publish = false
@@ -24,15 +22,18 @@ crate-type = [
 ]
 
 [features]
-default = ["bundled-sqlite", "unstable-msc4274", "experimental-element-recent-emojis", "experimental-push-secrets", "experimental-search", "rustls-aws-lc-rs"]
+default = ["bundled-sqlite", "unstable-msc4274", "unstable-msc4354", "experimental-element-recent-emojis", "experimental-push-secrets", "experimental-search", "rustls-aws-lc-rs"]
 experimental-search = ["matrix-sdk/experimental-search", "matrix-sdk-ui/experimental-search"]
 # Use SQLite for the session storage.
-sqlite = ["matrix-sdk/sqlite"]
+sqlite = ["matrix-sdk/sqlite", "dep:matrix-sdk-sqlite"]
 # Use an embedded version of SQLite.
 bundled-sqlite = ["sqlite", "matrix-sdk/bundled-sqlite"]
 # Use IndexedDB for the session storage.
 indexeddb = ["matrix-sdk/indexeddb"]
 unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
+# Add support for sticky events (MSC4354), delivered over sliding sync via the
+# MSC4480 extension.
+unstable-msc4354 = ["matrix-sdk-ui/unstable-msc4354"]
 # Required when targeting a Javascript environment, like Wasm in a browser.
 js = ["matrix-sdk-ui/js"]
 # Enable sentry error monitoring, not compatible with Wasm platforms.
@@ -50,6 +51,7 @@ rustls-aws-lc-rs = ["matrix-sdk/rustls-aws-lc-rs", "matrix-sdk-ui/rustls-aws-lc-
 
 [dependencies]
 anyhow.workspace = true
+async-trait.workspace = true
 chrono.workspace = true
 extension-trait = "1.0.2"
 eyeball-im.workspace = true
@@ -69,6 +71,7 @@ matrix-sdk = { workspace = true, features = [
 matrix-sdk-base.workspace = true
 matrix-sdk-common.workspace = true
 matrix-sdk-ffi-macros.workspace = true
+matrix-sdk-sqlite = { workspace = true, optional = true, features = ["uniffi"] }
 matrix-sdk-contentscanner = { workspace = true, features = ["uniffi", "e2e-encryption"] }
 matrix-sdk-ui = { workspace = true, features = ["uniffi", "unstable-msc4426"] }
 matrix-sdk-crypto = { workspace = true, optional = true }
@@ -114,7 +117,7 @@ tracing-appender.workspace = true
 tracing-core.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url.workspace = true
-uuid = { version = "1.4.1", default-features = false, features = ["std", "v4"] }
+uuid = { version = "1.26.1", default-features = false, features = ["std", "v4"] }
 zeroize.workspace = true
 zxcvbn.workspace = true
 oauth2.workspace = true
@@ -142,6 +145,7 @@ once_cell = "1.21.4"
 jvm-getter = "0.1.0"
 
 [dev-dependencies]
+strass.workspace = true
 matrix-sdk = { workspace = true, features = ["testing", "rustls-aws-lc-rs"] }
 similar-asserts.workspace = true
 tempfile.workspace = true

@@ -27,31 +27,31 @@ pub const ESCAPED: &str = "\u{001E}\u{001D}";
 const STANDARD_NO_PAD: GeneralPurpose =
     GeneralPurpose::new(&alphabet::STANDARD, general_purpose::NO_PAD);
 
-/// Encode value as String/JsValue/IdbKeyRange for the JS APIs in a
-/// safe, escaped manner.
+/// Encode value as String/JsValue/IdbKeyRange for the JS APIs in a safe,
+/// escaped manner.
 ///
-/// Primary use is as a helper to escape potentially harmful opaque strings
-/// from UserId, RoomId, etc into keys that can be used (also for ranges)
-/// with the IndexedDB.
+/// Primary use is as a helper to escape potentially harmful opaque strings from
+/// UserId, RoomId, etc into keys that can be used (also for ranges) with the
+/// IndexedDB.
 pub trait SafeEncode {
     /// Encode into a safe, escaped String
     ///
-    /// It's the implementors responsibility to provide an encoded, safe
-    /// string where `KEY_SEPARATOR` is escaped with the `ESCAPED`.
-    /// The result will not be escaped again.
+    /// It's the implementors responsibility to provide an encoded, safe string
+    /// where `KEY_SEPARATOR` is escaped with the `ESCAPED`. The result will not
+    /// be escaped again.
     fn as_encoded_string(&self) -> String;
 
     /// encode self securely for the given tablename with the given
-    /// `store_cipher` hash_key, returns the value as a base64 encoded
-    /// string without any padding.
+    /// `store_cipher` hash_key, returns the value as a base64 encoded string
+    /// without any padding.
     fn as_secure_string(&self, table_name: &str, store_cipher: &StoreCipher) -> String {
         STANDARD_NO_PAD
             .encode(store_cipher.hash_key(table_name, self.as_encoded_string().as_bytes()))
     }
 
-    /// Encode self into a IdbKeyRange for searching all keys that are
-    /// prefixed with this key, followed by `KEY_SEPARATOR`. Internally
-    /// uses `as_encoded_string` to ensure the given key is escaped properly.
+    /// Encode self into a IdbKeyRange for searching all keys that are prefixed
+    /// with this key, followed by `KEY_SEPARATOR`. Internally uses
+    /// `as_encoded_string` to ensure the given key is escaped properly.
     fn encode_to_range(&self) -> KeyRange<JsValue> {
         let key = self.as_encoded_string();
         KeyRange::Bound(

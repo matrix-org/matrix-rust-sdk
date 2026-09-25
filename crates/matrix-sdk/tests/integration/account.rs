@@ -1,4 +1,6 @@
-use assert_matches2::assert_matches;
+#[cfg(feature = "unstable-msc4426")]
+use std::assert_matches;
+
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_test::async_test;
 use ruma::{
@@ -10,6 +12,7 @@ use ruma::{
     profile::{ProfileFieldName, ProfileFieldValue},
 };
 use serde_json::json;
+use strass::assert_let;
 use wiremock::{
     Mock, Request, ResponseTemplate,
     matchers::{method, path},
@@ -109,7 +112,7 @@ async fn test_fetch_profile_field() {
         .fetch_profile_field_of(user_id.to_owned(), ProfileFieldName::TimeZone)
         .await
         .unwrap();
-    assert_matches!(res_value, Some(ProfileFieldValue::TimeZone(res_tz)));
+    assert_let!(Some(ProfileFieldValue::TimeZone(res_tz)) = res_value);
     assert_eq!(res_tz, tz);
     let res_tz =
         account.fetch_profile_field_of_static::<TimeZone>(user_id.to_owned()).await.unwrap();
@@ -304,7 +307,8 @@ async fn test_get_cached_avatar_url() {
     let res_avatar_url = account.get_cached_avatar_url().await.unwrap();
     assert_eq!(res_avatar_url.as_deref(), Some(avatar_url));
 
-    // Fetch it again from the homeserver, a missing value should empty the cache.
+    // Fetch it again from the homeserver, a missing value should empty the
+    // cache.
     {
         let _guard = server
             .mock_get_profile_field(user_id, ProfileFieldName::AvatarUrl)
@@ -385,8 +389,8 @@ async fn test_clear_status() {
 
     use ruma::profile::Status;
 
-    // Given an account that already has a status (locally echoed into the store for
-    // this test).
+    // Given an account that already has a status (locally echoed into the store
+    // for this test).
     let server = MatrixMockServer::new().await;
     server
         .mock_versions()
@@ -437,8 +441,8 @@ async fn test_clear_status() {
 #[cfg(feature = "unstable-msc4426")]
 #[async_test]
 async fn test_set_status_without_profile_sync() {
-    // Given an account on a server that doesn't support the profiles sliding sync
-    // extension.
+    // Given an account on a server that doesn't support the profiles sliding
+    // sync extension.
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().server_versions(vec![MatrixVersion::V1_16]).build().await;
     let user_id = client.user_id().unwrap();

@@ -12,12 +12,13 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use matrix_sdk_ui::notification_client::{
-    NotificationClient as SdkNotificationClient, NotificationEvent as SdkNotificationEvent,
-    NotificationItem as SdkNotificationItem, NotificationStatus as SdkNotificationStatus,
-    RawNotificationEvent as SdkRawNotificationEvent,
+    NotificationClient as SdkNotificationClient,
+    NotificationClientTimeouts as SdkNotificationClientTimeouts,
+    NotificationEvent as SdkNotificationEvent, NotificationItem as SdkNotificationItem,
+    NotificationStatus as SdkNotificationStatus, RawNotificationEvent as SdkRawNotificationEvent,
 };
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
 
@@ -67,9 +68,9 @@ pub struct NotificationItem {
     pub sender_info: NotificationSenderInfo,
     pub room_info: NotificationRoomInfo,
 
-    /// Is the notification supposed to be at the "noisy" level?
-    /// Can be `None` if we couldn't determine this, because we lacked
-    /// information to create a push context.
+    /// Is the notification supposed to be at the "noisy" level? Can be `None`
+    /// if we couldn't determine this, because we lacked information to create a
+    /// push context.
     pub is_noisy: Option<bool>,
     pub has_mention: Option<bool>,
     pub thread_id: Option<String>,
@@ -134,8 +135,8 @@ pub enum NotificationStatus {
     /// The event couldn't be found in the network queries used to find it.
     EventNotFound,
     /// The event has been filtered out, either because of the user's push
-    /// rules, or because the user which triggered it is ignored by the
-    /// current user.
+    /// rules, or because the user which triggered it is ignored by the current
+    /// user.
     EventFilteredOut,
     /// The event has been redacted.
     EventRedacted,
@@ -166,6 +167,68 @@ pub enum BatchNotificationResult {
     },
 }
 
+/// Timeouts applied by a `NotificationClient` while fetching the content of
+/// notifications.
+#[derive(Clone, uniffi::Record)]
+pub struct NotificationClientTimeouts {
+    /// Long-poll timeout of the sliding sync request retrieving the notified
+    /// events, i.e. how long the homeserver waits for the events to be
+    /// available before answering.
+    pub sync_poll_timeout: Duration,
+
+    /// Extra time allowed for the network round trip of the sliding sync
+    /// request retrieving the notified events, on top of `sync_poll_timeout`.
+    pub sync_network_timeout: Duration,
+
+    /// Maximum time spent waiting for a missing room key, when an event in a
+    /// notification can't be decrypted.
+    ///
+    /// This bounds both the encryption sync the notification client runs
+    /// itself, after a minimum number of iterations, and the wait for the app's
+    /// own encryption sync to receive the key when that sync is already running
+    /// in the same process. In both cases the wait ends as soon as the event
+    /// can be decrypted, and the event is returned undecrypted once the
+    /// deadline has passed.
+    pub decryption_deadline: Duration,
+
+    /// Long-poll timeout of each request of the encryption sync run to obtain a
+    /// missing room key, i.e. how long the homeserver waits for a to-device
+    /// message to arrive before answering.
+    ///
+    /// Together with `decryption_deadline`, this determines how many iterations
+    /// are run when the homeserver has nothing to return.
+    pub encryption_sync_poll_timeout: Duration,
+
+    /// Extra time allowed for the network round trip of each request of the
+    /// encryption sync, on top of `encryption_sync_poll_timeout`. This is an
+    /// upper bound on how long a request may take.
+    pub encryption_sync_network_timeout: Duration,
+}
+
+impl From<SdkNotificationClientTimeouts> for NotificationClientTimeouts {
+    fn from(value: SdkNotificationClientTimeouts) -> Self {
+        Self {
+            sync_poll_timeout: value.sync_poll_timeout,
+            sync_network_timeout: value.sync_network_timeout,
+            decryption_deadline: value.decryption_deadline,
+            encryption_sync_poll_timeout: value.encryption_sync_poll_timeout,
+            encryption_sync_network_timeout: value.encryption_sync_network_timeout,
+        }
+    }
+}
+
+impl From<NotificationClientTimeouts> for SdkNotificationClientTimeouts {
+    fn from(value: NotificationClientTimeouts) -> Self {
+        Self {
+            sync_poll_timeout: value.sync_poll_timeout,
+            sync_network_timeout: value.sync_network_timeout,
+            decryption_deadline: value.decryption_deadline,
+            encryption_sync_poll_timeout: value.encryption_sync_poll_timeout,
+            encryption_sync_network_timeout: value.encryption_sync_network_timeout,
+        }
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct NotificationClient {
     pub(crate) inner: SdkNotificationClient,
@@ -173,8 +236,8 @@ pub struct NotificationClient {
     /// A reference to the FFI client.
     ///
     /// Note: we do this to make it so that the FFI `NotificationClient` keeps
-    /// the FFI `Client` and thus the SDK `Client` alive. Otherwise, we
-    /// would need to repeat the hack done in the FFI `Client::drop` method.
+    /// the FFI `Client` and thus the SDK `Client` alive. Otherwise, we would
+    /// need to repeat the hack done in the FFI `Client::drop` method.
     pub(crate) client: Arc<Client>,
 }
 
@@ -190,6 +253,11 @@ impl NotificationClient {
         let room = sdk_room
             .map(|room| Arc::new(Room::new(room, self.client.utd_hook_manager.get().cloned())));
         Ok(room)
+    }
+
+    /// Returns the timeouts applied while fetching notifications.
+    pub fn timeouts(&self) -> NotificationClientTimeouts {
+        (*self.inner.timeouts()).into()
     }
 
     /// Fetches the content of a notification.

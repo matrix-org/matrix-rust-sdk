@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use imbl::vector;
+use matrix_sdk_base::store::QueueWedgeError;
 use matrix_sdk_test::{ALICE, BOB, async_test};
 use ruma::{
     event_id,
@@ -25,11 +27,12 @@ use ruma::{
     },
     owned_event_id,
 };
+use strass::assert_let;
 use stream_assert::{assert_next_matches, assert_pending};
 
 use super::TestTimeline;
 use crate::timeline::{
-    AnyOtherStateEventContentChange, TimelineDetails, TimelineItemContent,
+    AnyOtherStateEventContentChange, EventSendState, TimelineDetails, TimelineItemContent,
     event_item::{EventTimelineItemKind, RemoteEventOrigin, RemoteEventTimelineItem},
 };
 
@@ -131,7 +134,7 @@ async fn test_redaction_before_event() {
     assert_matches!(first_item.latest_edit_json(), None);
 
     // And the reactions didn't get applied.
-    assert!(first_item.content().reactions().cloned().unwrap_or_default().is_empty());
+    assert!(first_item.reactions().is_empty());
 }
 
 #[async_test]
@@ -143,13 +146,13 @@ async fn test_reaction_redaction() {
 
     timeline.handle_live_event(f.text_msg("hi!").sender(&ALICE)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    assert_eq!(item.content().reactions().cloned().unwrap_or_default().len(), 0);
+    assert_eq!(item.reactions().len(), 0);
 
     let msg_event_id = item.event_id().unwrap();
 
     timeline.handle_live_event(f.reaction(msg_event_id, "+1").sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    assert_eq!(item.content().reactions().cloned().unwrap_or_default().len(), 1);
+    assert_eq!(item.reactions().len(), 1);
 
     // TODO: After adding raw timeline items, check for one here
 
@@ -157,7 +160,7 @@ async fn test_reaction_redaction() {
 
     timeline.handle_live_event(f.redaction(reaction_event_id).sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    assert_eq!(item.content().reactions().cloned().unwrap_or_default().len(), 0);
+    assert_eq!(item.reactions().len(), 0);
 }
 
 #[async_test]
@@ -201,7 +204,7 @@ async fn test_reaction_redaction_timeline_filter() {
     // Redacting the reaction doesn't add a timeline item.
     timeline.handle_live_event(f.redaction(reaction_event_id).sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    assert_eq!(item.content().reactions().cloned().unwrap_or_default().len(), 0);
+    assert_eq!(item.reactions().len(), 0);
     assert_eq!(timeline.controller.items().await.len(), 2);
 }
 
@@ -255,8 +258,8 @@ async fn test_local_and_remote_echo_of_redaction() {
     );
     assert!(original_json.is_some());
 
-    // Now redact the message. We first emit the local echo of the redaction event.
-    // The timeline event should be marked as being under redaction.
+    // Now redact the message. We first emit the local echo of the redaction
+    // event. The timeline event should be marked as being under redaction.
     timeline.handle_local_redaction(event_id.clone()).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().is_redacted());
@@ -267,8 +270,8 @@ async fn test_local_and_remote_echo_of_redaction() {
     );
     assert!(original_json.is_none());
 
-    // Then comes the remote echo of the redaction event. The timeline event should
-    // now be redacted.
+    // Then comes the remote echo of the redaction event. The timeline event
+    // should now be redacted.
     timeline.handle_live_event(f.redaction(&event_id).sender(&ALICE)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().is_redacted());
@@ -277,4 +280,63 @@ async fn test_local_and_remote_echo_of_redaction() {
         EventTimelineItemKind::Remote(RemoteEventTimelineItem { original_json, .. }) = item.kind
     );
     assert!(original_json.is_none());
+}
+
+#[async_test]
+async fn test_local_redaction_send_state() {
+    let timeline = TestTimeline::new().await;
+    let mut stream = timeline.subscribe_events().await;
+    let f = &timeline.factory;
+
+    let event_id = owned_event_id!("$1");
+    timeline
+        .handle_live_event(f.text_msg("Hello, world!").sender(&ALICE).event_id(&event_id))
+        .await;
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    assert!(item.redaction_send_state().is_none());
+
+    // A pending local redaction is applied reversibly and exposed.
+    let txn_id = timeline.handle_local_redaction(event_id.clone()).await;
+    let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    assert!(item.content().is_redacted());
+    assert!(item.unredacted_item.is_some());
+    assert_matches!(item.redaction_send_state(), Some(EventSendState::NotSentYet { .. }));
+
+    // Failed (or restored as wedged): still reversible.
+    let error = Arc::new(matrix_sdk::Error::SendQueueWedgeError(Box::new(
+        QueueWedgeError::GenericApiError { msg: "nope".to_owned() },
+    )));
+    timeline
+        .controller
+        .update_event_send_state(
+            &txn_id,
+            EventSendState::SendingFailed { error, is_recoverable: false },
+        )
+        .await;
+    let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    assert!(item.content().is_redacted());
+    assert!(item.unredacted_item.is_some());
+    assert_matches!(
+        item.redaction_send_state(),
+        Some(EventSendState::SendingFailed { is_recoverable: false, .. })
+    );
+
+    // Sent: the redaction becomes irreversible.
+    let redaction_id = owned_event_id!("$r");
+    timeline
+        .controller
+        .update_event_send_state(&txn_id, EventSendState::Sent { event_id: redaction_id.clone() })
+        .await;
+    let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    assert!(item.content().is_redacted());
+    assert!(item.unredacted_item.is_none());
+    assert_matches!(item.redaction_send_state(), Some(EventSendState::Sent { .. }));
+
+    // The remote echo clears the state.
+    timeline.handle_live_event(f.redaction(&event_id).sender(&ALICE).event_id(&redaction_id)).await;
+    let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    assert!(item.content().is_redacted());
+    assert!(item.redaction_send_state().is_none());
+
+    assert_pending!(stream);
 }

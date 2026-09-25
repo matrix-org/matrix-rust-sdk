@@ -28,7 +28,7 @@ use super::{
     AllRemoteEvents, ObservableItemsTransaction, RelativePosition, RoomDataProvider,
     TimelineMetadata, TimelineState, rfind_event_by_id,
 };
-use crate::timeline::{TimelineItem, TimelineItemContent, controller::TimelineStateTransaction};
+use crate::timeline::{TimelineItem, controller::TimelineStateTransaction};
 
 /// In-memory caches for read receipts.
 #[derive(Clone, Debug, Default)]
@@ -40,23 +40,21 @@ pub(super) struct ReadReceiptsState {
 
     /// In-memory cache of all latest read receipts by user.
     ///
-    /// User ID => Receipt type => Read receipt of the user of the given
-    /// type.
+    /// User ID => Receipt type => Read receipt of the user of the given type.
     latest_by_user: HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
 
     /// A sender to notify of changes to the receipts of our own user.
     own_user_read_receipts_changed_sender: watch::Sender<()>,
 }
 
-/// Whether to take local-only *implicit* read receipts into account when
+/// Whether to take local-only _implicit_ read receipts into account when
 /// looking up a user's latest read receipt.
 ///
 /// Implicit receipts are placed on the user's own events (see
 /// `maybe_add_implicit_read_receipt`) to keep the local notification count in
 /// sync, but they're never sent to the homeserver. They must be excluded when
-/// deciding whether an explicit receipt still needs to be sent, otherwise
-/// we'd skip sending one and the server would never recompute the push/badge
-/// count.
+/// deciding whether an explicit receipt still needs to be sent, otherwise we'd
+/// skip sending one and the server would never recompute the push/badge count.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum ImplicitReadReceipts {
     /// Consider implicit read receipts (reads from the in-memory cache).
@@ -149,8 +147,8 @@ impl ReadReceiptsState {
                 old_receipt_pos = Some(pos);
             }
 
-            // The receipt should appear on the first visible event that can show read
-            // receipts.
+            // The receipt should appear on the first visible event that can
+            // show read receipts.
             if old_receipt_pos.is_some()
                 && old_item_event_id.is_none()
                 && event.visible
@@ -164,8 +162,8 @@ impl ReadReceiptsState {
                 new_receipt_pos = Some(pos);
             }
 
-            // The receipt should appear on the first visible event that can show read
-            // receipts.
+            // The receipt should appear on the first visible event that can
+            // show read receipts.
             if new_receipt_pos.is_some()
                 && new_item_event_id.is_none()
                 && event.visible
@@ -184,8 +182,9 @@ impl ReadReceiptsState {
         // Check if the old receipt is more recent than the new receipt.
         if let Some(old_receipt_pos) = old_receipt_pos {
             let Some(new_receipt_pos) = new_receipt_pos else {
-                // The old receipt is more recent since we can't find the new receipt in the
-                // timeline and we supposedly have all events since the end of the timeline.
+                // The old receipt is more recent since we can't find the new
+                // receipt in the timeline and we supposedly have all events
+                // since the end of the timeline.
                 if !is_own_user_id {
                     trace!(
                         "we had a previous read receipt, but couldn't find the event \
@@ -205,6 +204,7 @@ impl ReadReceiptsState {
         }
 
         // The new receipt is deemed more recent from now on because:
+        //
         // - If old_receipt_pos is Some, we already checked all the cases where it
         //   wouldn't be more recent.
         // - If both old_receipt_pos and new_receipt_pos are None, they are both
@@ -330,8 +330,8 @@ impl ReadReceiptsState {
         // after an event that holds hidden read receipts, then we should steal
         // them from it.
         //
-        // Find the event, go past it, and keep a reference to the previous rendered
-        // timeline item, if any.
+        // Find the event, go past it, and keep a reference to the previous
+        // rendered timeline item, if any.
         let Some(current_event_index) = timeline_items.position_by_event_id(event_id) else {
             warn!("Could not find event {event_id} in timeline");
             return all_receipts;
@@ -344,15 +344,15 @@ impl ReadReceiptsState {
 
         // Ok, the event we're searching for is the last item in our list.
         //
-        // Let's just clone the event ID and copy the index to avoid double borrow of
-        // the `events_iter`.
+        // Let's just clone the event ID and copy the index to avoid double
+        // borrow of the `events_iter`.
         let prev_event_and_item_index = previous_events_that_can_show_read_receipts
             .last()
             .map(|(event_id, index)| (event_id.clone(), index));
 
-        // Include receipts from the following events that are hidden or can't show
-        // read receipts until the next event that is visible and can show read
-        // receipts.
+        // Include receipts from the following events that are hidden or can't
+        // show read receipts until the next event that is visible and can show
+        // read receipts.
 
         // Start by creating an iterator from the following event, if possible.
         let next_events_iter =
@@ -369,12 +369,13 @@ impl ReadReceiptsState {
             }
         }
 
-        // Steal hidden receipts from the previous timeline item, if it carried them.
+        // Steal hidden receipts from the previous timeline item, if it carried
+        // them.
         if let Some((prev_event_id, prev_item_index)) = prev_event_and_item_index {
             let prev_item = &timeline_items[prev_item_index];
-            // Technically, we could unwrap the `as_event()`, because this is a rendered
-            // item for an event in all_remote_events, but this extra check is
-            // cheap.
+            // Technically, we could unwrap the `as_event()`, because this is a
+            // rendered item for an event in all_remote_events, but this extra
+            // check is cheap.
             if let Some(remote_prev_item) = prev_item.as_event() {
                 let prev_receipts = remote_prev_item.read_receipts().clone();
                 for (user_id, _) in &hidden {
@@ -490,8 +491,9 @@ impl ReadReceiptTimelineUpdate {
         let item_pos = self.new_item_pos.or_else(|| {
             items
                 .iter_remotes_region()
-                // Don't iterate over all items if the `old_item_pos` is known: the `item_pos`
-                // for the new item is necessarily _after_ the old item.
+                // Don't iterate over all items if the `old_item_pos` is known:
+                // the `item_pos` for the new item is necessarily _after_ the
+                // old item.
                 .skip_while(|(nth, _)| *nth < old_item_pos)
                 .find_map(|(nth, item)| {
                     if let Some(event_item) = item.as_event() {
@@ -552,7 +554,6 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
         own_user_id: &UserId,
     ) {
         trace!("handling explicit read receipts");
-        let own_receipt_thread = self.focus.receipt_thread();
 
         for (event_id, receipt_types) in receipt_event_content.0 {
             for (receipt_type, receipts) in receipt_types {
@@ -562,77 +563,6 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
                 }
 
                 for (user_id, receipt) in receipts {
-                    if matches!(own_receipt_thread, ReceiptThread::Unthreaded | ReceiptThread::Main)
-                    {
-                        // If the own receipt thread is unthreaded or main, we maintain maximal
-                        // compatibility with clients using either unthreaded or main-thread read
-                        // receipts by allowing both here.
-                        match receipt.thread {
-                            ReceiptThread::Unthreaded | ReceiptThread::Main => {
-                                // Processing happens below.
-                            }
-
-                            ReceiptThread::Thread(thread_root) => {
-                                // Special processing for threads: try to find a timeline item for
-                                // the root, and update its thread summary, if the receipt is for
-                                // ourselves.
-                                //
-                                // TODO: This is temporary code, and should be removed when #4113 is
-                                // done.
-                                if user_id == self.meta.own_user_id
-                                    && let Some((item_pos, item)) =
-                                        rfind_event_by_id(&self.items, &thread_root)
-                                {
-                                    trace!(
-                                        "thread root has been found; will update thread summary with the latest receipts"
-                                    );
-
-                                    let item_id = item.internal_id.to_owned();
-                                    let mut new_item = item.clone();
-
-                                    let TimelineItemContent::MsgLike(msglike) =
-                                        &mut new_item.content
-                                    else {
-                                        // Only MsgLike items have a thread summary.
-                                        continue;
-                                    };
-
-                                    let Some(thread_summary) = &mut msglike.thread_summary else {
-                                        // No thread summary to update.
-                                        continue;
-                                    };
-
-                                    // Assume read receipts only move forward, at the moment.
-                                    if receipt_type == ReceiptType::Read {
-                                        thread_summary.public_read_receipt_event_id =
-                                            Some(event_id.clone());
-                                    } else if receipt_type == ReceiptType::ReadPrivate {
-                                        thread_summary.private_read_receipt_event_id =
-                                            Some(event_id.clone());
-                                    } else {
-                                        // We don't know this receipt type; skip it.
-                                        continue;
-                                    }
-
-                                    self.items
-                                        .replace(item_pos, TimelineItem::new(new_item, item_id));
-                                }
-
-                                // Couldn't find an item for this new read receipt; process the
-                                // next receipt.
-                                continue;
-                            }
-
-                            _ => {
-                                // No processing: ignore.
-                                continue;
-                            }
-                        }
-                    } else if own_receipt_thread != receipt.thread {
-                        // Otherwise, we only keep the receipts of the same thread kind.
-                        continue;
-                    }
-
                     let is_own_user_id = user_id == own_user_id;
                     let full_receipt = FullReceipt {
                         event_id: &event_id,
@@ -665,9 +595,9 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
 
         let receipts = if matches!(receipt_thread, ReceiptThread::Unthreaded | ReceiptThread::Main)
         {
-            // If the requested receipt thread is unthreaded or main, we maintain maximal
-            // compatibility with clients using either unthreaded or main-thread read
-            // receipts by allowing both here.
+            // If the requested receipt thread is unthreaded or main, we
+            // maintain maximal compatibility with clients using either
+            // unthreaded or main-thread read receipts by allowing both here.
 
             // First, load the main receipts.
             let mut main_receipts =
@@ -677,14 +607,15 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
             let unthreaded_receipts =
                 room_data_provider.load_event_receipts(event_id, &ReceiptThread::Unthreaded).await;
 
-            // We can safely extend both here: if a key is already set, then that means that
-            // the user has the unthreaded and main receipt on the main event,
-            // which is fine, and something we display as the one user receipt.
+            // We can safely extend both here: if a key is already set, then
+            // that means that the user has the unthreaded and main receipt on
+            // the main event, which is fine, and something we display as the
+            // one user receipt.
             main_receipts.extend(unthreaded_receipts);
             main_receipts
         } else {
-            // In all other cases, return what's requested, and only that (threaded
-            // receipts).
+            // In all other cases, return what's requested, and only that
+            // (threaded receipts).
             room_data_provider.load_event_receipts(event_id, &receipt_thread).await
         };
 
@@ -712,10 +643,9 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
     /// recent than the current read receipt for the sender of the event.
     ///
     /// According to the spec, read receipts should not point to events sent by
-    /// our own user, but these events are used to reset the notification
-    /// count, so we need to handle them locally too. For that we create an
-    /// "implicit" read receipt, compared to the "explicit" ones sent by the
-    /// client.
+    /// our own user, but these events are used to reset the notification count,
+    /// so we need to handle them locally too. For that we create an "implicit"
+    /// read receipt, compared to the "explicit" ones sent by the client.
     pub(super) fn maybe_add_implicit_read_receipt(
         &mut self,
         event_id: &EventId,
@@ -723,7 +653,8 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
         timestamp: Option<MilliSecondsSinceUnixEpoch>,
     ) {
         let (Some(user_id), Some(timestamp)) = (sender, timestamp) else {
-            // We cannot add a read receipt if we do not know the user or the timestamp.
+            // We cannot add a read receipt if we do not know the user or the
+            // timestamp.
             return;
         };
 
@@ -863,9 +794,9 @@ impl<P: RoomDataProvider> TimelineState<P> {
             )
             .await;
 
-        // Let's assume that a private read receipt should be more recent than a public
-        // read receipt (otherwise there's no point in the private read receipt),
-        // and use it as the default.
+        // Let's assume that a private read receipt should be more recent than a
+        // public read receipt (otherwise there's no point in the private read
+        // receipt), and use it as the default.
         match TimelineMetadata::compare_optional_receipts(
             public_read_receipt.as_ref(),
             private_read_receipt.as_ref(),
@@ -883,15 +814,15 @@ impl<P: RoomDataProvider> TimelineState<P> {
         &self,
         user_id: &UserId,
     ) -> Option<OwnedEventId> {
-        // We only need to use the local map, since receipts for known events are
-        // already loaded from the store.
+        // We only need to use the local map, since receipts for known events
+        // are already loaded from the store.
         let public_read_receipt = self.meta.read_receipts.get_latest(user_id, &ReceiptType::Read);
         let private_read_receipt =
             self.meta.read_receipts.get_latest(user_id, &ReceiptType::ReadPrivate);
 
-        // Let's assume that a private read receipt should be more recent than a public
-        // read receipt, otherwise there's no point in the private read receipt,
-        // and use it as default.
+        // Let's assume that a private read receipt should be more recent than a
+        // public read receipt, otherwise there's no point in the private read
+        // receipt, and use it as default.
         let (latest_receipt_id, _) = match TimelineMetadata::compare_optional_receipts(
             public_read_receipt,
             private_read_receipt,
@@ -921,9 +852,9 @@ impl TimelineMetadata {
     /// cache, or load it from the storage if missing from the cache.
     ///
     /// If the `ReceiptThread` is `Unthreaded`, it will try to find either the
-    /// unthreaded or the main-thread read receipt, to be maximally
-    /// compatible with clients using one or the other. Otherwise, it will
-    /// select only the receipts for that specific thread.
+    /// unthreaded or the main-thread read receipt, to be maximally compatible
+    /// with clients using one or the other. Otherwise, it will select only the
+    /// receipts for that specific thread.
     pub(super) async fn user_receipt<P: RoomDataProvider>(
         &self,
         user_id: &UserId,
@@ -941,8 +872,8 @@ impl TimelineMetadata {
         }
 
         if receipt_thread == ReceiptThread::Unthreaded {
-            // Maintain compatibility with clients using either the unthreaded and main read
-            // receipts, and try to find the most recent one.
+            // Maintain compatibility with clients using either the unthreaded
+            // and main read receipts, and try to find the most recent one.
             let unthreaded_read_receipt = room_data_provider
                 .load_user_receipt(receipt_type.clone(), &ReceiptThread::Unthreaded, user_id)
                 .await;
@@ -951,8 +882,8 @@ impl TimelineMetadata {
                 .load_user_receipt(receipt_type.clone(), &ReceiptThread::Main, user_id)
                 .await;
 
-            // Let's use the unthreaded read receipt as default, since it's the one we
-            // should be using.
+            // Let's use the unthreaded read receipt as default, since it's the
+            // one we should be using.
             match Self::compare_optional_receipts(
                 main_thread_read_receipt.as_ref(),
                 unthreaded_read_receipt.as_ref(),
@@ -963,9 +894,9 @@ impl TimelineMetadata {
                 _ => unreachable!(),
             }
         } else {
-            // In all the other cases, use the thread's read receipt. A main-thread receipt
-            // in particular will use this code path, and not be compatible with
-            // an unthreaded read receipt.
+            // In all the other cases, use the thread's read receipt. A
+            // main-thread receipt in particular will use this code path, and
+            // not be compatible with an unthreaded read receipt.
             room_data_provider
                 .load_user_receipt(receipt_type.clone(), &receipt_thread, user_id)
                 .await
@@ -975,8 +906,8 @@ impl TimelineMetadata {
     /// Compares two optional receipts to know which one is more recent.
     ///
     /// Returns `Ordering::Greater` if the left-hand side is more recent than
-    /// the right-hand side, and `Ordering::Less` if it is older. If it's
-    /// not possible to know which one is the more recent, defaults to
+    /// the right-hand side, and `Ordering::Less` if it is older. If it's not
+    /// possible to know which one is the more recent, defaults to
     /// `Ordering::Less`, making the right-hand side the default.
     fn compare_optional_receipts(
         lhs: Option<&(OwnedEventId, Receipt)>,

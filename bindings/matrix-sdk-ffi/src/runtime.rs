@@ -28,6 +28,7 @@ mod sys {
     /// agnostic to the platform-specific runtime implementation.
     ///
     /// Returns:
+    ///
     /// - A `tokio::runtime::Handle` on non-Wasm platforms
     /// - A `WasmRuntimeHandle` on Wasm platforms
     pub fn get_runtime_handle() -> Handle {
@@ -41,16 +42,15 @@ mod sys {
 
     use matrix_sdk_common::executor::{JoinHandle, spawn};
 
-    /// A dummy guard that does nothing when dropped.
-    /// This is used for the Wasm implementation to match
-    /// tokio::runtime::EnterGuard.
+    /// A dummy guard that does nothing when dropped. This is used for the Wasm
+    /// implementation to match tokio::runtime::EnterGuard.
     #[derive(Debug)]
     pub struct RuntimeGuard;
 
     /// A runtime handle implementation for WebAssembly targets.
     ///
-    /// This implements a minimal subset of the tokio::runtime::Handle API
-    /// that is needed for the matrix-rust-sdk to function on Wasm.
+    /// This implements a minimal subset of the tokio::runtime::Handle API that
+    /// is needed for the matrix-rust-sdk to function on Wasm.
     #[derive(Default, Debug)]
     pub struct Handle;
     pub type Runtime = Handle;
@@ -100,6 +100,7 @@ mod sys {
     /// agnostic to the platform-specific runtime implementation.
     ///
     /// Returns:
+    ///
     /// - A `tokio::runtime::Handle` on non-Wasm platforms
     /// - A `WasmRuntimeHandle` on Wasm platforms
     pub fn get_runtime_handle() -> Handle {

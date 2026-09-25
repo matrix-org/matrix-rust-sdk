@@ -49,8 +49,7 @@ pub fn create_timeline_with_initial_events(c: &mut Criterion) {
                 .expect("missing event ID");
             events.push(f.reaction(&prev_event_id, "👍").sender(sender).into_raw_sync());
         } else if j == 8 {
-            // Edit.
-            // Note: (i-3)%3 is the same as i%3 -> same sender!
+            // Edit. Note: (i-3)%3 is the same as i%3 -> same sender!
             let prev_event_id = events[i - 3]
                 .get_field::<OwnedEventId>("event_id")
                 .expect("invalid event ID")
@@ -68,8 +67,7 @@ pub fn create_timeline_with_initial_events(c: &mut Criterion) {
                     .into_raw_sync(),
             );
         } else if j == 9 {
-            // Redaction.
-            // Note: (i-6)%3 is the same as i%6 -> same sender!
+            // Redaction. Note: (i-6)%3 is the same as i%6 -> same sender!
             let prev_event_id = events[i - 6]
                 .get_field::<OwnedEventId>("event_id")
                 .expect("invalid event ID")

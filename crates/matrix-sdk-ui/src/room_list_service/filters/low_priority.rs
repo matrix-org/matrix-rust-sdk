@@ -18,8 +18,8 @@ fn matches(is_low_priority: fn(&RoomListItem) -> bool, room: &RoomListItem) -> b
     is_low_priority(room)
 }
 
-/// Create a new filter that will filter out rooms that are not marked as
-/// low priority (see [`matrix_sdk_base::Room::is_low_priority`]).
+/// Create a new filter that will filter out rooms that are not marked as low
+/// priority (see [`matrix_sdk_base::Room::is_low_priority`]).
 pub fn new_filter() -> impl Filter {
     let is_low_priority = |room: &RoomListItem| room.is_low_priority();
 

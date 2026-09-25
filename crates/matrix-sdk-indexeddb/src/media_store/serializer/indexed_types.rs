@@ -63,9 +63,8 @@ use crate::{
     },
 };
 
-/// A representation of the primary key of the [`CORE`][1] object store.
-/// The key may or may not be hashed depending on the
-/// provided [`IndexeddbSerializer`].
+/// A representation of the primary key of the [`CORE`][1] object store. The key
+/// may or may not be hashed depending on the provided [`IndexeddbSerializer`].
 ///
 /// [1]: crate::media_store::migrations::v1::create_core_object_store
 pub type IndexedCoreIdKey = String;

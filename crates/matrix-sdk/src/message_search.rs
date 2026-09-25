@@ -32,14 +32,16 @@
 //! [`TimelineEvent`]s.
 //!
 //! ```no_run
-//! # use matrix_sdk::Room;
+//! # use matrix_sdk::{Room, message_search::SearchResult};
 //! # use futures_util::StreamExt as _;
 //! # async fn example(room: Room) -> anyhow::Result<()> {
 //! let mut stream = Box::pin(room.search_messages("hello world".to_owned()));
 //!
 //! while let Some(page) = stream.next().await {
-//!     for (score, event_id) in page? {
-//!         println!("Found event {event_id} (score: {score})");
+//!     let SearchResult { total_count, events } = page?;
+//!
+//!     for (score, event_id) in events {
+//!         println!("Found event {event_id} (score: {score}, total_count: {total_count})");
 //!     }
 //! }
 //! # Ok(())
@@ -56,7 +58,7 @@
 //! instead of plain event IDs.
 //!
 //! ```no_run
-//! # use matrix_sdk::Client;
+//! # use matrix_sdk::{Client};
 //! # use futures_util::StreamExt as _;
 //! # async fn example(client: Client) -> anyhow::Result<()> {
 //! // Search only in DM rooms.
@@ -88,6 +90,7 @@ use matrix_sdk_base::{RoomStateFilter, deserialized_responses::TimelineEvent};
 use matrix_sdk_search::error::IndexError;
 #[cfg(doc)]
 use matrix_sdk_search::index::RoomIndex;
+pub use matrix_sdk_search::index::SearchResult;
 use ruma::{OwnedEventId, OwnedRoomId};
 
 use crate::{Client, Room};
@@ -124,7 +127,7 @@ impl Room {
         query: &str,
         max_number_of_results: usize,
         pagination_offset: Option<usize>,
-    ) -> Result<Vec<(f32, OwnedEventId)>, IndexError> {
+    ) -> Result<SearchResult, IndexError> {
         let mut search_index_guard = self.client.search_index().lock().await;
         search_index_guard.search(query, max_number_of_results, pagination_offset, self.room_id())
     }
@@ -149,19 +152,19 @@ impl Room {
     pub fn search_messages(
         &self,
         query: String,
-    ) -> impl Stream<Item = Result<Vec<(f32, OwnedEventId)>, IndexError>> + use<> {
+    ) -> impl Stream<Item = Result<SearchResult, IndexError>> + use<> {
         let room = self.clone();
 
-        // TODO: use the client/server API search endpoint for public rooms, as those
-        // may require lots of time for indexing all events.
+        // TODO: use the client/server API search endpoint for public rooms, as
+        // those may require lots of time for indexing all events.
         try_stream! {
             let mut offset = 0;
             loop {
                 let page = room.search(&query, SEARCH_RESULTS_PAGE_SIZE, Some(offset)).await?;
-                if page.is_empty() {
+                if page.events.is_empty() {
                     break;
                 }
-                offset += page.len();
+                offset += page.events.len();
                 yield page;
             }
         }
@@ -178,12 +181,15 @@ impl Room {
 
         try_stream! {
             let mut pages = Box::pin(room.search_messages(query));
+
             while let Some(page) = pages.next().await {
                 let page = page?;
-                let mut events = Vec::with_capacity(page.len());
-                for (_score, event_id) in page {
+                let mut events = Vec::with_capacity(page.events.len());
+
+                for (_score, event_id) in page.events {
                     events.push(room.load_or_fetch_event(&event_id, None).await?);
                 }
+
                 yield events;
             }
         }
@@ -244,14 +250,16 @@ impl GlobalSearchBuilder {
         let rooms = self.room_set;
 
         try_stream! {
-            // One score-descending result stream per room, each primed with its next
-            // result so we can merge across rooms by score.
+            // One score-descending result stream per room, each primed with its
+            // next result so we can merge across rooms by score.
             let mut cursors: Vec<RoomStreamCursor> = Vec::with_capacity(rooms.len());
             for room in rooms {
                 let room_id = room.room_id().to_owned();
+
                 let stream = Box::pin(Self::flatten_pages(room.search_messages(query.clone())));
                 cursors.push(RoomStreamCursor { room_id, stream, next_result: None });
             }
+
             for cursor in &mut cursors {
                 cursor.next_result = match cursor.stream.next().await {
                     Some(result) => Some(result?),
@@ -260,6 +268,7 @@ impl GlobalSearchBuilder {
             }
 
             let mut page = Vec::with_capacity(SEARCH_RESULTS_PAGE_SIZE);
+
             loop {
                 // Pick the room whose next result has the highest relevance score.
                 let best = cursors
@@ -309,15 +318,19 @@ impl GlobalSearchBuilder {
 
         try_stream! {
             let mut pages = Box::pin(pages);
+
             while let Some(page) = pages.next().await {
                 let page = page?;
                 let mut events = Vec::with_capacity(page.len());
+
                 for (room_id, _score, event_id) in page {
                     let Some(room) = client.get_room(&room_id) else {
                         continue;
                     };
+
                     events.push((room_id, room.load_or_fetch_event(&event_id, None).await?));
                 }
+
                 yield events;
             }
         }
@@ -326,12 +339,13 @@ impl GlobalSearchBuilder {
     /// Flatten a stream of result pages into a stream of individual results, so
     /// the cross-room merge can compare results one at a time.
     fn flatten_pages(
-        pages: impl Stream<Item = Result<Vec<(f32, OwnedEventId)>, IndexError>>,
+        pages: impl Stream<Item = Result<SearchResult, IndexError>>,
     ) -> impl Stream<Item = Result<(f32, OwnedEventId), IndexError>> {
         try_stream! {
             let mut pages = Box::pin(pages);
+
             while let Some(page) = pages.next().await {
-                for result in page? {
+                for result in page?.events {
                     yield result;
                 }
             }
@@ -352,6 +366,7 @@ mod tests {
     use std::time::Duration;
 
     use futures_util::TryStreamExt as _;
+    use matrix_sdk_search::index::SearchResult;
     use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{OwnedEventId, OwnedRoomId, event_id, room_id, user_id};
 
@@ -385,25 +400,25 @@ mod tests {
 
         // Searching for a missing keyword should succeed and yield nothing.
         {
-            let results: Vec<(f32, OwnedEventId)> =
-                room.search_messages("search query".to_owned()).try_concat().await.unwrap();
+            let results: Vec<SearchResult> =
+                room.search_messages("search query".to_owned()).try_collect().await.unwrap();
             assert!(results.is_empty());
         }
 
         // Search for an existing keyword, by event id.
         {
-            let results: Vec<(f32, OwnedEventId)> =
-                room.search_messages("world".to_owned()).try_concat().await.unwrap();
-            assert_eq!(results.len(), 1);
-            assert_eq!(results[0].1, event_id);
+            let results: Vec<SearchResult> =
+                room.search_messages("world".to_owned()).try_collect().await.unwrap();
+            assert_eq!(results[0].events.len(), 1);
+            assert_eq!(results[0].events[0].1, event_id);
         }
 
         // Search for an existing keyword, by events.
         {
-            let events: Vec<_> =
+            let results: Vec<_> =
                 room.search_messages_events("world".to_owned()).try_concat().await.unwrap();
-            assert_eq!(events.len(), 1);
-            assert_eq!(events[0].event_id().unwrap(), event_id);
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].event_id().unwrap(), event_id);
         }
     }
 
@@ -459,8 +474,8 @@ mod tests {
             let results: Vec<(OwnedRoomId, f32, OwnedEventId)> =
                 client.search_messages("world".to_owned()).build().try_concat().await.unwrap();
             assert_eq!(results.len(), 2);
-            // Search results order is not guaranteed, so we check that both expected
-            // results are present.
+            // Search results order is not guaranteed, so we check that both
+            // expected results are present.
             assert!(results.iter().any(|(room_id, _, event_id)| {
                 room_id == room_id1 && event_id == result_event_id1
             }));
@@ -478,8 +493,8 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(results.len(), 2);
-            // Search results order is not guaranteed, so we check that both expected
-            // results are present.
+            // Search results order is not guaranteed, so we check that both
+            // expected results are present.
             assert!(results.iter().any(|(room_id, event)| {
                 room_id == room_id1 && event.event_id() == Some(result_event_id1)
             }));
@@ -502,13 +517,15 @@ mod tests {
 
         let f = EventFactory::new().sender(user_id!("@user_id:localhost"));
 
-        // Both rooms get two documents of identical length (padded with filler so
-        // document-length normalization and the per-corpus IDF of "world" match across
-        // rooms). The score then depends only on how many times "world" appears.
+        // Both rooms get two documents of identical length (padded with filler
+        // so document-length normalization and the per-corpus IDF of "world"
+        // match across rooms). The score then depends only on how many times
+        // "world" appears.
         //
-        // Term frequencies are 4, 3, 2, 1, split so the rooms alternate by rank:
-        // room1 holds the 4x and 2x events, room2 the 3x and 1x events. A correct
-        // cross-room sort therefore interleaves the rooms: r1, r2, r1, r2.
+        // Term frequencies are 4, 3, 2, 1, split so the rooms alternate by
+        // rank: room1 holds the 4x and 2x events, room2 the 3x and 1x events. A
+        // correct cross-room sort therefore interleaves the rooms: r1, r2, r1,
+        // r2.
         let r1_rank1 = event_id!("$r1_rank1:localhost"); // room1, "world" x4
         let r2_rank2 = event_id!("$r2_rank2:localhost"); // room2, "world" x3
         let r1_rank3 = event_id!("$r1_rank3:localhost"); // room1, "world" x2
