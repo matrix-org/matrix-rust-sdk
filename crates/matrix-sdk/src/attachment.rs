@@ -201,8 +201,9 @@ pub struct AttachmentConfig {
     /// metadata).
     pub reply: Option<Reply>,
 
-    /// Additional top-level fields to include in the media event's content. The
-    /// event's own fields take precedence on conflicts.
+    /// Additional fields to include in the media event's content. Objects such
+    /// as `info` are merged recursively. The event's own fields take precedence
+    /// on conflicts.
     pub extra_content: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
@@ -279,7 +280,7 @@ impl AttachmentConfig {
         self
     }
 
-    /// Set additional top-level fields for the media event's content.
+    /// Set additional fields for the media event's content.
     ///
     /// # Arguments
     ///

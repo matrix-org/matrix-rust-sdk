@@ -3202,6 +3202,12 @@ async fn test_media_upload_with_extra_content() {
     extra_content.insert("com.example.key".to_owned(), json!("@alice:example.org"));
     // Extra fields must never override the fields of the media event itself.
     extra_content.insert("body".to_owned(), json!("override attempt"));
+    // Objects the event already has are merged into, without overriding its own
+    // values.
+    extra_content.insert(
+        "info".to_owned(),
+        json!({ "com.example.nested": { "title": "hello" }, "mimetype": "override attempt" }),
+    );
 
     let config = AttachmentConfig::new()
         .caption(Some(TextMessageEventContent::plain("caption")))
@@ -3247,6 +3253,8 @@ async fn test_media_upload_with_extra_content() {
     assert_eq!(body["com.example.key"], json!("@alice:example.org"));
     assert_eq!(body["body"], json!("caption"));
     assert_eq!(body["url"], json!("mxc://sdk.rs/media"));
+    assert_eq!(body["info"]["com.example.nested"], json!({ "title": "hello" }));
+    assert_eq!(body["info"]["mimetype"], json!("image/jpeg"));
 }
 
 #[async_test]
