@@ -574,10 +574,34 @@ impl RoomSendQueue {
     }
 }
 
-/// Merge additional top-level fields into serialized event content.
+fn merge_missing_fields(
+    target: &mut serde_json::Map<String, serde_json::Value>,
+    extra: serde_json::Map<String, serde_json::Value>,
+) {
+    for (key, value) in extra {
+        match target.entry(key) {
+            serde_json::map::Entry::Occupied(mut entry) => match (entry.get_mut(), value) {
+                (serde_json::Value::Object(existing), serde_json::Value::Object(nested)) => {
+                    merge_missing_fields(existing, nested);
+                }
+                _ => {
+                    warn!(
+                        key = entry.key(),
+                        "extra content field shadowed by the event's own field"
+                    );
+                }
+            },
+            serde_json::map::Entry::Vacant(entry) => {
+                entry.insert(value);
+            }
+        }
+    }
+}
+
+/// Merge additional fields into serialized event content.
 ///
-/// Fields already present in the serialized content always win over extra
-/// fields with the same name.
+/// Objects present on both sides are merged recursively; otherwise the
+/// serialized content's own fields win.
 pub(super) fn merge_extra_content(
     content: SerializableEventContent,
     extra_content: Option<serde_json::Map<String, serde_json::Value>>,
@@ -593,16 +617,7 @@ pub(super) fn merge_extra_content(
     let mut object: serde_json::Map<String, serde_json::Value> =
         raw.deserialize_as().map_err(RoomSendQueueStorageError::JsonSerialization)?;
 
-    for (key, value) in extra_content {
-        match object.entry(key) {
-            serde_json::map::Entry::Occupied(entry) => {
-                warn!(key = entry.key(), "extra content field shadowed by the event's own field");
-            }
-            serde_json::map::Entry::Vacant(entry) => {
-                entry.insert(value);
-            }
-        }
-    }
+    merge_missing_fields(&mut object, extra_content);
 
     let raw = ruma::serde::Raw::from_json(
         serde_json::value::to_raw_value(&object)
