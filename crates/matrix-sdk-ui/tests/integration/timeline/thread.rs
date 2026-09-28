@@ -615,7 +615,8 @@ async fn test_thread_msg_edit_reflects_in_summary() {
         assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
         let event_item = value.as_event().unwrap();
         assert_eq!(event_item.event_id().unwrap(), thread_event_id);
-        // The thread summary is already here, because the Timeline eagerly fetch it.
+        // The thread summary is already here, because the Timeline eagerly
+        // fetch it.
         assert_let!(Some(summary) = event_item.content().thread_summary());
         // but the in-thread event is not known yet!
         assert!(summary.latest_event.is_unavailable());
@@ -762,7 +763,8 @@ async fn test_thread_poll_edit_reflects_in_summary() {
     assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id().unwrap(), thread_event_id);
-    // The thread root contains the thread summary (because it is eagerly fetched).
+    // The thread root contains the thread summary (because it is eagerly
+    // fetched).
     assert_let!(Some(summary) = event_item.content().thread_summary());
     // but the in-thread event is not known yet!
     assert!(summary.latest_event.is_unavailable());
@@ -809,8 +811,8 @@ async fn test_thread_poll_edit_reflects_in_summary() {
 async fn test_thread_filtering_for_sync() {
     // Make sure that:
     //
-    // - a live timeline that hides threaded events _will_ hide them (and only keep
-    //   the summary)
+    // - a live timeline that hides threaded events _will_ hide them (and only
+    //   keep the summary)
     // - a live timeline that shows threaded events will show them
     // - a thread timeline will show the threaded events
 
@@ -881,7 +883,8 @@ async fn test_thread_filtering_for_sync() {
         assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
         let event_item = value.as_event().unwrap();
         assert_eq!(event_item.event_id(), Some(thread_root_event_id.as_ref()));
-        // The thread root contains the thread summary (because it is eagerly fetched).
+        // The thread root contains the thread summary (because it is eagerly
+        // fetched).
         assert_let!(Some(summary) = event_item.content().thread_summary());
         // but the in-thread event is not known yet!
         assert!(summary.latest_event.is_unavailable());
@@ -893,8 +896,8 @@ async fn test_thread_filtering_for_sync() {
         assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
         assert!(value.is_date_divider());
 
-        // The thread root receives a thread summary update (because the in-thread event
-        // is received).
+        // The thread root receives a thread summary update (because the
+        // in-thread event is received).
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[2]);
         let event_item = value.as_event().unwrap();
         assert_eq!(event_item.event_id(), Some(thread_root_event_id.as_ref()));
@@ -937,8 +940,9 @@ async fn test_thread_filtering_for_sync() {
 
         // Then the thread summary is updated on the thread root.
         //
-        // Note this is a bit useless to have a thread summary in this case, but better
-        // be safe, we don't know which usecases are for all users.
+        // Note this is a bit useless to have a thread summary in this case, but
+        // better be safe, we don't know which usecases are for all
+        // users.
         assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[4]);
         let event_item = value.as_event().unwrap();
         assert_eq!(event_item.event_id(), Some(thread_root_event_id.as_ref()));
@@ -1602,8 +1606,8 @@ async fn test_read_receipts() {
     //
     // - an explicit read receipt for Alice on $3, which will move their read
     //   receipt to the latest event.
-    // - an explicit read receipt for Bob on $3, which will not do anything (because
-    //   of the implicit read receipt)
+    // - an explicit read receipt for Bob on $3, which will not do anything
+    //   (because of the implicit read receipt)
     server
         .sync_room(
             &client,

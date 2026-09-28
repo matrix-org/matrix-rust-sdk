@@ -1650,7 +1650,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // Load for the second time.
         //
-        // We must get an empty `ThreadInfo` because we want to create if if missing.
+        // We must get an empty `ThreadInfo` because we want to create if if
+        // missing.
         let ThreadInfo { number_of_replies: _, latest_event: _, read_receipts } =
             self.load_thread_info(room_id, thread_id, true).await.unwrap().unwrap();
         let ReadReceipts { num_unread, num_notifications, num_mentions, latest_active, pending } =
@@ -1663,8 +1664,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // Load for the third time.
         //
-        // We must get the same empty `ThreadInfo`, even if we don't want to create it
-        // if missing.
+        // We must get the same empty `ThreadInfo`, even if we don't want to
+        // create it if missing.
         let mut thread_info =
             self.load_thread_info(room_id, thread_id, false).await.unwrap().unwrap();
         let ThreadInfo { number_of_replies: _, latest_event: _, read_receipts } = &thread_info;

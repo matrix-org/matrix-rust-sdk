@@ -135,9 +135,9 @@ impl KeyQueryResponseTemplate {
         self.self_signing_key = Some(self_signing_key);
         self.user_signing_key = Some(user_signing_key);
 
-        // For the master key, we build the CrossSigningKey object upfront, so that we
-        // can start to accumulate signatures. For the other keys, we generate
-        // the JSON representation on-demand.
+        // For the master key, we build the CrossSigningKey object upfront, so
+        // that we can start to accumulate signatures. For the other
+        // keys, we generate the JSON representation on-demand.
         self.master_cross_signing_key_json =
             Some(self.signed_cross_signing_key(&master_public_key, KeyUsage::Master));
 

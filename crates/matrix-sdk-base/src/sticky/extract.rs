@@ -205,8 +205,9 @@ fn read_content(content: &RawJsonValue) -> Option<(String, bool)> {
         .or_else(|| content.get(STICKY_KEY))
         .and_then(|value| serde_json::from_str::<String>(value.get()).ok())?;
 
-    // MSC4354: to remove an entry, send an event "with just `content.sticky_key`
-    // set, with all the other application-specific fields omitted".
+    // MSC4354: to remove an entry, send an event "with just
+    // `content.sticky_key` set, with all the other application-specific
+    // fields omitted".
     let is_tombstone = content.keys().all(|key| *key == UNSTABLE_STICKY_KEY || *key == STICKY_KEY);
 
     Some((sticky_key, is_tombstone))

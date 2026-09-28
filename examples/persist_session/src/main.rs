@@ -151,11 +151,11 @@ async fn login(data_dir: &Path, session_file: &Path) -> anyhow::Result<Client> {
 
     println!("Session persisted in {}", session_file.to_string_lossy());
 
-    // After logging in, you might want to verify this session with another one (see
-    // the `emoji_verification` example), or bootstrap cross-signing if this is your
-    // first session with encryption, or if you need to reset cross-signing because
-    // you don't have access to your old sessions (see the
-    // `cross_signing_bootstrap` example).
+    // After logging in, you might want to verify this session with another one
+    // (see the `emoji_verification` example), or bootstrap cross-signing if
+    // this is your first session with encryption, or if you need to reset
+    // cross-signing because you don't have access to your old sessions (see
+    // the `cross_signing_bootstrap` example).
 
     Ok(client)
 }
@@ -164,9 +164,10 @@ async fn login(data_dir: &Path, session_file: &Path) -> anyhow::Result<Client> {
 async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)> {
     let mut rng = rng();
 
-    // Generating a subfolder for the database is not mandatory, but it is useful if
-    // you allow several clients to run at the same time. Each one must have a
-    // separate database, which is a different folder with the SQLite store.
+    // Generating a subfolder for the database is not mandatory, but it is
+    // useful if you allow several clients to run at the same time. Each one
+    // must have a separate database, which is a different folder with the
+    // SQLite store.
     let db_subfolder: String =
         (&mut rng).sample_iter(Alphanumeric).take(7).map(char::from).collect();
     let db_path = data_dir.join(db_subfolder);
@@ -203,7 +204,8 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)
                     println!("Please try again\n");
                 }
                 _ => {
-                    // Forward other errors, it's unlikely we can retry with a different outcome.
+                    // Forward other errors, it's unlikely we can retry with a
+                    // different outcome.
                     return Err(error.into());
                 }
             },
@@ -227,8 +229,8 @@ async fn sync(
     let mut sync_settings = SyncSettings::default().filter(filter.into());
 
     // We restore the sync where we left.
-    // This is not necessary when not using `sync_once`. The other sync methods get
-    // the sync token from the store.
+    // This is not necessary when not using `sync_once`. The other sync methods
+    // get the sync token from the store.
     if let Some(sync_token) = initial_sync_token {
         sync_settings = sync_settings.token(sync_token);
     }
@@ -240,8 +242,8 @@ async fn sync(
     loop {
         match client.sync_once(sync_settings.clone()).await {
             Ok(response) => {
-                // This is the last time we need to provide this token, the sync method after
-                // will handle it on its own.
+                // This is the last time we need to provide this token, the sync
+                // method after will handle it on its own.
                 sync_settings = sync_settings.token(response.next_batch.clone());
                 persist_sync_token(session_file, response.next_batch).await?;
                 break;

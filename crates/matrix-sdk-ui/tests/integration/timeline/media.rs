@@ -775,8 +775,8 @@ async fn sync_own_image(mock: &MatrixMockServer, client: &Client, room_id: &Room
 
     mock.sync_room(client, JoinedRoomBuilder::new(room_id).add_timeline_event(image())).await;
 
-    // The edit target is read before anything is queued; it's in the event cache
-    // already, but the send queue may still look it up.
+    // The edit target is read before anything is queued; it's in the event
+    // cache already, but the send queue may still look it up.
     mock.mock_room_event().match_event_id().ok(image().into()).mount().await;
 }
 
@@ -811,8 +811,8 @@ async fn test_edit_with_attachment() -> TestResult {
     assert_eq!(image_uri(&item), "mxc://sdk.rs/original");
     assert_pending!(timeline_stream);
 
-    // The upload takes a moment, so the local echo of the edit is observable before
-    // the media has been uploaded.
+    // The upload takes a moment, so the local echo of the edit is observable
+    // before the media has been uploaded.
     mock.mock_upload()
         .expect_mime_type("image/jpeg")
         .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(1)).set_body_json(
@@ -837,8 +837,8 @@ async fn test_edit_with_attachment() -> TestResult {
         )
         .await?;
 
-    // The local echo of the edit is applied to the edited item, with the new media
-    // served from the local cache.
+    // The local echo of the edit is applied to the edited item, with the new
+    // media served from the local cache.
     {
         assert_let_timeout!(
             Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()
@@ -870,8 +870,8 @@ async fn test_edit_with_attachment() -> TestResult {
         assert_eq!(progress.current, progress.total);
     }
 
-    // Once the upload completes, the item points at the uploaded media, while the
-    // edit itself is still pending.
+    // Once the upload completes, the item points at the uploaded media, while
+    // the edit itself is still pending.
     {
         assert_let_timeout!(
             Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()
@@ -994,8 +994,8 @@ async fn test_edit_text_message_with_attachment() -> TestResult {
     mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/new-media")).mock_once().mount().await;
     mock.mock_room_send().ok(event_id!("$edit")).mock_once().mount().await;
 
-    // Add an image to it, keeping the text as the caption; this time through the
-    // timeline.
+    // Add an image to it, keeping the text as the caption; this time through
+    // the timeline.
     timeline
         .edit_with_attachment(
             event_id!("$text"),
@@ -1069,8 +1069,8 @@ async fn test_retry_failed_edit_with_attachment() -> TestResult {
         )
         .await?;
 
-    // The failure is surfaced on the edit. The media has been uploaded by then, so
-    // the item doesn't point at the local cache anymore.
+    // The failure is surfaced on the edit. The media has been uploaded by then,
+    // so the item doesn't point at the local cache anymore.
     let item = loop {
         assert_let_timeout!(
             Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()

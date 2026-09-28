@@ -1108,8 +1108,8 @@ mod tests {
             .await
             .insert(room_id.clone(), With::inner(RoomLatestEvents::new(weak_room, event_cache)));
 
-        // - `RoomInfoNotableUpdateReasons::LATEST_EVENT` is forbidden, otherwise it
-        //   could create loops.
+        // - `RoomInfoNotableUpdateReasons::LATEST_EVENT` is forbidden,
+        //   otherwise it could create loops.
         // - Other reasons are ignored, except
         //   `RoomInfoNotableUpdateReasons::MEMBERSHIP`.
         for reason in {

@@ -72,9 +72,9 @@ use crate::{
 fn update_media_event_after_upload(echo: &mut RoomMessageEventContent, sent: SentMediaInfo) {
     update_media_msgtype_after_upload(&mut echo.msgtype, &sent);
 
-    // A media edit (see `RoomSendQueue::edit_with_attachment`) keeps the canonical
-    // copy of the new content inside the replacement relation; patch it too,
-    // or the two copies would point at different files.
+    // A media edit (see `RoomSendQueue::edit_with_attachment`) keeps the
+    // canonical copy of the new content inside the replacement relation;
+    // patch it too, or the two copies would point at different files.
     if let Some(Relation::Replacement(replacement)) = &mut echo.relates_to {
         update_media_msgtype_after_upload(&mut replacement.new_content.msgtype, &sent);
     }
@@ -320,10 +320,10 @@ impl RoomSendQueue {
             .await
             .map_err(|_| RoomSendQueueError::FailedToCreateAttachment)?;
 
-        // For an edit, wrap the media content into a replacement of the edited event.
-        // The upload chain doesn't care about the relation; once the upload is
-        // done, `update_media_event_after_upload` patches both copies of the
-        // content.
+        // For an edit, wrap the media content into a replacement of the edited
+        // event. The upload chain doesn't care about the relation; once
+        // the upload is done, `update_media_event_after_upload` patches
+        // both copies of the content.
         let event_content = if let Some((edited_event_id, original_mentions)) = replaces {
             RoomMessageEventContentWithoutRelation::from(event_content)
                 .make_replacement(ReplacementMetadata::new(edited_event_id, original_mentions))
@@ -862,7 +862,8 @@ impl QueueStorage {
             // (something else was being sent), or it was actively being sent.
             trace!("could remove thumbnail request, removing 2 dependent requests now");
 
-            // 1. Try to abort sending using the being_sent info, in case it was active.
+            // 1. Try to abort sending using the being_sent info, in case it was
+            //    active.
             if let Some(info) = guard.being_sent.as_ref()
                 && info.transaction_id == *thumbnail_txn
             {
@@ -904,7 +905,8 @@ impl QueueStorage {
                 // sent.
                 trace!("could remove file upload request, removing 1 dependent request");
 
-                // 1. Try to abort sending using the being_sent info, in case it was active.
+                // 1. Try to abort sending using the being_sent info, in case it
+                //    was active.
                 if let Some(info) = guard.being_sent.as_ref()
                     && info.transaction_id == handles.upload_file_txn
                 {
@@ -977,7 +979,8 @@ impl QueueStorage {
         //
         // - still stored as a dependent request,
         // - stored as a queued request, active (aka it's being sent).
-        // - stored as a queued request, not active yet (aka it's not being sent yet),
+        // - stored as a queued request, not active yet (aka it's not being sent
+        //   yet),
         //
         // We'll handle each of these cases one by one.
 

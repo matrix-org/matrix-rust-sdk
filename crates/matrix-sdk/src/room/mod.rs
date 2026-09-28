@@ -928,7 +928,8 @@ impl Room {
             // Otherwise, we need to get all the relations:
             //
             // - either because no filters implies we fetch all relations,
-            // - or because there are multiple filters and we must filter out manually.
+            // - or because there are multiple filters and we must filter out
+            //   manually.
             let include_relations = if let Some(filter) = &filter
                 && filter.len() == 1
             {
@@ -3808,19 +3809,20 @@ impl Room {
             return Err(Error::InsufficientData);
         };
 
-        let sender_member =
-            if let Some(member) = self.get_member_no_sync(member.event().sender()).await? {
-                // If the sender room member info is already available, return it
-                Some(member)
-            } else if self.are_members_synced() {
-                // The room members are synced and we couldn't find the sender info
-                None
-            } else if self.sync_members().await.is_ok() {
-                // Try getting the sender room member info again after syncing
-                self.get_member_no_sync(member.event().sender()).await?
-            } else {
-                None
-            };
+        let sender_member = if let Some(member) =
+            self.get_member_no_sync(member.event().sender()).await?
+        {
+            // If the sender room member info is already available, return it
+            Some(member)
+        } else if self.are_members_synced() {
+            // The room members are synced and we couldn't find the sender info
+            None
+        } else if self.sync_members().await.is_ok() {
+            // Try getting the sender room member info again after syncing
+            self.get_member_no_sync(member.event().sender()).await?
+        } else {
+            None
+        };
 
         Ok(RoomMemberWithSenderInfo { room_member: member, sender_info: sender_member })
     }

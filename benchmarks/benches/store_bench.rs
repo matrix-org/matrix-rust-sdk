@@ -25,7 +25,8 @@ pub fn restore_session(c: &mut Criterion) {
     let mut changes = StateChanges::default();
 
     for i in 0..NUM_JOINED_ROOMS {
-        // Synapse's room IDs for rooms v1 to v11 have an 18 characters localpart.
+        // Synapse's room IDs for rooms v1 to v11 have an 18 characters
+        // localpart.
         let raw_room_id = format!("!joinedchamber{i:05}:example.com");
 
         let room_id = if i % 20 == 19 {
@@ -39,7 +40,8 @@ pub fn restore_session(c: &mut Criterion) {
     }
 
     for i in 0..NUM_STRIPPED_JOINED_ROOMS {
-        // Synapse's room IDs for rooms v1 to v11 have an 18 characters localpart.
+        // Synapse's room IDs for rooms v1 to v11 have an 18 characters
+        // localpart.
         let raw_room_id = format!("!strippedlodge{i:05}:example.com");
 
         let room_id = if i % 20 == 19 {

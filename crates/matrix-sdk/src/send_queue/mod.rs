@@ -1745,8 +1745,8 @@ impl QueueStorage {
         let client = guard.client()?;
         let store = client.state_store();
 
-        // Only an event the user composed has content to replace: a redaction or a
-        // reaction has nothing to put the new content into.
+        // Only an event the user composed has content to replace: a redaction
+        // or a reaction has nothing to put the new content into.
         if !store.load_send_queue_requests(&self.room_id).await?.iter().any(|request| {
             request.transaction_id == transaction_id && is_own_event_request(request)
         }) {
@@ -2087,8 +2087,8 @@ impl QueueStorage {
 
         let requests = store.load_send_queue_requests(&self.room_id).await?;
 
-        // If the target event has been already sent, or isn't something that can be
-        // reacted to in the first place, abort immediately.
+        // If the target event has been already sent, or isn't something that
+        // can be reacted to in the first place, abort immediately.
         if !requests
             .iter()
             .any(|item| item.transaction_id == transaction_id && is_own_event_request(item))
@@ -3094,8 +3094,9 @@ impl SendHandle {
             // below, that handles aborting sending of an event.
         }
 
-        // A reaction is queued as a dependent request of the event it applies to, so
-        // it has no entry in the main queue as long as that event hasn't been sent.
+        // A reaction is queued as a dependent request of the event it applies
+        // to, so it has no entry in the main queue as long as that
+        // event hasn't been sent.
         let aborted =
             queue.remove_dependent_send_queue_request(&self.transaction_id.clone().into()).await?
                 || queue.cancel_event(&self.transaction_id, reason).await?;
