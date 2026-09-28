@@ -267,7 +267,7 @@ impl RoomEventCache {
     pub(in super::super) fn update_thread_summary(
         &self,
         thread_id: &EventId,
-        new_thread_summary: Option<ThreadSummary>,
+        new_thread_summary: ThreadSummary,
     ) -> Result<()> {
         // Nothing to do here apart of sending an update. The `ThreadSummary` is stored
         // inside `ThreadInfo` already, this cache doesn't need to hold it.

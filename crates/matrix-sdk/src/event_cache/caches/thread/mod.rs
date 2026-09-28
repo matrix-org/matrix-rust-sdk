@@ -298,16 +298,16 @@ impl ThreadEventCache {
     }
 
     /// Update the [`ThreadSummary`] for this thread, and return a copy of it.
-    pub(in super::super) async fn update_thread_summary(&self) -> Result<Option<ThreadSummary>> {
+    pub(in super::super) async fn update_thread_summary(&self) -> Result<ThreadSummary> {
         let mut state = self.inner.state.write().await?;
 
-        let maybe_thread_summary = state.update_thread_summary().await?;
+        let thread_summary = state.update_thread_summary().await?;
 
         state
             .update_sender
-            .send(ThreadEventCacheUpdate::UpdateSummary(maybe_thread_summary.clone()), None);
+            .send(ThreadEventCacheUpdate::UpdateSummary(thread_summary.clone()), None);
 
-        Ok(maybe_thread_summary)
+        Ok(thread_summary)
     }
 
     /// Find a single event in this thread.
@@ -1239,7 +1239,7 @@ mod timed_tests {
                 );
                 assert_matches!(
                     updates_stream.recv().await.unwrap(),
-                    ThreadEventCacheUpdate::UpdateSummary(Some(summary)) => {
+                    ThreadEventCacheUpdate::UpdateSummary(summary) => {
                         assert_eq!(summary.latest_reply.as_deref(), Some(thread_event_id_1));
                         assert_eq!(summary.num_replies, 2);
                     }
@@ -1299,7 +1299,7 @@ mod timed_tests {
                 );
                 assert_matches!(
                     updates_stream.recv().await.unwrap(),
-                    ThreadEventCacheUpdate::UpdateSummary(Some(summary)) => {
+                    ThreadEventCacheUpdate::UpdateSummary(summary) => {
                         assert_eq!(summary.latest_reply.as_deref(), Some(thread_event_id_1));
                         assert_eq!(summary.num_replies, 2);
                     }

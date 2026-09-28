@@ -2355,7 +2355,8 @@ async fn test_redaction_affects_thread_summary() {
         )
         .await;
 
-    // The thread summary has disappeared!
+    // The thread summary has disappeared! Note: it is still `Some(_)` but all
+    // data have been erased.
     assert_let_timeout!(Some(timeline_updates) = stream.next());
     assert_eq!(timeline_updates.len(), 1);
 
@@ -2363,7 +2364,9 @@ async fn test_redaction_affects_thread_summary() {
     assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id(), Some(thread_root));
-    assert!(event_item.content().as_msglike().unwrap().thread_summary.is_none());
+    assert_let!(Some(thread_summary) = &event_item.content().as_msglike().unwrap().thread_summary);
+    assert_eq!(thread_summary.num_replies, 0);
+    assert!(thread_summary.latest_event.is_unavailable());
 
     assert_pending!(stream);
 }

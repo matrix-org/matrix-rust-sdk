@@ -119,7 +119,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
     pub(super) async fn handle_thread_summary(
         &mut self,
         thread_root: OwnedEventId,
-        thread_summary: Option<ThreadSummary>,
+        thread_summary: ThreadSummary,
         room_data: &P,
     ) {
         let mut transaction = self.transaction();

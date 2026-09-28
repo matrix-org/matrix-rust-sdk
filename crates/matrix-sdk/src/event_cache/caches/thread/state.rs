@@ -358,7 +358,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     pub async fn reload(
         &mut self,
         preprocessing: ReloadPreprocessing,
-    ) -> Result<(Vec<VectorDiff<Event>>, Option<ThreadSummary>)> {
+    ) -> Result<(Vec<VectorDiff<Event>>, ThreadSummary)> {
         match preprocessing {
             ReloadPreprocessing::ForgetAll => {
                 // Clear the `LinkedChunk` and broadcast the updates to the
@@ -527,9 +527,26 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     }
 
     /// Update the [`ThreadSummary`] for this thread, and return a copy of it.
-    pub(super) async fn update_thread_summary(&mut self) -> Result<Option<ThreadSummary>> {
-        // Find the latest event ID.
-        let latest_event_id = {
+    pub(super) async fn update_thread_summary(&mut self) -> Result<ThreadSummary> {
+        // Read the latest number of thread replies from the store.
+        //
+        // Implementation note: since this is based on the `m.relates_to`
+        // field, and that field can only be present on room messages, we
+        // don't have to worry about filtering out aggregation events (like
+        // reactions/edits/etc.). Pretty neat, huh?
+        let num_replies = self
+            .store
+            .find_event_relations(&self.room_id, &self.thread_id, Some(&[RelationType::Thread]))
+            .await?
+            .len();
+
+        // Find the latest event ID, if and only if we consider there is at
+        // least 1 reply.
+        //
+        // This last check is important: all in-thread events can be redacted,
+        // so `num_replies` would be zero, and in that case, we don't want to
+        // spend time trying to find the `latest_event_id`.
+        let latest_event_id = if num_replies > 0 {
             // Find the last non-edit, non-redaction, non-redacted event.
             //
             // TODO(@hywan): This is inefficient. We are bending the
@@ -556,7 +573,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             //
             // TODO(@hywan): This is one of the inefficiency I am talking about
             // above.
-            if let Some(event_id) = &latest_event_id
+            if let Some(event_id) = &mut latest_event_id
                 && let Some((original_event, edits)) = self
                     .find_event_with_relations(event_id, Some(vec![RelationType::Replacement]))
                     .await?
@@ -582,35 +599,17 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             }
 
             latest_event_id
-        };
-
-        // Compute and update the thread summary.
-
-        // Read the latest number of thread replies from the store.
-        //
-        // Implementation note: since this is based on the `m.relates_to`
-        // field, and that field can only be present on room messages, we
-        // don't have to worry about filtering out aggregation events (like
-        // reactions/edits/etc.). Pretty neat, huh?
-        let num_replies = self
-            .store
-            .find_event_relations(&self.room_id, &self.thread_id, Some(&[RelationType::Thread]))
-            .await?
-            .len();
-
-        let thread_summary = if num_replies > 0 {
-            let thread_summary = ThreadSummary::new(latest_event_id, num_replies);
-
-            self.update_thread_info(|thread_info| {
-                thread_info.latest_event = thread_summary.latest_reply.clone();
-                thread_info.number_of_replies = thread_summary.num_replies;
-            })
-            .await?;
-
-            Some(thread_summary)
         } else {
             None
         };
+
+        let thread_summary = ThreadSummary::new(latest_event_id, num_replies);
+
+        self.update_thread_info(|thread_info| {
+            thread_info.latest_event = thread_summary.latest_reply.clone();
+            thread_info.number_of_replies = thread_summary.num_replies;
+        })
+        .await?;
 
         Ok(thread_summary)
     }

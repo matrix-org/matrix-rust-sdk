@@ -33,7 +33,7 @@ pub enum ThreadEventCacheUpdate {
     ///
     /// [`ThreadInfo`]: matrix_sdk_base::event_cache::thread::ThreadInfo
     /// [`ThreadEventCache::subscribe_to_thread_info`]: super::ThreadEventCache::subscribe_to_thread_info
-    UpdateSummary(Option<ThreadSummary>),
+    UpdateSummary(ThreadSummary),
 
     /// The thread has received a new read receipt event.
     AddReadReceiptEvent {
