@@ -37,8 +37,8 @@ pub(crate) struct RoomMessageSchema {
     inner: Schema,
     /// The event id of this event (primary key).
     event_id_field: Field,
-    /// The event id of the event that this event affects.
-    /// Used by edits to refer to the event they edited (deletion key).
+    /// The event id of the event that this event affects. Used by edits to
+    /// refer to the event they edited (deletion key).
     original_event_id_field: Field,
     body_field: Field,
     date_field: Field,

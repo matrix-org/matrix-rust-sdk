@@ -95,8 +95,6 @@ pub enum ClientBuildError {
     Sdk(MatrixClientBuildError),
     #[error(transparent)]
     EventCache(#[from] EventCacheError),
-    #[error("The supplied raw key is invalid. Check it's a byte array of 32 bytes.")]
-    InvalidRawKey,
     #[error("Failed to build the client: {message}")]
     Generic { message: String },
 }
@@ -276,8 +274,7 @@ impl ClientBuilder {
     ///
     /// So far, at the time of writing (2025-04-07), it changes the defaults of
     /// `matrix_sdk::SqliteStoreConfig` (if the `sqlite` feature is enabled).
-    /// Please check
-    /// `matrix_sdk::SqliteStoreConfig::with_low_memory_config`.
+    /// Please check `matrix_sdk::SqliteStoreConfig::with_low_memory_config`.
     pub fn system_is_memory_constrained(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.system_is_memory_constrained = true;
@@ -383,8 +380,8 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    /// Select a strategy to download room keys from the backup. By default
-    /// we download after a decryption failure.
+    /// Select a strategy to download room keys from the backup. By default we
+    /// download after a decryption failure.
     ///
     /// Take a look at the [`BackupDownloadStrategy`] enum for more options.
     pub fn backup_download_strategy(
@@ -572,8 +569,8 @@ impl ClientBuilder {
         {
             let mut certificates = Vec::new();
             for certificate in builder.additional_root_certificates {
-                // We don't really know what type of certificate we may get here, so let's try
-                // first one type, then the other.
+                // We don't really know what type of certificate we may get
+                // here, so let's try first one type, then the other.
                 match Certificate::from_der(&certificate) {
                     Ok(cert) => {
                         certificates.push(cert);
@@ -672,8 +669,8 @@ impl ClientBuilder {
 
             use matrix_sdk_base::crypto::x509::X509SignatureSigningError;
 
-            // Wrap the provided RawX509Signer impl in a shim which converts the arguments
-            // and results.
+            // Wrap the provided RawX509Signer impl in a shim which converts the
+            // arguments and results.
             #[derive(Debug)]
             struct X509SignImpl(Arc<dyn RawX509Signer>);
 
@@ -708,8 +705,8 @@ impl ClientBuilder {
         if let Some(x509_verify) = builder.raw_x509_verifier {
             use matrix_sdk_base::crypto::x509::X509SignatureVerificationError;
 
-            // Wrap the provided RawX509Verifier impl in a shim which converts the
-            // arguments.
+            // Wrap the provided RawX509Verifier impl in a shim which converts
+            // the arguments.
             #[derive(Debug)]
             struct X509VerifyImpl(Arc<dyn RawX509Verifier>);
             impl matrix_sdk_base::crypto::x509::RawX509Verifier for X509VerifyImpl {
@@ -769,9 +766,9 @@ impl ClientBuilder {
     /// Sets the paths that the client will use to store its data and caches
     /// with SQLite.
     ///
-    /// Both paths **must** be unique per session as the SDK
-    /// stores aren't capable of handling multiple users, however it is
-    /// valid to use the same path for both stores on a single session.
+    /// Both paths **must** be unique per session as the SDK stores aren't
+    /// capable of handling multiple users, however it is valid to use the same
+    /// path for both stores on a single session.
     #[deprecated = "Use `ClientBuilder::session_store_with_sqlite` instead"]
     pub fn session_paths(self: Arc<Self>, data_path: String, cache_path: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);

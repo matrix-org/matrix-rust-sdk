@@ -29,8 +29,8 @@ pub fn restore_session(c: &mut Criterion) {
         let raw_room_id = format!("!joinedchamber{i:05}:example.com");
 
         let room_id = if i % 20 == 19 {
-            // Make 1 in 20 rooms use a room v12 ID, which is a base64 hash similar to an
-            // event ID.
+            // Make 1 in 20 rooms use a room v12 ID, which is a base64 hash
+            // similar to an event ID.
             RoomId::new_v2(&base64_sha256_hash(raw_room_id.as_bytes())).unwrap()
         } else {
             OwnedRoomId::try_from(raw_room_id).unwrap()
@@ -43,8 +43,8 @@ pub fn restore_session(c: &mut Criterion) {
         let raw_room_id = format!("!strippedlodge{i:05}:example.com");
 
         let room_id = if i % 20 == 19 {
-            // Make 1 in 20 rooms use a room v12 ID, which is a base64 hash similar to an
-            // event ID.
+            // Make 1 in 20 rooms use a room v12 ID, which is a base64 hash
+            // similar to an event ID.
             RoomId::new_v2(&base64_sha256_hash(raw_room_id.as_bytes())).unwrap()
         } else {
             OwnedRoomId::try_from(raw_room_id).unwrap()

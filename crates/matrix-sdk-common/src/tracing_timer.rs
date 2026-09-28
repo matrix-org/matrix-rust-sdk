@@ -53,9 +53,9 @@ impl Drop for TracingTimer {
         #[allow(trivial_casts)] // The compiler is lying, it can't infer this cast
         let values = [(&message_field, Some(&message as &dyn tracing::Value))];
 
-        // This function is hidden from docs, but we have to use it
-        // because there is no other way of obtaining a `ValueSet`.
-        // It's not entirely clear why it is private. See this issue:
+        // This function is hidden from docs, but we have to use it because
+        // there is no other way of obtaining a `ValueSet`. It's not entirely
+        // clear why it is private. See this issue:
         // https://github.com/tokio-rs/tracing/issues/2363
         let values = fields.value_set(&values);
 

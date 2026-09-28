@@ -70,8 +70,8 @@ const DATABASE_NAME: &str = "matrix-sdk-crypto.sqlite3";
 pub struct SqliteCryptoStore {
     store_cipher: Option<Arc<StoreCipher>>,
 
-    /// `Some` when active, `None` when closed.
-    /// The outer `Mutex` serialises close/reopen with connection access.
+    /// `Some` when active, `None` when closed. The outer `Mutex` serialises
+    /// close/reopen with connection access.
     connections: Arc<Mutex<Option<SqliteConnections>>>,
 
     /// Retained so we can rebuild the pool on reopen.
@@ -103,16 +103,14 @@ impl EncryptableStore for SqliteCryptoStore {
 
 impl SqliteCryptoStore {
     /// Create an `SqliteCryptoStore` struct without trying to create the
-    /// database or migrate to a newer version.  This is only for use
-    /// internally, and for testing.
+    /// database or migrate to a newer version. This is only for use internally,
+    /// and for testing.
     ///
     /// # Arguments
     ///
-    /// * `secret` - The secret used to encrypt the data.
-    ///
-    /// * `pool` - A connection pool to use for reading from the store.
-    ///
-    /// * `conn` - The connection to use for writing to the store.
+    /// - `secret` - The secret used to encrypt the data.
+    /// - `pool` - A connection pool to use for reading from the store.
+    /// - `conn` - The connection to use for writing to the store.
     pub(crate) async fn create_raw(
         secret: Option<Secret>,
         pool: SqlitePool,
@@ -150,11 +148,11 @@ impl SqliteCryptoStore {
         Self::open_with_config(&SqliteStoreConfig::new(path).passphrase(passphrase)).await
     }
 
-    /// Open the SQLite-based crypto store at the given path using the given
-    /// key to encrypt private data.
+    /// Open the SQLite-based crypto store at the given path using the given key
+    /// to encrypt private data.
     pub async fn open_with_key(
         path: impl AsRef<Path>,
-        key: Option<&[u8; 32]>,
+        key: Option<&[u8]>,
     ) -> Result<Self, OpenStoreError> {
         Self::open_with_config(&SqliteStoreConfig::new(path).key(key)).await
     }
@@ -205,10 +203,10 @@ impl SqliteCryptoStore {
     ) -> Result<InboundGroupSession> {
         let mut pickle: PickledInboundGroupSession = self.deserialize_value(&value)?;
 
-        // The `backed_up` SQL column is the source of truth, because we update it
-        // inside `mark_inbound_group_sessions_as_backed_up` and don't update
-        // the pickled value inside the `data` column (until now, when we are puling it
-        // out of the DB).
+        // The `backed_up` SQL column is the source of truth, because we update
+        // it inside `mark_inbound_group_sessions_as_backed_up` and don't update
+        // the pickled value inside the `data` column (until now, when we are
+        // puling it out of the DB).
         pickle.backed_up = backed_up;
 
         Ok(InboundGroupSession::from_pickle(pickle)?)
@@ -216,8 +214,8 @@ impl SqliteCryptoStore {
 
     fn deserialize_key_request(&self, value: &[u8], sent_out: bool) -> Result<GossipRequest> {
         let mut request: GossipRequest = self.deserialize_value(value)?;
-        // sent_out SQL column is source of truth, sent_out field in serialized value
-        // needed for other stores though
+        // sent_out SQL column is source of truth, sent_out field in serialized
+        // value needed for other stores though
         request.sent_out = sent_out;
         Ok(request)
     }
@@ -249,7 +247,7 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 15;
+const DATABASE_VERSION: u8 = 19;
 
 /// key for the dehydrated device pickle key in the key/value table.
 const DEHYDRATED_DEVICE_PICKLE_KEY: &str = "dehydrated_device_pickle_key";
@@ -261,9 +259,8 @@ const DEHYDRATED_DEVICE_PICKLE_KEY: &str = "dehydrated_device_pickle_key";
 ///
 /// # Arguments
 ///
-/// * `conn` - The connection to use.
-///
-/// * `version` - the current version of the database.
+/// - `conn` - The connection to use.
+/// - `version` - the current version of the database.
 pub(crate) async fn initialize_store(conn: &SqliteAsyncConn, version: u8) -> Result<u8> {
     if version == 0 {
         debug!("Creating database");
@@ -275,8 +272,9 @@ pub(crate) async fn initialize_store(conn: &SqliteAsyncConn, version: u8) -> Res
 
     if version < 1 {
         debug!("Creating database");
-        // First turn on WAL mode, this can't be done in the transaction, it fails with
-        // the error message: "cannot change into wal mode from within a transaction".
+        // First turn on WAL mode, this can't be done in the transaction, it
+        // fails with the error message: "cannot change into wal mode from
+        // within a transaction".
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/crypto_store/001_init.sql"))?;
@@ -293,11 +291,9 @@ pub(crate) async fn initialize_store(conn: &SqliteAsyncConn, version: u8) -> Res
 ///
 /// # Arguments
 ///
-/// * `store` - The store to run the migrations on
-///
-/// * `version` - The current version of the database.
-///
-/// * `max_version` - The maximum version that the database will be migrated to.
+/// - `store` - The store to run the migrations on
+/// - `version` - The current version of the database.
+/// - `max_version` - The maximum version that the database will be migrated to.
 ///   Only used for testing, so will only be checked for the versions that are
 ///   needed for tests.
 pub(crate) async fn run_migrations(
@@ -528,6 +524,22 @@ pub(crate) async fn run_migrations(
         .await?;
     }
 
+    if version < 19 {
+        debug!("Upgrading database to version 19");
+        // Remove the sliding sync `pos` value stored in the crypto store. There
+        // was recently an event cache migration that emptied the cache but
+        // never reset the `pos` value, this fixes it.
+        let user_id = store.load_account().await?.map(|account| account.user_id.clone());
+
+        conn.with_transaction(move |txn| {
+            if let Some(user_id) = user_id {
+                txn.clear_kv(&format!("sliding_sync_store::room-list::{user_id}::instance"))?;
+            }
+            txn.set_db_version(19)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -678,7 +690,7 @@ impl SqliteConnectionExt for rusqlite::Connection {
         info: &[u8],
     ) -> rusqlite::Result<()> {
         // The first `ON CONFLICT` cause will update a request if we try to save
-        // it again.  The second `ON CONFLICT` will replace an old request for
+        // it again. The second `ON CONFLICT` will replace an old request for
         // the same key/secret with the new request.
         self.execute(
             "INSERT INTO key_requests (request_id, sent_out, data, info)
@@ -859,8 +871,9 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
                 move |mut stmt| {
                     let sender_data_type = sender_data_type as u8;
 
-                    // If we are not provided with an `after_session_id`, use a key which will sort
-                    // before all real keys: the empty string.
+                    // If we are not provided with an `after_session_id`, use a
+                    // key which will sort before all real keys: the empty
+                    // string.
                     let after_session_id = after_session_id.unwrap_or(Key::Plain(Vec::new()));
 
                     stmt.query(named_params! {
@@ -893,8 +906,8 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
         }
 
         self.chunk_large_query_over(session_ids, None, move |txn, session_ids| {
-            // Safety: host parameters are not generated using any user input except the
-            // number of session IDs, so it is safe from injection.
+            // Safety: host parameters are not generated using any user input
+            // except the number of session IDs, so it is safe from injection.
             let query = format!(
                 "UPDATE inbound_group_session SET backed_up = TRUE where session_id IN ({})",
                 session_ids.host_parameters()
@@ -1140,8 +1153,8 @@ impl CryptoStore for SqliteCryptoStore {
     }
 
     async fn save_pending_changes(&self, changes: PendingChanges) -> Result<()> {
-        // Serialize calls to `save_pending_changes`; there are multiple await points
-        // below, and we're pickling data as we go, so we don't want to
+        // Serialize calls to `save_pending_changes`; there are multiple await
+        // points below, and we're pickling data as we go, so we don't want to
         // invalidate data we've previously read and overwrite it in the store.
         // TODO: #2000 should make this lock go away, or change its shape.
         let _guard = self.save_changes_lock.lock().await;
@@ -1170,9 +1183,9 @@ impl CryptoStore for SqliteCryptoStore {
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
-        // Serialize calls to `save_changes`; there are multiple await points below, and
-        // we're pickling data as we go, so we don't want to invalidate data
-        // we've previously read and overwrite it in the store.
+        // Serialize calls to `save_changes`; there are multiple await points
+        // below, and we're pickling data as we go, so we don't want to
+        // invalidate data we've previously read and overwrite it in the store.
         // TODO: #2000 should make this lock go away, or change its shape.
         let _guard = self.save_changes_lock.lock().await;
 
@@ -1358,8 +1371,8 @@ impl CryptoStore for SqliteCryptoStore {
             }
         });
 
-        // Currently, this store doesn't save the backup version separately, so this
-        // just delegates to save_changes.
+        // Currently, this store doesn't save the backup version separately, so
+        // this just delegates to save_changes.
         self.save_changes(Changes { inbound_group_sessions: sessions, ..Changes::default() }).await
     }
 
@@ -1924,8 +1937,8 @@ mod tests {
     static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
 
     struct TestDb {
-        // Needs to be kept alive because the Drop implementation for TempDir deletes the
-        // directory.
+        // Needs to be kept alive because the Drop implementation for TempDir
+        // deletes the directory.
         _dir: TempDir,
         database: SqliteCryptoStore,
     }
@@ -2307,8 +2320,8 @@ mod tests {
 
     /// Test that we migrate the secrets inbox properly.
     ///
-    /// The format for the secrets inbox changed in version 17.  Previously, the
-    /// secrets inbox stored a full `GossippedSecrets` struct.  In version 17,
+    /// The format for the secrets inbox changed in version 17. Previously, the
+    /// secrets inbox stored a full `GossippedSecrets` struct. In version 17,
     /// the secrets inbox now stores only the secret.
     #[async_test]
     async fn test_secrets_inbox_migration() {

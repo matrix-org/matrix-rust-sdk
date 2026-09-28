@@ -83,6 +83,19 @@ impl PollState {
         }
     }
 
+    /// Reverts an edit applied with [`Self::edit`], by restoring the fields it
+    /// replaced from `unedited`.
+    ///
+    /// Responses are left alone: they're part of the state an edit carries
+    /// over, so the ones received since the edit was applied are kept.
+    pub(crate) fn unedit(&self, unedited: &Self) -> Self {
+        let mut clone = self.clone();
+        clone.poll_start = unedited.poll_start.clone();
+        clone.fallback_text = unedited.fallback_text.clone();
+        clone.has_been_edited = unedited.has_been_edited;
+        clone
+    }
+
     /// Add a response to a poll.
     pub(crate) fn add_response(
         &mut self,

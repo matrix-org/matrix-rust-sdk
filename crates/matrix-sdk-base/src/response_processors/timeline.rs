@@ -30,6 +30,7 @@ use crate::{Result, Room, RoomInfo, sync::Timeline};
 /// Process a set of sync timeline event, and create a [`Timeline`].
 ///
 /// For each event:
+///
 /// - will try to decrypt it,
 /// - will fix the `origin_server_ts` if considered invalid,
 /// - will process verification,
@@ -214,11 +215,11 @@ fn update_push_room_context(
 
 /// Get the push context for the given room.
 ///
-/// Tries to get the data from `changes` or the up to date `room_info`.
-/// Loads the data from the store otherwise.
+/// Tries to get the data from `changes` or the up to date `room_info`. Loads
+/// the data from the store otherwise.
 ///
-/// Returns `None` if some data couldn't be found. This should only happen
-/// in brand new rooms, while we process its state.
+/// Returns `None` if some data couldn't be found. This should only happen in
+/// brand new rooms, while we process its state.
 pub async fn get_push_room_context(
     context: &Context,
     room: &Room,

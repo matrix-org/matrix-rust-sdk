@@ -40,11 +40,10 @@ use super::{
 ///
 /// Default if no other is configured at startup.
 ///
-/// Note that this store is not transactional. This is particularly
-/// relevant when calling [`EventCacheStore::handle_linked_chunk_updates`],
-/// which consumes a list of [`Update`]s. When processing this list, if
-/// one of the [`Update`]s fails, the previous updates in the list
-/// will not be reversed.
+/// Note that this store is not transactional. This is particularly relevant
+/// when calling [`EventCacheStore::handle_linked_chunk_updates`], which
+/// consumes a list of [`Update`]s. When processing this list, if one of the
+/// [`Update`]s fails, the previous updates in the list will not be reversed.
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
     inner: Arc<StdRwLock<MemoryStoreInner>>,
@@ -111,6 +110,37 @@ impl EventCacheStore for MemoryStore {
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error> {
         let mut inner = self.inner.write().unwrap();
+
+        let is_complete_event = |event: &Event| {
+            let Some(event_id) = event.event_id() else {
+                error!("Found event with no ID");
+                return false;
+            };
+            if event.kind.event_type().is_none() {
+                error!(%event_id, "Found an event with no event type");
+                return false;
+            }
+            true
+        };
+
+        let updates = updates
+            .into_iter()
+            .filter_map(|update| match update {
+                Update::PushItems { at, items } => Some(Update::PushItems {
+                    at,
+                    items: items.into_iter().filter(is_complete_event).collect(),
+                }),
+                Update::ReplaceItem { at, item } => {
+                    if is_complete_event(&item) {
+                        Some(Update::ReplaceItem { at, item })
+                    } else {
+                        None
+                    }
+                }
+                update => Some(update),
+            })
+            .collect();
+
         inner
             .events
             .apply_updates(linked_chunk_id, updates)
@@ -282,8 +312,8 @@ impl EventCacheStore for MemoryStore {
             .collect();
 
         // Remove any duplicate events which may exist in both a room and thread
-        // linked chunk. Additionally, remove any position information from non-room
-        // linked chunks.
+        // linked chunk. Additionally, remove any position information from
+        // non-room linked chunks.
         let mut deduplicated = HashMap::new();
         for (linked_chunk_id, (event, position)) in related_events {
             let event_id = event
@@ -296,8 +326,8 @@ impl EventCacheStore for MemoryStore {
                     deduplicated.insert(event_id, (event, position));
                 }
                 _ => {
-                    // Remove position information from events that come
-                    // from any other type of linked chunk
+                    // Remove position information from events that come from
+                    // any other type of linked chunk
                     deduplicated.entry(event_id).or_insert_with(|| (event, None));
                 }
             }

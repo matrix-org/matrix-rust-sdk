@@ -14,12 +14,12 @@
 
 use std::time::Duration;
 
-use assert_matches2::assert_let;
 use ruma::{
     ServerName, api::client::account::request_openid_token, authentication::TokenType,
     owned_room_id,
 };
 use serde_json::json;
+use strass::assert_let;
 
 use super::{WIDGET_ID, parse_msg};
 use crate::widget::machine::{
@@ -31,8 +31,8 @@ fn test_openid_request_handling_works() {
     let (mut machine, _) =
         WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), true);
 
-    // Widget requests an open ID token, since we don't have any caching yet,
-    // we reply with a pending response right away.
+    // Widget requests an open ID token, since we don't have any caching yet, we
+    // reply with a pending response right away.
     let actions = {
         let mut actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
             "api": "fromWidget",
@@ -112,8 +112,8 @@ fn test_openid_fail_results_in_response_blocked() {
     let (mut machine, _) =
         WidgetMachine::new(WIDGET_ID.to_owned(), owned_room_id!("!a98sd12bjh:example.org"), true);
 
-    // Widget requests an open ID token, since we don't have any caching yet,
-    // we reply with a pending response right away.
+    // Widget requests an open ID token, since we don't have any caching yet, we
+    // reply with a pending response right away.
     let mut actions = {
         let mut actions = machine.process(IncomingMessage::WidgetMessage(json_string!({
             "api": "fromWidget",

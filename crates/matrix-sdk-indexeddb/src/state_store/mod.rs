@@ -468,9 +468,9 @@ impl IndexeddbStateStore {
     }
 
     fn encode_kv_data_key(&self, key: StateStoreDataKey<'_>) -> JsValue {
-        // Use the key (prefix) for the table name as well, to keep encoded
-        // keys compatible for the sync token and filters, which were in
-        // separate tables initially.
+        // Use the key (prefix) for the table name as well, to keep encoded keys
+        // compatible for the sync token and filters, which were in separate
+        // tables initially.
         match key {
             StateStoreDataKey::SyncToken => {
                 self.encode_key(StateStoreDataKey::SYNC_TOKEN, StateStoreDataKey::SYNC_TOKEN)
@@ -540,7 +540,8 @@ struct PersistedQueuedRequest {
     #[serde(default = "created_now")]
     created_at: MilliSecondsSinceUnixEpoch,
 
-    // Migrated fields: keep these private, they're not used anymore elsewhere in the code base.
+    // Migrated fields: keep these private, they're not used anymore elsewhere
+    // in the code base.
     /// Deprecated (from old format), now replaced with error field.
     is_wedged: Option<bool>,
 
@@ -553,8 +554,7 @@ fn created_now() -> MilliSecondsSinceUnixEpoch {
 
 impl PersistedQueuedRequest {
     fn into_queued_request(self) -> Option<QueuedRequest> {
-        let kind =
-            self.kind.or_else(|| self.event.map(|content| QueuedRequestKind::Event { content }))?;
+        let kind = self.kind.or_else(|| self.event.map(QueuedRequestKind::from))?;
 
         let error = match self.is_wedged {
             Some(true) => {
@@ -592,13 +592,13 @@ impl From<StoredThreadSubscription> for PersistedThreadSubscription {
 }
 
 // Small hack to have the following macro invocation act as the appropriate
-// trait impl block on wasm, but still be compiled on non-wasm as a regular
-// impl block otherwise.
+// trait impl block on wasm, but still be compiled on non-wasm as a regular impl
+// block otherwise.
 //
 // The trait impl doesn't compile on non-wasm due to unfulfilled trait bounds,
 // this hack allows us to still have most of rust-analyzer's IDE functionality
-// within the impl block without having to set it up to check things against
-// the wasm target (which would disable many other parts of the codebase).
+// within the impl block without having to set it up to check things against the
+// wasm target (which would disable many other parts of the codebase).
 #[cfg(target_family = "wasm")]
 macro_rules! impl_state_store {
     ({ $($body:tt)* }) => {
@@ -1543,11 +1543,12 @@ impl_state_store!({
     }
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
-        // All the stores which use a RoomId as their key (and nothing additional).
+        // All the stores which use a RoomId as their key (and nothing
+        // additional).
         let direct_stores = [keys::ROOM_INFOS, keys::ROOM_SEND_QUEUE, keys::DEPENDENT_SEND_QUEUE];
 
-        // All the stores which use a RoomId as the first part of their key, but may
-        // have some additional data in the key.
+        // All the stores which use a RoomId as the first part of their key, but
+        // may have some additional data in the key.
         let prefixed_stores = [
             keys::PROFILES,
             keys::DISPLAY_NAMES,
@@ -1616,8 +1617,8 @@ impl_state_store!({
 
         let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
 
-        // We store an encoded vector of the queued requests, with their transaction
-        // ids.
+        // We store an encoded vector of the queued requests, with their
+        // transaction ids.
 
         // Reload the previous vector for this room, or create an empty one.
         let prev = obj.get(&encoded_key).await?;
@@ -1663,8 +1664,8 @@ impl_state_store!({
 
         let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
 
-        // We store an encoded vector of the queued requests, with their transaction
-        // ids.
+        // We store an encoded vector of the queued requests, with their
+        // transaction ids.
 
         // Reload the previous vector for this room, or create an empty one.
         let prev = obj.get(&encoded_key).await?;
@@ -1708,8 +1709,8 @@ impl_state_store!({
 
         let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
 
-        // We store an encoded vector of the queued requests, with their transaction
-        // ids.
+        // We store an encoded vector of the queued requests, with their
+        // transaction ids.
 
         // Reload the previous vector for this room.
         if let Some(val) = obj.get(&encoded_key).await? {
@@ -1734,8 +1735,8 @@ impl_state_store!({
     async fn load_send_queue_requests(&self, room_id: &RoomId) -> Result<Vec<QueuedRequest>> {
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
-        // We store an encoded vector of the queued requests, with their transaction
-        // ids.
+        // We store an encoded vector of the queued requests, with their
+        // transaction ids.
         let prev = self
             .inner
             .transaction(keys::ROOM_SEND_QUEUE)
@@ -1827,8 +1828,8 @@ impl_state_store!({
 
         let obj = tx.object_store(keys::DEPENDENT_SEND_QUEUE)?;
 
-        // We store an encoded vector of the dependent requests.
-        // Reload the previous vector for this room, or create an empty one.
+        // We store an encoded vector of the dependent requests. Reload the
+        // previous vector for this room, or create an empty one.
         let prev = obj.get(&encoded_key).await?;
 
         let mut prev = prev.map_or_else(
@@ -1869,8 +1870,8 @@ impl_state_store!({
 
         let obj = tx.object_store(keys::DEPENDENT_SEND_QUEUE)?;
 
-        // We store an encoded vector of the dependent requests.
-        // Reload the previous vector for this room, or create an empty one.
+        // We store an encoded vector of the dependent requests. Reload the
+        // previous vector for this room, or create an empty one.
         let prev = obj.get(&encoded_key).await?;
 
         let mut prev = prev.map_or_else(
@@ -1912,8 +1913,8 @@ impl_state_store!({
 
         let obj = tx.object_store(keys::DEPENDENT_SEND_QUEUE)?;
 
-        // We store an encoded vector of the dependent requests.
-        // Reload the previous vector for this room, or create an empty one.
+        // We store an encoded vector of the dependent requests. Reload the
+        // previous vector for this room, or create an empty one.
         let prev = obj.get(&encoded_key).await?;
 
         let mut prev = prev.map_or_else(
@@ -1951,8 +1952,8 @@ impl_state_store!({
 
         let obj = tx.object_store(keys::DEPENDENT_SEND_QUEUE)?;
 
-        // We store an encoded vector of the dependent requests.
-        // Reload the previous vector for this room.
+        // We store an encoded vector of the dependent requests. Reload the
+        // previous vector for this room.
         if let Some(val) = obj.get(&encoded_key).await? {
             let mut prev = self.deserialize_value::<Vec<DependentQueuedRequest>>(&val)?;
             if let Some(pos) = prev.iter().position(|item| item.own_transaction_id == *txn_id) {
@@ -2014,7 +2015,8 @@ impl_state_store!({
                 let previous: PersistedThreadSubscription =
                     self.deserialize_value(&previous_value)?;
 
-                // If the previous status is the same as the new one, don't do anything.
+                // If the previous status is the same as the new one, don't do
+                // anything.
                 if new == previous {
                     continue;
                 }
@@ -2160,7 +2162,8 @@ impl From<&StrippedRoomMemberEvent> for RoomMember {
 
 #[cfg(test)]
 mod migration_tests {
-    use assert_matches2::assert_matches;
+    use std::assert_matches;
+
     use matrix_sdk_base::store::{QueuedRequestKind, SerializableEventContent};
     use ruma::{
         OwnedRoomId, OwnedTransactionId, TransactionId,

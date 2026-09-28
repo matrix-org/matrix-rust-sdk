@@ -143,10 +143,10 @@ impl LoginBuilder {
     /// [`Client::refresh_access_token()`] or
     /// [`MatrixAuth::refresh_access_token()`] needs to be called manually.
     ///
-    /// This behavior can be changed by calling
-    /// [`handle_refresh_tokens()`] when building the `Client`.
+    /// This behavior can be changed by calling [`handle_refresh_tokens()`] when
+    /// building the `Client`.
     ///
-    /// *Note* that refreshing access tokens might not be supported or might be
+    /// _Note_ that refreshing access tokens might not be supported or might be
     /// enforced by the homeserver regardless of this setting.
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
@@ -282,13 +282,12 @@ where
     ///
     /// By default, the `Client` won't handle refreshing access tokens, so
     /// [`Client::refresh_access_token()`] or
-    /// [`MatrixAuth::refresh_access_token()`] needs to be called
-    /// manually.
+    /// [`MatrixAuth::refresh_access_token()`] needs to be called manually.
     ///
-    /// This behavior can be changed by calling
-    /// [`handle_refresh_tokens()`] when building the `Client`.
+    /// This behavior can be changed by calling [`handle_refresh_tokens()`] when
+    /// building the `Client`.
     ///
-    /// *Note* that refreshing access tokens might not be supported or might be
+    /// _Note_ that refreshing access tokens might not be supported or might be
     /// enforced by the homeserver regardless of this setting.
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens

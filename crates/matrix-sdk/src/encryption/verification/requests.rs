@@ -60,8 +60,7 @@ pub enum VerificationRequestState {
         other_device_data: DeviceData,
     },
     /// The verification request has transitioned into a concrete verification
-    /// flow. For example it transitioned into the emoji based SAS
-    /// verification.
+    /// flow. For example it transitioned into the emoji based SAS verification.
     Transitioned {
         /// The concrete [`Verification`] object the verification request
         /// transitioned into.
@@ -158,7 +157,7 @@ impl VerificationRequest {
     ///
     /// # Arguments
     ///
-    /// * `methods` - The methods that we should advertise as supported by us.
+    /// - `methods` - The methods that we should advertise as supported by us.
     pub async fn accept_with_methods(&self, methods: Vec<VerificationMethod>) -> Result<()> {
         if let Some(request) = self.inner.accept_with_methods(methods) {
             self.client.send_verification_request(request).await?;
@@ -181,10 +180,10 @@ impl VerificationRequest {
     /// verification flow.
     ///
     /// Returns an `Error` if the QR code isn't valid or sending a reciprocate
-    /// event to the other side fails, `None` if the verification request
-    /// isn't in the ready state or we don't support QR code verification,
-    /// otherwise a newly created `QrVerification` object which will be used
-    /// for the remainder of the verification flow.
+    /// event to the other side fails, `None` if the verification request isn't
+    /// in the ready state or we don't support QR code verification, otherwise a
+    /// newly created `QrVerification` object which will be used for the
+    /// remainder of the verification flow.
     #[cfg(feature = "qrcode")]
     pub async fn scan_qr_code(&self, data: QrVerificationData) -> Result<Option<QrVerification>> {
         let Some(qr) = self.inner.scan_qr_code(data).await? else { return Ok(None) };

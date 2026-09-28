@@ -29,8 +29,8 @@ pub trait SyncListenerV2: SyncOutsideWasm + SendOutsideWasm {
 /// Settings for a sync v2 call.
 #[derive(uniffi::Record)]
 pub struct SyncSettingsV2 {
-    /// Timeout in milliseconds for the server long-poll.
-    /// If not set, defaults to 30 seconds.
+    /// Timeout in milliseconds for the server long-poll. If not set, defaults
+    /// to 30 seconds.
     #[uniffi(default = None)]
     pub timeout_ms: Option<u64>,
     /// Whether to request full state on the first sync.

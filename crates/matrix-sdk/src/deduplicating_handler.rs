@@ -27,9 +27,9 @@ use crate::{Error, Result};
 /// State machine for the state of a query deduplicated by the
 /// [`DeduplicatingHandler`].
 enum QueryState {
-    /// The query hasn't completed. This doesn't mean it hasn't *started* yet,
-    /// but rather that it couldn't get to completion: some intermediate
-    /// steps might have run.
+    /// The query hasn't completed. This doesn't mean it hasn't _started_ yet,
+    /// but rather that it couldn't get to completion: some intermediate steps
+    /// might have run.
     Cancelled,
     /// The query has completed with an `Ok` result.
     Success,
@@ -61,9 +61,8 @@ impl<Key: Clone + Ord + std::hash::Hash> DeduplicatingHandler<Key> {
     /// for the same key.
     ///
     /// Note: the `code` may be run multiple times, if the first query to run it
-    /// has been aborted by the caller (i.e. the future has been dropped).
-    /// As a consequence, it's important that the `code` future be
-    /// idempotent.
+    /// has been aborted by the caller (i.e. the future has been dropped). As a
+    /// consequence, it's important that the `code` future be idempotent.
     ///
     /// See also [`DeduplicatingHandler`] for more details.
     pub async fn run<'a, F: Future<Output = Result<()>> + SendOutsideWasm + 'a>(
@@ -86,26 +85,27 @@ impl<Key: Clone + Ord + std::hash::Hash> DeduplicatingHandler<Key> {
                 }
 
                 QueryState::Failure => {
-                    // The query completed with an error, but we don't know what it is; report
-                    // there was an error.
+                    // The query completed with an error, but we don't know what
+                    // it is; report there was an error.
                     Err(Error::ConcurrentRequestFailed)
                 }
 
                 QueryState::Cancelled => {
-                    // If we could take a hold onto the mutex without it being in the success or
-                    // failure state, then the query hasn't completed (e.g. it could have been
-                    // cancelled). Repeat it.
+                    // If we could take a hold onto the mutex without it being
+                    // in the success or failure state, then the query hasn't
+                    // completed (e.g. it could have been cancelled). Repeat it.
                     //
-                    // Note: there might be other waiters for the deduplicated result; they will
-                    // still be waiting for the mutex above, since the mutex is obtained for at
-                    // most one holder at the same time.
+                    // Note: there might be other waiters for the deduplicated
+                    // result; they will still be waiting for the mutex above,
+                    // since the mutex is obtained for at most one holder at the
+                    // same time.
                     self.run_code(key, code, &mut request_guard).await
                 }
             };
         }
 
-        // Let's assume the cancelled state, if we succeed or fail we'll modify the
-        // result.
+        // Let's assume the cancelled state, if we succeed or fail we'll modify
+        // the result.
         let request_mutex = Arc::new(Mutex::new(QueryState::Cancelled));
 
         map.insert(key.clone(), request_mutex.clone());
@@ -228,8 +228,8 @@ mod tests {
         assert!(second.is_err());
         assert_eq!(*num_calls.lock().await, 1);
 
-        // Then we can still do subsequent requests that may succeed (or fail), for the
-        // same key.
+        // Then we can still do subsequent requests that may succeed (or fail),
+        // for the same key.
         let inner = || {
             let num_calls_cloned = num_calls.clone();
             async move {
@@ -286,8 +286,8 @@ mod tests {
             async move { handler.run(0, query).await }
         });
 
-        // At this point, only the "before" count has been incremented, and only once
-        // (per the deduplication contract).
+        // At this point, only the "before" count has been incremented, and only
+        // once (per the deduplication contract).
         yield_now().await;
 
         assert_eq!(*num_before.lock().await, 1);

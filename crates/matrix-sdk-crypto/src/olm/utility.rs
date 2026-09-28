@@ -58,15 +58,14 @@ pub trait VerifyJson {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The user that claims to have signed this object.
-    ///
-    /// * `key_id` - The ID of the key that was used to sign this object.
+    /// - `user_id` - The user that claims to have signed this object.
+    /// - `key_id` - The ID of the key that was used to sign this object.
     ///
     ///   **Note**: The key ID must match the ID of the public key that is
     ///   verifying the signature. This is only used to find the correct
     ///   signature.
     ///
-    /// * `signed_object` - The signed object that we should check for a valid
+    /// - `signed_object` - The signed object that we should check for a valid
     ///   signature.
     ///
     /// Returns Ok if the signature was successfully verified, otherwise an
@@ -78,20 +77,19 @@ pub trait VerifyJson {
         signed_object: &impl SignedJsonObject,
     ) -> Result<(), SignatureError>;
 
-    /// Verify a signature over the canonicalized signed JSON object using
-    /// this public Ed25519 key.
+    /// Verify a signature over the canonicalized signed JSON object using this
+    /// public Ed25519 key.
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The user that claims to have signed this object.
-    ///
-    /// * `key_id` - The ID of the key that was used to sign this object.
+    /// - `user_id` - The user that claims to have signed this object.
+    /// - `key_id` - The ID of the key that was used to sign this object.
     ///
     ///   **Note**: The key ID must match the ID of the public key that is
     ///   verifying the signature. This is only used to find the correct
     ///   signature.
     ///
-    /// * `canonicalized_json` - The canonicalized version of a signed JSON
+    /// - `canonicalized_json` - The canonicalized version of a signed JSON
     ///   object.
     ///
     /// This method should only be used if an object's signature needs to be

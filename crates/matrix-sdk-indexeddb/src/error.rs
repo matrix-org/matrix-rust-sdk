@@ -34,10 +34,10 @@ pub trait AsyncErrorDeps: std::error::Error + SendOutsideWasm + SyncOutsideWasm 
 impl<T> AsyncErrorDeps for T where T: std::error::Error + SendOutsideWasm + SyncOutsideWasm + 'static
 {}
 
-/// A wrapper around [`String`] that derives [`Error`](std::error::Error).
-/// This is useful when a particular error is not [`Send`] or [`Sync`] but
-/// must be mapped into a higher-level error that requires those constraints,
-/// e.g. [`StoreError::Backend`], [`CryptStoreError::Backend`], etc.
+/// A wrapper around [`String`] that derives [`Error`](std::error::Error). This
+/// is useful when a particular error is not [`Send`] or [`Sync`] but must be
+/// mapped into a higher-level error that requires those constraints, e.g.
+/// [`StoreError::Backend`], [`CryptStoreError::Backend`], etc.
 #[derive(Debug, Error)]
 #[error("{0}")]
 pub struct GenericError(String);

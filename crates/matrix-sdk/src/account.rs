@@ -148,9 +148,9 @@ impl Account {
             }
         }
 
-        // If name is `Some(_)`, this endpoint is the same as `set_profile_field`, but
-        // we still need to use it in case it is `None` and the server doesn't support
-        // the delete endpoint yet.
+        // If name is `Some(_)`, this endpoint is the same as
+        // `set_profile_field`, but we still need to use it in case it is `None`
+        // and the server doesn't support the delete endpoint yet.
         #[allow(deprecated)]
         let request =
             set_display_name::v3::Request::new(user_id.to_owned(), name.map(ToOwned::to_owned));
@@ -250,9 +250,9 @@ impl Account {
             }
         }
 
-        // If url is `Some(_)`, this endpoint is the same as `set_profile_field`, but
-        // we still need to use it in case it is `None` and the server doesn't support
-        // the delete endpoint yet.
+        // If url is `Some(_)`, this endpoint is the same as
+        // `set_profile_field`, but we still need to use it in case it is `None`
+        // and the server doesn't support the delete endpoint yet.
         #[allow(deprecated)]
         let request =
             set_avatar_url::v3::Request::new(user_id.to_owned(), url.map(ToOwned::to_owned));
@@ -270,7 +270,7 @@ impl Account {
     ///
     /// # Arguments
     ///
-    /// * `format` - The desired format of the avatar.
+    /// - `format` - The desired format of the avatar.
     ///
     /// # Examples
     ///
@@ -306,8 +306,8 @@ impl Account {
     /// content repository, and set the user's avatar to the MXC URI for the
     /// uploaded file.
     ///
-    /// This is a convenience method for calling [`Media::upload()`],
-    /// followed by [`Account::set_avatar_url()`].
+    /// This is a convenience method for calling [`Media::upload()`], followed
+    /// by [`Account::set_avatar_url()`].
     ///
     /// Returns the MXC URI of the uploaded avatar.
     ///
@@ -380,9 +380,8 @@ impl Account {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user to get the profile field of.
-    ///
-    /// * `field` - The name of the profile field to get.
+    /// - `user_id` - The ID of the user to get the profile field of.
+    /// - `field` - The name of the profile field to get.
     ///
     /// # Returns
     ///
@@ -414,7 +413,7 @@ impl Account {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The ID of the user to get the profile field of.
+    /// - `user_id` - The ID of the user to get the profile field of.
     ///
     /// # Returns
     ///
@@ -456,9 +455,9 @@ impl Account {
     ///
     /// # Arguments
     ///
-    /// * `emoji` - the status emoji. The MSC limits this to 32 bytes; not
+    /// - `emoji` - the status emoji. The MSC limits this to 32 bytes; not
     ///   enforced client-side.
-    /// * `text` - the status text. The MSC limits this to 256 bytes; not
+    /// - `text` - the status text. The MSC limits this to 256 bytes; not
     ///   enforced client-side.
     #[cfg(feature = "unstable-msc4426")]
     pub async fn set_status(&self, emoji: String, text: String) -> Result<()> {
@@ -476,7 +475,7 @@ impl Account {
     ///
     /// # Arguments
     ///
-    /// * `call_joined_ts` - when the user joined the current call, in seconds
+    /// - `call_joined_ts` - when the user joined the current call, in seconds
     ///   since the Unix epoch. `None` if the joined time isn't known.
     #[cfg(feature = "unstable-msc4426")]
     pub async fn set_call(&self, call_joined_ts: Option<SecondsSinceUnixEpoch>) -> Result<()> {
@@ -499,7 +498,7 @@ impl Account {
     ///
     /// # Arguments
     ///
-    /// * `value` - The value of the profile field to set.
+    /// - `value` - The value of the profile field to set.
     ///
     /// # Returns
     ///
@@ -523,7 +522,7 @@ impl Account {
     ///
     /// # Arguments
     ///
-    /// * `field` - The profile field to delete.
+    /// - `field` - The profile field to delete.
     ///
     /// # Returns
     ///
@@ -561,8 +560,8 @@ impl Account {
         if let Err(error) =
             self.client.base_client().own_profile_updated(UserProfileUpdate::Updated(changes)).await
         {
-            // The homeserver has already accepted the changes at this point, so we
-            // only need to log the failure.
+            // The homeserver has already accepted the changes at this point, so
+            // we only need to log the failure.
             warn!(?error, "Failed to update the locally stored copy of our own profile");
         }
     }
@@ -571,9 +570,8 @@ impl Account {
     ///
     /// # Arguments
     ///
-    /// * `new_password` - The new password to set.
-    ///
-    /// * `auth_data` - This request uses the [User-Interactive Authentication
+    /// - `new_password` - The new password to set.
+    /// - `auth_data` - This request uses the [User-Interactive Authentication
     ///   API][uiaa]. The first request needs to set this to `None` and will
     ///   always fail with an [`UiaaResponse`]. The response will contain
     ///   information for the interactive auth and the same request needs to be
@@ -606,6 +604,7 @@ impl Account {
     /// ).await?;
     /// # anyhow::Ok(()) };
     /// ```
+    ///
     /// [uiaa]: https://spec.matrix.org/v1.2/client-server-api/#user-interactive-authentication-api
     /// [`UiaaResponse`]: ruma::api::client::uiaa::UiaaResponse
     /// [`ErrorKind::WeakPassword`]: ruma::api::error::ErrorKind::WeakPassword
@@ -624,16 +623,16 @@ impl Account {
     ///
     /// # Arguments
     ///
-    /// * `id_server` - The identity server from which to unbind the user’s
+    /// - `id_server` - The identity server from which to unbind the user’s
     ///   [Third Party Identifiers][3pid].
     ///
-    /// * `auth_data` - This request uses the [User-Interactive Authentication
+    /// - `auth_data` - This request uses the [User-Interactive Authentication
     ///   API][uiaa]. The first request needs to set this to `None` and will
     ///   always fail with an [`UiaaResponse`]. The response will contain
     ///   information for the interactive auth and the same request needs to be
     ///   made but this time with some `auth_data` provided.
     ///
-    /// * `erase` - Whether the user would like their content to be erased as
+    /// - `erase` - Whether the user would like their content to be erased as
     ///   much as possible from the server.
     ///
     /// # Examples
@@ -657,6 +656,7 @@ impl Account {
     /// // Proceed with UIAA.
     /// # anyhow::Ok(()) };
     /// ```
+    ///
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     /// [uiaa]: https://spec.matrix.org/v1.2/client-server-api/#user-interactive-authentication-api
     /// [`UiaaResponse`]: ruma::api::client::uiaa::UiaaResponse
@@ -698,14 +698,15 @@ impl Account {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
+    ///
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     pub async fn get_3pids(&self) -> Result<get_3pids::v3::Response> {
         let request = get_3pids::v3::Request::new();
         Ok(self.client.send(request).await?)
     }
 
-    /// Request a token to validate an email address as a [Third Party
-    /// Identifier][3pid].
+    /// Request a token to validate an email address as a
+    /// [Third Party Identifier][3pid].
     ///
     /// This is the first step in registering an email address as 3PID. Next,
     /// call [`Account::add_3pid()`] with the same `client_secret` and the
@@ -713,20 +714,18 @@ impl Account {
     ///
     /// # Arguments
     ///
-    /// * `client_secret` - A client-generated secret string used to protect
+    /// - `client_secret` - A client-generated secret string used to protect
     ///   this session.
     ///
-    /// * `email` - The email address to validate.
-    ///
-    /// * `send_attempt` - The attempt number. This number needs to be
+    /// - `email` - The email address to validate.
+    /// - `send_attempt` - The attempt number. This number needs to be
     ///   incremented if you want to request another token for the same
     ///   validation.
     ///
     /// # Returns
     ///
-    /// * `sid` - The session ID to be used in following requests for this 3PID.
-    ///
-    /// * `submit_url` - If present, the user will submit the token to the
+    /// - `sid` - The session ID to be used in following requests for this 3PID.
+    /// - `submit_url` - If present, the user will submit the token to the
     ///   client, that must send it to this URL. If not, the client will not be
     ///   involved in the token submission.
     ///
@@ -758,6 +757,7 @@ impl Account {
     /// // Proceed with UIAA.
     /// # anyhow::Ok(()) };
     /// ```
+    ///
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     /// [`ErrorKind::ThreepidInUse`]: ruma::api::error::ErrorKind::ThreepidInUse
     /// [`ErrorKind::ThreepidDenied`]: ruma::api::error::ErrorKind::ThreepidDenied
@@ -775,33 +775,31 @@ impl Account {
         Ok(self.client.send(request).await?)
     }
 
-    /// Request a token to validate a phone number as a [Third Party
-    /// Identifier][3pid].
+    /// Request a token to validate a phone number as a
+    /// [Third Party Identifier][3pid].
     ///
-    /// This is the first step in registering a phone number as 3PID. Next,
-    /// call [`Account::add_3pid()`] with the same `client_secret` and the
-    /// returned `sid`.
+    /// This is the first step in registering a phone number as 3PID. Next, call
+    /// [`Account::add_3pid()`] with the same `client_secret` and the returned
+    /// `sid`.
     ///
     /// # Arguments
     ///
-    /// * `client_secret` - A client-generated secret string used to protect
+    /// - `client_secret` - A client-generated secret string used to protect
     ///   this session.
     ///
-    /// * `country` - The two-letter uppercase ISO-3166-1 alpha-2 country code
+    /// - `country` - The two-letter uppercase ISO-3166-1 alpha-2 country code
     ///   that the number in phone_number should be parsed as if it were dialled
     ///   from.
     ///
-    /// * `phone_number` - The phone number to validate.
-    ///
-    /// * `send_attempt` - The attempt number. This number needs to be
+    /// - `phone_number` - The phone number to validate.
+    /// - `send_attempt` - The attempt number. This number needs to be
     ///   incremented if you want to request another token for the same
     ///   validation.
     ///
     /// # Returns
     ///
-    /// * `sid` - The session ID to be used in following requests for this 3PID.
-    ///
-    /// * `submit_url` - If present, the user will submit the token to the
+    /// - `sid` - The session ID to be used in following requests for this 3PID.
+    /// - `submit_url` - If present, the user will submit the token to the
     ///   client, that must send it to this URL. If not, the client will not be
     ///   involved in the token submission.
     ///
@@ -833,6 +831,7 @@ impl Account {
     /// // Proceed with UIAA.
     /// # anyhow::Ok(()) };
     /// ```
+    ///
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     /// [`ErrorKind::ThreepidInUse`]: ruma::api::error::ErrorKind::ThreepidInUse
     /// [`ErrorKind::ThreepidDenied`]: ruma::api::error::ErrorKind::ThreepidDenied
@@ -852,11 +851,10 @@ impl Account {
         Ok(self.client.send(request).await?)
     }
 
-    /// Add a [Third Party Identifier][3pid] on the homeserver for this
-    /// account.
+    /// Add a [Third Party Identifier][3pid] on the homeserver for this account.
     ///
-    /// This 3PID may be used by the homeserver to authenticate the user
-    /// during sensitive operations.
+    /// This 3PID may be used by the homeserver to authenticate the user during
+    /// sensitive operations.
     ///
     /// This method should be called after
     /// [`Account::request_3pid_email_token()`] or
@@ -864,15 +862,15 @@ impl Account {
     ///
     /// # Arguments
     ///
-    /// * `client_secret` - The same client secret used in
+    /// - `client_secret` - The same client secret used in
     ///   [`Account::request_3pid_email_token()`] or
     ///   [`Account::request_3pid_msisdn_token()`].
     ///
-    /// * `sid` - The session ID returned in
+    /// - `sid` - The session ID returned in
     ///   [`Account::request_3pid_email_token()`] or
     ///   [`Account::request_3pid_msisdn_token()`].
     ///
-    /// * `auth_data` - This request uses the [User-Interactive Authentication
+    /// - `auth_data` - This request uses the [User-Interactive Authentication
     ///   API][uiaa]. The first request needs to set this to `None` and will
     ///   always fail with an [`UiaaResponse`]. The response will contain
     ///   information for the interactive auth and the same request needs to be
@@ -900,20 +898,18 @@ impl Account {
     ///
     /// # Arguments
     ///
-    /// * `address` - The 3PID being removed.
-    ///
-    /// * `medium` - The type of the 3PID.
-    ///
-    /// * `id_server` - The identity server to unbind from. If not provided, the
+    /// - `address` - The 3PID being removed.
+    /// - `medium` - The type of the 3PID.
+    /// - `id_server` - The identity server to unbind from. If not provided, the
     ///   homeserver should unbind the 3PID from the identity server it was
     ///   bound to previously.
     ///
     /// # Returns
     ///
-    /// * [`ThirdPartyIdRemovalStatus::Success`] if the 3PID was also unbound
+    /// - [`ThirdPartyIdRemovalStatus::Success`] if the 3PID was also unbound
     ///   from the identity server.
     ///
-    /// * [`ThirdPartyIdRemovalStatus::NoSupport`] if the 3PID was not unbound
+    /// - [`ThirdPartyIdRemovalStatus::NoSupport`] if the 3PID was not unbound
     ///   from the identity server. This can also mean that the 3PID was not
     ///   bound to an identity server in the first place.
     ///
@@ -940,6 +936,7 @@ impl Account {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
+    ///
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
     /// [`ThirdPartyIdRemovalStatus::Success`]: ruma::api::client::account::ThirdPartyIdRemovalStatus::Success
     /// [`ThirdPartyIdRemovalStatus::NoSupport`]: ruma::api::client::account::ThirdPartyIdRemovalStatus::NoSupport
@@ -1003,10 +1000,17 @@ impl Account {
     /// # async {
     /// # let client = Client::new("http://localhost:8080".parse()?).await?;
     /// # let account = client.account();
-    /// use matrix_sdk::ruma::events::{ignored_user_list::IgnoredUserListEventContent, GlobalAccountDataEventType};
+    /// use matrix_sdk::ruma::events::{
+    ///     GlobalAccountDataEventType,
+    ///     ignored_user_list::IgnoredUserListEventContent,
+    /// };
     ///
-    /// if let Some(raw_content) = account.fetch_account_data(GlobalAccountDataEventType::IgnoredUserList).await? {
-    ///     let content = raw_content.deserialize_as_unchecked::<IgnoredUserListEventContent>()?;
+    /// if let Some(raw_content) = account
+    ///     .fetch_account_data(GlobalAccountDataEventType::IgnoredUserList)
+    ///     .await?
+    /// {
+    ///     let content = raw_content
+    ///         .deserialize_as_unchecked::<IgnoredUserListEventContent>()?;
     ///
     ///     println!("Ignored users:");
     ///
@@ -1015,6 +1019,7 @@ impl Account {
     ///     }
     /// }
     /// # anyhow::Ok(()) };
+    /// ```
     pub async fn fetch_account_data(
         &self,
         event_type: GlobalAccountDataEventType,
@@ -1097,38 +1102,38 @@ impl Account {
         Ok(self.client.send(request).await?)
     }
 
-    /// Marks the room identified by `room_id` as a "direct chat" with each
-    /// user in `user_ids`.
+    /// Marks the room identified by `room_id` as a "direct chat" with each user
+    /// in `user_ids`.
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The room ID of the direct message room.
-    /// * `user_ids` - The user IDs to be associated with this direct message
+    /// - `room_id` - The room ID of the direct message room.
+    /// - `user_ids` - The user IDs to be associated with this direct message
     ///   room.
     pub async fn mark_as_dm(&self, room_id: &RoomId, user_ids: &[OwnedUserId]) -> Result<()> {
         use ruma::events::direct::DirectEventContent;
 
-        // This function does a read/update/store of an account data event stored on the
-        // homeserver. We first fetch the existing account data event, the event
-        // contains a map which gets updated by this method, finally we upload the
-        // modified event.
+        // This function does a read/update/store of an account data event
+        // stored on the homeserver. We first fetch the existing account data
+        // event, the event contains a map which gets updated by this method,
+        // finally we upload the modified event.
         //
-        // To prevent multiple calls to this method trying to update the map of DMs same
-        // time, and thus trampling on each other we introduce a lock which acts
-        // as a semaphore.
+        // To prevent multiple calls to this method trying to update the map of
+        // DMs same time, and thus trampling on each other we introduce a lock
+        // which acts as a semaphore.
         let _guard = self.client.locks().mark_as_dm_lock.lock().await;
 
         // Now we need to mark the room as a DM for ourselves, we fetch the
         // existing `m.direct` event and append the room to the list of DMs we
         // have with this user.
 
-        // We are fetching the content from the server because we currently can't rely
-        // on `/sync` giving us the correct data in a timely manner.
+        // We are fetching the content from the server because we currently
+        // can't rely on `/sync` giving us the correct data in a timely manner.
         let raw_content = self.fetch_account_data_static::<DirectEventContent>().await?;
 
         let mut content = if let Some(raw_content) = raw_content {
-            // Log the error and pass it upwards if we fail to deserialize the m.direct
-            // event.
+            // Log the error and pass it upwards if we fail to deserialize the
+            // m.direct event.
             raw_content.deserialize().map_err(|err| {
                 error!("unable to deserialize m.direct event content; aborting request to mark {room_id} as dm: {err}");
                 err
@@ -1162,10 +1167,10 @@ impl Account {
 
         self.set_account_data(ignored_user_list).await?;
 
-        // In theory, we should also clear some caches here, because they may include
-        // events sent by the ignored user. In practice, we expect callers to
-        // take care of this, or subsystems to listen to user list changes and
-        // clear caches accordingly.
+        // In theory, we should also clear some caches here, because they may
+        // include events sent by the ignored user. In practice, we expect
+        // callers to take care of this, or subsystems to listen to user list
+        // changes and clear caches accordingly.
 
         Ok(())
     }
@@ -1260,15 +1265,17 @@ impl Account {
 
     /// Observes the media preview configuration.
     ///
-    /// This value is linked to the [MSC 4278](https://github.com/matrix-org/matrix-spec-proposals/pull/4278) which is still in an unstable state.
+    /// This value is linked to the
+    /// [MSC 4278](https://github.com/matrix-org/matrix-spec-proposals/pull/4278)
+    /// which is still in an unstable state.
     ///
     /// This will return the initial value of the configuration and a stream
     /// that will yield new values as they are received.
     ///
-    /// The initial value is the one that was stored in the account data
-    /// when the client was started.
-    /// and the following code is using a temporary solution until we know which
-    /// Matrix version will support the stable type.
+    /// The initial value is the one that was stored in the account data when
+    /// the client was started. and the following code is using a temporary
+    /// solution until we know which Matrix version will support the stable
+    /// type.
     ///
     /// # Examples
     ///
@@ -1302,8 +1309,8 @@ impl Account {
         ),
         Error,
     > {
-        // We need to create two observers, one for the stable event and one for the
-        // unstable and combine them into a single stream.
+        // We need to create two observers, one for the stable event and one for
+        // the unstable and combine them into a single stream.
         let first_observer = self
             .client
             .observe_events::<GlobalAccountDataEvent<MediaPreviewConfigEventContent>, ()>();
@@ -1319,8 +1326,8 @@ impl Account {
         let mut combined_stream = stream::select(stream, second_stream);
 
         let result_stream = async_stream::stream! {
-            // The observers need to be alive for the individual streams to be alive, so let's now
-            // create a stream that takes ownership of them.
+            // The observers need to be alive for the individual streams to be
+            // alive, so let's now create a stream that takes ownership of them.
             let _first_observer = first_observer;
             let _second_observer = second_observer;
 
@@ -1329,8 +1336,8 @@ impl Account {
             }
         };
 
-        // We need to get the initial value of the media preview config event
-        // we do this after creating the observers to make sure that we don't
+        // We need to get the initial value of the media preview config event we
+        // do this after creating the observers to make sure that we don't
         // create a race condition
         let initial_value = self.get_media_preview_config_event_content().await?;
 
@@ -1356,8 +1363,8 @@ impl Account {
                 .map(Raw::cast)
         };
 
-        // We deserialize the content of the event, if is not found we return the
-        // default
+        // We deserialize the content of the event, if is not found we return
+        // the default
         let media_preview_config = media_preview_config.and_then(|value| value.deserialize().ok());
 
         Ok(media_preview_config)
@@ -1433,19 +1440,22 @@ impl Account {
         let index = recent_emojis.iter().position(|(unicode, _)| unicode == emoji);
 
         // Truncate to the max allowed size, which will remove any emojis that
-        // haven't been used in a very long time. This will also ease the pressure on
-        // `remove` and `insert` shifting lots of elements in the list
+        // haven't been used in a very long time. This will also ease the
+        // pressure on `remove` and `insert` shifting lots of elements in the
+        // list
         recent_emojis.truncate(MAX_RECENT_EMOJI_COUNT);
 
-        // Remove the emoji from the list if it was present and get it's `count` value
+        // Remove the emoji from the list if it was present and get it's `count`
+        // value
         let count = if let Some(index) = index { recent_emojis.remove(index).1 } else { uint!(0) };
 
-        // Insert the emoji with the updated count at the start of the list, so it's
-        // considered the most recently used emoji
+        // Insert the emoji with the updated count at the start of the list, so
+        // it's considered the most recently used emoji
         recent_emojis.insert(0, (emoji.to_owned(), count + uint!(1)));
 
-        // If the item was a new one, the list will now be `MAX_RECENT_EMOJI_COUNT` + 1,
-        // so truncate it again (this is a no-op if it already has the right size)
+        // If the item was a new one, the list will now be
+        // `MAX_RECENT_EMOJI_COUNT` + 1, so truncate it again (this is a no-op
+        // if it already has the right size)
         recent_emojis.truncate(MAX_RECENT_EMOJI_COUNT);
 
         let request = UpdateGlobalAccountDataRequest::new(
@@ -1488,9 +1498,9 @@ impl Account {
         };
 
         if let Some(content) = content {
-            // Sort by count, descending. For items with the same count, since they were
-            // previously ordered by recency in the list, more recent emojis will be
-            // returned first.
+            // Sort by count, descending. For items with the same count, since
+            // they were previously ordered by recency in the list, more recent
+            // emojis will be returned first.
             let sorted_emojis = content
                 .recent_emoji
                 .into_iter()
@@ -1629,7 +1639,8 @@ mod test_recent_emojis {
             .mount()
             .await;
 
-        // Now with a list of emojis longer than the max count, we fetch the emoji list
+        // Now with a list of emojis longer than the max count, we fetch the
+        // emoji list
         let recent_emojis = client.account().get_recent_emojis(true).await.expect("recent emojis");
 
         // It should only return until the max count
@@ -1637,6 +1648,7 @@ mod test_recent_emojis {
         assert_eq!(recent_emojis, long_emoji_list[..MAX_RECENT_EMOJI_COUNT]);
 
         // Simulate the logic we expect when adding a new emoji:
+        //
         // 1. Remove the existing emoji if present
         // 2. Increase its count value and insert it at the front.
         // 3. Truncate at MAX_RECENT_EMOJI_COUNT
@@ -1648,8 +1660,8 @@ mod test_recent_emojis {
             list
         };
 
-        // Now if we add a new emoji that was not in the list, the last one in the list
-        // should be gone
+        // Now if we add a new emoji that was not in the list, the last one in
+        // the list should be gone
         server
             .mock_add_recent_emojis()
             .match_emojis_in_request_body(expected_updated_emoji_list)
@@ -1661,7 +1673,8 @@ mod test_recent_emojis {
 
         client.account().add_recent_emoji("50").await.expect("adding emoji");
 
-        // Do the same, but now with a new emoji that wasn't previously in the list
+        // Do the same, but now with a new emoji that wasn't previously in the
+        // list
         let expected_updated_emoji_list = {
             let mut list = long_emoji_list.clone();
             let item = (":D".to_owned(), uint!(1));

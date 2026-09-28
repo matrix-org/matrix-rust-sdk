@@ -16,8 +16,8 @@ use ruma::{
 use crate::Result;
 
 /// A set of common power levels required for various operations within a room,
-/// that can be applied as a single operation. When updating these
-/// settings, any levels that are `None` will remain unchanged.
+/// that can be applied as a single operation. When updating these settings, any
+/// levels that are `None` will remain unchanged.
 #[derive(Debug)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct RoomPowerLevelChanges {
@@ -140,8 +140,8 @@ pub(crate) trait RoomPowerLevelsExt {
     /// Applies the updated settings to the power levels. Any levels that are
     /// `None` will remain unchanged. Unlike with members, we don't remove the
     /// event if the new level matches the default as this could result in
-    /// unintended privileges when updating the default power level in
-    /// isolation of the others.
+    /// unintended privileges when updating the default power level in isolation
+    /// of the others.
     fn apply(&mut self, settings: RoomPowerLevelChanges) -> Result<()>;
 }
 
@@ -220,8 +220,8 @@ pub fn power_level_user_changes(
         }
     }
 
-    // Any remaining users from the old power levels have had their power level set
-    // back to default.
+    // Any remaining users from the old power levels have had their power level
+    // set back to default.
     for (user_id, power_level) in prev_users {
         if power_level != content.users_default {
             changes.insert(user_id, content.users_default.into());
@@ -282,8 +282,8 @@ mod tests {
 
     #[test]
     fn test_apply_room_settings() {
-        // Given a set of power levels and some settings that only change the specific
-        // state event levels.
+        // Given a set of power levels and some settings that only change the
+        // specific state event levels.
         let mut power_levels = default_power_levels();
 
         let new_level = int!(100);
@@ -329,8 +329,8 @@ mod tests {
 
     #[test]
     fn test_apply_state_event_to_default() {
-        // Given a set of power levels and some settings that change the room name level
-        // back to the default level.
+        // Given a set of power levels and some settings that change the room
+        // name level back to the default level.
         let original_level = int!(100);
         let mut power_levels = default_power_levels();
         power_levels.events = BTreeMap::from_iter(vec![
@@ -383,8 +383,8 @@ mod tests {
 
     #[test]
     fn test_apply_beacon_settings() {
-        // Given a set of power levels and some settings that only change the beacon
-        // and beacon_info event levels.
+        // Given a set of power levels and some settings that only change the
+        // beacon and beacon_info event levels.
         let mut power_levels = default_power_levels();
 
         let new_level = int!(25);
@@ -429,8 +429,8 @@ mod tests {
 
     #[test]
     fn test_user_power_level_changes_add_mod() {
-        // Given a set of power levels and a new set of power levels that adds a new
-        // moderator.
+        // Given a set of power levels and a new set of power levels that adds a
+        // new moderator.
         let prev_content = default_power_levels_event_content();
         let mut content = prev_content.clone();
         content.users.insert(OwnedUserId::try_from("@charlie:example.com").unwrap(), int!(50));
@@ -445,8 +445,8 @@ mod tests {
 
     #[test]
     fn test_user_power_level_changes_remove_mod() {
-        // Given a set of power levels and a new set of power levels that removes a
-        // moderator.
+        // Given a set of power levels and a new set of power levels that
+        // removes a moderator.
         let prev_content = default_power_levels_event_content();
         let mut content = prev_content.clone();
         content.users.remove(&OwnedUserId::try_from("@bob:example.com").unwrap());
@@ -461,8 +461,8 @@ mod tests {
 
     #[test]
     fn test_user_power_level_changes_change_mod() {
-        // Given a set of power levels and a new set of power levels that changes a
-        // moderator to an admin.
+        // Given a set of power levels and a new set of power levels that
+        // changes a moderator to an admin.
         let prev_content = default_power_levels_event_content();
         let mut content = prev_content.clone();
         content.users.insert(OwnedUserId::try_from("@bob:example.com").unwrap(), int!(100));
@@ -477,8 +477,9 @@ mod tests {
 
     #[test]
     fn test_user_power_level_changes_new_default() {
-        // Given a set of power levels and a new set of power levels that changes the
-        // default user power level to moderator and removes the only moderator.
+        // Given a set of power levels and a new set of power levels that
+        // changes the default user power level to moderator and removes the
+        // only moderator.
         let prev_content = default_power_levels_event_content();
         let mut content = prev_content.clone();
         content.users_default = int!(50);
@@ -493,7 +494,8 @@ mod tests {
 
     #[test]
     fn test_user_power_level_changes_no_change() {
-        // Given a set of power levels and a new set of power levels that's the same.
+        // Given a set of power levels and a new set of power levels that's the
+        // same.
         let prev_content = default_power_levels_event_content();
         let content = prev_content.clone();
 
@@ -506,8 +508,8 @@ mod tests {
 
     #[test]
     fn test_user_power_level_changes_other_properties() {
-        // Given a set of power levels and a new set of power levels with changes that
-        // don't include the user power levels.
+        // Given a set of power levels and a new set of power levels with
+        // changes that don't include the user power levels.
         let prev_content = default_power_levels_event_content();
         let mut content = prev_content.clone();
         content.events_default = int!(100);

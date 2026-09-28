@@ -1,1 +1,0 @@
-[**breaking**] Allow specifying membership states for `TimelineEventCondition::MembershipChange`, with a new `MembershipChangeFilter` enum.

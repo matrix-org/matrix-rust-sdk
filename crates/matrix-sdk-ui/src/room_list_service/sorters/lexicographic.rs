@@ -21,7 +21,8 @@ use super::{BoxedSorterFn, Sorter};
 /// a sorter return [`Ordering::Greater`] or [`Ordering::Less`].
 ///
 /// This is an implementation of a lexicographic order as defined for cartesian
-/// products ([learn more](https://en.wikipedia.org/wiki/Lexicographic_order#Cartesian_products)).
+/// products
+/// ([learn more](https://en.wikipedia.org/wiki/Lexicographic_order#Cartesian_products)).
 pub fn new_sorter(sorters: Vec<BoxedSorterFn>) -> impl Sorter {
     move |left, right| -> Ordering {
         for sorter in &sorters {

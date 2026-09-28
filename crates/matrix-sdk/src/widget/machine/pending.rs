@@ -24,21 +24,21 @@ use uuid::Uuid;
 #[derive(Clone, Debug)]
 pub(crate) struct RequestLimits {
     /// Maximum amount of unanswered (pending) requests that the client widget
-    /// API is going to process before starting to drop them. This ensures
-    /// that a buggy widget cannot force the client machine to consume memory
+    /// API is going to process before starting to drop them. This ensures that
+    /// a buggy widget cannot force the client machine to consume memory
     /// indefinitely.
     pub(crate) max_pending_requests: usize,
     /// For how long can the unanswered (pending) request stored in a map before
-    /// it is dropped. This ensures that requests that are not answered within
-    /// a certain amount of time, are dropped/cleaned up (considered as failed).
+    /// it is dropped. This ensures that requests that are not answered within a
+    /// certain amount of time, are dropped/cleaned up (considered as failed).
     pub(crate) response_timeout: Duration,
 }
 
-/// A wrapper around a hash map that ensures that the request limits
-/// are taken into account.
+/// A wrapper around a hash map that ensures that the request limits are taken
+/// into account.
 ///
-/// Expired requests get cleaned up so that the hashmap remains
-/// limited to a certain amount of pending requests.
+/// Expired requests get cleaned up so that the hashmap remains limited to a
+/// certain amount of pending requests.
 pub(super) struct PendingRequests<T> {
     requests: IndexMap<Uuid, Expirable<T>>,
     limits: RequestLimits,
@@ -132,8 +132,7 @@ mod tests {
         let second = Uuid::new_v4();
         assert!(pending.insert(second, Dummy).is_none());
 
-        // First extract is ok.
-        // Second extract fails - it's not in a map.
+        // First extract is ok. Second extract fails - it's not in a map.
         assert!(pending.extract(&first).is_ok());
         assert!(pending.extract(&second).is_err());
 
@@ -165,16 +164,16 @@ mod tests {
         assert!(pending.insert(Uuid::new_v4(), Dummy).is_some());
 
         // Wait for half a second, remove expired ones (none must be removed).
-        // Then, add another one (should also be fine, limits are high). So
-        // we should have 3 requests in a hash map.
+        // Then, add another one (should also be fine, limits are high). So we
+        // should have 3 requests in a hash map.
         std::thread::sleep(Duration::from_millis(500));
         pending.remove_expired();
         let key = Uuid::new_v4();
         assert!(pending.insert(key, Dummy).is_some());
         assert!(pending.requests.len() == 3);
 
-        // Wait for another half a second. First two requests should lapse.
-        // But the last one should still be in the map.
+        // Wait for another half a second. First two requests should lapse. But
+        // the last one should still be in the map.
         std::thread::sleep(Duration::from_millis(500));
         pending.remove_expired();
         assert!(pending.requests.len() == 1);

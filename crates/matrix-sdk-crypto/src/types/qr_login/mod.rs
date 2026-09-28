@@ -42,8 +42,8 @@ pub enum LoginQrCodeDecodeError {
     /// One of the URLs in the QR code data could not be parsed.
     #[error("One of the URLs in the QR code data could not be parsed: {0:?}")]
     UrlParse(#[from] url::ParseError),
-    /// The QR code data contains an invalid intent, we expect the login
-    /// intent or the reciprocate intent.
+    /// The QR code data contains an invalid intent, we expect the login intent
+    /// or the reciprocate intent.
     #[error(
         "The QR code data contains an invalid QR code intent, expected {expected_login} or {expected_reciprocate}, got {got}"
     )]

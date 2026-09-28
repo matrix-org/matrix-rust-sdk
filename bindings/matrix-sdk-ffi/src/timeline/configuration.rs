@@ -114,9 +114,9 @@ pub struct TimelineConfiguration {
     /// How should we filter out events from the timeline?
     pub filter: TimelineFilter,
 
-    /// An optional String that will be prepended to
-    /// all the timeline item's internal IDs, making it possible to
-    /// distinguish different timeline instances from each other.
+    /// An optional String that will be prepended to all the timeline item's
+    /// internal IDs, making it possible to distinguish different timeline
+    /// instances from each other.
     pub internal_id_prefix: Option<String>,
 
     /// How often to insert date dividers

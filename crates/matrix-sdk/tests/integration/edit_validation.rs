@@ -1,4 +1,5 @@
-use assert_matches2::assert_matches;
+use std::assert_matches;
+
 use matrix_sdk::{
     EditValidityError, check_validity_of_replacement_events,
     deserialized_responses::{AlgorithmInfo, EncryptionInfo, VerificationState},

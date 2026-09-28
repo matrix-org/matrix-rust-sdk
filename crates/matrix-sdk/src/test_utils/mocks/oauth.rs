@@ -38,17 +38,17 @@ use super::{MatrixMock, MatrixMockServer, MockEndpoint};
 ///
 /// It works like this:
 ///
-/// * start by saying which endpoint you'd like to mock, e.g.
+/// - start by saying which endpoint you'd like to mock, e.g.
 ///   [`Self::mock_server_metadata()`]. This returns a specialized
 ///   [`MockEndpoint`] data structure, with its own impl. For this example, it's
 ///   `MockEndpoint<ServerMetadataEndpoint>`.
-/// * configure the response on the endpoint-specific mock data structure. For
+/// - configure the response on the endpoint-specific mock data structure. For
 ///   instance, if you want the sending to result in a transient failure, call
 ///   [`MockEndpoint::error500`]; if you want it to succeed and return the
 ///   metadata, call [`MockEndpoint::ok()`]. It's still possible to call
 ///   [`MockEndpoint::respond_with()`], as we do with wiremock MockBuilder, for
 ///   maximum flexibility when the helpers aren't sufficient.
-/// * once the endpoint's response is configured, for any mock builder, you get
+/// - once the endpoint's response is configured, for any mock builder, you get
 ///   a [`MatrixMock`]; this is a plain [`wiremock::Mock`] with the server
 ///   curried, so one doesn't have to pass it around when calling
 ///   [`MatrixMock::mount()`] or [`MatrixMock::mount_as_scoped()`]. As such, it

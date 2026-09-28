@@ -37,7 +37,7 @@ use ruma::api::error::ErrorKind;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use url::Url;
-pub use vodozemac::ecies::{Error as EciesError, MessageDecodeError};
+pub use vodozemac::ecies::{Error as EciesError, MessageDecodeError as EciesMessageDecodeError};
 
 mod grant;
 mod login;
@@ -246,26 +246,41 @@ impl DeviceAuthorizationOAuthError {
     }
 }
 
-/// Error type for failures in when receiving or sending messages over the
-/// secure channel.
+/// Error type which describes failures when messages which are received over
+/// the secure channel fail to be decoded.
 #[derive(Debug, Error)]
-pub enum SecureChannelError {
+pub enum MessageDecodeError {
+    /// A received message has failed to be decoded.
+    #[error(transparent)]
+    Ecies(#[from] EciesMessageDecodeError),
     /// A message we received over the secure channel was not a valid UTF-8
     /// encoded string.
     #[error(transparent)]
     Utf8(#[from] std::str::Utf8Error),
+    /// A message couldn't be deserialized from JSON.
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+}
 
-    /// A message has failed to be decrypted.
+/// Error type for decryption failures of the secure channel.
+#[derive(Debug, Error)]
+pub enum DecryptionError {
+    /// A ECIES message failed to be decrypted.
     #[error(transparent)]
     Ecies(#[from] EciesError),
+}
+
+/// Error type for failures in when receiving or sending messages over the
+/// secure channel.
+#[derive(Debug, Error)]
+pub enum SecureChannelError {
+    /// A message has failed to be decrypted.
+    #[error(transparent)]
+    Decryption(#[from] DecryptionError),
 
     /// A received message has failed to be decoded.
     #[error(transparent)]
     MessageDecode(#[from] MessageDecodeError),
-
-    /// A message couldn't be deserialized from JSON.
-    #[error(transparent)]
-    Json(#[from] serde_json::Error),
 
     /// The secure channel failed to be established because it received an
     /// unexpected message.
@@ -309,13 +324,13 @@ pub enum SecureChannelError {
     UnsupportedQrCodeType,
 }
 
-/// Metadata to be used with [`LoginProgress::EstablishingSecureChannel`]
-/// or [`GrantLoginProgress::EstablishingSecureChannel`] when
-/// this device is the one scanning the QR code.
+/// Metadata to be used with [`LoginProgress::EstablishingSecureChannel`] or
+/// [`GrantLoginProgress::EstablishingSecureChannel`] when this device is the
+/// one scanning the QR code.
 ///
-/// We have established the secure channel, but we need to let the other
-/// side know about the check code so they can verify that the secure
-/// channel is indeed secure.
+/// We have established the secure channel, but we need to let the other side
+/// know about the check code so they can verify that the secure channel is
+/// indeed secure.
 #[derive(Clone, Debug)]
 pub struct QrProgress {
     /// The check code we need to, out of band, send to the other device.
@@ -326,18 +341,18 @@ pub struct QrProgress {
 /// [`GrantLoginProgress::EstablishingSecureChannel`] when this device is the
 /// one generating the QR code.
 ///
-/// We have established the secure channel, but we need to let the
-/// other device know about the [`QrCodeData`] so they can connect to the
-/// channel and let us know about the check code so we can verify that the
-/// channel is indeed secure.
+/// We have established the secure channel, but we need to let the other device
+/// know about the [`QrCodeData`] so they can connect to the channel and let us
+/// know about the check code so we can verify that the channel is indeed
+/// secure.
 #[derive(Clone, Debug)]
 pub enum GeneratedQrProgress {
     /// The QR code has been created and this device is waiting for the other
     /// device to scan it.
     QrReady(QrCodeData),
     /// The QR code has been scanned by the other device and this device is
-    /// waiting for the user to put in the check code displayed on the
-    /// other device.
+    /// waiting for the user to put in the check code displayed on the other
+    /// device.
     QrScanned(CheckCodeSender),
 }
 

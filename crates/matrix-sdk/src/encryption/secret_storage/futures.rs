@@ -52,8 +52,8 @@ impl<'a> IntoFuture for CreateStore<'a> {
         Box::pin(async move {
             // Prevent multiple simultaneous calls to this method.
             //
-            // See the documentation for the lock in the `store_secret` method for more
-            // info.
+            // See the documentation for the lock in the `store_secret` method
+            // for more info.
             let client_copy = secret_storage.client.to_owned();
             let _guard = client_copy.locks().open_secret_store_lock.lock().await;
 

@@ -22,8 +22,8 @@ enum ReleaseCommand {
         #[clap(long)]
         execute: bool,
         /// The crate or package that should be released. Use this if you'd like
-        /// to release only one specific crate. The default is to
-        /// release all crates.
+        /// to release only one specific crate. The default is to release all
+        /// crates.
         #[clap(long)]
         package: Option<String>,
     },
@@ -36,8 +36,8 @@ enum ReleaseCommand {
         #[clap(long)]
         execute: bool,
         /// The crate or package that should be released. Use this if you'd like
-        /// to release only one specific crate. The default is to
-        /// release all crates.
+        /// to release only one specific crate. The default is to release all
+        /// crates.
         #[clap(long)]
         package: Option<String>,
     },

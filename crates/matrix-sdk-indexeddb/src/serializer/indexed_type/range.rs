@@ -17,8 +17,8 @@ use crate::serializer::{
     safe_encode::types::SafeEncodeSerializer,
 };
 
-/// Representation of a range of keys of type `K`. This is loosely
-/// correlated with [IDBKeyRange][1], with a few differences.
+/// Representation of a range of keys of type `K`. This is loosely correlated
+/// with [IDBKeyRange][1], with a few differences.
 ///
 /// Namely, this enum only provides a single way to express a bounded range
 /// which is always inclusive on both bounds. While all ranges can still be
@@ -33,9 +33,8 @@ pub enum IndexedKeyRange<K> {
     ///
     /// [1]: https://developer.mozilla.org/en-US/docs/Web/API/IDBKeyRange/only
     Only(K),
-    /// Represents an inclusive range of keys of type `K`
-    /// where the first item is the lower bound and the
-    /// second item is the upper bound.
+    /// Represents an inclusive range of keys of type `K` where the first item
+    /// is the lower bound and the second item is the upper bound.
     ///
     /// Similar to [`IDBKeyRange.bound`][1].
     ///
@@ -44,8 +43,8 @@ pub enum IndexedKeyRange<K> {
 }
 
 impl<'a, C: 'a> IndexedKeyRange<C> {
-    /// Encodes a range of key components of type `K::KeyComponents`
-    /// into a range of keys of type `K`.
+    /// Encodes a range of key components of type `K::KeyComponents` into a
+    /// range of keys of type `K`.
     pub fn encoded<T, K>(self, serializer: &SafeEncodeSerializer) -> IndexedKeyRange<K>
     where
         T: Indexed,
@@ -104,8 +103,8 @@ impl<K> IndexedKeyRange<K> {
     /// [`IndexedKeyRange::Only::0`].
     ///
     /// For [`IndexedKeyRange::Bound`] variants, the resulting value will be an
-    /// [`IndexedKeyRange::Bound`] that represents all keys in a range where
-    /// the lower bound begins with [`IndexedKeyRange::Bound::0`] and the upper
+    /// [`IndexedKeyRange::Bound`] that represents all keys in a range where the
+    /// lower bound begins with [`IndexedKeyRange::Bound::0`] and the upper
     /// bound begins with [`IndexedKeyRange::Bound::1`].
     pub fn into_prefix<T, K2>(self, serializer: &SafeEncodeSerializer) -> IndexedKeyRange<K2>
     where

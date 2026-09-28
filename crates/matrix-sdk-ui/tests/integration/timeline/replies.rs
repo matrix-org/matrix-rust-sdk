@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
@@ -30,6 +29,7 @@ use ruma::{
     owned_event_id, owned_mxc_uri, room_id,
 };
 use serde_json::json;
+use strass::assert_let;
 use stream_assert::{assert_next_matches, assert_pending};
 use tokio::task::yield_now;
 use wiremock::{
@@ -724,9 +724,9 @@ async fn test_send_reply() {
     // so it's not available if the timeline got cleared. Not critical, but
     // there's notable room for improvement here.
     //
-    // let replied_to_event =
-    // assert_matches!(&in_reply_to.event, TimelineDetails::Ready(ev) => ev);
-    // assert_eq!(replied_to_event.sender(), *BOB);
+    // let replied_to_event = assert_matches!(&in_reply_to.event,
+    // TimelineDetails::Ready(ev) => ev); assert_eq!(replied_to_event.sender(),
+    // *BOB);
 
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
     assert_let!(VectorDiff::Set { index: 0, value: reply_item_remote_echo } = diff);
@@ -740,9 +740,9 @@ async fn test_send_reply() {
 
     // Same as above.
     //
-    // let replied_to_event =
-    // assert_matches!(&in_reply_to.event, TimelineDetails::Ready(ev) =>
-    // ev); assert_eq!(replied_to_event.sender(), *BOB);
+    // let replied_to_event = assert_matches!(&in_reply_to.event,
+    // TimelineDetails::Ready(ev) => ev); assert_eq!(replied_to_event.sender(),
+    // *BOB);
 }
 
 #[async_test]
@@ -1242,10 +1242,10 @@ async fn test_send_reply_enforce_thread_is_reply() {
 
 #[async_test]
 async fn test_send_reply_with_event_id_that_is_redacted() {
-    // This test checks if is possible to reply to a redacted event that is not in
-    // the timeline. The event id will go through a process where the event is
-    // fetched and the content will be extracted and deserialised to be used in
-    // the reply.
+    // This test checks if is possible to reply to a redacted event that is not
+    // in the timeline. The event id will go through a process where the event
+    // is fetched and the content will be extracted and deserialised to be used
+    // in the reply.
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 

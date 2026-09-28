@@ -99,8 +99,7 @@ pub enum QrVerificationState {
     ///
     /// We have received the other device's details (from the
     /// `m.key.verification.request` or `m.key.verification.ready`) and
-    /// established the shared secret, so can
-    /// display the QR code.
+    /// established the shared secret, so can display the QR code.
     ///
     /// Note that despite the name of this state, we have not yet sent or
     /// received an `m.key.verification.start` message.
@@ -114,8 +113,8 @@ pub enum QrVerificationState {
     ///
     /// Call `QrVerification::reciprocate` to build the reciprocation message.
     ///
-    /// Note that, despite the name of this state, we have not necessarily
-    /// yet sent the `m.reciprocate.v1` message.
+    /// Note that, despite the name of this state, we have not necessarily yet
+    /// sent the `m.reciprocate.v1` message.
     Reciprocated,
     /// The verification process has been successfully concluded.
     Done {
@@ -698,8 +697,7 @@ impl QrVerification {
 enum InnerState {
     /// We have received the other device's details (from the
     /// `m.key.verification.request` or `m.key.verification.ready`) and
-    /// established the shared secret, so can
-    /// display the QR code.
+    /// established the shared secret, so can display the QR code.
     Created(QrState<Created>),
 
     /// The other side has scanned our QR code and sent an
@@ -716,8 +714,8 @@ enum InnerState {
     ///
     /// Call `QrVerification::reciprocate` to build the start message.
     ///
-    /// Note that, despite the name of this state, we have not necessarily
-    /// yet sent the `m.reciprocate.v1` message.
+    /// Note that, despite the name of this state, we have not necessarily yet
+    /// sent the `m.reciprocate.v1` message.
     Reciprocated(QrState<Reciprocated>),
 
     /// Verification complete: we have received an `m.key.verification.done`

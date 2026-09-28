@@ -201,8 +201,9 @@ pub struct AttachmentConfig {
     /// metadata).
     pub reply: Option<Reply>,
 
-    /// Additional top-level fields to include in the media event's content.
-    /// The event's own fields take precedence on conflicts.
+    /// Additional fields to include in the media event's content. Objects such
+    /// as `info` are merged recursively. The event's own fields take precedence
+    /// on conflicts.
     pub extra_content: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
@@ -216,7 +217,7 @@ impl AttachmentConfig {
     ///
     /// # Arguments
     ///
-    /// * `thumbnail` - The thumbnail of the media. If the `content_type` does
+    /// - `thumbnail` - The thumbnail of the media. If the `content_type` does
     ///   not support it (e.g. audio clips), it is ignored.
     #[must_use]
     pub fn thumbnail(mut self, thumbnail: Option<Thumbnail>) -> Self {
@@ -228,7 +229,7 @@ impl AttachmentConfig {
     ///
     /// # Arguments
     ///
-    /// * `txn_id` - A unique ID that can be attached to a `MessageEvent` held
+    /// - `txn_id` - A unique ID that can be attached to a `MessageEvent` held
     ///   in its unsigned field as `transaction_id`. If not given, one is
     ///   created for the message.
     #[must_use]
@@ -241,7 +242,7 @@ impl AttachmentConfig {
     ///
     /// # Arguments
     ///
-    /// * `info` - The metadata of the media. If the `AttachmentInfo` type
+    /// - `info` - The metadata of the media. If the `AttachmentInfo` type
     ///   doesn't match the `content_type`, it is ignored.
     #[must_use]
     pub fn info(mut self, info: AttachmentInfo) -> Self {
@@ -279,7 +280,7 @@ impl AttachmentConfig {
         self
     }
 
-    /// Set additional top-level fields for the media event's content.
+    /// Set additional fields for the media event's content.
     ///
     /// # Arguments
     ///
@@ -315,7 +316,7 @@ impl GalleryConfig {
     ///
     /// # Arguments
     ///
-    /// * `txn_id` - A unique ID that can be attached to a `MessageEvent` held
+    /// - `txn_id` - A unique ID that can be attached to a `MessageEvent` held
     ///   in its unsigned field as `transaction_id`. If not given, one is
     ///   created for the message.
     #[must_use]

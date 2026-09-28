@@ -52,6 +52,9 @@ pub use self::media_store::SqliteMediaStore;
 #[cfg(feature = "state-store")]
 pub use self::state_store::{DATABASE_NAME as STATE_STORE_DATABASE_NAME, SqliteStateStore};
 
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();
+
 #[cfg(test)]
 matrix_sdk_test_utils::init_tracing_for_tests!();
 
@@ -59,9 +62,30 @@ matrix_sdk_test_utils::init_tracing_for_tests!();
 #[derive(Clone, Debug, PartialEq, Zeroize, ZeroizeOnDrop)]
 pub enum Secret {
     // Cryptographic key used to open the store
-    Key(Box<[u8; 32]>),
-    // Passphrase used to open the store
+    Key(Zeroizing<Vec<u8>>),
+    // Passphrase used to open the store, ideally human chosen
     PassPhrase(Zeroizing<String>),
+    // Randomly generated passphrase, for which the store caches a
+    // cheaply-derivable copy of its cipher and skips derivation on later opens
+    HighEntropyPassPhrase {
+        key: Zeroizing<Vec<u8>>,
+        #[zeroize(skip)]
+        base64_variant: Base64Variant,
+    },
+}
+
+/// Enum controlling how the high-entropy passphrase used to be created on the
+/// client side.
+///
+/// This allows us to replicate how a random key was converted into a passphrase
+/// to migrate from said passphrase to the plain key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum Base64Variant {
+    /// Unpadded base64 was used to create the high-entropy passphrase.
+    Unpadded,
+    /// Standard padded base64 was used to create the high-entropy passphrase.
+    Padded,
 }
 
 /// A configuration structure used for opening a store.
@@ -114,10 +138,10 @@ impl SqliteStoreConfig {
     ///
     /// The following defaults are set:
     ///
-    /// * The `pool_max_size` is set to the number of physical CPU, so one
+    /// - The `pool_max_size` is set to the number of physical CPU, so one
     ///   connection per physical thread,
-    /// * The `cache_size` is set to 500Kib,
-    /// * The `journal_size_limit` is set to 2Mib.
+    /// - The `cache_size` is set to 500Kib,
+    /// - The `journal_size_limit` is set to 2Mib.
     pub fn with_low_memory_config<P>(path: P) -> Self
     where
         P: AsRef<Path>,
@@ -141,15 +165,52 @@ impl SqliteStoreConfig {
     }
 
     /// Define the passphrase if the store is encoded.
+    ///
+    /// Assumed to be possibly human-chosen, so an expensive derivation is run
+    /// over it on every open. If it is randomly generated, use
+    /// [`SqliteStoreConfig::high_entropy_passphrase`] instead.
     pub fn passphrase(mut self, passphrase: Option<&str>) -> Self {
         self.secret =
             passphrase.map(|passphrase| Secret::PassPhrase(Zeroizing::new(passphrase.to_owned())));
         self
     }
 
+    /// Define the passphrase if the store is encoded, declaring that it was
+    /// randomly generated rather than chosen by a human.
+    ///
+    /// Do NOT use this with human-chosen passphrases, as doing so would remove
+    /// their brute-force protection.
+    ///
+    /// This migrates a passphrase-based store whose passphrase was created by
+    /// base64-encoding a randomly generated key to a key-based setup.
+    ///
+    /// Once this function has been called, [`SqliteStoreConfig::passphrase`]
+    /// can no longer be used with the passphrase.
+    ///
+    /// [`SqliteStoreConfig::key`] can be used with the original key, before it
+    /// was base64-encoded.
+    pub fn high_entropy_passphrase(
+        mut self,
+        passphrase: Option<&[u8]>,
+        base64_variant: Base64Variant,
+    ) -> Self {
+        if let Some(passphrase) = passphrase {
+            let key = Zeroizing::new(passphrase.to_vec());
+            self.secret = Some(Secret::HighEntropyPassPhrase { key, base64_variant });
+        }
+
+        self
+    }
+
     /// Define the key if the store is encoded.
-    pub fn key(mut self, key: Option<&[u8; 32]>) -> Self {
-        self.secret = key.map(|key| Secret::Key(Box::new(*key)));
+    ///
+    /// Assumed to be high entropy so no derivation is run over it.
+    pub fn key(mut self, key: Option<&[u8]>) -> Self {
+        if let Some(key) = key {
+            let key = Zeroizing::new(key.to_vec());
+            self.secret = Some(Secret::Key(key));
+        }
+
         self
     }
 
@@ -191,12 +252,12 @@ impl SqliteStoreConfig {
 
     /// Limit the size of the WAL file, in **bytes**.
     ///
-    /// By default, while the DB connections of the databases are open, [the
-    /// size of the WAL file can keep increasing][size_wal_file] depending on
-    /// the size needed for the transactions. A critical case is `VACUUM`
-    /// which basically writes the content of the DB file to the WAL file
-    /// before writing it back to the DB file, so we end up taking twice the
-    /// size of the database.
+    /// By default, while the DB connections of the databases are open,
+    /// [the size of the WAL file can keep increasing][size_wal_file] depending
+    /// on the size needed for the transactions. A critical case is `VACUUM`
+    /// which basically writes the content of the DB file to the WAL file before
+    /// writing it back to the DB file, so we end up taking twice the size of
+    /// the database.
     ///
     /// By setting this limit, the WAL file is truncated after its content is
     /// written to the database, if it is bigger than the limit.
@@ -210,6 +271,19 @@ impl SqliteStoreConfig {
     /// [`PRAGMA journal_size_limit`]: https://www.sqlite.org/pragma.html#pragma_journal_size_limit
     pub fn journal_size_limit(mut self, limit: u32) -> Self {
         self.runtime_config.journal_size_limit = limit;
+        self
+    }
+
+    /// Define how often SQLite syncs the database to the storage device.
+    ///
+    /// [`Synchronous::Normal`] is faster, but a power loss can drop the most
+    /// recent transactions. Defaults to [`Synchronous::Full`].
+    ///
+    /// See [`PRAGMA synchronous`] to learn more.
+    ///
+    /// [`PRAGMA synchronous`]: https://www.sqlite.org/pragma.html#pragma_synchronous
+    pub fn synchronous(mut self, synchronous: Synchronous) -> Self {
+        self.runtime_config.synchronous = synchronous;
         self
     }
 
@@ -229,7 +303,7 @@ impl SqliteStoreConfig {
         database_name: &str,
     ) -> Result<connection::Pool, connection::CreatePoolError> {
         let path = self.path.join(database_name);
-        let manager = connection::Manager::new(path);
+        let manager = connection::Manager::new(path, self.runtime_config);
 
         connection::Pool::builder(manager)
             .config(self.pool_config)
@@ -239,23 +313,81 @@ impl SqliteStoreConfig {
     }
 }
 
+/// How often SQLite syncs the database to the storage device.
+///
+/// See [`PRAGMA synchronous`] to learn more.
+///
+/// [`PRAGMA synchronous`]: https://www.sqlite.org/pragma.html#pragma_synchronous
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Synchronous {
+    /// SQLite never syncs. A crash of the operating system can corrupt the
+    /// database.
+    Off,
+
+    /// SQLite syncs at the most critical moments. In WAL mode, that is one
+    /// `fsync` per checkpoint.
+    Normal,
+
+    /// SQLite syncs at every transaction. In WAL mode, that is one `fsync` of
+    /// the WAL file per commit. This is the default of SQLite.
+    #[default]
+    Full,
+
+    /// Like [`Synchronous::Full`], plus one `fsync` of the directory when a
+    /// rollback journal is deleted. This has no effect in WAL mode.
+    Extra,
+}
+
+impl Synchronous {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "OFF",
+            Self::Normal => "NORMAL",
+            Self::Full => "FULL",
+            Self::Extra => "EXTRA",
+        }
+    }
+}
+
 /// This type represents values to set at runtime when a database is opened.
 ///
-/// This configuration is applied by
-/// [`utils::SqliteAsyncConnExt::apply_runtime_config`].
+/// The per-connection part is applied by
+/// [`connection::Manager`] to every connection it creates. The rest is applied
+/// by [`utils::SqliteAsyncConnExt::apply_runtime_config`].
 #[derive(Clone, Copy, Debug)]
-struct RuntimeConfig {
+pub(crate) struct RuntimeConfig {
     /// If `true`, [`utils::SqliteAsyncConnExt::optimize`] will be called.
     optimize: bool,
 
-    /// Regardless of the value, [`utils::SqliteAsyncConnExt::cache_size`] will
-    /// always be called with this value.
+    /// Regardless of the value, `PRAGMA cache_size` will always be set to this
+    /// value.
     cache_size: u32,
 
-    /// Regardless of the value,
-    /// [`utils::SqliteAsyncConnExt::journal_size_limit`] will always be called
-    /// with this value.
+    /// Regardless of the value, `PRAGMA journal_size_limit` will always be set
+    /// to this value.
     journal_size_limit: u32,
+
+    /// Regardless of the value, `PRAGMA synchronous` will always be set to this
+    /// value.
+    synchronous: Synchronous,
+}
+
+impl RuntimeConfig {
+    /// The pragmas to run on every new connection, as `synchronous`,
+    /// `cache_size` and `journal_size_limit` all apply to one connection only.
+    pub(crate) fn connection_pragmas(&self) -> String {
+        // `N` in `PRAGMA cache_size = -N` is expressed in kibibytes, while
+        // `cache_size` is expressed in bytes.
+        let cache_size_in_kib = self.cache_size / 1024;
+
+        format!(
+            "PRAGMA synchronous = {}; \
+             PRAGMA cache_size = -{cache_size_in_kib}; \
+             PRAGMA journal_size_limit = {};",
+            self.synchronous.as_str(),
+            self.journal_size_limit,
+        )
+    }
 }
 
 impl Default for RuntimeConfig {
@@ -267,6 +399,7 @@ impl Default for RuntimeConfig {
             cache_size: 2_000_000,
             // A limit of 10Mib.
             journal_size_limit: 10_000_000,
+            synchronous: Synchronous::default(),
         }
     }
 }
@@ -278,7 +411,9 @@ mod tests {
         path::{Path, PathBuf},
     };
 
-    use super::{POOL_MINIMUM_SIZE, Secret, SqliteStoreConfig};
+    use zeroize::Zeroizing;
+
+    use super::{POOL_MINIMUM_SIZE, Secret, SqliteStoreConfig, Synchronous};
 
     #[test]
     fn test_new() {
@@ -288,6 +423,7 @@ mod tests {
         assert!(store_config.runtime_config.optimize);
         assert_eq!(store_config.runtime_config.cache_size, 2_000_000);
         assert_eq!(store_config.runtime_config.journal_size_limit, 10_000_000);
+        assert_eq!(store_config.runtime_config.synchronous, Synchronous::Full);
     }
 
     #[test]
@@ -298,6 +434,7 @@ mod tests {
         assert!(store_config.runtime_config.optimize);
         assert_eq!(store_config.runtime_config.cache_size, 500_000);
         assert_eq!(store_config.runtime_config.journal_size_limit, 2_000_000);
+        assert_eq!(store_config.runtime_config.synchronous, Synchronous::Full);
     }
 
     #[test]
@@ -307,7 +444,8 @@ mod tests {
             .pool_max_size(42)
             .optimize(false)
             .cache_size(43)
-            .journal_size_limit(44);
+            .journal_size_limit(44)
+            .synchronous(Synchronous::Off);
 
         assert_eq!(store_config.path, PathBuf::from("foo"));
         assert_eq!(store_config.secret, Some(Secret::PassPhrase("bar".to_owned().into())));
@@ -315,6 +453,7 @@ mod tests {
         assert!(store_config.runtime_config.optimize.not());
         assert_eq!(store_config.runtime_config.cache_size, 43);
         assert_eq!(store_config.runtime_config.journal_size_limit, 44);
+        assert_eq!(store_config.runtime_config.synchronous, Synchronous::Off);
     }
 
     #[test]
@@ -327,12 +466,13 @@ mod tests {
             .pool_max_size(42)
             .optimize(false)
             .cache_size(43)
-            .journal_size_limit(44);
+            .journal_size_limit(44)
+            .synchronous(Synchronous::Extra);
 
         assert_eq!(store_config.path, PathBuf::from("foo"));
         assert_eq!(
             store_config.secret,
-            Some(Secret::Key(Box::new([
+            Some(Secret::Key(Zeroizing::new(vec![
                 143, 27, 202, 78, 96, 55, 13, 149, 247, 8, 33, 120, 204, 92, 171, 66, 19, 238, 61,
                 107, 132, 211, 40, 244, 71, 190, 99, 14, 173, 225, 6, 156,
             ])))
@@ -341,6 +481,7 @@ mod tests {
         assert!(store_config.runtime_config.optimize.not());
         assert_eq!(store_config.runtime_config.cache_size, 43);
         assert_eq!(store_config.runtime_config.journal_size_limit, 44);
+        assert_eq!(store_config.runtime_config.synchronous, Synchronous::Extra);
     }
 
     #[test]

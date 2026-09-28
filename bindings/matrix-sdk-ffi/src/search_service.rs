@@ -52,9 +52,9 @@ pub struct SearchService {
 
 #[matrix_sdk_ffi_macros::export]
 impl SearchService {
-    /// Set (or update) the search query.
-    /// Clears the current results, restarts pagination from scratch and loads
-    /// the first page. Call [`Self::paginate`] to load any further pages.
+    /// Set (or update) the search query. Clears the current results, restarts
+    /// pagination from scratch and loads the first page. Call
+    /// [`Self::paginate`] to load any further pages.
     pub async fn set_query(&self, query: String) -> Result<(), ClientError> {
         self.inner.set_query(query).await.map_err(|err| ClientError::from(anyhow::Error::from(err)))
     }

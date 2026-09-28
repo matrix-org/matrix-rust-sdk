@@ -22,8 +22,8 @@ use super::{super::RoomListItem, Filter};
 /// different for this high-level UI API.
 ///
 /// This is implemented this way so that it's impossible to filter by “group”
-/// and by “people” at the same time: these criteria are mutually
-/// exclusive by design per filter.
+/// and by “people” at the same time: these criteria are mutually exclusive by
+/// design per filter.
 #[derive(Copy, Clone, PartialEq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[cfg_attr(feature = "uniffi", uniffi(name = "RoomListFilterCategory"))]
@@ -166,18 +166,18 @@ mod tests {
             .build()
             .await;
 
-        // The room has 2 members, but it has no direct targets, so it should not be
-        // considered a `People` room.
+        // The room has 2 members, but it has no direct targets, so it should
+        // not be considered a `People` room.
         let room = setup_room(&client, &server, 0, 2).await;
         assert!(matches(&room, RoomCategory::People).not());
 
-        // The room has 2 members, but it has several direct targets, so it should not
-        // be considered a `People` room.
+        // The room has 2 members, but it has several direct targets, so it
+        // should not be considered a `People` room.
         let room = setup_room(&client, &server, 42, 2).await;
         assert!(matches(&room, RoomCategory::People).not());
 
-        // The room has 2 members and a single target, so it should be considered a
-        // `People` room.
+        // The room has 2 members and a single target, so it should be
+        // considered a `People` room.
         let room = setup_room(&client, &server, 1, 2).await;
         assert!(matches(&room, RoomCategory::People));
 

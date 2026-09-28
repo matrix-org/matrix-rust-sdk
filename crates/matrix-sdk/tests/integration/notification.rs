@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use assert_matches2::assert_matches;
 use matrix_sdk::{
     config::{SyncSettings, SyncToken},
     sync::Notification,
@@ -8,7 +7,7 @@ use matrix_sdk::{
 use matrix_sdk_base::deserialized_responses::RawAnySyncOrStrippedTimelineEvent;
 use matrix_sdk_test::{
     InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, async_test,
-    event_factory::EventFactory, stripped_state_event, sync_state_event,
+    event_factory::EventFactory,
 };
 use ruma::{
     Int, OwnedRoomId, event_id,
@@ -17,6 +16,7 @@ use ruma::{
     serde::Raw,
     user_id,
 };
+use strass::assert_let;
 use stream_assert::{assert_pending, assert_ready};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -49,18 +49,7 @@ async fn test_notifications_joined() {
     users.insert(owned_user_id!("@bob:localhost"), Int::new(0).unwrap());
     let joined_room = JoinedRoomBuilder::new(room_id).add_state_bulk([
         f.power_levels(&mut users).into_raw_sync_state(),
-        sync_state_event!({
-            "content": {
-                "avatar_url": null,
-                "displayname": "example",
-                "membership": "join"
-            },
-            "event_id": "$join_example",
-            "origin_server_ts": 151800140,
-            "sender": user_id,
-            "state_key": user_id,
-            "type": "m.room.member",
-        }),
+        f.member(user_id).display_name("example").into_raw_sync_state(),
     ]);
     sync_builder.add_joined_room(joined_room);
 
@@ -91,13 +80,13 @@ async fn test_notifications_joined() {
 
     let (notif_room_id, notification) = assert_ready!(receiver_stream);
     assert_eq!(notif_room_id, room_id);
-    assert_matches!(notification.event, RawAnySyncOrStrippedTimelineEvent::Sync(raw_event));
+    assert_let!(RawAnySyncOrStrippedTimelineEvent::Sync(raw_event) = notification.event);
     let event = raw_event.deserialize().unwrap();
     assert_eq!(event.event_id(), "$aaa");
 
     let (notif_room_id, notification) = assert_ready!(receiver_stream);
     assert_eq!(notif_room_id, room_id);
-    assert_matches!(notification.event, RawAnySyncOrStrippedTimelineEvent::Sync(raw_event));
+    assert_let!(RawAnySyncOrStrippedTimelineEvent::Sync(raw_event) = notification.event);
     let event = raw_event.deserialize().unwrap();
     assert_eq!(event.event_id(), "$bbb");
 
@@ -128,26 +117,12 @@ async fn test_notifications_invite() {
     users.insert(owned_user_id!("@example:localhost"), Int::new(100).unwrap());
     users.insert(owned_user_id!("@bob:localhost"), Int::new(0).unwrap());
     let power_levels_event: Raw<AnyStrippedStateEvent> = f.power_levels(&mut users).into();
+    // Factory sends @example by default, but in reality these events come from Bob.
+    let bob = user_id!("@bob:localhost");
     let invited_room = InvitedRoomBuilder::new(room_id).add_state_bulk([
         power_levels_event,
-        stripped_state_event!({
-            "content": {
-                "membership": "join"
-            },
-            "sender": "@bob:localhost",
-            "state_key": "@bob:localhost",
-            "type": "m.room.member",
-        }),
-        stripped_state_event!({
-            "content": {
-                "avatar_url": null,
-                "displayname": "example",
-                "membership": "invite"
-            },
-            "sender": "@bob:localhost",
-            "state_key": user_id,
-            "type": "m.room.member",
-        }),
+        f.member(bob).sender(bob).into(),
+        f.member(bob).sender(bob).invited(user_id).display_name("example").into(),
     ]);
     sync_builder.add_invited_room(invited_room);
 
@@ -156,7 +131,7 @@ async fn test_notifications_invite() {
 
     let (notif_room_id, notification) = assert_ready!(receiver_stream);
     assert_eq!(notif_room_id, room_id);
-    assert_matches!(notification.event, RawAnySyncOrStrippedTimelineEvent::Stripped(raw_event));
+    assert_let!(RawAnySyncOrStrippedTimelineEvent::Stripped(raw_event) = notification.event);
     let event = raw_event.deserialize().unwrap();
     assert_eq!(event.event_type(), StateEventType::RoomMember);
     assert_eq!(event.state_key(), user_id);

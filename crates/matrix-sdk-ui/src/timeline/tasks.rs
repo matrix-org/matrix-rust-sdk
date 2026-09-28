@@ -59,9 +59,9 @@ pub(in crate::timeline) async fn pinned_events_task(
             Err(RecvError::Lagged(num_skipped)) => {
                 warn!(num_skipped, "Lagged behind pinned-event cache updates, resetting timeline");
 
-                // The updates might have lagged, but the room event cache might have
-                // events, so retrieve them and add them back again to the timeline,
-                // after clearing it.
+                // The updates might have lagged, but the room event cache might
+                // have events, so retrieve them and add them back again to the
+                // timeline, after clearing it.
                 let (initial_events, _) = match pinned_events_cache.subscribe().await {
                     Ok(initial_events) => initial_events,
                     Err(err) => {
@@ -117,9 +117,9 @@ pub(in crate::timeline) async fn event_focused_task(
             Err(RecvError::Lagged(num_skipped)) => {
                 warn!(num_skipped, "Lagged behind focused-event cache updates, resetting timeline");
 
-                // The updates might have lagged, but the room event cache might have
-                // events, so retrieve them and add them back again to the timeline,
-                // after clearing it.
+                // The updates might have lagged, but the room event cache might
+                // have events, so retrieve them and add them back again to the
+                // timeline, after clearing it.
                 let Ok((initial_events, _)) = event_cache.subscribe().await else {
                     error!("Failed to subscribe to the event-focused cache");
                     break;
@@ -192,7 +192,8 @@ pub(in crate::timeline) async fn thread_updates_task(
             ThreadEventCacheUpdate::AddReadReceiptEvent { event } => {
                 trace!("Received a new read receipt event from sync.");
 
-                // TODO: ephemeral (read receipts) should be handled by the event cache (#4113).
+                // TODO: ephemeral (read receipts) should be handled by the
+                // event cache (#4113).
                 timeline_controller.handle_read_receipt_event(event).await;
             }
         }
@@ -220,9 +221,9 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
             Err(RecvError::Lagged(num_skipped)) => {
                 warn!(num_skipped, "Lagged behind event cache updates, resetting timeline");
 
-                // The updates might have lagged, but the room event cache might have
-                // events, so retrieve them and add them back again to the timeline,
-                // after clearing it.
+                // The updates might have lagged, but the room event cache might
+                // have events, so retrieve them and add them back again to the
+                // timeline, after clearing it.
                 let initial_events = match room_event_cache.events().await {
                     Ok(initial_events) => initial_events,
                     Err(err) => {
@@ -261,7 +262,8 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
                 if matches!(timeline_focus, TimelineFocus::Live { .. }) {
                     timeline_controller.handle_remote_events_with_diffs(diffs, origin).await;
                 } else if matches!(timeline_focus, TimelineFocus::Event { .. }) {
-                    // Only handle the remote aggregation for an event-focused timeline.
+                    // Only handle the remote aggregation for an event-focused
+                    // timeline.
                     timeline_controller.handle_remote_aggregations(diffs, origin).await;
                 }
 
@@ -273,7 +275,8 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
             RoomEventCacheUpdate::AddReadReceiptEvent { event } => {
                 trace!("Received a new read receipt event from sync.");
 
-                // TODO: ephemeral (read receipts) should be handled by the event cache (#4113).
+                // TODO: ephemeral (read receipts) should be handled by the
+                // event cache (#4113).
                 timeline_controller.handle_read_receipt_event(event).await;
             }
 
@@ -358,8 +361,8 @@ pub(in crate::timeline) async fn room_send_queue_update_task(
     }
 }
 
-/// Long-lived task that watches RoomInfo for RTC membership changes
-/// and updates the active RtcNotification timeline item.
+/// Long-lived task that watches RoomInfo for RTC membership changes and updates
+/// the active RtcNotification timeline item.
 pub(in crate::timeline) async fn rtc_membership_update_task(
     mut room_info: EyeballSubscriber<RoomInfo>,
     timeline_controller: TimelineController,
@@ -370,8 +373,8 @@ pub(in crate::timeline) async fn rtc_membership_update_task(
 
     while let Some(info) = room_info.next().await {
         let active_call = ActiveCallInfo::from_info(info, own_user.clone());
-        // RoomInfo fires for many reasons; only act when the participant
-        // list actually changed.
+        // RoomInfo fires for many reasons; only act when the participant list
+        // actually changed.
         if active_call != prev_info {
             prev_info = active_call.clone();
             timeline_controller.handle_active_call_update(active_call).await;

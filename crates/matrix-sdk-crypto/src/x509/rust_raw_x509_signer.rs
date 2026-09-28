@@ -32,9 +32,8 @@ use crate::{
     },
 };
 
-/// A Rust implementation of [`RawX509Signer`]. This does the signing
-/// itself (using `rustls`) rather than delegating the work to some external
-/// system.
+/// A Rust implementation of [`RawX509Signer`]. This does the signing itself
+/// (using `rustls`) rather than delegating the work to some external system.
 #[derive(Clone)]
 pub struct RustRawX509Signer {
     /// The PEM-encoded certificate chain, starting with the device's own
@@ -52,8 +51,8 @@ pub struct RustRawX509Signer {
     validity_not_after: Duration,
 }
 
-/// An enum of possible errors that can occur while instantiating
-/// a [`RustRawX509Signer`].
+/// An enum of possible errors that can occur while instantiating a
+/// [`RustRawX509Signer`].
 #[derive(Error, Debug)]
 pub enum RustX509SignError {
     /// There was an error parsing the certificate chain.

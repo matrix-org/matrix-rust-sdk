@@ -246,11 +246,11 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                             .unwrap_or(0),
                         request_size = request_size
                             .clone()
-                            .map(|request_size| request_size.to_string())
+                            .map(|request_size| request_size)
                             .unwrap_or_else(|| "".to_owned()),
                         response_size = response_size
                             .clone()
-                            .map(|response_size| response_size.to_string())
+                            .map(|response_size| response_size)
                             .unwrap_or_else(|| "".to_owned()),
                         date_time = start_at.format("%+"),
                         time = start_at.format("%H:%M:%S%.3f"),

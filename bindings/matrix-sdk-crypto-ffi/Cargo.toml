@@ -44,6 +44,7 @@ serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tracing-core.workspace = true
 # keep in sync with uniffi dependency in matrix-sdk-ffi, and uniffi_bindgen in ffi CI job
 uniffi = { workspace = true, features = ["cli"] }
 vodozemac.workspace = true
@@ -71,7 +72,7 @@ uniffi = { workspace = true, default-features = false, features = ["build"] }
 vergen-gitcl = { workspace = true, default-features = false, features = ["build"] }
 
 [dev-dependencies]
-assert_matches2.workspace = true
+strass.workspace = true
 tempfile.workspace = true
 
 [lints]

@@ -15,13 +15,13 @@
 #[cfg(doc)]
 use crate::crypto_store::keys::{BACKUP_VERSION_V1, CORE, LEASE_LOCKS, WITHHELD_SESSIONS};
 
-/// Old format of the `inbound_group_sessions` store which lacked indexes or
-/// a sensible structure
+/// Old format of the `inbound_group_sessions` store which lacked indexes or a
+/// sensible structure
 pub const INBOUND_GROUP_SESSIONS_V1: &str = "inbound_group_sessions";
 
 /// `inbound_group_sessions2` with large values in each record due to double
-/// JSON-encoding and arrays of ints instead of base64.
-/// Also lacked the `backed_up_to` property+index.
+/// JSON-encoding and arrays of ints instead of base64. Also lacked the
+/// `backed_up_to` property+index.
 pub const INBOUND_GROUP_SESSIONS_V2: &str = "inbound_group_sessions2";
 
 /// An old name for [`BACKUP_VERSION_V1`].
@@ -31,8 +31,8 @@ pub const BACKUP_KEY_V1: &str = "backup_key_v1";
 /// lacked useful indexes.
 pub const DIRECT_WITHHELD_INFO: &str = "direct_withheld_info";
 
-/// Old key used to manage cross-process lock generation in the [`CORE`]
-/// object store. This has been replaced by the [`LEASE_LOCKS`] table.
+/// Old key used to manage cross-process lock generation in the [`CORE`] object
+/// store. This has been replaced by the [`LEASE_LOCKS`] table.
 pub const GENERATION_COUNTER_KEY: &str = "generation-counter";
 
 /// Old format for secrets inbox, which stored a full `GossippedSecret` event

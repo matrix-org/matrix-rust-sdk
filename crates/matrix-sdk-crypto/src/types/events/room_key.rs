@@ -42,7 +42,7 @@ impl EventType for RoomKeyContent {
 
 /// The `m.room_key` event content.
 ///
-/// This is an enum over the different room key algorithms we support.  The
+/// This is an enum over the different room key algorithms we support. The
 /// currently-supported implementations are used to share
 /// [`InboundGroupSession`]s.
 ///
@@ -50,7 +50,10 @@ impl EventType for RoomKeyContent {
 /// Typically, it is encrypted as an m.room.encrypted event, then sent as a
 /// to-device event.
 ///
-/// See <https://spec.matrix.org/v1.13/client-server-api/#mroom_key>.
+/// See
+/// [https://spec.matrix.org/v1.13/client-server-api/#mroom_key][https-spec-matrix-org-v1-13-client-server-api-mroom-key].
+///
+/// [https-spec-matrix-org-v1-13-client-server-api-mroom-key]: https://spec.matrix.org/v1.13/client-server-api/#mroom_key
 #[derive(Debug, Deserialize)]
 #[serde(try_from = "RoomKeyHelper")]
 pub enum RoomKeyContent {

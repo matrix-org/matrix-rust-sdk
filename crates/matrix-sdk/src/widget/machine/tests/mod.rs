@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use assert_matches2::assert_let;
 use ruma::serde::JsonObject;
 use serde_json::Value as JsonValue;
+use strass::assert_let;
 
 /// Create a JSON string from a [`json!`][serde_json::json] "literal".
 #[macro_export]

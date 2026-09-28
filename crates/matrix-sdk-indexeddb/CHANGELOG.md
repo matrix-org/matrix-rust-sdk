@@ -4,6 +4,47 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.19.1](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.1) - 2026-09-18
+
+No significant changes.
+
+## [0.19.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.0) - 2026-09-16
+
+### Changed
+
+- Remove existing gossip requests when a new request for the same secret is
+  made. ([#6631](https://github.com/matrix-org/matrix-rust-sdk/pull/6631))
+- Use `Readonly` rather than `Readwrite` transactions in
+  `EventCacheStore::{load_all_chunks, load_all_chunks_metadata}` as these
+  functions only read data from the database.
+  ([#6788](https://github.com/matrix-org/matrix-rust-sdk/pull/6788))
+- Defer `await`s in write operations in `Transaction` until calling
+  `Transaction::commit`. Additionally, remove `async` modifier from functions
+  that no longer need to be asynchronous as a result of the change.
+  ([#6892](https://github.com/matrix-org/matrix-rust-sdk/pull/6892))
+- Load last chunk and max chunk id concurrently in
+  `IndexeddbEventCacheStore::load_last_chunk`.
+  ([#7028](https://github.com/matrix-org/matrix-rust-sdk/pull/7028))
+
+### Fixed
+
+- Ensure that `IndexeddbEventCacheStore` properly pushes and removes events from
+  a chunk. Prior to these changes, pushing an event could erroneously replace an
+  existing event, but now it only replaces an existing event if it is being
+  promoted from out-of-band to in-band. Additionally, removing an event now
+  properly shifts the indices of subsequent events in the chunk.
+  ([#6782](https://github.com/matrix-org/matrix-rust-sdk/pull/6782))
+- Fix large attachment uploads failing with `Invalid array length` on WASM.
+  IndexedDB media content is now serialized as a compact `Uint8Array` instead of
+  a JavaScript `Array` containing one element per byte.
+  ([#6826](https://github.com/matrix-org/matrix-rust-sdk/pull/6826))
+- Ensure that every instance of an `Event` across all `LinkedChunk`s is updated
+  when one instance of that `Event` is updated. For efficiency, a new index was
+  added to the `EVENTS` object store that tracks the `EventId` of an `Event`, so
+  that all instances of an `Event` across all `LinkedChunk`s could be retrieved
+  with a single query.
+  ([#6872](https://github.com/matrix-org/matrix-rust-sdk/pull/6872))
+
 ## [0.18.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.18.0) - 2026-06-02
 
 No significant changes.

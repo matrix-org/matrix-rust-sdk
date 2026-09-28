@@ -42,7 +42,7 @@ pub(crate) async fn data_migrate(name: &str, _: &SafeEncodeSerializer) -> Result
 /// Perform the schema upgrade v13 to v14, just bumping the schema version since
 /// the schema didn't actually change.
 pub(crate) async fn schema_bump(name: &str) -> Result<(), OpenDbError> {
-    // Just bump the version number to 14 to demonstrate that we have run the data
-    // changes from data_migrate.
+    // Just bump the version number to 14 to demonstrate that we have run the
+    // data changes from data_migrate.
     do_schema_upgrade(name, 14, |_, _| Ok(())).await
 }

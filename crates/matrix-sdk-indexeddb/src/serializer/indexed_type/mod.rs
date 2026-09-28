@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-// Allow dead code here, as this module is still in the process
-// of being developed, so some functions will be used later on.
-// Once development is complete, we can remove this line and
-// clean up any dead code.
+// Allow dead code here, as this module is still in the process of being
+// developed, so some functions will be used later on. Once development is
+// complete, we can remove this line and clean up any dead code.
 #![allow(dead_code)]
 
 pub mod constants;
@@ -60,8 +59,8 @@ pub struct IndexedTypeSerializationOutput<T: Indexed> {
 
 /// A (de)serializer for an IndexedDB implementation of [`EventCacheStore`][1].
 ///
-/// This is primarily a wrapper around [`SafeEncodeSerializer`] with
-/// convenience functions for (de)serializing types specific to the
+/// This is primarily a wrapper around [`SafeEncodeSerializer`] with convenience
+/// functions for (de)serializing types specific to the
 /// [`EventCacheStore`][1].
 ///
 /// [1]: matrix_sdk_base::event_cache::store::EventCacheStore

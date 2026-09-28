@@ -24,10 +24,12 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_search::{
     error::IndexError,
-    index::{IndexableEvent, RoomIndex, RoomIndexOperation, builder::RoomIndexBuilder},
+    index::{
+        IndexableEvent, RoomIndex, RoomIndexOperation, SearchResult, builder::RoomIndexBuilder,
+    },
 };
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         poll::{
@@ -117,8 +119,8 @@ impl SearchIndexGuard<'_> {
     /// Handle a [`RoomIndexOperation`] in the [`RoomIndex`] of a given
     /// [`RoomId`]
     ///
-    /// This which will add/remove/edit an event in the index based on the
-    /// event type.
+    /// This which will add/remove/edit an event in the index based on the event
+    /// type.
     ///
     /// Prefer [`SearchIndexGuard::bulk_execute`] for multiple operations.
     pub(crate) fn execute(
@@ -139,8 +141,8 @@ impl SearchIndexGuard<'_> {
     /// Handle a [`RoomIndexOperation`] in the [`RoomIndex`] of a given
     /// [`RoomId`]
     ///
-    /// This which will add/remove/edit an event in the index based on the
-    /// event type.
+    /// This which will add/remove/edit an event in the index based on the event
+    /// type.
     pub(crate) fn bulk_execute(
         &mut self,
         operations: Vec<RoomIndexOperation>,
@@ -164,7 +166,7 @@ impl SearchIndexGuard<'_> {
         max_number_of_results: usize,
         pagination_offset: Option<usize>,
         room_id: &RoomId,
-    ) -> Result<Vec<(f32, OwnedEventId)>, IndexError> {
+    ) -> Result<SearchResult, IndexError> {
         if !self.index_map.contains_key(room_id) {
             let index = self.create_index(room_id)?;
             self.index_map.insert(room_id.to_owned(), index);
@@ -535,8 +537,8 @@ mod tests {
 
         let response = room.search("this", 5, None).await.expect("search should have 1 result");
 
-        assert_eq!(response.len(), 1, "unexpected numbers of responses: {response:?}");
-        assert_eq!(response[0].1, event_id, "event id doesn't match: {response:?}");
+        assert_eq!(response.events.len(), 1, "unexpected numbers of responses: {response:?}");
+        assert_eq!(response.events[0].1, event_id, "event id doesn't match: {response:?}");
     }
 
     #[cfg(feature = "experimental-search")]
@@ -574,18 +576,26 @@ mod tests {
 
         // The caption is indexed.
         let response = room.search("sunset", 5, None).await.unwrap();
-        assert_eq!(response.len(), 1, "unexpected results for caption search: {response:?}");
-        assert_eq!(response[0].1, image_id, "event id doesn't match: {response:?}");
+        assert_eq!(response.events.len(), 1, "unexpected results for caption search: {response:?}");
+        assert_eq!(response.events[0].1, image_id, "event id doesn't match: {response:?}");
 
         // The filename is indexed.
         let response = room.search("holiday_beach", 5, None).await.unwrap();
-        assert_eq!(response.len(), 1, "unexpected results for filename search: {response:?}");
-        assert_eq!(response[0].1, image_id, "event id doesn't match: {response:?}");
+        assert_eq!(
+            response.events.len(),
+            1,
+            "unexpected results for filename search: {response:?}"
+        );
+        assert_eq!(response.events[0].1, image_id, "event id doesn't match: {response:?}");
 
         // A media message without a caption still indexes its filename.
         let response = room.search("quarterly_report", 5, None).await.unwrap();
-        assert_eq!(response.len(), 1, "unexpected results for filename search: {response:?}");
-        assert_eq!(response[0].1, file_id, "event id doesn't match: {response:?}");
+        assert_eq!(
+            response.events.len(),
+            1,
+            "unexpected results for filename search: {response:?}"
+        );
+        assert_eq!(response.events[0].1, file_id, "event id doesn't match: {response:?}");
     }
 
     #[cfg(feature = "experimental-search")]
@@ -624,18 +634,26 @@ mod tests {
 
         // The sticker's description is indexed.
         let response = room.search("waving", 5, None).await.unwrap();
-        assert_eq!(response.len(), 1, "unexpected results for sticker search: {response:?}");
-        assert_eq!(response[0].1, sticker_id, "event id doesn't match: {response:?}");
+        assert_eq!(response.events.len(), 1, "unexpected results for sticker search: {response:?}");
+        assert_eq!(response.events[0].1, sticker_id, "event id doesn't match: {response:?}");
 
         // The poll question is indexed.
         let response = room.search("cheese", 5, None).await.unwrap();
-        assert_eq!(response.len(), 1, "unexpected results for poll question search: {response:?}");
-        assert_eq!(response[0].1, poll_id, "event id doesn't match: {response:?}");
+        assert_eq!(
+            response.events.len(),
+            1,
+            "unexpected results for poll question search: {response:?}"
+        );
+        assert_eq!(response.events[0].1, poll_id, "event id doesn't match: {response:?}");
 
         // The poll answers are indexed.
         let response = room.search("gruyère", 5, None).await.unwrap();
-        assert_eq!(response.len(), 1, "unexpected results for poll answer search: {response:?}");
-        assert_eq!(response[0].1, poll_id, "event id doesn't match: {response:?}");
+        assert_eq!(
+            response.events.len(),
+            1,
+            "unexpected results for poll answer search: {response:?}"
+        );
+        assert_eq!(response.events[0].1, poll_id, "event id doesn't match: {response:?}");
     }
 
     #[cfg(feature = "experimental-search")]
@@ -675,13 +693,21 @@ mod tests {
 
         // The poll question is indexed.
         let response = room.search("cheese", 5, None).await.unwrap();
-        assert_eq!(response.len(), 1, "unexpected results for poll question search: {response:?}");
-        assert_eq!(response[0].1, poll_id, "event id doesn't match: {response:?}");
+        assert_eq!(
+            response.events.len(),
+            1,
+            "unexpected results for poll question search: {response:?}"
+        );
+        assert_eq!(response.events[0].1, poll_id, "event id doesn't match: {response:?}");
 
         // The poll answers are indexed.
         let response = room.search("gruyère", 5, None).await.unwrap();
-        assert_eq!(response.len(), 1, "unexpected results for poll answer search: {response:?}");
-        assert_eq!(response[0].1, poll_id, "event id doesn't match: {response:?}");
+        assert_eq!(
+            response.events.len(),
+            1,
+            "unexpected results for poll answer search: {response:?}"
+        );
+        assert_eq!(response.events[0].1, poll_id, "event id doesn't match: {response:?}");
     }
 
     #[cfg(feature = "experimental-search")]
@@ -704,7 +730,8 @@ mod tests {
 
         let f = EventFactory::new().room(room_id).sender(user_id!("@user_id:localhost"));
 
-        // Indexable dummy message required because RoomIndex is initialised lazily.
+        // Indexable dummy message required because RoomIndex is initialised
+        // lazily.
         let dummy = f.text_msg("dummy").event_id(dummy_id);
 
         let original = f.text_msg("This is a message").event_id(original_id);
@@ -742,34 +769,34 @@ mod tests {
 
         let results = room.search("message", 3, None).await.unwrap();
 
-        assert_eq!(results.len(), 0, "Search should return 0 results, got {results:?}");
+        assert_eq!(results.events.len(), 0, "Search should return 0 results, got {results:?}");
 
-        // Adding the original after some pending edits should add the latest edit
-        // instead of the original.
+        // Adding the original after some pending edits should add the latest
+        // edit instead of the original.
         server
             .sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(original))
             .await;
 
         let results = room.search("message", 3, None).await.unwrap();
 
-        assert_eq!(results.len(), 1, "Search should return 1 result, got {results:?}");
+        assert_eq!(results.events.len(), 1, "Search should return 1 result, got {results:?}");
         assert_eq!(
-            results[0].1, edit2_id,
+            results.events[0].1, edit2_id,
             "Search should return latest edit, got {:?}",
-            results[0].1
+            results.events[0].1
         );
 
-        // Editing the original after it exists and there has been another edit should
-        // delete the previous edits and add this one
+        // Editing the original after it exists and there has been another edit
+        // should delete the previous edits and add this one
         server.sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(edit3)).await;
 
         let results = room.search("message", 3, None).await.unwrap();
 
-        assert_eq!(results.len(), 1, "Search should return 1 result, got {results:?}");
+        assert_eq!(results.events.len(), 1, "Search should return 1 result, got {results:?}");
         assert_eq!(
-            results[0].1, edit3_id,
+            results.events[0].1, edit3_id,
             "Search should return latest edit, got {:?}",
-            results[0].1
+            results.events[0].1
         );
     }
 
@@ -807,8 +834,8 @@ mod tests {
 
         // The original message is indexed.
         let results = room.search("alpha", 3, None).await.unwrap();
-        assert_eq!(results.len(), 1, "Original should be indexed, got {results:?}");
-        assert_eq!(results[0].1, original_id, "unexpected event id: {results:?}");
+        assert_eq!(results.events.len(), 1, "Original should be indexed, got {results:?}");
+        assert_eq!(results.events[0].1, original_id, "unexpected event id: {results:?}");
 
         server
             .sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(malicious_edit))
@@ -816,11 +843,11 @@ mod tests {
 
         // The forged edit's content must not be indexed.
         let results = room.search("beta", 3, None).await.unwrap();
-        assert_eq!(results.len(), 0, "Cross-sender edit should be ignored, got {results:?}");
+        assert_eq!(results.events.len(), 0, "Cross-sender edit should be ignored, got {results:?}");
 
         // The original message stays indexed.
         let results = room.search("alpha", 3, None).await.unwrap();
-        assert_eq!(results.len(), 1, "Original should stay indexed, got {results:?}");
-        assert_eq!(results[0].1, original_id, "unexpected event id: {results:?}");
+        assert_eq!(results.events.len(), 1, "Original should stay indexed, got {results:?}");
+        assert_eq!(results.events[0].1, original_id, "unexpected event id: {results:?}");
     }
 }

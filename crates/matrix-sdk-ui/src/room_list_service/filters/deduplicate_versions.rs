@@ -29,26 +29,28 @@ fn matches(
         // This room is joined, and there is no successor. It is an active version.
         (RoomState::Joined, None) => true,
 
-        // This room is joined, and there is a successor room. This successor room is joined,
-        // left or banned, so this room is **not** the active version.
+        // This room is joined, and there is a successor room. This successor
+        // room is joined, left or banned, so this room is **not** the active
+        // version.
         (RoomState::Joined, Some(RoomState::Joined | RoomState::Left | RoomState::Banned)) => false,
 
-        // This room is joined, and there is a successor room. This successor room is invited or
-        // knocked, so this room **is** an active version.
+        // This room is joined, and there is a successor room. This successor
+        // room is invited or knocked, so this room **is** an active version.
         (RoomState::Joined, Some(RoomState::Invited | RoomState::Knocked)) => true,
 
-        // This room is not joined. It is either left, invited, banned or knocked. The user is
-        // not part of this room, but there is a successor room. This room is **not** the active
-        // version, and should be hidden.
+        // This room is not joined. It is either left, invited, banned or
+        // knocked. The user is not part of this room, but there is a successor
+        // room. This room is **not** the active version, and should be hidden.
         (
             RoomState::Left | RoomState::Invited | RoomState::Banned | RoomState::Knocked,
             Some(_),
         ) => false,
 
-        // This room is not joined. It is either left, invited, banned or knocked. The user is
-        // not part of this room, and there may not be a successor. It should not be possible to
-        // know if this room is tombstoned. Consequently, this room **is** the active version,
-        // and should be visible.
+        // This room is not joined. It is either left, invited, banned or
+        // knocked. The user is not part of this room, and there may not be a
+        // successor. It should not be possible to know if this room is
+        // tombstoned. Consequently, this room **is** the active version, and
+        // should be visible.
         (RoomState::Left | RoomState::Invited | RoomState::Banned | RoomState::Knocked, None) => {
             true
         }
@@ -60,9 +62,9 @@ fn matches(
 ///
 /// A room version is considered active if and only if:
 ///
-/// * the room is joined and has no successor,
-/// * the room is joined and has a successor room that is invited or knocked,
-/// * the room is left, invited, banned or knocked, and has no successor.
+/// - the room is joined and has no successor,
+/// - the room is joined and has a successor room that is invited or knocked,
+/// - the room is left, invited, banned or knocked, and has no successor.
 ///
 /// All other rooms are filtered out.
 pub fn new_filter() -> impl Filter {

@@ -162,14 +162,14 @@ pub mod v1 {
 
     /// Create an object store for tracking information about media metadata.
     ///
-    /// * Primary Key - `id` - unique key derived from
+    /// - Primary Key - `id` - unique key derived from
     ///   [`MediaRequestParameters`] of the associated media
-    /// * Index - `uri` - tracks the [`MxcUri`][1] of the associated media
-    /// * Index - `content_size` - tracks the size of the media content and
+    /// - Index - `uri` - tracks the [`MxcUri`][1] of the associated media
+    /// - Index - `content_size` - tracks the size of the media content and
     ///   whether to ignore the [`MediaRetentionPolicy`][2]
-    /// * Index - `last_access` - tracks the last time the associated media was
+    /// - Index - `last_access` - tracks the last time the associated media was
     ///   accessed
-    /// * Index - `retention` - tracks all retention metadata - i.e., joins
+    /// - Index - `retention` - tracks all retention metadata - i.e., joins
     ///   `content_size` and `last_access`
     ///
     /// [1]: ruma::MxcUri

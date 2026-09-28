@@ -137,9 +137,11 @@ impl Serialize for Capabilities {
                     Filter::MessageLike(filter) => PrintMessageLikeEventFilter(filter).fmt(f),
                     Filter::State(filter) => PrintStateEventFilter(filter).fmt(f),
                     Filter::ToDevice(filter) => {
-                        // As per MSC 3819 https://github.com/matrix-org/matrix-spec-proposals/pull/3819
-                        // ToDevice capabilities is in the form of `m.send.to_device:<event type>`
-                        // or `m.receive.to_device:<event type>`
+                        // As per MSC 3819
+                        // https://github.com/matrix-org/matrix-spec-proposals/pull/3819
+                        // ToDevice capabilities is in the form of
+                        // `m.send.to_device:<event type>` or
+                        // `m.receive.to_device:<event type>`
                         write!(f, "{}", filter.event_type)
                     }
                 }
@@ -151,7 +153,8 @@ impl Serialize for Capabilities {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 match self.0 {
                     MessageLikeEventFilter::WithType(event_type) => {
-                        // TODO: escape `#` as `\#` and `\` as `\\` in event_type
+                        // TODO: escape `#` as `\#` and `\` as `\\` in
+                        // event_type
                         write!(f, "{event_type}")
                     }
                     MessageLikeEventFilter::RoomMessageWithMsgtype(msgtype) => {
@@ -286,7 +289,8 @@ impl<'de> Deserialize<'de> for Capabilities {
         }
 
         fn parse_state_event_filter(s: &str) -> StateEventFilter {
-            // TODO: Search for un-escaped `#` only, replace `\\` by `\` and `\#` by `#`
+            // TODO: Search for un-escaped `#` only, replace `\\` by `\` and
+            // `\#` by `#`
             match s.split_once('#') {
                 Some((event_type, state_key)) => {
                     StateEventFilter::WithTypeAndStateKey(event_type.into(), state_key.to_owned())

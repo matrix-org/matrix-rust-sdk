@@ -12,9 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![recursion_limit = "256"]
+
 mod encryption_sync_service;
 mod notification_client;
 mod room_list_service;
+#[cfg(feature = "experimental-search")]
+mod search_service;
 mod sliding_sync;
 mod sync_service;
 mod timeline;

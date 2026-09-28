@@ -219,6 +219,7 @@ impl SyncResponseBuilder {
         self.left_rooms.clear();
         self.knocked_rooms.clear();
         self.presence.clear();
+        self.to_device_events.clear();
     }
 }
 

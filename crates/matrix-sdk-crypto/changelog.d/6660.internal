@@ -1,1 +1,0 @@
-Move `types::Signature` and `types::Signatures` into submodules of `types`.

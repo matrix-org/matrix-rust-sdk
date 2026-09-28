@@ -127,8 +127,8 @@ impl RequestConfig {
         self
     }
 
-    /// The total limit of request that are pending or run concurrently.
-    /// Any additional request beyond that number will be waiting until another
+    /// The total limit of request that are pending or run concurrently. Any
+    /// additional request beyond that number will be waiting until another
     /// concurrent requests finished. Requests are queued fairly.
     #[must_use]
     pub fn max_concurrent_requests(mut self, limit: Option<NonZeroUsize>) -> Self {

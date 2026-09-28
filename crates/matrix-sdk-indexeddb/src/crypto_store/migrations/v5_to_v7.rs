@@ -56,7 +56,8 @@ pub(crate) async fn schema_add(name: &str) -> Result<(), OpenDbError> {
 pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) -> Result<()> {
     let db = MigrationDb::new(name, 7).await?;
 
-    // The new store has been made for inbound group sessions; time to populate it.
+    // The new store has been made for inbound group sessions; time to populate
+    // it.
     let txn = db
         .transaction([old_keys::INBOUND_GROUP_SESSIONS_V1, old_keys::INBOUND_GROUP_SESSIONS_V2])
         .with_mode(TransactionMode::Readwrite)
@@ -98,7 +99,8 @@ pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) 
     }
 
     // We have finished with the old store. Clear it, since it is faster to
-    // clear+delete than just delete. See https://www.artificialworlds.net/blog/2024/02/02/deleting-an-indexed-db-store-can-be-incredibly-slow-on-firefox/
+    // clear+delete than just delete. See
+    // https://www.artificialworlds.net/blog/2024/02/02/deleting-an-indexed-db-store-can-be-incredibly-slow-on-firefox/
     // for more details.
     old_store.clear()?.await?;
 

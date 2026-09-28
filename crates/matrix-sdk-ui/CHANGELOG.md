@@ -4,6 +4,206 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.19.1](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.1) - 2026-09-18
+
+No significant changes.
+
+## [0.19.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.0) - 2026-09-16
+
+### Removed
+
+- [**breaking**] `EncryptionSyncService::run_fixed_iterations` has been replaced
+  by `EncryptionSyncService::run_iterations`, which returns a stream yielding
+  once per iteration; take as many items from it as iterations you want to run.
+  ([#6982](https://github.com/matrix-org/matrix-rust-sdk/pull/6982))
+
+### Added
+
+- Added a new `edit_revisions` method on `Timeline` that returns the edit
+  history of an event.
+  ([#6630](https://github.com/matrix-org/matrix-rust-sdk/pull/6630))
+- Make `matrix-sdk-ui` sliding sync services use the client-owned sync presence
+  value for generated requests, so background sync flows can avoid marking the
+  user online without UI-service-specific presence APIs.
+  ([#6672](https://github.com/matrix-org/matrix-rust-sdk/pull/6672))
+- Add a reactive `search::SearchService` that aggregates results of different
+  kinds (currently only messages) into a single list of typed `SearchResult`s,
+  observed as a stream of `VectorDiff`s. Gated behind the new
+  `experimental-search` feature.
+  ([#6695](https://github.com/matrix-org/matrix-rust-sdk/pull/6695))
+- Add `status` and `call` fields to the timeline `Profile`, carrying the
+  sender's
+  [MSC4426](https://github.com/matrix-org/matrix-spec-proposals/pull/4426) user
+  status and call indicator from their global profile.
+  ([#6704](https://github.com/matrix-org/matrix-rust-sdk/pull/6704))
+- Add `SyncServiceBuilder::with_profiles_extension` to enable the Profiles
+  sliding sync extension, which syncs global profile fields such as `m.status`
+  and `m.call`.
+  ([#6726](https://github.com/matrix-org/matrix-rust-sdk/pull/6726))
+- The timeline's `AttachmentConfig` gained an `extra_content` field, and the
+  timeline a `send_with_extra_content()` method, forwarded to the underlying
+  send queue. Extra fields never override the fields of the event itself.
+  ([#6812](https://github.com/matrix-org/matrix-rust-sdk/pull/6812))
+- The timeline gained a `toggle_reaction_with_extra_content()` method,
+  forwarding extra top-level content fields to the underlying send queue when a
+  reaction is added. Extra fields never override the fields of the event itself.
+  ([#6848](https://github.com/matrix-org/matrix-rust-sdk/pull/6848))
+- Add `Timeline::send_location`, moved from the FFI bindings. It builds a
+  `m.location` room message, sends it through the send queue, and returns the
+  `SendHandle`. It optionally sends the location as a reply, with the same
+  semantics as `Timeline::send_reply`.
+  ([#6891](https://github.com/matrix-org/matrix-rust-sdk/pull/6891))
+- Add `RoomListService::remove_room_subscriptions`, which removes the
+  subscriptions of the given rooms, and
+  `RoomListService::reset_and_add_room_subscriptions`, which replaces the whole
+  subscription set and marks the members of the new rooms as missing. Both
+  forward to the room subscription methods of `SlidingSync` with the room list
+  settings. ([#6932](https://github.com/matrix-org/matrix-rust-sdk/pull/6932))
+- `SpaceService` has two new cheap accessor functions for asking about the
+  ancestors of a given room or space:
+  - `joined_parent_ids_of_child()`: returns the room IDs of a room or space's
+  direct parent spaces that are known, without recomputing the space graph or
+  building any expensive `SpaceRoom` instances.
+  - `top_level_ancestors_of()`: returns the IDs of the top-level joined space(s)
+  a room descends from.
+- [**breaking**] Allow specifying membership states for
+  `TimelineEventCondition::MembershipChange`, with a new
+  `MembershipChangeFilter` enum.
+  ([#6644](https://github.com/matrix-org/matrix-rust-sdk/pull/6644))
+- The `TimelineItemContent::RtcNotification` now contains an optional
+  `ActiveCallInfo` struct, which provides information about the active call
+  associated with the notification. This allows to render in the timeline more
+  detailed context about the active call (members, join state, etc...)
+  ([#6668](https://github.com/matrix-org/matrix-rust-sdk/pull/6668))
+
+  ([#6967](https://github.com/matrix-org/matrix-rust-sdk/pull/6967))
+- Allow filtering out or only including custom message-like and state events
+  using `TimelineEventCondition::AnyCustomMessageLikeEvent` and
+  `TimelineEventCondition::AnyCustomStateEvent`.
+  ([#6969](https://github.com/matrix-org/matrix-rust-sdk/pull/6969))
+- Add `EventTimelineItem::edit_send_state()` and
+  `EventTimelineItem::redaction_send_state()`, exposing the send state of our
+  own pending edits and redactions.
+  ([#6974](https://github.com/matrix-org/matrix-rust-sdk/pull/6974))
+- Add `NotificationClientTimeouts` and `NotificationClient::with_timeouts` to
+  make the timeouts applied while fetching a notification configurable. The
+  defaults are unchanged.
+  ([#7023](https://github.com/matrix-org/matrix-rust-sdk/pull/7023))
+
+### Changed
+
+- [**breaking**] Send redactions issued via `Timeline::redact` through the send
+  queue. ([#6428](https://github.com/matrix-org/matrix-rust-sdk/pull/6428))
+- `RoomListService::set_room_subscriptions` now updates subscriptions
+  non-destructively.
+  ([#6652](https://github.com/matrix-org/matrix-rust-sdk/pull/6652))
+- [**breaking**] `SpaceRoom::heroes` is now `Option<Vec<RoomHeroWithProfile>>`
+  instead of `Option<Vec<RoomHero>>`, exposing each hero's status and call
+  fields from their global profile. These fields are only populated when syncing
+  via sliding sync with the profiles extension enabled.
+  ([#6733](https://github.com/matrix-org/matrix-rust-sdk/pull/6733))
+- [**breaking**] `Timeline::send_reply` now returns the `SendHandle` of the
+  queued reply, instead of `()`. Replies go through the send queue like any
+  other message, so callers can now track, abort, or retry them, as they already
+  can with `Timeline::send`.
+  ([#6881](https://github.com/matrix-org/matrix-rust-sdk/pull/6881))
+- `RoomListService::subscribe_to_rooms` is renamed to
+  `RoomListService::set_room_subscriptions`, to match the room subscription
+  methods of `SlidingSync`.
+  ([#6927](https://github.com/matrix-org/matrix-rust-sdk/pull/6927))
+- This patch changes the `room_list_service::filters::unread` filter to
+  `read_receipts` and adds a new parameter: `ReadReceiptsCategory`. Before it
+  was looking at the `ReadReceipts::num_notifications` field only, now it can
+  look at the following field: `num_mentions`, `num_notifications` or
+  `num_messages`.
+
+  The condition where `Room::is_marked_unread` makes the room to be selected if
+  there is no unread is kept because (i) it's a manual operation from the user,
+  (ii) it signals the room is unread but for an unknown reason, it could be
+  anything, so it's important and should be displayed regardless of the number
+  of unread.
+
+  Before:
+
+  ```rust
+  filters::unread()
+  ```
+
+  After:
+
+  ```rust
+  filters::read_receipts(filters::ReadReceiptsCategory::Notifications)
+  ``` ([#6928](https://github.com/matrix-org/matrix-rust-sdk/pull/6928))
+- `Timeline::redact()` now forwards its `reason` when the target is a local
+  echo, instead of silently dropping it: if the echo was being sent and the send
+  completes, the server-side redaction carries the reason.
+  ([#6931](https://github.com/matrix-org/matrix-rust-sdk/pull/6931))
+- The `ThreadSummary::public_read_receipt_event_id` and
+  `ThreadSummary::private_read_receipt_event_id` fields have been removed. They
+  were a hack introduced in the past and no longer make sense. Use `ThreadInfo`
+  if you need information about the read receipts, with
+  `matrix_sdk::event_cache::ThreadEventCache::read_receipts()`.
+  ([#6938](https://github.com/matrix-org/matrix-rust-sdk/pull/6938))
+- [**breaking**] `ReactionStatus` is gone: `ReactionInfo::status` is replaced by
+  `ReactionInfo::send_state`, an `Option<EventSendState>` that is `None` for
+  reactions received from the server. Every aggregation (reactions, edits,
+  redactions) now carries the same send state, and failed, retried and uploading
+  aggregations are reflected on their timeline item instead of being ignored.
+  ([#6974](https://github.com/matrix-org/matrix-rust-sdk/pull/6974))
+- When an event in a notification can't be decrypted, the encryption sync run to
+  obtain the missing room key now attempts decryption after every iteration and
+  stops as soon as it succeeds, instead of always running two iterations before
+  trying once. Two iterations are still run at least, and further ones only
+  while a deadline of two poll timeouts has not passed, so the time spent when
+  the key never arrives is unchanged.
+  ([#6982](https://github.com/matrix-org/matrix-rust-sdk/pull/6982))
+- [**breaking**] The Profiles sliding sync extension (MSC4262) is now always
+  enabled like the other extensions.
+  `SyncServiceBuilder::with_profiles_extension` has been removed.
+  ([#6984](https://github.com/matrix-org/matrix-rust-sdk/pull/6984))
+- Expose `TimelineEventFilter` and `TimelineEventCondition` in the FFI layer
+  when the `uniffi` feature is enabled.
+  ([#6985](https://github.com/matrix-org/matrix-rust-sdk/pull/6985))
+- Opening a thread timeline whose events are already in the event cache now
+  looks up the related events of all thread events concurrently, instead of
+  awaiting one event cache query per thread event. The related events are
+  collected in the same order as before, so the timeline items are unchanged.
+  ([#6994](https://github.com/matrix-org/matrix-rust-sdk/pull/6994))
+
+### Fixed
+
+- Only report duplicate read receipts within the same receipt thread.
+  ([#6637](https://github.com/matrix-org/matrix-rust-sdk/pull/6637))
+- `Timeline::mark_as_read` and `Timeline::send_single_receipt` now decide
+  whether to send a read receipt based only on the real receipts the homeserver
+  knows about, ignoring local-only implicit receipts. Both also avoid pointing a
+  receipt at one of the current user's own events, moving it to the latest event
+  from another user instead. Previously a receipt could be left behind unread
+  messages when the user's own messages were the most recent, leaving the
+  homeserver's push/badge count stuck.
+  ([#6837](https://github.com/matrix-org/matrix-rust-sdk/pull/6837))
+- Joined child spaces whose parent space the user has left now appear at the top
+  level if they have no other joined parent spaces.
+  ([#6858](https://github.com/matrix-org/matrix-rust-sdk/pull/6858))
+- Fixed redacted messages not having thread summaries.
+  ([#6897](https://github.com/matrix-org/matrix-rust-sdk/pull/6897))
+- Show the UTD error for events from `TimelineItemContent::from_event()` instead
+  of the generic "Unsupported event".
+  ([#6898](https://github.com/matrix-org/matrix-rust-sdk/pull/6898))
+- `Timeline::edit()` now keeps a local echo's thread or reply relation when
+  replacing its content. The edited content is relation-free by type, and
+  replacing the pending event's content wholesale used to detach it: editing a
+  not-yet-sent thread reply made it go out as a top-level message.
+  ([#6936](https://github.com/matrix-org/matrix-rust-sdk/pull/6936))
+- When the Timeline received an update from the Event Cache about an event
+  removal, if the Timeline contained a local timeline item, it could have
+  resulted in a broken mapping between the timeline items and the remote events.
+  The consequences to that are numerous, but for instance, some timeline items
+  could have been wrongly removed, or not removed when expected.
+  ([#6983](https://github.com/matrix-org/matrix-rust-sdk/pull/6983))
+- Keep holding the permit while the encryption sync stream is running.
+  ([#7018](https://github.com/matrix-org/matrix-rust-sdk/pull/7018))
+
 ## [0.18.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.18.0) - 2026-06-02
 
 ### Changed
@@ -12,12 +212,12 @@ All notable changes to this project will be documented in this file.
   are now asynchronous so we can properly check if they are DMs on demand
   instead of trusting the pre-computed value. Some other related functions are
   now `async` too.
-  ([#6561](https://github.com/matrix-org/matrix-rust-sdk/pulls/6561))
+  ([#6561](https://github.com/matrix-org/matrix-rust-sdk/pull/6561))
 
 ### Fixed
 
 - Remove the ability to reply to live location events.
-  ([#6563](https://github.com/matrix-org/matrix-rust-sdk/pulls/6563))
+  ([#6563](https://github.com/matrix-org/matrix-rust-sdk/pull/6563))
 
 ## [0.17.0] - 2026-05-08
 

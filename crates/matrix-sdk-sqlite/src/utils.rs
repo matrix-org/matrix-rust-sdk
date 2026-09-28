@@ -21,6 +21,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use base64::Engine as _;
 use deadpool_sync::InteractError;
 use itertools::Itertools;
 use matrix_sdk_store_encryption::{EncryptableValue, StoreCipher};
@@ -28,6 +29,7 @@ use ruma::{OwnedEventId, OwnedRoomId, serde::Raw, time::SystemTime};
 use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction, limits::Limit};
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::{error, trace, warn};
+use vodozemac::base64_encode;
 use zeroize::Zeroize;
 
 use crate::{
@@ -141,23 +143,12 @@ pub(crate) trait SqliteAsyncConnExt {
         Res: Send + 'static,
         Query: Fn(&Transaction<'_>, ChunkFromLargeQuery<Key>) -> Result<Vec<Res>> + Send + 'static;
 
-    /// Apply the [`RuntimeConfig`].
-    ///
-    /// It will call the `Self::optimize`, `Self::cache_size` or
-    /// `Self::journal_size_limit` methods automatically based on the
-    /// `RuntimeConfig` values.
-    ///
-    /// It is possible to call these methods individually though. This
-    /// `apply_runtime_config` method allows to automate this process.
+    /// Apply the database-wide part of the [`RuntimeConfig`]; the
+    /// per-connection pragmas are applied by [`crate::connection::Manager`].
     async fn apply_runtime_config(&self, runtime_config: RuntimeConfig) -> Result<()> {
-        let RuntimeConfig { optimize, cache_size, journal_size_limit } = runtime_config;
-
-        if optimize {
+        if runtime_config.optimize {
             self.optimize().await?;
         }
-
-        self.cache_size(cache_size).await?;
-        self.journal_size_limit(journal_size_limit).await?;
 
         Ok(())
     }
@@ -173,42 +164,6 @@ pub(crate) trait SqliteAsyncConnExt {
     /// [`PRAGMA cache_size`]: https://www.sqlite.org/pragma.html#pragma_optimize
     async fn optimize(&self) -> Result<()> {
         self.execute_batch("PRAGMA optimize = 0x10002;").await?;
-        Ok(())
-    }
-
-    /// Define the maximum size in **bytes** the SQLite cache can use.
-    ///
-    /// See [`PRAGMA cache_size`] to learn more.
-    ///
-    /// [`PRAGMA cache_size`]: https://www.sqlite.org/pragma.html#pragma_cache_size
-    async fn cache_size(&self, cache_size: u32) -> Result<()> {
-        // `N` in `PRAGMA cache_size = -N` is expressed in kibibytes.
-        // `cache_size` is expressed in bytes. Let's convert.
-        let n = cache_size / 1024;
-
-        self.execute_batch(format!("PRAGMA cache_size = -{n};")).await?;
-        Ok(())
-    }
-
-    /// Limit the size of the WAL file, in **bytes**.
-    ///
-    /// By default, while the DB connections of the databases are open, [the
-    /// size of the WAL file can keep increasing][size_wal_file] depending on
-    /// the size needed for the transactions. A critical case is `VACUUM`
-    /// which basically writes the content of the DB file to the WAL file
-    /// before writing it back to the DB file, so we end up taking twice the
-    /// size of the database.
-    ///
-    /// By setting this limit, the WAL file is truncated after its content is
-    /// written to the database, if it is bigger than the limit.
-    ///
-    /// See [`PRAGMA journal_size_limit`] to learn more. The value `limit`
-    /// corresponds to `N` in `PRAGMA journal_size_limit = N`.
-    ///
-    /// [size_wal_file]: https://www.sqlite.org/wal.html#avoiding_excessively_large_wal_files
-    /// [`PRAGMA journal_size_limit`]: https://www.sqlite.org/pragma.html#pragma_journal_size_limit
-    async fn journal_size_limit(&self, limit: u32) -> Result<()> {
-        self.execute_batch(format!("PRAGMA journal_size_limit = {limit};")).await?;
         Ok(())
     }
 
@@ -524,8 +479,8 @@ impl SqliteKeyValueStoreConnExt for rusqlite::Connection {
     }
 }
 
-/// Extension trait for an [`SqliteAsyncConn`] that contains a key-value
-/// table named `kv`.
+/// Extension trait for an [`SqliteAsyncConn`] that contains a key-value table
+/// named `kv`.
 ///
 /// The table should be created like this:
 ///
@@ -595,17 +550,70 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
     /// Get the [`StoreCipher`] of the database or create it.
     async fn get_or_create_store_cipher(
         &self,
-        mut secret: Secret,
+        secret: Secret,
     ) -> Result<StoreCipher, OpenStoreError> {
-        let encrypted_cipher = self.get_kv("cipher").await.map_err(OpenStoreError::LoadCipher)?;
+        const STORAGE_KEY: &str = "cipher";
+
+        let encrypted_cipher =
+            self.get_kv(STORAGE_KEY).await.map_err(OpenStoreError::LoadCipher)?;
 
         let cipher = if let Some(encrypted) = encrypted_cipher {
             match &secret {
                 Secret::PassPhrase(passphrase) => StoreCipher::import(passphrase, &encrypted)?,
                 Secret::Key(key) => StoreCipher::import_with_key(key.as_slice(), &encrypted)?,
+                Secret::HighEntropyPassPhrase { key, base64_variant } => {
+                    // Element X apps used the passphrase-based secret variant
+                    // even though the underlying secret was a randomly
+                    // generated key.
+                    //
+                    // The `HighEntropyPassPhrase` variant was introduced to
+                    // migrate these cipher exports from a passphrase-based
+                    // setup to a key-based setup.
+                    //
+                    // We first attempt to decrypt the cipher using the provided
+                    // high-entropy passphrase as a key. If this results in a
+                    // KDF mismatch, it indicates that the export was originally
+                    // encrypted with the high-entropy passphrase being used as
+                    // a passphrase instead.
+                    //
+                    // In that case, we re-encrypt the cipher using the
+                    // key-based setup. On the next import attempt,
+                    // `import_with_key()` can then decrypt it successfully.
+                    match StoreCipher::import_with_key(key.as_slice(), &encrypted) {
+                        Ok(cipher) => cipher,
+                        Err(matrix_sdk_store_encryption::Error::KdfMismatch) => {
+                            // EX generated a byte array for a key but converted
+                            // it into a string by base64 encoding it to use it
+                            // as a passphrase. So let's do that as well.
+                            //
+                            // Funnily enough, iOS used padded base64, while
+                            // Android used unpadded.
+                            let mut base64_passphrase = match base64_variant {
+                                crate::Base64Variant::Unpadded => base64_encode(key),
+                                crate::Base64Variant::Padded => {
+                                    base64::prelude::BASE64_STANDARD.encode(key)
+                                }
+                            };
+
+                            let cipher = StoreCipher::import(&base64_passphrase, &encrypted);
+                            base64_passphrase.zeroize();
+
+                            let cipher = cipher?;
+                            let export = cipher.export_with_key(key.as_slice())?;
+
+                            self.set_kv(STORAGE_KEY, export)
+                                .await
+                                .map_err(OpenStoreError::SaveCipher)?;
+
+                            cipher
+                        }
+                        Err(e) => return Err(e.into()),
+                    }
+                }
             }
         } else {
             let cipher = StoreCipher::new()?;
+
             let export = match &secret {
                 Secret::PassPhrase(passphrase) => {
                     #[cfg(not(test))]
@@ -618,11 +626,14 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
                     }
                 }
                 Secret::Key(key) => cipher.export_with_key(key.as_slice()),
-            };
-            self.set_kv("cipher", export?).await.map_err(OpenStoreError::SaveCipher)?;
+                Secret::HighEntropyPassPhrase { key, .. } => cipher.export_with_key(key.as_slice()),
+            }?;
+
+            self.set_kv(STORAGE_KEY, export).await.map_err(OpenStoreError::SaveCipher)?;
+
             cipher
         };
-        secret.zeroize();
+
         Ok(cipher)
     }
 }
@@ -670,8 +681,8 @@ pub(crate) fn time_to_timestamp(time: SystemTime) -> i64 {
     time.duration_since(SystemTime::UNIX_EPOCH)
         .ok()
         .and_then(|d| d.as_secs().try_into().ok())
-        // It is unlikely to happen unless the time on the system is seriously wrong, but we always
-        // need a value.
+        // It is unlikely to happen unless the time on the system is seriously
+        // wrong, but we always need a value.
         .unwrap_or(0)
 }
 
@@ -687,9 +698,8 @@ pub(crate) trait EncryptableStore {
     fn get_cypher(&self) -> Option<&StoreCipher>;
 
     /// If the store is using encryption, this will hash the given key. This is
-    /// useful when we need to do queries against a given key, but we don't
-    /// need to store the key in plain text (i.e. it's not both a key and a
-    /// value).
+    /// useful when we need to do queries against a given key, but we don't need
+    /// to store the key in plain text (i.e. it's not both a key and a value).
     fn encode_key(&self, table_name: &str, key: impl AsRef<[u8]>) -> Key {
         let bytes = key.as_ref();
         if let Some(store_cipher) = self.get_cypher() {

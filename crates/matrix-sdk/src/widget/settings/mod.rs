@@ -52,15 +52,15 @@ impl WidgetSettings {
     }
 
     /// Whether or not the widget should be initialized on load message
-    /// (`ContentLoad` message), or upon creation/attaching of the widget to
-    /// the SDK's state machine that drives the API.
+    /// (`ContentLoad` message), or upon creation/attaching of the widget to the
+    /// SDK's state machine that drives the API.
     pub fn init_on_content_load(&self) -> bool {
         self.init_on_content_load
     }
 
-    /// This contains the url from the widget state event.
-    /// In this url placeholders can be used to pass information from the client
-    /// to the widget. Possible values are: `$matrix_widget_id`,
+    /// This contains the url from the widget state event. In this url
+    /// placeholders can be used to pass information from the client to the
+    /// widget. Possible values are: `$matrix_widget_id`,
     /// `$matrix_display_name`, etc.
     ///
     /// # Examples
@@ -73,8 +73,8 @@ impl WidgetSettings {
 
     /// Get the base url of the widget. Used as the target for PostMessages. In
     /// case the widget is in a webview and not an IFrame. It contains the
-    /// schema and the authority e.g. `https://my.domain.org`. A postmessage would
-    /// be sent using: `postMessage(myMessage, widget_base_url)`.
+    /// schema and the authority e.g. `https://my.domain.org`. A postmessage
+    /// would be sent using: `postMessage(myMessage, widget_base_url)`.
     pub fn base_url(&self) -> Option<Url> {
         base_url(&self.raw_url)
     }
@@ -84,10 +84,9 @@ impl WidgetSettings {
     ///
     /// # Arguments
     ///
-    /// * `room` - A Matrix room which is used to query the logged in username
-    /// * `props` - Properties from the client that can be used by a widget to
+    /// - `room` - A Matrix room which is used to query the logged in username
+    /// - `props` - Properties from the client that can be used by a widget to
     ///   adapt to the client. e.g. language, font-scale...
-    //
     // TODO: add `From<WidgetStateEvent>`, so that `WidgetSettings` can be built
     // by using the room state.
     pub async fn generate_webview_url(
@@ -159,10 +158,11 @@ impl ClientProperties {
     /// the default one (en-US) will be used.
     ///
     /// # Arguments
-    /// * `client_id` - client identifier. This allows widgets to adapt to
+    ///
+    /// - `client_id` - client identifier. This allows widgets to adapt to
     ///   specific clients (e.g. `io.element.web`).
-    /// * `language` - language that is used in the client (default: `en-US`).
-    /// * `theme` - theme (dark, light) or org.example.dark (default: `light`).
+    /// - `language` - language that is used in the client (default: `en-US`).
+    /// - `theme` - theme (dark, light) or org.example.dark (default: `light`).
     pub fn new(client_id: &str, language: Option<LanguageTag>, theme: Option<String>) -> Self {
         // It is safe to unwrap "en-us".
         let default_language = LanguageTag::parse("en-us").unwrap();

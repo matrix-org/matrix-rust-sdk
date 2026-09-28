@@ -222,16 +222,16 @@ impl RoomView {
                             }
                         }
 
-                        // Pressing Escape on a threaded timeline will get back to the room
-                        // timeline.
+                        // Pressing Escape on a threaded timeline will get back
+                        // to the room timeline.
                         (KeyModifiers::NONE, Esc)
                             if matches!(self.kind, TimelineKind::Thread { .. }) =>
                         {
                             self.switch_to_room_timeline(None);
                         }
 
-                        // Pressing 'Alt+s' on a threaded timeline will print the current
-                        // subscription status.
+                        // Pressing 'Alt+s' on a threaded timeline will print
+                        // the current subscription status.
                         (KeyModifiers::ALT, Char('s')) => {
                             self.print_thread_subscription_status().await;
                         }

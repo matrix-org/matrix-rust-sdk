@@ -50,7 +50,7 @@ pub(in crate::timeline) struct RemoteEventTimelineItem {
 
     /// JSON of the original event.
     ///
-    /// If the event is edited, this *won't* change, instead `latest_edit_json`
+    /// If the event is edited, this _won't_ change, instead `latest_edit_json`
     /// will be updated.
     ///
     /// This field always starts out as `Some(_)`, but is set to `None` when the

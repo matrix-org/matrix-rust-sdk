@@ -97,12 +97,12 @@ impl<'a, R: Read + 'a> AttachmentDecryptor<'a, R> {
     ///
     /// # Arguments
     ///
-    /// * `reader` - The `Reader` that should be wrapped and decrypted.
-    ///
-    /// * `info` - The encryption info that is necessary to decrypt data from
+    /// - `reader` - The `Reader` that should be wrapped and decrypted.
+    /// - `info` - The encryption info that is necessary to decrypt data from
     ///   the reader.
     ///
     /// # Examples
+    ///
     /// ```
     /// # use std::io::{Cursor, Read};
     /// # use matrix_sdk_crypto::{AttachmentEncryptor, AttachmentDecryptor};
@@ -192,7 +192,7 @@ impl<'a, R: Read + ?Sized + 'a> AttachmentEncryptor<'a, R> {
     ///
     /// # Arguments
     ///
-    /// * `reader` - The `Reader` that should be wrapped and encrypted.
+    /// - `reader` - The `Reader` that should be wrapped and encrypted.
     ///
     /// # Panics
     ///
@@ -200,6 +200,7 @@ impl<'a, R: Read + ?Sized + 'a> AttachmentEncryptor<'a, R> {
     /// encryption key.
     ///
     /// # Examples
+    ///
     /// ```
     /// # use std::io::{Cursor, Read};
     /// # use matrix_sdk_crypto::AttachmentEncryptor;
