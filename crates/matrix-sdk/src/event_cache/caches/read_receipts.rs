@@ -480,10 +480,10 @@ where
 
     // This loop folds two actions at once:
     //
-    // - try to find the most recent receipt, by looking at the events in reverse
-    //   order (i.e. from the most recent to the least recent),
-    // - try to match stashed receipts against known events in the linked chunk, so
-    //   as to shrink the stash of pending receipts.
+    // - try to find the most recent receipt, by looking at the events in
+    //   reverse order (i.e. from the most recent to the least recent),
+    // - try to match stashed receipts against known events in the linked chunk,
+    //   so as to shrink the stash of pending receipts.
     //
     // We can early exit out of this loop, as soon as there's no more work to
     // do, i.e., we've found a better receipt, _and_ there's no more pending

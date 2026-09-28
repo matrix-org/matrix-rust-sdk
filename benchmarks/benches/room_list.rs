@@ -30,7 +30,8 @@ pub fn create(c: &mut Criterion) {
     let server_ts_range = Uniform::try_from(100..1000).unwrap();
 
     for room_nth in 0..NUMBER_OF_ROOMS {
-        // Synapse's room IDs for rooms v1 to v11 have an 18 characters localpart.
+        // Synapse's room IDs for rooms v1 to v11 have an 18 characters
+        // localpart.
         let raw_room_id = format!("!arsgratiaartis{room_nth:04}:example.com");
 
         let room_id = if room_nth % 10 == 9 {
@@ -77,7 +78,8 @@ pub fn create(c: &mut Criterion) {
                 let (entries_stream, entries_controller) =
                     room_list.entries_with_dynamic_adapters(20);
 
-                // Setting the filter will trigger the entries stream computation.
+                // Setting the filter will trigger the entries stream
+                // computation.
                 entries_controller.set_filter(Box::new(new_filter_non_left()));
 
                 pin_mut!(entries_stream);

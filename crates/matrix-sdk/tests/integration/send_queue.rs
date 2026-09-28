@@ -4731,9 +4731,9 @@ async fn test_edit_with_attachment() {
     .await
     .expect("queuing the attachment edit works");
 
-    // The local echo is a replacement of the edited event, carrying the new media
-    // (served from the local cache) in both the fallback content and the
-    // canonical copy inside the relation.
+    // The local echo is a replacement of the edited event, carrying the new
+    // media (served from the local cache) in both the fallback content and
+    // the canonical copy inside the relation.
     let (txn, send_handle, content) = assert_update!((global_watch, watch) => local echo event);
     assert_eq!(txn, transaction_id);
 
@@ -4817,8 +4817,8 @@ async fn test_edit_with_attachment_survives_restart() {
 
     mock.mock_authenticated_media_config().ok_default().mount().await;
 
-    // Disable the send queue, so the edit is queued but neither uploaded nor sent
-    // before the client goes away.
+    // Disable the send queue, so the edit is queued but neither uploaded nor
+    // sent before the client goes away.
     let q = client.send_queue();
     q.set_enabled(false).await;
 
@@ -4848,8 +4848,9 @@ async fn test_edit_with_attachment_survives_restart() {
         sleep(Duration::from_secs(1)).await;
     }
 
-    // The upload and the edit are performed by the new client, from the persisted
-    // requests and the media that's still in the shared media store.
+    // The upload and the edit are performed by the new client, from the
+    // persisted requests and the media that's still in the shared media
+    // store.
     mock.mock_room_state_encryption().plain().mount().await;
     mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_upload()
@@ -4876,8 +4877,8 @@ async fn test_edit_with_attachment_survives_restart() {
 
     sleep(Duration::from_secs(1)).await;
 
-    // The sent event is the replacement, carrying the uploaded media in both the
-    // fallback content and the canonical copy inside the relation.
+    // The sent event is the replacement, carrying the uploaded media in both
+    // the fallback content and the canonical copy inside the relation.
     let requests = mock.server().received_requests().await.unwrap();
     let sent = requests
         .iter()
@@ -4890,7 +4891,8 @@ async fn test_edit_with_attachment_survives_restart() {
     assert_eq!(body["url"], "mxc://sdk.rs/media");
     assert_eq!(body["m.new_content"]["url"], "mxc://sdk.rs/media");
 
-    // The upload and the send both happened (asserted by the mocks' expectations).
+    // The upload and the send both happened (asserted by the mocks'
+    // expectations).
     mock.verify_and_reset().await;
 }
 

@@ -146,8 +146,8 @@ impl OAuthCli {
                 && let OAuthError::ClientRegistration(OAuthClientRegistrationError::NotSupported) =
                     error
             {
-                // This would require to register with the authorization server manually, which
-                // we don't support here.
+                // This would require to register with the authorization server
+                // manually, which we don't support here.
                 bail!(
                     "This server doesn't support dynamic registration.\n\
                      Please select another homeserver."
@@ -158,8 +158,8 @@ impl OAuthCli {
         }
 
         // Persist the session to reuse it later.
-        // This is not very secure, for simplicity. If the system provides a way of
-        // storing secrets securely, it should be used instead.
+        // This is not very secure, for simplicity. If the system provides a way
+        // of storing secrets securely, it should be used instead.
         let full_session =
             cli.client.oauth().full_session().expect("A logged-in client should have a session");
 
@@ -184,9 +184,10 @@ impl OAuthCli {
 
         // We create a loop here so the user can retry if an error happens.
         loop {
-            // Here we spawn a server to listen on the loopback interface. Another option
-            // would be to register a custom URI scheme with the system and handle
-            // the redirect when the custom URI scheme is opened.
+            // Here we spawn a server to listen on the loopback interface.
+            // Another option would be to register a custom URI
+            // scheme with the system and handle the redirect when
+            // the custom URI scheme is opened.
             let (redirect_uri, server_handle) = LocalServerBuilder::new().spawn().await?;
 
             let OAuthAuthorizationData { url, .. } = oauth
@@ -407,9 +408,9 @@ impl OAuthCli {
     async fn watch(&self) -> anyhow::Result<()> {
         let client = &self.client;
 
-        // If this is a new client, ignore previous messages to not fill the logs.
-        // Note that this might not work as intended, the initial sync might have failed
-        // in a previous session.
+        // If this is a new client, ignore previous messages to not fill the
+        // logs. Note that this might not work as intended, the initial
+        // sync might have failed in a previous session.
         if !self.restored {
             client.sync_once(SyncSettings::default()).await.unwrap();
         }
@@ -442,13 +443,15 @@ impl OAuthCli {
 
         let sync_service_clone = sync_service.clone();
         let task = tokio::spawn(async move {
-            // Only fail after getting 5 errors in a row. When we're in an always-refail
-            // scenario, we move from the Error to the Running state for a bit
-            // until we fail again, so we need to track both failure state and
-            // running state, hence `num_errors` and `num_running`:
-            // - if we failed and num_running was 1, then this is a failure following a
-            //   failure.
-            // - otherwise, we recovered from the failure and we can plain continue.
+            // Only fail after getting 5 errors in a row. When we're in an
+            // always-refail scenario, we move from the Error to the
+            // Running state for a bit until we fail again, so we
+            // need to track both failure state and running state,
+            // hence `num_errors` and `num_running`:
+            // - if we failed and num_running was 1, then this is a failure
+            //   following a failure.
+            // - otherwise, we recovered from the failure and we can plain
+            //   continue.
 
             let mut num_errors = 0;
             let mut num_running = 0;
@@ -457,8 +460,8 @@ impl OAuthCli {
             let mut stdin = tokio::io::BufReader::new(tokio::io::stdin());
 
             loop {
-                // Concurrently wait for an update from the sync service OR for the user to
-                // press enter and leave early.
+                // Concurrently wait for an update from the sync service OR for
+                // the user to press enter and leave early.
                 tokio::select! {
                     res = sync_service_state.next() => {
                         if let Some(state) = res {
@@ -562,8 +565,9 @@ impl OAuthCli {
     async fn refresh_token(&self) -> anyhow::Result<()> {
         self.client.oauth().refresh_access_token().await?;
 
-        // The session will automatically be refreshed because of the task persisting
-        // the full session upon refresh in `setup_background_save`.
+        // The session will automatically be refreshed because of the task
+        // persisting the full session upon refresh in
+        // `setup_background_save`.
 
         println!("\nToken refreshed successfully");
 
@@ -641,7 +645,8 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)
                         } else {
                             println!("Error fetching the OAuth 2.0 server metadata: {error:?}");
                         }
-                        // The client already initialized the store so we need to remove it.
+                        // The client already initialized the store so we need
+                        // to remove it.
                         fs::remove_dir_all(data_dir).await?;
                     }
                 }
@@ -652,7 +657,8 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)
                 | ClientBuildError::Http(_) => {
                     println!("Error checking the homeserver: {error}");
                     println!("Please try again\n");
-                    // The client already initialized the store so we need to remove it.
+                    // The client already initialized the store so we need to
+                    // remove it.
                     fs::remove_dir_all(data_dir).await?;
                 }
                 ClientBuildError::InvalidServerName => {
@@ -660,7 +666,8 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)
                     println!("Please try again\n");
                 }
                 _ => {
-                    // Forward other errors, it's unlikely we can retry with a different outcome.
+                    // Forward other errors, it's unlikely we can retry with a
+                    // different outcome.
                     return Err(error.into());
                 }
             },

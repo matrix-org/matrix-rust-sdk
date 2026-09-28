@@ -24,7 +24,8 @@ async fn test_user_is_not_verified_if_their_msk_is_not_signed() -> anyhow::Resul
     // unverified.
     //
     // Alice has no X.509 key pair.
-    // Alice registers on the server. They do not sign the MSK with any X.509 key.
+    // Alice registers on the server. They do not sign the MSK with any X.509
+    // key.
     let alice = create_encryption_enabled_client("alice", None, None)
         .instrument(alice_span.clone())
         .await?;
@@ -33,8 +34,8 @@ async fn test_user_is_not_verified_if_their_msk_is_not_signed() -> anyhow::Resul
     let bob =
         create_encryption_enabled_client("bob", None, None).instrument(bob_span.clone()).await?;
 
-    // Bob sees Alice as untrusted because her MSK is not signed by a valid X.509
-    // key.
+    // Bob sees Alice as untrusted because her MSK is not signed by a valid
+    // X.509 key.
     let bobs_view_of_alice =
         bob.encryption().request_user_identity(alice.user_id().unwrap()).await?.unwrap();
 
@@ -65,8 +66,8 @@ async fn test_user_is_verified_if_their_msk_is_signed() -> anyhow::Result<()> {
             .unwrap(),
     );
 
-    // Alice registers on the server. As part of creating their user identity, they
-    // sign their MSK and upload the signature to the server.
+    // Alice registers on the server. As part of creating their user identity,
+    // they sign their MSK and upload the signature to the server.
     let alice =
         create_encryption_enabled_client(&alice_username, Some(alice_x509_signer.clone()), None)
             .instrument(alice_span.clone())
@@ -116,8 +117,8 @@ async fn test_user_is_not_verified_if_we_dont_trust_their_cert() -> anyhow::Resu
             .unwrap(),
     );
 
-    // Alice registers on the server. As part of creating their user identity, they
-    // sign their MSK and upload the signature to the server.
+    // Alice registers on the server. As part of creating their user identity,
+    // they sign their MSK and upload the signature to the server.
     let alice =
         create_encryption_enabled_client(&alice_username, Some(alice_x509_signer.clone()), None)
             .instrument(alice_span.clone())
@@ -261,9 +262,10 @@ pub(crate) fn subject_key_identifier_extension(
 
     use sha2::{Digest, Sha256};
 
-    // The actual bytes in the SKI don't actually matter that much (and the RFC just
-    // makes a couple of suggestions): they just need to be a reasonably
-    // unique way of referring to the certificate with the right public key.
+    // The actual bytes in the SKI don't actually matter that much (and the RFC
+    // just makes a couple of suggestions): they just need to be a
+    // reasonably unique way of referring to the certificate with the right
+    // public key.
     let spki = signing_key.subject_public_key_info();
     let spki_hash = Sha256::digest(&spki);
     let ski_bytes = &spki_hash.as_slice()[0..20];

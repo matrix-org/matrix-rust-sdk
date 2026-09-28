@@ -219,8 +219,8 @@ impl QrCodeData {
         // 8. The UTF-8 encoded string containing the server base URL.
         let mut reader = Cursor::new(bytes);
 
-        // 1. Let's get the prefix first and double check if this QR code is intended
-        //    for the QR code login mechanism.
+        // 1. Let's get the prefix first and double check if this QR code is
+        //    intended for the QR code login mechanism.
         let mut prefix = [0u8; PREFIX.len()];
         reader.read_exact(&mut prefix)?;
 
@@ -235,8 +235,8 @@ impl QrCodeData {
         let qr_type = reader.read_u8()?;
 
         if qr_type == TYPE {
-            // 3. The intent is the next one to parse, we return an error immediately if the
-            //    intent isn't 0x00 or 0x01.
+            // 3. The intent is the next one to parse, we return an error
+            //    immediately if the intent isn't 0x00 or 0x01.
             let intent = QrCodeIntent::try_from(reader.read_u8()?)?;
 
             // 4. Let's get the public key and convert it to our strongly typed

@@ -814,10 +814,11 @@ fn filter_any_sync_state_event(
                     // This member _is_ the current user, not someone else! This
                     // is a valid state event:
                     //
-                    // - the user is joining a room (for the first time or again): we want a
-                    //   `LatestEventValue` to get a first value!
-                    // - the user is being invited: we want a `LatestEventValue` to represent the
-                    //   invitation!
+                    // - the user is joining a room (for the first time or
+                    //   again): we want a `LatestEventValue` to get a first
+                    //   value!
+                    // - the user is being invited: we want a `LatestEventValue`
+                    //   to represent the invitation!
                     if member.state_key.deref() == own_user_id {
                         filter_break()
                     } else {

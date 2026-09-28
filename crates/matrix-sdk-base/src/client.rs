@@ -448,7 +448,8 @@ impl BaseClient {
 
         let olm_machine = builder.build().await.map_err(OlmError::from)?;
 
-        // Subscribe before the machine is shared, so that no room key is missed.
+        // Subscribe before the machine is shared, so that no room key is
+        // missed.
         #[cfg(feature = "unstable-msc4354")]
         let room_keys_stream = olm_machine.store().room_keys_received_stream();
 

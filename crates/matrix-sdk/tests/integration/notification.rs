@@ -117,7 +117,8 @@ async fn test_notifications_invite() {
     users.insert(owned_user_id!("@example:localhost"), Int::new(100).unwrap());
     users.insert(owned_user_id!("@bob:localhost"), Int::new(0).unwrap());
     let power_levels_event: Raw<AnyStrippedStateEvent> = f.power_levels(&mut users).into();
-    // Factory sends @example by default, but in reality these events come from Bob.
+    // Factory sends @example by default, but in reality these events come from
+    // Bob.
     let bob = user_id!("@bob:localhost");
     let invited_room = InvitedRoomBuilder::new(room_id).add_state_bulk([
         power_levels_event,

@@ -210,8 +210,8 @@ pub mod skip {
             // | 0               | 20          | (0, Some(20))  |
             //                                    ^  ^^^^^^^^
             //                                    |  |
-            //                                    |  it needs 20 items to fulfill the
-            //                                    |  page size
+            //                                    |  it needs 20 items to fulfil
+            //                                    |  the page size
             //                                    count becomes 0
             //
             if current_count >= page_size {

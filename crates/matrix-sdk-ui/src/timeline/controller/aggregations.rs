@@ -614,8 +614,8 @@ impl Aggregations {
         // related_events, in chronological order:
         //
         // 1. The local echo with a transaction ID.
-        // 2. The local echo with the event ID returned by the server after sending the
-        //    event.
+        // 2. The local echo with the event ID returned by the server after
+        //    sending the event.
         // 3. The remote echo received via sync.
         //
         // The transition from states 1 to 2 is handled in

@@ -74,12 +74,12 @@ fn extract_scores(left: &RoomListItem, right: &RoomListItem) -> (Option<Score>, 
     // always be the same while sorting the rooms. Thus, the following rules
     // must apply:
     //
-    // - Nominal case: Two rooms with a latest event can be compared together based
-    //   on their latest event's timestamp,
-    // - Case #1: If a room has a latest event, but the other doesn't have one, the
-    //   first room has a score but the other doesn't have one,
-    // - Case #2: If none of the room has a latest event, we fallback to the recency
-    //   stamp for both rooms.
+    // - Nominal case: Two rooms with a latest event can be compared together
+    //   based on their latest event's timestamp,
+    // - Case #1: If a room has a latest event, but the other doesn't have one,
+    //   the first room has a score but the other doesn't have one,
+    // - Case #2: If none of the room has a latest event, we fallback to the
+    //   recency stamp for both rooms.
     //
     // The most important aspect is: if room returns its latest event's
     // timestamp or its recency stamp, _once_, it must return it every time it's

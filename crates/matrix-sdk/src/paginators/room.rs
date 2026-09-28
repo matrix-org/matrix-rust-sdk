@@ -208,8 +208,8 @@ impl<PR: PaginableRoom> Paginator<PR> {
 
         // Consolidate the events into a linear timeline, topologically ordered.
         //
-        // - the events before are returned in the reverse topological order: invert
-        //   them.
+        // - the events before are returned in the reverse topological order:
+        //   invert them.
         // - insert the target event, if set.
         // - the events after are returned in the correct topological order.
 

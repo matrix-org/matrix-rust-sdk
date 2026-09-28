@@ -173,8 +173,8 @@ async fn on_stripped_state_member(
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // set up some simple stderr logging. You can configure it by changing the env
-    // var `RUST_LOG`
+    // set up some simple stderr logging. You can configure it by changing the
+    // env var `RUST_LOG`
     tracing_subscriber::fmt::init();
 
     // parse the command line for homeserver, username and password

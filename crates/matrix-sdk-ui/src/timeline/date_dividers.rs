@@ -409,7 +409,8 @@ impl DateDividerAdjuster {
 
         // Assert invariants.
         //
-        // 1. The timeline starts with a date divider, if it's not only virtual items.
+        // 1. The timeline starts with a date divider, if it's not only virtual
+        //    items.
         {
             let mut i = items.first_remotes_region_index();
             while let Some(item) = items.get(i) {
@@ -502,8 +503,8 @@ impl DateDividerAdjuster {
             }
         }
 
-        // 5. If there was a read marker at the beginning, there should be one at the
-        //    end.
+        // 5. If there was a read marker at the beginning, there should be one
+        //    at the end.
         if let Some(state) = &report.initial_state
             && state.iter().any(|item| item.is_read_marker())
             && !report
