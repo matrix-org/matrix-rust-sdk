@@ -7,7 +7,9 @@ use matrix_sdk::{
     timeout::timeout,
 };
 use matrix_sdk_base::event_cache::Event;
-use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{
+    ALICE, JoinedRoomBuilder, LeftRoomBuilder, async_test, event_factory::EventFactory,
+};
 use ruma::{
     EventId, OwnedEventId, event_id, events::room::message::RoomMessageEventContentWithoutRelation,
     room_id,
@@ -236,6 +238,41 @@ async fn test_specific_events_follow_sync_updates() {
     assert!(find(&events, event_id!("$target")).raw().deserialize().unwrap().is_redacted());
 
     assert!(!event_ids(&events).contains(&event_id!("$noise").to_owned()));
+}
+
+#[async_test]
+async fn test_specific_events_follow_sync_of_a_left_room() {
+    let f = EventFactory::new().room(room_id()).sender(*ALICE);
+
+    let server = MatrixMockServer::new().await;
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(f.text_msg("target").event_id(event_id!("$target")).server_ts(1).into_event())
+        .mount()
+        .await;
+
+    let client = subscribed_client(&server).await;
+
+    let (cache, _drop_handles) = client
+        .event_cache()
+        .specific_events(room_id(), vec![event_id!("$target").to_owned()])
+        .await
+        .unwrap();
+    let (events, mut subscriber) = cache.subscribe().await.unwrap();
+    let mut events: Vector<Event> = events.into();
+
+    // The last events of a room we just left still reach the cache.
+    server
+        .sync_room(
+            &client,
+            LeftRoomBuilder::new(room_id()).add_timeline_event(
+                f.reaction(event_id!("$target"), "👍").event_id(event_id!("$reaction")),
+            ),
+        )
+        .await;
+    apply_next_updates(&mut subscriber, &mut events).await;
+    assert_eq!(event_ids(&events), [event_id!("$target"), event_id!("$reaction")]);
 }
 
 #[async_test]

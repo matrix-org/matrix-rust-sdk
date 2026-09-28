@@ -1737,6 +1737,48 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_redecryptor_updates_specific_events_caches() {
+        let room_id = room_id!("!test:localhost");
+
+        let event_factory = EventFactory::new().room(room_id);
+        let (alice, bob, matrix_mock_server, _) = set_up_clients(room_id, true, false).await;
+
+        let (event, room_key) =
+            prepare_room(&matrix_mock_server, &event_factory, &alice, &bob, room_id).await;
+        let event_id: OwnedEventId = event.get_field("event_id").unwrap().unwrap();
+
+        // Bob receives the event before its room key, so it's a UTD.
+        let (room_cache, _) = bob.event_cache().room(room_id).await.unwrap();
+        let (_, mut room_subscriber) = room_cache.subscribe().await.unwrap();
+        matrix_mock_server
+            .mock_sync()
+            .ok_and_run(&bob, |builder| {
+                builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(event));
+            })
+            .await;
+        assert_let_timeout!(Ok(_) = room_subscriber.recv());
+
+        let (cache, _) = bob.event_cache().specific_events(room_id, vec![event_id]).await.unwrap();
+        let (events, mut subscriber) = cache.subscribe().await.unwrap();
+        assert_matches!(&events[0].kind, TimelineEventKind::UnableToDecrypt { .. });
+
+        // Once the room key arrives, the UTD is replaced in this cache too.
+        matrix_mock_server
+            .mock_sync()
+            .ok_and_run(&bob, |builder| {
+                builder.add_to_device_event(room_key.deserialize_as().unwrap());
+            })
+            .await;
+
+        assert_let_timeout!(
+            Duration::from_secs(1),
+            Ok(TimelineVectorDiffs { diffs, .. }) = subscriber.recv()
+        );
+        assert_let!(VectorDiff::Set { index: 0, value } = &diffs[0]);
+        assert_matches!(&value.kind, TimelineEventKind::Decrypted { .. });
+    }
+
+    #[async_test]
     async fn test_redecryptor_updating_encryption_info() {
         let bob_span = tracing::info_span!("bob");
 
