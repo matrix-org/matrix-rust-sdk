@@ -48,7 +48,8 @@ use super::{
     super::{
         EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate,
         states::{
-            CacheStateLock, ReloadPreprocessing, StateLock, selectors::EventFocusedStateSelector,
+            CacheStateLock, ReloadPreprocessing, StateLock, StateLockWriteGuard,
+            selectors::EventFocusedStateSelector,
         },
     },
     TimelineVectorDiffs,
@@ -638,19 +639,31 @@ impl EventFocusedCache {
         num_context_events: u16,
         thread_mode: EventFocusThreadMode,
     ) -> Result<StartFromResult> {
-        self.inner.write().await?.start_from(num_context_events, thread_mode).await
+        let mut state = self.inner.write().await?;
+        let result = state.start_from(num_context_events, thread_mode).await?;
+        save_bundled_latest_thread_events(&state, &result.events).await?;
+
+        Ok(result)
     }
 
     /// Paginate backwards in this event-focused timeline, be it room or thread
     /// pagination depending on the mode.
     pub async fn paginate_backwards(&self, num_events: u16) -> Result<PaginationResult> {
-        self.inner.write().await?.paginate_backwards(num_events).await
+        let mut state = self.inner.write().await?;
+        let result = state.paginate_backwards(num_events).await?;
+        save_bundled_latest_thread_events(&state, &result.events).await?;
+
+        Ok(result)
     }
 
     /// Paginate forwards in this event-focused timeline, be it room or thread
     /// pagination depending on the mode.
     pub async fn paginate_forwards(&self, num_events: u16) -> Result<PaginationResult> {
-        self.inner.write().await?.paginate_forwards(num_events).await
+        let mut state = self.inner.write().await?;
+        let result = state.paginate_forwards(num_events).await?;
+        save_bundled_latest_thread_events(&state, &result.events).await?;
+
+        Ok(result)
     }
 
     /// Get the thread root event ID if this linked chunk is in thread mode.
@@ -685,6 +698,24 @@ impl EventFocusedCache {
 
         Ok(())
     }
+}
+
+/// Save the latest thread event bundled with each of `events`, if any.
+///
+/// The events of this cache aren't persisted, but a thread root's latest event
+/// is looked up in the store to build the thread summary. The room and thread
+/// caches save it the same way.
+async fn save_bundled_latest_thread_events(
+    state: &StateLockWriteGuard<'_, EventFocusedCacheState>,
+    events: &[Event],
+) -> Result<()> {
+    let room_id = state.room.room_id();
+
+    for bundled_thread in events.iter().filter_map(Event::bundled_latest_thread_event) {
+        state.store.save_event(room_id, bundled_thread).await?;
+    }
+
+    Ok(())
 }
 
 #[cfg(not(tarpaulin_include))]
