@@ -772,7 +772,12 @@ mod tests {
     async fn run_refresh_interrupted_during_token_exchange(
         app_can_reload: bool,
     ) -> (Client, Result<(), RefreshTokenError>, tempfile::TempDir) {
-        use std::{thread, time::Duration};
+        use std::{
+            thread,
+            time::{Duration, Instant},
+        };
+
+        use matrix_sdk_common::cross_process_lock::LEASE_DURATION_MS;
 
         let server = MatrixMockServer::new().await;
         let oauth_server = server.oauth();
@@ -822,26 +827,6 @@ mod tests {
         )
         .unwrap();
 
-        let nse = server
-            .client_builder()
-            .on_builder(|b| b.sqlite_store(&tmp_dir, None))
-            .unlogged()
-            .build()
-            .await;
-        nse.oauth().enable_cross_process_refresh_lock("nse".to_owned()).await.unwrap();
-        nse.oauth()
-            .restore_session(
-                mock_session(mock_prev_session_tokens_with_refresh()),
-                RoomLoadSettings::default(),
-            )
-            .await
-            .unwrap();
-        nse.set_session_callbacks(
-            Box::new(|_| Ok(mock_session_tokens_with_refresh())),
-            Box::new(|_| Ok(())),
-        )
-        .unwrap();
-
         let app_oauth = app.oauth();
         let app_refresh = tokio::spawn(async move { app_oauth.refresh_access_token().await });
 
@@ -860,14 +845,63 @@ mod tests {
             waited += Duration::from_millis(10);
         }
 
-        // "Suspend" the app: blocking the current-thread runtime freezes every task,
-        // including the one renewing the lease, so the 500ms lock lease lapses.
-        thread::sleep(Duration::from_millis(700));
+        // The NSE runs on its own thread and runtime. Suspending the app below blocks
+        // the app's runtime thread, which would freeze the NSE too if the two shared a
+        // runtime — and a frozen NSE can never steal the lapsed lock.
+        thread::scope(|scope| {
+            scope.spawn(|| {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
 
-        // The NSE steals the lapsed lock and refreshes, rotating the token that the
-        // app's in-flight exchange is about to present.
-        nse.oauth().refresh_access_token().await.unwrap();
-        assert_eq!(nse.session_tokens(), Some(mock_session_tokens_with_refresh()));
+                runtime.block_on(async {
+                    // The app is about to be frozen, so its lease stops being renewed and
+                    // lapses `LEASE_DURATION_MS` from here. Set the NSE up while that runs
+                    // down, rather than after it, so only the wait below stands between the
+                    // app's exchange and the NSE's rotation.
+                    let frozen_at = Instant::now();
+
+                    let nse = server
+                        .client_builder()
+                        .on_builder(|b| b.sqlite_store(&tmp_dir, None))
+                        .unlogged()
+                        .build()
+                        .await;
+                    nse.oauth()
+                        .enable_cross_process_refresh_lock("nse".to_owned())
+                        .await
+                        .unwrap();
+                    nse.oauth()
+                        .restore_session(
+                            mock_session(mock_prev_session_tokens_with_refresh()),
+                            RoomLoadSettings::default(),
+                        )
+                        .await
+                        .unwrap();
+                    nse.set_session_callbacks(
+                        Box::new(|_| Ok(mock_session_tokens_with_refresh())),
+                        Box::new(|_| Ok(())),
+                    )
+                    .unwrap();
+
+                    // Wait out what is left of the lapsing lease: the app holds the lock
+                    // across its exchange, and trying to take it any earlier only costs the
+                    // NSE a backoff round.
+                    let lease_lapsed = Duration::from_millis(LEASE_DURATION_MS as u64 + 50);
+                    tokio::time::sleep(lease_lapsed.saturating_sub(frozen_at.elapsed())).await;
+
+                    // The NSE steals the lapsed lock and refreshes, rotating the token
+                    // that the app's in-flight exchange is about to present.
+                    nse.oauth().refresh_access_token().await.unwrap();
+                    assert_eq!(nse.session_tokens(), Some(mock_session_tokens_with_refresh()));
+                });
+            });
+
+            // "Suspend" the app: blocking its runtime thread freezes every task on it,
+            // including the one renewing the lease.
+            thread::sleep(Duration::from_secs(2));
+        });
 
         let app_refresh = app_refresh.await.expect("the app refresh task shouldn't panic");
 
