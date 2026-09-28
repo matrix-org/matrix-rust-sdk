@@ -259,8 +259,8 @@ impl QrCodeData {
             reader.read_exact(&mut base_url)?;
 
             // Same here, the length is also guaranteed to be <= u8::MAX because
-            // that's the maximum amount of bytes we might have
-            // read. So we can skip the constructor here.
+            // that's the maximum amount of bytes we might have read. So we can
+            // skip the constructor here.
             let base_url = Url::parse(str::from_utf8(&base_url)?)?;
             let base_url = LimitedUrl(base_url);
 

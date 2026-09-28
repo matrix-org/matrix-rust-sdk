@@ -29,7 +29,9 @@ pub use msc_4108::Msc4108IntentData;
 use url::Url;
 use vodozemac::{Curve25519PublicKey, base64_decode, base64_encode};
 
-pub use crate::types::qr_login::msc_4388::{LimitedString, LimitedUrl, RendezvousId, InvalidLengthError};
+pub use crate::types::qr_login::msc_4388::{
+    InvalidLengthError, LimitedString, LimitedUrl, RendezvousId,
+};
 
 /// Error type for the decoding of the [`QrCodeData`].
 #[derive(Debug, Error)]
