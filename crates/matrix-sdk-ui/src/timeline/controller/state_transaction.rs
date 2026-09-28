@@ -443,25 +443,22 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
     pub(super) async fn handle_thread_summary(
         &mut self,
         thread_root: OwnedEventId,
-        thread_summary: Option<SdkThreadSummary>,
+        thread_summary: SdkThreadSummary,
         room_data_provider: &P,
     ) {
         // First off, let's compute the timeline-flavoured thread summary.
-        let thread_summary =
-            if let Some(SdkThreadSummary { latest_reply, num_replies }) = thread_summary {
-                let latest_reply = if let Some(latest_reply) = latest_reply {
-                    self.fetch_latest_thread_reply(&latest_reply, room_data_provider).await
-                } else {
-                    None
-                };
-
-                Some(ThreadSummary {
-                    latest_event: TimelineDetails::from_initial_value(latest_reply),
-                    num_replies,
-                })
+        let thread_summary = {
+            let latest_reply = if let Some(latest_reply) = thread_summary.latest_reply {
+                self.fetch_latest_thread_reply(&latest_reply, room_data_provider).await
             } else {
                 None
             };
+
+            ThreadSummary {
+                latest_event: TimelineDetails::from_initial_value(latest_reply),
+                num_replies: thread_summary.num_replies,
+            }
+        };
 
         // Next, find the timeline item representing the thread root.
         let Some((timeline_item_index, event_timeline_item, timeline_item_internal_id)) = self
@@ -496,7 +493,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 
         // Next, update the timeline item representing the thread root.
         let mut timeline_item_content = timeline_item_content.clone();
-        timeline_item_content.thread_summary = thread_summary;
+        timeline_item_content.thread_summary = Some(thread_summary);
 
         let new_timeline_item = TimelineItem::new(
             event_timeline_item.with_content(TimelineItemContent::MsgLike(timeline_item_content)),

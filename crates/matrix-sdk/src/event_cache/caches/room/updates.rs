@@ -59,7 +59,7 @@ pub enum RoomEventCacheUpdate {
         thread_root: OwnedEventId,
 
         /// The updated thread summary.
-        thread_summary: Option<ThreadSummary>,
+        thread_summary: ThreadSummary,
     },
 
     /// The room has received a new read receipt event.

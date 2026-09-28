@@ -786,7 +786,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     pub(super) async fn handle_thread_summary(
         &self,
         thread_root: OwnedEventId,
-        thread_summary: Option<ThreadSummary>,
+        thread_summary: ThreadSummary,
     ) {
         let mut state = self.state.write().await;
         state.handle_thread_summary(thread_root, thread_summary, &self.room_data_provider).await
