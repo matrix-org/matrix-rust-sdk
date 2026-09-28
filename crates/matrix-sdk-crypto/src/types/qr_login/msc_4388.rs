@@ -190,7 +190,7 @@ impl QrCodeData {
         // 4. 32 bytes for the ephemeral Curve25519 key.
         // 5. One byte for the length of the rendezvous ID.
         // 6. The UTF-8 encoded string containing the rendezvous ID.
-        // 7. One byte for the length of the server base URL. encoding.
+        // 7. One byte for the length of the server base URL.
         // 8. The UTF-8 encoded string containing the server base URL.
         let mut reader = Cursor::new(bytes);
 
