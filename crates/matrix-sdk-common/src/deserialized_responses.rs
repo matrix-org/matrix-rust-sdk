@@ -1891,6 +1891,46 @@ mod tests {
     }
 
     #[test]
+    fn test_bundled_latest_thread_event_keeps_its_timestamp() {
+        let event = json!({
+            "event_id": "$root:example.com",
+            "type": "m.room.message",
+            "sender": "@alice:example.com",
+            "origin_server_ts": 42,
+            "content": {
+                "body": "Thread root",
+                "msgtype": "m.text",
+            },
+            "unsigned": {
+                "m.relations": {
+                    "m.thread": {
+                        "latest_event": {
+                            "event_id": "$latest_event:example.com",
+                            "type": "m.room.message",
+                            "sender": "@bob:example.com",
+                            "origin_server_ts": 153,
+                            "content": {
+                                "body": "Latest reply",
+                                "msgtype": "m.text",
+                            }
+                        },
+                        "count": 1,
+                        "current_user_participated": true,
+                    }
+                }
+            }
+        });
+
+        let timeline_event =
+            TimelineEvent::from_plaintext(Raw::new(&event).unwrap().cast_unchecked());
+        let latest_event = timeline_event
+            .bundled_latest_thread_event()
+            .expect("the bundled latest event should be present");
+
+        assert_eq!(latest_event.timestamp(), Some(MilliSecondsSinceUnixEpoch(UInt::from(153u32))));
+    }
+
+    #[test]
     fn sync_timeline_event_deserialisation_migration_for_withheld() {
         // Old serialized version was "utd_info": { "reason":
         // "MissingMegolmSession", "session_id": "session000" }
