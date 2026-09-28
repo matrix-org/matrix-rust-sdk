@@ -29,7 +29,7 @@ pub use msc_4108::Msc4108IntentData;
 use url::Url;
 use vodozemac::{Curve25519PublicKey, base64_decode, base64_encode};
 
-pub use crate::types::qr_login::msc_4388::{LimitedString, LimitedUrl, RendezvousId};
+pub use crate::types::qr_login::msc_4388::{LimitedString, LimitedUrl, RendezvousId, InvalidLengthError};
 
 /// Error type for the decoding of the [`QrCodeData`].
 #[derive(Debug, Error)]
@@ -85,12 +85,12 @@ pub enum LoginQrCodeDecodeError {
 pub enum QrCodeCreationError {
     /// The base URL of the homeserver needs to be at most [`u16::MAX`] bytes
     /// long, otherwise it doesn't fit into the QR code.
-    #[error("The base URL of the homeserver is too long")]
-    TooLongBaseUrl,
+    #[error("The base URL of the homeserver is too long: {0}")]
+    TooLongBaseUrl(InvalidLengthError),
     /// The rendezvous ID of the channel needs to be at most [`u16::MAX`] bytes
     /// long, otherwise it doesn't fit into the QR code.
-    #[error("The rendezvous ID is too long")]
-    TooLongRendezvousId,
+    #[error("The rendezvous ID is too long: {0}")]
+    TooLongRendezvousId(InvalidLengthError),
 }
 
 /// Intent-specific data of the [`QrCodeData`].
@@ -205,8 +205,8 @@ impl QrCodeData {
         intent: QrCodeIntent,
     ) -> Result<Self, QrCodeCreationError> {
         let rendezvous_id =
-            RendezvousId::new(rendezvous_id).ok_or(QrCodeCreationError::TooLongRendezvousId)?;
-        let base_url = LimitedUrl::new(base_url).ok_or(QrCodeCreationError::TooLongBaseUrl)?;
+            RendezvousId::new(rendezvous_id).map_err(QrCodeCreationError::TooLongRendezvousId)?;
+        let base_url = LimitedUrl::new(base_url).map_err(QrCodeCreationError::TooLongBaseUrl)?;
 
         Ok(Self {
             inner: QrCodeDataInner::Msc4388(msc_4388::QrCodeData {

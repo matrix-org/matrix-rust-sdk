@@ -66,6 +66,14 @@ impl TryFrom<u8> for QrCodeIntent {
     }
 }
 
+/// Error returned when a value's length exceeds the allowed limit.
+#[derive(Debug, thiserror::Error)]
+#[error("value is too long: {got} characters, maximum is {max}")]
+pub struct InvalidLengthError {
+    got: usize,
+    max: usize,
+}
+
 /// A wrapper type for a [`Url`] which limits the length of the URL to
 /// [`u8::MAX`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,13 +81,17 @@ pub struct LimitedUrl(Url);
 
 impl LimitedUrl {
     /// The maximum length a [`LimitedUrl`] can have.
-    const MAX_SIZE: u8 = u8::MAX;
+    const MAX_SIZE: usize = u8::MAX as usize;
 
     /// Create a new [`LimitedUrl`] from a [`Url`].
     ///
     /// Returns `None` if the [`Url`] is too long.
-    pub fn new(s: Url) -> Option<Self> {
-        if s.as_str().len() <= Self::MAX_SIZE as usize { Some(Self(s)) } else { None }
+    pub fn new(s: Url) -> Result<Self, InvalidLengthError> {
+        if s.as_str().len() <= Self::MAX_SIZE {
+            Ok(Self(s))
+        } else {
+            Err(InvalidLengthError { got: s.as_str().len(), max: Self::MAX_SIZE })
+        }
     }
 
     /// Return the length of the URL.
@@ -126,11 +138,17 @@ impl fmt::Display for LimitedString {
 }
 
 impl LimitedString {
+    const MAX_SIZE: usize = u8::MAX as usize;
+
     /// Create a new [`LimitedString`] from a [`String`].
     ///
     /// Returns `None` if the [`String`] is too long.
-    pub fn new(s: String) -> Option<Self> {
-        if s.len() <= u8::MAX as usize { Some(Self(s)) } else { None }
+    pub fn new(s: String) -> Result<Self, InvalidLengthError> {
+        if s.len() <= Self::MAX_SIZE {
+            Ok(Self(s))
+        } else {
+            Err(InvalidLengthError { got: s.len(), max: Self::MAX_SIZE })
+        }
     }
 
     /// Return the length of the string.
@@ -240,6 +258,9 @@ impl QrCodeData {
             let mut base_url = vec![0u8; base_url_len.into()];
             reader.read_exact(&mut base_url)?;
 
+            // Same here, the length is also guaranteed to be <= u8::MAX because
+            // that's the maximum amount of bytes we might have
+            // read. So we can skip the constructor here.
             let base_url = Url::parse(str::from_utf8(&base_url)?)?;
             let base_url = LimitedUrl(base_url);
 
