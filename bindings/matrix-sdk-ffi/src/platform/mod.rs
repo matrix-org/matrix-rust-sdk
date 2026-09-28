@@ -706,7 +706,7 @@ pub fn init_platform(
     }
 
     #[cfg(target_os = "android")]
-    android_platform::init();
+    android_platform::check_initialized();
 
     Ok(())
 }

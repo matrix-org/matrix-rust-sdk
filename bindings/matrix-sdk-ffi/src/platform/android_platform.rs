@@ -33,13 +33,13 @@ pub fn jni_init<'caller>(
         .resolve::<ThrowRuntimeExAndDefault>();
 }
 
-/// Initialize the platform support for Android targets.
+/// Checks if the platform support for Android targets was initialized.
 ///
 /// This checks the JVM side has already called
-/// `org.matrix.rustsdk.Android.init(context)`.
-pub(crate) fn init() {
-    debug!("Initializing Android platform support");
-
+/// `org.matrix.rustsdk.Android.init(context)` (that being the [jni_init]
+/// JNI-exposed function), which instantiates a [JavaVM] that can be later
+/// accessed through [JavaVm::singleton].
+pub(crate) fn check_initialized() {
     if JavaVM::singleton().is_ok() {
         debug!("Android platform support initialized successfully");
     } else {
