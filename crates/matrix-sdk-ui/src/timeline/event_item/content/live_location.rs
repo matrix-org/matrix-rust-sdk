@@ -83,10 +83,10 @@ impl BeaconInfo {
 /// Subsequent `org.matrix.msc3672.beacon` message-like events are aggregated
 /// onto this item, appending to [`LiveLocationState::locations`].
 ///
-/// When a user stops sharing (a new `beacon_info` with `live: false` arrives)
-/// a *separate* timeline item is created for the stop event. The original
-/// item's liveness can be checked via [`LiveLocationState::is_live`], which
-/// internally checks both the `live` flag and the session timeout.
+/// When a user stops sharing (a new `beacon_info` with `live: false` arrives) a
+/// _separate_ timeline item is created for the stop event. The original item's
+/// liveness can be checked via [`LiveLocationState::is_live`], which internally
+/// checks both the `live` flag and the session timeout.
 #[derive(Clone, Debug)]
 pub struct LiveLocationState {
     /// The content of the `beacon_info` state event that created this item.
@@ -132,25 +132,25 @@ impl LiveLocationState {
 
     /// Whether this live location share is still active.
     ///
-    /// Returns `false` once the `live` flag has been set to `false` **or**
-    /// the session's timeout has elapsed.
+    /// Returns `false` once the `live` flag has been set to `false` **or** the
+    /// session's timeout has elapsed.
     pub fn is_live(&self) -> bool {
         self.beacon_info.is_live()
     }
 
-    /// The timestamp when this live location sharing session started
-    /// (from the `org.matrix.msc3488.ts` field of the originating
-    /// `beacon_info` state event).
+    /// The timestamp when this live location sharing session started (from the
+    /// `org.matrix.msc3488.ts` field of the originating `beacon_info` state
+    /// event).
     ///
-    /// This marks the *beginning* of the session. The session expires at
+    /// This marks the _beginning_ of the session. The session expires at
     /// `ts + timeout` — see [`LiveLocationState::is_live`] and
     /// [`LiveLocationState::timeout`].
     pub fn ts(&self) -> MilliSecondsSinceUnixEpoch {
         self.beacon_info.ts
     }
 
-    /// An optional human-readable description for this sharing session
-    /// (from the originating `beacon_info` event).
+    /// An optional human-readable description for this sharing session (from
+    /// the originating `beacon_info` event).
     pub fn description(&self) -> Option<&str> {
         self.beacon_info.description.as_deref()
     }
@@ -162,14 +162,14 @@ impl LiveLocationState {
         self.beacon_info.timeout
     }
 
-    /// The asset type of the beacon (e.g. `Sender` for the user's own
-    /// location, `Pin` for a fixed point of interest).
+    /// The asset type of the beacon (e.g. `Sender` for the user's own location,
+    /// `Pin` for a fixed point of interest).
     pub fn asset_type(&self) -> AssetType {
         self.beacon_info.asset.type_.clone()
     }
 
-    /// Update this session with a stop `beacon_info` event (one where
-    /// `live` is `false`). This replaces the stored content so that
+    /// Update this session with a stop `beacon_info` event (one where `live` is
+    /// `false`). This replaces the stored content so that
     /// [`LiveLocationState::is_live`] will return `false`.
     pub(in crate::timeline) fn stop(&mut self, beacon_info: BeaconInfoEventContent) {
         assert!(!beacon_info.is_live(), "A stop `beacon_info` event must not be live.");
@@ -179,8 +179,8 @@ impl LiveLocationState {
     /// Check if a stop `beacon_info` matches this session.
     ///
     /// Returns `true` if all fields except `live` match and this session is
-    /// still live. This is used to verify that a stop event belongs to the
-    /// same session as this start event.
+    /// still live. This is used to verify that a stop event belongs to the same
+    /// session as this start event.
     pub(in crate::timeline) fn matches_stop(&self, stop: &BeaconInfoEventContent) -> bool {
         self.beacon_info.live && beacon_info_matches(&self.beacon_info, stop)
     }

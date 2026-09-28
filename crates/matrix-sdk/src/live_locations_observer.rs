@@ -72,9 +72,9 @@ pub struct BeaconInfoUpdate {
 
 /// Tracks active live location shares in a room using an [`ObservableVector`].
 ///
-/// Registers event handlers for beacon (location update) and beacon info
-/// (share started/stopped) events and reflects changes into a vector that
-/// callers can subscribe to via [`LiveLocationsObserver::subscribe`].
+/// Registers event handlers for beacon (location update) and beacon info (share
+/// started/stopped) events and reflects changes into a vector that callers can
+/// subscribe to via [`LiveLocationsObserver::subscribe`].
 ///
 /// Event handlers are automatically unregistered when this struct is dropped.
 #[derive(Debug)]
@@ -172,9 +172,8 @@ impl LiveLocationsObserver {
     /// event.
     ///
     /// Beacon events use an `m.reference` relation to point to their
-    /// originating `beacon_info` state event. The event cache's relation
-    /// index lets us look them up directly by ID without scanning all
-    /// cached events.
+    /// originating `beacon_info` state event. The event cache's relation index
+    /// lets us look them up directly by ID without scanning all cached events.
     async fn find_last_location(
         cache: &crate::event_cache::RoomEventCache,
         beacon_info_event_id: &OwnedEventId,
@@ -214,8 +213,8 @@ impl LiveLocationsObserver {
         let beacon_info_event_id = &event.content.relates_to.event_id;
         let mut shares = shares.lock();
         if let Some(idx) = shares.iter().position(|s| s.beacon_id == *beacon_info_event_id) {
-            // Check if beacon info is still live, if not, remove the share and ignore the
-            // beacon event.
+            // Check if beacon info is still live, if not, remove the share and
+            // ignore the beacon event.
             let mut share = shares[idx].clone();
             if !share.beacon_info.is_live() {
                 shares.remove(idx);

@@ -27,6 +27,12 @@
 //! a notification that can be listened to with the global send queue (see
 //! paragraph below) or using [`RoomSendQueue::subscribe()`].
 //!
+//! Requests are sent in the order they were queued. A request that failed with
+//! an unrecoverable error is marked as "wedged", and blocks all the requests
+//! queued after it (in the same room) from being sent, so events are never sent
+//! out of order; the queue resumes when the wedged request is retried (with
+//! [`SendHandle::unwedge`]) or removed (with [`SendHandle::abort`]).
+//!
 //! It is possible to control whether a single room is enabled using
 //! [`RoomSendQueue::set_enabled()`].
 //!
@@ -137,6 +143,7 @@ use std::{
         Arc, RwLock,
         atomic::{AtomicBool, Ordering},
     },
+    time::Duration,
 };
 
 use eyeball::SharedObservable;
@@ -159,6 +166,8 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::{boxed_into_future, locks::Mutex as SyncMutex};
 use mime::Mime;
+#[cfg(feature = "unstable-msc4354")]
+use ruma::events::sticky::StickyDurationMs;
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
     TransactionId,
@@ -176,6 +185,8 @@ use ruma::{
 use tokio::sync::{Mutex, Notify, OwnedMutexGuard, broadcast, oneshot};
 use tracing::{debug, error, info, instrument, trace, warn};
 
+#[cfg(feature = "unstable-msc4354")]
+use crate::utils::sticky_duration_ms;
 use crate::{
     Client, Media, Room, TransmissionProgress,
     client::WeakClient,
@@ -188,6 +199,10 @@ mod progress;
 mod upload;
 
 pub use progress::AbstractProgress;
+
+/// How long to wait before retrying, when loading the next request to send
+/// failed against the state store.
+const STORE_ERROR_BACKOFF: Duration = Duration::from_millis(250);
 
 /// A client-wide send queue, for all the rooms known by a client.
 pub struct SendQueue {
@@ -221,7 +236,8 @@ impl SendQueue {
                 },
             );
 
-        // Getting the [`RoomSendQueue`] is sufficient to spawn the task if needs be.
+        // Getting the [`RoomSendQueue`] is sufficient to spawn the task if
+        // needs be.
         for room_id in room_ids {
             if let Some(room) = self.client.get_room(&room_id) {
                 let _ = self.for_room(room);
@@ -266,9 +282,9 @@ impl SendQueue {
     /// Enable or disable the send queue for the entire client, i.e. all rooms.
     ///
     /// If we're disabling the queue, and requests were being sent, they're not
-    /// aborted, and will continue until a status resolves (error responses
-    /// will keep the events in the buffer of events to send later). The
-    /// disablement will happen before the next request is sent.
+    /// aborted, and will continue until a status resolves (error responses will
+    /// keep the events in the buffer of events to send later). The disablement
+    /// will happen before the next request is sent.
     ///
     /// This may wake up background tasks and resume sending of requests in the
     /// background.
@@ -282,13 +298,12 @@ impl SendQueue {
             room.set_enabled(enabled);
         }
 
-        // Reload some extra rooms that might not have been awaken yet, but could have
-        // requests from previous sessions.
+        // Reload some extra rooms that might not have been awaken yet, but
+        // could have requests from previous sessions.
         self.respawn_tasks_for_rooms_with_unsent_requests().await;
     }
 
-    /// Returns whether the send queue is enabled, at a client-wide
-    /// granularity.
+    /// Returns whether the send queue is enabled, at a client-wide granularity.
     pub fn is_enabled(&self) -> bool {
         self.data().globally_enabled.load(Ordering::SeqCst)
     }
@@ -300,8 +315,8 @@ impl SendQueue {
 
     /// Subscribe to all updates for all rooms.
     ///
-    /// Use [`RoomSendQueue::subscribe`] to subscribe to update for a _specific
-    /// room_.
+    /// Use [`RoomSendQueue::subscribe`] to subscribe to update for a
+    /// _specific room_.
     pub fn subscribe(&self) -> broadcast::Receiver<SendQueueUpdate> {
         self.data().global_update_sender.subscribe()
     }
@@ -331,8 +346,8 @@ impl SendQueue {
         Ok(local_echoes)
     }
 
-    /// A subscriber to the enablement status (enabled or disabled) of the
-    /// send queue, along with useful errors.
+    /// A subscriber to the enablement status (enabled or disabled) of the send
+    /// queue, along with useful errors.
     pub fn subscribe_errors(&self) -> broadcast::Receiver<SendQueueRoomError> {
         self.data().error_sender.subscribe()
     }
@@ -355,7 +370,7 @@ struct QueueThumbnailInfo {
     file_size: usize,
 }
 
-/// A specific room's send queue ran into an error, and it has disabled itself.
+/// A specific room's send queue ran into an error.
 #[derive(Clone, Debug)]
 pub struct SendQueueRoomError {
     /// For which room is the send queue failing?
@@ -367,8 +382,7 @@ pub struct SendQueueRoomError {
     /// Whether the error is considered recoverable or not.
     ///
     /// An error that's recoverable will disable the room's send queue, while an
-    /// unrecoverable error will be parked, until the user decides to do
-    /// something about it.
+    /// unrecoverable error will be parked, until it's retried or aborted.
     pub is_recoverable: bool,
 }
 
@@ -509,19 +523,33 @@ impl RoomSendQueue {
     /// This immediately returns, and will push the event to be sent into a
     /// queue, handled in the background.
     ///
-    /// Callers are expected to consume [`RoomSendQueueUpdate`] via calling
-    /// the [`Self::subscribe()`] method to get updates about the sending of
-    /// that event.
+    /// Callers are expected to consume [`RoomSendQueueUpdate`] via calling the
+    /// [`Self::subscribe()`] method to get updates about the sending of that
+    /// event.
     ///
     /// By default, if sending failed on the first attempt, it will be retried a
-    /// few times. If sending failed after those retries, the entire
-    /// client's sending queue will be disabled, and it will need to be
-    /// manually re-enabled by the caller (e.g. after network is back, or when
-    /// something has been done about the faulty requests).
-    pub async fn send_raw(
+    /// few times. If sending failed after those retries, the entire client's
+    /// sending queue will be disabled, and it will need to be manually
+    /// re-enabled by the caller (e.g. after network is back, or when something
+    /// has been done about the faulty requests).
+    pub fn send_raw(
         &self,
         content: Raw<AnyMessageLikeEventContent>,
         event_type: String,
+    ) -> SendRawEvent<'_> {
+        SendRawEvent {
+            queue: self,
+            content: SerializableEventContent::from_raw(content, event_type),
+            #[cfg(feature = "unstable-msc4354")]
+            sticky_duration: None,
+        }
+    }
+
+    /// Queues an already serialized event for sending it to this room.
+    async fn send_serialized(
+        &self,
+        content: SerializableEventContent,
+        #[cfg(feature = "unstable-msc4354")] sticky_duration: Option<StickyDurationMs>,
     ) -> Result<SendHandle, RoomSendQueueError> {
         let Some(room) = self.inner.room.get() else {
             return Err(RoomSendQueueError::RoomDisappeared);
@@ -530,10 +558,14 @@ impl RoomSendQueue {
             return Err(RoomSendQueueError::RoomNotJoined);
         }
 
-        let content = SerializableEventContent::from_raw(content, event_type);
+        let request = QueuedRequestKind::Event {
+            content: content.clone(),
+            #[cfg(feature = "unstable-msc4354")]
+            sticky_duration,
+        };
 
         let created_at = MilliSecondsSinceUnixEpoch::now();
-        let transaction_id = self.inner.queue.push(content.clone().into(), created_at).await?;
+        let transaction_id = self.inner.queue.push(request, created_at).await?;
         trace!(%transaction_id, "manager sends a raw event to the background task");
 
         self.inner.notifier.notify_one();
@@ -562,17 +594,23 @@ impl RoomSendQueue {
     /// This immediately returns, and will push the event to be sent into a
     /// queue, handled in the background.
     ///
-    /// Callers are expected to consume [`RoomSendQueueUpdate`] via calling
-    /// the [`Self::subscribe()`] method to get updates about the sending of
-    /// that event.
+    /// Callers are expected to consume [`RoomSendQueueUpdate`] via calling the
+    /// [`Self::subscribe()`] method to get updates about the sending of that
+    /// event.
     ///
     /// By default, if sending failed on the first attempt, it will be retried a
-    /// few times. If sending failed after those retries, the entire
-    /// client's sending queue will be disabled, and it will need to be
-    /// manually re-enabled by the caller (e.g. after network is back, or when
-    /// something has been done about the faulty requests).
+    /// few times. If sending failed after those retries, the entire client's
+    /// sending queue will be disabled, and it will need to be manually
+    /// re-enabled by the caller (e.g. after network is back, or when something
+    /// has been done about the faulty requests).
     pub fn send(&self, content: AnyMessageLikeEventContent) -> SendEvent<'_> {
-        SendEvent { queue: self, content, extra_content: None }
+        SendEvent {
+            queue: self,
+            content,
+            extra_content: None,
+            #[cfg(feature = "unstable-msc4354")]
+            sticky_duration: None,
+        }
     }
 
     /// Queues a redaction of another event for sending it to this room.
@@ -580,20 +618,20 @@ impl RoomSendQueue {
     /// This immediately returns, and will push the redaction to be sent into a
     /// queue, handled in the background.
     ///
-    /// Callers are expected to consume [`RoomSendQueueUpdate`] via calling
-    /// the [`Self::subscribe()`] method to get updates about the sending of
-    /// that redaction.
+    /// Callers are expected to consume [`RoomSendQueueUpdate`] via calling the
+    /// [`Self::subscribe()`] method to get updates about the sending of that
+    /// redaction.
     ///
     /// By default, if sending failed on the first attempt, it will be retried a
-    /// few times. If sending failed after those retries, the entire
-    /// client's sending queue will be disabled, and it will need to be
-    /// manually re-enabled by the caller (e.g. after network is back, or when
-    /// something has been done about the faulty requests).
+    /// few times. If sending failed after those retries, the entire client's
+    /// sending queue will be disabled, and it will need to be manually
+    /// re-enabled by the caller (e.g. after network is back, or when something
+    /// has been done about the faulty requests).
     pub async fn redact(
         &self,
         redacts: OwnedEventId,
         reason: Option<&str>,
-    ) -> Result<SendRedactionHandle, RoomSendQueueError> {
+    ) -> Result<SendHandle, RoomSendQueueError> {
         let Some(room) = self.inner.room.get() else {
             return Err(RoomSendQueueError::RoomDisappeared);
         };
@@ -612,8 +650,12 @@ impl RoomSendQueue {
 
         self.inner.notifier.notify_one();
 
-        let send_handle =
-            SendRedactionHandle { room: self.clone(), transaction_id: transaction_id.clone() };
+        let send_handle = SendHandle {
+            room: self.clone(),
+            transaction_id: transaction_id.clone(),
+            media_handles: vec![],
+            created_at,
+        };
 
         self.send_update(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             transaction_id,
@@ -671,8 +713,8 @@ impl RoomSendQueue {
                 break;
             }
 
-            // Try to apply dependent requests now; those applying to previously failed
-            // attempts (local echoes) would succeed now.
+            // Try to apply dependent requests now; those applying to previously
+            // failed attempts (local echoes) would succeed now.
             let mut new_updates = Vec::new();
             if let Err(err) = queue.apply_dependent_requests(&mut new_updates).await {
                 warn!("errors when applying dependent requests: {err}");
@@ -693,7 +735,7 @@ impl RoomSendQueue {
                 Ok(Some(request)) => request,
 
                 Ok(None) => {
-                    trace!("queue is empty, sleeping");
+                    trace!("queue is empty or blocked on a wedged request, sleeping");
                     // Wait for an explicit wakeup.
                     notifier.notified().await;
                     continue;
@@ -701,6 +743,9 @@ impl RoomSendQueue {
 
                 Err(err) => {
                     warn!("error when loading next request to send: {err}");
+                    // Don't hammer a failing store; back off a bit before
+                    // retrying.
+                    matrix_sdk_common::sleep::sleep(STORE_ERROR_BACKOFF).await;
                     continue;
                 }
             };
@@ -717,6 +762,7 @@ impl RoomSendQueue {
             };
 
             // If this is a media/gallery upload, prepare the following:
+            //
             // - transaction id for the related media event request,
             // - progress metadata to feed the final media upload progress
             // - an observable to watch the media upload progress.
@@ -730,8 +776,8 @@ impl RoomSendQueue {
                     ..
                 } = &queued_request.kind
                 {
-                    // Prepare to watch and communicate the request's progress for media uploads, if
-                    // it has been requested.
+                    // Prepare to watch and communicate the request's progress
+                    // for media uploads, if it has been requested.
                     let (media_upload_progress_info, http_progress) =
                         if report_media_upload_progress.load(Ordering::SeqCst) {
                             let media_upload_progress_info =
@@ -781,25 +827,32 @@ impl RoomSendQueue {
                                 },
                             );
 
-                            // The event has been sent to the server and the server has received it.
-                            // Yepee! Now, we usually wait on the server to give us back the event
-                            // via the sync.
+                            // The event has been sent to the server and the
+                            // server has received it. Yepee! Now, we usually
+                            // wait on the server to give us back the event via
+                            // the sync.
                             //
-                            // Problem: sometimes the network lags, can be down, or the server may
-                            // be slow; well, anything can happen.
+                            // Problem: sometimes the network lags, can be down,
+                            // or the server may be slow; well, anything can
+                            // happen.
                             //
-                            // It results in a weird situation where the user sees its event being
-                            // sent, then disappears before it's received again from the server.
+                            // It results in a weird situation where the user
+                            // sees its event being sent, then disappears before
+                            // it's received again from the server.
                             //
-                            // To avoid this situation, we eagerly save the event in the Event
-                            // Cache. It's similar to what would happen if the event was echoed back
-                            // from the server via the sync, but we avoid any network issues. The
-                            // Event Cache is smart enough to deduplicate events based on the event
-                            // ID, so it's safe to do that.
+                            // To avoid this situation, we eagerly save the
+                            // event in the Event Cache. It's similar to what
+                            // would happen if the event was echoed back from
+                            // the server via the sync, but we avoid any network
+                            // issues. The Event Cache is smart enough to
+                            // deduplicate events based on the event ID, so it's
+                            // safe to do that.
                             //
-                            // If this little feature fails, it MUST NOT stop the Send Queue. Any
-                            // errors are logged, but the Send Queue will continue as if everything
-                            // happened successfully. This feature is not considered “crucial”.
+                            // If this little feature fails, it MUST NOT stop
+                            // the Send Queue. Any errors are logged, but the
+                            // Send Queue will continue as if everything
+                            // happened successfully. This feature is not
+                            // considered “crucial”.
                             if let Ok((room_event_cache, _drop_handles)) = room.event_cache().await
                             {
                                 let timeline_event = match Raw::from_json_string(
@@ -844,8 +897,9 @@ impl RoomSendQueue {
                                     }
                                 };
 
-                                // In case of an error, just log the error but don't stop the Send
-                                // Queue. This feature is not crucial.
+                                // In case of an error, just log the error but
+                                // don't stop the Send Queue. This feature is
+                                // not crucial.
                                 if let Some(timeline_event) = timeline_event
                                     && let Err(err) = room_event_cache
                                         .insert_sent_event_from_send_queue(timeline_event)
@@ -865,8 +919,8 @@ impl RoomSendQueue {
                         }
 
                         SentRequestKey::Media(sent_media_info) => {
-                            // Generate some final progress information, even if incremental
-                            // progress wasn't requested.
+                            // Generate some final progress information, even if
+                            // incremental progress wasn't requested.
                             let index =
                                 media_upload_progress_info.as_ref().map_or(0, |info| info.index);
                             let progress = media_upload_progress_info
@@ -877,8 +931,9 @@ impl RoomSendQueue {
                                 })
                                 .unwrap_or(AbstractProgress { current: 1, total: 1 });
 
-                            // Purposefully don't use `send_update` here, because we don't want to
-                            // notify the global listeners about an upload progress update.
+                            // Purposefully don't use `send_update` here,
+                            // because we don't want to notify the global
+                            // listeners about an upload progress update.
                             let _ = update_sender.send(RoomSendQueueUpdate::MediaUpload {
                                 related_to: related_txn_id.as_ref().unwrap_or(&txn_id).clone(),
                                 file: Some(sent_media_info.file),
@@ -898,10 +953,11 @@ impl RoomSendQueue {
                                 },
                             );
 
-                            // The redaction event has been sent to the server and the server has
-                            // received it. It's safe to cache the event
-                            // now to avoid any inconsistencies until the server
-                            // sends down the remote echo via the sync.
+                            // The redaction event has been sent to the server
+                            // and the server has received it. It's safe to
+                            // cache the event now to avoid any inconsistencies
+                            // until the server sends down the remote echo via
+                            // the sync.
                             if let Ok((room_event_cache, _drop_handles)) = room.event_cache().await
                             {
                                 let content_field_redacts = room.version().is_some_and(|id| {
@@ -952,8 +1008,9 @@ impl RoomSendQueue {
                                     }
                                 };
 
-                                // In case of an error, just log the error but don't stop the Send
-                                // Queue. This feature is not crucial.
+                                // In case of an error, just log the error but
+                                // don't stop the Send Queue. This feature is
+                                // not crucial.
                                 if let Some(timeline_event) = timeline_event
                                     && let Err(err) = room_event_cache
                                         .insert_sent_event_from_send_queue(timeline_event)
@@ -992,9 +1049,10 @@ impl RoomSendQueue {
                             )
                         }
 
-                        // `ConcurrentRequestFailed` typically happens because of an HTTP failure;
-                        // since we don't get the underlying error, be lax and consider it
-                        // recoverable, and let observers decide to retry it or not. At some point
+                        // `ConcurrentRequestFailed` typically happens because
+                        // of an HTTP failure; since we don't get the underlying
+                        // error, be lax and consider it recoverable, and let
+                        // observers decide to retry it or not. At some point
                         // we'll get the actual underlying error.
                         crate::Error::ConcurrentRequestFailed => true,
 
@@ -1002,17 +1060,19 @@ impl RoomSendQueue {
                         _ => false,
                     };
 
-                    // Disable the queue for this room after any kind of error happened.
-                    locally_enabled.store(false, Ordering::SeqCst);
-
                     if is_recoverable {
+                        // Disable the queue for this room; there's nothing else
+                        // blocking it, and whatever caused the failure is
+                        // likely to affect the next requests too.
+                        locally_enabled.store(false, Ordering::SeqCst);
+
                         warn!(txn_id = %txn_id, error = ?err, "Recoverable error when sending request: {err}, disabling send queue");
 
-                        // In this case, we intentionally keep the request in the queue, but mark it
-                        // as not being sent anymore.
+                        // In this case, we intentionally keep the request in
+                        // the queue, but mark it as not being sent anymore.
                         queue.mark_as_not_being_sent(&txn_id).await;
 
-                        // Let observers know about a failure *after* we've
+                        // Let observers know about a failure _after_ we've
                         // marked the item as not being sent anymore. Otherwise,
                         // there's a possible race where a caller might try to
                         // remove an item, while it's still marked as being
@@ -1020,11 +1080,20 @@ impl RoomSendQueue {
                     } else {
                         warn!(txn_id = %txn_id, error = ?err, "Unrecoverable error when sending request: {err}");
 
-                        // Mark the request as wedged, so it's not picked at any future point.
+                        // Mark the request as wedged, so it's not picked at any
+                        // future point; it will also block subsequent requests
+                        // in the same room from being sent, until it's unwedged
+                        // or removed, so as to preserve ordering.
                         if let Err(storage_error) =
                             queue.mark_as_wedged(&txn_id, QueueWedgeError::from(&err)).await
                         {
-                            warn!("unable to mark request as wedged: {storage_error}");
+                            // Nothing recorded the wedge, so the request would
+                            // be picked up and sent again right away, over and
+                            // over; disabling the queue is the only brake left.
+                            error!(
+                                "unable to mark request as wedged, disabling the queue: {storage_error}"
+                            );
+                            locally_enabled.store(false, Ordering::SeqCst);
                         }
                     }
 
@@ -1054,8 +1123,7 @@ impl RoomSendQueue {
     }
 
     /// Handles a single request and returns the [`SentRequestKey`] on success
-    /// (unless the request was cancelled, in which case it'll return
-    /// `None`).
+    /// (unless the request was cancelled, in which case it'll return `None`).
     async fn handle_request(
         room: &Room,
         request: QueuedRequest,
@@ -1063,14 +1131,27 @@ impl RoomSendQueue {
         progress: Option<SharedObservable<TransmissionProgress>>,
     ) -> Result<(Option<SentRequestKey>, Option<EncryptionInfo>), crate::Error> {
         match request.kind {
-            QueuedRequestKind::Event { content } => {
+            QueuedRequestKind::Event {
+                content,
+                #[cfg(feature = "unstable-msc4354")]
+                sticky_duration,
+            } => {
                 let (event, event_type) = content.into_raw();
 
-                let result = room
+                let future = room
                     .send_raw(&event_type, &event)
                     .with_transaction_id(&request.transaction_id)
-                    .with_request_config(RequestConfig::short_retry())
-                    .await?;
+                    .with_request_config(RequestConfig::short_retry());
+
+                #[cfg(feature = "unstable-msc4354")]
+                let future = match sticky_duration {
+                    Some(duration) => {
+                        future.with_sticky_duration(Duration::from_millis(duration.get().into()))
+                    }
+                    None => future,
+                };
+
+                let result = future.await?;
 
                 trace!(txn_id = %request.transaction_id, event_id = %result.response.event_id, "event successfully sent");
 
@@ -1217,8 +1298,8 @@ impl RoomSendQueue {
     pub fn set_enabled(&self, enabled: bool) {
         self.inner.locally_enabled.store(enabled, Ordering::SeqCst);
 
-        // No need to wake a task to tell it it's been disabled, so only notify if we're
-        // re-enabling the queue.
+        // No need to wake a task to tell it it's been disabled, so only notify
+        // if we're re-enabling the queue.
         if enabled {
             self.inner.notifier.notify_one();
         }
@@ -1233,6 +1314,29 @@ impl RoomSendQueue {
             .inner
             .global_update_sender
             .send(SendQueueUpdate { room_id: self.inner.room.room_id().to_owned(), update });
+    }
+
+    /// Clear a request's wedged status and wake the queue up so it's tried
+    /// again.
+    async fn unwedge_request(
+        &self,
+        transaction_id: &TransactionId,
+    ) -> Result<(), RoomSendQueueError> {
+        self.inner
+            .queue
+            .mark_as_unwedged(transaction_id)
+            .await
+            .map_err(RoomSendQueueError::StorageError)?;
+
+        // Wake up the queue, in case the room was asleep before unwedging the
+        // request.
+        self.inner.notifier.notify_one();
+
+        self.send_update(RoomSendQueueUpdate::RetryEvent {
+            transaction_id: transaction_id.to_owned(),
+        });
+
+        Ok(())
     }
 }
 
@@ -1295,9 +1399,8 @@ struct RoomSendQueueInner {
     /// Queue of requests that are either to be sent, or being sent.
     ///
     /// When a request has been sent to the server, it is removed from that
-    /// queue *after* being sent. That way, we will retry sending upon
-    /// failure, in the same order requests have been inserted in the first
-    /// place.
+    /// queue _after_ being sent. That way, we will retry sending upon failure,
+    /// in the same order requests have been inserted in the first place.
     queue: QueueStorage,
 
     /// A notifier that's updated any time common data is touched (stopped or
@@ -1362,8 +1465,7 @@ impl StoreLock {
     }
 }
 
-/// A lock guard obtained through locking with [`StoreLock`].
-/// `being_sent` data.
+/// A lock guard obtained through locking with [`StoreLock`]. `being_sent` data.
 struct StoreLockGuard {
     /// Reference to the client, to get access to the underlying store.
     client: WeakClient,
@@ -1459,7 +1561,13 @@ impl QueueStorage {
         let queued_requests =
             guard.client()?.state_store().load_send_queue_requests(&self.room_id).await?;
 
-        if let Some(request) = queued_requests.iter().find(|queued| !queued.is_wedged()) {
+        // Only ever consider the head of the queue: requests must be sent in
+        // the order they were queued, so a wedged request (which failed to be
+        // sent with an unrecoverable error) blocks all the requests queued
+        // after it. Otherwise, messages would be sent out of order, until the
+        // wedged request is either manually unwedged or removed (both of which
+        // will wake up the sending task).
+        if let Some(request) = queued_requests.first().filter(|queued| !queued.is_wedged()) {
             let (cancel_upload_tx, cancel_upload_rx) =
                 if matches!(request.kind, QueuedRequestKind::MediaUpload { .. }) {
                     let (tx, rx) = oneshot::channel();
@@ -1487,8 +1595,8 @@ impl QueueStorage {
     }
 
     /// Marks a request popped with [`Self::peek_next_to_send`] and identified
-    /// with the given transaction id as not being sent anymore, so it can
-    /// be removed from the queue later.
+    /// with the given transaction id as not being sent anymore, so it can be
+    /// removed from the queue later.
     async fn mark_as_not_being_sent(&self, transaction_id: &TransactionId) {
         let was_being_sent = self.store.lock().await.being_sent.take();
 
@@ -1583,11 +1691,12 @@ impl QueueStorage {
     /// [`Self::push`] with the given transaction id.
     ///
     /// Returns whether the given transaction has been effectively removed. If
-    /// false, this either means that the transaction id was unrelated to
-    /// this queue, or that the request was sent before we cancelled it.
+    /// false, this either means that the transaction id was unrelated to this
+    /// queue, or that the request was sent before we cancelled it.
     async fn cancel_event(
         &self,
         transaction_id: &TransactionId,
+        reason: Option<String>,
     ) -> Result<bool, RoomSendQueueStorageError> {
         let guard = self.store.lock().await;
 
@@ -1603,7 +1712,7 @@ impl QueueStorage {
                     transaction_id,
                     ChildTransactionId::new(),
                     MilliSecondsSinceUnixEpoch::now(),
-                    DependentQueuedRequestKind::RedactEvent,
+                    DependentQueuedRequestKind::RedactEventWithReason { reason },
                 )
                 .await?;
 
@@ -1625,22 +1734,30 @@ impl QueueStorage {
     /// transaction id, before it's been actually sent.
     ///
     /// Returns whether the given transaction has been effectively edited. If
-    /// false, this either means that the transaction id was unrelated to
-    /// this queue, or that the request was sent before we edited it.
+    /// false, this either means that the transaction id was unrelated to this
+    /// queue, or that the request was sent before we edited it.
     async fn replace_event(
         &self,
         transaction_id: &TransactionId,
         serializable: SerializableEventContent,
     ) -> Result<bool, RoomSendQueueStorageError> {
         let guard = self.store.lock().await;
+        let client = guard.client()?;
+        let store = client.state_store();
+
+        // Only an event the user composed has content to replace: a redaction or a
+        // reaction has nothing to put the new content into.
+        if !store.load_send_queue_requests(&self.room_id).await?.iter().any(|request| {
+            request.transaction_id == transaction_id && is_own_event_request(request)
+        }) {
+            return Ok(false);
+        }
 
         if guard.being_sent.as_ref().map(|info| info.transaction_id.as_ref())
             == Some(transaction_id)
         {
             // Save the intent to edit the associated event.
-            guard
-                .client()?
-                .state_store()
+            store
                 .save_dependent_queued_request(
                     &self.room_id,
                     transaction_id,
@@ -1653,13 +1770,37 @@ impl QueueStorage {
             return Ok(true);
         }
 
-        let edited = guard
-            .client()?
-            .state_store()
-            .update_send_queue_request(&self.room_id, transaction_id, serializable.into())
-            .await?;
+        let request = QueuedRequestKind::Event {
+            content: serializable,
+            #[cfg(feature = "unstable-msc4354")]
+            sticky_duration: self.sticky_duration_of(store, transaction_id).await?,
+        };
+
+        let edited =
+            store.update_send_queue_request(&self.room_id, transaction_id, request).await?;
 
         Ok(edited)
+    }
+
+    /// The sticky duration of the queued event `transaction_id`, if it is
+    /// queued and sticky.
+    #[cfg(feature = "unstable-msc4354")]
+    async fn sticky_duration_of(
+        &self,
+        store: &DynStateStore,
+        transaction_id: &TransactionId,
+    ) -> Result<Option<StickyDurationMs>, RoomSendQueueStorageError> {
+        let sticky_duration = store
+            .load_send_queue_requests(&self.room_id)
+            .await?
+            .into_iter()
+            .find(|request| request.transaction_id == *transaction_id)
+            .and_then(|request| match request.kind {
+                QueuedRequestKind::Event { sticky_duration, .. } => sticky_duration,
+                _ => None,
+            });
+
+        Ok(sticky_duration)
     }
 
     /// Push requests (and dependents) to upload a media.
@@ -1681,7 +1822,8 @@ impl QueueStorage {
         let client = guard.client()?;
         let store = client.state_store();
 
-        // There's only a single media to be sent, so it has at most one thumbnail.
+        // There's only a single media to be sent, so it has at most one
+        // thumbnail.
         let thumbnail_file_sizes = vec![thumbnail.as_ref().map(|t| t.file_size)];
 
         let thumbnail_info = self
@@ -1778,8 +1920,8 @@ impl QueueStorage {
             {
                 let upload_thumbnail_txn = thumbnail_info.txn.clone();
 
-                // Save the thumbnail upload request as a dependent request of the last file
-                // upload.
+                // Save the thumbnail upload request as a dependent request of
+                // the last file upload.
                 store
                     .save_dependent_queued_request(
                         &self.room_id,
@@ -1802,7 +1944,8 @@ impl QueueStorage {
                 None
             };
 
-            // Save the file upload as a dependent request of the previous upload.
+            // Save the file upload as a dependent request of the previous
+            // upload.
             store
                 .save_dependent_queued_request(
                     &self.room_id,
@@ -1827,8 +1970,8 @@ impl QueueStorage {
             last_upload_file_txn = upload_file_txn.clone();
         }
 
-        // Push the request for the event itself as a dependent request of the last file
-        // upload.
+        // Push the request for the event itself as a dependent request of the
+        // last file upload.
         store
             .save_dependent_queued_request(
                 &self.room_id,
@@ -1848,9 +1991,8 @@ impl QueueStorage {
     }
 
     /// If a thumbnail exists, pushes a [`QueuedRequestKind::MediaUpload`] to
-    /// upload it
-    /// and a [`DependentQueuedRequestKind::UploadFileOrThumbnail`] to upload
-    /// the media itself. Otherwise, pushes a
+    /// upload it and a [`DependentQueuedRequestKind::UploadFileOrThumbnail`] to
+    /// upload the media itself. Otherwise, pushes a
     /// [`QueuedRequestKind::MediaUpload`] to upload the media directly.
     #[allow(clippy::too_many_arguments)]
     async fn push_thumbnail_and_media_uploads(
@@ -1890,7 +2032,8 @@ impl QueueStorage {
                 )
                 .await?;
 
-            // Save the file upload request as a dependent request of the thumbnail upload.
+            // Save the file upload request as a dependent request of the
+            // thumbnail upload.
             store
                 .save_dependent_queued_request(
                     &self.room_id,
@@ -1944,17 +2087,22 @@ impl QueueStorage {
 
         let requests = store.load_send_queue_requests(&self.room_id).await?;
 
-        // If the target event has been already sent, abort immediately.
-        if !requests.iter().any(|item| item.transaction_id == transaction_id) {
-            // We didn't find it as a queued request; try to find it as a dependent queued
-            // request.
+        // If the target event has been already sent, or isn't something that can be
+        // reacted to in the first place, abort immediately.
+        if !requests
+            .iter()
+            .any(|item| item.transaction_id == transaction_id && is_own_event_request(item))
+        {
+            // We didn't find it as a queued request; try to find it as a
+            // dependent queued request.
             let dependent_requests = store.load_dependent_queued_requests(&self.room_id).await?;
             if !dependent_requests
                 .into_iter()
                 .filter_map(|item| item.is_own_event().then_some(item.own_transaction_id))
                 .any(|child_txn| *child_txn == *transaction_id)
             {
-                // We didn't find it as either a request or a dependent request, abort.
+                // We didn't find it as either a request or a dependent request,
+                // abort.
                 return Ok(None);
             }
         }
@@ -1984,13 +2132,48 @@ impl QueueStorage {
         let client = guard.client()?;
         let store = client.state_store();
 
-        let local_requests =
-            store.load_send_queue_requests(&self.room_id).await?.into_iter().filter_map(|queued| {
-                Some(LocalEcho {
-                    transaction_id: queued.transaction_id.clone(),
-                    content: match queued.kind {
-                        QueuedRequestKind::Event { content } => LocalEchoContent::Event {
-                            serialized_event: content,
+        let queued_requests = store.load_send_queue_requests(&self.room_id).await?;
+
+        // Media upload requests aren't returned as echoes themselves (the media
+        // event, represented as a dependent request, is), so carry their send
+        // errors over to the dependent request's echo: a wedged upload wedges
+        // the media event.
+        let mut media_upload_errors: HashMap<OwnedTransactionId, QueueWedgeError> = queued_requests
+            .iter()
+            .filter_map(|queued| match queued.kind {
+                QueuedRequestKind::MediaUpload { .. } => {
+                    queued.error.clone().map(|error| (queued.transaction_id.clone(), error))
+                }
+                _ => None,
+            })
+            .collect();
+
+        let local_requests = queued_requests.into_iter().filter_map(|queued| {
+            Some(LocalEcho {
+                transaction_id: queued.transaction_id.clone(),
+                content: match queued.kind {
+                    QueuedRequestKind::Event { content, .. } => LocalEchoContent::Event {
+                        serialized_event: content,
+                        send_handle: SendHandle {
+                            room: room.clone(),
+                            transaction_id: queued.transaction_id,
+                            media_handles: vec![],
+                            created_at: queued.created_at,
+                        },
+                        send_error: queued.error,
+                    },
+
+                    QueuedRequestKind::MediaUpload { .. } => {
+                        // Don't return uploaded medias as their own things; the
+                        // accompanying event represented as a dependent request
+                        // should be sufficient.
+                        return None;
+                    }
+
+                    QueuedRequestKind::Redaction { redacts, reason } => {
+                        LocalEchoContent::Redaction {
+                            redacts,
+                            reason,
                             send_handle: SendHandle {
                                 room: room.clone(),
                                 transaction_id: queued.transaction_id,
@@ -1998,36 +2181,19 @@ impl QueueStorage {
                                 created_at: queued.created_at,
                             },
                             send_error: queued.error,
-                        },
-
-                        QueuedRequestKind::MediaUpload { .. } => {
-                            // Don't return uploaded medias as their own things; the accompanying
-                            // event represented as a dependent request should be sufficient.
-                            return None;
                         }
+                    }
+                },
+            })
+        });
 
-                        QueuedRequestKind::Redaction { redacts, reason } => {
-                            LocalEchoContent::Redaction {
-                                redacts,
-                                reason,
-                                send_handle: SendRedactionHandle {
-                                    room: room.clone(),
-                                    transaction_id: queued.transaction_id,
-                                },
-                                send_error: queued.error,
-                            }
-                        }
-                    },
-                })
-            });
+        let dependent_requests = store.load_dependent_queued_requests(&self.room_id).await?;
 
-        let reactions_and_medias = store
-            .load_dependent_queued_requests(&self.room_id)
-            .await?
-            .into_iter()
-            .filter_map(|dep| match dep.kind {
+        let reactions_and_medias =
+            dependent_requests.into_iter().filter_map(|dep| match dep.kind {
                 DependentQueuedRequestKind::EditEvent { .. }
-                | DependentQueuedRequestKind::RedactEvent => {
+                | DependentQueuedRequestKind::RedactEvent
+                | DependentQueuedRequestKind::RedactEventWithReason { .. } => {
                     // TODO: reflect local edits/redacts too?
                     None
                 }
@@ -2036,16 +2202,19 @@ impl QueueStorage {
                     transaction_id: dep.own_transaction_id.clone().into(),
                     content: LocalEchoContent::React {
                         key,
-                        send_handle: SendReactionHandle {
+                        send_handle: SendHandle {
                             room: room.clone(),
-                            transaction_id: dep.own_transaction_id,
+                            transaction_id: dep.own_transaction_id.into(),
+                            media_handles: vec![],
+                            created_at: dep.created_at,
                         },
                         applies_to: dep.parent_transaction_id,
                     },
                 }),
 
                 DependentQueuedRequestKind::UploadFileOrThumbnail { .. } => {
-                    // Don't reflect these: only the associated event is interesting to observers.
+                    // Don't reflect these: only the associated event is
+                    // interesting to observers.
                     None
                 }
 
@@ -2055,6 +2224,16 @@ impl QueueStorage {
                     thumbnail_info,
                     extra_content,
                 } => {
+                    let upload_thumbnail_txn = thumbnail_info.map(|info| info.txn);
+
+                    // If one of the uploads wedged, the media event is wedged
+                    // too.
+                    let send_error = media_upload_errors.remove(&file_upload).or_else(|| {
+                        upload_thumbnail_txn
+                            .as_ref()
+                            .and_then(|txn| media_upload_errors.remove(&**txn))
+                    });
+
                     // Materialize as an event local echo.
                     Some(LocalEcho {
                         transaction_id: dep.own_transaction_id.clone().into(),
@@ -2068,12 +2247,12 @@ impl QueueStorage {
                                 room: room.clone(),
                                 transaction_id: dep.own_transaction_id.into(),
                                 media_handles: vec![MediaHandles {
-                                    upload_thumbnail_txn: thumbnail_info.map(|info| info.txn),
+                                    upload_thumbnail_txn,
                                     upload_file_txn: file_upload,
                                 }],
                                 created_at: dep.created_at,
                             },
-                            send_error: None,
+                            send_error,
                         },
                     })
                 }
@@ -2087,6 +2266,7 @@ impl QueueStorage {
                         dep.created_at,
                         local_echo,
                         item_infos,
+                        &mut media_upload_errors,
                     )
                 }
             });
@@ -2103,7 +2283,15 @@ impl QueueStorage {
         created_at: MilliSecondsSinceUnixEpoch,
         local_echo: Box<RoomMessageEventContent>,
         item_infos: Vec<FinishGalleryItemInfo>,
+        media_upload_errors: &mut HashMap<OwnedTransactionId, QueueWedgeError>,
     ) -> Option<LocalEcho> {
+        // If any of the uploads wedged, the gallery event is wedged too.
+        let send_error = item_infos.iter().find_map(|i| {
+            media_upload_errors.remove(&i.file_upload).or_else(|| {
+                i.thumbnail_info.as_ref().and_then(|info| media_upload_errors.remove(&*info.txn))
+            })
+        });
+
         Some(LocalEcho {
             transaction_id: transaction_id.clone().into(),
             content: LocalEchoContent::Event {
@@ -2120,7 +2308,7 @@ impl QueueStorage {
                         .collect(),
                     created_at,
                 },
-                send_error: None,
+                send_error,
             },
         })
     }
@@ -2157,7 +2345,8 @@ impl QueueStorage {
                         .get_room(&self.room_id)
                         .ok_or(RoomSendQueueError::RoomDisappeared)?;
 
-                    // Check the event is one we know how to edit with an edit event.
+                    // Check the event is one we know how to edit with an edit
+                    // event.
 
                     // It must be deserializable…
                     let edited_content = match new_content.deserialize() {
@@ -2212,12 +2401,18 @@ impl QueueStorage {
                         .map_err(RoomSendQueueStorageError::StateStoreError)?;
                 } else {
                     // The parent event is still local; update the local echo.
+                    let parent_transaction_id = &dependent_request.parent_transaction_id;
+
+                    let request = QueuedRequestKind::Event {
+                        content: new_content,
+                        #[cfg(feature = "unstable-msc4354")]
+                        sticky_duration: self
+                            .sticky_duration_of(store, parent_transaction_id)
+                            .await?,
+                    };
+
                     let edited = store
-                        .update_send_queue_request(
-                            &self.room_id,
-                            &dependent_request.parent_transaction_id,
-                            new_content.into(),
-                        )
+                        .update_send_queue_request(&self.room_id, parent_transaction_id, request)
                         .await
                         .map_err(RoomSendQueueStorageError::StateStoreError)?;
 
@@ -2227,7 +2422,14 @@ impl QueueStorage {
                 }
             }
 
-            DependentQueuedRequestKind::RedactEvent => {
+            kind @ (DependentQueuedRequestKind::RedactEvent
+            | DependentQueuedRequestKind::RedactEventWithReason { .. }) => {
+                let reason = match kind {
+                    DependentQueuedRequestKind::RedactEventWithReason { reason } => reason,
+                    // The legacy variant carries no reason.
+                    _ => None,
+                };
+
                 if let Some(parent_key) = parent_key {
                     let Some(event_id) = parent_key.into_event_id() else {
                         return Err(RoomSendQueueError::StorageError(
@@ -2240,23 +2442,25 @@ impl QueueStorage {
                         .get_room(&self.room_id)
                         .ok_or(RoomSendQueueError::RoomDisappeared)?;
 
-                    // Ideally we'd use the send queue to send the redaction, but the protocol has
-                    // changed the shape of a room.redaction after v11, so keep it simple and try
-                    // once here.
-
-                    // Note: no reason is provided because we materialize the intent of "cancel
-                    // sending the parent event".
+                    // Ideally we'd use the send queue to send the redaction,
+                    // but the protocol has changed the shape of a
+                    // room.redaction after v11, so keep it simple and try once
+                    // here.
 
                     if let Err(err) = room
-                        .redact(&event_id, None, Some(dependent_request.own_transaction_id.into()))
+                        .redact(
+                            &event_id,
+                            reason.as_deref(),
+                            Some(dependent_request.own_transaction_id.into()),
+                        )
                         .await
                     {
                         warn!("error when sending a redact for {event_id}: {err}");
                         return Ok(false);
                     }
                 } else {
-                    // The parent event is still local (sending must have failed); redact the local
-                    // echo.
+                    // The parent event is still local (sending must have
+                    // failed); redact the local echo.
                     let removed = store
                         .remove_send_queue_request(
                             &self.room_id,
@@ -2419,7 +2623,8 @@ impl QueueStorage {
             match self.try_apply_single_dependent_request(&client, dependent, new_updates).await {
                 Ok(should_remove) => {
                     if should_remove {
-                        // The dependent request has been successfully applied, forget about it.
+                        // The dependent request has been successfully applied,
+                        // forget about it.
                         store
                             .remove_dependent_queued_request(&self.room_id, &dependent_id)
                             .await
@@ -2488,7 +2693,7 @@ pub enum LocalEchoContent {
         /// The key with which the local echo has been reacted to.
         key: String,
         /// A handle to manipulate the sending of the reaction.
-        send_handle: SendReactionHandle,
+        send_handle: SendHandle,
         /// The local echo which has been reacted to.
         applies_to: OwnedTransactionId,
     },
@@ -2500,7 +2705,7 @@ pub enum LocalEchoContent {
         /// The reason for the event being redacted.
         reason: Option<String>,
         /// A handle to manipulate the sending of the associated event.
-        send_handle: SendRedactionHandle,
+        send_handle: SendHandle,
         /// Whether trying to send this local echo failed in the past with an
         /// unrecoverable error (see [`SendQueueRoomError::is_recoverable`]).
         send_error: Option<QueueWedgeError>,
@@ -2545,8 +2750,10 @@ pub enum RoomSendQueueUpdate {
 
     /// An error happened when an event was being sent.
     ///
-    /// The event has not been removed from the queue. All the send queues
-    /// will be disabled after this happens, and must be manually re-enabled.
+    /// The event has not been removed from the queue. A recoverable error
+    /// disables the room's send queue, which must then be manually re-enabled;
+    /// an unrecoverable one wedges the request, which blocks its room's queue
+    /// until the request is unwedged or aborted.
     SendError {
         /// Transaction id used to identify this event.
         transaction_id: OwnedTransactionId,
@@ -2555,8 +2762,8 @@ pub enum RoomSendQueueUpdate {
         /// Whether the error is considered recoverable or not.
         ///
         /// An error that's recoverable will disable the room's send queue,
-        /// while an unrecoverable error will be parked, until the user
-        /// decides to cancel sending it.
+        /// while an unrecoverable error will be parked, until it's retried or
+        /// aborted.
         is_recoverable: bool,
     },
 
@@ -2630,6 +2837,11 @@ pub enum RoomSendQueueError {
     #[error("the attachment event could not be created")]
     FailedToCreateAttachment,
 
+    /// The target of an [`RoomSendQueue::edit_with_attachment`] can't be
+    /// edited with a new attachment.
+    #[error(transparent)]
+    Edit(#[from] crate::room::edit::EditError),
+
     /// The gallery contains no items.
     #[cfg(feature = "unstable-msc4274")]
     #[error("the gallery contains no items")]
@@ -2700,6 +2912,8 @@ pub struct SendEvent<'a> {
     queue: &'a RoomSendQueue,
     content: AnyMessageLikeEventContent,
     extra_content: Option<serde_json::Map<String, serde_json::Value>>,
+    #[cfg(feature = "unstable-msc4354")]
+    sticky_duration: Option<StickyDurationMs>,
 }
 
 impl<'a> SendEvent<'a> {
@@ -2711,6 +2925,17 @@ impl<'a> SendEvent<'a> {
         extra_content: serde_json::Map<String, serde_json::Value>,
     ) -> Self {
         self.extra_content = Some(extra_content);
+        self
+    }
+
+    /// Send the event as a sticky event for `duration`, clamped to one hour.
+    ///
+    /// Note that if the homeserver doesn't support sticky events, it will
+    /// ignore the duration and send the event unsticky. Server support can
+    /// be checked with [`Client::supports_sticky_events`].
+    #[cfg(feature = "unstable-msc4354")]
+    pub fn with_sticky_duration(mut self, duration: Duration) -> Self {
+        self.sticky_duration = Some(sticky_duration_ms(duration));
         self
     }
 }
@@ -2726,13 +2951,61 @@ impl<'a> IntoFuture for SendEvent<'a> {
                     .map_err(RoomSendQueueStorageError::JsonSerialization)?,
                 self.extra_content,
             )?;
-            let (raw, event_type) = serialized.into_raw();
-            self.queue.send_raw(raw, event_type).await
+            self.queue
+                .send_serialized(
+                    serialized,
+                    #[cfg(feature = "unstable-msc4354")]
+                    self.sticky_duration,
+                )
+                .await
+        })
+    }
+}
+
+/// Future returned by [`RoomSendQueue::send_raw`].
+#[allow(missing_debug_implementations)]
+pub struct SendRawEvent<'a> {
+    queue: &'a RoomSendQueue,
+    content: SerializableEventContent,
+    #[cfg(feature = "unstable-msc4354")]
+    sticky_duration: Option<StickyDurationMs>,
+}
+
+impl SendRawEvent<'_> {
+    /// Send the event as a sticky event for `duration`, clamped to one hour.
+    ///
+    /// Note that if the homeserver doesn't support sticky events, it will
+    /// ignore the duration and send the event unsticky. Server support can
+    /// be checked with [`Client::supports_sticky_events`].
+    #[cfg(feature = "unstable-msc4354")]
+    pub fn with_sticky_duration(mut self, duration: Duration) -> Self {
+        self.sticky_duration = Some(sticky_duration_ms(duration));
+        self
+    }
+}
+
+impl<'a> IntoFuture for SendRawEvent<'a> {
+    type Output = Result<SendHandle, RoomSendQueueError>;
+    boxed_into_future!(extra_bounds: 'a);
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
+            self.queue
+                .send_serialized(
+                    self.content,
+                    #[cfg(feature = "unstable-msc4354")]
+                    self.sticky_duration,
+                )
+                .await
         })
     }
 }
 
 /// A handle to manipulate an event that was scheduled to be sent to a room.
+///
+/// The event may be a room message, a media upload, a redaction or a reaction;
+/// [`Self::edit`] and [`Self::react`] only apply to the first two, and return
+/// `false`/`None` for the others.
 #[derive(Clone, Debug)]
 pub struct SendHandle {
     /// Link to the send queue used to send this request.
@@ -2762,6 +3035,11 @@ impl SendHandle {
         Self { room, transaction_id, media_handles: vec![], created_at }
     }
 
+    /// Returns the [`TransactionId`] used for sending the associated event.
+    pub fn transaction_id(&self) -> &TransactionId {
+        &self.transaction_id
+    }
+
     fn nyi_for_uploads(&self) -> Result<(), RoomSendQueueStorageError> {
         if !self.media_handles.is_empty() {
             Err(RoomSendQueueStorageError::OperationNotImplementedYet)
@@ -2774,14 +3052,35 @@ impl SendHandle {
     ///
     /// Returns true if the sending could be aborted, false if not (i.e. the
     /// event had already been sent).
-    #[instrument(skip(self), fields(room_id = %self.room.inner.room.room_id(), txn_id = %self.transaction_id))]
     pub async fn abort(&self) -> Result<bool, RoomSendQueueStorageError> {
+        self.abort_with_reason(None).await
+    }
+
+    /// Aborts the sending of the event, if it wasn't sent yet, with an optional
+    /// reason.
+    ///
+    /// If the event was being sent when the abort was requested and the send
+    /// succeeds, the event is redacted server-side; the given reason is applied
+    /// to that redaction. It is unused in every other case (the local echo is
+    /// simply dropped).
+    ///
+    /// Returns true if the sending could be aborted, false if not (i.e. the
+    /// event had already been sent).
+    #[instrument(skip(self), fields(room_id = %self.room.inner.room.room_id(), txn_id = %self.transaction_id))]
+    pub async fn abort_with_reason(
+        &self,
+        reason: Option<String>,
+    ) -> Result<bool, RoomSendQueueStorageError> {
         trace!("received an abort request");
 
         let queue = &self.room.inner.queue;
 
         for handles in &self.media_handles {
             if queue.abort_upload(&self.transaction_id, handles).await? {
+                // Wake up the queue, in case it was blocked on this request
+                // being wedged.
+                self.room.inner.notifier.notify_one();
+
                 // Propagate a cancelled update.
                 self.room.send_update(RoomSendQueueUpdate::CancelledLocalEvent {
                     transaction_id: self.transaction_id.clone(),
@@ -2791,12 +3090,22 @@ impl SendHandle {
             }
 
             // If it failed, it means the sending of the event is not a
-            // dependent request anymore. Fall back to the regular
-            // code path below, that handles aborting sending of an event.
+            // dependent request anymore. Fall back to the regular code path
+            // below, that handles aborting sending of an event.
         }
 
-        if queue.cancel_event(&self.transaction_id).await? {
+        // A reaction is queued as a dependent request of the event it applies to, so
+        // it has no entry in the main queue as long as that event hasn't been sent.
+        let aborted =
+            queue.remove_dependent_send_queue_request(&self.transaction_id.clone().into()).await?
+                || queue.cancel_event(&self.transaction_id, reason).await?;
+
+        if aborted {
             trace!("successful abort");
+
+            // Wake up the queue, in case it was blocked on this request being
+            // wedged.
+            self.room.inner.notifier.notify_one();
 
             // Propagate a cancelled update too.
             self.room.send_update(RoomSendQueueUpdate::CancelledLocalEvent {
@@ -2814,6 +3123,14 @@ impl SendHandle {
     ///
     /// Returns true if the event to be sent was replaced, false if not (i.e.
     /// the event had already been sent).
+    ///
+    /// This method should not be used for editing sticky events. Sticky events
+    /// are collected in an ephemeral map. Entries in that map need to be
+    /// updated by sending a replacing sticky event with updated content,
+    /// not by using an `m.replace` relation. Nevertheless, this method
+    /// applies edits of an _unsent_ sticky event on the queued event
+    /// directly because it is safe to do so. If, however, the event has
+    /// already been sent, the edit will be sent as an unsticky event.
     #[instrument(skip(self, new_content), fields(room_id = %self.room.inner.room.room_id(), txn_id = %self.transaction_id))]
     pub async fn edit_raw(
         &self,
@@ -2848,6 +3165,14 @@ impl SendHandle {
     ///
     /// Returns true if the event to be sent was replaced, false if not (i.e.
     /// the event had already been sent).
+    ///
+    /// This method should not be used for editing sticky events. Sticky events
+    /// are collected in an ephemeral map. Entries in that map need to be
+    /// updated by sending a replacing sticky event with updated content,
+    /// not by using an `m.replace` relation. Nevertheless, this method
+    /// applies edits of an _unsent_ sticky event on the queued event
+    /// directly because it is safe to do so. If, however, the event has
+    /// already been sent, the edit will be sent as an unsticky event.
     pub async fn edit(
         &self,
         new_content: AnyMessageLikeEventContent,
@@ -2897,21 +3222,17 @@ impl SendHandle {
         }
     }
 
-    /// Unwedge a local echo identified by its transaction identifier and try to
+    /// Unwedge the local echo associated to this [`SendHandle`] and try to
     /// resend it.
     pub async fn unwedge(&self) -> Result<(), RoomSendQueueError> {
         let room = &self.room.inner;
-        room.queue
-            .mark_as_unwedged(&self.transaction_id)
-            .await
-            .map_err(RoomSendQueueError::StorageError)?;
 
-        // If we have media handles, also try to unwedge them.
+        // If we have media handles, try to unwedge them.
         //
-        // It's fine to always do it to *all* the transaction IDs at once, because only
-        // one of the three requests will be active at the same time, i.e. only
-        // one entry will be updated in the store. The other two are either
-        // done, or dependent requests.
+        // It's fine to always do it to _all_ the transaction IDs at once,
+        // because only one of the three requests will be active at the same
+        // time, i.e. only one entry will be updated in the store. The other two
+        // are either done, or dependent requests.
 
         for handles in &self.media_handles {
             room.queue
@@ -2924,14 +3245,7 @@ impl SendHandle {
             }
         }
 
-        // Wake up the queue, in case the room was asleep before unwedging the request.
-        room.notifier.notify_one();
-
-        self.room.send_update(RoomSendQueueUpdate::RetryEvent {
-            transaction_id: self.transaction_id.clone(),
-        });
-
-        Ok(())
+        self.room.unwedge_request(&self.transaction_id).await
     }
 
     /// Send a reaction to the event as soon as it's sent.
@@ -2942,7 +3256,7 @@ impl SendHandle {
     pub async fn react(
         &self,
         key: String,
-    ) -> Result<Option<SendReactionHandle>, RoomSendQueueStorageError> {
+    ) -> Result<Option<SendHandle>, RoomSendQueueStorageError> {
         trace!("received an intent to react");
 
         let created_at = MilliSecondsSinceUnixEpoch::now();
@@ -2951,18 +3265,21 @@ impl SendHandle {
         {
             trace!("successfully queued react");
 
-            // Wake up the queue, in case the room was asleep before the sending.
+            // Wake up the queue, in case the room was asleep before the
+            // sending.
             self.room.inner.notifier.notify_one();
 
             // Propagate a new local event.
-            let send_handle = SendReactionHandle {
+            let send_handle = SendHandle {
                 room: self.room.clone(),
-                transaction_id: reaction_txn_id.clone(),
+                transaction_id: reaction_txn_id.clone().into(),
+                media_handles: vec![],
+                created_at,
             };
 
             self.room.send_update(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
-                // Note: we do want to use the `txn_id` we're going to use for the reaction, not
-                // the one for the event we're reacting to.
+                // Note: we do want to use the `txn_id` we're going to use for
+                // the reaction, not the one for the event we're reacting to.
                 transaction_id: reaction_txn_id.into(),
                 content: LocalEchoContent::React {
                     key,
@@ -2979,97 +3296,17 @@ impl SendHandle {
     }
 }
 
-/// A handle to execute actions on the sending of a reaction.
-#[derive(Clone, Debug)]
-pub struct SendReactionHandle {
-    /// Reference to the send queue for the room where this reaction was sent.
-    room: RoomSendQueue,
-    /// The own transaction id for the reaction.
-    transaction_id: ChildTransactionId,
-}
-
-impl SendReactionHandle {
-    /// Creates a new [`SendReactionHandle`].
-    #[cfg(test)]
-    pub(crate) fn new(room: RoomSendQueue, transaction_id: ChildTransactionId) -> Self {
-        Self { room, transaction_id }
-    }
-
-    /// Abort the sending of the reaction.
-    ///
-    /// Will return true if the reaction could be aborted, false if it's been
-    /// sent (and there's no matching local echo anymore).
-    pub async fn abort(&self) -> Result<bool, RoomSendQueueStorageError> {
-        if self.room.inner.queue.remove_dependent_send_queue_request(&self.transaction_id).await? {
-            // Simple case: the reaction was found in the dependent event list.
-
-            // Propagate a cancelled update too.
-            self.room.send_update(RoomSendQueueUpdate::CancelledLocalEvent {
-                transaction_id: self.transaction_id.clone().into(),
-            });
-
-            return Ok(true);
-        }
-
-        // The reaction has already been queued for sending, try to abort it using a
-        // regular abort.
-        let handle = SendHandle {
-            room: self.room.clone(),
-            transaction_id: self.transaction_id.clone().into(),
-            media_handles: vec![],
-            created_at: MilliSecondsSinceUnixEpoch::now(),
-        };
-
-        handle.abort().await
-    }
-
-    /// The transaction id that will be used to send this reaction later.
-    pub fn transaction_id(&self) -> &TransactionId {
-        &self.transaction_id
-    }
-}
-
-/// A handle to manipulate a redaction event that was scheduled to be sent to a
-/// room.
-#[derive(Clone, Debug)]
-pub struct SendRedactionHandle {
-    /// Link to the send queue used to send this request.
-    room: RoomSendQueue,
-
-    /// Transaction id used for the sent request.
-    transaction_id: OwnedTransactionId,
-}
-
-impl SendRedactionHandle {
-    /// Creates a new [`SendRedactionHandle`].
-    #[cfg(test)]
-    pub(crate) fn new(room: RoomSendQueue, transaction_id: OwnedTransactionId) -> Self {
-        Self { room, transaction_id }
-    }
-
-    /// Abort the sending of the redaction.
-    ///
-    /// Will return true if the redaction could be aborted, false if it's been
-    /// sent (and there's no matching local echo anymore).
-    pub async fn abort(&self) -> Result<bool, RoomSendQueueStorageError> {
-        trace!("received a redaction abort request");
-
-        let queue = &self.room.inner.queue;
-
-        if queue.cancel_event(&self.transaction_id).await? {
-            trace!("successful redaction abort");
-
-            // Propagate a cancelled update too.
-            self.room.send_update(RoomSendQueueUpdate::CancelledLocalEvent {
-                transaction_id: self.transaction_id.clone(),
-            });
-
-            Ok(true)
-        } else {
-            debug!("local echo of redaction didn't exist anymore, can't abort");
-            Ok(false)
-        }
-    }
+/// Whether a queued request is an event the user composed, as opposed to a
+/// redaction or a reaction.
+///
+/// A reaction is queued as a dependent request at first, but graduates into a
+/// request of its own, under the same transaction id, once the event it
+/// applies to has been sent; so being an event is not enough to tell the two
+/// apart.
+fn is_own_event_request(request: &QueuedRequest) -> bool {
+    request.as_event().is_some_and(|content| {
+        TimelineEventType::from(content.raw().1) != TimelineEventType::Reaction
+    })
 }
 
 /// From a given source of [`DependentQueuedRequest`], return only the most
@@ -3083,9 +3320,15 @@ fn canonicalize_dependent_requests(
     for d in dependent {
         let prevs = by_txn.entry(d.parent_transaction_id.clone()).or_default();
 
-        if prevs.iter().any(|prev| matches!(prev.kind, DependentQueuedRequestKind::RedactEvent)) {
-            // The parent event has already been flagged for redaction, don't consider the
-            // other dependent events.
+        if prevs.iter().any(|prev| {
+            matches!(
+                prev.kind,
+                DependentQueuedRequestKind::RedactEvent
+                    | DependentQueuedRequestKind::RedactEventWithReason { .. }
+            )
+        }) {
+            // The parent event has already been flagged for redaction, don't
+            // consider the other dependent events.
             continue;
         }
 
@@ -3115,7 +3358,8 @@ fn canonicalize_dependent_requests(
                 prevs.push(d);
             }
 
-            DependentQueuedRequestKind::RedactEvent => {
+            DependentQueuedRequestKind::RedactEvent
+            | DependentQueuedRequestKind::RedactEventWithReason { .. } => {
                 // Remove every other dependent action.
                 prevs.clear();
                 prevs.push(d);
@@ -3128,9 +3372,8 @@ fn canonicalize_dependent_requests(
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use std::{sync::Arc, time::Duration};
+    use std::{assert_matches, sync::Arc, time::Duration};
 
-    use assert_matches2::{assert_let, assert_matches};
     use matrix_sdk_base::store::{
         ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind,
         SerializableEventContent,
@@ -3141,6 +3384,7 @@ mod tests {
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
         room_id,
     };
+    use strass::assert_let;
 
     use super::canonicalize_dependent_requests;
     use crate::{client::WeakClient, test_utils::logged_in_client};
@@ -3256,7 +3500,7 @@ mod tests {
         let redact = DependentQueuedRequest {
             own_transaction_id: ChildTransactionId::new(),
             parent_transaction_id: txn.clone(),
-            kind: DependentQueuedRequestKind::RedactEvent,
+            kind: DependentQueuedRequestKind::RedactEventWithReason { reason: None },
             parent_key: None,
             created_at: MilliSecondsSinceUnixEpoch::now(),
         };
@@ -3291,7 +3535,7 @@ mod tests {
         let res = canonicalize_dependent_requests(&inputs);
 
         assert_eq!(res.len(), 1);
-        assert_matches!(&res[0].kind, DependentQueuedRequestKind::RedactEvent);
+        assert_matches!(&res[0].kind, DependentQueuedRequestKind::RedactEventWithReason { .. });
         assert_eq!(res[0].parent_transaction_id, txn);
     }
 
@@ -3340,7 +3584,7 @@ mod tests {
             // This one pertains to txn1.
             DependentQueuedRequest {
                 own_transaction_id: child1.clone(),
-                kind: DependentQueuedRequestKind::RedactEvent,
+                kind: DependentQueuedRequestKind::RedactEventWithReason { reason: None },
                 parent_transaction_id: txn1.clone(),
                 parent_key: None,
                 created_at: MilliSecondsSinceUnixEpoch::now(),
@@ -3368,7 +3612,10 @@ mod tests {
         for dependent in res {
             if dependent.own_transaction_id == child1 {
                 assert_eq!(dependent.parent_transaction_id, txn1);
-                assert_matches!(dependent.kind, DependentQueuedRequestKind::RedactEvent);
+                assert_matches!(
+                    dependent.kind,
+                    DependentQueuedRequestKind::RedactEventWithReason { .. }
+                );
             } else {
                 assert_eq!(dependent.parent_transaction_id, txn2);
                 assert_matches!(dependent.kind, DependentQueuedRequestKind::EditEvent { .. });

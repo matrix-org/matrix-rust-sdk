@@ -1,6 +1,5 @@
-use std::time::Duration;
+use std::{assert_matches, time::Duration};
 
-use assert_matches2::assert_matches;
 use matrix_sdk_test::async_test;
 use ruma::room_id;
 

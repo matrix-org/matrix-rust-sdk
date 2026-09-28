@@ -61,7 +61,7 @@ pub enum KeyExportError {
 ///
 /// # Arguments
 ///
-/// * `passphrase` - The passphrase that was used to encrypt the exported keys.
+/// - `passphrase` - The passphrase that was used to encrypt the exported keys.
 ///
 /// # Examples
 ///
@@ -105,12 +105,11 @@ pub fn decrypt_room_key_export(
 ///
 /// # Arguments
 ///
-/// * `keys` - A list of sessions that should be encrypted.
-///
-/// * `passphrase` - The passphrase that will be used to encrypt the exported
+/// - `keys` - A list of sessions that should be encrypted.
+/// - `passphrase` - The passphrase that will be used to encrypt the exported
 ///   room keys.
 ///
-/// * `rounds` - The number of rounds that should be used for the key derivation
+/// - `rounds` - The number of rounds that should be used for the key derivation
 ///   when the passphrase gets turned into an AES key. More rounds are
 ///   increasingly computationally intensive and as such help against
 ///   brute-force attacks. Should be at least `10_000`, while values in the

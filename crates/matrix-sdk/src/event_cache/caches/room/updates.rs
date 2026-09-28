@@ -15,13 +15,12 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_base::{
-    deserialized_responses::AmbiguityChange,
+    deserialized_responses::{AmbiguityChange, ThreadSummary},
     event_cache::{Event, Gap},
     linked_chunk::{self, OwnedLinkedChunkId},
 };
 use ruma::{
-    OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId, events::AnySyncEphemeralRoomEvent,
-    serde::Raw,
+    OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId, events::receipt::ReceiptEventContent,
 };
 use tokio::sync::broadcast::{Receiver, Sender};
 
@@ -51,11 +50,22 @@ pub enum RoomEventCacheUpdate {
     /// The room has received updates for the timeline as _diffs_.
     UpdateTimelineEvents(TimelineVectorDiffs),
 
-    /// The room has received new ephemeral events.
-    AddEphemeralEvents {
-        /// XXX: this is temporary, until read receipts are handled in the event
-        /// cache
-        events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+    /// An event, which is a thread root, has received an update for its thread
+    /// summary.
+    UpdateThreadSummary {
+        /// The event ID of the thread root.
+        ///
+        /// Also called _thread ID_.
+        thread_root: OwnedEventId,
+
+        /// The updated thread summary.
+        thread_summary: ThreadSummary,
+    },
+
+    /// The room has received a new read receipt event.
+    AddReadReceiptEvent {
+        /// The event containing the receipts.
+        event: ReceiptEventContent,
     },
 }
 

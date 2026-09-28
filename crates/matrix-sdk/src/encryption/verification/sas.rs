@@ -37,7 +37,7 @@ impl SasVerification {
     ///
     /// # Arguments
     ///
-    /// * `settings` - specific customizations to the verification flow.
+    /// - `settings` - specific customizations to the verification flow.
     ///
     /// # Examples
     ///
@@ -224,14 +224,14 @@ impl SasVerification {
     /// The changes are presented as a stream of [`SasState`] values.
     ///
     /// This method can be used to react to changes in the state of the
-    /// verification process, or rather the method can be used to handle
-    /// each step of the verification process.
+    /// verification process, or rather the method can be used to handle each
+    /// step of the verification process.
     ///
     /// # Flowchart
     ///
-    /// The flow of the verification process is pictured below. Please note
-    /// that the process can be cancelled at each step of the process.
-    /// Either side can cancel the process.
+    /// The flow of the verification process is pictured below. Please note that
+    /// the process can be cancelled at each step of the process. Either side
+    /// can cancel the process.
     ///
     /// ```text
     ///                ┌───────┐
@@ -265,6 +265,7 @@ impl SasVerification {
     ///                │  Done │
     ///                └───────┘
     /// ```
+    ///
     /// # Examples
     ///
     /// ```no_run

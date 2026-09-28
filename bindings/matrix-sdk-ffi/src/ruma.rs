@@ -126,8 +126,8 @@ impl From<AuthData> for ruma::api::client::uiaa::AuthData {
     }
 }
 
-/// Parse a matrix entity from a given URI, be it either
-/// a `matrix.to` link or a `matrix:` URI
+/// Parse a matrix entity from a given URI, be it either a `matrix.to` link or a
+/// `matrix:` URI
 #[matrix_sdk_ffi_macros::export]
 pub fn parse_matrix_entity_from(uri: String) -> Option<MatrixEntity> {
     if let Ok(matrix_uri) = RumaMatrixUri::parse(&uri) {
@@ -454,12 +454,14 @@ pub enum MessageType {
     },
 }
 
-/// From MSC2530: https://github.com/matrix-org/matrix-spec-proposals/blob/main/proposals/2530-body-as-caption.md
+/// From MSC2530:
+/// https://github.com/matrix-org/matrix-spec-proposals/blob/main/proposals/2530-body-as-caption.md
 /// If the filename field is present in a media message, clients should treat
-/// body as a caption instead of a file name. Otherwise, the body is the
-/// file name.
+/// body as a caption instead of a file name. Otherwise, the body is the file
+/// name.
 ///
 /// So:
+///
 /// - if a media has a filename and a caption, the body is the caption, filename
 ///   is its own field.
 /// - if a media only has a filename, then body is the filename.

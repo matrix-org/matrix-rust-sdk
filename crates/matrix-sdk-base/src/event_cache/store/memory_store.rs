@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
     sync::{Arc, RwLock as StdRwLock},
 };
 
@@ -31,18 +31,19 @@ use matrix_sdk_common::{
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId, events::relation::RelationType};
 use tracing::error;
 
-use super::{EventCacheStore, EventCacheStoreError, Result, extract_event_relation};
-use crate::event_cache::{Event, Gap};
+use super::{
+    super::{Event, Gap, thread::ThreadInfo},
+    EventCacheStore, EventCacheStoreError, Result, extract_event_relation,
+};
 
 /// In-memory, non-persistent implementation of the `EventCacheStore`.
 ///
 /// Default if no other is configured at startup.
 ///
-/// Note that this store is not transactional. This is particularly
-/// relevant when calling [`EventCacheStore::handle_linked_chunk_updates`],
-/// which consumes a list of [`Update`]s. When processing this list, if
-/// one of the [`Update`]s fails, the previous updates in the list
-/// will not be reversed.
+/// Note that this store is not transactional. This is particularly relevant
+/// when calling [`EventCacheStore::handle_linked_chunk_updates`], which
+/// consumes a list of [`Update`]s. When processing this list, if one of the
+/// [`Update`]s fails, the previous updates in the list will not be reversed.
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
     inner: Arc<StdRwLock<MemoryStoreInner>>,
@@ -57,7 +58,7 @@ struct MemoryStoreInner {
     events: RelationalLinkedChunk<OwnedEventId, Event, Gap>,
 
     /// List of all threads.
-    threads: Vec<(OwnedRoomId, OwnedEventId)>,
+    threads: HashMap<(OwnedRoomId, OwnedEventId), ThreadInfo>,
 }
 
 impl Default for MemoryStore {
@@ -66,7 +67,7 @@ impl Default for MemoryStore {
             inner: Arc::new(StdRwLock::new(MemoryStoreInner {
                 leases: Default::default(),
                 events: RelationalLinkedChunk::new(),
-                threads: Vec::new(),
+                threads: HashMap::new(),
             })),
         }
     }
@@ -109,6 +110,37 @@ impl EventCacheStore for MemoryStore {
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error> {
         let mut inner = self.inner.write().unwrap();
+
+        let is_complete_event = |event: &Event| {
+            let Some(event_id) = event.event_id() else {
+                error!("Found event with no ID");
+                return false;
+            };
+            if event.kind.event_type().is_none() {
+                error!(%event_id, "Found an event with no event type");
+                return false;
+            }
+            true
+        };
+
+        let updates = updates
+            .into_iter()
+            .filter_map(|update| match update {
+                Update::PushItems { at, items } => Some(Update::PushItems {
+                    at,
+                    items: items.into_iter().filter(is_complete_event).collect(),
+                }),
+                Update::ReplaceItem { at, item } => {
+                    if is_complete_event(&item) {
+                        Some(Update::ReplaceItem { at, item })
+                    } else {
+                        None
+                    }
+                }
+                update => Some(update),
+            })
+            .collect();
+
         inner
             .events
             .apply_updates(linked_chunk_id, updates)
@@ -162,19 +194,41 @@ impl EventCacheStore for MemoryStore {
             .map_err(|err| EventCacheStoreError::InvalidData { details: err })
     }
 
-    async fn remember_thread(
+    async fn load_thread_info(
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
+        insert_default_if_missing: bool,
+    ) -> Result<Option<ThreadInfo>, Self::Error> {
+        let mut inner = self.inner.write().unwrap();
+        let threads = &mut inner.threads;
+
+        let key = (room_id.to_owned(), thread_id.to_owned());
+        let thread_info_entry = threads.entry(key);
+
+        Ok(match thread_info_entry {
+            Entry::Occupied(entry) => Some(entry.get().clone()),
+
+            Entry::Vacant(entry) if insert_default_if_missing => {
+                Some(entry.insert_entry(ThreadInfo::default()).get().clone())
+            }
+
+            Entry::Vacant(_) => None,
+        })
+    }
+
+    async fn update_thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+        thread_info: &ThreadInfo,
     ) -> Result<(), Self::Error> {
         let mut inner = self.inner.write().unwrap();
         let threads = &mut inner.threads;
 
-        let pair = (room_id.to_owned(), thread_id.to_owned());
+        let key = (room_id.to_owned(), thread_id.to_owned());
 
-        if !threads.contains(&pair) {
-            threads.push(pair);
-        }
+        *threads.get_mut(&key).expect("The thread entry must exist") = thread_info.clone();
 
         Ok(())
     }
@@ -266,8 +320,8 @@ impl EventCacheStore for MemoryStore {
             .collect();
 
         // Remove any duplicate events which may exist in both a room and thread
-        // linked chunk. Additionally, remove any position information from non-room
-        // linked chunks.
+        // linked chunk. Additionally, remove any position information from
+        // non-room linked chunks.
         let mut deduplicated = HashMap::new();
         for (linked_chunk_id, (event, position)) in related_events {
             let event_id = event
@@ -280,8 +334,8 @@ impl EventCacheStore for MemoryStore {
                     deduplicated.insert(event_id, (event, position));
                 }
                 _ => {
-                    // Remove position information from events that come
-                    // from any other type of linked chunk
+                    // Remove position information from events that come from
+                    // any other type of linked chunk
                     deduplicated.entry(event_id).or_insert_with(|| (event, None));
                 }
             }

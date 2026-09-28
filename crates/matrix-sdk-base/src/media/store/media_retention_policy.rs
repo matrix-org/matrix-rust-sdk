@@ -67,15 +67,14 @@ pub struct MediaRetentionPolicy {
     ///
     /// If it is set, media content bigger than the maximum size will not be
     /// cached. If the maximum size changed after media content that exceeds the
-    /// new value was cached, the corresponding content will be removed
-    /// during a cleanup.
+    /// new value was cached, the corresponding content will be removed during a
+    /// cleanup.
     ///
     /// Defaults to 20 MiB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_file_size: Option<u64>,
 
-    /// The duration after which unaccessed media content is considered
-    /// expired.
+    /// The duration after which unaccessed media content is considered expired.
     ///
     /// If this is set, media content whose last access is older than this
     /// duration will be removed from the media cache during a cleanup.
@@ -86,8 +85,8 @@ pub struct MediaRetentionPolicy {
 
     /// The duration between two automatic media cache cleanups.
     ///
-    /// If this is set, a cleanup will be triggered after the given duration
-    /// is elapsed, at the next call to the media cache API. If this is set to
+    /// If this is set, a cleanup will be triggered after the given duration is
+    /// elapsed, at the next call to the media cache API. If this is set to
     /// zero, each call to the media cache API will trigger a cleanup. If this
     /// is `None`, cleanups will only occur if they are triggered manually.
     ///
@@ -155,7 +154,7 @@ impl MediaRetentionPolicy {
     ///
     /// # Arguments
     ///
-    /// * `size` - The overall size of the media cache to check, in bytes.
+    /// - `size` - The overall size of the media cache to check, in bytes.
     pub fn exceeds_max_cache_size(&self, size: u64) -> bool {
         self.max_cache_size.is_some_and(|max_size| size > max_size)
     }
@@ -178,7 +177,7 @@ impl MediaRetentionPolicy {
     ///
     /// # Arguments
     ///
-    /// * `size` - The size of the media content to check, in bytes.
+    /// - `size` - The size of the media content to check, in bytes.
     pub fn exceeds_max_file_size(&self, size: u64) -> bool {
         self.computed_max_file_size().is_some_and(|max_size| size > max_size)
     }
@@ -187,9 +186,8 @@ impl MediaRetentionPolicy {
     ///
     /// # Arguments
     ///
-    /// * `current_time` - The current time.
-    ///
-    /// * `last_access_time` - The time when the media content to check was last
+    /// - `current_time` - The current time.
+    /// - `last_access_time` - The time when the media content to check was last
     ///   accessed.
     pub fn has_content_expired(
         &self,
@@ -199,8 +197,9 @@ impl MediaRetentionPolicy {
         self.last_access_expiry.is_some_and(|max_duration| {
             current_time
                 .duration_since(last_access_time)
-                // If this returns an error, the last access time is newer than the current time.
-                // This shouldn't happen but in this case the content cannot be expired.
+                // If this returns an error, the last access time is newer than
+                // the current time. This shouldn't happen but in this case the
+                // content cannot be expired.
                 .is_ok_and(|elapsed| elapsed >= max_duration)
         })
     }
@@ -210,15 +209,15 @@ impl MediaRetentionPolicy {
     ///
     /// # Arguments
     ///
-    /// * `current_time` - The current time.
-    ///
-    /// * `last_cleanup_time` - The time of the last media cache cleanup.
+    /// - `current_time` - The current time.
+    /// - `last_cleanup_time` - The time of the last media cache cleanup.
     pub fn should_clean_up(&self, current_time: SystemTime, last_cleanup_time: SystemTime) -> bool {
         self.cleanup_frequency.is_some_and(|max_duration| {
             current_time
                 .duration_since(last_cleanup_time)
-                // If this returns an error, the last cleanup time is newer than the current time.
-                // This shouldn't happen but in this case no cleanup job is needed.
+                // If this returns an error, the last cleanup time is newer than
+                // the current time. This shouldn't happen but in this case no
+                // cleanup job is needed.
                 .is_ok_and(|elapsed| elapsed >= max_duration)
         })
     }

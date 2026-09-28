@@ -18,6 +18,7 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     hash::Hash,
+    ops::Not,
 };
 
 use ruma::{OwnedEventId, OwnedRoomId, RoomId};
@@ -58,8 +59,8 @@ enum Either<Item, Gap> {
     Gap(Gap),
 }
 
-/// A [`LinkedChunk`] but with a relational layout, similar to what we
-/// would have in a database.
+/// A [`LinkedChunk`] but with a relational layout, similar to what we would
+/// have in a database.
 ///
 /// This is used by memory stores. The idea is to have a data layout that is
 /// similar for memory stores and for relational database stores, to represent a
@@ -84,12 +85,15 @@ pub struct RelationalLinkedChunk<ItemId, Item, Gap> {
     /// Items chunks.
     items_chunks: Vec<ItemRow<ItemId, Gap>>,
 
+    /// Occupied positions.
+    items_positions: HashSet<(OwnedLinkedChunkId, Position)>,
+
     /// The items' content themselves.
     items: HashMap<OwnedLinkedChunkId, BTreeMap<ItemId, (Item, Option<Position>)>>,
 }
 
-/// An error type for representing the possible failures
-/// in operations on a [`RelationalLinkedChunk`].
+/// An error type for representing the possible failures in operations on a
+/// [`RelationalLinkedChunk`].
 #[derive(Debug, Error)]
 pub enum RelationalLinkedChunkError {
     /// A chunk identifier is invalid.
@@ -98,6 +102,13 @@ pub enum RelationalLinkedChunkError {
         /// The chunk identifier.
         identifier: ChunkIdentifier,
     },
+    /// The provided item is already present in the linked chunk to which it is
+    /// being added.
+    #[error("item already in linked chunk")]
+    ItemAlreadyInLinkedChunk,
+    /// A position in a linked chunk is already occupied by an event
+    #[error("position already occupied")]
+    PositionAlreadyOccupied,
 }
 
 /// The [`IndexableItem`] trait is used to mark items that can be indexed into a
@@ -121,12 +132,17 @@ impl IndexableItem for TimelineEvent {
 
 impl<ItemId, Item, Gap> RelationalLinkedChunk<ItemId, Item, Gap>
 where
-    Item: IndexableItem<ItemId = ItemId>,
+    Item: IndexableItem<ItemId = ItemId> + Clone,
     ItemId: Hash + PartialEq + Eq + Clone + Ord,
 {
     /// Create a new relational linked chunk.
     pub fn new() -> Self {
-        Self { chunks: Vec::new(), items_chunks: Vec::new(), items: HashMap::new() }
+        Self {
+            chunks: Vec::new(),
+            items_chunks: Vec::new(),
+            items_positions: HashSet::new(),
+            items: HashMap::new(),
+        }
     }
 
     /// Remove all the chunks and items for a particular room for this
@@ -135,6 +151,7 @@ where
         self.chunks.retain(|ChunkRow { linked_chunk_id, .. }| linked_chunk_id.room_id() != room_id);
         self.items_chunks
             .retain(|ItemRow { linked_chunk_id, .. }| linked_chunk_id.room_id() != room_id);
+        self.items_positions.retain(|(linked_chunk_id, _)| linked_chunk_id.room_id() != room_id);
         self.items.retain(|key, _| key.room_id() != room_id);
     }
 
@@ -142,6 +159,7 @@ where
     pub fn clear(&mut self) {
         self.chunks.clear();
         self.items_chunks.clear();
+        self.items_positions.clear();
         self.items.clear();
     }
 
@@ -198,15 +216,42 @@ where
                 Update::PushItems { mut at, items } => {
                     for item in items {
                         let item_id = item.id();
-                        self.items
-                            .entry(linked_chunk_id.to_owned())
-                            .or_default()
-                            .insert(item_id.clone(), (item, Some(at)));
+                        let linked_chunk_items =
+                            self.items.entry(linked_chunk_id.to_owned()).or_default();
+
+                        // Ensure item does not already exist in another
+                        // position in this linked chunk.
+                        //
+                        // Note that we do not check `items_chunks`, going
+                        // through each `ItemRow` is very slow. So, it is
+                        // imperative that `items` is kept in sync with
+                        // `items_chunks` in order for the check below to be
+                        // sufficient.
+                        if let Some((_, position)) = linked_chunk_items.get(&item_id)
+                            && position.is_some()
+                        {
+                            return Err(RelationalLinkedChunkError::ItemAlreadyInLinkedChunk);
+                        }
+
+                        // Ensure position is not occupied by another item. If
+                        // position is already occupied, return an error.
+                        if self.items_positions.insert((linked_chunk_id.to_owned(), at)).not() {
+                            return Err(RelationalLinkedChunkError::PositionAlreadyOccupied);
+                        }
+
+                        linked_chunk_items.insert(item_id.clone(), (item.clone(), Some(at)));
                         self.items_chunks.push(ItemRow {
                             linked_chunk_id: linked_chunk_id.to_owned(),
                             position: at,
                             item: Either::Item(item_id),
                         });
+
+                        // Ensure item is updated if it exists anywhere else in
+                        // the store
+                        for items in &mut self.items.values_mut() {
+                            items.entry(item.id()).and_modify(|e| e.0 = item.clone());
+                        }
+
                         at.increment_index();
                     }
                 }
@@ -225,12 +270,19 @@ where
                     self.items
                         .entry(linked_chunk_id.to_owned())
                         .or_default()
-                        .insert(item_id.clone(), (item, Some(at)));
-                    existing.item = Either::Item(item_id);
+                        .insert(item_id.clone(), (item.clone(), Some(at)));
+                    existing.item = Either::Item(item_id.clone());
+
+                    // Ensure item is updated if it exists anywhere else in the
+                    // store
+                    for items in &mut self.items.values_mut() {
+                        items.entry(item_id.clone()).and_modify(|e| e.0 = item.clone());
+                    }
                 }
 
                 Update::RemoveItem { at } => {
                     let mut entry_to_remove = None;
+                    let mut position_to_remove = Option::<Position>::None;
 
                     for (
                         nth,
@@ -242,6 +294,14 @@ where
                             continue;
                         }
 
+                        // Track the largest index in the chunk to remove.
+                        if position.chunk_identifier() == at.chunk_identifier()
+                            && position_to_remove
+                                .is_none_or(|inner| inner.index() < position.index())
+                        {
+                            position_to_remove.replace(*position);
+                        }
+
                         // Find the item to remove.
                         if *position == at {
                             debug_assert!(entry_to_remove.is_none(), "Found the same entry twice");
@@ -249,7 +309,8 @@ where
                             entry_to_remove = Some(nth);
                         }
 
-                        // Update all items that come _after_ `at` to shift their index.
+                        // Update all items that come _after_ `at` to shift
+                        // their index.
                         if position.chunk_identifier() == at.chunk_identifier()
                             && position.index() > at.index()
                         {
@@ -258,7 +319,25 @@ where
                     }
 
                     self.items_chunks.remove(entry_to_remove.expect("Remove an unknown item"));
+                    self.items_positions.remove(&(
+                        linked_chunk_id.to_owned(),
+                        position_to_remove.expect("Remove an unknown item"),
+                    ));
+
                     // We deliberately keep the item in the items collection.
+                    self.items.entry(linked_chunk_id.to_owned()).and_modify(|items| {
+                        for (_, opt) in items.values_mut() {
+                            if let Some(position) = opt
+                                && position.chunk_identifier() == at.chunk_identifier()
+                            {
+                                if position.index() == at.index() {
+                                    opt.take();
+                                } else if position.index() > at.index() {
+                                    position.decrement_index();
+                                }
+                            }
+                        }
+                    });
                 }
 
                 Update::DetachLastItems { at } => {
@@ -278,14 +357,24 @@ where
                                 (linked_chunk_id == linked_chunk_id_candidate
                                     && position.chunk_identifier() == at.chunk_identifier()
                                     && position.index() >= at.index())
-                                .then_some(nth)
+                                .then_some((nth, *position))
                             },
                         )
                         .collect::<Vec<_>>();
 
-                    for index_to_remove in indices_to_remove.into_iter().rev() {
+                    for (index_to_remove, position) in indices_to_remove.into_iter().rev() {
+                        self.items_positions.remove(&(linked_chunk_id.to_owned(), position));
                         self.items_chunks.remove(index_to_remove);
                     }
+
+                    self.items.entry(linked_chunk_id.to_owned()).and_modify(|items| {
+                        for (_, pos) in items.values_mut() {
+                            pos.take_if(|pos| {
+                                pos.chunk_identifier() == at.chunk_identifier()
+                                    && pos.index() >= at.index()
+                            });
+                        }
+                    });
                 }
 
                 Update::StartReattachItems | Update::EndReattachItems => { /* nothing */ }
@@ -293,7 +382,13 @@ where
                 Update::Clear => {
                     self.chunks.retain(|chunk| chunk.linked_chunk_id != linked_chunk_id);
                     self.items_chunks.retain(|chunk| chunk.linked_chunk_id != linked_chunk_id);
-                    // We deliberately leave the items intact.
+                    self.items_positions.retain(|(id, _)| id.as_ref() != linked_chunk_id);
+                    // We deliberately leave the items in the items collection.
+                    self.items.entry(linked_chunk_id.to_owned()).and_modify(|items| {
+                        for (_, pos) in items.values_mut() {
+                            pos.take();
+                        }
+                    });
                 }
             }
         }
@@ -496,7 +591,8 @@ where
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<(Option<RawChunk<Item, Gap>>, ChunkIdentifierGenerator), String> {
-        // Find the latest chunk identifier to generate a `ChunkIdentifierGenerator`.
+        // Find the latest chunk identifier to generate a
+        // `ChunkIdentifierGenerator`.
         let chunk_identifier_generator = match self
             .chunks
             .iter()
@@ -531,16 +627,17 @@ where
             // Chunk has been found, all good.
             Some(chunk_row) => chunk_row,
 
-            // Chunk is not found and there is zero chunk for this room, this is consistent, all
-            // good.
+            // Chunk is not found and there is zero chunk for this room, this is
+            // consistent, all good.
             None if number_of_chunks == 0 => {
                 return Ok((None, chunk_identifier_generator));
             }
 
-            // Chunk is not found **but** there are chunks for this room, this is inconsistent. The
-            // linked chunk is malformed.
+            // Chunk is not found **but** there are chunks for this room, this
+            // is inconsistent. The linked chunk is malformed.
             //
-            // Returning `Ok(None)` would be invalid here: we must return an error.
+            // Returning `Ok(None)` would be invalid here: we must return an
+            // error.
             None => {
                 return Err(
                     "last chunk is not found but chunks exist: the linked chunk contains a cycle"
@@ -559,7 +656,8 @@ where
         linked_chunk_id: LinkedChunkId<'_>,
         before_chunk_identifier: ChunkIdentifier,
     ) -> Result<Option<RawChunk<Item, Gap>>, String> {
-        // Find the chunk before the chunk identified by `before_chunk_identifier`.
+        // Find the chunk before the chunk identified by
+        // `before_chunk_identifier`.
         let Some(chunk_row) = self.chunks.iter().find(|chunk_row| {
             chunk_row.linked_chunk_id == linked_chunk_id
                 && chunk_row.next_chunk == Some(before_chunk_identifier)
@@ -575,7 +673,7 @@ where
 
 impl<ItemId, Item, Gap> Default for RelationalLinkedChunk<ItemId, Item, Gap>
 where
-    Item: IndexableItem<ItemId = ItemId>,
+    Item: IndexableItem<ItemId = ItemId> + Clone,
     ItemId: Hash + PartialEq + Eq + Clone + Ord,
 {
     fn default() -> Self {
@@ -721,8 +819,9 @@ where
     Ok(match first_item.item {
         // This is a chunk of kind `Items`.
         Either::Item(_) => {
-            // Count all the items. We add an additional filter that will exclude gaps, in
-            // case the chunk is malformed, but we should not have to, in theory.
+            // Count all the items. We add an additional filter that will
+            // exclude gaps, in case the chunk is malformed, but we should not
+            // have to, in theory.
 
             let mut num_items = 0;
             for item in items {
@@ -985,8 +1084,8 @@ mod tests {
             .apply_updates(
                 linked_chunk_id.as_ref(),
                 vec![
-                    // new chunk (this is not mandatory for this test, but let's try to be
-                    // realistic)
+                    // new chunk (this is not mandatory for this test, but let's
+                    // try to be realistic)
                     Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                     // new items on 0
                     Update::PushItems {
@@ -1087,8 +1186,8 @@ mod tests {
             .apply_updates(
                 linked_chunk_id.as_ref(),
                 vec![
-                    // new chunk (this is not mandatory for this test, but let's try to be
-                    // realistic)
+                    // new chunk (this is not mandatory for this test, but let's
+                    // try to be realistic)
                     Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                     // new items on 0
                     Update::PushItems {
@@ -1255,8 +1354,8 @@ mod tests {
             .apply_updates(
                 linked_chunk_id0.as_ref(),
                 vec![
-                    // new chunk (this is not mandatory for this test, but let's try to be
-                    // realistic)
+                    // new chunk (this is not mandatory for this test, but let's
+                    // try to be realistic)
                     Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                     // new items on 0
                     Update::PushItems {
@@ -1271,8 +1370,8 @@ mod tests {
             .apply_updates(
                 linked_chunk_id1.as_ref(),
                 vec![
-                    // new chunk (this is not mandatory for this test, but let's try to be
-                    // realistic)
+                    // new chunk (this is not mandatory for this test, but let's
+                    // try to be realistic)
                     Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                     // new items on 0
                     Update::PushItems { at: Position::new(CId::new(0), 0), items: vec!['x'] },
@@ -1449,8 +1548,8 @@ mod tests {
             .apply_updates(
                 linked_chunk_id.as_ref(),
                 vec![
-                    // new chunk (this is not mandatory for this test, but let's try to be
-                    // realistic)
+                    // new chunk (this is not mandatory for this test, but let's
+                    // try to be realistic)
                     Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                     // new items on 0
                     Update::PushItems {
@@ -1650,8 +1749,9 @@ mod tests {
                 vec![
                     Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                     Update::NewItemsChunk {
-                        // Because `previous` connects to chunk #0, it will create a cycle.
-                        // Chunk #0 will have a `next` set to chunk #1! Consequently, the last chunk
+                        // Because `previous` connects to chunk #0, it will
+                        // create a cycle. Chunk #0 will have a `next` set to
+                        // chunk #1! Consequently, the last chunk
                         // **does not exist**. We have to detect this cycle.
                         previous: Some(CId::new(0)),
                         new: CId::new(1),

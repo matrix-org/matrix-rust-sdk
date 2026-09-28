@@ -226,8 +226,7 @@ impl<K: Ord, const N: usize> From<[(K, SigningKey); N]> for SigningKeys<K> {
 }
 
 // Helper trait to generalize between a `OwnedDeviceKeyId` and a
-// `DeviceKeyAlgorithm` so that we can support Deserialize for
-// `SigningKeys<T>`
+// `DeviceKeyAlgorithm` so that we can support Deserialize for `SigningKeys<T>`
 trait Algorithm {
     fn algorithm(&self) -> DeviceKeyAlgorithm;
 }

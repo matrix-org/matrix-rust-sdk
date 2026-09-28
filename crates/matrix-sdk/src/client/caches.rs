@@ -38,7 +38,7 @@ pub(crate) struct ClientCaches {
     /// We only want to cache:
     ///
     /// - The versions prefilled with `ClientBuilder::server_versions()`
-    /// - The versions fetched from an *authenticated* request to the server.
+    /// - The versions fetched from an _authenticated_ request to the server.
     pub(crate) supported_versions: Cache<SupportedVersions, Arc<HttpError>>,
     /// Well-known information.
     pub(super) well_known: Cache<Option<WellKnownResponse>, ()>,

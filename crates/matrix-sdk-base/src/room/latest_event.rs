@@ -20,8 +20,8 @@ use crate::latest_event::LatestEventValue;
 impl Room {
     /// Return the [`LatestEventValue`] of this room.
     ///
-    /// Note that it clones the [`LatestEventValue`]! This can add pressure
-    /// on the memory if used in a hot path.
+    /// Note that it clones the [`LatestEventValue`]! This can add pressure on
+    /// the memory if used in a hot path.
     pub fn latest_event(&self) -> LatestEventValue {
         self.info.read().latest_event_value.clone()
     }

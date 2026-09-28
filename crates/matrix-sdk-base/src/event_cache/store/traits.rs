@@ -25,16 +25,18 @@ use matrix_sdk_common::{
 };
 use ruma::{EventId, OwnedEventId, RoomId, events::relation::RelationType};
 
-use super::EventCacheStoreError;
-use crate::event_cache::{Event, Gap};
+use super::{
+    super::{Event, Gap, thread::ThreadInfo},
+    EventCacheStoreError,
+};
 
 /// A default capacity for linked chunks, when manipulating in conjunction with
 /// an `EventCacheStore` implementation.
 // TODO: move back?
 pub const DEFAULT_CHUNK_CAPACITY: usize = 128;
 
-/// An abstract trait that can be used to implement different store backends
-/// for the event cache of the SDK.
+/// An abstract trait that can be used to implement different store backends for
+/// the event cache of the SDK.
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 pub trait EventCacheStore: AsyncTraitDeps {
@@ -95,25 +97,41 @@ pub trait EventCacheStore: AsyncTraitDeps {
         before_chunk_identifier: ChunkIdentifier,
     ) -> Result<Option<RawChunk<Event, Gap>>, Self::Error>;
 
-    /// Register a new thread.
+    /// Load the [`ThreadInfo`] associated to `room_id` and `thread_id`.
     ///
-    /// It does nothing regarding events or linked chunks: it simply remembers
-    /// that a thread has been created. This is important if one wants to list
-    /// all threads, or remove specific events or linked chunks.
+    /// If `insert_default_if_missing` is `true`, this method **must create and
+    /// insert** the `ThreadInfo` if it doesn't exist. Consequently, in this
+    /// context, this method is also a way to remember a thread, and will
+    /// always return `Some(_)`.
     ///
-    /// If the thread already exists, it returns successfully.
-    async fn remember_thread(
+    /// It does nothing regarding events or linked chunks. This is important if
+    /// one wants to list all threads, or remove specific events or linked
+    /// chunks.
+    async fn load_thread_info(
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
+        insert_default_if_missing: bool,
+    ) -> Result<Option<ThreadInfo>, Self::Error>;
+
+    /// Update the [`ThreadInfo`] associated to `room_id` and `thread_id`.
+    ///
+    /// If it does not exist, this method **must fail**! Normally, the
+    /// `ThreadInfo` must be created automatically with
+    /// [`Self::load_thread_info`], so it must always exist.
+    async fn update_thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+        thread_info: &ThreadInfo,
     ) -> Result<(), Self::Error>;
 
     /// Clear persisted events for all the rooms if `room_id` is `None`, or a
     /// single room otherwise.
     ///
     /// This will empty and remove all the linked chunks stored previously,
-    /// using the above [`Self::handle_linked_chunk_updates`] methods. It
-    /// *also* deletes all the events' content.
+    /// using the above [`Self::handle_linked_chunk_updates`] methods. It _also_
+    /// deletes all the events' content.
     ///
     /// ⚠ This is meant only for super specific use cases, where there shouldn't
     /// be any live in-memory linked chunks. In general, prefer using
@@ -130,7 +148,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
 
     /// Find an event by its ID in a room.
     ///
-    /// This method must return events saved either in any linked chunks, *or*
+    /// This method must return events saved either in any linked chunks, _or_
     /// events saved "out-of-band" with the [`Self::save_event`] method.
     async fn find_event(
         &self,
@@ -145,14 +163,14 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// saved out-of-band using [`Self::save_event`].
     ///
     /// Note: it doesn't process relations recursively: for instance, if
-    /// requesting only thread events, it will NOT return the aggregated
-    /// events affecting the returned events. It is the responsibility of
-    /// the caller to do so, if needed.
+    /// requesting only thread events, it will NOT return the aggregated events
+    /// affecting the returned events. It is the responsibility of the caller to
+    /// do so, if needed.
     ///
     /// An additional filter can be provided to only retrieve related events for
     /// a certain relationship.
     ///
-    /// This method must return events saved either in any linked chunks, *or*
+    /// This method must return events saved either in any linked chunks, _or_
     /// events saved "out-of-band" with the [`Self::save_event`] method.
     async fn find_event_relations(
         &self,
@@ -163,7 +181,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
 
     /// Get all events in this room.
     ///
-    /// This method must return events saved either in any linked chunks, *or*
+    /// This method must return events saved either in any linked chunks, _or_
     /// events saved "out-of-band" with the [`Self::save_event`] method.
     async fn get_room_events(
         &self,
@@ -269,12 +287,25 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
             .map_err(Into::into)
     }
 
-    async fn remember_thread(
+    async fn load_thread_info(
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
+        insert_default_if_missing: bool,
+    ) -> Result<Option<ThreadInfo>, Self::Error> {
+        self.0
+            .load_thread_info(room_id, thread_id, insert_default_if_missing)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn update_thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+        thread_info: &ThreadInfo,
     ) -> Result<(), Self::Error> {
-        self.0.remember_thread(room_id, thread_id).await.map_err(Into::into)
+        self.0.update_thread_info(room_id, thread_id, thread_info).await.map_err(Into::into)
     }
 
     async fn clear_all_events(&self, room_id: Option<&RoomId>) -> Result<(), Self::Error> {
@@ -375,7 +406,7 @@ where
         let ptr: *const T = Arc::into_raw(self);
         let ptr_erased = ptr as *const EraseEventCacheStoreError<T>;
         // SAFETY: EraseEventCacheStoreError is repr(transparent) so T and
-        //         EraseEventCacheStoreError<T> have the same layout and ABI
+        // EraseEventCacheStoreError<T> have the same layout and ABI
         unsafe { Arc::from_raw(ptr_erased) }
     }
 }

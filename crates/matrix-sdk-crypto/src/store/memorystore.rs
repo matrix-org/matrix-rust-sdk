@@ -88,9 +88,9 @@ pub struct MemoryStore {
     sessions: StdRwLock<BTreeMap<String, BTreeMap<String, String>>>,
     inbound_group_sessions: StdRwLock<BTreeMap<OwnedRoomId, HashMap<String, String>>>,
 
-    /// Map room id -> session id -> backup order number
-    /// The latest backup in which this session is stored. Equivalent to
-    /// `backed_up_to` in [`IndexedDbCryptoStore`]
+    /// Map room id -> session id -> backup order number The latest backup in
+    /// which this session is stored. Equivalent to `backed_up_to` in
+    /// [`IndexedDbCryptoStore`]
     inbound_group_sessions_backed_up_to:
         StdRwLock<HashMap<OwnedRoomId, HashMap<SessionId, BackupVersion>>>,
 
@@ -282,7 +282,7 @@ impl CryptoStore for MemoryStore {
         {
             let mut olm_hashes = self.olm_hashes.write();
             for hash in changes.message_hashes {
-                olm_hashes.entry(hash.sender_key.to_owned()).or_default().insert(hash.hash.clone());
+                olm_hashes.entry(hash.sender_key.to_owned()).or_default().insert(hash.hash);
             }
         }
 
@@ -387,7 +387,8 @@ impl CryptoStore for MemoryStore {
             let room_id = session.room_id();
             let session_id = session.session_id();
 
-            // Sanity-check that the data in the sessions corresponds to backed_up_version
+            // Sanity-check that the data in the sessions corresponds to
+            // backed_up_version
             let backed_up = session.backed_up();
             if backed_up != backed_up_to_version.is_some() {
                 warn!(
@@ -507,9 +508,9 @@ impl CryptoStore for MemoryStore {
                 .filter(|(_, o)| o.as_ref().is_some_and(|o| o.as_str() == backup_version))
                 .count()
         } else {
-            // We asked about a nonexistent backup version - this doesn't make much sense,
-            // but we can easily answer that nothing is backed up in this
-            // nonexistent backup.
+            // We asked about a nonexistent backup version - this doesn't make
+            // much sense, but we can easily answer that nothing is backed up in
+            // this nonexistent backup.
             0
         };
 
@@ -543,8 +544,8 @@ impl CryptoStore for MemoryStore {
         after_session_id: Option<String>,
         limit: usize,
     ) -> Result<Vec<InboundGroupSession>> {
-        // First, find all InboundGroupSessions, filtering for those that match the
-        // device and sender_data type.
+        // First, find all InboundGroupSessions, filtering for those that match
+        // the device and sender_data type.
         let mut sessions: Vec<_> = self
             .get_inbound_group_sessions()
             .await?
@@ -563,8 +564,9 @@ impl CryptoStore for MemoryStore {
             match after_session_id {
                 None => 0,
                 Some(id) => {
-                    // We're looking for the first session with a session ID strictly after `id`; if
-                    // there are none, the end of the array.
+                    // We're looking for the first session with a session ID
+                    // strictly after `id`; if there are none, the end of the
+                    // array.
                     sessions
                         .iter()
                         .position(|session| session.session_id() > id.as_str())
@@ -573,7 +575,8 @@ impl CryptoStore for MemoryStore {
             }
         };
 
-        // Return up to `limit` items from the array, starting from `start_index`
+        // Return up to `limit` items from the array, starting from
+        // `start_index`
         Ok(sessions.drain(start_index..).take(limit).collect())
     }
 
@@ -593,7 +596,8 @@ impl CryptoStore for MemoryStore {
                     // This session is already backed up in the required backup
                     None
                 } else {
-                    // It's not backed up, or it's backed up in a different backup
+                    // It's not backed up, or it's backed up in a different
+                    // backup
                     Some(session)
                 }
             })
@@ -633,11 +637,11 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn reset_backup_state(&self) -> Result<()> {
-        // Nothing to do here, because we remember which backup versions we backed up to
-        // in `mark_inbound_group_sessions_as_backed_up`, so we don't need to
-        // reset anything here because the required version is passed in to
-        // `inbound_group_sessions_for_backup`, and we can compare against the
-        // version we stored.
+        // Nothing to do here, because we remember which backup versions we
+        // backed up to in `mark_inbound_group_sessions_as_backed_up`, so we
+        // don't need to reset anything here because the required version is
+        // passed in to `inbound_group_sessions_for_backup`, and we can compare
+        // against the version we stored.
 
         Ok(())
     }
@@ -969,8 +973,8 @@ mod tests {
 
     #[async_test]
     async fn test_backing_up_to_an_old_backup_version_can_increase_backed_up_to() {
-        // Given we have backed up some sessions to 2 backup versions, an older and a
-        // newer
+        // Given we have backed up some sessions to 2 backup versions, an older
+        // and a newer
         let room_id = room_id!("!test:localhost");
         let (store, sessions) = store_with_sessions(4, room_id).await;
         mark_backed_up(&store, room_id, "older_bkp", &sessions[..2]).await;
@@ -1051,7 +1055,8 @@ mod tests {
 
     #[async_test]
     async fn test_sessions_backed_up_to_a_later_version_are_eligible_for_backup() {
-        // Given there are 4 sessions, some backed up to three different versions
+        // Given there are 4 sessions, some backed up to three different
+        // versions
         let room_id = room_id!("!test:localhost");
         let (store, sessions) = store_with_sessions(4, room_id).await;
         mark_backed_up(&store, room_id, "bkp0", &sessions[..1]).await;
@@ -1070,7 +1075,8 @@ mod tests {
             to_backup,
             &[
                 sessions[0].clone(), // Backed up in bkp0
-                // sessions[1] is backed up in bkp1 already, which we asked about
+                // sessions[1] is backed up in bkp1 already, which we asked
+                // about
                 sessions[2].clone(), // Backed up in bkp2
                 sessions[3].clone(), // Not backed up
             ]
@@ -1135,7 +1141,7 @@ mod tests {
         let loaded_identity =
             store.load_identity().await.expect("failed to load private identity").unwrap();
 
-        assert_eq!(loaded_identity.user_id(), user_id!("@u:s"));
+        assert_eq!(loaded_identity.user_id(), "@u:s");
     }
 
     #[async_test]
@@ -1247,7 +1253,8 @@ mod tests {
         // When we count keys for bkp2
         let key_counts = store.inbound_group_session_counts(Some("bkp2")).await.unwrap();
 
-        // Then the backed_up count reflects how many were backed up in bkp2 only
+        // Then the backed_up count reflects how many were backed up in bkp2
+        // only
         assert_eq!(key_counts.backed_up, 1);
     }
 
@@ -1374,17 +1381,17 @@ mod integration_tests {
 
     /// Return a clone of the store for the test with the supplied name. Note:
     /// dropping this store won't destroy its data, since
-    /// [PersistentMemoryStore] is a reference-counted smart pointer
-    /// to an underlying [MemoryStore].
+    /// [PersistentMemoryStore] is a reference-counted smart pointer to an
+    /// underlying [MemoryStore].
     async fn get_store(
         name: &str,
         _passphrase: Option<&str>,
         clear_data: bool,
     ) -> PersistentMemoryStore {
-        // Holds on to one [PersistentMemoryStore] per test, so even if the test drops
-        // the store, we keep its data alive. This simulates the behaviour of
-        // the other stores, which keep their data in a real DB, allowing us to
-        // test MemoryStore using the same code.
+        // Holds on to one [PersistentMemoryStore] per test, so even if the test
+        // drops the store, we keep its data alive. This simulates the behaviour
+        // of the other stores, which keep their data in a real DB, allowing us
+        // to test MemoryStore using the same code.
         static STORES: OnceLock<Mutex<HashMap<String, PersistentMemoryStore>>> = OnceLock::new();
         let stores = STORES.get_or_init(|| Mutex::new(HashMap::new()));
 

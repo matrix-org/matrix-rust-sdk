@@ -25,8 +25,8 @@ pub const INDEXED_KEY_LOWER_CHARACTER: char = '\u{0000}';
 
 /// The last unicode character in the [Basic Multilingual Plane][1]. This seems
 /// like a reasonable place to set the upper bound for IndexedDB keys (or key
-/// components) which are represented as strings, though one could
-/// theoretically set it to `\u{10FFFF}`.
+/// components) which are represented as strings, though one could theoretically
+/// set it to `\u{10FFFF}`.
 ///
 /// This value is useful for constructing a key range over all strings when used
 /// in conjunction with [`INDEXED_KEY_LOWER_CHARACTER`].
@@ -65,8 +65,8 @@ pub const INDEXED_KEY_UPPER_U64: u64 = js_sys::Number::MAX_SAFE_INTEGER as u64;
 pub const INDEXED_KEY_LOWER_UUID: Uuid = Uuid::from_u128(u128::MIN);
 
 /// The maximum possible [`Uuid`]. Note that this is not limited by
-/// [`js_sys::Number::MAX_SAFE_INTEGER`] as the [`Uuid`]s are serialized
-/// either as bytes or a string.
+/// [`js_sys::Number::MAX_SAFE_INTEGER`] as the [`Uuid`]s are serialized either
+/// as bytes or a string.
 ///
 /// This value is useful for constructing a key range over all keys which
 /// contain [`Uuid`] values when used in conjunction with
@@ -80,8 +80,7 @@ pub const INDEXED_KEY_UPPER_UUID: Uuid = Uuid::from_u128(u128::MAX);
 /// [`INDEXED_KEY_UPPER_DURATION`].
 pub const INDEXED_KEY_LOWER_DURATION: Duration = Duration::ZERO;
 
-/// A [`Duration`] constructed with [`INDEXED_KEY_UPPER_U64`]
-/// seconds.
+/// A [`Duration`] constructed with [`INDEXED_KEY_UPPER_U64`] seconds.
 ///
 /// This value is useful for constructing a key range over all keys which
 /// contain time-related values in seconds when used in conjunction with

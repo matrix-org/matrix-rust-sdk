@@ -30,7 +30,7 @@
 //!     // _All_ non-left rooms
 //!     // _and_ that fall in the “People” category,
 //!     // _and_ that are marked as favourite,
-//!     // _and_ that are _not_ unread.
+//!     // _and_ that _do not have_ unread notifications.
 //!     entries_controller.set_filter(Box::new(
 //!         // All
 //!         filters::new_filter_all(vec![
@@ -42,10 +42,16 @@
 //!             )),
 //!             // Favourite
 //!             Box::new(filters::new_filter_favourite()),
-//!             // Not Unread
-//!             Box::new(filters::new_filter_not(Box::new(
-//!                 filters::new_filter_unread(),
-//!             ))),
+//!             // No notification
+//!             Box::new(
+//!                 // No…
+//!                 filters::new_filter_not(Box::new(
+//!                     // … unread notifications
+//!                     filters::new_filter_read_receipts(
+//!                         filters::ReadReceiptsCategory::Notifications,
+//!                     ),
+//!                 )),
+//!             ),
 //!         ]),
 //!     ));
 //! }
@@ -75,8 +81,8 @@ mod non_left;
 mod none;
 mod normalized_match_room_name;
 mod not;
+mod read_receipts;
 mod space;
-mod unread;
 
 pub use self::{
     all::new_filter as new_filter_all,
@@ -93,8 +99,8 @@ pub use self::{
     none::new_filter as new_filter_none,
     normalized_match_room_name::new_filter as new_filter_normalized_match_room_name,
     not::new_filter as new_filter_not,
+    read_receipts::{Category as ReadReceiptsCategory, new_filter as new_filter_read_receipts},
     space::new_filter as new_filter_space,
-    unread::new_filter as new_filter_unread,
 };
 
 /// A trait “alias” that represents a _filter_.

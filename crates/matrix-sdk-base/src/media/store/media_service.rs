@@ -19,15 +19,15 @@ use matrix_sdk_common::{
     executor::{JoinHandle, spawn},
     locks::Mutex,
 };
-use ruma::{MxcUri, time::SystemTime};
+use ruma::time::SystemTime;
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::error;
 
 use super::{MediaRetentionPolicy, MediaStoreInner};
 use crate::media::MediaRequestParameters;
 
-/// API for implementors of [`MediaStore`] to manage their media through
-/// their implementation of [`MediaStoreInner`].
+/// API for implementors of [`MediaStore`] to manage their media through their
+/// implementation of [`MediaStoreInner`].
 ///
 /// [`MediaStore`]: crate::media::store::MediaStore
 #[derive(Debug)]
@@ -97,7 +97,7 @@ where
     ///
     /// # Arguments
     ///
-    /// * `policy` - The `MediaRetentionPolicy` that was persisted in the store.
+    /// - `policy` - The `MediaRetentionPolicy` that was persisted in the store.
     pub fn restore(
         &self,
         policy: Option<MediaRetentionPolicy>,
@@ -147,13 +147,10 @@ where
     ///
     /// # Arguments
     ///
-    /// * `store` - The `MediaStoreInner`.
-    ///
-    /// * `request` - The `MediaRequestParameters` of the file.
-    ///
-    /// * `content` - The content of the file.
-    ///
-    /// * `ignore_policy` - Whether the current `MediaRetentionPolicy` should be
+    /// - `store` - The `MediaStoreInner`.
+    /// - `request` - The `MediaRequestParameters` of the file.
+    /// - `content` - The content of the file.
+    /// - `ignore_policy` - Whether the current `MediaRetentionPolicy` should be
     ///   ignored.
     pub async fn add_media_content<Store: MediaStoreInner + 'static>(
         &self,
@@ -188,11 +185,9 @@ where
     ///
     /// # Arguments
     ///
-    /// * `store` - The `MediaStoreInner`.
-    ///
-    /// * `request` - The `MediaRequestParameters` of the file.
-    ///
-    /// * `ignore_policy` - Whether the current `MediaRetentionPolicy` should be
+    /// - `store` - The `MediaStoreInner`.
+    /// - `request` - The `MediaRequestParameters` of the file.
+    /// - `ignore_policy` - Whether the current `MediaRetentionPolicy` should be
     ///   ignored.
     pub async fn set_ignore_media_retention_policy<Store: MediaStoreInner>(
         &self,
@@ -217,27 +212,6 @@ where
     ) -> Result<Option<Vec<u8>>, Store::Error> {
         let current_time = self.now();
         let content = store.get_media_content_inner(request, current_time).await?;
-
-        self.maybe_spawn_automatic_media_cache_cleanup(store, current_time);
-
-        Ok(content)
-    }
-
-    /// Get a media file's content associated to an `MxcUri` from the
-    /// media store.
-    ///
-    /// # Arguments
-    ///
-    /// * `store` - The `MediaStoreInner`.
-    ///
-    /// * `uri` - The `MxcUri` of the media file.
-    pub async fn get_media_content_for_uri<Store: MediaStoreInner + 'static>(
-        &self,
-        store: &Store,
-        uri: &MxcUri,
-    ) -> Result<Option<Vec<u8>>, Store::Error> {
-        let current_time = self.now();
-        let content = store.get_media_content_for_uri_inner(uri, current_time).await?;
 
         self.maybe_spawn_automatic_media_cache_cleanup(store, current_time);
 
@@ -283,9 +257,10 @@ where
     /// policy.
     ///
     /// A cleanup will be spawned if:
-    /// * The media retention policy's `cleanup_frequency` is set and enough
+    ///
+    /// - The media retention policy's `cleanup_frequency` is set and enough
     ///   time has passed since the last cleanup.
-    /// * No other cleanup is running,
+    /// - No other cleanup is running,
     fn maybe_spawn_automatic_media_cache_cleanup<Store: MediaStoreInner + 'static>(
         &self,
         store: &Store,
@@ -408,7 +383,7 @@ mod tests {
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
     use ruma::{
-        MxcUri, OwnedMxcUri,
+        OwnedMxcUri,
         events::room::MediaSource,
         mxc_uri,
         time::{Duration, SystemTime},
@@ -588,31 +563,14 @@ mod tests {
             Ok(Some(media_content.content.clone()))
         }
 
-        async fn get_media_content_for_uri_inner(
-            &self,
-            uri: &MxcUri,
-            current_time: SystemTime,
-        ) -> Result<Option<Vec<u8>>, Self::Error> {
-            let mut inner = self.inner();
-
-            let Some(media_content) =
-                inner.media_list.iter_mut().find(|content| content.uri == uri)
-            else {
-                return Ok(None);
-            };
-
-            media_content.last_access = current_time;
-
-            Ok(Some(media_content.content.clone()))
-        }
-
         async fn clean_inner(
             &self,
             _policy: MediaRetentionPolicy,
             current_time: SystemTime,
         ) -> Result<(), Self::Error> {
-            // This is mostly a noop. We don't care about this test implementation, only
-            // whether this method was called with the right time.
+            // This is mostly a noop. We don't care about this test
+            // implementation, only whether this method was called with the
+            // right time.
             self.inner().cleanup_time = Some(current_time);
 
             Ok(())
@@ -696,15 +654,6 @@ mod tests {
         service.inner.time_provider.set_now(now);
         store.reset_accessed();
 
-        // Get media from URI.
-        let loaded_content = service.get_media_content_for_uri(&store, uri).await.unwrap();
-        assert!(store.accessed());
-        assert_eq!(loaded_content.as_deref(), Some(content.as_slice()));
-
-        // The last access time was updated.
-        let media = store.inner().media_list[0].clone();
-        assert_eq!(media.last_access, now);
-
         // Update ignore_policy.
         service
             .set_ignore_media_retention_policy(&store, &request, IgnoreMediaRetentionPolicy::Yes)
@@ -715,7 +664,8 @@ mod tests {
         let media_content = store.inner().media_list[0].clone();
         assert!(media_content.ignore_policy);
 
-        // Try a cleanup. With the empty policy the store should not be accessed.
+        // Try a cleanup. With the empty policy the store should not be
+        // accessed.
         assert_eq!(store.last_media_cleanup_time_inner().await.unwrap(), None);
         store.reset_accessed();
 
@@ -763,8 +713,8 @@ mod tests {
 
         store.reset_accessed();
 
-        // Add small media, it should work because its size is lower than the max file
-        // size.
+        // Add small media, it should work because its size is lower than the
+        // max file size.
         service
             .add_media_content(
                 &store,
@@ -799,20 +749,12 @@ mod tests {
         service.inner.time_provider.set_now(now);
         store.reset_accessed();
 
-        // Get media from URI.
-        let loaded_content = service.get_media_content_for_uri(&store, small_uri).await.unwrap();
-        assert!(store.accessed());
-        assert_eq!(loaded_content.as_deref(), Some(small_content.as_slice()));
-
-        // The last access time was updated.
-        let media = store.inner().media_list[0].clone();
-        assert_eq!(media.last_access, now);
-
         let now = now + Duration::from_secs(60);
         service.inner.time_provider.set_now(now);
         store.reset_accessed();
 
-        // Add big media, it will not work because it is bigger than the max file size.
+        // Add big media, it will not work because it is bigger than the max
+        // file size.
         service
             .add_media_content(
                 &store,
@@ -833,10 +775,6 @@ mod tests {
 
         store.reset_accessed();
 
-        let loaded_content = service.get_media_content_for_uri(&store, big_uri).await.unwrap();
-        assert!(store.accessed());
-        assert_eq!(loaded_content, None);
-
         // Add big media, but this time ignore the policy.
         service
             .add_media_content(
@@ -854,19 +792,6 @@ mod tests {
 
         // Get media from request.
         let loaded_content = service.get_media_content(&store, &big_request).await.unwrap();
-        assert!(store.accessed());
-        assert_eq!(loaded_content.as_deref(), Some(big_content.as_slice()));
-
-        // The last access time was updated.
-        let media = store.inner().media_list[1].clone();
-        assert_eq!(media.last_access, now);
-
-        let now = now + Duration::from_secs(60);
-        service.inner.time_provider.set_now(now);
-        store.reset_accessed();
-
-        // Get media from URI.
-        let loaded_content = service.get_media_content_for_uri(&store, big_uri).await.unwrap();
         assert!(store.accessed());
         assert_eq!(loaded_content.as_deref(), Some(big_content.as_slice()));
 
@@ -954,8 +879,8 @@ mod tests {
 
         assert_eq!(store.last_media_cleanup_time_inner().await.unwrap(), Some(now));
 
-        // Try again one minute in the future, nothing is spawned because we need to
-        // wait for one hour.
+        // Try again one minute in the future, nothing is spawned because we
+        // need to wait for one hour.
         let now = now + Duration::from_secs(60);
         service.inner.time_provider.set_now(now);
         service.get_media_content(&store, &request_1).await.unwrap();
@@ -965,7 +890,7 @@ mod tests {
         // Try again 2 hours in the future, another cleanup is spawned.
         let now = now + Duration::from_secs(2 * 60 * 60);
         service.inner.time_provider.set_now(now);
-        service.get_media_content_for_uri(&store, uri_1).await.unwrap();
+        service.get_media_content(&store, &request_1).await.unwrap();
 
         let join_handle = service.inner.automatic_media_cleanup_join_handle.lock().take().unwrap();
         join_handle.await.unwrap();

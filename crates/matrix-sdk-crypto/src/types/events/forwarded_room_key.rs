@@ -49,7 +49,10 @@ impl ForwardedRoomKeyEvent {
 /// Typically, it is encrypted as an m.room.encrypted event, then sent as a
 /// to-device event.
 ///
-/// See <https://spec.matrix.org/v1.13/client-server-api/#mforwarded_room_key>.
+/// See
+/// [https://spec.matrix.org/v1.13/client-server-api/#mforwarded_room_key][https-spec-matrix-org-v1-13-client-server-api-mforwarded-room-key].
+///
+/// [https-spec-matrix-org-v1-13-client-server-api-mforwarded-room-key]: https://spec.matrix.org/v1.13/client-server-api/#mforwarded_room_key
 #[derive(Debug, Deserialize)]
 #[serde(try_from = "RoomKeyHelper")]
 pub enum ForwardedRoomKeyContent {
@@ -111,8 +114,8 @@ pub struct ForwardedMegolmV1AesSha2Content {
 
     /// The Curve25519 key of the device which initiated the session originally.
     ///
-    /// It is ‘claimed’ because the receiving device has no way to tell that
-    /// the original room_key actually came from a device which owns the private
+    /// It is ‘claimed’ because the receiving device has no way to tell that the
+    /// original room_key actually came from a device which owns the private
     /// part of this key.
     #[serde(
         rename = "sender_key",
@@ -123,8 +126,8 @@ pub struct ForwardedMegolmV1AesSha2Content {
 
     /// The Ed25519 key of the device which initiated the session originally.
     ///
-    /// It is ‘claimed’ because the receiving device has no way to tell that
-    /// the original room_key actually came from a device which owns the private
+    /// It is ‘claimed’ because the receiving device has no way to tell that the
+    /// original room_key actually came from a device which owns the private
     /// part of this key.
     #[serde(
         rename = "sender_claimed_ed25519_key",
@@ -154,16 +157,16 @@ pub struct ForwardedMegolmV2AesSha2Content {
 
     /// The Curve25519 key of the device which initiated the session originally.
     ///
-    /// It is ‘claimed’ because the receiving device has no way to tell that
-    /// the original room_key actually came from a device which owns the private
+    /// It is ‘claimed’ because the receiving device has no way to tell that the
+    /// original room_key actually came from a device which owns the private
     /// part of this key.
     #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
     pub claimed_sender_key: Curve25519PublicKey,
 
     /// The Ed25519 key of the device which initiated the session originally.
     ///
-    /// It is ‘claimed’ because the receiving device has no way to tell that
-    /// the original room_key actually came from a device which owns the private
+    /// It is ‘claimed’ because the receiving device has no way to tell that the
+    /// original room_key actually came from a device which owns the private
     /// part of this key.
     #[serde(default)]
     pub claimed_signing_keys: SigningKeys<DeviceKeyAlgorithm>,

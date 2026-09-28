@@ -177,7 +177,7 @@ impl Recovery {
         self.client.inner.e2ee.recovery_state.subscribe_reset()
     }
 
-    /// Enable secret storage *and* backups.
+    /// Enable secret storage _and_ backups.
     ///
     /// This method will create a new secret storage key and a new backup if one
     /// doesn't already exist. It will then upload all the locally cached
@@ -304,8 +304,8 @@ impl Recovery {
 
         // Why oh why, can't we delete account data events?
         //
-        // Alright, let's attempt to "delete" the content of our current default key,
-        // for this we first need to check if there is a default key, then
+        // Alright, let's attempt to "delete" the content of our current default
+        // key, for this we first need to check if there is a default key, then
         // deserialize the content and find out the key ID.
         //
         // Then we finally set the event to an empty JSON content.
@@ -357,9 +357,9 @@ impl Recovery {
     /// ```
     #[instrument(skip_all)]
     pub fn reset_key(&self) -> Reset<'_> {
-        // TODO: Should this only be possible if we're in the RecoveryState::Enabled
-        // state? Otherwise we'll create a new secret store but won't be able to
-        // upload all the secrets.
+        // TODO: Should this only be possible if we're in the
+        // RecoveryState::Enabled state? Otherwise we'll create a new secret
+        // store but won't be able to upload all the secrets.
         Reset::new(self)
     }
 
@@ -387,18 +387,18 @@ impl Recovery {
         RecoverAndReset::new(self, old_key)
     }
 
-    /// Completely reset the current user's crypto identity.
-    /// This method will go through the following steps:
+    /// Completely reset the current user's crypto identity. This method will go
+    /// through the following steps:
     ///
     /// 1. Disable backing up room keys and delete the active backup
     /// 2. Disable recovery and delete secret storage
     /// 3. Go through the cross-signing key reset flow
     /// 4. Finally, re-enable key backups (only if they were already enabled)
     ///
-    /// Disclaimer: failures in this flow will potentially leave the user in
-    /// an inconsistent state but they're expected to just run the reset flow
-    /// again as presumably the reason they started it to begin with was
-    /// that they no longer had access to any of their data.
+    /// Disclaimer: failures in this flow will potentially leave the user in an
+    /// inconsistent state but they're expected to just run the reset flow again
+    /// as presumably the reason they started it to begin with was that they no
+    /// longer had access to any of their data.
     ///
     /// # Examples
     ///
@@ -445,7 +445,8 @@ impl Recovery {
         let cross_signing_reset_handle = self.client.encryption().reset_cross_signing().await?;
 
         if let Some(handle) = cross_signing_reset_handle {
-            // Authentication required, backups will be re-enabled after the reset
+            // Authentication required, backups will be re-enabled after the
+            // reset
             Ok(Some(IdentityResetHandle {
                 client: self.client.clone(),
                 cross_signing_reset_handle: handle,
@@ -464,8 +465,8 @@ impl Recovery {
     ///
     /// This method is a convenience method around the
     /// [`SecretStore::import_secrets()`] method, please read the documentation
-    /// of this method for more information about what happens if you call
-    /// this method.
+    /// of this method for more information about what happens if you call this
+    /// method.
     ///
     /// In short, this method will turn a newly created [`Client`] into a fully
     /// end-to-end encryption enabled client.
@@ -496,17 +497,17 @@ impl Recovery {
         Ok(())
     }
 
-    /// Recover all the secrets from the homeserver, and, if the
-    /// key backup information is inconsistent, create a new key backup.
+    /// Recover all the secrets from the homeserver, and, if the key backup
+    /// information is inconsistent, create a new key backup.
     ///
-    /// Please read the documentation for [`SecretStore::import_secrets()`]
-    /// for more information about the recovery of identity information.
+    /// Please read the documentation for [`SecretStore::import_secrets()`] for
+    /// more information about the recovery of identity information.
     ///
     /// This will create a new key backup if:
     ///
-    /// * Key backup is enabled and the backup decryption key is missing from
+    /// - Key backup is enabled and the backup decryption key is missing from
     ///   Recovery, or
-    /// * Key backup is enabled and the backup decryption key does not match the
+    /// - Key backup is enabled and the backup decryption key does not match the
     ///   public key
     ///
     /// # Examples
@@ -577,8 +578,8 @@ impl Recovery {
 
     /// Did we correctly set up cross-signing and backups?
     async fn all_known_secrets_available(&self) -> Result<bool> {
-        // Cross-signing state is fine if we have all the private cross-signing keys, as
-        // indicated in the status.
+        // Cross-signing state is fine if we have all the private cross-signing
+        // keys, as indicated in the status.
         let cross_signing_complete = self
             .client
             .encryption()
@@ -589,8 +590,8 @@ impl Recovery {
             return Ok(false);
         }
 
-        // The backup state is fine if we have backups enabled locally, or if backups
-        // have been marked as disabled.
+        // The backup state is fine if we have backups enabled locally, or if
+        // backups have been marked as disabled.
         if self.client.encryption().backups().are_enabled().await {
             Ok(true)
         } else {
@@ -599,9 +600,9 @@ impl Recovery {
     }
 
     async fn should_auto_enable_backups(&self) -> Result<bool> {
-        // If we didn't already enable backups, we don't see a backup version on the
-        // server, and finally if backups have not been marked to be explicitly
-        // disabled, then we can automatically enable them.
+        // If we didn't already enable backups, we don't see a backup version on
+        // the server, and finally if backups have not been marked to be
+        // explicitly disabled, then we can automatically enable them.
         Ok(self.client.inner.e2ee.encryption_settings.auto_enable_backups
             && !self.client.encryption().backups().are_enabled().await
             && !self.client.encryption().backups().fetch_exists_on_server().await?
@@ -671,8 +672,8 @@ impl Recovery {
     async fn mark_backup_as_enabled(&self) -> Result<()> {
         self.client.account().set_account_data(KeyBackupContent { enabled: true }).await?;
 
-        // Unstable prefix: will be removed when sufficient time has passed for clients
-        // to use the stable prefix.
+        // Unstable prefix: will be removed when sufficient time has passed for
+        // clients to use the stable prefix.
         self.client.account().set_account_data(BackupDisabledContent { disabled: false }).await?;
 
         Ok(())
@@ -733,8 +734,8 @@ impl Recovery {
                 if let Some(client) = weak.get() {
                     match update {
                         Ok(update) => {
-                            // The recovery state only cares about these two states, the
-                            // intermediate states that tell us that
+                            // The recovery state only cares about these two
+                            // states, the intermediate states that tell us that
                             // we're creating a backup are not interesting.
                             if matches!(update, BackupState::Unknown | BackupState::Enabled) {
                                 client
@@ -745,8 +746,8 @@ impl Recovery {
                             }
                         }
                         Err(_) => {
-                            // We missed some updates, let's update our state in case something
-                            // changed.
+                            // We missed some updates, let's update our state in
+                            // case something changed.
                             client.encryption().recovery().update_recovery_state_no_fail().await;
                         }
                     }
@@ -762,9 +763,9 @@ impl Recovery {
         if let Some(user_id) = self.client.user_id()
             && response.master_keys.contains_key(user_id)
         {
-            // TODO: This is unnecessarily expensive, we could let the crypto crate notify
-            // us that our private keys got erased... But, the OlmMachine
-            // gets recreated and... You know the drill by now...
+            // TODO: This is unnecessarily expensive, we could let the crypto
+            // crate notify us that our private keys got erased... But, the
+            // OlmMachine gets recreated and... You know the drill by now...
             self.update_recovery_state_no_fail().await;
         }
     }
@@ -822,7 +823,7 @@ pub(crate) mod tests {
     };
 
     // If recovery fails due when importing a secret from secret storage, we
-    // should get the `ImportError` variant of `SecretStorageError`.  The
+    // should get the `ImportError` variant of `SecretStorageError`. The
     // following tests test different import failures.
     #[async_test]
     async fn test_recover_with_no_cross_signing_key() {

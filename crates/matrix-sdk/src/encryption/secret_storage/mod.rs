@@ -106,8 +106,8 @@ pub enum ImportError {
     #[error(transparent)]
     Key(vodozemac::KeyError),
 
-    /// The public key of the imported private key doesn't match the public
-    /// key that was uploaded to the server.
+    /// The public key of the imported private key doesn't match the public key
+    /// that was uploaded to the server.
     #[error(
         "The public key of the imported private key doesn't match the public\
             key that was uploaded to the server"
@@ -136,16 +136,15 @@ pub enum SecretStorageError {
     SecretStorageKey(#[from] DecodeError),
 
     /// The secret store could not be opened because info about the
-    /// secret-storage key could not have been found in the account data of
-    /// the user.
+    /// secret-storage key could not have been found in the account data of the
+    /// user.
     #[error(
         "The info about the secret key could not have been found in the account data of the user"
     )]
     MissingKeyInfo {
         /// The key ID of the default key. Will be set to the key ID in the
         /// `m.secret_storage.default_key` event. If the
-        /// `m.secret_storage.default_key` does not exits, will be
-        /// `None`.
+        /// `m.secret_storage.default_key` does not exits, will be `None`.
         key_id: Option<String>,
     },
 
@@ -299,7 +298,7 @@ impl SecretStorage {
     /// the [`SecretStore`] can be obtained using the
     /// [`SecretStore::secret_storage_key()`] method.
     ///
-    /// *Note*: This method will set the new secret storage key as the default
+    /// _Note_: This method will set the new secret storage key as the default
     /// key in the `m.secret_storage.default_key` event. All the known secrets
     /// will be re-encrypted and uploaded to the homeserver as well. This
     /// includes the following secrets:

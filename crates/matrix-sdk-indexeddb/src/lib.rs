@@ -34,11 +34,11 @@ pub use crate::media_store::{
     IndexeddbMediaStore, IndexeddbMediaStoreBuilder, IndexeddbMediaStoreError,
 };
 
-/// Structure containing implementations of every type
-/// of store using IndexedDB for persistent storage.
+/// Structure containing implementations of every type of store using IndexedDB
+/// for persistent storage.
 ///
-/// Note that each of the stores is behind a feature flag and will
-/// only be available when its corresponding flag is set.
+/// Note that each of the stores is behind a feature flag and will only be
+/// available when its corresponding flag is set.
 pub struct IndexeddbStores {
     /// An IndexedDB-backed implementation of [`CryptoStore`][1]
     ///
@@ -126,8 +126,8 @@ impl IndexeddbStores {
     /// which encrypts contents of all stores.
     ///
     /// Note that [`IndexeddbEventCacheStore`] and [`IndexeddbMediaStore`] are
-    /// behind feature flags and will only be opened when their
-    /// corresponding flags are set.
+    /// behind feature flags and will only be opened when their corresponding
+    /// flags are set.
     ///
     /// [1]: matrix_sdk_store_encryption::StoreCipher
     #[cfg(all(feature = "e2e-encryption", feature = "state-store"))]

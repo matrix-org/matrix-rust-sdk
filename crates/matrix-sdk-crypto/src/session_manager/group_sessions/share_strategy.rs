@@ -24,6 +24,8 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace};
 
 use super::OutboundGroupSession;
+#[cfg(feature = "experimental-x509-identity-verification")]
+use crate::x509::X509Verifier;
 #[cfg(doc)]
 use crate::{Device, UserIdentity};
 use crate::{
@@ -50,20 +52,19 @@ pub enum CollectStrategy {
     #[default]
     AllDevices,
 
-    /// Share with all devices, except errors for *verified* users cause sharing
+    /// Share with all devices, except errors for _verified_ users cause sharing
     /// to fail with an error.
     ///
-    /// In this strategy, if a verified user has an unsigned device,
-    /// key sharing will fail with a
-    /// [`SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice`].
-    /// If a verified user has replaced their identity, key
-    /// sharing will fail with a
+    /// In this strategy, if a verified user has an unsigned device, key sharing
+    /// will fail with a
+    /// [`SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice`]. If a
+    /// verified user has replaced their identity, key sharing will fail with a
     /// [`SessionRecipientCollectionError::VerifiedUserChangedIdentity`].
     ///
     /// Otherwise, keys are shared with unsigned devices as normal.
     ///
-    /// Once the problematic devices are blacklisted or whitelisted the
-    /// caller can retry to share a second time.
+    /// Once the problematic devices are blacklisted or whitelisted the caller
+    /// can retry to share a second time.
     ///
     /// Not recommended, per the guidance of [MSC4153].
     ///
@@ -71,8 +72,8 @@ pub enum CollectStrategy {
     ErrorOnVerifiedUserProblem,
 
     /// Share based on identity. Only distribute to devices signed by their
-    /// owner. If a user has no published identity he will not receive
-    /// any room keys.
+    /// owner. If a user has no published identity he will not receive any room
+    /// keys.
     ///
     /// This is the recommended strategy: it is compliant with the guidance of
     /// [MSC4153].
@@ -157,7 +158,7 @@ impl From<CollectStrategyDeserializationHelper> for CollectStrategy {
 ///
 /// Information indicating whether the session needs to be rotated
 /// (`should_rotate`) and the list of users/devices that should receive
-/// (`devices`) or not the session,  including withheld reason
+/// (`devices`) or not the session, including withheld reason
 /// `withheld_devices`.
 #[derive(Debug, Default)]
 pub(crate) struct CollectRecipientsResult {
@@ -170,12 +171,12 @@ pub(crate) struct CollectRecipientsResult {
     pub withheld_devices: Vec<(DeviceData, WithheldCode)>,
 }
 
-/// Given a list of user and an outbound session, return the list of users
-/// and their devices that this session should be shared with.
+/// Given a list of user and an outbound session, return the list of users and
+/// their devices that this session should be shared with.
 ///
-/// Returns information indicating whether the session needs to be rotated
-/// and the list of users/devices that should receive or not the session
-/// (with withheld reason).
+/// Returns information indicating whether the session needs to be rotated and
+/// the list of users/devices that should receive or not the session (with
+/// withheld reason).
 #[instrument(skip_all)]
 pub(crate) async fn collect_session_recipients(
     store: &Store,
@@ -198,8 +199,8 @@ pub(crate) async fn collect_session_recipients(
     // 3. The history visibility changed.
     // 4. The encryption algorithm changed.
     //
-    // `result.should_rotate` is true if the first or second in that list is true;
-    // we now need to check for the other two.
+    // `result.should_rotate` is true if the first or second in that list is
+    // true; we now need to check for the other two.
     let device_removed = result.should_rotate;
 
     let visibility_changed = outbound.settings().history_visibility != settings.history_visibility;
@@ -222,9 +223,9 @@ pub(crate) async fn collect_session_recipients(
 /// should be sent to.
 ///
 /// If an existing [`OutboundGroupSession`] is provided, will also check the
-/// list of devices that the session has been *previously* shared with, and
-/// if that list is too broad, returns a flag indicating that the session should
-/// be rotated (e.g., because a device has been deleted or a user has left the
+/// list of devices that the session has been _previously_ shared with, and if
+/// that list is too broad, returns a flag indicating that the session should be
+/// rotated (e.g., because a device has been deleted or a user has left the
 /// chat).
 pub(crate) async fn collect_recipients_for_share_strategy(
     store: &Store,
@@ -238,8 +239,8 @@ pub(crate) async fn collect_recipients_for_share_strategy(
     let mut result = CollectRecipientsResult::default();
     let mut verified_users_with_new_identities: Vec<OwnedUserId> = Default::default();
 
-    // If we have an outbound session, check if a user is missing from the set of
-    // users that should get the session but is in the set of users that
+    // If we have an outbound session, check if a user is missing from the set
+    // of users that should get the session but is in the set of users that
     // received the session.
     if let Some(outbound) = outbound {
         let view = outbound.sharing_view();
@@ -265,6 +266,8 @@ pub(crate) async fn collect_recipients_for_share_strategy(
                     user_devices,
                     &own_identity,
                     &device_owner_identity,
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    store.x509_verifier(),
                 );
                 update_recipients_for_user(&mut result, outbound, user_id, recipient_devices);
             }
@@ -285,6 +288,8 @@ pub(crate) async fn collect_recipients_for_share_strategy(
                 if has_identity_verification_violation(
                     own_identity.as_ref(),
                     device_owner_identity.as_ref(),
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    store.x509_verifier(),
                 ) {
                     verified_users_with_new_identities.push(user_id.to_owned());
                     // No point considering the individual devices of this user.
@@ -296,6 +301,8 @@ pub(crate) async fn collect_recipients_for_share_strategy(
                         user_devices,
                         &own_identity,
                         &device_owner_identity,
+                        #[cfg(feature = "experimental-x509-identity-verification")]
+                        store.x509_verifier(),
                     );
 
                 match recipient_devices {
@@ -314,8 +321,8 @@ pub(crate) async fn collect_recipients_for_share_strategy(
             }
 
             // If `error_on_verified_user_problem` is set, then
-            // `unsigned_devices_of_verified_users` may be populated. If so, we need to bail
-            // out with an error.
+            // `unsigned_devices_of_verified_users` may be populated. If so, we
+            // need to bail out with an error.
             if !unsigned_devices_of_verified_users.is_empty() {
                 return Err(OlmError::SessionRecipientCollectionError(
                     SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(
@@ -353,6 +360,8 @@ pub(crate) async fn collect_recipients_for_share_strategy(
                 if has_identity_verification_violation(
                     own_identity.as_ref(),
                     device_owner_identity.as_ref(),
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    store.x509_verifier(),
                 ) {
                     verified_users_with_new_identities.push(user_id.to_owned());
                     // No point considering the individual devices of this user.
@@ -381,6 +390,8 @@ pub(crate) async fn collect_recipients_for_share_strategy(
                     user_devices,
                     &own_identity,
                     &device_owner_identity,
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    store.x509_verifier(),
                 );
 
                 update_recipients_for_user(&mut result, outbound, user_id, recipient_devices);
@@ -411,10 +422,10 @@ fn update_recipients_for_user(
     user_id: &UserId,
     recipient_devices: RecipientDevicesForUser,
 ) {
-    // If we haven't already concluded that the session should be
-    // rotated for other reasons, we also need to check whether any
-    // of the devices in the session got deleted or blacklisted in the
-    // meantime. If so, we should also rotate the session.
+    // If we haven't already concluded that the session should be rotated for
+    // other reasons, we also need to check whether any of the devices in the
+    // session got deleted or blacklisted in the meantime. If so, we should also
+    // rotate the session.
     if let Some(outbound) = outbound
         && !recipients.should_rotate
     {
@@ -436,9 +447,9 @@ fn update_recipients_for_user(
 ///
 /// # Arguments
 ///
-/// * `outbound_session` - the outbound group session to check for oversharing.
-/// * `user_id` - the ID of the user we are checking the devices for.
-/// * `recipient_devices` - the list of devices belonging to `user_id` that we
+/// - `outbound_session` - the outbound group session to check for oversharing.
+/// - `user_id` - the ID of the user we are checking the devices for.
+/// - `recipient_devices` - the list of devices belonging to `user_id` that we
 ///   expect to share the session with.
 ///
 /// # Returns
@@ -458,9 +469,9 @@ fn is_session_overshared_for_user(
     let newly_deleted_or_blacklisted: BTreeSet<&DeviceId> = view
         .iter_shares(Some(user_id), None)
         .filter_map(|(_user_id, device_id, info)| {
-            // If a devices who we've shared the session with before is not in the
-            // list of devices that should receive the session, we need to rotate.
-            // We also collect all of those device IDs to log them out.
+            // If a devices who we've shared the session with before is not in
+            // the list of devices that should receive the session, we need to
+            // rotate. We also collect all of those device IDs to log them out.
             if matches!(info, ShareInfo::Shared(_)) && !recipient_device_ids.contains(device_id) {
                 Some(device_id)
             } else {
@@ -516,6 +527,8 @@ pub(crate) async fn split_devices_for_share_strategy(
                     device,
                     &own_identity,
                     &device_owner_identity,
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    store.x509_verifier(),
                 ) {
                     blocked_devices.push((device.clone(), withheld_code));
                 } else {
@@ -525,11 +538,11 @@ pub(crate) async fn split_devices_for_share_strategy(
         }
 
         CollectStrategy::ErrorOnVerifiedUserProblem => {
-            // We throw an error if any user has a verification violation.  So
-            // we loop through all the devices given, and check if the
-            // associated user has a verification violation.  If so, we add the
-            // device to `unsigned_devices_of_verified_users`, which will be
-            // returned with the error.
+            // We throw an error if any user has a verification violation. So we
+            // loop through all the devices given, and check if the associated
+            // user has a verification violation. If so, we add the device to
+            // `unsigned_devices_of_verified_users`, which will be returned with
+            // the error.
             let mut unsigned_devices_of_verified_users: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> =
                 Default::default();
             let mut add_device_to_unsigned_devices_map = |user_id: &UserId, device: &DeviceData| {
@@ -548,6 +561,8 @@ pub(crate) async fn split_devices_for_share_strategy(
                 if has_identity_verification_violation(
                     own_identity.as_ref(),
                     device_owner_identity.as_ref(),
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    store.x509_verifier(),
                 ) {
                     verified_users_with_new_identities.insert(user_id.to_owned());
                 } else {
@@ -555,6 +570,8 @@ pub(crate) async fn split_devices_for_share_strategy(
                         device,
                         own_identity.as_ref(),
                         device_owner_identity.as_ref(),
+                        #[cfg(feature = "experimental-x509-identity-verification")]
+                        store.x509_verifier(),
                     ) {
                         ErrorOnVerifiedUserProblemDeviceDecision::Ok => {
                             allowed_devices.push(device.clone())
@@ -602,6 +619,8 @@ pub(crate) async fn split_devices_for_share_strategy(
                 if has_identity_verification_violation(
                     own_identity.as_ref(),
                     device_owner_identity.as_ref(),
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    store.x509_verifier(),
                 ) {
                     verified_users_with_new_identities.insert(user_id.to_owned());
                 } else if let Some(device_owner_identity) = device_owner_identity {
@@ -633,6 +652,8 @@ pub(crate) async fn split_devices_for_share_strategy(
                         device,
                         &own_identity,
                         &device_owner_identity,
+                        #[cfg(feature = "experimental-x509-identity-verification")]
+                        store.x509_verifier(),
                     )
                 {
                     blocked_devices.push((device.clone(), withheld_code));
@@ -659,17 +680,24 @@ pub(crate) async fn withheld_code_for_device_for_share_strategy(
     share_strategy: CollectStrategy,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> OlmResult<Option<WithheldCode>> {
     match share_strategy {
         CollectStrategy::AllDevices => Ok(withheld_code_for_device_for_all_devices_strategy(
             device,
             own_identity,
             device_owner_identity,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
         )),
         CollectStrategy::ErrorOnVerifiedUserProblem => {
             if has_identity_verification_violation(
                 own_identity.as_ref(),
                 device_owner_identity.as_ref(),
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                x509_verifier,
             ) {
                 return Err(OlmError::SessionRecipientCollectionError(
                     SessionRecipientCollectionError::VerifiedUserChangedIdentity(vec![
@@ -681,6 +709,8 @@ pub(crate) async fn withheld_code_for_device_for_share_strategy(
                 device,
                 own_identity.as_ref(),
                 device_owner_identity.as_ref(),
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                x509_verifier,
             ) {
                 ErrorOnVerifiedUserProblemDeviceDecision::Ok => Ok(None),
                 ErrorOnVerifiedUserProblemDeviceDecision::Withhold(code) => Ok(Some(code)),
@@ -716,6 +746,8 @@ pub(crate) async fn withheld_code_for_device_for_share_strategy(
             if has_identity_verification_violation(
                 own_identity.as_ref(),
                 device_owner_identity.as_ref(),
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                x509_verifier,
             ) {
                 Err(OlmError::SessionRecipientCollectionError(
                     SessionRecipientCollectionError::VerifiedUserChangedIdentity(vec![
@@ -728,8 +760,8 @@ pub(crate) async fn withheld_code_for_device_for_share_strategy(
                     device_owner_identity,
                 ))
             } else {
-                // Device owner has no identity, so the device is considered
-                // to be unverified
+                // Device owner has no identity, so the device is considered to
+                // be unverified
                 Ok(Some(WithheldCode::Unverified))
             }
         }
@@ -738,6 +770,8 @@ pub(crate) async fn withheld_code_for_device_for_share_strategy(
                 device,
                 own_identity,
                 device_owner_identity,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                x509_verifier,
             ))
         }
     }
@@ -761,8 +795,8 @@ struct RecipientDevicesForUser {
 /// [`split_devices_for_user_for_error_on_verified_user_problem_strategy`].
 enum ErrorOnVerifiedUserProblemResult {
     /// We found devices that should cause the transmission to fail, due to
-    /// being an unsigned device belonging to a verified user. Only
-    /// populated when `error_on_verified_user_problem` is set.
+    /// being an unsigned device belonging to a verified user. Only populated
+    /// when `error_on_verified_user_problem` is set.
     UnsignedDevicesOfVerifiedUser(Vec<OwnedDeviceId>),
 
     /// There were no unsigned devices of verified users.
@@ -775,12 +809,17 @@ fn split_devices_for_user_for_all_devices_strategy(
     user_devices: HashMap<OwnedDeviceId, DeviceData>,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> RecipientDevicesForUser {
     let (left, right) = user_devices.into_values().partition_map(|d| {
         if let Some(withheld_code) = withheld_code_for_device_for_all_devices_strategy(
             &d,
             own_identity,
             device_owner_identity,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
         ) {
             Either::Right((d, withheld_code))
         } else {
@@ -798,6 +837,9 @@ fn withheld_code_for_device_for_all_devices_strategy(
     device_data: &DeviceData,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> Option<WithheldCode> {
     if device_data.is_blacklisted() {
         Some(WithheldCode::Blacklisted)
@@ -806,6 +848,8 @@ fn withheld_code_for_device_for_all_devices_strategy(
             device_data,
             own_identity.as_ref(),
             device_owner_identity.as_ref(),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
         )
     {
         Some(WithheldCode::Unverified)
@@ -826,13 +870,21 @@ fn should_withhold_to_dehydrated_device(
     device: &DeviceData,
     own_identity: Option<&OwnUserIdentityData>,
     device_owner_identity: Option<&UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> bool {
     device_owner_identity.is_none_or(|owner_id| {
         // Dehydrated devices must be signed by their owners
         !device.is_cross_signed_by_owner(owner_id) ||
 
         // If the user has changed identity since we verified them, withhold the message
-        (owner_id.was_previously_verified() && !is_user_verified(own_identity, owner_id))
+        (owner_id.was_previously_verified() && !is_user_verified(
+            own_identity,
+            owner_id,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
+        ))
     })
 }
 
@@ -841,22 +893,25 @@ fn should_withhold_to_dehydrated_device(
 ///
 /// This function returns one of two values:
 ///
-/// * A list of the devices that should cause the transmission to fail due to
+/// - A list of the devices that should cause the transmission to fail due to
 ///   being unsigned. In this case, we don't bother to return the rest of the
 ///   devices, because we assume transmission will fail.
 ///
-/// * Otherwise, returns a [`RecipientDevicesForUser`] which lists, separately,
+/// - Otherwise, returns a [`RecipientDevicesForUser`] which lists, separately,
 ///   the devices that should receive the room key, and those that should
 ///   receive a withheld code.
 fn split_devices_for_user_for_error_on_verified_user_problem_strategy(
     user_devices: HashMap<OwnedDeviceId, DeviceData>,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> ErrorOnVerifiedUserProblemResult {
     let mut recipient_devices = RecipientDevicesForUser::default();
 
-    // We construct unsigned_devices_of_verified_users lazily, because chances are
-    // we won't need it.
+    // We construct unsigned_devices_of_verified_users lazily, because chances
+    // are we won't need it.
     let mut unsigned_devices_of_verified_users: Option<Vec<OwnedDeviceId>> = None;
 
     for d in user_devices.into_values() {
@@ -864,6 +919,8 @@ fn split_devices_for_user_for_error_on_verified_user_problem_strategy(
             &d,
             own_identity.as_ref(),
             device_owner_identity.as_ref(),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
         ) {
             ErrorOnVerifiedUserProblemDeviceDecision::Ok => {
                 recipient_devices.allowed_devices.push(d)
@@ -898,18 +955,27 @@ fn handle_device_for_user_for_error_on_verified_user_problem_strategy(
     device: &DeviceData,
     own_identity: Option<&OwnUserIdentityData>,
     device_owner_identity: Option<&UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> ErrorOnVerifiedUserProblemDeviceDecision {
     if device.is_blacklisted() {
         ErrorOnVerifiedUserProblemDeviceDecision::Withhold(WithheldCode::Blacklisted)
     } else if device.local_trust_state() == LocalTrust::Ignored {
         // Ignore the trust state of that device and share
         ErrorOnVerifiedUserProblemDeviceDecision::Ok
-    } else if is_unsigned_device_of_verified_user(own_identity, device_owner_identity, device) {
+    } else if is_unsigned_device_of_verified_user(
+        own_identity,
+        device_owner_identity,
+        device,
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        x509_verifier,
+    ) {
         ErrorOnVerifiedUserProblemDeviceDecision::UnsignedOfVerified
     } else if device.is_dehydrated()
         && device_owner_identity.is_none_or(|owner_id| {
-            // Dehydrated devices must be signed by their owners, whether or not that
-            // owner is verified
+            // Dehydrated devices must be signed by their owners, whether or not
+            // that owner is verified
             !device.is_cross_signed_by_owner(owner_id)
         })
     {
@@ -925,8 +991,8 @@ fn split_devices_for_user_for_identity_based_strategy(
 ) -> RecipientDevicesForUser {
     match device_owner_identity {
         None => {
-            // withheld all the users devices, we need to have an identity for this
-            // distribution mode
+            // withheld all the users devices, we need to have an identity for
+            // this distribution mode
             RecipientDevicesForUser {
                 allowed_devices: Vec::default(),
                 denied_devices_with_code: user_devices
@@ -980,12 +1046,17 @@ fn split_devices_for_user_for_only_trusted_devices(
     user_devices: HashMap<OwnedDeviceId, DeviceData>,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> RecipientDevicesForUser {
     let (left, right) = user_devices.into_values().partition_map(|d| {
         if let Some(withheld_code) = withheld_code_for_device_for_only_trusted_devices_strategy(
             &d,
             own_identity,
             device_owner_identity,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
         ) {
             Either::Right((d, withheld_code))
         } else {
@@ -1002,10 +1073,18 @@ fn withheld_code_for_device_for_only_trusted_devices_strategy(
     device_data: &DeviceData,
     own_identity: &Option<OwnUserIdentityData>,
     device_owner_identity: &Option<UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> Option<WithheldCode> {
     match (
         device_data.local_trust_state(),
-        device_data.is_cross_signing_trusted(own_identity, device_owner_identity),
+        device_data.is_cross_signing_trusted(
+            own_identity,
+            device_owner_identity,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
+        ),
     ) {
         (LocalTrust::BlackListed, _) => Some(WithheldCode::Blacklisted),
         (LocalTrust::Ignored | LocalTrust::Verified, _) => None,
@@ -1018,10 +1097,17 @@ fn is_unsigned_device_of_verified_user(
     own_identity: Option<&OwnUserIdentityData>,
     device_owner_identity: Option<&UserIdentityData>,
     device_data: &DeviceData,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> bool {
     device_owner_identity.is_some_and(|device_owner_identity| {
-        is_user_verified(own_identity, device_owner_identity)
-            && !device_data.is_cross_signed_by_owner(device_owner_identity)
+        is_user_verified(
+            own_identity,
+            device_owner_identity,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
+        ) && !device_data.is_cross_signed_by_owner(device_owner_identity)
     })
 }
 
@@ -1034,22 +1120,35 @@ fn is_unsigned_device_of_verified_user(
 fn has_identity_verification_violation(
     own_identity: Option<&OwnUserIdentityData>,
     device_owner_identity: Option<&UserIdentityData>,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> bool {
     device_owner_identity.is_some_and(|device_owner_identity| {
         device_owner_identity.was_previously_verified()
-            && !is_user_verified(own_identity, device_owner_identity)
+            && !is_user_verified(
+                own_identity,
+                device_owner_identity,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                x509_verifier,
+            )
     })
 }
 
 fn is_user_verified(
     own_identity: Option<&OwnUserIdentityData>,
     user_identity: &UserIdentityData,
+    #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+        &X509Verifier,
+    >,
 ) -> bool {
     match user_identity {
         UserIdentityData::Own(own_identity) => own_identity.is_verified(),
-        UserIdentityData::Other(other_identity) => {
-            own_identity.is_some_and(|oi| oi.is_identity_verified(other_identity))
-        }
+        UserIdentityData::Other(other_identity) => other_identity.is_verified(
+            own_identity,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
+        ),
     }
 }
 
@@ -1058,7 +1157,6 @@ mod tests {
     use std::{collections::BTreeMap, iter, ops::Deref, sync::Arc};
 
     use assert_matches::assert_matches;
-    use assert_matches2::assert_let;
     use insta::{assert_snapshot, with_settings};
     use matrix_sdk_common::deserialized_responses::WithheldCode;
     use matrix_sdk_test::{
@@ -1074,6 +1172,7 @@ mod tests {
         room_id,
     };
     use serde_json::json;
+    use strass::assert_let;
 
     #[cfg(feature = "experimental-send-custom-to-device")]
     use super::split_devices_for_share_strategy;
@@ -1093,8 +1192,8 @@ mod tests {
     };
 
     /// Returns an `OlmMachine` set up for the test user in
-    /// [`KeyDistributionTestData`], with cross-signing set up and the
-    /// private cross-signing keys imported.
+    /// [`KeyDistributionTestData`], with cross-signing set up and the private
+    /// cross-signing keys imported.
     async fn test_machine() -> OlmMachine {
         use KeyDistributionTestData as DataSet;
 
@@ -1177,8 +1276,8 @@ mod tests {
     }
 
     /// Assert that [`CollectStrategy::AllDevices`] retains the same
-    /// serialization format, even when experimental encrypted state events
-    /// are enabled.
+    /// serialization format, even when experimental encrypted state events are
+    /// enabled.
     #[test]
     #[cfg(feature = "experimental-encrypted-state-events")]
     fn test_serialize_strategy_with_encrypted_state() {
@@ -1308,6 +1407,8 @@ mod tests {
                 CollectStrategy::AllDevices,
                 &own_identity_data,
                 &dan_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -1349,8 +1450,8 @@ mod tests {
         assert!(dave_devices_shared.unwrap().is_empty());
         assert!(good_devices_shared.unwrap().is_empty());
 
-        // dan is verified by me and has one of his devices self signed, so should get
-        // the key
+        // dan is verified by me and has one of his devices self signed, so
+        // should get the key
         let dan_devices_shared =
             share_result.devices.get(KeyDistributionTestData::dan_id()).unwrap();
 
@@ -1458,6 +1559,8 @@ mod tests {
                 CollectStrategy::OnlyTrustedDevices,
                 &own_identity_data,
                 &dan_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -1474,6 +1577,8 @@ mod tests {
                 CollectStrategy::OnlyTrustedDevices,
                 &own_identity_data,
                 &dan_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -1490,6 +1595,8 @@ mod tests {
                 CollectStrategy::OnlyTrustedDevices,
                 &own_identity_data,
                 &dave_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -1601,6 +1708,8 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &carol_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -1619,14 +1728,15 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &carol_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
         );
     }
 
-    /// Test that we can resolve errors from
-    /// `error_on_verified_user_problem` by whitelisting the
-    /// device.
+    /// Test that we can resolve errors from `error_on_verified_user_problem` by
+    /// whitelisting the device.
     #[async_test]
     async fn test_error_on_unsigned_of_verified_resolve_by_whitelisting() {
         use VerificationViolationTestData as DataSet;
@@ -1646,7 +1756,8 @@ mod tests {
         let encryption_settings = error_on_verification_problem_encryption_settings();
         let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
 
-        // We should be able to share a key, and it should include the unsigned device.
+        // We should be able to share a key, and it should include the unsigned
+        // device.
         let share_result = collect_session_recipients(
             machine.store(),
             iter::once(DataSet::bob_id()),
@@ -1687,6 +1798,8 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &bob_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -1694,9 +1807,8 @@ mod tests {
         );
     }
 
-    /// Test that we can resolve errors from
-    /// `error_on_verified_user_problem` by blacklisting the
-    /// device.
+    /// Test that we can resolve errors from `error_on_verified_user_problem` by
+    /// blacklisting the device.
     #[async_test]
     async fn test_error_on_unsigned_of_verified_resolve_by_blacklisting() {
         use VerificationViolationTestData as DataSet;
@@ -1716,7 +1828,8 @@ mod tests {
         let encryption_settings = error_on_verification_problem_encryption_settings();
         let group_session = create_test_outbound_group_session(&machine, &encryption_settings);
 
-        // We should be able to share a key, and it should exclude the unsigned device.
+        // We should be able to share a key, and it should exclude the unsigned
+        // device.
         let share_result = collect_session_recipients(
             machine.store(),
             iter::once(DataSet::bob_id()),
@@ -1766,6 +1879,8 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &bob_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -1774,8 +1889,8 @@ mod tests {
     }
 
     /// Test that [`collect_session_recipients`] returns an error when
-    /// `error_on_verified_user_problem` is set, if our own identity
-    /// is verified and we have unsigned devices.
+    /// `error_on_verified_user_problem` is set, if our own identity is verified
+    /// and we have unsigned devices.
     #[async_test]
     async fn test_error_on_unsigned_of_verified_owner_is_us() {
         use VerificationViolationTestData as DataSet;
@@ -1863,6 +1978,8 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &own_user_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
         );
@@ -1894,8 +2011,8 @@ mod tests {
         let bob_keys = DataSet::bob_keys_query_response_rotated();
         machine.mark_request_as_sent(&TransactionId::new(), &bob_keys).await.unwrap();
 
-        // Double-check the state of Bob: he should be unverified, and should have an
-        // unsigned device.
+        // Double-check the state of Bob: he should be unverified, and should
+        // have an unsigned device.
         let bob_identity = machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap();
         assert!(!bob_identity.other().unwrap().is_verified());
 
@@ -1945,6 +2062,8 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &bob_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -1952,8 +2071,8 @@ mod tests {
         );
     }
 
-    /// Test that an unsigned device of a signed user doesn't cause an
-    /// error, when we have not verified our own identity.
+    /// Test that an unsigned device of a signed user doesn't cause an error,
+    /// when we have not verified our own identity.
     #[async_test]
     async fn test_should_not_error_on_unsigned_of_signed_but_unverified() {
         use VerificationViolationTestData as DataSet;
@@ -1968,8 +2087,8 @@ mod tests {
         let keys_query = DataSet::bob_keys_query_response_signed();
         machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
-        // Double-check the state of Bob: his identity should be signed but unverified,
-        // and he should have an unsigned device.
+        // Double-check the state of Bob: his identity should be signed but
+        // unverified, and he should have an unsigned device.
         let bob_identity =
             machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
         assert!(
@@ -2024,6 +2143,8 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &bob_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -2032,14 +2153,14 @@ mod tests {
     }
 
     /// Test that a verified user changing their identity causes an error in
-    /// `collect_session_recipients`, and that it can be resolved by
-    /// withdrawing verification
+    /// `collect_session_recipients`, and that it can be resolved by withdrawing
+    /// verification
     #[async_test]
     async fn test_verified_user_changed_identity() {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
-        // We start with Bob, who is verified and has one unsigned device. We have also
-        // verified our own identity.
+        // We start with Bob, who is verified and has one unsigned device. We
+        // have also verified our own identity.
         let machine = unsigned_of_verified_setup().await;
 
         // Bob then rotates his identity
@@ -2100,6 +2221,8 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &bob_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
         );
@@ -2141,6 +2264,8 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &bob_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
             .unwrap(),
@@ -2149,8 +2274,8 @@ mod tests {
     }
 
     /// Test that our own identity being changed causes an error in
-    /// `collect_session_recipients`, and that it can be resolved by
-    /// withdrawing verification
+    /// `collect_session_recipients`, and that it can be resolved by withdrawing
+    /// verification
     #[async_test]
     async fn test_own_verified_identity_changed() {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
@@ -2216,6 +2341,8 @@ mod tests {
                 CollectStrategy::ErrorOnVerifiedUserProblem,
                 &own_identity_data,
                 &own_user_identity_data,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
             )
             .await
         );
@@ -2254,6 +2381,8 @@ mod tests {
             CollectStrategy::ErrorOnVerifiedUserProblem,
             &own_identity_data,
             &own_user_identity_data,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            None,
         )
         .await
         .unwrap();
@@ -2310,14 +2439,15 @@ mod tests {
         /// Common helper for
         /// [`test_all_devices_strategy_should_share_with_verified_dehydrated_device`],
         /// [`test_error_on_verification_problem_strategy_should_share_with_verified_dehydrated_device`]
-        /// and [`test_identity_based_strategy_should_share_with_verified_dehydrated_device`].
+        /// and
+        /// [`test_identity_based_strategy_should_share_with_verified_dehydrated_device`].
         async fn should_share_with_verified_dehydrated_device(
             encryption_settings: &EncryptionSettings,
         ) {
             let machine = test_machine().await;
 
-            // Bob is a user with cross-signing, who has a single (verified) dehydrated
-            // device.
+            // Bob is a user with cross-signing, who has a single (verified)
+            // dehydrated device.
             let bob_user_id = user_id!("@bob:localhost");
             let bob_dehydrated_device_id = device_id!("DEHYDRATED_DEVICE");
             let keys_query = key_query_response_template_with_cross_signing(bob_user_id)
@@ -2366,14 +2496,15 @@ mod tests {
         /// Common helper for
         /// [`test_all_devices_strategy_should_not_share_with_unverified_dehydrated_device`],
         /// [`test_error_on_verification_problem_strategy_should_not_share_with_unverified_dehydrated_device`]
-        /// and [`test_identity_based_strategy_should_not_share_with_unverified_dehydrated_device`].
+        /// and
+        /// [`test_identity_based_strategy_should_not_share_with_unverified_dehydrated_device`].
         async fn should_not_share_with_unverified_dehydrated_device(
             encryption_settings: &EncryptionSettings,
         ) {
             let machine = test_machine().await;
 
-            // Bob is a user with cross-signing, who has a single (unverified) dehydrated
-            // device.
+            // Bob is a user with cross-signing, who has a single (unverified)
+            // dehydrated device.
             let bob_user_id = user_id!("@bob:localhost");
             let bob_dehydrated_device_id = device_id!("DEHYDRATED_DEVICE");
             let keys_query = key_query_response_template_with_cross_signing(bob_user_id)
@@ -2394,8 +2525,8 @@ mod tests {
             )
             .await;
 
-            // ... it shouldn't be shared with anyone, and there should be a withheld
-            // message for the dehydrated device.
+            // ... it shouldn't be shared with anyone, and there should be a
+            // withheld message for the dehydrated device.
             assert_withheld_to(recips, bob_user_id, bob_dehydrated_device_id);
         }
 
@@ -2429,7 +2560,8 @@ mod tests {
         /// Common helper for
         /// [`test_all_devices_strategy_should_share_with_verified_device_of_pin_violation_user`],
         /// [`test_error_on_verification_problem_strategy_should_share_with_verified_device_of_pin_violation_user`]
-        /// and [`test_identity_based_strategy_should_share_with_verified_device_of_pin_violation_user`].
+        /// and
+        /// [`test_identity_based_strategy_should_share_with_verified_device_of_pin_violation_user`].
         async fn should_share_with_verified_device_of_pin_violation_user(
             encryption_settings: &EncryptionSettings,
         ) {
@@ -2441,8 +2573,8 @@ mod tests {
                 key_query_response_template_with_cross_signing(bob_user_id).build_response();
             machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
-            // He then changes identity, and adds a dehydrated device (signed with his new
-            // identity)
+            // He then changes identity, and adds a dehydrated device (signed
+            // with his new identity)
             let bob_dehydrated_device_id = device_id!("DEHYDRATED_DEVICE");
             let keys_query = key_query_response_template_with_changed_cross_signing(bob_user_id)
                 .with_dehydrated_device(bob_dehydrated_device_id, true)
@@ -2496,8 +2628,8 @@ mod tests {
             )
             .await;
 
-            // ... it shouldn't be shared with anyone, and there should be a withheld
-            // message for the dehydrated device.
+            // ... it shouldn't be shared with anyone, and there should be a
+            // withheld message for the dehydrated device.
             assert_withheld_to(recips, bob_user_id, bob_dehydrated_device_id);
         }
 
@@ -2524,7 +2656,8 @@ mod tests {
 
         /// Common helper for
         /// [`test_error_on_verification_problem_strategy_should_give_error_for_dehydrated_device_of_verification_violation_user`]
-        /// and [`test_identity_based_strategy_should_give_error_for_dehydrated_device_of_verification_violation_user`].
+        /// and
+        /// [`test_identity_based_strategy_should_give_error_for_dehydrated_device_of_verification_violation_user`].
         async fn should_give_error_for_dehydrated_device_of_verification_violation_user(
             encryption_settings: &EncryptionSettings,
         ) {
@@ -2545,8 +2678,8 @@ mod tests {
             )
             .await;
 
-            // The key share should fail with an error indicating that recipients
-            // were previously verified.
+            // The key share should fail with an error indicating that
+            // recipients were previously verified.
             assert_matches::assert_matches!(
                 share_result,
                 Err(crate::OlmError::SessionRecipientCollectionError(
@@ -2556,8 +2689,8 @@ mod tests {
         }
 
         /// Prepare an OlmMachine which knows about a user `bob_user_id`, who
-        /// has recently changed identity, and then added a new
-        /// dehydrated device `bob_dehydrated_device_id`.
+        /// has recently changed identity, and then added a new dehydrated
+        /// device `bob_dehydrated_device_id`.
         async fn prepare_machine_with_dehydrated_device_of_verification_violation_user(
             bob_user_id: &UserId,
             bob_dehydrated_device_id: &DeviceId,
@@ -2573,8 +2706,8 @@ mod tests {
                 .build_response();
             machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
-            // He then changes identity, and adds a dehydrated device (signed with his new
-            // identity)
+            // He then changes identity, and adds a dehydrated device (signed
+            // with his new identity)
             let keys_query = key_query_response_template_with_changed_cross_signing(bob_user_id)
                 .with_dehydrated_device(bob_dehydrated_device_id, true)
                 .build_response();
@@ -2657,7 +2790,7 @@ mod tests {
         }
 
         /// Start a [`KeysQueryResponseTemplate`] for the given user, with
-        /// *different* cross signing key to
+        /// _different_ cross signing key to
         /// [`key_query_response_template_with_cross_signing`].
         fn key_query_response_template_with_changed_cross_signing(
             bob_user_id: &UserId,
@@ -2729,8 +2862,7 @@ mod tests {
         // @good has properly signed his devices, he should get the keys
         assert_eq!(good_devices_shared.unwrap().len(), 2);
 
-        // dan has one of his devices self signed, so should get
-        // the key
+        // dan has one of his devices self signed, so should get the key
         let dan_devices_shared =
             share_result.devices.get(KeyDistributionTestData::dan_id()).unwrap();
 
@@ -2760,8 +2892,8 @@ mod tests {
         assert_eq!(code, &WithheldCode::Unverified);
     }
 
-    /// Test key sharing with the identity-based strategy with different
-    /// states of our own verification.
+    /// Test key sharing with the identity-based strategy with different states
+    /// of our own verification.
     #[async_test]
     async fn test_share_identity_strategy_no_cross_signing() {
         // Starting off, we have not yet set up our own cross-signing, so
@@ -2795,7 +2927,7 @@ mod tests {
         );
 
         // We now get our public cross-signing keys, but we don't trust them
-        // yet.  In this case, sharing the keys should still fail since our own
+        // yet. In this case, sharing the keys should still fail since our own
         // device is still unverified.
         let keys_query = KeyDistributionTestData::me_keys_query_response();
         machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
@@ -2844,9 +2976,9 @@ mod tests {
         assert_eq!(requests.len(), 1);
     }
 
-    /// Test that identity-based key sharing gives an error when a verified
-    /// user changes their identity, and that the key can be shared when the
-    /// identity change is resolved.
+    /// Test that identity-based key sharing gives an error when a verified user
+    /// changes their identity, and that the key can be shared when the identity
+    /// change is resolved.
     #[async_test]
     async fn test_share_identity_strategy_report_verification_violation() {
         let machine: OlmMachine = OlmMachine::new(
@@ -2868,7 +3000,7 @@ mod tests {
         let keys_query = MaloIdentityChangeDataSet::initial_key_query();
         machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
-        // And then we get both user' changed identity keys.  We simulate a
+        // And then we get both user' changed identity keys. We simulate a
         // verification violation by marking both users as having been
         // previously verified, in which case the key sharing should fail.
         let keys_query = IdentityChangeDataSet::key_query_with_identity_b();
@@ -3032,8 +3164,8 @@ mod tests {
     }
 
     /// Test that the session is rotated when a device is removed from the
-    /// recipients. In that case we simulate that dan has logged out one of
-    /// his devices.
+    /// recipients. In that case we simulate that dan has logged out one of his
+    /// devices.
     #[async_test]
     async fn test_should_rotate_based_on_device_excluded() {
         let machine = test_machine().await;
@@ -3075,8 +3207,8 @@ mod tests {
         assert!(share_result.should_rotate);
     }
 
-    /// Test that the session is rotated if a devices has a pending
-    /// to-device request that would share the keys with it.
+    /// Test that the session is rotated if a devices has a pending to-device
+    /// request that would share the keys with it.
     #[async_test]
     async fn test_should_rotate_based_on_device_with_pending_request_excluded() {
         let machine = test_machine().await;
@@ -3130,8 +3262,8 @@ mod tests {
         assert!(share_result.should_rotate);
     }
 
-    /// Test that the session is not rotated if a devices is removed
-    /// but was already withheld from receiving the session.
+    /// Test that the session is not rotated if a devices is removed but was
+    /// already withheld from receiving the session.
     #[async_test]
     async fn test_should_not_rotate_if_keys_were_withheld() {
         let machine = test_machine().await;
@@ -3182,9 +3314,9 @@ mod tests {
     /// devices.
     ///
     /// Returns an `OlmMachine` which is properly configured with trusted
-    /// cross-signing keys. Also imports a set of keys for
-    /// Bob ([`VerificationViolationTestData::bob_id`]), where Bob is verified
-    /// and has 2 devices, one signed and the other not.
+    /// cross-signing keys. Also imports a set of keys for Bob
+    /// ([`VerificationViolationTestData::bob_id`]), where Bob is verified and
+    /// has 2 devices, one signed and the other not.
     async fn unsigned_of_verified_setup() -> OlmMachine {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
@@ -3208,8 +3340,8 @@ mod tests {
         let bob_keys = DataSet::bob_keys_query_response_signed();
         machine.mark_request_as_sent(&TransactionId::new(), &bob_keys).await.unwrap();
 
-        // Double-check the state of Bob: he should be verified, and should have one
-        // signed and one unsigned device.
+        // Double-check the state of Bob: he should be verified, and should have
+        // one signed and one unsigned device.
         let bob_identity = machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap();
         assert!(bob_identity.other().unwrap().is_verified());
 

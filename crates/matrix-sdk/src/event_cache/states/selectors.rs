@@ -21,7 +21,7 @@ use ruma::{OwnedEventId, OwnedRoomId};
 
 use super::{
     super::EventCacheError, EventFocusedCacheKey, EventFocusedCacheState, PinnedEventsCacheState,
-    RoomEventCacheState, State, ThreadEventCacheState,
+    RoomEventCacheState, State, StateForRoom, ThreadEventCacheState,
 };
 
 /// Trait to select a specific state of a cache inside a [`State`].
@@ -40,6 +40,40 @@ pub trait CacheState {
     /// It returns `true` if it's been inserted, `false` otherwise, i.e. if the
     /// place is occupied.
     fn insert_once(&self, state: &mut State, cache_state: Self::Item) -> bool;
+}
+
+/// Select all states ([`RoomEventCacheState`], [`ThreadEventCacheState`],
+/// [`PinnedEventsCacheState`] and [`EventFocusedCacheState`]) for a particular
+/// room in [`State`].
+#[derive(Debug)]
+pub(in super::super) struct AllStatesSelector(OwnedRoomId);
+
+impl AllStatesSelector {
+    pub fn new(room_id: OwnedRoomId) -> Self {
+        Self(room_id)
+    }
+}
+
+impl CacheState for AllStatesSelector {
+    type Item = StateForRoom;
+
+    fn select<'state>(&self, state: &'state State) -> Option<&'state Self::Item> {
+        state.by_room.get(&self.0)
+    }
+
+    fn select_mut<'state>(&self, state: &'state mut State) -> Option<&'state mut Self::Item> {
+        state.by_room.get_mut(&self.0)
+    }
+
+    fn insert_once(&self, _state: &mut State, _cache_state: Self::Item) -> bool {
+        false
+    }
+}
+
+impl From<&AllStatesSelector> for EventCacheError {
+    fn from(value: &AllStatesSelector) -> Self {
+        Self::RoomNotFound { room_id: value.0.clone() }
+    }
 }
 
 /// Select a [`RoomEventCacheState`] in [`State`].

@@ -21,18 +21,19 @@ use futures_util::{StreamExt, pin_mut};
 use matrix_sdk::{
     Room as SdkRoom,
     ruma::{
-        RoomId,
+        OwnedRoomId, RoomId,
         api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
     },
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
     room_list_service::filters::{
-        BoxedFilterFn, RoomCategory, new_filter_all, new_filter_any, new_filter_category,
-        new_filter_deduplicate_versions, new_filter_favourite, new_filter_fuzzy_match_room_name,
-        new_filter_identifiers, new_filter_invite, new_filter_joined, new_filter_low_priority,
-        new_filter_non_left, new_filter_none, new_filter_normalized_match_room_name,
-        new_filter_not, new_filter_space, new_filter_unread,
+        BoxedFilterFn, ReadReceiptsCategory, RoomCategory, new_filter_all, new_filter_any,
+        new_filter_category, new_filter_deduplicate_versions, new_filter_favourite,
+        new_filter_fuzzy_match_room_name, new_filter_identifiers, new_filter_invite,
+        new_filter_joined, new_filter_low_priority, new_filter_non_left, new_filter_none,
+        new_filter_normalized_match_room_name, new_filter_not, new_filter_read_receipts,
+        new_filter_space,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -92,11 +93,11 @@ pub struct RoomListService {
 #[matrix_sdk_ffi_macros::export]
 impl RoomListService {
     fn state(&self, listener: Box<dyn RoomListServiceStateListener>) -> Arc<TaskHandle> {
-        let state_stream = self.inner.state();
+        let mut state_stream = self.inner.state();
+
+        listener.on_update(state_stream.next_now().into());
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(state_stream);
-
             while let Some(state) = state_stream.next().await {
                 listener.on_update(state.into());
             }
@@ -136,20 +137,45 @@ impl RoomListService {
         })))
     }
 
-    async fn subscribe_to_rooms(&self, room_ids: Vec<String>) -> Result<(), RoomListError> {
-        let room_ids = room_ids
-            .into_iter()
-            .map(|room_id| {
-                RoomId::parse(&room_id).map_err(|_| RoomListError::InvalidRoomId { error: room_id })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+    async fn set_room_subscriptions(&self, room_ids: Vec<String>) -> Result<(), RoomListError> {
+        let room_ids = parse_room_ids(room_ids)?;
 
-        self.inner
-            .subscribe_to_rooms(&room_ids.iter().map(AsRef::as_ref).collect::<Vec<_>>())
-            .await;
+        self.inner.set_room_subscriptions(&borrow_room_ids(&room_ids)).await;
 
         Ok(())
     }
+
+    fn remove_room_subscriptions(&self, room_ids: Vec<String>) -> Result<(), RoomListError> {
+        let room_ids = parse_room_ids(room_ids)?;
+
+        self.inner.remove_room_subscriptions(&borrow_room_ids(&room_ids));
+
+        Ok(())
+    }
+
+    async fn reset_and_add_room_subscriptions(
+        &self,
+        room_ids: Vec<String>,
+    ) -> Result<(), RoomListError> {
+        let room_ids = parse_room_ids(room_ids)?;
+
+        self.inner.reset_and_add_room_subscriptions(&borrow_room_ids(&room_ids)).await;
+
+        Ok(())
+    }
+}
+
+fn parse_room_ids(room_ids: Vec<String>) -> Result<Vec<OwnedRoomId>, RoomListError> {
+    room_ids
+        .into_iter()
+        .map(|room_id| {
+            RoomId::parse(&room_id).map_err(|_| RoomListError::InvalidRoomId { error: room_id })
+        })
+        .collect()
+}
+
+fn borrow_room_ids(room_ids: &[OwnedRoomId]) -> Vec<&RoomId> {
+    room_ids.iter().map(AsRef::as_ref).collect()
 }
 
 #[derive(uniffi::Object)]
@@ -187,24 +213,24 @@ impl RoomList {
 
         // The following code deserves a bit of explanation.
         // `matrix_sdk_ui::room_list_service::RoomList::entries_with_dynamic_adapters`
-        // returns a `Stream` with a lifetime bounds to its `self` (`RoomList`). This is
-        // problematic here as this `Stream` is returned as part of
-        // `RoomListEntriesWithDynamicAdaptersResult` but it is not possible to store
-        // `RoomList` with it inside the `Future` that is run inside the `TaskHandle`
-        // that consumes this `Stream`. We have a lifetime issue: `RoomList` doesn't
-        // live long enough!
+        // returns a `Stream` with a lifetime bounds to its `self` (`RoomList`).
+        // This is problematic here as this `Stream` is returned as part of
+        // `RoomListEntriesWithDynamicAdaptersResult` but it is not possible to
+        // store `RoomList` with it inside the `Future` that is run inside the
+        // `TaskHandle` that consumes this `Stream`. We have a lifetime issue:
+        // `RoomList` doesn't live long enough!
         //
         // To solve this issue, the trick is to store the `RoomList` inside the
-        // `RoomListEntriesWithDynamicAdaptersResult`. Alright, but then we have another
-        // lifetime issue! `RoomList` cannot move inside this struct because it is
-        // borrowed by `entries_with_dynamic_adapters`. Indeed, the struct is built
-        // after the `Stream` is obtained.
+        // `RoomListEntriesWithDynamicAdaptersResult`. Alright, but then we have
+        // another lifetime issue! `RoomList` cannot move inside this struct
+        // because it is borrowed by `entries_with_dynamic_adapters`. Indeed,
+        // the struct is built after the `Stream` is obtained.
         //
-        // To solve this issue, we need to build the struct field by field, starting
-        // with `this`, and use a reference to `this` to call
+        // To solve this issue, we need to build the struct field by field,
+        // starting with `this`, and use a reference to `this` to call
         // `entries_with_dynamic_adapters`. This is unsafe because a couple of
-        // invariants must hold, but all this is legal and correct if the invariants are
-        // properly fulfilled.
+        // invariants must hold, but all this is legal and correct if the
+        // invariants are properly fulfilled.
 
         // Create the struct result with uninitialized fields.
         let mut result = MaybeUninit::<RoomListEntriesWithDynamicAdaptersResult>::uninit();
@@ -212,28 +238,29 @@ impl RoomList {
 
         // Initialize the first field `this`.
         //
-        // SAFETY: `ptr` is correctly aligned, this is guaranteed by `MaybeUninit`.
+        // SAFETY: `ptr` is correctly aligned, this is guaranteed by
+        // `MaybeUninit`.
         unsafe {
             addr_of_mut!((*ptr).this).write(this);
         }
 
         // Get a reference to `this`. It is only borrowed, it's not moved.
         let this =
-            // SAFETY: `ptr` is correctly aligned, the `this` field is correctly aligned,
-            // is dereferenceable and points to a correctly initialized value as done
-            // in the previous line.
+            // SAFETY: `ptr` is correctly aligned, the `this` field is correctly
+            // aligned, is dereferenceable and points to a correctly initialized
+            // value as done in the previous line.
             unsafe { addr_of_mut!((*ptr).this).as_ref() }
                 // SAFETY: `this` contains a non null value.
                 .unwrap();
 
-        // Now we can create `entries_stream` and `dynamic_entries_controller` by
-        // borrowing `this`, which is going to live long enough since it will live as
-        // long as `entries_stream` and `dynamic_entries_controller`.
+        // Now we can create `entries_stream` and `dynamic_entries_controller`
+        // by borrowing `this`, which is going to live long enough since it will
+        // live as long as `entries_stream` and `dynamic_entries_controller`.
         let (entries_stream, dynamic_entries_controller) =
             this.inner.entries_with_dynamic_adapters(page_size.try_into().unwrap());
 
-        // FFI dance to make those values consumable by foreign language, nothing fancy
-        // here, that's the real code for this method.
+        // FFI dance to make those values consumable by foreign language,
+        // nothing fancy here, that's the real code for this method.
         let dynamic_entries_controller =
             Arc::new(RoomListDynamicEntriesController::new(dynamic_entries_controller));
 
@@ -272,8 +299,8 @@ impl RoomList {
 
         // The result is complete, let's return it!
         //
-        // SAFETY: `result` is fully initialized, all its fields have received a valid
-        // value.
+        // SAFETY: `result` is fully initialized, all its fields have received a
+        // valid value.
         Arc::new(unsafe { result.assume_init() })
     }
 
@@ -308,8 +335,8 @@ pub struct RoomListLoadingStateResult {
 
 #[derive(uniffi::Enum)]
 pub enum RoomListServiceState {
-    // Name it `Initial` instead of `Init`, otherwise it creates a keyword conflict in Swift
-    // as of 2023-08-21.
+    // Name it `Initial` instead of `Init`, otherwise it creates a keyword
+    // conflict in Swift as of 2023-08-21.
     Initial,
     SettingUp,
     Recovering,
@@ -478,35 +505,20 @@ pub enum RoomListEntriesDynamicFilterKind {
     NonSpace,
     Space,
     NonLeft,
-    // Not { filter: RoomListEntriesDynamicFilterKind } - requires recursive enum
-    // support in uniffi https://github.com/mozilla/uniffi-rs/issues/396
+    // Not { filter: RoomListEntriesDynamicFilterKind } - requires recursive
+    // enum support in uniffi https://github.com/mozilla/uniffi-rs/issues/396
     Joined,
-    Unread,
+    ReadReceipts { expect: ReadReceiptsCategory },
     Favourite,
     LowPriority,
     NonLowPriority,
     NonFavorite,
     Invite,
-    Category { expect: RoomListFilterCategory },
+    Category { expect: RoomCategory },
     None,
     NormalizedMatchRoomName { pattern: String },
     FuzzyMatchRoomName { pattern: String },
     DeduplicateVersions,
-}
-
-#[derive(uniffi::Enum)]
-pub enum RoomListFilterCategory {
-    Group,
-    People,
-}
-
-impl From<RoomListFilterCategory> for RoomCategory {
-    fn from(value: RoomListFilterCategory) -> Self {
-        match value {
-            RoomListFilterCategory::Group => Self::Group,
-            RoomListFilterCategory::People => Self::People,
-        }
-    }
 }
 
 impl From<RoomListEntriesDynamicFilterKind> for BoxedFilterFn {
@@ -527,13 +539,13 @@ impl From<RoomListEntriesDynamicFilterKind> for BoxedFilterFn {
             Kind::Space => Box::new(new_filter_space()),
             Kind::NonLeft => Box::new(new_filter_non_left()),
             Kind::Joined => Box::new(new_filter_joined()),
-            Kind::Unread => Box::new(new_filter_unread()),
+            Kind::ReadReceipts { expect } => Box::new(new_filter_read_receipts(expect)),
             Kind::Favourite => Box::new(new_filter_favourite()),
             Kind::LowPriority => Box::new(new_filter_low_priority()),
             Kind::NonLowPriority => Box::new(new_filter_not(Box::new(new_filter_low_priority()))),
             Kind::NonFavorite => Box::new(new_filter_not(Box::new(new_filter_favourite()))),
             Kind::Invite => Box::new(new_filter_invite()),
-            Kind::Category { expect } => Box::new(new_filter_category(expect.into())),
+            Kind::Category { expect } => Box::new(new_filter_category(expect)),
             Kind::None => Box::new(new_filter_none()),
             Kind::NormalizedMatchRoomName { pattern } => {
                 Box::new(new_filter_normalized_match_room_name(&pattern))

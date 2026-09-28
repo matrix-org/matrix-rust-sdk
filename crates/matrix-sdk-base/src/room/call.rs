@@ -16,9 +16,9 @@ use ruma::{OwnedUserId, events::rtc::notification::CallIntent};
 
 use super::Room;
 
-/// Represents the consensus state of call intent among room members.
-/// Call members can advertise their intent to use audio or video, clients can
-/// use this in the UI and also to decide to start camera or not when joining.
+/// Represents the consensus state of call intent among room members. Call
+/// members can advertise their intent to use audio or video, clients can use
+/// this in the UI and also to decide to start camera or not when joining.
 ///
 /// This enum distinguishes between full consensus (all members advertise and
 /// agree), partial consensus (only some members advertise, but those who do
@@ -158,8 +158,8 @@ mod tests {
             .event(content)
             .state_key(CallMemberStateKey::new(user_id.to_owned(), None, false).as_ref())
             .event_id(ev_id)
-            // we can simply use now here since this will be dropped when using a MinimalStateEvent
-            // in the roomInfo
+            // we can simply use now here since this will be dropped when using
+            // a MinimalStateEvent in the roomInfo
             .server_ts(timestamp(0))
             .into()
     }
@@ -223,8 +223,8 @@ mod tests {
             .event(content)
             .state_key(state_key.as_ref())
             .event_id(ev_id)
-            // we can simply use now here since this will be dropped when using a MinimalStateEvent
-            // in the roomInfo
+            // we can simply use now here since this will be dropped when using
+            // a MinimalStateEvent in the roomInfo
             .server_ts(timestamp(0))
             .into()
     }
@@ -255,9 +255,8 @@ mod tests {
         });
     }
 
-    /// `user_a`: empty memberships
-    /// `user_b`: one membership
-    /// `user_c`: two memberships (two devices)
+    /// `user_a`: empty memberships `user_b`: one membership `user_c`: two
+    /// memberships (two devices)
     fn legacy_create_call_with_member_events_for_user(a: &UserId, b: &UserId, c: &UserId) -> Room {
         let (_, room) = make_room_test_helper(RoomState::Joined);
 
@@ -279,9 +278,8 @@ mod tests {
         room
     }
 
-    /// `user_a`: empty memberships
-    /// `user_b`: one membership
-    /// `user_c`: two memberships (two devices)
+    /// `user_a`: empty memberships `user_b`: one membership `user_c`: two
+    /// memberships (two devices)
     fn session_create_call_with_member_events_for_user(a: &UserId, b: &UserId, c: &UserId) -> Room {
         let (_, room) = make_room_test_helper(RoomState::Joined);
 
@@ -314,9 +312,9 @@ mod tests {
     fn test_show_correct_active_call_state() {
         let room_legacy = legacy_create_call_with_member_events_for_user(&ALICE, &BOB, &CAROL);
 
-        // This check also tests the ordering.
-        // We want older events to be in the front.
-        // user_b (Bob) is 1min old, c1 (CAROL) 10min old, c2 (CAROL) 20min old
+        // This check also tests the ordering. We want older events to be in the
+        // front. user_b (Bob) is 1min old, c1 (CAROL) 10min old, c2 (CAROL)
+        // 20min old
         assert_eq!(
             vec![CAROL.to_owned(), CAROL.to_owned(), BOB.to_owned()],
             room_legacy.active_room_call_participants()

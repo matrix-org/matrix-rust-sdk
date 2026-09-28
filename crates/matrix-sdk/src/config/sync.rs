@@ -122,7 +122,7 @@ impl SyncSettings {
     ///
     /// # Arguments
     ///
-    /// * `timeout` - The time the server is allowed to wait.
+    /// - `timeout` - The time the server is allowed to wait.
     #[must_use]
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
@@ -133,9 +133,9 @@ impl SyncSettings {
     /// is called.
     ///
     /// If there is no new data to show, the server will wait until the end of
-    /// `timeout` before returning a response. It can be an undesirable
-    /// behavior when starting a client and informing the user that we are
-    /// "catching up" while waiting for the first response.
+    /// `timeout` before returning a response. It can be an undesirable behavior
+    /// when starting a client and informing the user that we are "catching up"
+    /// while waiting for the first response.
     ///
     /// By not setting a `timeout` on the first request to `/sync`, the
     /// homeserver should reply immediately, whether the response is empty or
@@ -146,7 +146,7 @@ impl SyncSettings {
     ///
     /// # Arguments
     ///
-    /// * `ignore` - Whether to ignore the `timeout` the first time that the
+    /// - `ignore` - Whether to ignore the `timeout` the first time that the
     ///   `/sync` endpoint is called.
     ///
     /// [`Client::sync_once()`]: crate::Client::sync_once
@@ -156,12 +156,12 @@ impl SyncSettings {
         self
     }
 
-    /// Set the sync filter.
-    /// It can be either the filter ID, or the definition for the filter.
+    /// Set the sync filter. It can be either the filter ID, or the definition
+    /// for the filter.
     ///
     /// # Arguments
     ///
-    /// * `filter` - The filter configuration that should be used for the sync
+    /// - `filter` - The filter configuration that should be used for the sync
     ///   call.
     #[must_use]
     pub fn filter(mut self, filter: sync_events::v3::Filter) -> Self {
@@ -174,7 +174,8 @@ impl SyncSettings {
     /// This does nothing if no sync token is set.
     ///
     /// # Arguments
-    /// * `full_state` - A boolean deciding if the server should return the full
+    ///
+    /// - `full_state` - A boolean deciding if the server should return the full
     ///   state or not.
     #[must_use]
     pub fn full_state(mut self, full_state: bool) -> Self {
@@ -200,7 +201,8 @@ impl SyncSettings {
     /// client-owned sync presence value directly.
     ///
     /// # Arguments
-    /// * `set_presence` - The `PresenceState` that the server should set for
+    ///
+    /// - `set_presence` - The `PresenceState` that the server should set for
     ///   the client.
     ///
     /// [`Client::set_presence`]: crate::Client::set_presence

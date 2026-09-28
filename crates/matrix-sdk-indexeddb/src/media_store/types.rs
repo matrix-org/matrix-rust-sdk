@@ -83,11 +83,10 @@ pub struct MediaContent {
 
 /// A representation of time relative to the [`UNIX_EPOCH`].
 ///
-/// Typically a type of this nature is represented as a [`Duration`],
-/// but the conversion from a [`SystemTime`] to a [`Duration`] is
-/// fallible (see [`SystemTime::duration_since`]). The benefit of this
-/// type is that it can provide an infallible conversion, excepting
-/// overflows.
+/// Typically a type of this nature is represented as a [`Duration`], but the
+/// conversion from a [`SystemTime`] to a [`Duration`] is fallible (see
+/// [`SystemTime::duration_since`]). The benefit of this type is that it can
+/// provide an infallible conversion, excepting overflows.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum UnixTime {
     /// A representation of a point in time before the [`UNIX_EPOCH`], which is
@@ -122,8 +121,8 @@ impl Add<Duration> for UnixTime {
     fn add(self, rhs: Duration) -> Self::Output {
         match self {
             Self::BeforeEpoch(duration) => {
-                // When a time is before the Unix Epoch, adding a duration
-                // means moving towards the epoch, and possibly crossing it.
+                // When a time is before the Unix Epoch, adding a duration means
+                // moving towards the epoch, and possibly crossing it.
                 if rhs > duration {
                     // If we are adding a duration larger than the internal
                     // duration, then we are crossing the Unix Epoch
@@ -134,8 +133,8 @@ impl Add<Duration> for UnixTime {
                 }
             }
             Self::AfterEpoch(duration) => {
-                // Once we have crossed the Unix Epoch, we can move forward
-                // by adding time without concern for the epoch.
+                // Once we have crossed the Unix Epoch, we can move forward by
+                // adding time without concern for the epoch.
                 Self::AfterEpoch(duration + rhs)
             }
         }
@@ -160,8 +159,8 @@ impl Sub<Duration> for UnixTime {
                 }
             }
             Self::BeforeEpoch(duration) => {
-                // Once we have crossed the Unix Epoch, we can move backward
-                // by adding time without concern for the epoch.
+                // Once we have crossed the Unix Epoch, we can move backward by
+                // adding time without concern for the epoch.
                 Self::BeforeEpoch(duration + rhs)
             }
         }

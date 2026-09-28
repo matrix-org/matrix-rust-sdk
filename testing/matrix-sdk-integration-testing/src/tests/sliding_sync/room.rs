@@ -1117,7 +1117,7 @@ fn assert_room_preview(preview: &RoomPreview, room_alias: &str) {
     assert_eq!(preview.canonical_alias.as_ref().unwrap().alias(), room_alias);
     assert_eq!(preview.name.as_ref().unwrap(), "Alice's Room");
     assert_eq!(preview.topic.as_ref().unwrap(), "Discussing Alice's Topic");
-    assert_eq!(preview.avatar_url.as_ref().unwrap(), mxc_uri!("mxc://localhost/alice"));
+    assert_eq!(preview.avatar_url.as_ref().unwrap(), "mxc://localhost/alice");
     assert_eq!(preview.num_joined_members, 1);
     assert!(preview.room_type.is_none());
     assert_eq!(preview.join_rule, Some(JoinRuleSummary::Invite));

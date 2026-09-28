@@ -16,8 +16,8 @@ use indexed_db_futures::{Build, error::OpenDbError};
 
 use crate::crypto_store::{Result, keys, migrations::do_schema_upgrade};
 
-/// Perform the schema upgrade v013 to v104: add the
-/// `rooms_pending_key_bundle` store.
+/// Perform the schema upgrade v013 to v104: add the `rooms_pending_key_bundle`
+/// store.
 pub(crate) async fn schema_add(name: &str) -> Result<(), OpenDbError> {
     do_schema_upgrade(name, 104, |tx, _| {
         tx.db().create_object_store(keys::ROOMS_PENDING_KEY_BUNDLE).build()?;

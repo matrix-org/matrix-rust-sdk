@@ -83,7 +83,7 @@ impl<P: PaginableThread> ThreadedEventsLoader<P> {
     /// Run a single pagination backwards, returning the next set of events and
     /// information whether we've reached the start of the thread.
     ///
-    /// Note: when the thread start is reached, the root event *will* be
+    /// Note: when the thread start is reached, the root event _will_ be
     /// included in the result.
     pub async fn paginate_backwards(
         &self,
@@ -127,7 +127,8 @@ impl<P: PaginableThread> ThreadedEventsLoader<P> {
             };
         }
 
-        // Finally insert the thread root if at the end of the timeline going backwards
+        // Finally insert the thread root if at the end of the timeline going
+        // backwards
         if hit_end_of_timeline {
             let root_event = self
                 .room

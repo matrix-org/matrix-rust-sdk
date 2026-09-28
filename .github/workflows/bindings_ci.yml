@@ -38,12 +38,12 @@ jobs:
           persist-credentials: false
 
       - name: Install protoc
-        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
+        uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2.87.17
         with:
           tool: protoc@3.20.3
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
         with:
           toolchain: stable
 
@@ -53,7 +53,7 @@ jobs:
         run: rm .cargo/config.toml
 
       - name: Load cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -88,7 +88,7 @@ jobs:
           persist-credentials: false
 
       - name: Use JDK 17
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: 'temurin' # See 'Supported distributions' for available options
           java-version: '17'
@@ -103,7 +103,7 @@ jobs:
           ndk-version: r27
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
         with:
           toolchain: stable
 
@@ -113,7 +113,7 @@ jobs:
         run: rm .cargo/config.toml
 
       - name: Load cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -153,12 +153,12 @@ jobs:
 
       # install protoc in case we end up rebuilding opentelemetry-proto
       - name: Install protoc
-        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
+        uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2.87.17
         with:
           tool: protoc@3.20.3
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
         with:
           toolchain: stable
 
@@ -171,7 +171,7 @@ jobs:
         run: rm .cargo/config.toml
 
       - name: Load cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -212,12 +212,12 @@ jobs:
 
       # install protoc in case we end up rebuilding opentelemetry-proto
       - name: Install protoc
-        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
+        uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2.87.17
         with:
           tool: protoc@3.20.3
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
         with:
           toolchain: stable
 
@@ -231,7 +231,7 @@ jobs:
         run: rm .cargo/config.toml
 
       - name: Load cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 

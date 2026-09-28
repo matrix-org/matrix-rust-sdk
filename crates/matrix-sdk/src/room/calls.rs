@@ -63,8 +63,8 @@ impl Room {
     /// Subscribe to decline call event for this room.
     ///
     /// The returned receiver will receive the sender UserID for each decline
-    /// for the matching notify event.
-    /// Example:
+    /// for the matching notify event. Example:
+    ///
     /// - A push is received for an `m.rtc.notification` event.
     /// - The app starts ringing on this device.
     /// - The app subscribes to decline events for that notify event and stops

@@ -78,8 +78,8 @@ use crate::{
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
 ///
-/// When setting the `StateStore` it is up to the user to open/connect
-/// the storage backend before client creation.
+/// When setting the `StateStore` it is up to the user to open/connect the
+/// storage backend before client creation.
 ///
 /// # Examples
 ///
@@ -123,6 +123,7 @@ pub struct ClientBuilder {
     store_config: BuilderStoreConfig,
     request_config: RequestConfig,
     respect_login_well_known: bool,
+    well_known_lookup_disabled: bool,
     server_versions: Option<BTreeSet<MatrixVersion>>,
     handle_refresh_tokens: bool,
     base_client: Option<BaseClient>,
@@ -134,6 +135,7 @@ pub struct ClientBuilder {
     decryption_settings: DecryptionSettings,
     #[cfg(feature = "e2e-encryption")]
     enable_share_history_on_invite: bool,
+    enable_automatic_back_pagination: bool,
     cross_process_lock_config: CrossProcessLockConfig,
     threading_support: ThreadingSupport,
     #[cfg(feature = "experimental-search")]
@@ -161,6 +163,7 @@ impl ClientBuilder {
             )),
             request_config: Default::default(),
             respect_login_well_known: true,
+            well_known_lookup_disabled: false,
             server_versions: None,
             handle_refresh_tokens: false,
             base_client: None,
@@ -174,6 +177,7 @@ impl ClientBuilder {
             },
             #[cfg(feature = "e2e-encryption")]
             enable_share_history_on_invite: true,
+            enable_automatic_back_pagination: false,
             cross_process_lock_config: CrossProcessLockConfig::MultiProcess {
                 holder_name: Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME.to_owned(),
             },
@@ -208,8 +212,12 @@ impl ClientBuilder {
     ///
     /// The following methods are mutually exclusive: [`Self::homeserver_url`],
     /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
-    /// [`Self::server_name_or_homeserver_url`].
-    /// If you set more than one, then whatever was set last will be used.
+    /// [`Self::server_name_or_homeserver_url`]. If you set more than one, then
+    /// whatever was set last will be used.
+    ///
+    /// This is the only one of them that never performs a
+    /// `.well-known/matrix/client` lookup, so it is the one to use together
+    /// with [`Self::disable_well_known_lookup`].
     pub fn homeserver_url(mut self, url: impl AsRef<str>) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::HomeserverUrl(url.as_ref().to_owned()));
         self
@@ -222,8 +230,12 @@ impl ClientBuilder {
     ///
     /// The following methods are mutually exclusive: [`Self::homeserver_url`],
     /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
-    /// [`Self::server_name_or_homeserver_url`].
-    /// If you set more than one, then whatever was set last will be used.
+    /// [`Self::server_name_or_homeserver_url`]. If you set more than one, then
+    /// whatever was set last will be used.
+    ///
+    /// This performs a `.well-known/matrix/client` lookup, and is therefore
+    /// incompatible with [`Self::disable_well_known_lookup`]: [`Self::build`]
+    /// then fails with [`ClientBuildError::WellKnownLookupDisabled`].
     pub fn server_name(mut self, server_name: &ServerName) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::ServerName {
             server: server_name.to_owned(),
@@ -239,8 +251,12 @@ impl ClientBuilder {
     ///
     /// The following methods are mutually exclusive: [`Self::homeserver_url`],
     /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
-    /// [`Self::server_name_or_homeserver_url`].
-    /// If you set more than one, then whatever was set last will be used.
+    /// [`Self::server_name_or_homeserver_url`]. If you set more than one, then
+    /// whatever was set last will be used.
+    ///
+    /// This performs a `.well-known/matrix/client` lookup, and is therefore
+    /// incompatible with [`Self::disable_well_known_lookup`]: [`Self::build`]
+    /// then fails with [`ClientBuildError::WellKnownLookupDisabled`].
     pub fn insecure_server_name_no_tls(mut self, server_name: &ServerName) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::ServerName {
             server: server_name.to_owned(),
@@ -257,8 +273,13 @@ impl ClientBuilder {
     ///
     /// The following methods are mutually exclusive: [`Self::homeserver_url`],
     /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
-    /// [`Self::server_name_or_homeserver_url`].
-    /// If you set more than one, then whatever was set last will be used.
+    /// [`Self::server_name_or_homeserver_url`]. If you set more than one, then
+    /// whatever was set last will be used.
+    ///
+    /// With [`Self::disable_well_known_lookup`], the discovery step is skipped
+    /// and only the homeserver URL check is performed, so a homeserver URL
+    /// still works while a delegating server name fails with
+    /// [`ClientBuildError::InvalidServerName`].
     pub fn server_name_or_homeserver_url(mut self, server_name_or_url: impl AsRef<str>) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::ServerNameOrHomeserverUrl(
             server_name_or_url.as_ref().to_owned(),
@@ -336,7 +357,7 @@ impl ClientBuilder {
     ///
     /// # Arguments
     ///
-    /// * `store_config` - The configuration of the store.
+    /// - `store_config` - The configuration of the store.
     ///
     /// # Examples
     ///
@@ -364,6 +385,39 @@ impl ClientBuilder {
         self
     }
 
+    /// Disable all the `/.well-known/matrix/client` lookups, both the one
+    /// performed by [`Self::build`] to discover the homeserver, and all the
+    /// ones performed later by the built [`Client`].
+    ///
+    /// Some deployments must not emit any request to the well-known URI of
+    /// their domain. When disabled, [`Client::tile_server`] returns `None`,
+    /// [`Client::well_known_rtc_transports`] returns an empty list, and
+    /// [`Client::discover_rtc_transports`] doesn't fall back to the well-known
+    /// `m.rtc_foci`, relying only on the MSC4143 discovery endpoint.
+    ///
+    /// # Interaction with the homeserver setters
+    ///
+    /// The homeserver must then be resolvable without a well-known lookup:
+    ///
+    /// - [`Self::homeserver_url`] works, and is the recommended choice.
+    /// - [`Self::server_name`] and [`Self::insecure_server_name_no_tls`] can
+    ///   _only_ be resolved through the well-known, so [`Self::build`] fails
+    ///   with [`ClientBuildError::WellKnownLookupDisabled`]. Assuming that the
+    ///   server name is also the homeserver would silently talk to the wrong
+    ///   host for any deployment that delegates.
+    /// - [`Self::server_name_or_homeserver_url`] skips the well-known step and
+    ///   goes straight to checking whether the value points at a homeserver, so
+    ///   it works when given a homeserver URL, and fails with
+    ///   [`ClientBuildError::InvalidServerName`] otherwise.
+    ///
+    /// [`Client::discover_rtc_transports`]: crate::Client::discover_rtc_transports
+    /// [`Client::tile_server`]: crate::Client::tile_server
+    /// [`Client::well_known_rtc_transports`]: crate::Client::well_known_rtc_transports
+    pub fn disable_well_known_lookup(mut self, disable: bool) -> Self {
+        self.well_known_lookup_disabled = disable;
+        self
+    }
+
     /// Set the default timeout, fail and retry behavior for all HTTP requests.
     pub fn request_config(mut self, request_config: RequestConfig) -> Self {
         self.request_config = request_config;
@@ -376,7 +430,7 @@ impl ClientBuilder {
     ///
     /// # Arguments
     ///
-    /// * `proxy` - The HTTP URL of the proxy.
+    /// - `proxy` - The HTTP URL of the proxy.
     ///
     /// # Examples
     ///
@@ -466,11 +520,11 @@ impl ClientBuilder {
     /// Enabling this setting means that the `Client` will try to refresh the
     /// token automatically, which means that:
     ///
-    /// * If refreshing the token fails, the error is forwarded, so any endpoint
+    /// - If refreshing the token fails, the error is forwarded, so any endpoint
     ///   can return [`HttpError::RefreshToken`]. If an [`UnknownToken`] error
     ///   is encountered, it means that the user needs to be logged in again.
     ///
-    /// * The access token and refresh token need to be watched for changes,
+    /// - The access token and refresh token need to be watched for changes,
     ///   using the authentication API's `session_tokens_stream()` for example,
     ///   to be able to [restore the session] later.
     ///
@@ -528,6 +582,16 @@ impl ClientBuilder {
         self
     }
 
+    /// Whether to automatically back-paginate a room's history in the
+    /// background, under certain conditions (search backfill, latest-event
+    /// resolution, read-receipt finding).
+    ///
+    /// Off by default.
+    pub fn with_enable_automatic_back_pagination(mut self, enable: bool) -> Self {
+        self.enable_automatic_back_pagination = enable;
+        self
+    }
+
     /// Set the cross-process store locks holder name.
     ///
     /// The SDK provides cross-process store locks (see
@@ -545,9 +609,9 @@ impl ClientBuilder {
         self
     }
 
-    /// Whether the threads feature is enabled throuoghout the SDK.
-    /// This will affect how timelines are setup, how read receipts are sent
-    /// and how room unreads are computed.
+    /// Whether the threads feature is enabled throuoghout the SDK. This will
+    /// affect how timelines are setup, how read receipts are sent and how room
+    /// unreads are computed.
     pub fn with_threading_support(mut self, threading_support: ThreadingSupport) -> Self {
         self.threading_support = threading_support;
         self
@@ -582,9 +646,9 @@ impl ClientBuilder {
     ///
     /// This method can fail for two general reasons:
     ///
-    /// * Invalid input: a missing or invalid homeserver URL or invalid proxy
+    /// - Invalid input: a missing or invalid homeserver URL or invalid proxy
     ///   URL
-    /// * HTTP error: If you supplied a user ID instead of a homeserver URL, a
+    /// - HTTP error: If you supplied a user ID instead of a homeserver URL, a
     ///   server discovery request is made which can fail; if you didn't set
     ///   [`server_versions(false)`][Self::server_versions], that amounts to
     ///   another request that can fail
@@ -633,7 +697,7 @@ impl ClientBuilder {
 
         #[allow(unused_variables)]
         let HomeserverDiscoveryResult { server, homeserver, supported_versions, well_known } =
-            homeserver_cfg.discover(&http_client).await?;
+            homeserver_cfg.discover(&http_client, self.well_known_lookup_disabled).await?;
 
         let sliding_sync_version = {
             let supported_versions = match supported_versions {
@@ -690,7 +754,9 @@ impl ClientBuilder {
             supported_versions,
             well_known,
             self.respect_login_well_known,
+            self.well_known_lookup_disabled,
             event_cache,
+            self.enable_automatic_back_pagination,
             send_queue,
             latest_events,
             #[cfg(feature = "e2e-encryption")]
@@ -885,6 +951,15 @@ pub enum ClientBuildError {
     #[error("The supplied server name is invalid")]
     InvalidServerName,
 
+    /// Resolving the homeserver requires a `.well-known/matrix/client` lookup,
+    /// but those were disabled with
+    /// [`ClientBuilder::disable_well_known_lookup`].
+    #[error(
+        "Homeserver discovery requires a .well-known lookup, which was disabled; \
+         use `ClientBuilder::homeserver_url` instead"
+    )]
+    WellKnownLookupDisabled,
+
     /// Error looking up the .well-known endpoint on auto-discovery
     #[error("Error looking up the .well-known endpoint on auto-discovery")]
     AutoDiscovery(Box<FromHttpResponseError<RumaApiError>>),
@@ -915,13 +990,17 @@ pub enum ClientBuildError {
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) mod tests {
+    use std::{future, iter, net::SocketAddr, sync::Mutex as StdMutex};
+
     use assert_matches::assert_matches;
-    use assert_matches2::assert_let;
     use matrix_sdk_test::{async_test, test_json};
+    use reqwest::dns::{Addrs, Name, Resolve, Resolving};
     use serde_json::{Value as JsonValue, json_internal};
+    use strass::assert_let;
+    use url::Url;
     use wiremock::{
         Mock, MockServer, ResponseTemplate,
-        matchers::{method, path},
+        matchers::{header, method, path},
     };
 
     use super::*;
@@ -947,11 +1026,12 @@ pub(crate) mod tests {
         assert_matches!(sanitize_server_name("https://matrix.server.org/something"), Err(_))
     }
 
-    // Note: Due to a limitation of the http mocking library the following tests all
-    // supply an http:// url, to `server_name_or_homeserver_url` rather than the plain server name,
-    // otherwise  the builder will prepend https:// and the request will fail. In practice, this
-    // isn't a problem as the builder first strips the scheme and then checks if the
-    // name is a valid server name, so it is a close enough approximation.
+    // Note: Due to a limitation of the http mocking library the following tests
+    // all supply an http:// url, to `server_name_or_homeserver_url` rather than
+    // the plain server name, otherwise the builder will prepend https:// and
+    // the request will fail. In practice, this isn't a problem as the builder
+    // first strips the scheme and then checks if the name is a valid server
+    // name, so it is a close enough approximation.
 
     #[async_test]
     async fn test_discovery_invalid_server() {
@@ -982,8 +1062,8 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_discovery_web_server() {
-        // Given a random web server that isn't a Matrix homeserver or hosting the
-        // well-known file for one.
+        // Given a random web server that isn't a Matrix homeserver or hosting
+        // the well-known file for one.
         let server = MockServer::start().await;
         let mut builder = ClientBuilder::new();
 
@@ -1036,8 +1116,8 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_discovery_well_known_legacy() {
-        // Given a base server with a well-known file that points to a homeserver that
-        // doesn't support sliding sync.
+        // Given a base server with a well-known file that points to a
+        // homeserver that doesn't support sliding sync.
         let server = MockServer::start().await;
         let homeserver = make_mock_homeserver().await;
         let mut builder = ClientBuilder::new();
@@ -1055,8 +1135,118 @@ pub(crate) mod tests {
         let client = builder.build().await.unwrap();
 
         // Then a client should be built with native support for sliding sync.
-        // It's native support because it's the default. Nothing is checked here.
+        // It's native support because it's the default. Nothing is checked
+        // here.
         assert!(client.sliding_sync_version().is_native());
+    }
+
+    #[async_test]
+    async fn test_discovery_server_name_with_well_known_lookup_disabled() {
+        // Given a new client builder configured with a server name only.
+        let builder = ClientBuilder::new()
+            .server_name(&ServerName::parse("example.org").unwrap())
+            .disable_well_known_lookup(true);
+
+        // When building it. Note that no mock server is involved: the whole
+        // point is that not a single request is made.
+        let error = builder.build().await.unwrap_err();
+
+        // Then the operation should fail, rather than assume that the server
+        // name is also the homeserver.
+        assert_matches!(error, ClientBuildError::WellKnownLookupDisabled);
+
+        // And the same goes for its insecure counterpart.
+        let error = ClientBuilder::new()
+            .insecure_server_name_no_tls(&ServerName::parse("example.org").unwrap())
+            .disable_well_known_lookup(true)
+            .build()
+            .await
+            .unwrap_err();
+
+        assert_matches!(error, ClientBuildError::WellKnownLookupDisabled);
+    }
+
+    #[async_test]
+    async fn test_discovery_server_name_or_url_with_well_known_lookup_disabled() {
+        // Given a homeserver that also serves a well-known file, which must
+        // never be requested. `MockServer` verifies the expectation when it is
+        // dropped.
+        let homeserver = make_mock_homeserver().await;
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(make_well_known_json(&homeserver.uri())),
+            )
+            .named("well-known mock")
+            .expect(0)
+            .mount(&homeserver)
+            .await;
+
+        // When building a client with its URL.
+        let client = ClientBuilder::new()
+            .server_name_or_homeserver_url(homeserver.uri())
+            .disable_well_known_lookup(true)
+            .build()
+            .await
+            .unwrap();
+
+        // Then the homeserver should have been resolved through the
+        // `/_matrix/client/versions` check alone.
+        assert_eq!(client.homeserver().as_str().trim_end_matches('/'), homeserver.uri());
+    }
+
+    #[async_test]
+    async fn test_homeserver_url_never_contacts_the_server_name() {
+        // Given a deployment where the server name serves a well-known that
+        // points to the underlying homeserver (hosted on an unrelated domain in
+        // this test).
+        let mock_server = MockServer::start().await;
+        let address = *mock_server.address();
+        let port = address.port();
+        let server_name = format!("servername.com:{port}");
+        let homeserver_name = format!("matrix.server.com:{port}");
+
+        // Every host is resolved to the mock server and recorded.
+        let resolver = Arc::new(RecordingResolver { address, hosts: StdMutex::new(Vec::new()) });
+        let http_client =
+            reqwest::Client::builder().dns_resolver(resolver.clone()).build().unwrap();
+
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .and(header("host", server_name.as_str()))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(make_well_known_json(&format!("http://{homeserver_name}"))),
+            )
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/versions"))
+            .and(header("host", homeserver_name.as_str()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
+            .mount(&mock_server)
+            .await;
+
+        // When building a client using server_name_or_homeserver_url with the
+        // homeserver's URL as the string.
+        let client = ClientBuilder::new()
+            .http_client(http_client)
+            .server_name_or_homeserver_url(format!("http://{homeserver_name}"))
+            .build()
+            .await
+            .unwrap();
+
+        // Then homeserver should be the only host that was contacted while
+        // building.
+        let resolved_hosts = resolver.hosts.lock().unwrap();
+        assert!(!resolved_hosts.is_empty(), "The homeserver should have been contacted");
+        assert!(
+            resolved_hosts.iter().all(|host| host == "matrix.server.com"),
+            "A connection was attempted to an unexpected host: {resolved_hosts:?}"
+        );
+        assert_eq!(client.homeserver(), Url::parse(&format!("http://{homeserver_name}")).unwrap());
+        assert_eq!(client.server(), None);
     }
 
     #[async_test]
@@ -1112,6 +1302,37 @@ pub(crate) mod tests {
         );
     }
 
+    #[async_test]
+    async fn test_cross_process_store_locks_holder_name() {
+        {
+            let homeserver = make_mock_homeserver().await;
+            let client =
+                ClientBuilder::new().homeserver_url(homeserver.uri()).build().await.unwrap();
+
+            assert_let!(
+                CrossProcessLockConfig::MultiProcess { holder_name } =
+                    client.cross_process_lock_config()
+            );
+            assert_eq!(holder_name, "main");
+        }
+
+        {
+            let homeserver = make_mock_homeserver().await;
+            let client = ClientBuilder::new()
+                .homeserver_url(homeserver.uri())
+                .cross_process_store_config(CrossProcessLockConfig::multi_process("foo"))
+                .build()
+                .await
+                .unwrap();
+
+            assert_let!(
+                CrossProcessLockConfig::MultiProcess { holder_name } =
+                    client.cross_process_lock_config()
+            );
+            assert_eq!(holder_name, "foo");
+        }
+    }
+
     /* Helper functions */
 
     async fn make_mock_homeserver() -> MockServer {
@@ -1143,34 +1364,20 @@ pub(crate) mod tests {
         })
     }
 
-    #[async_test]
-    async fn test_cross_process_store_locks_holder_name() {
-        {
-            let homeserver = make_mock_homeserver().await;
-            let client =
-                ClientBuilder::new().homeserver_url(homeserver.uri()).build().await.unwrap();
+    /// A DNS resolver that records the hostname of every lookup it is asked to
+    /// make, and resolves all of them to the same address.
+    #[derive(Debug)]
+    struct RecordingResolver {
+        address: SocketAddr,
+        hosts: StdMutex<Vec<String>>,
+    }
 
-            assert_let!(
-                CrossProcessLockConfig::MultiProcess { holder_name } =
-                    client.cross_process_lock_config()
-            );
-            assert_eq!(holder_name, "main");
-        }
+    impl Resolve for RecordingResolver {
+        fn resolve(&self, name: Name) -> Resolving {
+            self.hosts.lock().unwrap().push(name.as_str().to_owned());
 
-        {
-            let homeserver = make_mock_homeserver().await;
-            let client = ClientBuilder::new()
-                .homeserver_url(homeserver.uri())
-                .cross_process_store_config(CrossProcessLockConfig::multi_process("foo"))
-                .build()
-                .await
-                .unwrap();
-
-            assert_let!(
-                CrossProcessLockConfig::MultiProcess { holder_name } =
-                    client.cross_process_lock_config()
-            );
-            assert_eq!(holder_name, "foo");
+            let addrs: Addrs = Box::new(iter::once(self.address));
+            Box::pin(future::ready(Ok(addrs)))
         }
     }
 }

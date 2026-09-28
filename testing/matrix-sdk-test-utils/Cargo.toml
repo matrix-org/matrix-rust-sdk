@@ -4,7 +4,7 @@ description = "Test utilities used in the Matrix Rust SDK"
 keywords = ["matrix", "chat", "messaging", "ruma"]
 license = "Apache-2.0"
 name = "matrix-sdk-test-utils"
-version = "0.18.0"
+version = "0.19.1"
 edition = "2024"
 rust-version.workspace = true
 
@@ -12,7 +12,7 @@ rust-version.workspace = true
 release = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-ctor = "0.2.9"
+ctor.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [lints]

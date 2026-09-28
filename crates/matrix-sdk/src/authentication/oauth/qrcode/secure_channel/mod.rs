@@ -25,7 +25,11 @@ use super::{
     SecureChannelError as Error,
     rendezvous_channel::{InboundChannelCreationResult, RendezvousChannel, RendezvousInfo},
 };
-use crate::{config::RequestConfig, http_client::HttpClient};
+use crate::{
+    authentication::oauth::qrcode::{DecryptionError, MessageDecodeError},
+    config::RequestConfig,
+    http_client::HttpClient,
+};
 mod crypto_channel;
 
 const LOGIN_INITIATE_MESSAGE: &str = "MATRIX_QR_CODE_LOGIN_INITIATE";
@@ -97,7 +101,7 @@ impl SecureChannel {
         let message = self.channel.receive().await?;
         let result = self.crypto_channel.establish_inbound_channel(&message)?;
 
-        let message = std::str::from_utf8(result.plaintext())?;
+        let message = std::str::from_utf8(result.plaintext()).map_err(MessageDecodeError::from)?;
 
         trace!("Received the initial secure channel message");
 
@@ -126,8 +130,8 @@ impl SecureChannel {
     }
 }
 
-/// An SecureChannel that is yet to be confirmed as with the [`CheckCode`].
-/// Same deal as for the [`SecureChannel`], not used for now.
+/// An SecureChannel that is yet to be confirmed as with the [`CheckCode`]. Same
+/// deal as for the [`SecureChannel`], not used for now.
 pub(super) struct AlmostEstablishedSecureChannel {
     secure_channel: EstablishedSecureChannel,
 }
@@ -170,32 +174,35 @@ impl EstablishedSecureChannel {
 
             let client = HttpClient::new(client, RequestConfig::short_retry());
 
-            // Let's establish an outbound ECIES channel, the other side won't know that
-            // it's talking to us, the device that scanned the QR code, until it
-            // receives and successfully decrypts the initial message. We're here encrypting
-            // the `LOGIN_INITIATE_MESSAGE`.
+            // Let's establish an outbound ECIES channel, the other side won't
+            // know that it's talking to us, the device that scanned the QR
+            // code, until it receives and successfully decrypts the initial
+            // message. We're here encrypting the `LOGIN_INITIATE_MESSAGE`.
             let (crypto_channel, encoded_message) = {
                 let ecies = Ecies::new();
 
-                let OutboundCreationResult { ecies, message } = ecies.establish_outbound_channel(
-                    qr_code_data.public_key(),
-                    LOGIN_INITIATE_MESSAGE.as_bytes(),
-                )?;
+                let OutboundCreationResult { ecies, message } = ecies
+                    .establish_outbound_channel(
+                        qr_code_data.public_key(),
+                        LOGIN_INITIATE_MESSAGE.as_bytes(),
+                    )
+                    .map_err(DecryptionError::from)?;
                 (ChannelType::Ecies(ecies), message.encode())
             };
 
-            // The other side has crated a rendezvous channel, we're going to connect to it
-            // and send this initial encrypted message through it. The initial message on
-            // the rendezvous channel will have an empty body, so we can just
-            // drop it.
+            // The other side has crated a rendezvous channel, we're going to
+            // connect to it and send this initial encrypted message through it.
+            // The initial message on the rendezvous channel will have an empty
+            // body, so we can just drop it.
             let mut channel = match qr_code_data.intent_data() {
                 QrCodeIntentData::Msc4108 { rendezvous_url, .. } => {
                     let InboundChannelCreationResult { channel, .. } =
                         RendezvousChannel::create_inbound(client, rendezvous_url).await?;
                     channel
                 }
-                // TODO: We need to support the new rendezvous channel type and HPKE for the crypto
-                // channel when we encounter this QR code variant.
+                // TODO: We need to support the new rendezvous channel type and
+                // HPKE for the crypto channel when we encounter this QR code
+                // variant.
                 QrCodeIntentData::Msc4388 { .. } => return Err(Error::UnsupportedQrCodeType),
             };
 
@@ -204,16 +211,17 @@ impl EstablishedSecureChannel {
                      INITIATE message"
             );
 
-            // Now we're sending the encrypted message through the rendezvous channel to the
-            // other side.
+            // Now we're sending the encrypted message through the rendezvous
+            // channel to the other side.
             channel.send(encoded_message).await?;
 
             trace!("Waiting for the LOGIN OK message");
 
             let (response, channel) = match crypto_channel {
                 ChannelType::Ecies(ecies) => {
-                    // We can create our EstablishedSecureChannel struct now and use the
-                    // convenient helpers which transparently decrypt on receival.
+                    // We can create our EstablishedSecureChannel struct now and
+                    // use the convenient helpers which transparently decrypt on
+                    // receival.
                     let crypto_channel = EstablishedCryptoChannel::Ecies(ecies);
                     let mut channel = Self { channel, crypto_channel };
 
@@ -244,7 +252,7 @@ impl EstablishedSecureChannel {
     /// The message will be encrypted before it is sent over the rendezvous
     /// channel.
     pub(super) async fn send_json(&mut self, message: impl Serialize) -> Result<(), Error> {
-        let message = serde_json::to_string(&message)?;
+        let message = serde_json::to_string(&message).map_err(MessageDecodeError::from)?;
         self.send(&message).await
     }
 
@@ -254,7 +262,7 @@ impl EstablishedSecureChannel {
     /// rendezvous channel.
     pub(super) async fn receive_json<D: DeserializeOwned>(&mut self) -> Result<D, Error> {
         let message = self.receive().await?;
-        Ok(serde_json::from_str(&message)?)
+        Ok(serde_json::from_str(&message).map_err(MessageDecodeError::from)?)
     }
 
     async fn send(&mut self, message: &str) -> Result<(), Error> {

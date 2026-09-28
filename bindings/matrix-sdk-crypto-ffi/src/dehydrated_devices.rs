@@ -58,7 +58,8 @@ pub struct DehydratedDevices {
 
 impl Drop for DehydratedDevices {
     fn drop(&mut self) {
-        // See the drop implementation for the `crate::OlmMachine` for an explanation.
+        // See the drop implementation for the `crate::OlmMachine` for an
+        // explanation.
         let _guard = self.runtime.enter();
         unsafe {
             ManuallyDrop::drop(&mut self.inner);
@@ -106,8 +107,8 @@ impl DehydratedDevices {
     /// None if the key was not previously cached (via
     /// [`Self::save_dehydrated_device_pickle_key`]).
     ///
-    /// Should be used to periodically rotate the dehydrated device to avoid
-    /// OTK exhaustion and accumulation of to_device messages.
+    /// Should be used to periodically rotate the dehydrated device to avoid OTK
+    /// exhaustion and accumulation of to_device messages.
     pub fn get_dehydrated_device_key(
         &self,
     ) -> Result<Option<crate::DehydratedDeviceKey>, CryptoStoreError> {
@@ -143,7 +144,8 @@ pub struct RehydratedDevice {
 
 impl Drop for RehydratedDevice {
     fn drop(&mut self) {
-        // See the drop implementation for the `crate::OlmMachine` for an explanation.
+        // See the drop implementation for the `crate::OlmMachine` for an
+        // explanation.
         let _guard = self.runtime.enter();
         unsafe {
             ManuallyDrop::drop(&mut self.inner);
@@ -173,7 +175,8 @@ pub struct DehydratedDevice {
 
 impl Drop for DehydratedDevice {
     fn drop(&mut self) {
-        // See the drop implementation for the `crate::OlmMachine` for an explanation.
+        // See the drop implementation for the `crate::OlmMachine` for an
+        // explanation.
         let _guard = self.runtime.enter();
         unsafe {
             ManuallyDrop::drop(&mut self.inner);

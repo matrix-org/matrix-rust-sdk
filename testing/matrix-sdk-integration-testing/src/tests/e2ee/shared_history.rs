@@ -1,7 +1,6 @@
-use std::{ops::Deref, sync::Arc, time::Duration};
+use std::{assert_matches, ops::Deref, sync::Arc, time::Duration};
 
 use anyhow::Result;
-use assert_matches2::{assert_let, assert_matches};
 use assign::assign;
 use eyeball_im::VectorDiff;
 use futures::{FutureExt, StreamExt, future, pin_mut};
@@ -37,6 +36,7 @@ use matrix_sdk_ui::{
     },
 };
 use similar_asserts::assert_eq;
+use strass::assert_let;
 use tempfile::tempdir;
 use tracing::{Instrument, Span, info};
 

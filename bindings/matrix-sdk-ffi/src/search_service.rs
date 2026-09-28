@@ -15,7 +15,7 @@
 use std::{fmt::Debug, sync::Arc};
 
 use eyeball_im::VectorDiff;
-use futures_util::{StreamExt as _, pin_mut};
+use futures_util::StreamExt as _;
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::search_service::{
     MessageResult as UIMessageResult, PaginationState as SearchServicePaginationState,
@@ -52,9 +52,9 @@ pub struct SearchService {
 
 #[matrix_sdk_ffi_macros::export]
 impl SearchService {
-    /// Set (or update) the search query.
-    /// Clears the current results, restarts pagination from scratch and loads
-    /// the first page. Call [`Self::paginate`] to load any further pages.
+    /// Set (or update) the search query. Clears the current results, restarts
+    /// pagination from scratch and loads the first page. Call
+    /// [`Self::paginate`] to load any further pages.
     pub async fn set_query(&self, query: String) -> Result<(), ClientError> {
         self.inner.set_query(query).await.map_err(|err| ClientError::from(anyhow::Error::from(err)))
     }
@@ -75,11 +75,11 @@ impl SearchService {
         &self,
         listener: Box<dyn SearchServicePaginationStateListener>,
     ) -> Arc<TaskHandle> {
-        let pagination_state = self.inner.subscribe_to_pagination_state_updates();
+        let mut pagination_state = self.inner.subscribe_to_pagination_state_updates();
+
+        listener.on_update(pagination_state.next_now());
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(pagination_state);
-
             while let Some(state) = pagination_state.next().await {
                 listener.on_update(state);
             }

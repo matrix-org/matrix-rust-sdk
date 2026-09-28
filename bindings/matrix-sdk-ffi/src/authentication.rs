@@ -88,8 +88,8 @@ pub struct SsoHandler {
 #[matrix_sdk_ffi_macros::export]
 impl SsoHandler {
     /// Returns the URL for starting SSO authentication. The URL should be
-    /// opened in a web view. Once the web view succeeds, call `finish` with
-    /// the callback URL.
+    /// opened in a web view. Once the web view succeeds, call `finish` with the
+    /// callback URL.
     pub fn url(&self) -> String {
         self.url.clone()
     }

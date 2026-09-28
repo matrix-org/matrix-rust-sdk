@@ -44,8 +44,8 @@ fn handle_room_updates(c: &mut Criterion) {
             let raw_room_id = format!("!firstbatchroom{i:04}:example.com");
 
             let room_id = if i % 10 == 9 {
-                // Make 1 in 10 rooms use a room v12 ID, which is a base64 hash similar to an
-                // event ID.
+                // Make 1 in 10 rooms use a room v12 ID, which is a base64 hash
+                // similar to an event ID.
                 RoomId::new_v2(&base64_sha256_hash(raw_room_id.as_bytes())).unwrap()
             } else {
                 OwnedRoomId::try_from(raw_room_id).unwrap()
@@ -125,8 +125,8 @@ fn handle_room_updates(c: &mut Criterion) {
                 client
             });
 
-            // Define a state store with all rooms known in it.
-            // Define the throughput.
+            // Define a state store with all rooms known in it. Define the
+            // throughput.
             group.throughput(Throughput::Elements(num_rooms));
 
             // Bench the handling of room updates.
@@ -162,9 +162,9 @@ fn handle_room_updates(c: &mut Criterion) {
 }
 
 fn find_event_relations(c: &mut Criterion) {
-    // Number of other events to saturate the DB, but that will not be affected by
-    // the benchmark. A small multiple of this number will be added.
-    // When running locally, run with more events than in Codespeed CI.
+    // Number of other events to saturate the DB, but that will not be affected
+    // by the benchmark. A small multiple of this number will be added. When
+    // running locally, run with more events than in Codespeed CI.
     #[cfg(feature = "codspeed")]
     const NUM_OTHER_EVENTS: usize = 100;
     #[cfg(not(feature = "codspeed"))]

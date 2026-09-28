@@ -350,9 +350,8 @@ impl Sas {
     ///
     /// # Arguments
     ///
-    /// * `account` - Our own account.
-    ///
-    /// * `other_device` - The other device which we are going to verify.
+    /// - `account` - Our own account.
+    /// - `other_device` - The other device which we are going to verify.
     ///
     /// Returns the new `Sas` object and a `StartEventContent` that needs to be
     /// sent out through the server to the other device.
@@ -372,9 +371,8 @@ impl Sas {
     ///
     /// # Arguments
     ///
-    /// * `account` - Our own account.
-    ///
-    /// * `other_device` - The other device which we are going to verify.
+    /// - `account` - Our own account.
+    /// - `other_device` - The other device which we are going to verify.
     ///
     /// Returns the new `Sas` object and a `StartEventContent` that needs to be
     /// sent out through the server to the other device.
@@ -394,11 +392,9 @@ impl Sas {
     ///
     /// # Arguments
     ///
-    /// * `account` - Our own account.
-    ///
-    /// * `other_device` - The other device which we are going to verify.
-    ///
-    /// * `event` - The m.key.verification.start event that was sent to us by
+    /// - `account` - Our own account.
+    /// - `other_device` - The other device which we are going to verify.
+    /// - `event` - The m.key.verification.start event that was sent to us by
     ///   the other side.
     pub(crate) fn from_start_event(
         flow_id: FlowId,
@@ -623,17 +619,20 @@ impl Sas {
 
     /// Get the emoji version of the short auth string.
     ///
-    /// Returns None if we can't yet present the short auth string, otherwise
-    /// seven tuples containing the emoji and description.
+    /// Returns None if we can't yet present the short auth string or if the
+    /// emoji method was not part of the negotiated short auth string methods
+    /// (see [`Sas::supports_emoji()`]), otherwise seven tuples containing the
+    /// emoji and description.
     pub fn emoji(&self) -> Option<[Emoji; 7]> {
         self.inner.read().emoji()
     }
 
     /// Get the index of the emoji representing the short auth string
     ///
-    /// Returns None if we can't yet present the short auth string, otherwise
-    /// seven u8 numbers in the range from 0 to 63 inclusive which can be
-    /// converted to an emoji using the
+    /// Returns None if we can't yet present the short auth string or if the
+    /// emoji method was not part of the negotiated short auth string methods
+    /// (see [`Sas::supports_emoji()`]), otherwise seven u8 numbers in the range
+    /// from 0 to 63 inclusive which can be converted to an emoji using the
     /// [relevant spec entry](https://spec.matrix.org/unstable/client-server-api/#sas-method-emoji).
     pub fn emoji_index(&self) -> Option<[u8; 7]> {
         self.inner.read().emoji_index()
@@ -653,14 +652,14 @@ impl Sas {
     /// The changes are presented as a stream of [`SasState`] values.
     ///
     /// This method can be used to react to changes in the state of the
-    /// verification process, or rather the method can be used to handle
-    /// each step of the verification process.
+    /// verification process, or rather the method can be used to handle each
+    /// step of the verification process.
     ///
     /// # Flowchart
     ///
-    /// The flow of the verification process is pictured below. Please note
-    /// that the process can be cancelled at each step of the process.
-    /// Either side can cancel the process.
+    /// The flow of the verification process is pictured below. Please note that
+    /// the process can be cancelled at each step of the process. Either side
+    /// can cancel the process.
     ///
     /// ```text
     ///                ┌───────┐
@@ -864,13 +863,13 @@ mod tests {
     use std::sync::Arc;
 
     use assert_matches::assert_matches;
-    use assert_matches2::assert_let;
     use matrix_sdk_test::async_test;
     use ruma::{
         DeviceId, TransactionId, UserId, device_id,
         events::key::verification::{ShortAuthenticationString, accept::AcceptMethod},
         user_id,
     };
+    use strass::assert_let;
     use tokio::sync::Mutex;
 
     use super::Sas;
@@ -1027,5 +1026,58 @@ mod tests {
 
         assert!(content.short_authentication_string.contains(&ShortAuthenticationString::Decimal));
         assert!(!content.short_authentication_string.contains(&ShortAuthenticationString::Emoji));
+    }
+
+    #[async_test]
+    async fn test_sas_with_restricted_methods_does_not_present_emoji() {
+        let (alice_store, alice_device, bob_store, bob_device) = machine_pair_test_helper();
+        let identities = alice_store.get_identities(bob_device).await.unwrap();
+
+        let short_auth_strings = vec![ShortAuthenticationString::Decimal];
+        let (alice, content) =
+            Sas::start(identities, TransactionId::new(), true, None, Some(short_auth_strings));
+
+        let flow_id = alice.flow_id().to_owned();
+        let content = StartContent::try_from(&content).unwrap();
+
+        let identities = bob_store.get_identities(alice_device).await.unwrap();
+        let bob = Sas::from_start_event(flow_id, &content, identities, None, false).unwrap();
+
+        let request = bob.accept().unwrap();
+
+        let content = OutgoingContent::try_from(request).unwrap();
+        let content = AcceptContent::try_from(&content).unwrap();
+
+        let (content, request_info) =
+            alice.receive_any_event(bob.user_id(), &content.into()).unwrap();
+        alice.mark_request_as_sent(&request_info.unwrap().request_id);
+
+        let content = KeyContent::try_from(&content).unwrap();
+        let (content, request_info) =
+            bob.receive_any_event(alice.user_id(), &content.into()).unwrap();
+        bob.mark_request_as_sent(&request_info.unwrap().request_id);
+
+        let content = KeyContent::try_from(&content).unwrap();
+        alice.receive_any_event(bob.user_id(), &content.into());
+
+        assert_matches!(alice.state(), SasState::KeysExchanged { .. });
+        assert_matches!(bob.state(), SasState::KeysExchanged { .. });
+        assert!(alice.can_be_presented());
+        assert!(bob.can_be_presented());
+
+        // Only the decimal method was negotiated, so neither side supports
+        // emoji and neither side may present an emoji representation: a peer
+        // that displays emoji here shows its user a representation the other
+        // side has no way to compare against.
+        assert!(!alice.supports_emoji());
+        assert!(!bob.supports_emoji());
+
+        assert!(alice.emoji().is_none());
+        assert!(bob.emoji().is_none());
+        assert!(alice.emoji_index().is_none());
+        assert!(bob.emoji_index().is_none());
+
+        // The negotiated decimal representation is presented on both sides.
+        assert_eq!(alice.decimals().unwrap(), bob.decimals().unwrap());
     }
 }

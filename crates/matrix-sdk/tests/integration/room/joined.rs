@@ -5,7 +5,6 @@ use std::{
 };
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use futures_util::{future::join_all, pin_mut};
 use matrix_sdk::{
     assert_next_with_timeout, assert_recv_with_timeout,
@@ -40,6 +39,7 @@ use ruma::{
     int, mxc_uri, owned_event_id, owned_user_id, room_id, thirdparty, user_id,
 };
 use serde_json::json;
+use strass::assert_let;
 use stream_assert::assert_pending;
 use tokio::time::sleep;
 use wiremock::{
@@ -701,7 +701,7 @@ async fn test_room_state_event_send() {
     });
     let response =
         room.send_state_event_for_key(user_id!("@foo:bar.com"), member_event).await.unwrap();
-    assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id);
+    assert_eq!("$h29iv0s8:example.com", response.event_id);
 }
 
 #[async_test]
@@ -728,7 +728,7 @@ async fn test_room_message_send() {
     let txn_id = TransactionId::new();
     let response = room.send(content).with_transaction_id(txn_id).await.unwrap().response;
 
-    assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
+    assert_eq!("$h29iv0s8:example.com", response.event_id)
 }
 
 #[async_test]
@@ -857,7 +857,8 @@ async fn test_subscribe_to_typing_notifications() {
                 let mut typing_sequences = typing_sequences.lock().unwrap();
                 typing_sequences.push(typing_user_ids);
 
-                // When we have received 2 typing notifications, we can stop listening.
+                // When we have received 2 typing notifications, we can stop
+                // listening.
                 if typing_sequences.len() == 2 {
                     break;
                 }
@@ -865,8 +866,8 @@ async fn test_subscribe_to_typing_notifications() {
         }
     });
 
-    // Then send a typing notification with 3 users typing, including the current
-    // user.
+    // Then send a typing notification with 3 users typing, including the
+    // current user.
     let f = EventFactory::new();
     server
         .sync_room(
@@ -937,8 +938,8 @@ async fn test_get_users_with_power_levels() {
 
     let users_with_power_levels = room.users_with_power_levels().await;
     assert_eq!(users_with_power_levels.len(), 2);
-    assert_eq!(users_with_power_levels[user_id!("@admin:localhost")], 100);
-    assert_eq!(users_with_power_levels[user_id!("@mod:localhost")], 50);
+    assert_eq!(users_with_power_levels["@admin:localhost"], 100);
+    assert_eq!(users_with_power_levels["@mod:localhost"], 50);
 }
 
 #[async_test]
@@ -1178,6 +1179,7 @@ async fn test_subscribe_to_knock_requests_reloads_members_on_limited_sync() {
         .mock_get_members()
         .ok(vec![knock_event])
         // The endpoint will be called twice:
+        //
         // 1. For the initial loading of room members.
         // 2. When a gappy (limited) sync is received.
         .expect(2)
@@ -1233,8 +1235,8 @@ async fn test_remove_outdated_seen_knock_requests_ids_when_membership_changed() 
     let seen = room.get_seen_knock_request_ids().await.unwrap();
     assert_eq!(seen.len(), 1);
 
-    // If we then load the members again and the previously knocking member is in
-    // another state now
+    // If we then load the members again and the previously knocking member is
+    // in another state now
     let joined_event = f.member(user_id).membership(MembershipState::Join).into_raw();
 
     server.mock_get_members().ok(vec![joined_event]).mock_once().mount().await;
@@ -1278,8 +1280,8 @@ async fn test_remove_outdated_seen_knock_requests_ids_when_we_have_an_outdated_k
     let seen = room.get_seen_knock_request_ids().await.unwrap();
     assert_eq!(seen.len(), 1);
 
-    // If we then load the members again and the previously knocking member has a
-    // different event id
+    // If we then load the members again and the previously knocking member has
+    // a different event id
     let knock_event = f
         .member(user_id)
         .membership(MembershipState::Knock)
@@ -1340,8 +1342,8 @@ async fn test_subscribe_to_knock_requests_clears_seen_ids_on_member_reload() {
     assert_eq!(seen_knock.event_id, knock_event_id);
     assert!(seen_knock.is_seen);
 
-    // If we then load the members again and the previously knocking member is in
-    // another state now
+    // If we then load the members again and the previously knocking member is
+    // in another state now
     let joined_event = f.member(user_id).membership(MembershipState::Join).into_raw();
 
     server.mock_get_members().ok(vec![joined_event]).mock_once().mount().await;
@@ -1491,4 +1493,82 @@ async fn test_set_own_member_display_name() {
         .await;
 
     room.set_own_member_display_name(Some(new_name.to_owned())).await.unwrap();
+}
+
+#[cfg(feature = "unstable-msc4354")]
+#[async_test]
+async fn test_send_sticky_event() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room = server.sync_joined_room(&client, room_id!("!room:localhost")).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    // A raw sticky event carries the duration as a query parameter.
+    server
+        .mock_room_send()
+        .for_type("m.rtc.member".into())
+        .body_matches_partial_json(json!({ "msc4354_sticky_key": "laptop" }))
+        .with_sticky_duration(Duration::from_secs(300))
+        .ok(event_id!("$sticky"))
+        .mock_once()
+        .mount()
+        .await;
+
+    let result = room
+        .send_raw(
+            "m.rtc.member",
+            json!({ "msc4354_sticky_key": "laptop", "application": "m.call" }),
+        )
+        .with_sticky_duration(Duration::from_secs(300))
+        .await
+        .unwrap();
+    assert_eq!(result.response.event_id, event_id!("$sticky"));
+
+    // So does a typed one.
+    server
+        .mock_room_send()
+        .for_type("m.room.message".into())
+        .with_sticky_duration(Duration::from_secs(60))
+        .ok(event_id!("$sticky_message"))
+        .mock_once()
+        .mount()
+        .await;
+
+    let result = room
+        .send(RoomMessageEventContent::text_plain("hello"))
+        .with_sticky_duration(Duration::from_secs(60))
+        .await
+        .unwrap();
+    assert_eq!(result.response.event_id, event_id!("$sticky_message"));
+
+    // A duration beyond what MSC4354 allows is clamped to one hour.
+    server
+        .mock_room_send()
+        .for_type("m.room.message".into())
+        .with_sticky_duration(Duration::from_secs(3600))
+        .ok(event_id!("$sticky_clamped"))
+        .mock_once()
+        .mount()
+        .await;
+
+    let result = room
+        .send(RoomMessageEventContent::text_plain("hello"))
+        .with_sticky_duration(Duration::from_secs(7200))
+        .await
+        .unwrap();
+    assert_eq!(result.response.event_id, event_id!("$sticky_clamped"));
+
+    // An event that isn't marked sticky carries no duration.
+    server
+        .mock_room_send()
+        .for_type("m.room.message".into())
+        .without_sticky_duration()
+        .ok(event_id!("$regular"))
+        .mock_once()
+        .mount()
+        .await;
+
+    let result = room.send(RoomMessageEventContent::text_plain("hello")).await.unwrap();
+    assert_eq!(result.response.event_id, event_id!("$regular"));
 }

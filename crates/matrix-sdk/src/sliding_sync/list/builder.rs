@@ -21,8 +21,8 @@ use crate::Client;
 #[derive(Clone)]
 struct SlidingSyncListCachedData {
     /// Total number of rooms that is possible to interact with the given list.
-    /// See also comment of [`SlidingSyncList::maximum_number_of_rooms`].
-    /// May be reloaded from the cache.
+    /// See also comment of [`SlidingSyncList::maximum_number_of_rooms`]. May be
+    /// reloaded from the cache.
     maximum_number_of_rooms: Option<u32>,
 }
 
@@ -55,7 +55,8 @@ pub struct SlidingSyncListBuilder {
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for SlidingSyncListBuilder {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Print debug values for the builder, except `once_built` which is ignored.
+        // Print debug values for the builder, except `once_built` which is
+        // ignored.
         formatter
             .debug_struct("SlidingSyncListBuilder")
             .field("sync_mode", &self.sync_mode)
@@ -94,8 +95,8 @@ impl SlidingSyncListBuilder {
     /// Runs a callback once the list has been built.
     ///
     /// If the list was cached, then the cached fields won't be available in
-    /// this callback. Use the streams to get published versions of the
-    /// cached fields, once they've been set.
+    /// this callback. Use the streams to get published versions of the cached
+    /// fields, once they've been set.
     #[cfg(not(target_family = "wasm"))]
     pub fn once_built<C>(mut self, callback: C) -> Self
     where
@@ -108,8 +109,8 @@ impl SlidingSyncListBuilder {
     /// Runs a callback once the list has been built.
     ///
     /// If the list was cached, then the cached fields won't be available in
-    /// this callback. Use the streams to get published versions of the
-    /// cached fields, once they've been set.
+    /// this callback. Use the streams to get published versions of the cached
+    /// fields, once they've been set.
     #[cfg(target_family = "wasm")]
     pub fn once_built<C>(mut self, callback: C) -> Self
     where
@@ -228,8 +229,8 @@ impl SlidingSyncListBuilder {
                     self.sync_mode,
                 )),
 
-                // Values read from deserialization, or that are still equal to the default values
-                // otherwise.
+                // Values read from deserialization, or that are still equal to
+                // the default values otherwise.
                 state: SharedObservable::new(Default::default()),
                 maximum_number_of_rooms: SharedObservable::new(None),
 
@@ -244,10 +245,10 @@ impl SlidingSyncListBuilder {
 
         // If we reloaded from the cache, update values in the list here.
         //
-        // Note about ordering: because of the contract with the observables, the
-        // initial values, if filled, have to be observable in the `once_built`
-        // callback. That's why we're doing this here *after* constructing the
-        // list, and not a few lines above.
+        // Note about ordering: because of the contract with the observables,
+        // the initial values, if filled, have to be observable in the
+        // `once_built` callback. That's why we're doing this here _after_
+        // constructing the list, and not a few lines above.
 
         if let Some(SlidingSyncListCachedData { maximum_number_of_rooms }) =
             self.reloaded_cached_data

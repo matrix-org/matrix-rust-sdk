@@ -22,8 +22,11 @@ use ruma::events::{
 };
 
 use crate::{
-    client::JoinRule, event::FfiTimelineEventType, ruma::AssetType,
-    timeline::msg_like::MsgLikeContent, utils::Timestamp,
+    client::JoinRule,
+    event::FfiTimelineEventType,
+    ruma::AssetType,
+    timeline::{EventSendState, msg_like::MsgLikeContent},
+    utils::Timestamp,
 };
 
 impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent {
@@ -129,14 +132,13 @@ pub enum HistoryVisibility {
     /// Previous events are accessible to newly joined members from the point
     /// they were invited onwards.
     ///
-    /// Events stop being accessible when the member' state changes to
-    /// something other than *invite* or *join*.
+    /// Events stop being accessible when the member' state changes to something
+    /// other than _invite_ or _join_.
     Invited,
 
     /// Previous events are accessible to newly joined members from the point
-    /// they joined the room onwards.
-    /// Events stop being accessible when the member' state changes to
-    /// something other than *join*.
+    /// they joined the room onwards. Events stop being accessible when the
+    /// member' state changes to something other than _join_.
     Joined,
 
     /// Previous events are always accessible to newly joined members.
@@ -170,13 +172,13 @@ impl From<&RumaHistoryVisibility> for HistoryVisibility {
 }
 
 #[derive(Clone, uniffi::Enum)]
-// A note about this `allow(clippy::large_enum_variant)`.
-// In order to reduce the size of `TimelineItemContent`, we would need to
-// put some parts in a `Box`, or an `Arc`. Sadly, it doesn't play well with
-// UniFFI. We would need to change the `uniffi::Record` of the subtypes into
-// `uniffi::Object`, which is a radical change. It would simplify the memory
-// usage, but it would slow down the performance around the FFI border. Thus,
-// let's consider this is a false-positive lint in this particular case.
+// A note about this `allow(clippy::large_enum_variant)`. In order to reduce the
+// size of `TimelineItemContent`, we would need to put some parts in a `Box`, or
+// an `Arc`. Sadly, it doesn't play well with UniFFI. We would need to change
+// the `uniffi::Record` of the subtypes into `uniffi::Object`, which is a
+// radical change. It would simplify the memory usage, but it would slow down
+// the performance around the FFI border. Thus, let's consider this is a
+// false-positive lint in this particular case.
 #[allow(clippy::large_enum_variant)]
 pub enum TimelineItemContent {
     MsgLike {
@@ -227,6 +229,8 @@ pub struct Reaction {
 pub struct ReactionSenderData {
     pub sender_id: String,
     pub timestamp: Timestamp,
+    /// Send state of the reaction when it's ours and pending, `None` otherwise.
+    pub send_state: Option<EventSendState>,
 }
 
 #[derive(Clone, uniffi::Enum)]
@@ -289,8 +293,8 @@ pub struct PowerLevelChanges {
 
 #[derive(Clone, uniffi::Enum)]
 #[allow(clippy::large_enum_variant)]
-// Added because the RoomPowerLevels variant is quite large.
-// This is the same issue than for TimelineItemContent.
+// Added because the RoomPowerLevels variant is quite large. This is the same
+// issue than for TimelineItemContent.
 pub enum OtherState {
     PolicyRuleRoom,
     PolicyRuleServer,
@@ -342,8 +346,8 @@ pub enum OtherState {
 /// FFI representation of a single location update from a beacon event.
 #[derive(Clone, uniffi::Record)]
 pub struct BeaconInfo {
-    /// The geo URI carrying the user's coordinates
-    /// (e.g. `"geo:51.5008,0.1247;u=35"`).
+    /// The geo URI carrying the user's coordinates (e.g.
+    /// `"geo:51.5008,0.1247;u=35"`).
     pub geo_uri: String,
 
     /// Timestamp (ms since Unix Epoch) of this location update.
@@ -362,11 +366,11 @@ pub struct LiveLocationContent {
     /// Whether this sharing session is currently active.
     pub is_live: bool,
 
-    /// The timestamp when this live location sharing session started
-    /// (from the `org.matrix.msc3488.ts` field of the originating
-    /// `beacon_info` state event).
+    /// The timestamp when this live location sharing session started (from the
+    /// `org.matrix.msc3488.ts` field of the originating `beacon_info` state
+    /// event).
     ///
-    /// This marks the *beginning* of the session. The session expires at
+    /// This marks the _beginning_ of the session. The session expires at
     /// `ts + timeout_ms`.
     pub ts: Timestamp,
 
@@ -376,8 +380,8 @@ pub struct LiveLocationContent {
     /// Duration of the session in milliseconds.
     pub timeout_ms: u64,
 
-    /// The asset type of the beacon (e.g. `Sender` for the user's own
-    /// location, `Pin` for a fixed point of interest).
+    /// The asset type of the beacon (e.g. `Sender` for the user's own location,
+    /// `Pin` for a fixed point of interest).
     pub asset_type: AssetType,
 
     /// All location updates received so far, sorted oldest-first.

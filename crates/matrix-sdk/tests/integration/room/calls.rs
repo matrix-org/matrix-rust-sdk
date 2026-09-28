@@ -1,6 +1,8 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    assert_matches,
+    sync::{Arc, Mutex},
+};
 
-use assert_matches2::assert_matches;
 use matrix_sdk::{room::calls::CallError, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
@@ -45,7 +47,8 @@ async fn test_subscribe_to_decline_call_events() {
                 let mut decliners_sequences = decliners_sequences.lock().unwrap();
                 decliners_sequences.push(user_id);
 
-                // When we have received 2 typing notifications, we can stop listening.
+                // When we have received 2 typing notifications, we can stop
+                // listening.
                 if decliners_sequences.len() == 2 {
                     break;
                 }
@@ -92,8 +95,8 @@ async fn test_decline_call() {
     let unknown_event_id = owned_event_id!("$00002:localhost");
     let own_notification_event_id = owned_event_id!("$00003:localhost");
 
-    // Subscribe to the event cache (to avoid having to remotely fetch the related
-    // event)
+    // Subscribe to the event cache (to avoid having to remotely fetch the
+    // related event)
     let event_cache = client.event_cache();
     event_cache.subscribe().unwrap();
 

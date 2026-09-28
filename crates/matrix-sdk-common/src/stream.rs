@@ -31,8 +31,8 @@ mod sys {
     // On Wasm, BoxStream is LocalBoxStream
     pub use futures_util::stream::LocalBoxStream as BoxStream;
 
-    /// Custom `StreamExt` trait for Wasm that provides essential methods
-    /// like `.boxed()` and `.next()` without `Send` requirements.
+    /// Custom `StreamExt` trait for Wasm that provides essential methods like
+    /// `.boxed()` and `.next()` without `Send` requirements.
     pub trait StreamExt: Stream {
         /// Box this stream using `LocalBoxStream` (no `Send` requirement).
         fn boxed<'a>(self) -> BoxStream<'a, Self::Item>

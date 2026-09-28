@@ -36,8 +36,8 @@ const UNIQUE_SEPARATOR: &str = "_";
 
 /// A trait to uniquely identify values of the same type.
 pub trait UniqueKey {
-    /// A string that uniquely identifies `Self` compared to other values of
-    /// the same type.
+    /// A string that uniquely identifies `Self` compared to other values of the
+    /// same type.
     fn unique_key(&self) -> String;
 }
 
@@ -76,8 +76,8 @@ pub struct MediaThumbnailSettings {
 
     /// If we want to request an animated thumbnail from the homeserver.
     ///
-    /// If it is `true`, the server should return an animated thumbnail if
-    /// the media supports it.
+    /// If it is `true`, the server should return an animated thumbnail if the
+    /// media supports it.
     ///
     /// Defaults to `false`.
     pub animated: bool,

@@ -30,13 +30,17 @@
 use std::{
     collections::HashMap,
     fmt,
+    num::NonZeroUsize,
     ops::Deref,
     sync::{Arc, OnceLock, RwLock as StdRwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 use matrix_sdk_base::{
-    cross_process_lock::CrossProcessLockError,
-    event_cache::store::{EventCacheStoreError, EventCacheStoreLock},
+    cross_process_lock::{CrossProcessLockError, MappedCrossProcessLockState},
+    event_cache::{
+        store::{EventCacheStoreError, EventCacheStoreLock},
+        thread::ThreadInfo,
+    },
     linked_chunk::lazy_loader::LazyLoaderError,
     sync::RoomUpdates,
     task_monitor::BackgroundTaskHandle,
@@ -55,12 +59,13 @@ use crate::{
     paginators::PaginatorError,
 };
 
-mod automatic_pagination;
+pub(crate) mod back_pagination_queue;
 mod caches;
 mod deduplicator;
 mod persistence;
 #[cfg(feature = "e2e-encryption")]
 mod redecryptor;
+mod search_backfill;
 mod states;
 mod tasks;
 
@@ -68,7 +73,7 @@ mod tasks;
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
 
 pub use self::{
-    automatic_pagination::AutomaticPagination,
+    back_pagination_queue::BackPaginationQueue,
     caches::{
         TimelineVectorDiffs,
         event_focused::{EventFocusThreadMode, EventFocusedCache, EventFocusedCacheKey},
@@ -79,8 +84,9 @@ pub use self::{
             pagination::RoomPagination,
         },
         subscriber::Subscriber,
-        thread::{ThreadEventCache, pagination::ThreadPagination},
+        thread::{ThreadEventCache, ThreadEventCacheUpdate, pagination::ThreadPagination},
     },
+    search_backfill::SearchBackfillStrategy,
 };
 use self::{
     caches::{Caches, room::RoomEventCacheLinkedChunkUpdate, subscriber::AutoShrinkMessage},
@@ -166,8 +172,8 @@ pub enum EventCacheError {
     LinkedChunkLoader(#[from] LazyLoaderError),
 
     /// An error happened when trying to load pinned events; none of them could
-    /// be loaded, which would otherwise result in an empty pinned events
-    /// list, incorrectly.
+    /// be loaded, which would otherwise result in an empty pinned events list,
+    /// incorrectly.
     #[error("Unable to load any of the pinned events.")]
     UnableToLoadPinnedEvents,
 
@@ -195,19 +201,18 @@ pub struct EventCacheDropHandles {
     _auto_shrink_linked_chunk_task: BackgroundTaskHandle,
 
     /// A background task listening to room and send queue updates, and
-    /// automatically subscribing the user to threads when needed, based on
-    /// the semantics of MSC4306.
+    /// automatically subscribing the user to threads when needed, based on the
+    /// semantics of MSC4306.
     ///
     /// One important constraint is that there is only one such task per
-    /// [`EventCache`], so it does listen to *all* rooms at the same time.
+    /// [`EventCache`], so it does listen to _all_ rooms at the same time.
     _thread_subscriber_task: BackgroundTaskHandle,
 
-    /// A background task listening to room updates, and
-    /// automatically handling search index operations add/remove/edit
-    /// depending on the event type.
+    /// A background task listening to room updates, and automatically handling
+    /// search index operations add/remove/edit depending on the event type.
     ///
     /// One important constraint is that there is only one such task per
-    /// [`EventCache`], so it does listen to *all* rooms at the same time.
+    /// [`EventCache`], so it does listen to _all_ rooms at the same time.
     #[cfg(feature = "experimental-search")]
     _search_indexing_task: BackgroundTaskHandle,
 
@@ -241,7 +246,11 @@ impl fmt::Debug for EventCache {
 
 impl EventCache {
     /// Create a new [`EventCache`] for the given client.
-    pub(crate) fn new(client: &Arc<ClientInner>, event_cache_store: EventCacheStoreLock) -> Self {
+    pub(crate) fn new(
+        client: &Arc<ClientInner>,
+        event_cache_store: EventCacheStoreLock,
+        enable_automatic_back_pagination: bool,
+    ) -> Self {
         let (generic_update_sender, _) = channel(128);
         let (linked_chunk_update_sender, _) = channel(128);
 
@@ -264,7 +273,8 @@ impl EventCache {
                 linked_chunk_update_sender,
                 #[cfg(feature = "e2e-encryption")]
                 redecryption_channels,
-                automatic_pagination: OnceLock::new(),
+                enable_automatic_back_pagination,
+                back_pagination_queue: OnceLock::new(),
                 thread_subscriber_sender,
             }),
         }
@@ -359,13 +369,19 @@ impl EventCache {
             )
             .abort_on_drop();
 
-            if self.config().experimental_auto_backpagination {
-                // Run the deferred initialization of the automatic pagination request sender, that
-                // is shared with every room.
-                trace!("spawning the automatic paginations API");
-                self.inner.automatic_pagination.get_or_init(|| AutomaticPagination::new(Arc::downgrade(&self.inner), task_monitor));
+            if self.inner.enable_automatic_back_pagination {
+                // Deferred initialization of the shared back-pagination queue.
+                trace!("spawning the back-pagination queue");
+                let max_concurrent = self.config().max_concurrent_back_paginations;
+                self.inner.back_pagination_queue.get_or_init(|| {
+                    BackPaginationQueue::new(
+                        Arc::downgrade(&self.inner),
+                        max_concurrent,
+                        task_monitor,
+                    )
+                });
             } else {
-                trace!("automatic paginations API is disabled");
+                trace!("back-pagination queue is disabled");
             }
 
             Arc::new(EventCacheDropHandles {
@@ -461,6 +477,27 @@ impl EventCache {
         ))
     }
 
+    /// Get the [`ThreadInfo`] of a thread, if any.
+    pub async fn thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<Option<ThreadInfo>> {
+        let Some(client) = self.inner.client.get() else {
+            return Ok(None);
+        };
+
+        // We can go directly on the store. I don't think we need to go through
+        // the `State`, as the data cannot be outdated/dirty: the store
+        // is the source of truth.
+        let store = match client.event_cache_store().lock().await? {
+            MappedCrossProcessLockState::Clean(store)
+            | MappedCrossProcessLockState::Dirty(store) => store,
+        };
+
+        Ok(store.load_thread_info(room_id, thread_id, false).await?)
+    }
+
     /// Forget all caches related to a single room.
     ///
     /// This will notify any live observers that the room has been cleared.
@@ -488,11 +525,12 @@ impl EventCache {
         self.inner.generic_update_sender.subscribe()
     }
 
-    /// Returns a reference to the [`AutomaticPagination`] API, if enabled at
-    /// construction with the
-    /// [`EventCacheConfig::experimental_auto_backpagination`] flag.
-    pub fn automatic_pagination(&self) -> Option<AutomaticPagination> {
-        self.inner.automatic_pagination.get().cloned()
+    /// Returns the shared [`BackPaginationQueue`], if enabled at construction
+    /// with [`ClientBuilder::with_enable_automatic_back_pagination`].
+    ///
+    /// [`ClientBuilder::with_enable_automatic_back_pagination`]: crate::ClientBuilder::with_enable_automatic_back_pagination
+    pub fn back_pagination_queue(&self) -> Option<BackPaginationQueue> {
+        self.inner.back_pagination_queue.get().cloned()
     }
 }
 
@@ -505,26 +543,12 @@ pub struct EventCacheConfig {
     /// Maximum number of pinned events to load, for any room.
     pub max_pinned_events_to_load: usize,
 
-    /// Whether to automatically backpaginate a room under certain conditions.
+    /// The maximum number of back-paginations the background queue runs at
+    /// once, across all rooms and use cases. Bounds server load.
     ///
-    /// Off by default.
-    pub experimental_auto_backpagination: bool,
-
-    /// The maximum number of allowed room paginations, for a given room, that
-    /// can be executed in the automatic paginations task.
-    ///
-    /// After that number of paginations, the task will stop executing
-    /// paginations for that room *in the background* (user-requested
-    /// paginations will still be executed, of course).
-    ///
-    /// Defaults to [`EventCacheConfig::DEFAULT_ROOM_PAGINATION_CREDITS`].
-    pub room_pagination_per_room_credit: usize,
-
-    /// The number of messages to paginate in a single batch, when executing an
-    /// automatic pagination request.
-    ///
-    /// Defaults to [`EventCacheConfig::DEFAULT_ROOM_PAGINATION_BATCH_SIZE`].
-    pub room_pagination_batch_size: u16,
+    /// Defaults to
+    /// [`EventCacheConfig::DEFAULT_MAX_CONCURRENT_BACK_PAGINATIONS`].
+    pub max_concurrent_back_paginations: NonZeroUsize,
 }
 
 impl EventCacheConfig {
@@ -535,15 +559,9 @@ impl EventCacheConfig {
     /// loading the pinned events.
     pub const DEFAULT_MAX_CONCURRENT_REQUESTS: usize = 8;
 
-    /// The default number of credits to give to a room for automatic
-    /// paginations (see also
-    /// [`EventCacheConfig::room_pagination_per_room_credit`]).
-    pub const DEFAULT_ROOM_PAGINATION_CREDITS: usize = 20;
-
-    /// The default number of messages to paginate in a single batch, when
-    /// executing an automatic pagination request (see also
-    /// [`EventCacheConfig::room_pagination_batch_size`]).
-    pub const DEFAULT_ROOM_PAGINATION_BATCH_SIZE: u16 = 30;
+    /// The default maximum number of concurrent background back-paginations
+    /// (see also [`EventCacheConfig::max_concurrent_back_paginations`]).
+    pub const DEFAULT_MAX_CONCURRENT_BACK_PAGINATIONS: NonZeroUsize = NonZeroUsize::new(3).unwrap();
 }
 
 impl Default for EventCacheConfig {
@@ -551,9 +569,7 @@ impl Default for EventCacheConfig {
         Self {
             max_pinned_events_concurrent_requests: Self::DEFAULT_MAX_CONCURRENT_REQUESTS,
             max_pinned_events_to_load: Self::DEFAULT_MAX_EVENTS_TO_LOAD,
-            room_pagination_per_room_credit: Self::DEFAULT_ROOM_PAGINATION_CREDITS,
-            room_pagination_batch_size: Self::DEFAULT_ROOM_PAGINATION_BATCH_SIZE,
-            experimental_auto_backpagination: false,
+            max_concurrent_back_paginations: Self::DEFAULT_MAX_CONCURRENT_BACK_PAGINATIONS,
         }
     }
 }
@@ -580,7 +596,7 @@ struct EventCacheInner {
     /// Handles to keep alive the task listening to updates.
     drop_handles: OnceLock<Arc<EventCacheDropHandles>>,
 
-    /// A sender for notifications that a room *may* need to be auto-shrunk.
+    /// A sender for notifications that a room _may_ need to be auto-shrunk.
     ///
     /// Needs to live here, so it may be passed to each [`RoomEventCache`]
     /// instance.
@@ -600,8 +616,8 @@ struct EventCacheInner {
     /// A sender for a persisted linked chunk update.
     ///
     /// This is used to notify that some linked chunk has persisted some updates
-    /// to a store, during sync or a back-pagination of *any* linked chunk.
-    /// This can be used by observers to look for new events.
+    /// to a store, during sync or a back-pagination of _any_ linked chunk. This
+    /// can be used by observers to look for new events.
     ///
     /// See doc comment of [`RoomEventCacheLinkedChunkUpdate`].
     linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
@@ -616,11 +632,18 @@ struct EventCacheInner {
     #[cfg(feature = "e2e-encryption")]
     redecryption_channels: redecryptor::RedecryptorChannels,
 
+    /// Whether to spawn the [`BackPaginationQueue`] at subscription time; set
+    /// once, at construction, via
+    /// [`ClientBuilder::with_enable_automatic_back_pagination`].
+    ///
+    /// [`ClientBuilder::with_enable_automatic_back_pagination`]: crate::ClientBuilder::with_enable_automatic_back_pagination
+    enable_automatic_back_pagination: bool,
+
     /// State for the automatic pagination mechanism.
     ///
-    /// Depends on the [`EventCacheConfig::experimental_auto_backpagination`]
-    /// flag to be set at subscription time.
-    automatic_pagination: OnceLock<AutomaticPagination>,
+    /// Deferred initialization: spawned at subscription time, if
+    /// `enable_automatic_back_pagination` is set.
+    back_pagination_queue: OnceLock<BackPaginationQueue>,
 }
 
 impl EventCacheInner {
@@ -630,8 +653,8 @@ impl EventCacheInner {
 
     /// Clear a single room's data.
     async fn forget_room(&self, room_id: &RoomId) -> Result<()> {
-        // The constraints are very similar to what we do in `clear_all_rooms`. See this
-        // information to understand them.
+        // The constraints are very similar to what we do in `clear_all_rooms`.
+        // See this information to understand them.
 
         let mut caches_for_all_rooms = self.by_room.write().await;
         self.state.clear_and_reload(&caches_for_all_rooms, Some(room_id)).await?;
@@ -646,11 +669,11 @@ impl EventCacheInner {
     async fn clear_all_rooms(&self) -> Result<()> {
         // Okay, here's where things get delicate.
         //
-        // On the one hand, `by_room` may include storage for *some* caches
-        // that we know about, but not *all* of them. Any cache that hasn't been
+        // On the one hand, `by_room` may include storage for _some_ caches that
+        // we know about, but not _all_ of them. Any cache that hasn't been
         // loaded in the client, or touched by a sync, will remain unloaded in
         // memory, so it will be missing from `self.by_room`. As a result, we
-        // need to make sure that we're hitting the storage backend to *really*
+        // need to make sure that we're hitting the storage backend to _really_
         // clear all the caches, including those that haven't been loaded yet.
         //
         // On the other hand, one must NOT clear the `by_room` map, because if
@@ -658,16 +681,16 @@ impl EventCacheInner {
         // update for that cache, since re-creating the cache would create a
         // new, unrelated sender.
         //
-        // So we need to *keep* the caches in `by_room` alive, while clearing
+        // So we need to _keep_ the caches in `by_room` alive, while clearing
         // them in the store backend.
         //
         // As a result, for a short while, the in-memory linked chunks will be
         // desynchronised from the storage. We need to be careful then. During
-        // that short while, we don't want *anyone* to touch the linked chunks
+        // that short while, we don't want _anyone_ to touch the linked chunks
         // (be it in memory or in the storage).
         //
-        // And since that requirement applies to *any* cache in `by_room` at the
-        // same time, we'll have to take the lock for *all* the live caches and
+        // And since that requirement applies to _any_ cache in `by_room` at the
+        // same time, we'll have to take the lock for _all_ the live caches and
         // for the states, so as to properly clear the underlying storage.
 
         // We acquire an exclusive access to `by_room`.
@@ -682,10 +705,10 @@ impl EventCacheInner {
     /// Handles a single set of room updates at once.
     #[instrument(skip(self, updates))]
     async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
-        // NOTE: We tried to make this concurrent at some point, but it turned out to be
-        // a performance regression, even for large sync updates. Lacking time
-        // to investigate, this code remains sequential for now. See also
-        // https://github.com/matrix-org/matrix-rust-sdk/pull/5426.
+        // NOTE: We tried to make this concurrent at some point, but it turned
+        // out to be a performance regression, even for large sync updates.
+        // Lacking time to investigate, this code remains sequential for now.
+        // See also https://github.com/matrix-org/matrix-rust-sdk/pull/5426.
 
         // Left rooms.
         for (room_id, left_room_update) in updates.left {
@@ -717,8 +740,8 @@ impl EventCacheInner {
 
         // Invited rooms.
         //
-        // We don't handle `updates.invite` because they contain stripped-state events,
-        // which is not handled by the Event Cache for the moment.
+        // We don't handle `updates.invite` because they contain stripped-state
+        // events, which is not handled by the Event Cache for the moment.
 
         Ok(())
     }
@@ -728,20 +751,21 @@ impl EventCacheInner {
         &self,
         room_id: &RoomId,
     ) -> Result<OwnedRwLockReadGuard<CachesByRoom, Caches>> {
-        // Fast path: the entry exists; let's acquire a read lock, it's cheaper than a
-        // write lock.
+        // Fast path: the entry exists; let's acquire a read lock, it's cheaper
+        // than a write lock.
         match OwnedRwLockReadGuard::try_map(self.by_room.clone().read_owned().await, |by_room| {
             by_room.get(room_id)
         }) {
             Ok(caches) => Ok(caches),
 
             Err(by_room_guard) => {
-                // Slow-path: the entry doesn't exist; let's acquire a write lock.
+                // Slow-path: the entry doesn't exist; let's acquire a write
+                // lock.
                 drop(by_room_guard);
                 let by_room_guard = self.by_room.clone().write_owned().await;
 
-                // In the meanwhile, some other caller might have obtained write access and done
-                // the same, so check for existence again.
+                // In the meanwhile, some other caller might have obtained write
+                // access and done the same, so check for existence again.
                 let mut by_room_guard =
                     match OwnedRwLockWriteGuard::try_downgrade_map(by_room_guard, |by_room| {
                         by_room.get(room_id)
@@ -755,13 +779,13 @@ impl EventCacheInner {
                     room_id,
                     self.generic_update_sender.clone(),
                     self.linked_chunk_update_sender.clone(),
-                    // SAFETY: we must have subscribed before reaching this code, otherwise
-                    // something is very wrong.
+                    // SAFETY: we must have subscribed before reaching this
+                    // code, otherwise something is very wrong.
                     self.auto_shrink_sender.get().cloned().expect(
                         "we must have called `EventCache::subscribe()` before calling here.",
                     ),
                     &self.state,
-                    self.automatic_pagination.get().cloned(),
+                    self.back_pagination_queue.get().cloned(),
                 )
                 .await?;
 
@@ -817,13 +841,13 @@ mod tests {
 
         let event_cache = client.event_cache();
 
-        // If I create a room event subscriber for a room before subscribing the event
-        // cache,
+        // If I create a room event subscriber for a room before subscribing the
+        // event cache,
         let room_id = room_id!("!omelette:fromage.fr");
         let result = event_cache.room(room_id).await;
 
-        // Then it fails, because one must explicitly call `.subscribe()` on the event
-        // cache.
+        // Then it fails, because one must explicitly call `.subscribe()` on the
+        // event cache.
         assert_matches!(result, Err(EventCacheError::NotSubscribedYet));
     }
 
@@ -883,8 +907,8 @@ mod tests {
         let found2 = room_event_cache.find_event(eid2).await.unwrap().unwrap();
         assert_event_matches_msg(&found2, "you");
 
-        // Retrieving the event with id3 from the room which doesn't contain it will
-        // fail…
+        // Retrieving the event with id3 from the room which doesn't contain it
+        // will fail…
         assert!(room_event_cache.find_event(eid3).await.unwrap().is_none());
     }
 

@@ -4,6 +4,101 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.19.1](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.1) - 2026-09-18
+
+No significant changes.
+
+## [0.19.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.0) - 2026-09-16
+
+### Added
+
+- `linked_chunk::UpdatesSubscriber` is now available to everyone, not only for
+  internal testing purposes.
+
+  ```rust
+  let linked_chunk = LinkedChunk::new_with_update_history();
+  let mut updates_subscriber = linked_chunk.updates().unwrap().subscribe();
+
+  // `UpdatesSubscriber` implements `Stream`.
+  // Let's wait on a next value to come…
+  use futures_util::stream::StreamExt;
+
+  while let Some(next_update) = updates_subscriber.next().await {
+      // Do something!
+  }
+  ``` ([#6752](https://github.com/matrix-org/matrix-rust-sdk/pull/6752))
+- Propagate the tracing `Span` into tasks spawned via `TaskMonitor`.
+  ([#6833](https://github.com/matrix-org/matrix-rust-sdk/pull/6833))
+
+### Changed
+
+- The `TimelineEvent::event_id` now returns an `Option<&EventId>` instead of an
+  `Option<OwnedEventId>`. This is possible because the event ID is now eagerly
+  parsed when constructing this type and kept in memory for performance
+  concerns.
+
+  This cached event ID is not serialized: it is backward compatible regarding
+  the storage, while it is not regarding the `event_id()` method signature.
+
+  If one needs an `OwnedEventId` from an `&EventId`, let's just use
+  `EventId::to_owned`.
+  ([#6626](https://github.com/matrix-org/matrix-rust-sdk/pull/6626))
+- `LinkedChunk` creates its first chunk lazily. If one expects an
+  `Update::NewItemsChunk` to be sent immediately after the `LinkedChunk` is
+  created (with `new_with_update_history`), now they need to wait until a method
+  on `LinkedChunk` is called. Consequently, another change is
+  `LinkedChunk::clear` that no longer recreates an empty chunk immediately too.
+  ([#6752](https://github.com/matrix-org/matrix-rust-sdk/pull/6752))
+
+### Fixed
+
+- Fix a bug where cloning a `CrossProcessLockGuard` does not increase the
+  `num_holders`, protecting against an _impossible to release_ lock, or a
+  _prematurely released_ lock. Why? Because when the second to last holder drops
+  the lock, it makes the `num_holders` to overflow and to wrap around. It would
+  never make it to release because the number of holders became `u32::MAX`.
+  Alternatively, the counter could reach zero prematurely, and then the lock was
+  prematurely released while holders exist.
+
+  Another bug existed where the `num_holders` was off by 1 with
+  `CrossProcessLockConfig::SingleProcess`, and is now fixed.
+  ([#6629](https://github.com/matrix-org/matrix-rust-sdk/pull/6629))
+- Dropping `CrossProcessLock` no longer releases the lock if a
+  `CrossProcessGuard` is still alive.
+
+  An important problem has been found with the `CrossProcessLock`. We noticed
+  that when a `CrossProcessLock` is dropped, all `CrossProcessLockGuard`s report
+  0 holder, and thus, the lock is released, but it's wrong. As long as guards
+  are alive, the lock **MUST NOT** be released. Dropping all the guards releases
+  the lock, but dropping the `CrossProcessLock` —which is not the lock in
+  itself— must not drop the acquired lock. There is no public changes, but the
+  incorrect behaviour is now fixed.
+  ([#6674](https://github.com/matrix-org/matrix-rust-sdk/pull/6674))
+- `RingBuffer` now preserves its logical capacity when serializing and
+  deserializing. Older serialized sequence-form buffers remain readable and use
+  a legacy fallback capacity.
+  ([#6815](https://github.com/matrix-org/matrix-rust-sdk/pull/6815))
+- Update `RelationalLinkedChunk` to ensure it adheres to the following three
+  properties.
+
+  1. An `Event` should not exist within a `LinkedChunk` more than once - i.e.,
+     it should occupy only a single `Position`.
+  2. Each `Position` within a `LinkedChunk` should only be occupied by a single
+     `Event`.
+  3. When changes are made to the content of an `Event` in one `LinkedChunk`,
+     these changes should be reflected in all `LinkedChunk`s which contain an
+     instance of that `Event`.
+     ([#6872](https://github.com/matrix-org/matrix-rust-sdk/pull/6872))
+- The `TimelineEvent::bundled_latest_thread_event` _field_ is replaced by the
+  `TimelineEvent::bundled_latest_thread_event()` _method_.
+
+  1. The `TimelineEvent` type is 8 bytes smaller,
+  2. The `bundled_latest_thread_event` field was only set when a constructor was
+     used, it was unset when the value was deserialised, which was error-prone,
+  3. The field value was boxed, which forced to clone it in some cases. Now, the
+     returned value is owned.
+     ([#7033](https://github.com/matrix-org/matrix-rust-sdk/pull/7033))
+
 ## [0.18.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.18.0) - 2026-06-02
 
 No significant changes.

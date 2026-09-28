@@ -48,7 +48,7 @@ use crate::{
     error::{Error, Result},
     utils::{
         EncryptableStore, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt, SqliteTransactionExt, repeat_vars, time_to_timestamp,
+        SqliteKeyValueStoreConnExt, SqliteTransactionExt, time_to_timestamp,
     },
 };
 
@@ -98,8 +98,8 @@ impl EncryptableStore for SqliteMediaStore {
 }
 
 impl SqliteMediaStore {
-    /// Open the SQLite-based media store at the given path using the
-    /// given passphrase to encrypt private data.
+    /// Open the SQLite-based media store at the given path using the given
+    /// passphrase to encrypt private data.
     pub async fn open(
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
@@ -107,11 +107,11 @@ impl SqliteMediaStore {
         Self::open_with_config(&SqliteStoreConfig::new(path).passphrase(passphrase)).await
     }
 
-    /// Open the SQLite-based media store at the given path using the given
-    /// key to encrypt private data.
+    /// Open the SQLite-based media store at the given path using the given key
+    /// to encrypt private data.
     pub async fn open_with_key(
         path: impl AsRef<Path>,
-        key: Option<&[u8; 32]>,
+        key: Option<&[u8]>,
     ) -> Result<Self, OpenStoreError> {
         Self::open_with_config(&SqliteStoreConfig::new(path).key(key)).await
     }
@@ -141,8 +141,8 @@ impl SqliteMediaStore {
         Ok(this)
     }
 
-    /// Open an SQLite-based media store using the given SQLite database
-    /// pool. The given passphrase will be used to encrypt private data.
+    /// Open an SQLite-based media store using the given SQLite database pool.
+    /// The given passphrase will be used to encrypt private data.
     async fn open_with_pool(
         pool: SqlitePool,
         db_path: PathBuf,
@@ -272,8 +272,9 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 1 {
         debug!("Creating database");
-        // First turn on WAL mode, this can't be done in the transaction, it fails with
-        // the error message: "cannot change into wal mode from within a transaction".
+        // First turn on WAL mode, this can't be done in the transaction, it
+        // fails with the error message: "cannot change into wal mode from
+        // within a transaction".
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/media_store/001_init.sql"))?;
@@ -318,7 +319,7 @@ impl MediaStore for SqliteMediaStore {
             .write()
             .await?
             .with_transaction(move |txn| {
-                txn.query_row(
+                txn.query_one(
                     "INSERT INTO lease_locks (key, holder, expiration)
                     VALUES (?1, ?2, ?3)
                     ON CONFLICT (key)
@@ -399,16 +400,6 @@ impl MediaStore for SqliteMediaStore {
         conn.execute("DELETE FROM media WHERE uri = ? AND format = ?", (uri, format)).await?;
 
         Ok(())
-    }
-
-    #[instrument(skip(self))]
-    async fn get_media_content_for_uri(
-        &self,
-        uri: &MxcUri,
-    ) -> Result<Option<Vec<u8>>, Self::Error> {
-        let _timer = timer!("method");
-
-        self.media_service.get_media_content_for_uri(self, uri).await
     }
 
     #[instrument(skip(self))]
@@ -556,9 +547,9 @@ impl MediaStoreInner for SqliteMediaStore {
         let conn = self.write().await?;
         let data = conn
             .with_transaction::<_, rusqlite::Error, _>(move |txn| {
-                // Update the last access.
-                // We need to do this first so the transaction is in write mode right away.
-                // See: https://sqlite.org/lang_transaction.html#read_transactions_versus_write_transactions
+                // Update the last access. We need to do this first so the
+                // transaction is in write mode right away. See:
+                // https://sqlite.org/lang_transaction.html#read_transactions_versus_write_transactions
                 txn.execute(
                     "UPDATE media SET last_access = ? WHERE uri = ? AND format = ?",
                     (timestamp, &uri, &format),
@@ -567,34 +558,6 @@ impl MediaStoreInner for SqliteMediaStore {
                 txn.query_row::<Vec<u8>, _, _>(
                     "SELECT data FROM media WHERE uri = ? AND format = ?",
                     (&uri, &format),
-                    |row| row.get(0),
-                )
-                .optional()
-            })
-            .await?;
-
-        data.map(|v| self.decode_value(&v).map(Into::into)).transpose()
-    }
-
-    async fn get_media_content_for_uri_inner(
-        &self,
-        uri: &MxcUri,
-        current_time: SystemTime,
-    ) -> Result<Option<Vec<u8>>, Self::Error> {
-        let uri = self.encode_key(keys::MEDIA, uri);
-        let timestamp = time_to_timestamp(current_time);
-
-        let conn = self.write().await?;
-        let data = conn
-            .with_transaction::<_, rusqlite::Error, _>(move |txn| {
-                // Update the last access.
-                // We need to do this first so the transaction is in write mode right away.
-                // See: https://sqlite.org/lang_transaction.html#read_transactions_versus_write_transactions
-                txn.execute("UPDATE media SET last_access = ? WHERE uri = ?", (timestamp, &uri))?;
-
-                txn.query_row::<Vec<u8>, _, _>(
-                    "SELECT data FROM media WHERE uri = ?",
-                    (&uri,),
                     |row| row.get(0),
                 )
                 .optional()
@@ -647,8 +610,8 @@ impl MediaStoreInner for SqliteMediaStore {
 
                 // Finally, if the cache size is too big, remove old items until it fits.
                 if let Some(max_cache_size) = policy.max_cache_size {
-                    // i64 is the integer type used by SQLite, use it here to avoid usize overflow
-                    // during the conversion of the result.
+                    // i64 is the integer type used by SQLite, use it here to
+                    // avoid usize overflow during the conversion of the result.
                     let cache_size = txn
                         .query_row(
                             "SELECT sum(length(data)) FROM media WHERE ignore_policy IS FALSE",
@@ -696,8 +659,9 @@ impl MediaStoreInner for SqliteMediaStore {
                                 }
                                 Some(acc) => accumulated_items_size = acc,
                                 None => {
-                                    // The accumulated size is overflowing but the setting cannot be
-                                    // bigger than usize::MAX, we can stop accumulating.
+                                    // The accumulated size is overflowing but
+                                    // the setting cannot be bigger than
+                                    // usize::MAX, we can stop accumulating.
                                     limit_reached = true;
                                     rows_to_remove.push(row_id);
                                 }
@@ -709,7 +673,7 @@ impl MediaStoreInner for SqliteMediaStore {
                         }
 
                         txn.chunk_large_query_over(rows_to_remove, None, |txn, row_ids| {
-                            let sql_params = repeat_vars(row_ids.len());
+                            let sql_params = row_ids.host_parameters();
                             let query = format!("DELETE FROM media WHERE rowid IN ({sql_params})");
                             txn.prepare(&query)?.execute(params_from_iter(row_ids))?;
                             Ok(Vec::<()>::new())
@@ -832,8 +796,8 @@ mod tests {
             .await
             .expect("adding file failed");
 
-        // Since the precision of the timestamp is in seconds, wait so the timestamps
-        // differ.
+        // Since the precision of the timestamp is in seconds, wait so the
+        // timestamps differ.
         tokio::time::sleep(Duration::from_secs(3)).await;
 
         media_store
@@ -852,8 +816,8 @@ mod tests {
         assert_eq!(contents[0], thumbnail_content, "thumbnail is not last access");
         assert_eq!(contents[1], content, "file is not second-to-last access");
 
-        // Since the precision of the timestamp is in seconds, wait so the timestamps
-        // differ.
+        // Since the precision of the timestamp is in seconds, wait so the
+        // timestamps differ.
         tokio::time::sleep(Duration::from_secs(3)).await;
 
         // Access the file so its last access is more recent.

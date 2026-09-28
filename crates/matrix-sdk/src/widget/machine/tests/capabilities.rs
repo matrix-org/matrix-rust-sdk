@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use ruma::owned_room_id;
 use serde_json::{from_value, json};
+use strass::assert_let;
 
 use super::{WIDGET_ID, parse_msg};
 use crate::widget::{

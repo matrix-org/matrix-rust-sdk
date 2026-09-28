@@ -15,7 +15,6 @@
 use std::ops::Not as _;
 
 use assert_matches::assert_matches;
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
@@ -28,7 +27,7 @@ use matrix_sdk_test::{
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineFocus, TimelineReadReceiptTracking};
 use ruma::{
-    MilliSecondsSinceUnixEpoch,
+    MilliSecondsSinceUnixEpoch, OwnedEventId,
     api::client::receipt::create_receipt::v3::ReceiptType as CreateReceiptType,
     event_id,
     events::{
@@ -44,6 +43,7 @@ use ruma::{
     uint, user_id,
 };
 use serde_json::json;
+use strass::assert_let;
 use stream_assert::{assert_pending, assert_ready};
 use tokio::task::yield_now;
 
@@ -917,7 +917,7 @@ async fn test_send_single_receipt_threaded() {
 
     let timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id.to_owned() })
+        .with_focus(TimelineFocus::Thread { thread_id: thread_root_event_id.to_owned() })
         .build()
         .await
         .unwrap();
@@ -1040,7 +1040,8 @@ async fn test_send_single_receipt_with_unread_flag() {
             .unwrap();
     }
 
-    // Unthreaded receipts on unknown events are set and the unread flag is unset.
+    // Unthreaded receipts on unknown events are set and the unread flag is
+    // unset.
     {
         let _guards = (
             server
@@ -1086,8 +1087,8 @@ async fn test_send_single_receipt_with_unread_flag() {
             .unwrap();
     }
 
-    // Threaded receipt with unknown previous receipt is sent, but the unread flag
-    // is not unset.
+    // Threaded receipt with unknown previous receipt is sent, but the unread
+    // flag is not unset.
     {
         let _guard = server
             .mock_send_receipt(CreateReceiptType::Read)
@@ -1164,8 +1165,8 @@ async fn test_mark_as_read() {
         .await
         .unwrap();
 
-    // Then no request is actually sent, because the event forming the timeline item
-    // (the message) is known as read.
+    // Then no request is actually sent, because the event forming the timeline
+    // item (the message) is known as read.
     assert!(has_sent.not());
 
     server.mock_send_receipt(CreateReceiptType::Read).ok().mock_once().mount().await;
@@ -1198,8 +1199,8 @@ async fn test_mark_as_read_after_own_reply() {
     let own_user_id = client.user_id().unwrap();
     let alice_event_id = event_id!("$alice_event_id");
 
-    // Alice sends a message, the user replies. The user's reply is the latest event
-    // and but the homeserver has no receipt for Alice's message.
+    // Alice sends a message, the user replies. The user's reply is the latest
+    // event and but the homeserver has no receipt for Alice's message.
     let f = EventFactory::new();
     server
         .sync_room(
@@ -1225,9 +1226,9 @@ async fn test_mark_as_read_after_own_reply() {
         .await;
 
     // Marking the room as read still sends a receipt (for Alice's message, the
-    // latest event not sent by the user) instead of being suppressed by the user's
-    // implicit receipt. This is required to allow the server to re-compute the
-    // push/badge count.
+    // latest event not sent by the user) instead of being suppressed by the
+    // user's implicit receipt. This is required to allow the server to
+    // re-compute the push/badge count.
     let has_sent = timeline.mark_as_read(CreateReceiptType::Read).await.unwrap();
     assert!(has_sent);
 }
@@ -1266,8 +1267,9 @@ async fn test_mark_as_read_with_only_own_events() {
         )
         .await;
 
-    // With no other user's event to point at, the receipt falls back to the user's
-    // own latest event so a lingering server-side push/badge count can be reset.
+    // With no other user's event to point at, the receipt falls back to the
+    // user's own latest event so a lingering server-side push/badge count can
+    // be reset.
     server
         .mock_send_receipt(CreateReceiptType::Read)
         .match_event_id(event_id!("$second"))
@@ -1301,8 +1303,8 @@ async fn test_send_read_receipt_redirects_from_own_event() {
     let alice_event_id = event_id!("$alice_event_id");
     let own_event_id = event_id!("$own_event_id");
 
-    // Alice sends a message, then the user replies. The homeserver has no receipt
-    // for either yet.
+    // Alice sends a message, then the user replies. The homeserver has no
+    // receipt for either yet.
     let f = EventFactory::new();
     server
         .sync_room(
@@ -1551,7 +1553,8 @@ async fn test_mark_as_read_with_unread_flag() {
             .mount_as_scoped()
             .await;
 
-        // When I mark the room as read by sending a read receipt to the latest event,
+        // When I mark the room as read by sending a read receipt to the latest
+        // event,
         let has_sent = timeline.mark_as_read(CreateReceiptType::Read).await.unwrap();
 
         // The receipt is sent and the unread flag was unset.
@@ -1583,7 +1586,8 @@ async fn test_mark_as_read_with_unread_flag() {
             .mount_as_scoped()
             .await;
 
-        // When I mark the room as read by sending a read receipt to the latest event,
+        // When I mark the room as read by sending a read receipt to the latest
+        // event,
         let has_sent = timeline.mark_as_read(CreateReceiptType::Read).await.unwrap();
 
         // The receipt is not sent but the unread flag was unset.
@@ -1794,8 +1798,8 @@ async fn test_send_multiple_receipts_with_unread_flag() {
         timeline.send_multiple_receipts(first_receipts).await.unwrap();
     }
 
-    // Receipts with unknown previous receipts are always sent, and the unread flag
-    // is unset.
+    // Receipts with unknown previous receipts are always sent, and the unread
+    // flag is unset.
     {
         let _read_markers_guard =
             server.mock_send_read_markers().ok().expect(1).mount_as_scoped().await;
@@ -1944,15 +1948,17 @@ async fn test_no_duplicate_receipt_after_backpagination() {
     let room_id = room_id!("!a98sd12bjh:example.org");
 
     // We want the following final state in the room:
+    //
     // - received from back-pagination:
     //  - $1: an event from Alice
     //  - $2: an event from Bob
     // - received from sync:
     //  - $3: an hidden event sent by Alice, with a read receipt from Carol
     //
-    // As a result, since $3 is *after* the two others, Alice's implicit read
-    // receipt and Carol's receipt on the edit event should be placed onto the
-    // most recent rendered event, that is, $2.
+    // As a result, since
+    // $3 is _after_ the two others, Alice's implicit read receipt and Carol's
+    // receipt on the edit event should be placed onto the most recent rendered
+    // event, that is, $2.
 
     let eid1 = event_id!("$1_backpaginated_oldest");
     let eid2 = event_id!("$2_backpaginated_newest");
@@ -2020,16 +2026,17 @@ async fn test_no_duplicate_receipt_after_backpagination() {
 
         let receipts = &event1.read_receipts();
 
-        // Carol has explicitly seen ev3, which is after Bob's event, so there shouldn't
-        // be a receipt for them here.
+        // Carol has explicitly seen ev3, which is after Bob's event, so there
+        // shouldn't be a receipt for them here.
         assert!(receipts.get(*CAROL).is_none());
 
-        // Alice has seen this event, being the sender; but Alice has also sent an edit
-        // after Bob's message, so Alice must not have a read receipt here.
+        // Alice has seen this event, being the sender; but Alice has also sent
+        // an edit after Bob's message, so Alice must not have a read receipt
+        // here.
         assert!(receipts.get(*ALICE).is_none());
 
-        // And Bob has seen the original, but posted something after it, so no receipt
-        // for Bob either.
+        // And Bob has seen the original, but posted something after it, so no
+        // receipt for Bob either.
         assert!(receipts.get(*BOB).is_none());
 
         // In other words, no receipts here.
@@ -2049,4 +2056,124 @@ async fn test_no_duplicate_receipt_after_backpagination() {
         receipts.get(*BOB).unwrap();
         receipts.get(*CAROL).unwrap();
     }
+}
+
+#[async_test]
+async fn test_no_duplicate_receipt_after_backpagination_with_message_like_events_tracking() {
+    // Regression test for a duplicate read receipt that only manifests when
+    // read receipts are tracked in
+    // `TimelineReadReceiptTracking::MessageLikeEvents` mode.
+    //
+    // In that mode a state event is _rendered_ (`visible == true`) but
+    // _cannot hold a read receipt_ (`can_show_read_receipts == false`). When a
+    // new visible event is inserted right after such a state event,
+    // `compute_event_receipts` used to pick the state event as the "previous
+    // rendered item" to steal folded receipts from — but the receipts actually
+    // live on the message-like event _before_ the state event. The steal
+    // missed, so the receipt was added to the new event while remaining on the
+    // old one, tripping the `check_no_duplicate_read_receipts` invariant.
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+
+    // We want the following final state in the room:
+    //
+    // - received from back-pagination:
+    //  - $1: a message from Alice
+    //  - $2: a *state event* from Bob (visible, but can't show read receipts)
+    //  - $3: a message from our own user
+    // - received from sync:
+    //  - $4: a hidden edit of $3 (from our own user), with a read receipt from
+    //    Carol
+    //
+    // $4 is hidden and at the end, so Carol's receipt must land on the most
+    // recent event that can show read receipts, that is $3. Crucially, $3
+    // is immediately preceded by the state event $2, which is rendered but
+    // cannot carry receipts — so the receipt-holder to reconcile against is
+    // $1, not $2.
+
+    let eid1 = event_id!("$1_alice_message");
+    let eid2 = event_id!("$2_bob_state_event");
+    let eid3 = event_id!("$3_own_message");
+    let eid4 = event_id!("$4_sync_hidden_edit");
+
+    let f = EventFactory::new().room(room_id);
+
+    let own_user_id = client.user_id().unwrap().to_owned();
+
+    // Our own user sends an edit of $3 via sync…
+    let ev4 = f
+        .text_msg("* I am me, edited.")
+        .edit(eid3, RoomMessageEventContent::text_plain("I am me, edited.").into())
+        .sender(&own_user_id)
+        .event_id(eid4)
+        .into_raw_sync();
+
+    // …and Carol has a read receipt on that (hidden) edit.
+    let read_receipt_event = f
+        .read_receipts()
+        .add(eid4, *CAROL, ruma::events::receipt::ReceiptType::Read, ReceiptThread::Unthreaded)
+        .into_event();
+
+    let prev_batch_token = "prev-batch-token";
+
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(ev4)
+                .add_receipt(read_receipt_event.room(room_id))
+                .set_timeline_limited()
+                .set_timeline_prev_batch(prev_batch_token),
+        )
+        .await;
+
+    let timeline = room
+        .timeline_builder()
+        .track_read_marker_and_receipts(TimelineReadReceiptTracking::MessageLikeEvents)
+        .build()
+        .await
+        .unwrap();
+
+    server
+        .mock_room_messages()
+        .match_from(prev_batch_token)
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            // In reverse order!
+            f.text_msg("I am me.").sender(&own_user_id).event_id(eid3).into_raw_timeline(),
+            f.room_name("Party Room").sender(*BOB).event_id(eid2).into_raw_timeline(),
+            f.text_msg("I am Alice.").sender(*ALICE).event_id(eid1).into_raw_timeline(),
+        ]))
+        .mock_once()
+        .mount()
+        .await;
+
+    let reached_start = timeline.paginate_backwards(42).await.unwrap();
+    assert!(reached_start);
+
+    let timeline_items = timeline.items().await;
+
+    // No user must hold a read receipt on more than one timeline item; this is
+    // what the invariant `check_no_duplicate_read_receipts` checks.
+    let mut seen_users: std::collections::HashMap<_, OwnedEventId> =
+        std::collections::HashMap::new();
+    for item in &timeline_items {
+        let Some(event) = item.as_event() else { continue };
+        let Some(event_id) = event.event_id() else { continue };
+        for (user_id, _) in event.read_receipts() {
+            if let Some(prev_event_id) = seen_users.insert(user_id.clone(), event_id.to_owned()) {
+                panic!(
+                    "duplicate read receipt for {user_id}: present on both {prev_event_id} and \
+                     {event_id}",
+                );
+            }
+        }
+    }
+
+    // Carol's receipt must be on $3 (the message after the state event), and
+    // nowhere else.
+    assert_eq!(seen_users.get(*CAROL).map(|id| id.as_ref()), Some(eid3));
 }

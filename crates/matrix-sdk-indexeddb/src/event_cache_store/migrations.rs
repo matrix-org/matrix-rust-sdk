@@ -21,10 +21,10 @@ use thiserror::Error;
 
 /// The current version and keys used in the database.
 pub mod current {
-    use super::{Version, v6};
+    use super::{Version, v8};
 
-    pub const VERSION: Version = Version::V6;
-    pub use v6::keys;
+    pub const VERSION: Version = Version::V8;
+    pub use v8::keys;
 }
 
 /// Opens a connection to the IndexedDB database and takes care of upgrading it
@@ -64,6 +64,10 @@ pub enum Version {
     V5 = 5,
     /// Version 6 of the database, for details see [`v6`].
     V6 = 6,
+    /// Version 7 of the database, for details see [`v7`].
+    V7 = 7,
+    /// Version 8 of the database, for details see [`v8`].
+    V8 = 8,
 }
 
 impl Version {
@@ -76,7 +80,9 @@ impl Version {
             Self::V3 => v3::upgrade(transaction).map(Some),
             Self::V4 => v4::upgrade(transaction).map(Some),
             Self::V5 => v5::upgrade(transaction).map(Some),
-            Self::V6 => Ok(None),
+            Self::V6 => v6::upgrade(transaction).map(Some),
+            Self::V7 => v7::upgrade(transaction).map(Some),
+            Self::V8 => Ok(None),
         }
     }
 }
@@ -96,6 +102,9 @@ impl TryFrom<u32> for Version {
             3 => Ok(Version::V3),
             4 => Ok(Version::V4),
             5 => Ok(Version::V5),
+            6 => Ok(Version::V6),
+            7 => Ok(Version::V7),
+            8 => Ok(Version::V8),
             v => Err(UnknownVersionError(v)),
         }
     }
@@ -170,8 +179,8 @@ pub mod v1 {
 
     /// Create an object store for tracking information about linked chunks.
     ///
-    /// * Primary Key - `id`
-    /// * Index - `is_last` - tracks the last chunk in linked chunks
+    /// - Primary Key - `id`
+    /// - Index - `is_last` - tracks the last chunk in linked chunks
     fn create_linked_chunks_object_store(db: &Database) -> Result<(), Error> {
         let _ = db
             .create_object_store(keys::LINKED_CHUNKS)
@@ -184,11 +193,11 @@ pub mod v1 {
 
     /// Create an object store for tracking information about events.
     ///
-    /// * Primary Key - `id`
-    /// * Index (unique) - `room` - tracks whether an event is in a given room
-    /// * Index (unique) - `position` - tracks position of an event in linked
+    /// - Primary Key - `id`
+    /// - Index (unique) - `room` - tracks whether an event is in a given room
+    /// - Index (unique) - `position` - tracks position of an event in linked
     ///   chunks
-    /// * Index - `relation` - tracks any event to which the given event is
+    /// - Index - `relation` - tracks any event to which the given event is
     ///   related
     fn create_events_object_store(db: &Database) -> Result<(), Error> {
         let events = db
@@ -274,10 +283,11 @@ mod v3 {
     /// Remove events object store
     pub fn remove_events_object_store(transaction: &Transaction<'_>) -> Result<(), Error> {
         let object_store = transaction.object_store(keys::EVENTS)?;
-        // It is faster to clear all events first, then delete the object store rather
-        // than immediately deleting.
+        // It is faster to clear all events first, then delete the object store
+        // rather than immediately deleting.
         //
-        // For details, see https://www.artificialworlds.net/blog/2024/02/02/deleting-an-indexed-db-store-can-be-incredibly-slow-on-firefox/
+        // For details, see
+        // https://www.artificialworlds.net/blog/2024/02/02/deleting-an-indexed-db-store-can-be-incredibly-slow-on-firefox/
         object_store.clear()?;
         transaction.db().delete_object_store(keys::EVENTS)?;
         Ok(())
@@ -285,11 +295,11 @@ mod v3 {
 
     /// Create an object store for tracking information about events.
     ///
-    /// * Primary Key - `id`
-    /// * Index - `room` - tracks whether an event is in a given room
-    /// * Index (unique) - `position` - tracks position of an event in linked
+    /// - Primary Key - `id`
+    /// - Index - `room` - tracks whether an event is in a given room
+    /// - Index (unique) - `position` - tracks position of an event in linked
     ///   chunks
-    /// * Index - `relation` - tracks any event to which the given event is
+    /// - Index - `relation` - tracks any event to which the given event is
     ///   related
     pub fn create_events_object_store(db: &Database) -> Result<(), Error> {
         let events = db
@@ -383,7 +393,7 @@ pub mod v5 {
         Ok(())
     }
 
-    /// Upgrade database from `v4` to `v5`
+    /// Upgrade database from `v5` to `v6`
     pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
         v6::empty_event_cache(transaction)?;
         Ok(Version::V6)
@@ -399,12 +409,90 @@ mod v6 {
     /// properly handle deleting events - namely, subsequent events in the same
     /// chunk did not have their indices decremented after an event was deleted.
     /// This caused bugs when callers tried to address events by position, as
-    /// the assumption is that deletions do not leave gaps between indices,
-    /// but rather shift higher indices down.
+    /// the assumption is that deletions do not leave gaps between indices, but
+    /// rather shift higher indices down.
     ///
     /// The implementation has now been fixed, but it is also necessary to clear
     /// existing data where the indices may have gaps due to deletions that
     /// happened before this fix.
+    pub fn empty_event_cache(transaction: &Transaction<'_>) -> Result<(), Error> {
+        let linked_chunks = transaction.object_store(keys::LINKED_CHUNKS)?;
+        linked_chunks.clear()?;
+
+        let gaps = transaction.object_store(keys::GAPS)?;
+        gaps.clear()?;
+
+        let events = transaction.object_store(keys::EVENTS)?;
+        events.clear()?;
+
+        let threads = transaction.object_store(keys::THREADS)?;
+        threads.clear()?;
+
+        Ok(())
+    }
+
+    /// Upgrade database from `v6` to `v7`
+    pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
+        v7::empty_threads(transaction)?;
+        Ok(Version::V7)
+    }
+}
+
+mod v7 {
+    // Re-use all the same keys from `v6`.
+    pub use super::v6::keys;
+    use super::*;
+
+    /// Clear the threads table, so we can add the new non-optional, encoded
+    /// `info` column at runtime.
+    pub fn empty_threads(transaction: &Transaction<'_>) -> Result<(), Error> {
+        let threads = transaction.object_store(keys::THREADS)?;
+        threads.clear()?;
+        Ok(())
+    }
+
+    /// Upgrade database from `v7` to `v8`
+    pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
+        v8::add_event_id_index_to_events_object_store(transaction)?;
+        v8::empty_event_cache(transaction)?;
+        Ok(Version::V8)
+    }
+}
+
+pub mod v8 {
+    use indexed_db_futures::Build;
+
+    use super::*;
+
+    pub mod keys {
+        // Re-use all the same keys from `v6`.
+        pub use super::v6::keys::*;
+
+        pub const EVENTS_EVENT_ID: &str = "events_event_id";
+        pub const EVENTS_EVENT_ID_KEY_PATH: &str = "event_id";
+    }
+
+    /// Add a new index to the events object store which tracks the event id of
+    /// an event.
+    ///
+    /// The primary key of the store tracks both the linked chunk id and the
+    /// event id of the event. This makes finding the same event across linked
+    /// chunks difficult.
+    ///
+    /// The new index, therefore, allows a single lookup to find all of these
+    /// events at once.
+    pub fn add_event_id_index_to_events_object_store(
+        transaction: &Transaction<'_>,
+    ) -> Result<(), Error> {
+        let events = transaction.object_store(keys::EVENTS)?;
+        let _ = events
+            .create_index(keys::EVENTS_EVENT_ID, keys::EVENTS_EVENT_ID_KEY_PATH.into())
+            .build()?;
+        Ok(())
+    }
+
+    /// Empty the entire store, as the logic for adding events has been updated
+    /// to ensure that event content is consistent across linked chunks.
     pub fn empty_event_cache(transaction: &Transaction<'_>) -> Result<(), Error> {
         let linked_chunks = transaction.object_store(keys::LINKED_CHUNKS)?;
         linked_chunks.clear()?;

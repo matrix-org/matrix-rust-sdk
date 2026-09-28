@@ -68,13 +68,13 @@ pub struct PaginationResult {
     /// topological order.
     pub events: Vec<TimelineEvent>,
 
-    /// Did we hit *an* end of the timeline?
+    /// Did we hit _an_ end of the timeline?
     ///
     /// If this is the result of a backward pagination, this means we hit the
-    /// *start* of the timeline.
+    /// _start_ of the timeline.
     ///
     /// If this is the result of a forward pagination, this means we hit the
-    /// *end* of the timeline.
+    /// _end_ of the timeline.
     pub hit_end_of_timeline: bool,
 }
 

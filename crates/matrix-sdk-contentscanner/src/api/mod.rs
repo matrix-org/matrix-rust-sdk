@@ -16,8 +16,8 @@ use matrix_sdk::{RumaApiError, encryption::vodozemac::pk_encryption::PkEncryptio
 use matrix_sdk_crypto::vodozemac::Curve25519PublicKey;
 use ruma::{
     api::{
-        EndpointError, IncomingResponse,
-        error::{FromHttpResponseError, IntoHttpError},
+        IncomingResponse,
+        error::{DeserializationError, IntoHttpError},
     },
     events::room::EncryptedFile,
     exports::{http::Response, serde_json},
@@ -42,14 +42,10 @@ pub struct DownloadAndScanMediaResponse {
 impl IncomingResponse for DownloadAndScanMediaResponse {
     type EndpointError = RumaApiError;
 
-    fn try_from_http_response<T: AsRef<[u8]>>(
-        response: Response<T>,
-    ) -> Result<Self, FromHttpResponseError<Self::EndpointError>> {
-        if response.status().is_success() {
-            Ok(Self { content: response.body().as_ref().to_vec() })
-        } else {
-            Err(FromHttpResponseError::Server(Self::EndpointError::from_http_response(response)))
-        }
+    fn try_from_http_response_inner(
+        response: Response<&[u8]>,
+    ) -> Result<Self, DeserializationError> {
+        Ok(Self { content: response.body().to_vec() })
     }
 }
 

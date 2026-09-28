@@ -50,8 +50,12 @@ impl X509Verifier {
     }
 
     /// Verify that the given object is signed with a certificate issued by a
-    /// trusted CA, and that the certificate was issued to the given user
-    /// ID.
+    /// trusted CA, and that the certificate was issued to the given user ID.
+    ///
+    /// Note that, unlike verifying an Ed25519 signature, the result here is
+    /// derived from the configured trust anchors at the time of the call, and
+    /// so this method may give a different answer in the future, e.g. once the
+    /// certificate chain expires.
     pub(crate) fn verify_signed_object(
         &self,
         user_id: &UserId,
@@ -68,8 +72,8 @@ impl X509Verifier {
         };
 
         for sig in this_user_sigs.values().flatten() {
-            // `this_user_sigs` can and will contain non-X.509 signatures, which we should
-            // ignore.
+            // `this_user_sigs` can and will contain non-X.509 signatures, which
+            // we should ignore.
             if let Signature::X509(sig) = sig
                 && self
                     .verify_x509_signature(user_id, &msg, sig)
@@ -101,8 +105,8 @@ impl X509Verifier {
         let res: RawX509SignatureAndFirstCertificate =
             sig.try_into().map_err(X509SignatureVerificationError::RawSignatureParseError)?;
 
-        // Before we pass over to the X.509 certificate verifier, check that the leaf
-        // certificate is valid for the given user_id.
+        // Before we pass over to the X.509 certificate verifier, check that the
+        // leaf certificate is valid for the given user_id.
         if !cert_contains_user_id_or_equivalent_email(user_id, &res.leaf_cert) {
             tracing::warn!(?user_id, "Verifying certificate user ID or email failed");
             return Err(X509SignatureVerificationError::BadUserIdOrEmail);
@@ -164,15 +168,16 @@ pub trait RawX509Verifier: Debug + Send + Sync {
 }
 
 fn map_user_id_to_email(user_id: &UserId) -> String {
-    // TODO RAV: this is not a reliable way to map from user_ids to email addresses.
+    // TODO RAV: this is not a reliable way to map from user_ids to email
+    // addresses.
     format!("{}@{}", user_id.localpart(), user_id.server_name())
 }
 
 /// Search this certificate's Subject Alternative Name for a URI that matches
 /// the format of a Matrix URI that contains a valid Matrix user ID.
 fn get_user_id_from_certificate(certificate: &Certificate) -> Option<OwnedUserId> {
-    // If we have no SAN or SAN is not understood here, we definitely can't find a
-    // user ID.
+    // If we have no SAN or SAN is not understood here, we definitely can't find
+    // a user ID.
     let Ok(Some((_, san))) = certificate.tbs_certificate.get::<SubjectAltName>() else {
         return None;
     };
@@ -245,6 +250,7 @@ fn get_attribute_value_as_string(value: &AttributeValue) -> Option<&str> {
 pub(crate) mod tests {
 
     use cms::cert::x509::der::Decode;
+    use matrix_sdk_test::async_test;
     use rcgen::generate_simple_self_signed;
     use ruma::{DeviceKeyAlgorithm, DeviceKeyId, encryption::KeyUsage, user_id};
     use vodozemac::Ed25519SecretKey;
@@ -329,9 +335,10 @@ pub(crate) mod tests {
         assert!(user_id.is_none());
     }
 
-    #[test]
-    fn test_can_verify_cert_containing_email_in_dn() {
-        // Given a cert containing the email address in the Subject Distinguished Name
+    #[async_test]
+    async fn test_can_verify_cert_containing_email_in_dn() {
+        // Given a cert containing the email address in the Subject
+        // Distinguished Name
         let (cert, signing_key) =
             cert_and_key_with_email_in_subject_distinguished_name("alice@localhost");
 
@@ -345,14 +352,14 @@ pub(crate) mod tests {
         assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
 
         // But when we sign it
-        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).await.unwrap();
 
         // Then it verifies correctly
         assert!(x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
     }
 
-    #[test]
-    fn test_can_verify_cert_containing_email_in_san() {
+    #[async_test]
+    async fn test_can_verify_cert_containing_email_in_san() {
         // Given a cert containing the email address in the Subject Alternative
         // Name
         let (cert, signing_key) =
@@ -364,14 +371,14 @@ pub(crate) mod tests {
         let user_id = user_id!("@alice:localhost").to_owned();
         let mut cross_signing_key = create_cross_signing_key(&user_id);
 
-        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).await.unwrap();
 
         // Then it verifies correctly.
         assert!(x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
     }
 
-    #[test]
-    fn test_can_verify_cert_containing_username_in_san() {
+    #[async_test]
+    async fn test_can_verify_cert_containing_username_in_san() {
         // Given a cert containing the Matrix user ID in the Subject Alternative
         // Name
         let (cert, signing_key) =
@@ -383,14 +390,14 @@ pub(crate) mod tests {
         let user_id = user_id!("@alice:localhost").to_owned();
         let mut cross_signing_key = create_cross_signing_key(&user_id);
 
-        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).await.unwrap();
 
         // Then it verifies correctly.
         assert!(x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
     }
 
-    #[test]
-    fn test_verification_fails_if_dn_email_is_wrong() {
+    #[async_test]
+    async fn test_verification_fails_if_dn_email_is_wrong() {
         // Given a cert containing an incorrect email address in the Subject
         // Distinguished Name
         let (cert, signing_key) =
@@ -402,15 +409,15 @@ pub(crate) mod tests {
         let user_id = user_id!("@alice:localhost").to_owned();
         let mut cross_signing_key = create_cross_signing_key(&user_id);
 
-        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).await.unwrap();
 
         // Then it fails to verify because the supplied email address translates
         // to a different user ID.
         assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
     }
 
-    #[test]
-    fn test_verification_fails_if_san_email_is_wrong() {
+    #[async_test]
+    async fn test_verification_fails_if_san_email_is_wrong() {
         // Given a cert containing an incorrect email address in the Subject
         // Alternative Name
         let (cert, signing_key) =
@@ -422,15 +429,15 @@ pub(crate) mod tests {
         let user_id = user_id!("@alice:localhost").to_owned();
         let mut cross_signing_key = create_cross_signing_key(&user_id);
 
-        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).await.unwrap();
 
         // Then it fails to verify because the supplied email address translates
         // to a different user ID.
         assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
     }
 
-    #[test]
-    fn test_verification_fails_if_cert_user_id_is_wrong() {
+    #[async_test]
+    async fn test_verification_fails_if_cert_user_id_is_wrong() {
         // Given a cert containing an incorrect email address in the Subject
         // Alternative Name
         let (cert, signing_key) =
@@ -442,15 +449,15 @@ pub(crate) mod tests {
         let user_id = user_id!("@alice:localhost").to_owned();
         let mut cross_signing_key = create_cross_signing_key(&user_id);
 
-        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).await.unwrap();
 
         // Then it fails to verify because the supplied user ID does not match
         // the signing user.
         assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
     }
 
-    #[test]
-    fn test_verification_fails_if_cert_user_id_is_missing() {
+    #[async_test]
+    async fn test_verification_fails_if_cert_user_id_is_missing() {
         // Given a cert with no email or user ID at all
         let (cert, signing_key) = cert_and_key_with_no_user_id();
 
@@ -460,7 +467,7 @@ pub(crate) mod tests {
         let user_id = user_id!("@alice:localhost").to_owned();
         let mut cross_signing_key = create_cross_signing_key(&user_id);
 
-        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).await.unwrap();
 
         // Then it fails to verify because there is no user ID to check against
         // the user's ID.

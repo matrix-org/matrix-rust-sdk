@@ -39,6 +39,9 @@ mod room;
 
 pub mod sliding_sync;
 
+#[cfg(feature = "unstable-msc4354")]
+pub mod sticky;
+
 pub mod store;
 pub mod sync;
 #[cfg(any(test, feature = "testing"))]

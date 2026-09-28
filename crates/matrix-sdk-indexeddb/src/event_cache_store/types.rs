@@ -17,7 +17,7 @@ use std::time::Duration;
 use matrix_sdk_base::{
     cross_process_lock::CrossProcessLockGeneration,
     deserialized_responses::TimelineEvent,
-    event_cache::store::extract_event_relation,
+    event_cache::{store::extract_event_relation, thread::ThreadInfo},
     linked_chunk::{ChunkIdentifier, LinkedChunkId, OwnedLinkedChunkId},
 };
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
@@ -33,8 +33,8 @@ pub struct Lease {
     pub generation: CrossProcessLockGeneration,
 }
 
-/// Representation of a [`Chunk`](matrix_sdk_base::linked_chunk::Chunk)
-/// which can be stored in IndexedDB.
+/// Representation of a [`Chunk`](matrix_sdk_base::linked_chunk::Chunk) which
+/// can be stored in IndexedDB.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Chunk {
     /// The linked chunk id in which the chunk exists.
@@ -127,8 +127,16 @@ impl Event {
         }
     }
 
-    /// Sets the content of the underlying [`GenericEvent`] and returns
-    /// the mutated [`Event`]
+    /// A reference to the underlying event.
+    pub fn content(&self) -> &TimelineEvent {
+        match self {
+            Event::InBand(e) => &e.content,
+            Event::OutOfBand(e) => &e.content,
+        }
+    }
+
+    /// Sets the content of the underlying [`GenericEvent`] and returns the
+    /// mutated [`Event`]
     pub fn with_content(mut self, content: TimelineEvent) -> Self {
         match self {
             Event::InBand(ref mut i) => i.content = content,
@@ -183,12 +191,12 @@ impl<P> GenericEvent<P> {
     }
 }
 
-/// A concrete instance of [`GenericEvent`] for in-band events, i.e.,
-/// events which are part of a chunk and therefore have a position.
+/// A concrete instance of [`GenericEvent`] for in-band events, i.e., events
+/// which are part of a chunk and therefore have a position.
 pub type InBandEvent = GenericEvent<Position>;
 
-/// A concrete instance of [`GenericEvent`] for out-of-band events, i.e.,
-/// events which are not part of a chunk and therefore have no position.
+/// A concrete instance of [`GenericEvent`] for out-of-band events, i.e., events
+/// which are not part of a chunk and therefore have no position.
 pub type OutOfBandEvent = GenericEvent<()>;
 
 impl From<InBandEvent> for OutOfBandEvent {
@@ -219,16 +227,16 @@ impl From<matrix_sdk_base::linked_chunk::Position> for Position {
     }
 }
 
-/// A representation of [`Gap`](matrix_sdk_base::linked_chunk::Gap)
-/// which can be stored in IndexedDB.
+/// A representation of [`Gap`](matrix_sdk_base::linked_chunk::Gap) which can be
+/// stored in IndexedDB.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Gap {
     /// The linked chunk id in which the gap exists.
     pub linked_chunk_id: OwnedLinkedChunkId,
     /// The identifier of the chunk containing this gap.
     pub chunk_identifier: u64,
-    /// The token to use in the query, extracted from a previous "from" /
-    /// "end" field of a `/messages` response.
+    /// The token to use in the query, extracted from a previous "from" / "end"
+    /// field of a `/messages` response.
     #[serde(alias = "prev_token")]
     pub token: String,
 }
@@ -241,6 +249,8 @@ pub struct Thread {
     pub room_id: OwnedRoomId,
     /// The root of the thread.
     pub thread_id: OwnedEventId,
+    /// Information about the thread.
+    pub info: ThreadInfo,
 }
 
 impl Thread {

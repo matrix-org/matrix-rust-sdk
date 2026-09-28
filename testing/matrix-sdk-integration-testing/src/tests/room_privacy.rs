@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
+use std::{assert_matches, time::Duration};
 
-use assert_matches2::assert_matches;
 use assign::assign;
 use matrix_sdk::{
     config::SyncSettings,

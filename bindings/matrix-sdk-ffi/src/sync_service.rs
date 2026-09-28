@@ -14,7 +14,6 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use futures_util::pin_mut;
 use matrix_sdk::Client;
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
@@ -80,11 +79,11 @@ impl SyncService {
     }
 
     pub fn state(&self, listener: Box<dyn SyncServiceStateObserver>) -> Arc<TaskHandle> {
-        let state_stream = self.inner.state();
+        let mut state_stream = self.inner.state();
+
+        listener.on_update(state_stream.next_now().into());
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(state_stream);
-
             while let Some(state) = state_stream.next().await {
                 listener.on_update(state.into());
             }
@@ -94,8 +93,8 @@ impl SyncService {
     /// Force expiring both sliding sync sessions.
     ///
     /// This ensures that the sync service is stopped before expiring both
-    /// sessions. It should be used sparingly, as it will cause a restart of
-    /// the sessions on the server as well.
+    /// sessions. It should be used sparingly, as it will cause a restart of the
+    /// sessions on the server as well.
     pub async fn expire_sessions(&self) {
         self.inner.expire_sessions().await;
     }
@@ -128,22 +127,11 @@ impl SyncServiceBuilder {
         Arc::new(Self { builder, ..this })
     }
 
-    /// Enable the Profiles sliding sync extension for the room list service.
-    ///
-    /// Required to merge the global `m.status` and `m.call` fields into the
-    /// room members and profiles read from the SDK.
-    pub fn with_profiles_extension(self: Arc<Self>) -> Arc<Self> {
-        let this = unwrap_or_clone_arc(self);
-        let builder = this.builder.with_profiles_extension();
-        Arc::new(Self { builder, ..this })
-    }
-
     /// Set a custom Sliding Sync connection ID for the room list service.
     ///
     /// By default [`matrix_sdk_ui::room_list_service::DEFAULT_CONNECTION_ID`]
-    /// is used. Set a different value for secondary processes such as iOS
-    /// Share Extensions that are not meant to reuse the main app's
-    /// connection.
+    /// is used. Set a different value for secondary processes such as iOS Share
+    /// Extensions that are not meant to reuse the main app's connection.
     pub fn with_room_list_connection_id(self: Arc<Self>, connection_id: String) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
         let builder = this.builder.with_room_list_conn_id(connection_id);

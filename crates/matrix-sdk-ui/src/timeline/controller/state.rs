@@ -15,16 +15,17 @@
 use std::sync::Arc;
 
 use eyeball_im::VectorDiff;
-use matrix_sdk::{deserialized_responses::TimelineEvent, send_queue::SendHandle};
-#[cfg(test)]
-use ruma::events::receipt::ReceiptEventContent;
+use matrix_sdk::{
+    deserialized_responses::{ThreadSummary, TimelineEvent},
+    event_cache::EventCache,
+    send_queue::SendHandle,
+};
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
-    events::{AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent},
+    events::{AnyMessageLikeEventContent, receipt::ReceiptEventContent},
     room_version_rules::RoomVersionRules,
-    serde::Raw,
 };
-use tracing::{instrument, trace, warn};
+use tracing::{instrument, trace};
 
 use super::{
     super::{
@@ -52,7 +53,9 @@ pub(in crate::timeline) struct TimelineState<P: RoomDataProvider> {
 }
 
 impl<P: RoomDataProvider> TimelineState<P> {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
+        event_cache: EventCache,
         focus: Arc<TimelineFocusKind>,
         own_user_id: OwnedUserId,
         room_version_rules: RoomVersionRules,
@@ -64,6 +67,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
         Self {
             items: ObservableItems::new(),
             meta: TimelineMetadata::new(
+                event_cache,
                 own_user_id,
                 room_version_rules,
                 internal_id_prefix,
@@ -110,6 +114,19 @@ impl<P: RoomDataProvider> TimelineState<P> {
         transaction.commit();
     }
 
+    /// Handle an update of the thread summary of a single event that is a
+    /// thread root.
+    pub(super) async fn handle_thread_summary(
+        &mut self,
+        thread_root: OwnedEventId,
+        thread_summary: ThreadSummary,
+        room_data: &P,
+    ) {
+        let mut transaction = self.transaction();
+        transaction.handle_thread_summary(thread_root, thread_summary, room_data).await;
+        transaction.commit();
+    }
+
     /// Marks the given event as fully read, using the read marker received from
     /// sync.
     pub(super) fn handle_fully_read_marker(&mut self, fully_read_event_id: OwnedEventId) {
@@ -119,32 +136,19 @@ impl<P: RoomDataProvider> TimelineState<P> {
     }
 
     #[instrument(skip_all)]
-    pub(super) async fn handle_ephemeral_events(
+    pub(super) async fn handle_read_receipt(
         &mut self,
-        events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        event: ReceiptEventContent,
         room_data_provider: &P,
     ) {
-        if events.is_empty() {
+        if event.is_empty() {
             return;
         }
 
-        let mut txn = self.transaction();
-
         trace!("Handling ephemeral room events");
-        let own_user_id = room_data_provider.own_user_id();
-        for raw_event in events {
-            match raw_event.deserialize() {
-                Ok(AnySyncEphemeralRoomEvent::Receipt(ev)) => {
-                    txn.handle_explicit_read_receipts(ev.content, own_user_id);
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    let event_type = raw_event.get_field::<String>("type").ok().flatten();
-                    warn!(event_type, "Failed to deserialize ephemeral event: {e}");
-                }
-            }
-        }
 
+        let mut txn = self.transaction();
+        txn.handle_explicit_read_receipts(event, room_data_provider.own_user_id());
         txn.commit();
     }
 
@@ -173,12 +177,12 @@ impl<P: RoomDataProvider> TimelineState<P> {
             TimelineFocusKind::Live { hide_threaded_events, .. } => {
                 thread_root.is_none() || !hide_threaded_events
             }
-            TimelineFocusKind::Thread { root_event_id, .. } => {
-                thread_root.as_ref().is_some_and(|r| r == root_event_id)
+            TimelineFocusKind::Thread { thread_id, .. } => {
+                thread_root.as_ref().is_some_and(|r| r == thread_id)
             }
             TimelineFocusKind::Event { .. } | TimelineFocusKind::PinnedEvents { .. } => {
-                // Don't add new items to these timelines; aggregations are added independently
-                // of the `should_add_new_items` value.
+                // Don't add new items to these timelines; aggregations are
+                // added independently of the `should_add_new_items` value.
                 false
             }
         };
@@ -225,7 +229,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
     /// Replaces the existing events in the timeline with the given remote ones.
     ///
     /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
-    /// should be ordered in *reverse* topological order, that is, `events[0]`
+    /// should be ordered in _reverse_ topological order, that is, `events[0]`
     /// is the most recent.
     pub(super) async fn replace_with_remote_events<Events>(
         &mut self,
@@ -250,8 +254,8 @@ impl<P: RoomDataProvider> TimelineState<P> {
     }
 
     pub(super) fn mark_all_events_as_encrypted(&mut self) {
-        // When this transaction finishes, all items in the timeline will be emitted
-        // again with the updated encryption value.
+        // When this transaction finishes, all items in the timeline will be
+        // emitted again with the updated encryption value.
         let mut txn = self.transaction();
         txn.mark_all_events_as_encrypted();
         txn.commit();

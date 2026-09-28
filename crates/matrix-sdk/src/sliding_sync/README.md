@@ -127,7 +127,8 @@ position. The details (`required_state`s and timeline items) requested by all
 lists are bundled, together with the common details (e.g. whether it is a `dm`
 or its calculated name). Use the `Room` API to get these updated data.
 
-It is possible [`subscribe_to_rooms()`](SlidingSync::subscribe_to_rooms): any
+It is possible to subscribe to rooms with
+[`add_room_subscriptions()`](SlidingSync::add_room_subscriptions): any
 room subscribed to will receive updates (with the given settings) regardless of
 whether they are visible in any list. The most common case for using this API
 is when the user enters a room - as we want to receive the incoming new messages

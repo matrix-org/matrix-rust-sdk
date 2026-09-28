@@ -235,11 +235,8 @@ impl From<&Box<RoomMessageRequest>> for Request {
     }
 }
 
-pub(crate) fn response_from_string(body: &str) -> Response<Vec<u8>> {
-    Response::builder()
-        .status(200)
-        .body(body.as_bytes().to_vec())
-        .expect("Can't create HTTP response")
+pub(crate) fn response_from_string(body: &str) -> Response<&[u8]> {
+    Response::builder().status(200).body(body.as_bytes()).expect("Can't create HTTP response")
 }
 
 #[derive(uniffi::Enum)]

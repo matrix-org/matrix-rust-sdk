@@ -14,8 +14,8 @@
 
 //! Types for `io.element.msc4385.secret.push` to-device events.
 
-// This is here because we have a zeroize(skip) further below, which incorrectly triggers a
-// unused_assignments warning due to the macro not using a variable.
+// This is here because we have a zeroize(skip) further below, which incorrectly
+// triggers a unused_assignments warning due to the macro not using a variable.
 //
 // This will be fixed once we bump Zeroize.
 #![allow(unused_assignments)]

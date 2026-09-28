@@ -17,7 +17,7 @@ use std::fmt::Debug;
 use bytes::Bytes;
 use bytesize::ByteSize;
 use eyeball::SharedObservable;
-use ruma::api::{IncomingResponse, OutgoingRequest, error::FromHttpResponseError};
+use ruma::api::{IncomingResponseExt as _, OutgoingRequest, error::FromHttpResponseError};
 
 use super::{HttpClient, TransmissionProgress, response_to_http_response};
 use crate::{config::RequestConfig, error::HttpError};
@@ -50,6 +50,8 @@ impl HttpClient {
             .record("response_size", response_size.display().si_short().to_string())
             .record("request_duration", tracing::field::debug(request_duration));
 
+        let (parts, body) = response.into_parts();
+        let response: http::Response<&[u8]> = http::Response::from_parts(parts, &body);
         Ok(R::IncomingResponse::try_from_http_response(response)?)
     }
 }

@@ -22,9 +22,9 @@ pub struct RoomMessageRequest {
 
     /// The transaction ID for this event.
     ///
-    /// Clients should generate an ID unique across requests with the
-    /// same access token; it will be used by the server to ensure
-    /// idempotency of requests.
+    /// Clients should generate an ID unique across requests with the same
+    /// access token; it will be used by the server to ensure idempotency of
+    /// requests.
     pub txn_id: OwnedTransactionId,
 
     /// The event content to send.

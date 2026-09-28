@@ -74,9 +74,8 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{
         events::tag::{TagInfo, TagName, Tags},
-        room_id,
+        owned_device_id, owned_user_id, room_id,
         serde::Raw,
-        user_id,
     };
     use serde_json::json;
     use stream_assert::{assert_pending, assert_ready};
@@ -101,8 +100,8 @@ mod tests {
         client
             .activate(
                 SessionMeta {
-                    user_id: user_id!("@alice:example.org").into(),
-                    device_id: ruma::device_id!("AYEAYEAYE").into(),
+                    user_id: owned_user_id!("@alice:example.org"),
+                    device_id: owned_device_id!("AYEAYEAYE"),
                 },
                 RoomLoadSettings::default(),
                 #[cfg(feature = "e2e-encryption")]
@@ -200,8 +199,8 @@ mod tests {
         client
             .activate(
                 SessionMeta {
-                    user_id: user_id!("@alice:example.org").into(),
-                    device_id: ruma::device_id!("AYEAYEAYE").into(),
+                    user_id: owned_user_id!("@alice:example.org"),
+                    device_id: owned_device_id!("AYEAYEAYE"),
                 },
                 RoomLoadSettings::default(),
                 #[cfg(feature = "e2e-encryption")]

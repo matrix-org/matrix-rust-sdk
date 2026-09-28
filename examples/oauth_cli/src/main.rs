@@ -50,8 +50,8 @@ use url::Url;
 /// an OAuth 2.0 authorization server for a Matrix client, using the
 /// Authorization Code flow.
 ///
-/// You can test this against one of the servers from the OIDC playground:
-/// <https://github.com/element-hq/oidc-playground>.
+/// You can test this against any homeserver supporting next-gen auth, like
+/// `matrix.org`.
 ///
 /// To use this, just run `cargo run -p example-oauth-cli`, and everything
 /// is interactive after that. You might want to set the `RUST_LOG` environment

@@ -47,6 +47,7 @@ use ruma::{
                 PossiblyRedactedRoomPinnedEventsEventContent, RoomPinnedEventsEventContent,
             },
             redaction::SyncRoomRedactionEvent,
+            retention::RoomRetentionEventContent,
             tombstone::PossiblyRedactedRoomTombstoneEventContent,
             topic::PossiblyRedactedRoomTopicEventContent,
         },
@@ -70,7 +71,7 @@ use crate::{
     deserialized_responses::RawSyncOrStrippedState,
     latest_event::LatestEventValue,
     notification_settings::RoomNotificationMode,
-    read_receipts::RoomReadReceipts,
+    read_receipts::ReadReceipts,
     room::call::CallIntentConsensus,
     store::{IncorrectMutexGuardError, SaveLockedStateStore, StateStoreExt},
     sync::UnreadNotificationsCount,
@@ -124,8 +125,8 @@ impl Room {
         self.info.set(info);
 
         if reasons.is_empty() {
-            // TODO: remove this block!
-            // Read `RoomInfoNotableUpdateReasons::NONE` to understand why it must be
+            // TODO: remove this block! Read
+            // `RoomInfoNotableUpdateReasons::NONE` to understand why it must be
             // removed.
             reasons = RoomInfoNotableUpdateReasons::NONE;
         }
@@ -199,6 +200,8 @@ pub struct BaseRoomInfo {
     pub(crate) member_hints: Option<MinimalStateEvent<PossiblyRedactedMemberHintsEventContent>>,
     /// The `m.room.name` of this room.
     pub(crate) name: Option<MinimalStateEvent<PossiblyRedactedRoomNameEventContent>>,
+    /// The message retention policy of this room.
+    pub(crate) retention: Option<MinimalStateEvent<RoomRetentionEventContent>>,
     /// The `m.room.tombstone` event content of this room.
     pub(crate) tombstone: Option<MinimalStateEvent<PossiblyRedactedRoomTombstoneEventContent>>,
     /// The topic of this room.
@@ -250,9 +253,10 @@ impl BaseRoomInfo {
     ) -> bool {
         match (&raw_event.event_type, raw_event.state_key.as_str()) {
             (StateEventType::RoomEncryption, "") => {
-                // To avoid breaking encrypted rooms, we ignore `m.room.encryption` events that
-                // fail to deserialize or that are redacted (i.e. they don't contain the
-                // algorithm used for encryption).
+                // To avoid breaking encrypted rooms, we ignore
+                // `m.room.encryption` events that fail to deserialize or that
+                // are redacted (i.e. they don't contain the algorithm used for
+                // encryption).
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
                     as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomEncryption)
                 }) && event.content.algorithm.is_some()
@@ -270,7 +274,8 @@ impl BaseRoomInfo {
                     self.avatar = Some(event);
                     true
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.avatar.take().is_some()
                 }
             }
@@ -281,7 +286,8 @@ impl BaseRoomInfo {
                     self.name = Some(event);
                     true
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.name.take().is_some()
                 }
             }
@@ -315,8 +321,21 @@ impl BaseRoomInfo {
                     self.history_visibility = Some(event);
                     true
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.history_visibility.take().is_some()
+                }
+            }
+            (StateEventType::RoomRetention, "") => {
+                if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
+                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomRetention)
+                }) {
+                    self.retention = Some(event);
+                    true
+                } else {
+                    // Remove the previous content if the new content is
+                    // unknown.
+                    self.retention.take().is_some()
                 }
             }
             (StateEventType::RoomGuestAccess, "") => {
@@ -326,7 +345,8 @@ impl BaseRoomInfo {
                     self.guest_access = Some(event);
                     true
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.guest_access.take().is_some()
                 }
             }
@@ -337,7 +357,8 @@ impl BaseRoomInfo {
                     self.member_hints = Some(event);
                     true
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.member_hints.take().is_some()
                 }
             }
@@ -357,12 +378,14 @@ impl BaseRoomInfo {
                         }
                         r => {
                             warn!(join_rule = ?r.as_str(), "Encountered a custom join rule, skipping");
-                            // Remove the previous content if the new content is unsupported.
+                            // Remove the previous content if the new content is
+                            // unsupported.
                             self.join_rules.take().is_some()
                         }
                     }
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.join_rules.take().is_some()
                 }
             }
@@ -373,7 +396,8 @@ impl BaseRoomInfo {
                     self.canonical_alias = Some(event);
                     true
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.canonical_alias.take().is_some()
                 }
             }
@@ -384,7 +408,8 @@ impl BaseRoomInfo {
                     self.topic = Some(event);
                     true
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.topic.take().is_some()
                 }
             }
@@ -395,7 +420,8 @@ impl BaseRoomInfo {
                     self.tombstone = Some(event);
                     true
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.tombstone.take().is_some()
                 }
             }
@@ -447,14 +473,15 @@ impl BaseRoomInfo {
                         // Add the new event.
                         self.rtc_member_events.insert(call_member_key, event);
 
-                        // Remove all events that don't contain any memberships anymore.
+                        // Remove all events that don't contain any memberships
+                        // anymore.
                         self.rtc_member_events
                             .retain(|_, ev| !ev.content.active_memberships(None).is_empty());
 
                         true
                     } else {
-                        // Remove the previous content with the same state key if the new content is
-                        // unknown.
+                        // Remove the previous content with the same state key
+                        // if the new content is unknown.
                         self.rtc_member_events.remove(&call_member_key).is_some()
                     }
                 } else {
@@ -468,7 +495,8 @@ impl BaseRoomInfo {
                     self.pinned_events = Some(event.content);
                     true
                 } else {
-                    // Remove the previous content if the new content is unknown.
+                    // Remove the previous content if the new content is
+                    // unknown.
                     self.pinned_events.take().is_some()
                 }
             }
@@ -508,6 +536,10 @@ impl BaseRoomInfo {
         {
             ev.redact(&redaction_rules);
         } else if let Some(ev) = &mut self.name
+            && ev.event_id.as_deref() == Some(redacts)
+        {
+            ev.redact(&redaction_rules);
+        } else if let Some(ev) = &mut self.retention
             && ev.event_id.as_deref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
@@ -554,6 +586,7 @@ impl Default for BaseRoomInfo {
             join_rules: None,
             max_power_level: DEFAULT_MAX_POWER_LEVEL,
             name: None,
+            retention: None,
             tombstone: None,
             topic: None,
             rtc_member_events: BTreeMap::new(),
@@ -609,7 +642,7 @@ pub struct RoomInfo {
 
     /// Information about read receipts for this room.
     #[serde(default)]
-    pub(crate) read_receipts: RoomReadReceipts,
+    pub(crate) read_receipts: ReadReceipts,
 
     /// Base room info which holds some basic event contents important for the
     /// room state.
@@ -635,9 +668,9 @@ pub struct RoomInfo {
     /// The recency stamp of this room.
     ///
     /// It's not to be confused with the `origin_server_ts` value of an event.
-    /// Sliding Sync might “ignore” some events when computing the recency
-    /// stamp of the room. The recency stamp must be considered as an opaque
-    /// unsigned integer value.
+    /// Sliding Sync might “ignore” some events when computing the recency stamp
+    /// of the room. The recency stamp must be considered as an opaque unsigned
+    /// integer value.
     ///
     /// # Sorting rooms
     ///
@@ -745,9 +778,9 @@ impl RoomInfo {
         self.encryption_state_synced = false;
     }
 
-    /// Set the `prev_batch`-token.
-    /// Returns whether the token has differed and thus has been upgraded:
-    /// `false` means no update was applied as the were the same
+    /// Set the `prev_batch`-token. Returns whether the token has differed and
+    /// thus has been upgraded: `false` means no update was applied as the were
+    /// the same
     pub fn set_prev_batch(&mut self, prev_batch: Option<&str>) -> bool {
         if self.last_prev_batch.as_deref() != prev_batch {
             self.last_prev_batch = prev_batch.map(|p| p.to_owned());
@@ -811,10 +844,11 @@ impl RoomInfo {
             .iter()
             .any(|(state_event, _)| state_event == &StateEventType::RoomEncryption)
         {
-            // The `m.room.encryption` event was requested during the sync. Whether we have
-            // received a `m.room.encryption` event in return doesn't matter: we must mark
-            // the encryption state as synced; if the event is present, it means the room
-            // _is_ encrypted, otherwise it means the room _is not_ encrypted.
+            // The `m.room.encryption` event was requested during the sync.
+            // Whether we have received a `m.room.encryption` event in return
+            // doesn't matter: we must mark the encryption state as synced; if
+            // the event is present, it means the room _is_ encrypted, otherwise
+            // it means the room _is not_ encrypted.
 
             self.mark_encryption_state_synced();
         }
@@ -849,10 +883,10 @@ impl RoomInfo {
 
         if raw_event.event_type == StateEventType::RoomEncryption && raw_event.state_key.is_empty()
         {
-            // The `m.room.encryption` event was or wasn't explicitly requested, we don't
-            // know here (see `Self::handle_encryption_state`) but we got one in
-            // return! In this case, we can deduce the room _is_ encrypted, but we cannot
-            // know if it _is not_ encrypted.
+            // The `m.room.encryption` event was or wasn't explicitly requested,
+            // we don't know here (see `Self::handle_encryption_state`) but we
+            // got one in return! In this case, we can deduce the room _is_
+            // encrypted, but we cannot know if it _is not_ encrypted.
 
             self.mark_encryption_state_synced();
         }
@@ -1070,6 +1104,13 @@ impl RoomInfo {
         self.history_visibility().unwrap_or(&HistoryVisibility::Shared)
     }
 
+    /// Returns the message retention policy for this room.
+    ///
+    /// Returns `None` if the event was never seen during sync.
+    pub fn retention(&self) -> Option<&RoomRetentionEventContent> {
+        self.base_info.retention.as_ref().map(|e| &e.content)
+    }
+
     /// Return the join rule for this room, if the `m.room.join_rules` event is
     /// available.
     pub fn join_rule(&self) -> Option<&JoinRule> {
@@ -1140,9 +1181,9 @@ impl RoomInfo {
     /// Whether the given `(user_id, device_id)` tuple is currently a
     /// participant in this room's active MatrixRTC call.
     ///
-    /// Distinct from [`Self::active_room_call_participants`] which returns
-    /// only user IDs. Callers that must not conflate multiple devices of
-    /// the same user (e.g. profile-field mirroring) should use this.
+    /// Distinct from [`Self::active_room_call_participants`] which returns only
+    /// user IDs. Callers that must not conflate multiple devices of the same
+    /// user (e.g. profile-field mirroring) should use this.
     pub fn is_device_in_active_room_call(
         &self,
         user_id: &ruma::UserId,
@@ -1157,9 +1198,9 @@ impl RoomInfo {
     /// members are advertising.
     ///
     /// This provides detailed information about the consensus state (is it an
-    /// audio or video call), including whether it's full (all members
-    /// agree) or partial (only some members advertise), allowing callers to
-    /// distinguish between different levels of consensus.
+    /// audio or video call), including whether it's full (all members agree) or
+    /// partial (only some members advertise), allowing callers to distinguish
+    /// between different levels of consensus.
     ///
     /// # Returns
     ///
@@ -1251,9 +1292,8 @@ impl RoomInfo {
         self.base_info.fully_read_event_id.as_deref()
     }
 
-    /// Checks if an `EventId` is currently pinned.
-    /// It avoids having to clone the whole list of event ids to check a single
-    /// value.
+    /// Checks if an `EventId` is currently pinned. It avoids having to clone
+    /// the whole list of event ids to check a single value.
     ///
     /// Returns `true` if the provided `event_id` is pinned, `false` otherwise.
     pub fn is_pinned_event(&self, event_id: &EventId) -> bool {
@@ -1265,12 +1305,12 @@ impl RoomInfo {
     }
 
     /// Returns the computed read receipts for this room.
-    pub fn read_receipts(&self) -> &RoomReadReceipts {
+    pub fn read_receipts(&self) -> &ReadReceipts {
         &self.read_receipts
     }
 
     /// Set the computed read receipts for this room.
-    pub fn set_read_receipts(&mut self, read_receipts: RoomReadReceipts) {
+    pub fn set_read_receipts(&mut self, read_receipts: ReadReceipts) {
         self.read_receipts = read_receipts;
     }
 
@@ -1348,7 +1388,7 @@ impl RoomInfo {
 
 /// Type to represent a `RoomInfo::recency_stamp`.
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(transparent)]
 pub struct RoomRecencyStamp(u64);
 
@@ -1462,14 +1502,15 @@ bitflags! {
 
         /// This is a temporary hack.
         ///
-        /// So here is the thing. Ideally, we DO NOT want to emit this reason. It does not
-        /// makes sense. However, all notable update reasons are not clearly identified
-        /// so far. Why is it a problem? The `matrix_sdk_ui::room_list_service::RoomList`
-        /// is listening this stream of [`RoomInfoNotableUpdate`], and emits an update on a
-        /// room item if it receives a notable reason. Because all reasons are not
-        /// identified, we are likely to miss particular updates, and it can feel broken.
-        /// Ultimately, we want to clearly identify all the notable update reasons, and
-        /// remove this one.
+        /// So here is the thing. Ideally, we DO NOT want to emit this reason.
+        /// It does not makes sense. However, all notable update reasons are not
+        /// clearly identified so far. Why is it a problem? The
+        /// `matrix_sdk_ui::room_list_service::RoomList` is listening this
+        /// stream of [`RoomInfoNotableUpdate`], and emits an update on a room
+        /// item if it receives a notable reason. Because all reasons are not
+        /// identified, we are likely to miss particular updates, and it can
+        /// feel broken. Ultimately, we want to clearly identify all the notable
+        /// update reasons, and remove this one.
         const NONE = 0b0000_0000_1000_0000;
 
         /// The user's `m.fully_read` marker has changed.
@@ -1500,7 +1541,9 @@ mod tests {
         assign,
         events::{
             AnyRoomAccountDataEvent,
-            room::pinned_events::RoomPinnedEventsEventContent,
+            room::{
+                pinned_events::RoomPinnedEventsEventContent, retention::RoomRetentionEventContent,
+            },
             tag::{TagInfo, TagName, Tags, UserTagName},
         },
         owned_event_id, owned_mxc_uri, owned_user_id, room_id,
@@ -1597,6 +1640,7 @@ mod tests {
                 "max_power_level": 100,
                 "member_hints": null,
                 "name": null,
+                "retention": null,
                 "tombstone": null,
                 "topic": null,
                 "pinned_events": {
@@ -1770,7 +1814,7 @@ mod tests {
 
         let info: RoomInfo = serde_json::from_value(info_json).unwrap();
 
-        assert_eq!(info.room_id, room_id!("!gda78o:server.tld"));
+        assert_eq!(info.room_id, "!gda78o:server.tld");
         assert_eq!(info.room_state, RoomState::Joined);
         assert_eq!(info.notification_counts.highlight_count, 1);
         assert_eq!(info.notification_counts.notification_count, 2);
@@ -1818,12 +1862,12 @@ mod tests {
     // schema
     //
     // In an ideal world, we must not change this test. Please see
-    // [`test_room_info_serialization`] if you want to test a “recent” `RoomInfo`
-    // deserialization.
+    // [`test_room_info_serialization`] if you want to test a “recent”
+    // `RoomInfo` deserialization.
     #[test]
     fn test_room_info_deserialization_without_optional_items() {
-        // The following JSON should never change if we want to be able to read in old
-        // cached state
+        // The following JSON should never change if we want to be able to read
+        // in old cached state
         let info_json = json!({
             "room_id": "!gda78o:server.tld",
             "room_state": "Invited",
@@ -1862,7 +1906,7 @@ mod tests {
 
         let info: RoomInfo = serde_json::from_value(info_json).unwrap();
 
-        assert_eq!(info.room_id, room_id!("!gda78o:server.tld"));
+        assert_eq!(info.room_id, "!gda78o:server.tld");
         assert_eq!(info.room_state, RoomState::Invited);
         assert_eq!(info.notification_counts.highlight_count, 1);
         assert_eq!(info.notification_counts.notification_count, 2);
@@ -2163,8 +2207,8 @@ mod tests {
             room.update_room_info(|info| (info, RoomInfoNotableUpdateReasons::NONE)).await
         });
 
-        // Ensure that the second task does not progress until the first task has
-        // completed and, therefore, releases the save lock
+        // Ensure that the second task does not progress until the first task
+        // has completed and, therefore, releases the save lock
         assert_matches!(future::select(lock_task, save_task).await, Either::Left((_, save_task)) => {
             timeout(Duration::from_millis(100), save_task)
                 .await
@@ -2192,8 +2236,8 @@ mod tests {
             room.update_and_save_room_info(|info| (info, RoomInfoNotableUpdateReasons::NONE)).await
         });
 
-        // Ensure that the second task does not progress until the first task has
-        // completed and, therefore, releases the save lock
+        // Ensure that the second task does not progress until the first task
+        // has completed and, therefore, releases the save lock
         assert_matches!(future::select(lock_task, save_task).await, Either::Left((_, save_task)) => {
             timeout(Duration::from_millis(100), save_task)
                 .await
@@ -2201,5 +2245,29 @@ mod tests {
                 .expect("task completes successfully")
                 .expect("update and save room info");
         });
+    }
+
+    #[test]
+    fn test_retention_stored_on_handle_state_event() {
+        let mut info = RoomInfo::new(room_id!("!gda78o:server.tld"), RoomState::Joined);
+        assert!(info.retention().is_none(), "retention should be absent before any event");
+
+        let max_lifetime = Duration::from_secs(86_400); // 1 day
+        let content = RoomRetentionEventContent::new().at_most(max_lifetime).unwrap();
+
+        let mut raw = RawStateEventWithKeys::try_from_raw_state_event(
+            EventFactory::new()
+                .sender(user_id!("@alice:example.org"))
+                .event(content)
+                .state_key("")
+                .into_raw_sync_state(),
+        )
+        .expect("retention state event should be constructable");
+
+        info.handle_state_event(&mut raw);
+
+        let retention = info.retention().expect("retention should be set after event");
+        assert_eq!(retention.max_lifetime(), Some(max_lifetime));
+        assert!(retention.min_lifetime().is_none());
     }
 }

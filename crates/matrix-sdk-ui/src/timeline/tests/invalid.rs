@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{ALICE, BOB, async_test, sync_timeline_event};
@@ -21,6 +20,7 @@ use ruma::{
     events::{MessageLikeEventType, StateEventType, room::message::MessageType},
     uint,
 };
+use strass::assert_let;
 use stream_assert::assert_next_matches;
 
 use super::TestTimeline;

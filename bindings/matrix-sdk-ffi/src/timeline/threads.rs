@@ -133,14 +133,14 @@ pub struct ThreadListItem {
     /// The latest event in the thread (i.e. the most recent reply), if
     /// available.
     ///
-    /// Initially populated from the server's bundled thread summary and
-    /// updated in real time as new events arrive via sync or back-pagination.
+    /// Initially populated from the server's bundled thread summary and updated
+    /// in real time as new events arrive via sync or back-pagination.
     latest_event: Option<ThreadListItemEvent>,
 
     /// The number of replies in this thread (excluding the root event).
     ///
-    /// Initially populated from the server's bundled thread summary and
-    /// updated in real time as new events arrive via sync.
+    /// Initially populated from the server's bundled thread summary and updated
+    /// in real time as new events arrive via sync.
     num_replies: u32,
 }
 
@@ -256,9 +256,9 @@ impl From<VectorDiff<UIThreadListItem>> for ThreadListUpdate {
 ///
 /// `ThreadListService` is the FFI-facing wrapper around
 /// [`matrix_sdk_ui::timeline::thread_list_service::ThreadListService`]. It
-/// maintains an observable list of [`ThreadListItem`]s and exposes a
-/// pagination state publisher, making it straightforward to build reactive UIs
-/// on top of the thread list.
+/// maintains an observable list of [`ThreadListItem`]s and exposes a pagination
+/// state publisher, making it straightforward to build reactive UIs on top of
+/// the thread list.
 ///
 /// Obtain an instance via [`Room::thread_list_service`].
 #[derive(uniffi::Object)]
@@ -281,13 +281,16 @@ impl ThreadListService {
 
     /// Subscribes to changes in the pagination state.
     ///
-    /// The `listener` is called once for every state transition. The returned
-    /// [`TaskHandle`] keeps the subscription alive
+    /// The `listener` is immediately called with the current state, then once
+    /// for every state transition. The returned [`TaskHandle`] keeps the
+    /// subscription alive
     pub fn subscribe_to_pagination_state_updates(
         &self,
         listener: Box<dyn ThreadListPaginationStateListener>,
     ) -> Arc<TaskHandle> {
         let mut subscriber = self.inner.subscribe_to_pagination_state_updates();
+
+        listener.on_update(subscriber.next_now());
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(state) = subscriber.next().await {

@@ -31,13 +31,13 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use assert_matches2::assert_let;
 use futures::StreamExt;
 use matrix_sdk::{
     encryption::{EncryptionSettings, dehydrated_devices::DehydratedDeviceEvent},
     timeout::timeout,
 };
 use matrix_sdk_base::crypto::store::types::DehydratedDeviceKey;
+use strass::assert_let;
 use tracing::{info, warn};
 
 use crate::helpers::TestClientBuilder;

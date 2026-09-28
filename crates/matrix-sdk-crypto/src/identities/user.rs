@@ -89,8 +89,8 @@ impl UserIdentity {
                 Self::Own(OwnUserIdentity { inner: i, verification_machine, store })
             }
             UserIdentityData::Other(i) => {
-                // X509Verifier holds an Arc so cloning it gives us a reference to the single
-                // underlying RustRawX509Verifier
+                // X509Verifier holds an Arc so cloning it gives us a reference
+                // to the single underlying RustRawX509Verifier
                 #[cfg(feature = "experimental-x509-identity-verification")]
                 let x509_verifier = store.x509_verifier().cloned();
 
@@ -108,13 +108,18 @@ impl UserIdentity {
     /// Check if this user identity is verified.
     ///
     /// For our own identity, this means either that we have checked the public
-    /// keys in the identity against the private keys; or that the identity
-    /// has been manually marked as verified via
-    /// [`OwnUserIdentity::verify`].
+    /// keys in the identity against the private keys; or that the identity has
+    /// been manually marked as verified via [`OwnUserIdentity::verify`].
     ///
     /// For another user's identity, it means that we have verified our own
-    /// identity as above, *and* that the other user's identity has been signed
+    /// identity as above, _and_ that the other user's identity has been signed
     /// by our own user-signing key.
+    ///
+    /// Alternatively, if experimental X.509 identity verification is enabled,
+    /// an X.509 verifier is configured, and this is another user's identity, we
+    /// consider this identity verified if it carries a valid X.509 signature
+    /// chaining to one of our trusted CAs, regardless of whether our own
+    /// identity is verified or even present.
     pub fn is_verified(&self) -> bool {
         match self {
             UserIdentity::Own(u) => u.is_verified(),
@@ -151,9 +156,9 @@ impl UserIdentity {
     /// action "pinning".
     ///
     /// If the identity presented for the user changes later on, the newly
-    /// presented identity is considered to be in "pin violation". This
-    /// method explicitly accepts the new identity, allowing it to replace
-    /// the previously pinned one and bringing it out of pin violation.
+    /// presented identity is considered to be in "pin violation". This method
+    /// explicitly accepts the new identity, allowing it to replace the
+    /// previously pinned one and bringing it out of pin violation.
     ///
     /// UIs should display a warning to the user when encountering an identity
     /// which is not verified and is in pin violation. See
@@ -161,8 +166,8 @@ impl UserIdentity {
     pub async fn pin(&self) -> Result<(), CryptoStoreError> {
         match self {
             UserIdentity::Own(_) => {
-                // Nothing to be done for our own identity: we already
-                // consider it trusted in this sense.
+                // Nothing to be done for our own identity: we already consider
+                // it trusted in this sense.
                 Ok(())
             }
             UserIdentity::Other(u) => u.pin_current_master_key().await,
@@ -192,8 +197,8 @@ impl From<OtherUserIdentity> for UserIdentity {
 
 /// Struct representing a cross signing identity of a user.
 ///
-/// This is the user identity of a user that is our own. Other users will
-/// only contain a master key and a self signing key, meaning that only device
+/// This is the user identity of a user that is our own. Other users will only
+/// contain a master key and a self signing key, meaning that only device
 /// signatures can be checked with this identity.
 ///
 /// This struct wraps the [`OwnUserIdentityData`] type and allows a verification
@@ -263,7 +268,7 @@ impl OwnUserIdentity {
 
         #[cfg(feature = "experimental-x509-identity-verification")]
         if let Some(x509_signer) = x509_signer {
-            x509_signer.sign_cross_signing_key(&self.user_id, &mut cross_signing_key)?;
+            x509_signer.sign_cross_signing_key(&self.user_id, &mut cross_signing_key).await?;
         }
 
         let mut user_signed_keys = SignedKeys::new();
@@ -285,7 +290,7 @@ impl OwnUserIdentity {
     ///
     /// # Arguments
     ///
-    /// * `methods` - The verification methods that we're supporting.
+    /// - `methods` - The verification methods that we're supporting.
     pub async fn request_verification_with_methods(
         &self,
         methods: Vec<VerificationMethod>,
@@ -293,8 +298,8 @@ impl OwnUserIdentity {
         self.request_verification_helper(Some(methods)).await
     }
 
-    /// Does our user identity trust our own device, i.e. have we signed our
-    /// own device keys with our self-signing key.
+    /// Does our user identity trust our own device, i.e. have we signed our own
+    /// device keys with our self-signing key.
     pub async fn trusts_our_own_device(&self) -> Result<bool, CryptoStoreError> {
         Ok(if let Some(signatures) = self.verification_machine.store.device_signatures().await? {
             let mut device_keys = self.store.cache().await?.account().await?.device_keys();
@@ -370,25 +375,11 @@ impl DerefMut for OtherUserIdentity {
 impl OtherUserIdentity {
     /// Is this user identity verified?
     pub fn is_verified(&self) -> bool {
-        let is_cross_signed = self
-            .own_identity
-            .as_ref()
-            .is_some_and(|own_identity| own_identity.is_identity_verified(&self.inner));
-
-        // If we have an X.509 verifier, we can use that to verify the user
-        #[cfg(feature = "experimental-x509-identity-verification")]
-        {
-            let is_x509_signed = || {
-                self.x509_verifier.as_ref().is_some_and(|verifier| {
-                    verifier.verify_signed_object(&self.user_id, self.inner.master_key().as_ref())
-                })
-            };
-
-            is_cross_signed || is_x509_signed()
-        }
-
-        #[cfg(not(feature = "experimental-x509-identity-verification"))]
-        is_cross_signed
+        self.inner.is_verified(
+            self.own_identity.as_ref(),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            self.x509_verifier.as_ref(),
+        )
     }
 
     /// Manually verify this user.
@@ -399,8 +390,8 @@ impl OtherUserIdentity {
     /// This method fails if we don't have the private part of our user-signing
     /// key.
     ///
-    /// Returns a request that needs to be sent out for the user to be marked
-    /// as verified.
+    /// Returns a request that needs to be sent out for the user to be marked as
+    /// verified.
     pub async fn verify(&self) -> Result<SignatureUploadRequest, SignatureError> {
         if self.user_id() != self.verification_machine.own_user_id() {
             Ok(self
@@ -532,7 +523,8 @@ impl OtherUserIdentity {
     ///   [`OtherUserIdentity::withdraw_verification`].
     pub fn has_verification_violation(&self) -> bool {
         if !self.inner.was_previously_verified() {
-            // If that identity has never been verified it cannot be in violation.
+            // If that identity has never been verified it cannot be in
+            // violation.
             return false;
         }
 
@@ -606,8 +598,8 @@ impl UserIdentityData {
         }
     }
 
-    /// Convert the enum into a reference [`OwnUserIdentityData`] if it's of
-    /// the correct type.
+    /// Convert the enum into a reference [`OwnUserIdentityData`] if it's of the
+    /// correct type.
     pub fn own(&self) -> Option<&OwnUserIdentityData> {
         as_variant!(self, Self::Own)
     }
@@ -618,8 +610,8 @@ impl UserIdentityData {
         as_variant!(self, Self::Own)
     }
 
-    /// Convert the enum into a reference to [`OtherUserIdentityData`] if
-    /// it's of the correct type.
+    /// Convert the enum into a reference to [`OtherUserIdentityData`] if it's
+    /// of the correct type.
     pub fn other(&self) -> Option<&OtherUserIdentityData> {
         as_variant!(self, Self::Other)
     }
@@ -636,8 +628,8 @@ impl UserIdentityData {
 /// identity was verified once.
 ///
 /// The first time a cryptographic user identity is seen for a given user, it
-/// will be associated with that user ("pinned"). Future interactions
-/// will expect this identity to stay the same, to avoid MITM attacks from the
+/// will be associated with that user ("pinned"). Future interactions will
+/// expect this identity to stay the same, to avoid MITM attacks from the
 /// homeserver.
 ///
 /// The user can explicitly pin the new identity to allow for legitimate
@@ -723,8 +715,9 @@ impl TryFrom<OtherUserIdentityDataSerializer> for OtherUserIdentityData {
                     master_key: Arc::new(v1.master_key.clone()),
                     self_signing_key: Arc::new(v1.self_signing_key),
                     pinned_master_key: Arc::new(RwLock::new(v1.pinned_master_key)),
-                    // Put it to false. There will be a migration to mark all users as dirty, so we
-                    // will receive an update for the identity that will correctly set up the value.
+                    // Put it to false. There will be a migration to mark all
+                    // users as dirty, so we will receive an update for the
+                    // identity that will correctly set up the value.
                     previously_verified: Arc::new(false.into()),
                 })
             }
@@ -761,14 +754,14 @@ impl From<OtherUserIdentityData> for OtherUserIdentityDataSerializer {
 
 impl PartialEq for OtherUserIdentityData {
     /// The `PartialEq` implementation compares several attributes, including
-    /// the user ID, key material, usage, and, notably, the signatures of
-    /// the master key.
+    /// the user ID, key material, usage, and, notably, the signatures of the
+    /// master key.
     ///
     /// This approach contrasts with the `PartialEq` implementation of the
-    /// [`MasterPubkey`], and [`SelfSigningPubkey`] types,
-    /// where the signatures are disregarded. This distinction arises from our
-    /// treatment of identity as the combined representation of cross-signing
-    /// keys and the associated verification state.
+    /// [`MasterPubkey`], and [`SelfSigningPubkey`] types, where the signatures
+    /// are disregarded. This distinction arises from our treatment of identity
+    /// as the combined representation of cross-signing keys and the associated
+    /// verification state.
     ///
     /// The verification state of an identity depends on the signatures of the
     /// master key, requiring their inclusion in our `PartialEq` implementation.
@@ -785,9 +778,8 @@ impl OtherUserIdentityData {
     ///
     /// # Arguments
     ///
-    /// * `master_key` - The master key of the user identity.
-    ///
-    /// * `self signing key` - The self signing key of user identity.
+    /// - `master_key` - The master key of the user identity.
+    /// - `self signing key` - The self signing key of user identity.
     ///
     /// Returns a `SignatureError` if the self signing key fails to be correctly
     /// verified by the given master key.
@@ -804,6 +796,43 @@ impl OtherUserIdentityData {
             pinned_master_key: RwLock::new(master_key).into(),
             previously_verified: Arc::new(false.into()),
         })
+    }
+
+    /// Check if this identity is verified from our point of view.
+    ///
+    /// The identity of another user is verified if our own identity is verified
+    /// and has signed this identity with our user-signing key.
+    ///
+    /// Alternatively, if experimental X.509 identity verification is enabled
+    /// and an X.509 verifier is configured, we consider this identity verified
+    /// if it carries a valid X.509 signature chaining to one of our trusted
+    /// CAs, regardless of whether our own identity is verified or even present.
+    ///
+    /// User verification, device trust and the room key sharing strategies
+    /// should all go through this method, such that their answers cannot
+    /// disagree.
+    pub(crate) fn is_verified(
+        &self,
+        own_identity: Option<&OwnUserIdentityData>,
+        #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+            &X509Verifier,
+        >,
+    ) -> bool {
+        let is_cross_signed = own_identity.is_some_and(|own_identity| {
+            own_identity.is_verified() && own_identity.is_identity_signed(self)
+        });
+
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        {
+            is_cross_signed
+                // Check X.509 signature without a let binding so we short-circuit if we are cross-signed
+                || x509_verifier.is_some_and(|verifier| {
+                    verifier.verify_signed_object(self.user_id(), self.master_key().as_ref())
+                })
+        }
+
+        #[cfg(not(feature = "experimental-x509-identity-verification"))]
+        is_cross_signed
     }
 
     #[cfg(test)]
@@ -844,9 +873,9 @@ impl OtherUserIdentityData {
     /// action "pinning".
     ///
     /// If the identity presented for the user changes later on, the newly
-    /// presented identity is considered to be in "pin violation". This
-    /// method explicitly accepts the new identity, allowing it to replace
-    /// the previously pinned one and bringing it out of pin violation.
+    /// presented identity is considered to be in "pin violation". This method
+    /// explicitly accepts the new identity, allowing it to replace the
+    /// previously pinned one and bringing it out of pin violation.
     ///
     /// UIs should display a warning to the user when encountering an identity
     /// which is not verified and is in pin violation. See
@@ -861,8 +890,7 @@ impl OtherUserIdentityData {
         self.previously_verified.store(true, Ordering::SeqCst)
     }
 
-    /// True if we verified this identity (with any own identity, at any
-    /// point).
+    /// True if we verified this identity (with any own identity, at any point).
     ///
     /// To set this latch back to false, call
     /// [`OtherUserIdentityData::withdraw_verification()`].
@@ -876,8 +904,8 @@ impl OtherUserIdentityData {
     /// reported to the user. In order to remove this notice users have to
     /// verify again or to withdraw the verification requirement.
     pub fn withdraw_verification(&self) {
-        // We also pin when we withdraw, since withdrawing implicitly acknowledges
-        // the identity change
+        // We also pin when we withdraw, since withdrawing implicitly
+        // acknowledges the identity change
         self.pin();
         self.previously_verified.store(false, Ordering::SeqCst)
     }
@@ -890,8 +918,8 @@ impl OtherUserIdentityData {
     /// For future interaction with a user, the identity is expected to be the
     /// one that was pinned. In case of identity change the UI client should
     /// receive reports of pinning violation and decide to act accordingly:
-    /// accept and pin the new identity, perform a verification, or
-    /// stop communications.
+    /// accept and pin the new identity, perform a verification, or stop
+    /// communications.
     pub(crate) fn has_pin_violation(&self) -> bool {
         let pinned_master_key = self.pinned_master_key.read();
         pinned_master_key.get_first_key() != self.master_key().get_first_key()
@@ -901,11 +929,9 @@ impl OtherUserIdentityData {
     ///
     /// # Arguments
     ///
-    /// * `master_key` - The new master key of the user identity.
-    ///
-    /// * `self_signing_key` - The new self signing key of user identity.
-    ///
-    /// * `maybe_verified_own_user_signing_key` - Our own user_signing_key if it
+    /// - `master_key` - The new master key of the user identity.
+    /// - `self_signing_key` - The new self signing key of user identity.
+    /// - `maybe_verified_own_user_signing_key` - Our own user_signing_key if it
     ///   is verified to check the identity trust status after update.
     ///
     /// Returns a `SignatureError` if we failed to update the identity.
@@ -919,10 +945,10 @@ impl OtherUserIdentityData {
     ) -> Result<bool, SignatureError> {
         master_key.verify_subkey(&self_signing_key)?;
 
-        // We update the identity with the new master and self signing key, but we keep
-        // the previous pinned master key.
-        // This identity will have a pin violation until the new master key is pinned
-        // (see `has_pin_violation()`).
+        // We update the identity with the new master and self signing key, but
+        // we keep the previous pinned master key. This identity will have a pin
+        // violation until the new master key is pinned (see
+        // `has_pin_violation()`).
         let pinned_master_key = self.pinned_master_key.read().clone();
 
         // Check if the new master_key is signed by our own **verified**
@@ -955,7 +981,7 @@ impl OtherUserIdentityData {
     ///
     /// # Arguments
     ///
-    /// * `device` - The device that should be checked for a valid signature.
+    /// - `device` - The device that should be checked for a valid signature.
     ///
     /// Returns `true` if the signature check succeeded, otherwise `false`.
     pub(crate) fn is_device_signed(&self, device: &DeviceData) -> bool {
@@ -996,8 +1022,8 @@ enum OwnUserIdentityVerifiedState {
 
 impl PartialEq for OwnUserIdentityData {
     /// The `PartialEq` implementation compares several attributes, including
-    /// the user ID, key material, usage, and, notably, the signatures of
-    /// the master key.
+    /// the user ID, key material, usage, and, notably, the signatures of the
+    /// master key.
     ///
     /// This approach contrasts with the `PartialEq` implementation of the
     /// [`MasterPubkey`], [`SelfSigningPubkey`] and [`UserSigningPubkey`] types,
@@ -1023,11 +1049,9 @@ impl OwnUserIdentityData {
     ///
     /// # Arguments
     ///
-    /// * `master_key` - The master key of the user identity.
-    ///
-    /// * `self_signing_key` - The self signing key of user identity.
-    ///
-    /// * `user_signing_key` - The user signing key of user identity.
+    /// - `master_key` - The master key of the user identity.
+    /// - `self_signing_key` - The self signing key of user identity.
+    /// - `user_signing_key` - The user signing key of user identity.
     ///
     /// Returns a `SignatureError` if the self signing key fails to be correctly
     /// verified by the given master key.
@@ -1085,29 +1109,15 @@ impl OwnUserIdentityData {
         &self.user_signing_key
     }
 
-    /// Check if the given user identity has been verified.
-    ///
-    /// The identity of another user is verified iff our own identity is
-    /// verified and if our own identity has signed the other user's
-    /// identity.
-    ///
-    /// # Arguments
-    ///
-    /// * `identity` - The identity of another user which we want to check has
-    ///   been verified.
-    pub fn is_identity_verified(&self, identity: &OtherUserIdentityData) -> bool {
-        self.is_verified() && self.is_identity_signed(identity)
-    }
-
     /// Check if the given identity has been signed by this identity.
     ///
     /// Note that, normally, you'll also want to check that the
     /// `OwnUserIdentityData` has been verified; for that,
-    /// [`Self::is_identity_verified`] is more appropriate.
+    /// [`OtherUserIdentityData::is_verified`] is more appropriate.
     ///
     /// # Arguments
     ///
-    /// * `identity` - The identity of another user that we want to check if it
+    /// - `identity` - The identity of another user that we want to check if it
     ///   has been signed.
     ///
     /// Returns `true` if the signature check succeeded, otherwise `false`.
@@ -1123,7 +1133,7 @@ impl OwnUserIdentityData {
     ///
     /// # Arguments
     ///
-    /// * `device` - The device that should be checked for a valid signature.
+    /// - `device` - The device that should be checked for a valid signature.
     ///
     /// Returns `true` if the signature check succeeded, otherwise `false`.
     pub(crate) fn is_device_signed(&self, device: &DeviceData) -> bool {
@@ -1185,17 +1195,63 @@ impl OwnUserIdentityData {
         *self.verified.read() == OwnUserIdentityVerifiedState::VerificationViolation
     }
 
+    /// Sign our own identity again, if our current X.509 signer has a later
+    /// expiry than our existing X.509 signature.
+    ///
+    /// Returns the signature upload request to upload the new X.509 signature
+    /// if a new one is needed.
+    ///
+    /// Note that this function does not update our own copy of the signature
+    /// immediately. Rather, after we upload the new signature, the server will
+    /// notify us of the changed key, we will re-fetch it, and then store the
+    /// new result at that point.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    pub(crate) async fn refresh_x509_signature(
+        &self,
+        store: &Store,
+    ) -> Result<Option<SignatureUploadRequest>, SignatureError> {
+        // We only re-sign our identity our identity is already verified. If it
+        // isn't already verified, then our identity should be signed by
+        // `OwnUserIdentity::verify()` instead.
+        if !self.is_verified() {
+            return Ok(None);
+        }
+
+        let cross_signing_key: &CrossSigningKey = (*self.master_key).as_ref();
+
+        if let Some(x509_signer) = store.x509_signer()
+            && x509_signer.has_later_expiry_than(&self.user_id, &cross_signing_key.signatures)
+        {
+            let mut cross_signing_key = cross_signing_key.clone();
+            cross_signing_key.signatures.clear();
+            x509_signer.sign_cross_signing_key(&self.user_id, &mut cross_signing_key).await?;
+
+            let public_key = self
+                .master_key
+                .get_first_key()
+                .ok_or(SignatureError::MissingSigningKey)?
+                .to_base64()
+                .into();
+
+            let mut user_signed_keys = SignedKeys::new();
+            user_signed_keys.add_cross_signing_keys(public_key, cross_signing_key.to_raw());
+
+            let signed_keys = [(self.user_id.to_owned(), user_signed_keys)].into();
+            Ok(Some(SignatureUploadRequest::new(signed_keys)))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Update the identity with a new master key and self signing key.
     ///
     /// Note: This will reset the verification state if the master keys differ.
     ///
     /// # Arguments
     ///
-    /// * `master_key` - The new master key of the user identity.
-    ///
-    /// * `self_signing_key` - The new self signing key of user identity.
-    ///
-    /// * `user_signing_key` - The new user signing key of user identity.
+    /// - `master_key` - The new master key of the user identity.
+    /// - `self_signing_key` - The new self signing key of user identity.
+    /// - `user_signing_key` - The new user signing key of user identity.
     ///
     /// Returns a `SignatureError` if we failed to update the identity.
     /// Otherwise, returns `true` if there was a change to the identity and
@@ -1354,9 +1410,9 @@ pub(crate) mod testing {
     }
 
     /// When we want to test identities that are verified, we need to simulate
-    /// the verification process. This function supports that by simulating
-    /// what happens when a successful verification dance happens and
-    /// providing the /keys/query response we would get when that happened.
+    /// the verification process. This function supports that by simulating what
+    /// happens when a successful verification dance happens and providing the
+    /// /keys/query response we would get when that happened.
     ///
     /// signature_upload_request will be the result of calling
     /// [`super::OtherUserIdentity::verify`].
@@ -1442,8 +1498,8 @@ pub(crate) mod testing {
             .expect("There should be a user signing key")
             .0;
 
-        // Add the signature from the SignatureUploadRequest to their master key, under
-        // our user ID
+        // Add the signature from the SignatureUploadRequest to their master
+        // key, under our user ID
         their_msk.signatures.add_signature(
             my_user_id.to_owned(),
             my_user_signing_key_id.to_owned(),
@@ -1660,8 +1716,8 @@ pub(crate) mod tests {
         assert_eq!(*id.verified.read(), OwnUserIdentityVerifiedState::VerificationViolation);
     }
 
-    #[test]
-    fn own_identity_check_signatures() {
+    #[async_test]
+    async fn test_own_identity_check_signatures() {
         let response = own_key_query();
         let identity = get_own_identity();
         let (first, second) = device(&response);
@@ -1670,13 +1726,15 @@ pub(crate) mod tests {
         assert!(identity.is_device_signed(&second));
 
         let account = Account::with_device_id(second.user_id(), second.device_id());
-        let verification_machine = get_verification_machine(&account);
+        let verification_machine = get_verification_machine(&account).await;
 
         let first = Device {
             inner: first,
             verification_machine: verification_machine.clone(),
             own_identity: Some(identity.clone()),
             device_owner_identity: Some(UserIdentityData::Own(identity.clone())),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier: None,
         };
 
         let second = Device {
@@ -1684,6 +1742,8 @@ pub(crate) mod tests {
             verification_machine,
             own_identity: Some(identity.clone()),
             device_owner_identity: Some(UserIdentityData::Own(identity.clone())),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier: None,
         };
 
         assert!(!second.is_locally_trusted());
@@ -1703,7 +1763,7 @@ pub(crate) mod tests {
         let (_, device) = device(&response);
 
         let account = Account::with_device_id(device.user_id(), device.device_id());
-        let verification_machine = get_verification_machine(&account);
+        let verification_machine = get_verification_machine(&account).await;
         let public_identity = verification_machine.get_own_user_identity_data().await.unwrap();
 
         let mut device = Device {
@@ -1711,6 +1771,8 @@ pub(crate) mod tests {
             verification_machine: verification_machine.clone(),
             own_identity: Some(public_identity.clone()),
             device_owner_identity: Some(public_identity.clone().into()),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier: None,
         };
 
         assert!(!device.is_verified());
@@ -1724,8 +1786,8 @@ pub(crate) mod tests {
     }
 
     /// Test that `CrossSigningKey` instances without a correct `usage` cannot
-    /// be deserialized into high-level structs representing the MSK, SSK
-    /// and USK.
+    /// be deserialized into high-level structs representing the MSK, SSK and
+    /// USK.
     #[test]
     fn cannot_instantiate_keys_with_incorrect_usage() {
         let user_id = user_id!("@example:localhost");
@@ -1746,8 +1808,8 @@ pub(crate) mod tests {
         let usage = user_signing_key_json.get_mut("usage").unwrap();
         *usage = json!([]);
 
-        // It should now be impossible to deserialize the keys into their corresponding
-        // high-level cross-signing key structs.
+        // It should now be impossible to deserialize the keys into their
+        // corresponding high-level cross-signing key structs.
         assert_matches!(serde_json::from_value::<MasterPubkey>(master_key_json.clone()), Err(_));
         assert_matches!(
             serde_json::from_value::<SelfSigningPubkey>(self_signing_key_json.clone()),
@@ -1999,15 +2061,15 @@ pub(crate) mod tests {
         let own_keys = DataSet::own_keys_query_response_2();
         machine.mark_request_as_sent(&TransactionId::new(), &own_keys).await.unwrap();
 
-        // That should give an identity that is no longer verified, with a verification
-        // violation.
+        // That should give an identity that is no longer verified, with a
+        // verification violation.
         let own_identity = machine.get_identity(DataSet::own_id(), None).await.unwrap().unwrap();
         assert!(!own_identity.is_verified());
         assert!(own_identity.was_previously_verified());
         assert!(own_identity.has_verification_violation());
 
-        // Now check that we can withdraw verification for our own identity, and that it
-        // becomes valid again.
+        // Now check that we can withdraw verification for our own identity, and
+        // that it becomes valid again.
         own_identity.withdraw_verification().await.unwrap();
 
         assert!(!own_identity.is_verified());
@@ -2115,7 +2177,7 @@ pub(crate) mod tests {
 
         // (And Bob exists)
         let bob_account = Account::with_device_id(user_id!("@bob:hs.co"), device_id!("DEV123"));
-        let bob_verification_machine = get_verification_machine(&bob_account);
+        let bob_verification_machine = get_verification_machine(&bob_account).await;
 
         let bob_identity_data =
             bob_verification_machine.get_own_user_identity_data().await.unwrap();
@@ -2140,6 +2202,63 @@ pub(crate) mod tests {
         assert!(bobs_view_of_alice.is_verified());
     }
 
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    #[async_test]
+    async fn test_refresh_signature() {
+        let user_id = user_id!("@own_user:localhost");
+        let account = Account::with_device_id(user_id, device_id!("DEV123"));
+
+        // We create three signers with different validity periods: an "old"
+        // signer, a "current" signer, and a "new" signer
+        let (x509_signer_old, x509_signer_current, x509_signer_new) =
+            crate::x509::tests::signers_with_different_validity();
+
+        // We sign our identity with the current signer.
+        let private_identity =
+            PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer_current))
+                .await
+                .unwrap();
+
+        // If we create a store with the old signer, it should not try to
+        // re-sign our identity.
+        let store = create_store_with_private_identity_and_x509(
+            account.deep_clone(),
+            private_identity.clone(),
+            None,
+            Some(x509_signer_old.clone()),
+        )
+        .await;
+
+        let own_identity = store.get_identity(user_id).await.unwrap().unwrap().own().unwrap();
+        assert!(own_identity.refresh_x509_signature(&store).await.unwrap().is_none());
+
+        // If we create a store with the same signer, it should not try to
+        // re-sign our identity.
+        let store = create_store_with_private_identity_and_x509(
+            account.deep_clone(),
+            private_identity.clone(),
+            None,
+            Some(x509_signer_current.clone()),
+        )
+        .await;
+
+        let own_identity = store.get_identity(user_id).await.unwrap().unwrap().own().unwrap();
+        assert!(own_identity.refresh_x509_signature(&store).await.unwrap().is_none());
+
+        // If we create a store with the newer signer, it should re-sign our
+        // identity.
+        let store = create_store_with_private_identity_and_x509(
+            account.deep_clone(),
+            private_identity.clone(),
+            None,
+            Some(x509_signer_new.clone()),
+        )
+        .await;
+
+        let own_identity = store.get_identity(user_id).await.unwrap().unwrap().own().unwrap();
+        assert!(own_identity.refresh_x509_signature(&store).await.unwrap().is_some());
+    }
+
     /// Generate a key pair and cert, signed by the supplied certificate
     /// authority, and return a new user's [`OtherUserIdentityData`] whose
     /// master signing key is signed by them.
@@ -2159,7 +2278,7 @@ pub(crate) mod tests {
         let account = Account::with_device_id(user_id!("@alice:hs.co"), device_id!("DEV123"));
 
         let private_identity =
-            PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer)).unwrap();
+            PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer)).await.unwrap();
 
         let public_identity = private_identity.to_public_identity().await.unwrap();
 
@@ -2177,7 +2296,7 @@ pub(crate) mod tests {
         let account =
             Account::with_device_id(user_id!("@own_user:localhost"), device_id!("DEV123"));
 
-        let verification_machine = get_verification_machine(&account);
+        let verification_machine = get_verification_machine(&account).await;
         let own_identity_data = verification_machine.get_own_user_identity_data().await.unwrap();
 
         OtherUserIdentity {
@@ -2195,12 +2314,13 @@ pub(crate) mod tests {
      *
      * Creates a new private user identity for the account.
      */
-    fn get_verification_machine(account: &Account) -> VerificationMachine {
+    async fn get_verification_machine(account: &Account) -> VerificationMachine {
         let private_identity = PrivateCrossSigningIdentity::for_account(
             account,
             #[cfg(feature = "experimental-x509-identity-verification")]
             None,
         )
+        .await
         .unwrap();
         VerificationMachine::new(
             account.static_data().clone(),
@@ -2215,7 +2335,8 @@ pub(crate) mod tests {
 
     /**
      * Creates a crypto store, backed by a [`MemoryStore`], for the given
-     * account, with an X.509 verifier and signer.
+     * account, with an X.509 verifier and signer.  The private identity
+     * will not be signed by X.509.
      */
     #[cfg(feature = "experimental-x509-identity-verification")]
     async fn create_store_with_x509(
@@ -2223,11 +2344,32 @@ pub(crate) mod tests {
         x509_verifier: X509Verifier,
         x509_signer: X509Signer,
     ) -> Store {
+        let private_identity =
+            PrivateCrossSigningIdentity::for_account(&account, None).await.unwrap();
+
+        create_store_with_private_identity_and_x509(
+            account,
+            private_identity,
+            Some(x509_verifier),
+            Some(x509_signer),
+        )
+        .await
+    }
+
+    /**
+     * Creates a crypto store, backed by a [`MemoryStore`], for the given
+     * account and private identity, with an X.509 verifier and signer.
+     */
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    async fn create_store_with_private_identity_and_x509(
+        account: Account,
+        private_identity: PrivateCrossSigningIdentity,
+        x509_verifier: Option<X509Verifier>,
+        x509_signer: Option<X509Signer>,
+    ) -> Store {
         use crate::store::types::{Changes, IdentityChanges, PendingChanges};
 
         let account_static_data = account.static_data().clone();
-        let private_identity = PrivateCrossSigningIdentity::for_account(&account, None).unwrap();
-
         let crypto_store_wrapper =
             CryptoStoreWrapper::new(account.user_id(), account.device_id(), MemoryStore::new());
         crypto_store_wrapper
@@ -2257,8 +2399,8 @@ pub(crate) mod tests {
             private_identity,
             crypto_store_wrapper,
             verification_machine,
-            Some(x509_verifier),
-            Some(x509_signer),
+            x509_verifier,
+            x509_signer,
         )
     }
 }

@@ -23,13 +23,13 @@ final class ClientTests: XCTestCase {
         }
     }
     
-    func testBuildingWithInvalidUsername() async {
+    func testBuildingWithInvalidUserID() async {
         do {
             _ = try await ClientBuilder()
-                .username(username: "@test:invalid")
+                .serverNameFromUserId(userId: "@test:invalid")
                 .build()
             
-            XCTFail("The client should not build when given an invalid username.")
+            XCTFail("The client should not build when given an invalid user ID.")
         } catch ClientBuildError.ServerUnreachable(let message) {
             XCTAssertTrue(message.contains(".well-known"), "The client should fail to do the well-known lookup.")
         } catch {

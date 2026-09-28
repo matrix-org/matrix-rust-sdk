@@ -15,7 +15,10 @@
 use std::sync::Arc;
 
 use as_variant::as_variant;
-use matrix_sdk::{Room, deserialized_responses::TimelineEvent};
+use matrix_sdk::{
+    Room,
+    deserialized_responses::{TimelineEvent, TimelineEventKind},
+};
 use matrix_sdk_base::crypto::types::events::UtdCause;
 use ruma::{
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, UserId,
@@ -26,7 +29,7 @@ use ruma::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
             user::PolicyRuleUserEventContent,
         },
-        relation::Replacement,
+        relation::{Replacement, Reply, Thread},
         room::{
             avatar::RoomAvatarEventContent,
             canonical_alias::RoomCanonicalAliasEventContent,
@@ -37,7 +40,10 @@ use ruma::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
             member::{Change, RoomMemberEventContent},
-            message::{MessageType, RoomMessageEventContent},
+            message::{
+                MessageType, Relation, RoomMessageEventContent,
+                RoomMessageEventContentWithoutRelation,
+            },
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -79,7 +85,6 @@ pub use self::{
     polls::{PollResult, PollState},
     reply::{EmbeddedEvent, InReplyToDetails},
 };
-use super::ReactionsByKeyBySender;
 use crate::timeline::{
     controller::ActiveCallInfo,
     event_handler::{HandleAggregationKind, TimelineAction},
@@ -137,9 +142,8 @@ pub enum TimelineItemContent {
 }
 
 impl TimelineItemContent {
-    /// Returns the raw Matrix event type string (e.g. `"m.room.message"`),
-    /// or `None` when the original type is not available (e.g. redacted
-    /// events).
+    /// Returns the raw Matrix event type string (e.g. `"m.room.message"`), or
+    /// `None` when the original type is not available (e.g. redacted events).
     pub fn event_type_str(&self) -> Option<String> {
         match self {
             Self::MsgLike(msg) => Some(match &msg.kind {
@@ -164,16 +168,20 @@ impl TimelineItemContent {
 
     /// Create a raw [`TimelineItemContent`] for a given [`TimelineEvent`],
     /// without providing extra information (about thread root, replied-to
-    /// information, UTD info, and so on).
+    /// information, and so on).
     pub async fn from_event(room: &Room, timeline_event: TimelineEvent) -> Option<Self> {
-        let raw_event = timeline_event.into_raw();
+        let (utd_info, raw_event) = match timeline_event.kind {
+            TimelineEventKind::UnableToDecrypt { utd_info, event } => (Some(utd_info), event),
+            _ => (None, timeline_event.into_raw()),
+        };
+
         let deserialized_event = raw_event.deserialize().ok()?;
 
         let actions = TimelineAction::from_event(
             deserialized_event,
             &raw_event,
             room,
-            None,
+            utd_info.map(|utd_info| (utd_info, None)),
             None,
             None,
             None,
@@ -206,7 +214,6 @@ impl TimelineItemContent {
                 },
             ] => Some(TimelineItemContent::MsgLike(MsgLikeContent {
                 kind: MsgLikeKind::LiveLocation(LiveLocationState::new(content.clone())),
-                reactions: Default::default(),
                 thread_root: None,
                 in_reply_to: None,
                 thread_summary: None,
@@ -236,7 +243,8 @@ impl TimelineItemContent {
                 None
             }
             [_, _, ..] => {
-                // There is no meaningful single content to extract in that case.
+                // There is no meaningful single content to extract in that
+                // case.
                 warn!("Ignoring event that produced multiple timeline actions");
                 None
             }
@@ -264,8 +272,8 @@ impl TimelineItemContent {
         matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::LiveLocation(_), .. }))
     }
 
-    /// If `self` is of the [`MsgLike`][Self::MsgLike] variant, return the
-    /// inner [`Message`].
+    /// If `self` is of the [`MsgLike`][Self::MsgLike] variant, return the inner
+    /// [`Message`].
     pub fn as_message(&self) -> Option<&Message> {
         as_variant!(self, Self::MsgLike(MsgLikeContent {
             kind: MsgLikeKind::Message(message),
@@ -279,8 +287,8 @@ impl TimelineItemContent {
         matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::Message(_), .. }))
     }
 
-    /// If `self` is of the [`MsgLike`][Self::MsgLike] variant, return the
-    /// inner [`PollState`].
+    /// If `self` is of the [`MsgLike`][Self::MsgLike] variant, return the inner
+    /// [`PollState`].
     pub fn as_poll(&self) -> Option<&PollState> {
         as_variant!(self, Self::MsgLike(MsgLikeContent {
             kind: MsgLikeKind::Poll(poll_state),
@@ -337,7 +345,6 @@ impl TimelineItemContent {
     pub(crate) fn message(
         msgtype: MessageType,
         mentions: Option<Mentions>,
-        reactions: ReactionsByKeyBySender,
         thread_root: Option<OwnedEventId>,
         in_reply_to: Option<InReplyToDetails>,
         thread_summary: Option<ThreadSummary>,
@@ -352,7 +359,6 @@ impl TimelineItemContent {
                 None,
                 remove_reply_fallback,
             )),
-            reactions,
             thread_root,
             in_reply_to,
             thread_summary,
@@ -440,7 +446,12 @@ impl TimelineItemContent {
 
     pub(in crate::timeline) fn redact(&self, rules: &RedactionRules) -> Self {
         match self {
-            Self::MsgLike(_) | Self::CallInvite | Self::RtcNotification { .. } => {
+            Self::MsgLike(msglike) => TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Redacted,
+                in_reply_to: None,
+                ..msglike.clone()
+            }),
+            Self::CallInvite | Self::RtcNotification { .. } => {
                 TimelineItemContent::MsgLike(MsgLikeContent::redacted())
             }
             Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(rules)),
@@ -460,56 +471,23 @@ impl TimelineItemContent {
         as_variant!(self, Self::MsgLike)?.in_reply_to.clone()
     }
 
-    /// Return the reactions, grouped by key and then by sender, for a given
-    /// content.
-    pub fn reactions(&self) -> Option<&ReactionsByKeyBySender> {
-        match self {
-            TimelineItemContent::MsgLike(msglike) => Some(&msglike.reactions),
-
-            TimelineItemContent::MembershipChange(..)
-            | TimelineItemContent::ProfileChange(..)
-            | TimelineItemContent::OtherState(..)
-            | TimelineItemContent::FailedToParseMessageLike { .. }
-            | TimelineItemContent::FailedToParseState { .. }
-            | TimelineItemContent::CallInvite
-            | TimelineItemContent::RtcNotification { .. } => {
-                // No reactions for these kind of items.
-                None
-            }
+    /// The thread or reply relation of this item, rebuilt from its thread root
+    /// and reply target, if any.
+    pub(crate) fn relation(&self) -> Option<Relation<RoomMessageEventContentWithoutRelation>> {
+        if let Some(thread_root) = self.thread_root() {
+            Some(Relation::Thread(match self.in_reply_to() {
+                Some(details) => Thread::reply(thread_root, details.event_id),
+                None => Thread::plain(thread_root.clone(), thread_root),
+            }))
+        } else {
+            self.in_reply_to()
+                .map(|details| Relation::Reply(Reply::with_event_id(details.event_id)))
         }
     }
 
     /// Information about the thread this item is the root for.
     pub fn thread_summary(&self) -> Option<ThreadSummary> {
         as_variant!(self, Self::MsgLike)?.thread_summary.clone()
-    }
-
-    /// Return a mutable handle to the reactions of this item.
-    ///
-    /// See also [`Self::reactions()`] to explain the optional return type.
-    pub(crate) fn reactions_mut(&mut self) -> Option<&mut ReactionsByKeyBySender> {
-        match self {
-            TimelineItemContent::MsgLike(msglike) => Some(&mut msglike.reactions),
-
-            TimelineItemContent::MembershipChange(..)
-            | TimelineItemContent::ProfileChange(..)
-            | TimelineItemContent::OtherState(..)
-            | TimelineItemContent::FailedToParseMessageLike { .. }
-            | TimelineItemContent::FailedToParseState { .. }
-            | TimelineItemContent::CallInvite
-            | TimelineItemContent::RtcNotification { .. } => {
-                // No reactions for these kind of items.
-                None
-            }
-        }
-    }
-
-    pub fn with_reactions(&self, reactions: ReactionsByKeyBySender) -> Self {
-        let mut cloned = self.clone();
-        if let Some(r) = cloned.reactions_mut() {
-            *r = reactions;
-        }
-        cloned
     }
 }
 
@@ -568,6 +546,15 @@ impl EncryptedMessage {
             EncryptedMessage::OlmV1Curve25519AesSha2 { .. } => None,
             EncryptedMessage::MegolmV1AesSha2 { session_id, .. } => Some(session_id),
             EncryptedMessage::Unknown => None,
+        }
+    }
+
+    /// Return the reason this message could not be decrypted, if it was
+    /// received via a Megolm session.
+    pub fn utd_cause(&self) -> Option<UtdCause> {
+        match self {
+            EncryptedMessage::MegolmV1AesSha2 { cause, .. } => Some(*cause),
+            EncryptedMessage::OlmV1Curve25519AesSha2 { .. } | EncryptedMessage::Unknown => None,
         }
     }
 }
@@ -821,7 +808,8 @@ impl AnyOtherStateEventContentChange {
     /// `AnyStateEventContentChange`.
     ///
     /// Panics if the event content does not match one of the variants.
-    // This could be a `From` implementation but we don't want it in the public API.
+    // This could be a `From` implementation but we don't want it in the public
+    // API.
     pub(crate) fn with_event_content(content: AnyStateEventContentChange) -> Self {
         let event_type = content.event_type();
 
@@ -965,7 +953,7 @@ impl OtherState {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches2::assert_let;
+    use matrix_sdk_base::crypto::types::events::UtdCause;
     use matrix_sdk_test::ALICE;
     use ruma::{
         assign,
@@ -977,8 +965,24 @@ mod tests {
         },
         room_version_rules::RedactionRules,
     };
+    use strass::assert_let;
 
-    use super::{MembershipChange, RoomMembershipChange, TimelineItemContent};
+    use super::{EncryptedMessage, MembershipChange, RoomMembershipChange, TimelineItemContent};
+
+    #[test]
+    fn utd_cause_only_available_for_megolm() {
+        let olm = EncryptedMessage::OlmV1Curve25519AesSha2 { sender_key: "key".to_owned() };
+        assert_eq!(olm.utd_cause(), None);
+        assert_eq!(EncryptedMessage::Unknown.utd_cause(), None);
+
+        let megolm = EncryptedMessage::MegolmV1AesSha2 {
+            sender_key: None,
+            device_id: None,
+            session_id: "session".to_owned(),
+            cause: UtdCause::SentBeforeWeJoined,
+        };
+        assert_eq!(megolm.utd_cause(), Some(UtdCause::SentBeforeWeJoined));
+    }
 
     #[test]
     fn redact_membership_change() {

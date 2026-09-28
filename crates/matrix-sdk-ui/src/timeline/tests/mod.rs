@@ -43,7 +43,7 @@ use ruma::{
         AnyMessageLikeEventContent, AnyTimelineEvent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        relation::Annotation,
+        relation::{Annotation, RelationType},
     },
     room_id,
     room_version_rules::RoomVersionRules,
@@ -194,7 +194,7 @@ impl TestTimeline {
 
     async fn handle_local_redaction(&self, redacts: OwnedEventId) -> OwnedTransactionId {
         let txn_id = TransactionId::new();
-        self.controller.handle_local_redaction(txn_id.clone(), redacts).await;
+        self.controller.handle_local_redaction(txn_id.clone(), redacts, None).await;
         txn_id
     }
 
@@ -371,12 +371,12 @@ impl RoomDataProvider for TestRoomDataProvider {
     async fn load_user_receipt<'a>(
         &'a self,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        thread: &'a ReceiptThread,
         user_id: &'a UserId,
     ) -> Option<(OwnedEventId, Receipt)> {
         self.initial_user_receipts
             .get(&receipt_type)
-            .and_then(|thread_map| thread_map.get(&thread))
+            .and_then(|thread_map| thread_map.get(thread))
             .and_then(|user_map| user_map.get(user_id))
             .cloned()
     }
@@ -384,7 +384,7 @@ impl RoomDataProvider for TestRoomDataProvider {
     async fn load_event_receipts<'a>(
         &'a self,
         event_id: &'a EventId,
-        _receipt_thread: ReceiptThread,
+        _receipt_thread: &'a ReceiptThread,
     ) -> IndexMap<OwnedUserId, Receipt> {
         let mut map = IndexMap::new();
 
@@ -429,6 +429,14 @@ impl RoomDataProvider for TestRoomDataProvider {
     }
 
     async fn load_event<'a>(&'a self, _event_id: &'a EventId) -> matrix_sdk::Result<TimelineEvent> {
+        unimplemented!();
+    }
+
+    async fn load_or_fetch_event_with_relations<'a>(
+        &'a self,
+        _event_id: &'a EventId,
+        _filter: Option<Vec<RelationType>>,
+    ) -> matrix_sdk::Result<(TimelineEvent, Vec<TimelineEvent>)> {
         unimplemented!();
     }
 }

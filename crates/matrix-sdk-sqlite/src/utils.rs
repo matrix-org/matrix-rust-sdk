@@ -21,6 +21,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use base64::Engine as _;
 use deadpool_sync::InteractError;
 use itertools::Itertools;
 use matrix_sdk_store_encryption::{EncryptableValue, StoreCipher};
@@ -28,6 +29,7 @@ use ruma::{OwnedEventId, OwnedRoomId, serde::Raw, time::SystemTime};
 use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction, limits::Limit};
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::{error, trace, warn};
+use vodozemac::base64_encode;
 use zeroize::Zeroize;
 
 use crate::{
@@ -97,6 +99,17 @@ pub(crate) trait SqliteAsyncConnExt {
         P: Params + Send + 'static,
         F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + Send + 'static;
 
+    async fn query_one<T, P, F>(
+        &self,
+        sql: impl AsRef<str> + Send + 'static,
+        params: P,
+        f: F,
+    ) -> rusqlite::Result<T>
+    where
+        T: Send + 'static,
+        P: Params + Send + 'static,
+        F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + Send + 'static;
+
     async fn query_many<T, P, F>(
         &self,
         sql: impl AsRef<str> + Send + 'static,
@@ -114,6 +127,12 @@ pub(crate) trait SqliteAsyncConnExt {
         E: From<rusqlite::Error> + Send + 'static,
         F: FnOnce(&Transaction<'_>) -> Result<T, E> + Send + 'static;
 
+    /// Chunk a large query over some keys.
+    ///
+    /// Imagine there is a _dynamic_ query that runs potentially large number of
+    /// parameters, so much that the maximum number of parameters can be hit.
+    /// Then, this helper is for you. It will execute the query on chunks of
+    /// parameters.
     async fn chunk_large_query_over<Query, Res>(
         &self,
         mut keys_to_chunk: Vec<Key>,
@@ -122,25 +141,14 @@ pub(crate) trait SqliteAsyncConnExt {
     ) -> Result<Vec<Res>>
     where
         Res: Send + 'static,
-        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static;
+        Query: Fn(&Transaction<'_>, ChunkFromLargeQuery<Key>) -> Result<Vec<Res>> + Send + 'static;
 
-    /// Apply the [`RuntimeConfig`].
-    ///
-    /// It will call the `Self::optimize`, `Self::cache_size` or
-    /// `Self::journal_size_limit` methods automatically based on the
-    /// `RuntimeConfig` values.
-    ///
-    /// It is possible to call these methods individually though. This
-    /// `apply_runtime_config` method allows to automate this process.
+    /// Apply the database-wide part of the [`RuntimeConfig`]; the
+    /// per-connection pragmas are applied by [`crate::connection::Manager`].
     async fn apply_runtime_config(&self, runtime_config: RuntimeConfig) -> Result<()> {
-        let RuntimeConfig { optimize, cache_size, journal_size_limit } = runtime_config;
-
-        if optimize {
+        if runtime_config.optimize {
             self.optimize().await?;
         }
-
-        self.cache_size(cache_size).await?;
-        self.journal_size_limit(journal_size_limit).await?;
 
         Ok(())
     }
@@ -156,42 +164,6 @@ pub(crate) trait SqliteAsyncConnExt {
     /// [`PRAGMA cache_size`]: https://www.sqlite.org/pragma.html#pragma_optimize
     async fn optimize(&self) -> Result<()> {
         self.execute_batch("PRAGMA optimize = 0x10002;").await?;
-        Ok(())
-    }
-
-    /// Define the maximum size in **bytes** the SQLite cache can use.
-    ///
-    /// See [`PRAGMA cache_size`] to learn more.
-    ///
-    /// [`PRAGMA cache_size`]: https://www.sqlite.org/pragma.html#pragma_cache_size
-    async fn cache_size(&self, cache_size: u32) -> Result<()> {
-        // `N` in `PRAGMA cache_size = -N` is expressed in kibibytes.
-        // `cache_size` is expressed in bytes. Let's convert.
-        let n = cache_size / 1024;
-
-        self.execute_batch(format!("PRAGMA cache_size = -{n};")).await?;
-        Ok(())
-    }
-
-    /// Limit the size of the WAL file, in **bytes**.
-    ///
-    /// By default, while the DB connections of the databases are open, [the
-    /// size of the WAL file can keep increasing][size_wal_file] depending on
-    /// the size needed for the transactions. A critical case is `VACUUM`
-    /// which basically writes the content of the DB file to the WAL file
-    /// before writing it back to the DB file, so we end up taking twice the
-    /// size of the database.
-    ///
-    /// By setting this limit, the WAL file is truncated after its content is
-    /// written to the database, if it is bigger than the limit.
-    ///
-    /// See [`PRAGMA journal_size_limit`] to learn more. The value `limit`
-    /// corresponds to `N` in `PRAGMA journal_size_limit = N`.
-    ///
-    /// [size_wal_file]: https://www.sqlite.org/wal.html#avoiding_excessively_large_wal_files
-    /// [`PRAGMA journal_size_limit`]: https://www.sqlite.org/pragma.html#pragma_journal_size_limit
-    async fn journal_size_limit(&self, limit: u32) -> Result<()> {
-        self.execute_batch(format!("PRAGMA journal_size_limit = {limit};")).await?;
         Ok(())
     }
 
@@ -289,6 +261,22 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
             .map_err(map_interact_err)?
     }
 
+    async fn query_one<T, P, F>(
+        &self,
+        sql: impl AsRef<str> + Send + 'static,
+        params: P,
+        f: F,
+    ) -> rusqlite::Result<T>
+    where
+        T: Send + 'static,
+        P: Params + Send + 'static,
+        F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + Send + 'static,
+    {
+        self.interact(move |conn| conn.query_one(sql.as_ref(), params, f))
+            .await
+            .map_err(map_interact_err)?
+    }
+
     async fn query_many<T, P, F>(
         &self,
         sql: impl AsRef<str> + Send + 'static,
@@ -325,12 +313,6 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         .map_err(E::from)?
     }
 
-    /// Chunk a large query over some keys.
-    ///
-    /// Imagine there is a _dynamic_ query that runs potentially large number of
-    /// parameters, so much that the maximum number of parameters can be hit.
-    /// Then, this helper is for you. It will execute the query on chunks of
-    /// parameters.
     async fn chunk_large_query_over<Query, Res>(
         &self,
         keys_to_chunk: Vec<Key>,
@@ -339,7 +321,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
     ) -> Result<Vec<Res>>
     where
         Res: Send + 'static,
-        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static,
+        Query: Fn(&Transaction<'_>, ChunkFromLargeQuery<Key>) -> Result<Vec<Res>> + Send + 'static,
     {
         self.with_transaction(move |txn| {
             txn.chunk_large_query_over(keys_to_chunk, result_capacity, do_query)
@@ -364,6 +346,7 @@ fn map_interact_err(error: InteractError) -> rusqlite::Error {
 }
 
 pub(crate) trait SqliteTransactionExt {
+    /// See [`SqliteAsyncConnExt::chunk_large_query_over`].
     fn chunk_large_query_over<Key, Query, Res>(
         &self,
         keys_to_chunk: Vec<Key>,
@@ -372,7 +355,37 @@ pub(crate) trait SqliteTransactionExt {
     ) -> Result<Vec<Res>>
     where
         Res: Send + 'static,
-        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static;
+        Query: Fn(&Transaction<'_>, ChunkFromLargeQuery<Key>) -> Result<Vec<Res>> + Send + 'static;
+}
+
+/// Represent the new chunk prepared by
+/// [`SqliteAsyncConnExt::chunk_large_query_over`] or
+/// [`SqliteTransactionExt::chunk_large_query_over`].
+#[repr(transparent)]
+pub(crate) struct ChunkFromLargeQuery<Key>(Vec<Key>);
+
+impl<Key> IntoIterator for ChunkFromLargeQuery<Key> {
+    type Item = Key;
+    type IntoIter = std::vec::IntoIter<Key>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<Key> ChunkFromLargeQuery<Key> {
+    /// Return the correct number of host parameters (the `?` variable in an SQL
+    /// query) equals to the size of the chunk.
+    pub fn host_parameters(&self) -> impl fmt::Display + use<Key> {
+        host_parameters(self.0.len())
+    }
+
+    /// Iterate over the keys in the chunk, by reference.
+    ///
+    /// To get an owned iterator, see the `IntoIterator` implementation.
+    pub fn iter(&self) -> std::slice::Iter<'_, Key> {
+        self.0.iter()
+    }
 }
 
 impl SqliteTransactionExt for Transaction<'_> {
@@ -384,7 +397,7 @@ impl SqliteTransactionExt for Transaction<'_> {
     ) -> Result<Vec<Res>>
     where
         Res: Send + 'static,
-        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static,
+        Query: Fn(&Transaction<'_>, ChunkFromLargeQuery<Key>) -> Result<Vec<Res>> + Send + 'static,
     {
         // Divide by 2 to allow space for more static parameters (not part of
         // `keys_to_chunk`).
@@ -397,7 +410,7 @@ impl SqliteTransactionExt for Transaction<'_> {
             // Chunking isn't necessary.
             let chunk = keys_to_chunk;
 
-            Ok(do_query(self, chunk)?)
+            Ok(do_query(self, ChunkFromLargeQuery(chunk))?)
         } else {
             // Chunking _is_ necessary.
 
@@ -411,7 +424,7 @@ impl SqliteTransactionExt for Transaction<'_> {
                 let chunk = keys_to_chunk;
                 keys_to_chunk = tail;
 
-                all_results.extend(do_query(self, chunk)?);
+                all_results.extend(do_query(self, ChunkFromLargeQuery(chunk))?);
             }
 
             Ok(all_results)
@@ -466,8 +479,8 @@ impl SqliteKeyValueStoreConnExt for rusqlite::Connection {
     }
 }
 
-/// Extension trait for an [`SqliteAsyncConn`] that contains a key-value
-/// table named `kv`.
+/// Extension trait for an [`SqliteAsyncConn`] that contains a key-value table
+/// named `kv`.
 ///
 /// The table should be created like this:
 ///
@@ -537,19 +550,72 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
     /// Get the [`StoreCipher`] of the database or create it.
     async fn get_or_create_store_cipher(
         &self,
-        mut secret: Secret,
+        secret: Secret,
     ) -> Result<StoreCipher, OpenStoreError> {
-        let encrypted_cipher = self.get_kv("cipher").await.map_err(OpenStoreError::LoadCipher)?;
+        const STORAGE_KEY: &str = "cipher";
+
+        let encrypted_cipher =
+            self.get_kv(STORAGE_KEY).await.map_err(OpenStoreError::LoadCipher)?;
 
         let cipher = if let Some(encrypted) = encrypted_cipher {
-            match secret {
-                Secret::PassPhrase(ref passphrase) => StoreCipher::import(passphrase, &encrypted)?,
-                Secret::Key(ref key) => StoreCipher::import_with_key(key, &encrypted)?,
+            match &secret {
+                Secret::PassPhrase(passphrase) => StoreCipher::import(passphrase, &encrypted)?,
+                Secret::Key(key) => StoreCipher::import_with_key(key.as_slice(), &encrypted)?,
+                Secret::HighEntropyPassPhrase { key, base64_variant } => {
+                    // Element X apps used the passphrase-based secret variant
+                    // even though the underlying secret was a randomly
+                    // generated key.
+                    //
+                    // The `HighEntropyPassPhrase` variant was introduced to
+                    // migrate these cipher exports from a passphrase-based
+                    // setup to a key-based setup.
+                    //
+                    // We first attempt to decrypt the cipher using the provided
+                    // high-entropy passphrase as a key. If this results in a
+                    // KDF mismatch, it indicates that the export was originally
+                    // encrypted with the high-entropy passphrase being used as
+                    // a passphrase instead.
+                    //
+                    // In that case, we re-encrypt the cipher using the
+                    // key-based setup. On the next import attempt,
+                    // `import_with_key()` can then decrypt it successfully.
+                    match StoreCipher::import_with_key(key.as_slice(), &encrypted) {
+                        Ok(cipher) => cipher,
+                        Err(matrix_sdk_store_encryption::Error::KdfMismatch) => {
+                            // EX generated a byte array for a key but converted
+                            // it into a string by base64 encoding it to use it
+                            // as a passphrase. So let's do that as well.
+                            //
+                            // Funnily enough, iOS used padded base64, while
+                            // Android used unpadded.
+                            let mut base64_passphrase = match base64_variant {
+                                crate::Base64Variant::Unpadded => base64_encode(key),
+                                crate::Base64Variant::Padded => {
+                                    base64::prelude::BASE64_STANDARD.encode(key)
+                                }
+                            };
+
+                            let cipher = StoreCipher::import(&base64_passphrase, &encrypted);
+                            base64_passphrase.zeroize();
+
+                            let cipher = cipher?;
+                            let export = cipher.export_with_key(key.as_slice())?;
+
+                            self.set_kv(STORAGE_KEY, export)
+                                .await
+                                .map_err(OpenStoreError::SaveCipher)?;
+
+                            cipher
+                        }
+                        Err(e) => return Err(e.into()),
+                    }
+                }
             }
         } else {
             let cipher = StoreCipher::new()?;
-            let export = match secret {
-                Secret::PassPhrase(ref passphrase) => {
+
+            let export = match &secret {
+                Secret::PassPhrase(passphrase) => {
                     #[cfg(not(test))]
                     {
                         cipher.export(passphrase)
@@ -559,12 +625,15 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
                         cipher._insecure_export_fast_for_testing(passphrase)
                     }
                 }
-                Secret::Key(ref key) => cipher.export_with_key(key),
-            };
-            self.set_kv("cipher", export?).await.map_err(OpenStoreError::SaveCipher)?;
+                Secret::Key(key) => cipher.export_with_key(key.as_slice()),
+                Secret::HighEntropyPassPhrase { key, .. } => cipher.export_with_key(key.as_slice()),
+            }?;
+
+            self.set_kv(STORAGE_KEY, export).await.map_err(OpenStoreError::SaveCipher)?;
+
             cipher
         };
-        secret.zeroize();
+
         Ok(cipher)
     }
 }
@@ -598,8 +667,8 @@ impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
 }
 
 /// Repeat `?` n times, where n is defined by `count`. `?` are comma-separated.
-pub(crate) fn repeat_vars(count: usize) -> impl fmt::Display {
-    assert_ne!(count, 0, "Can't generate zero repeated vars");
+pub(crate) fn host_parameters(count: usize) -> impl fmt::Display {
+    assert_ne!(count, 0, "Can't generate zero host parameters");
 
     iter::repeat_n("?", count).format(",")
 }
@@ -612,8 +681,8 @@ pub(crate) fn time_to_timestamp(time: SystemTime) -> i64 {
     time.duration_since(SystemTime::UNIX_EPOCH)
         .ok()
         .and_then(|d| d.as_secs().try_into().ok())
-        // It is unlikely to happen unless the time on the system is seriously wrong, but we always
-        // need a value.
+        // It is unlikely to happen unless the time on the system is seriously
+        // wrong, but we always need a value.
         .unwrap_or(0)
 }
 
@@ -629,9 +698,8 @@ pub(crate) trait EncryptableStore {
     fn get_cypher(&self) -> Option<&StoreCipher>;
 
     /// If the store is using encryption, this will hash the given key. This is
-    /// useful when we need to do queries against a given key, but we don't
-    /// need to store the key in plain text (i.e. it's not both a key and a
-    /// value).
+    /// useful when we need to do queries against a given key, but we don't need
+    /// to store the key in plain text (i.e. it's not both a key and a value).
     fn encode_key(&self, table_name: &str, key: impl AsRef<[u8]>) -> Key {
         let bytes = key.as_ref();
         if let Some(store_cipher) = self.get_cypher() {
@@ -716,16 +784,16 @@ mod unit_tests {
     use super::*;
 
     #[test]
-    fn can_generate_repeated_vars() {
-        assert_eq!(repeat_vars(1).to_string(), "?");
-        assert_eq!(repeat_vars(2).to_string(), "?,?");
-        assert_eq!(repeat_vars(5).to_string(), "?,?,?,?,?");
+    fn test_can_generate_host_parameters() {
+        assert_eq!(host_parameters(1).to_string(), "?");
+        assert_eq!(host_parameters(2).to_string(), "?,?");
+        assert_eq!(host_parameters(5).to_string(), "?,?,?,?,?");
     }
 
     #[test]
-    #[should_panic(expected = "Can't generate zero repeated vars")]
-    fn generating_zero_vars_panics() {
-        repeat_vars(0);
+    #[should_panic(expected = "Can't generate zero host parameters")]
+    fn test_generating_zero_host_parameters_panics() {
+        host_parameters(0);
     }
 
     #[test]

@@ -235,19 +235,19 @@ pub async fn receive_encrypted_to_device_test_helper(
     decrypted[0].clone()
 }
 
-/// Encrypt the given event content into the content of an
-/// olm-encrypted to-device event, suppressing the `sender_device_keys` field in
-/// the encrypted content.
+/// Encrypt the given event content into the content of an olm-encrypted
+/// to-device event, suppressing the `sender_device_keys` field in the encrypted
+/// content.
 ///
 /// This is much the same as calling [`Device::encrypt`] on the recipient
 /// device, other than the suppression of `sender_device_keys`.
 ///
 /// # Arguments
 ///
-/// * `sender` - The OlmMachine to use to encrypt the event.
-/// * `recipient` - The recipient of the encrypted event.
-/// * `event_type` - The type of the event to encrypt.
-/// * `content` - The content of the event to encrypt.
+/// - `sender` - The OlmMachine to use to encrypt the event.
+/// - `recipient` - The recipient of the encrypted event.
+/// - `event_type` - The type of the event to encrypt.
+/// - `content` - The content of the event to encrypt.
 pub async fn build_encrypted_to_device_content_without_sender_data(
     sender: &OlmMachine,
     recipient_device: &DeviceKeys,
@@ -312,8 +312,8 @@ pub async fn build_session_for_pair(
     (alice, bob)
 }
 
-/// Return a pair of [`OlmMachine`]s, with an olm session (initiated
-/// by Alice) established between the two.
+/// Return a pair of [`OlmMachine`]s, with an olm session (initiated by Alice)
+/// established between the two.
 pub async fn get_machine_pair_with_setup_sessions_test_helper(
     alice: &UserId,
     bob: &UserId,
@@ -424,6 +424,8 @@ pub fn create_unsigned_device(device_keys: DeviceKeys) -> Device {
         verification_machine: dummy_verification_machine(),
         own_identity: None,
         device_owner_identity: None,
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        x509_verifier: None,
     }
 }
 
@@ -446,6 +448,8 @@ pub async fn create_signed_device_of_unverified_user(
         verification_machine: dummy_verification_machine(),
         own_identity: None,
         device_owner_identity: Some(public_identity.into()),
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        x509_verifier: None,
     };
     assert!(device.is_cross_signed_by_owner());
     device
@@ -475,6 +479,8 @@ pub async fn create_signed_device_of_verified_user(
         verification_machine: dummy_verification_machine(),
         own_identity: Some(own_identity.to_public_identity().await.unwrap()),
         device_owner_identity: Some(public_identity.into()),
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        x509_verifier: None,
     };
     assert!(device.is_cross_signed_by_owner());
     assert!(device.is_cross_signing_trusted());

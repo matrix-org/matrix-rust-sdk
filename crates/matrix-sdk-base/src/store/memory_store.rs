@@ -116,7 +116,7 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Option<(OwnedEventId, Receipt)> {
         self.inner
@@ -124,7 +124,7 @@ impl MemoryStore {
             .unwrap()
             .room_user_receipts
             .get(room_id)?
-            .get(&(receipt_type.to_string(), thread.as_str().map(ToOwned::to_owned)))?
+            .get(&(receipt_type.to_string(), receipt_thread.as_str().map(ToOwned::to_owned)))?
             .get(user_id)
             .cloned()
     }
@@ -133,7 +133,7 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Option<Vec<(OwnedUserId, Receipt)>> {
         Some(
@@ -142,7 +142,7 @@ impl MemoryStore {
                 .unwrap()
                 .room_event_receipts
                 .get(room_id)?
-                .get(&(receipt_type.to_string(), thread.as_str().map(ToOwned::to_owned)))?
+                .get(&(receipt_type.to_string(), receipt_thread.as_str().map(ToOwned::to_owned)))?
                 .get(event_id)?
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone()))
@@ -459,7 +459,7 @@ impl StateStore for MemoryStore {
                             .stripped_members
                             .entry(room.clone())
                             .or_default()
-                            .insert(event.state_key, event.content.membership.clone());
+                            .insert(event.state_key, event.content.membership);
                     }
                 }
             }
@@ -479,7 +479,8 @@ impl StateStore for MemoryStore {
                             .or_default()
                             .insert(user_id.clone(), (event_id.clone(), receipt.clone()))
                         {
-                            // Remove the old receipt from the room event receipts
+                            // Remove the old receipt from the room event
+                            // receipts
                             if let Some(receipt_map) = inner.room_event_receipts.get_mut(room)
                                 && let Some(event_map) =
                                     receipt_map.get_mut(&(receipt_type.to_string(), thread.clone()))
@@ -792,21 +793,21 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
-        Ok(self.get_user_room_receipt_event_impl(room_id, receipt_type, thread, user_id))
+        Ok(self.get_user_room_receipt_event_impl(room_id, receipt_type, receipt_thread, user_id))
     }
 
     async fn get_event_room_receipt_events(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
         Ok(self
-            .get_event_room_receipt_events_impl(room_id, receipt_type, thread, event_id)
+            .get_event_room_receipt_events_impl(room_id, receipt_type, receipt_thread, event_id)
             .unwrap_or_default())
     }
 
@@ -897,7 +898,8 @@ impl StateStore for MemoryStore {
             // Find the event by id in its room queue, and remove it if present.
             if let Some(pos) = entry.iter().position(|item| item.transaction_id == transaction_id) {
                 entry.remove(pos);
-                // And if this was the last event before removal, remove the entire room entry.
+                // And if this was the last event before removal, remove the
+                // entire room entry.
                 if entry.is_empty() {
                     q.remove(room_id);
                 }
@@ -1090,7 +1092,8 @@ impl StateStore for MemoryStore {
         room_subs.remove(thread_id);
 
         if room_subs.is_empty() {
-            // If there are no more subscriptions for this room, remove the room entry.
+            // If there are no more subscriptions for this room, remove the room
+            // entry.
             inner.thread_subscriptions.remove(room);
         }
 

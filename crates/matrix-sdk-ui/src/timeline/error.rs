@@ -44,6 +44,10 @@ pub enum Error {
     #[error("Failed sending attachment")]
     FailedSendingAttachment,
 
+    /// The redaction could not be sent.
+    #[error("Failed sending redaction")]
+    FailedSendingRedaction,
+
     /// The reaction could not be toggled.
     #[error("Failed toggling reaction")]
     FailedToToggleReaction,
@@ -51,6 +55,10 @@ pub enum Error {
     /// Couldn't read the encryption state of the room.
     #[error("The room's encryption state is unknown.")]
     UnknownEncryptionState,
+
+    /// An error from the underlying Matrix SDK.
+    #[error(transparent)]
+    Sdk(#[from] matrix_sdk::Error),
 
     /// Something went wrong with the room event cache.
     #[error(transparent)]
