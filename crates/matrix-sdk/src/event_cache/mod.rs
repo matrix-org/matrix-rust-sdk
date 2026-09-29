@@ -307,6 +307,13 @@ impl EventCache {
     pub fn subscribe(&self) -> Result<()> {
         let client = self.inner.client()?;
 
+        self.initialize_tasks(&client);
+
+        Ok(())
+    }
+
+    /// Initialize all the tasks used by the [`EventCache`].
+    fn initialize_tasks(&self, client: &Client) {
         // Initialize the drop handles.
         let _ = self.inner.drop_handles.get_or_init(|| {
             let task_monitor = client.task_monitor();
@@ -395,8 +402,6 @@ impl EventCache {
                 _search_indexing_task: search_indexing_task,
             })
         });
-
-        Ok(())
     }
 
     /// For benchmarking purposes only.
@@ -602,7 +607,7 @@ struct EventCacheInner {
     /// instance.
     ///
     /// It's a `OnceLock` because its initialization is deferred to
-    /// [`EventCache::subscribe`].
+    /// [`EventCache::initialize_tasks`].
     ///
     /// See doc comment of [`tasks::auto_shrink_linked_chunk_task`].
     auto_shrink_sender: OnceLock<mpsc::Sender<AutoShrinkMessage>>,
