@@ -255,13 +255,15 @@ impl EventCache {
         let (linked_chunk_update_sender, _) = channel(128);
 
         let weak_client = WeakClient::from_inner(client);
+        let client =
+            weak_client.get().expect("Unreachable: `client` is still alive, it can be upgraded");
 
         let (thread_subscriber_sender, _thread_subscriber_receiver) = channel(128);
 
         #[cfg(feature = "e2e-encryption")]
         let redecryption_channels = redecryptor::RedecryptorChannels::new();
 
-        Self {
+        let this = Self {
             inner: Arc::new(EventCacheInner {
                 client: weak_client,
                 config: StdRwLock::new(EventCacheConfig::default()),
@@ -277,7 +279,10 @@ impl EventCache {
                 back_pagination_queue: OnceLock::new(),
                 thread_subscriber_sender,
             }),
-        }
+        };
+        this.initialize_tasks(&client);
+
+        this
     }
 
     /// Get a read-only handle to the global configuration of the
