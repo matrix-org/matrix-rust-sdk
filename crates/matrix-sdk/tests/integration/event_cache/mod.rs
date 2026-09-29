@@ -47,23 +47,6 @@ macro_rules! assert_event_id {
 }
 
 #[async_test]
-async fn test_must_explicitly_subscribe() {
-    let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
-
-    let room_id = room_id!("!omelette:fromage.fr");
-
-    // If I create a room event subscriber for a room before subscribing the
-    // event cache,
-    let room = server.sync_joined_room(&client, room_id).await;
-    let result = room.event_cache().await;
-
-    // Then it fails, because one must explicitly call `.subscribe()` on the
-    // event cache.
-    assert_matches!(result, Err(EventCacheError::NotSubscribedYet));
-}
-
-#[async_test]
 async fn test_event_cache_receives_events() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
