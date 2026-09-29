@@ -4629,6 +4629,9 @@ async fn test_update_caption_while_sending_media_event() {
 async fn test_sending_reply_in_thread_auto_subscribe() {
     let server = MatrixMockServer::new().await;
 
+    // Make sure to advertise support for thread subscriptions.
+    server.mock_versions().with_thread_subscriptions().ok().mount().await;
+
     // Assuming a client that's interested in thread subscriptions,
     let client = server
         .client_builder()
@@ -4638,9 +4641,6 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
         })
         .build()
         .await;
-
-    // Make sure to advertise support for thread subscriptions.
-    server.mock_versions().with_thread_subscriptions().ok().mount().await;
 
     client.event_cache().subscribe().unwrap();
 

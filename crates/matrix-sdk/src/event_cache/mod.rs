@@ -819,7 +819,10 @@ mod tests {
     use futures_util::FutureExt as _;
     use matrix_sdk_base::{
         RoomState,
+        cross_process_lock::CrossProcessLockConfig,
+        event_cache::store::{EventCacheStore, MemoryStore},
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
+        store::StoreConfig,
         sync::{JoinedRoomUpdate, RoomUpdates, Timeline},
     };
     use matrix_sdk_test::{
@@ -898,25 +901,14 @@ mod tests {
     async fn test_generic_update_when_loading_rooms() {
         // Create 2 rooms. One of them has data in the event cache storage.
         let user = user_id!("@mnt_io:matrix.org");
-        let client = logged_in_client(None).await;
+
         let room_id_0 = room_id!("!raclette:patate.ch");
         let room_id_1 = room_id!("!fondue:patate.ch");
 
         let event_factory = EventFactory::new().room(room_id_0).sender(user);
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
-        client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
-        client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
-
-        client
-            .event_cache_store()
-            .lock()
-            .await
-            .expect("Could not acquire the event cache lock")
-            .as_clean()
-            .expect("Could not acquire a clean event cache lock")
+        let event_cache_store = MemoryStore::new();
+        event_cache_store
             .handle_linked_chunk_updates(
                 LinkedChunkId::Room(room_id_0),
                 vec![
@@ -940,6 +932,24 @@ mod tests {
             )
             .await
             .unwrap();
+
+        let client = MockClientBuilder::new(None)
+            .on_builder(move |builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                        holder_name: "foo".to_owned(),
+                    })
+                    .event_cache_store(event_cache_store),
+                )
+            })
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
+        client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
@@ -967,23 +977,12 @@ mod tests {
     async fn test_generic_update_when_paginating_room() {
         // Create 1 room, with 4 chunks in the event cache storage.
         let user = user_id!("@mnt_io:matrix.org");
-        let client = logged_in_client(None).await;
         let room_id = room_id!("!raclette:patate.ch");
 
         let event_factory = EventFactory::new().room(room_id).sender(user);
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
-        client.base_client().get_or_create_room(room_id, RoomState::Joined);
-
-        client
-            .event_cache_store()
-            .lock()
-            .await
-            .expect("Could not acquire the event cache lock")
-            .as_clean()
-            .expect("Could not acquire a clean event cache lock")
+        let event_cache_store = MemoryStore::new();
+        event_cache_store
             .handle_linked_chunk_updates(
                 LinkedChunkId::Room(room_id),
                 vec![
@@ -1035,6 +1034,23 @@ mod tests {
             )
             .await
             .unwrap();
+
+        let client = MockClientBuilder::new(None)
+            .on_builder(move |builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                        holder_name: "foo".to_owned(),
+                    })
+                    .event_cache_store(event_cache_store),
+                )
+            })
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
@@ -1110,7 +1126,7 @@ mod tests {
         sleep(Duration::from_secs(1)).await;
 
         let event_cache_weak = Arc::downgrade(&client.event_cache().inner);
-        assert_eq!(event_cache_weak.strong_count(), 1);
+        assert_eq!(event_cache_weak.strong_count(), 3);
 
         {
             let room_id = room_id!("!room:example.org");

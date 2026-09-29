@@ -339,8 +339,13 @@ mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
         RoomState,
-        event_cache::Gap,
+        cross_process_lock::CrossProcessLockConfig,
+        event_cache::{
+            Gap,
+            store::{EventCacheStore, MemoryStore},
+        },
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Update},
+        store::StoreConfig,
     };
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{event_id, room_id, user_id};
@@ -361,25 +366,12 @@ mod tests {
         let room_id = room_id!("!r0");
         let sender = user_id!("@bob:example.org");
 
-        let server = MatrixMockServer::new().await;
-        let client = server
-            .client_builder()
-            .on_builder(|builder| builder.with_enable_automatic_back_pagination(true))
-            .build()
-            .await;
-
-        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let event_cache_store = MemoryStore::new();
 
         // A linked chunk with a single gap: no events in memory (so no
         // candidate), but a token to paginate from. Set up directly so no sync
         // (and thus no competing read-receipt pagination) races the backfill.
-        client
-            .event_cache_store()
-            .lock()
-            .await
-            .unwrap()
-            .as_clean()
-            .unwrap()
+        event_cache_store
             .handle_linked_chunk_updates(
                 LinkedChunkId::Room(room_id),
                 vec![Update::NewGapChunk {
@@ -391,6 +383,22 @@ mod tests {
             )
             .await
             .unwrap();
+
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| {
+                builder.with_enable_automatic_back_pagination(true).store_config(
+                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                        holder_name: "foo".to_owned(),
+                    })
+                    .event_cache_store(event_cache_store),
+                )
+            })
+            .build()
+            .await;
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();

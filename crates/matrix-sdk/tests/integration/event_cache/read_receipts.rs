@@ -28,10 +28,13 @@ use std::time::Duration;
 
 use matrix_sdk::{
     ThreadingSupport, assert_let_timeout,
+    cross_process_lock::CrossProcessLockConfig,
     event_cache::RoomEventCacheUpdate,
     linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
+    store::StoreConfig,
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
+use matrix_sdk_base::event_cache::store::{EventCacheStore, MemoryStore};
 use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
     event_id,
@@ -907,59 +910,57 @@ async fn test_all_read_receipts_from_store_used_as_latest_active() {
 /// network.
 #[async_test]
 async fn test_compute_unread_counts_after_backfill_from_disk() {
-    let server = MatrixMockServer::new().await;
-    let client = server
-        .client_builder()
-        .on_builder(|builder| builder.with_enable_automatic_back_pagination(true))
-        .build()
-        .await;
-    let own_user_id = client.user_id().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     // Set up the event cache store with two item chunks, and no gap: only the
     // last one will be loaded in memory, the first one has to be paginated in
     // from the store.
-    {
-        let event_cache_store = client.event_cache_store().lock().await.unwrap();
+    let event_cache_store = MemoryStore::new();
+    event_cache_store
+        .handle_linked_chunk_updates(
+            LinkedChunkId::Room(room_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(0), 0),
+                    items: vec![
+                        f.text_msg("hello 1").event_id(event_id!("$1")).into_event(),
+                        f.text_msg("hello 2").event_id(event_id!("$2")).into_event(),
+                        f.text_msg("hello 3").event_id(event_id!("$3")).into_event(),
+                    ],
+                },
+                Update::NewItemsChunk {
+                    previous: Some(ChunkIdentifier::new(0)),
+                    new: ChunkIdentifier::new(1),
+                    next: None,
+                },
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(1), 0),
+                    items: vec![
+                        f.text_msg("hello 4").event_id(event_id!("$4")).into_event(),
+                        f.text_msg("hello 5").event_id(event_id!("$5")).into_event(),
+                    ],
+                },
+            ],
+        )
+        .await
+        .unwrap();
 
-        event_cache_store
-            .as_clean()
-            .unwrap()
-            .handle_linked_chunk_updates(
-                LinkedChunkId::Room(room_id),
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(0),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(0), 0),
-                        items: vec![
-                            f.text_msg("hello 1").event_id(event_id!("$1")).into_event(),
-                            f.text_msg("hello 2").event_id(event_id!("$2")).into_event(),
-                            f.text_msg("hello 3").event_id(event_id!("$3")).into_event(),
-                        ],
-                    },
-                    Update::NewItemsChunk {
-                        previous: Some(ChunkIdentifier::new(0)),
-                        new: ChunkIdentifier::new(1),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(1), 0),
-                        items: vec![
-                            f.text_msg("hello 4").event_id(event_id!("$4")).into_event(),
-                            f.text_msg("hello 5").event_id(event_id!("$5")).into_event(),
-                        ],
-                    },
-                ],
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.with_enable_automatic_back_pagination(true).store_config(
+                StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                    holder_name: "foo".to_owned(),
+                })
+                .event_cache_store(event_cache_store),
             )
-            .await
-            .unwrap();
-    }
+        })
+        .build()
+        .await;
+    let own_user_id = client.user_id().unwrap();
 
     client.event_cache().subscribe().unwrap();
 
