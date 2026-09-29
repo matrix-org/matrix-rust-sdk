@@ -461,8 +461,8 @@ fn select_best_receipt<T>(
 where
     T: EventFilter,
 {
-    // If we had a new receipt event, add the main/unthreaded receipts it
-    // contains to the pending receipts list. We'll try to chase them later.
+    // If we had a new receipt event, add the receipts it contains to the
+    // pending receipts list. We'll try to chase them later.
     if let Some(receipt_event) = new_receipt_event {
         for (event_id, receipts) in &receipt_event.0 {
             for ty in ALL_RECEIPT_TYPES {
