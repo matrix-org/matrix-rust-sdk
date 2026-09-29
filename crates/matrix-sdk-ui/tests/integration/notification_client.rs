@@ -95,14 +95,6 @@ async fn test_notification_client_with_context() {
 #[async_test]
 async fn test_subscribed_threads_get_notifications() {
     let server = MatrixMockServer::new().await;
-    let client = server
-        .client_builder()
-        .no_server_versions()
-        .on_builder(|builder| {
-            builder.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
-        })
-        .build()
-        .await;
 
     let sender = user_id!("@user:example.org");
     let room_id = room_id!("!a98sd12bjh:example.org");
@@ -113,6 +105,15 @@ async fn test_subscribed_threads_get_notifications() {
 
     // First, mock an empty sync so the room is known.
     server.mock_room_state_encryption().plain().mount().await;
+
+    let client = server
+        .client_builder()
+        .no_server_versions()
+        .on_builder(|builder| {
+            builder.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
+        })
+        .build()
+        .await;
 
     // To have access to the push rules context, we must know the own's member
     // event.
@@ -200,14 +201,6 @@ async fn test_subscribed_threads_get_notifications() {
 #[async_test]
 async fn test_unsubscribed_threads_get_notifications() {
     let server = MatrixMockServer::new().await;
-    let client = server
-        .client_builder()
-        .no_server_versions()
-        .on_builder(|builder| {
-            builder.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
-        })
-        .build()
-        .await;
 
     let sender = user_id!("@user:example.org");
     let room_id = room_id!("!a98sd12bjh:example.org");
@@ -218,6 +211,15 @@ async fn test_unsubscribed_threads_get_notifications() {
 
     // First, mock an empty sync so the room is known.
     server.mock_room_state_encryption().plain().mount().await;
+
+    let client = server
+        .client_builder()
+        .no_server_versions()
+        .on_builder(|builder| {
+            builder.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
+        })
+        .build()
+        .await;
 
     // To have access to the push rules context, we must know the own's member
     // event.

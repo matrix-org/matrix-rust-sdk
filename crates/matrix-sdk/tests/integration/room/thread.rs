@@ -181,6 +181,10 @@ async fn test_thread_push_rule_is_triggered_for_subscribed_threads() {
     // correctly call `Room::fetch_thread_subscription` for threads.
 
     let server = MatrixMockServer::new().await;
+
+    // Make sure to advertise support for thread subscriptions.
+    server.mock_versions().with_thread_subscriptions().ok().mount().await;
+
     let client = server
         .client_builder()
         .no_server_versions()
@@ -191,9 +195,6 @@ async fn test_thread_push_rule_is_triggered_for_subscribed_threads() {
         })
         .build()
         .await;
-
-    // Make sure to advertise support for thread subscriptions.
-    server.mock_versions().with_thread_subscriptions().ok().mount().await;
 
     let room_id = room_id!("!test:example.org");
     let room = server.sync_joined_room(&client, room_id).await;
@@ -255,6 +256,10 @@ async fn test_thread_push_rules_and_notification_modes() {
     // according to the subscriptions.
 
     let server = MatrixMockServer::new().await;
+
+    // Make sure to advertise support for thread subscriptions.
+    server.mock_versions().with_thread_subscriptions().ok().mount().await;
+
     let client = server
         .client_builder()
         .no_server_versions()
@@ -265,9 +270,6 @@ async fn test_thread_push_rules_and_notification_modes() {
         })
         .build()
         .await;
-
-    // Make sure to advertise support for thread subscriptions.
-    server.mock_versions().with_thread_subscriptions().ok().mount().await;
 
     let room_id = room_id!("!test:example.org");
     let f = EventFactory::new().room(room_id).sender(*ALICE);

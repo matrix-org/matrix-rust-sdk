@@ -364,6 +364,9 @@ struct ThreadSubscriptionTestSetup {
 async fn thread_subscription_test_setup() -> ThreadSubscriptionTestSetup {
     let server = MatrixMockServer::new().await;
 
+    // Make sure to advertise support for thread subscriptions.
+    server.mock_versions().with_thread_subscriptions().ok().mount().await;
+
     let thread_root = event_id!("$thread_root");
 
     // Assuming a client that's interested in thread subscriptions,
@@ -375,9 +378,6 @@ async fn thread_subscription_test_setup() -> ThreadSubscriptionTestSetup {
         })
         .build()
         .await;
-
-    // Make sure to advertise support for thread subscriptions.
-    server.mock_versions().with_thread_subscriptions().ok().mount().await;
 
     // Immediately subscribe the event cache to sync updates.
     let event_cache = client.event_cache();

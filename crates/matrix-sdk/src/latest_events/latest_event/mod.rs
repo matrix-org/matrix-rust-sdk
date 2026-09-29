@@ -349,6 +349,7 @@ mod tests_latest_event {
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
         RoomInfoNotableUpdateReasons, RoomState,
+        event_cache::store::{EventCacheStore, MemoryStore},
         latest_event::RemoteLatestEventValue,
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
         store::{SerializableEventContent, StoreConfig},
@@ -368,7 +369,7 @@ mod tests_latest_event {
         client::WeakClient,
         room::WeakRoom,
         send_queue::{LocalEcho, LocalEchoContent, RoomSendQueue, RoomSendQueueUpdate, SendHandle},
-        test_utils::mocks::MatrixMockServer,
+        test_utils::{client::MockClientBuilder, mocks::MatrixMockServer},
     };
 
     fn new_local_echo_content(
@@ -633,23 +634,9 @@ mod tests_latest_event {
         let user_id = user_id!("@mnt_io:matrix.org");
         let event_factory = EventFactory::new().sender(user_id).room(&room_id);
 
-        let server = MatrixMockServer::new().await;
-        let client = server.client_builder().build().await;
-        client.base_client().get_or_create_room(&room_id, RoomState::Joined);
-        let room = client.get_room(&room_id).unwrap();
-        let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.clone());
-
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         // Fill the event cache with one event.
-        client
-            .event_cache_store()
-            .lock()
-            .await
-            .expect("Could not acquire the event cache lock")
-            .as_clean()
-            .expect("Could not acquire a clean event cache lock")
+        let event_cache_store = MemoryStore::new();
+        event_cache_store
             .handle_linked_chunk_updates(
                 LinkedChunkId::Room(&room_id),
                 vec![
@@ -666,6 +653,26 @@ mod tests_latest_event {
             )
             .await
             .unwrap();
+
+        let client = MockClientBuilder::new(None)
+            .on_builder(move |builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                        holder_name: "foo".to_owned(),
+                    })
+                    .event_cache_store(event_cache_store),
+                )
+            })
+            .build()
+            .await;
+
+        client.base_client().get_or_create_room(&room_id, RoomState::Joined);
+
+        let room = client.get_room(&room_id).unwrap();
+        let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.clone());
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
 
         let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
@@ -745,26 +752,12 @@ mod tests_latest_event {
         let user_id = user_id!("@mnt_io:matrix.org");
         let event_factory = EventFactory::new().sender(user_id).room(&room_id);
 
-        let server = MatrixMockServer::new().await;
-        let client = server.client_builder().build().await;
-        client.base_client().get_or_create_room(&room_id, RoomState::Joined);
-        let _room = client.get_room(&room_id).unwrap();
-        let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.clone());
-
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         let event_id_0 = event_id!("$ev0");
         let event_id_1 = event_id!("$ev1");
 
         // Fill the event cache with two events.
-        client
-            .event_cache_store()
-            .lock()
-            .await
-            .expect("Could not acquire the event cache lock")
-            .as_clean()
-            .expect("Could not acquire a clean event cache lock")
+        let event_cache_store = MemoryStore::new();
+        event_cache_store
             .handle_linked_chunk_updates(
                 LinkedChunkId::Room(&room_id),
                 vec![
@@ -784,6 +777,28 @@ mod tests_latest_event {
             )
             .await
             .unwrap();
+
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(move |builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                        holder_name: "foo".to_owned(),
+                    })
+                    .event_cache_store(event_cache_store),
+                )
+            })
+            .build()
+            .await;
+
+        client.base_client().get_or_create_room(&room_id, RoomState::Joined);
+
+        let _room = client.get_room(&room_id).unwrap();
+        let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.clone());
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
 
         let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
@@ -835,8 +850,29 @@ mod tests_latest_event {
 
         let server = MatrixMockServer::new().await;
 
+        // Fill the event cache with one event.
+        let event_cache_store = MemoryStore::new();
+        event_cache_store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(&room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![event_factory.text_msg("A").event_id(event_id!("$ev0")).into()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
         let store_config =
-            StoreConfig::new(CrossProcessLockConfig::multi_process("cross-process-lock-holder"));
+            StoreConfig::new(CrossProcessLockConfig::multi_process("cross-process-lock-holder"))
+                .event_cache_store(event_cache_store);
 
         // Load the client for the first time, and run some operations.
         {
@@ -851,33 +887,6 @@ mod tests_latest_event {
 
             let event_cache = client.event_cache();
             event_cache.subscribe().unwrap();
-
-            // Fill the event cache with one event.
-            client
-                .event_cache_store()
-                .lock()
-                .await
-                .expect("Could not acquire the event cache lock")
-                .as_clean()
-                .expect("Could not acquire a clean event cache lock")
-                .handle_linked_chunk_updates(
-                    LinkedChunkId::Room(&room_id),
-                    vec![
-                        Update::NewItemsChunk {
-                            previous: None,
-                            new: ChunkIdentifier::new(0),
-                            next: None,
-                        },
-                        Update::PushItems {
-                            at: Position::new(ChunkIdentifier::new(0), 0),
-                            items: vec![
-                                event_factory.text_msg("A").event_id(event_id!("$ev0")).into(),
-                            ],
-                        },
-                    ],
-                )
-                .await
-                .unwrap();
 
             let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
