@@ -833,7 +833,7 @@ impl SlidingSync {
                                 }
 
                                 #[cfg(feature = "e2e-encryption")]
-                                if let Some(ruma::api::error::Error{status_code: ::http::StatusCode::BAD_REQUEST, body: ErrorBody::Standard(StandardErrorBody {kind: ErrorKind::InvalidParam, message, ..}), ..}) = error.as_client_api_error()
+                                if let Some(ruma::api::error::Error{status_code: ::http::StatusCode::BAD_REQUEST, body: ErrorBody::Standard(StandardErrorBody {message, ..}), ..}) = error.as_client_api_error()
                                     && message.contains("to_device")
                                     && message.contains("should look like an int")
                                     && let Some(olm_machine) = &*self.inner.client.olm_machine().await {
