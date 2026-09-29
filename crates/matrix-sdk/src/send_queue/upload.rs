@@ -414,6 +414,7 @@ impl RoomSendQueue {
 
         let send_event_txn =
             gallery.txn_id.clone().map_or_else(ChildTransactionId::new, Into::into);
+        let extra_content = gallery.extra_content.clone();
 
         Span::current().record("event_txn", tracing::field::display(&*send_event_txn));
 
@@ -478,6 +479,7 @@ impl RoomSendQueue {
                 send_event_txn.clone().into(),
                 created_at,
                 item_queue_infos,
+                extra_content.clone(),
             )
             .await?;
 
@@ -495,8 +497,11 @@ impl RoomSendQueue {
         self.send_update(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             transaction_id: send_event_txn.clone().into(),
             content: LocalEchoContent::Event {
-                serialized_event: SerializableEventContent::new(&event_content.into())
-                    .map_err(RoomSendQueueStorageError::JsonSerialization)?,
+                serialized_event: merge_extra_content(
+                    SerializableEventContent::new(&event_content.into())
+                        .map_err(RoomSendQueueStorageError::JsonSerialization)?,
+                    extra_content,
+                )?,
                 send_handle: send_handle.clone(),
                 send_error: None,
             },
@@ -691,6 +696,7 @@ impl QueueStorage {
         parent_key: SentRequestKey,
         mut local_echo: RoomMessageEventContent,
         item_infos: Vec<FinishGalleryItemInfo>,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
         new_updates: &mut Vec<RoomSendQueueUpdate>,
     ) -> Result<(), RoomSendQueueError> {
         // All uploads are ready: enqueue the event with its final data.
@@ -725,8 +731,11 @@ impl QueueStorage {
 
         update_gallery_event_after_upload(&mut local_echo, sent_infos);
 
-        let new_content = SerializableEventContent::new(&local_echo.into())
-            .map_err(RoomSendQueueStorageError::JsonSerialization)?;
+        let new_content = merge_extra_content(
+            SerializableEventContent::new(&local_echo.into())
+                .map_err(RoomSendQueueStorageError::JsonSerialization)?,
+            extra_content,
+        )?;
 
         // Indicates observers that the upload finished, by editing the local
         // echo for the event into its final form before sending.
