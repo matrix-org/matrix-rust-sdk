@@ -2710,7 +2710,6 @@ async fn test_media_uploads() {
         txn = transaction_id,
         event_id = event_id!("$1")
     });
-
     // That's all, folks!
     assert!(watch.is_empty());
 }
@@ -2778,6 +2777,11 @@ async fn test_gallery_uploads() {
 
     let transaction_id = TransactionId::new();
     let mentions = Mentions::with_user_ids([owned_user_id!("@ivan:sdk.rs")]);
+    let extra_content = serde_json::Map::from_iter([
+        ("com.example.key".to_owned(), json!("gallery")),
+        // The gallery's own body must win over a conflicting extra value.
+        ("body".to_owned(), json!("override attempt")),
+    ]);
     let gallery = GalleryConfig::new()
         .txn_id(transaction_id.clone())
         .add_item(GalleryItemInfo {
@@ -2802,14 +2806,25 @@ async fn test_gallery_uploads() {
             event_id: replied_to_event_id.into(),
             enforce_thread: matrix_sdk::room::reply::EnforceThread::Threaded(ReplyWithinThread::No),
             add_mentions: AddMentions::Yes,
-        }));
+        }))
+        .extra_content(Some(extra_content));
 
     // ----------------------
     //
     // Prepare endpoints.
     mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
-    mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
+    let sent_body = Arc::new(std::sync::Mutex::new(None));
+    let sent_body_clone = sent_body.clone();
+    mock.mock_room_send()
+        .respond_with(move |req: &Request| {
+            *sent_body_clone.lock().unwrap() =
+                Some(serde_json::from_slice::<serde_json::Value>(&req.body).unwrap());
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$1" }))
+        })
+        .mock_once()
+        .mount()
+        .await;
 
     let f = EventFactory::new();
     mock.mock_room_event()
@@ -3175,6 +3190,9 @@ async fn test_gallery_uploads() {
         txn = transaction_id,
         event_id = event_id!("$1")
     });
+    let sent_body = sent_body.lock().unwrap().take().unwrap();
+    assert_eq!(sent_body["com.example.key"], "gallery");
+    assert_eq!(sent_body["body"], "caption");
 
     // That's all, folks!
     assert!(watch.is_empty());

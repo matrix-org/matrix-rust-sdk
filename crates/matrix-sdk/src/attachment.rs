@@ -303,6 +303,7 @@ pub struct GalleryConfig {
     pub(crate) caption: Option<TextMessageEventContent>,
     pub(crate) mentions: Option<Mentions>,
     pub(crate) reply: Option<Reply>,
+    pub(crate) extra_content: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[cfg(feature = "unstable-msc4274")]
@@ -363,6 +364,18 @@ impl GalleryConfig {
     /// * `reply` - The reply information of the message.
     pub fn reply(mut self, reply: Option<Reply>) -> Self {
         self.reply = reply;
+        self
+    }
+
+    /// Set additional top-level fields for the gallery event's content.
+    ///
+    /// The event's own fields take precedence on conflicts.
+    #[must_use]
+    pub fn extra_content(
+        mut self,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
+    ) -> Self {
+        self.extra_content = extra_content;
         self
     }
 

@@ -1870,6 +1870,7 @@ impl QueueStorage {
         send_event_txn: OwnedTransactionId,
         created_at: MilliSecondsSinceUnixEpoch,
         item_queue_infos: Vec<GalleryItemQueueInfo>,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
     ) -> Result<(), RoomSendQueueStorageError> {
         let guard = self.store.lock().await;
         let client = guard.client()?;
@@ -1981,6 +1982,7 @@ impl QueueStorage {
                 DependentQueuedRequestKind::FinishGallery {
                     local_echo: Box::new(event),
                     item_infos: finish_item_infos,
+                    extra_content,
                 },
             )
             .await?;
@@ -2258,7 +2260,11 @@ impl QueueStorage {
                 }
 
                 #[cfg(feature = "unstable-msc4274")]
-                DependentQueuedRequestKind::FinishGallery { local_echo, item_infos } => {
+                DependentQueuedRequestKind::FinishGallery {
+                    local_echo,
+                    item_infos,
+                    extra_content,
+                } => {
                     // Materialize as an event local echo.
                     self.create_gallery_local_echo(
                         dep.own_transaction_id,
@@ -2266,6 +2272,7 @@ impl QueueStorage {
                         dep.created_at,
                         local_echo,
                         item_infos,
+                        extra_content,
                         &mut media_upload_errors,
                     )
                 }
@@ -2276,6 +2283,7 @@ impl QueueStorage {
 
     /// Create a local echo for a gallery event.
     #[cfg(feature = "unstable-msc4274")]
+    #[allow(clippy::too_many_arguments)]
     fn create_gallery_local_echo(
         &self,
         transaction_id: ChildTransactionId,
@@ -2283,6 +2291,7 @@ impl QueueStorage {
         created_at: MilliSecondsSinceUnixEpoch,
         local_echo: Box<RoomMessageEventContent>,
         item_infos: Vec<FinishGalleryItemInfo>,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
         media_upload_errors: &mut HashMap<OwnedTransactionId, QueueWedgeError>,
     ) -> Option<LocalEcho> {
         // If any of the uploads wedged, the gallery event is wedged too.
@@ -2295,7 +2304,11 @@ impl QueueStorage {
         Some(LocalEcho {
             transaction_id: transaction_id.clone().into(),
             content: LocalEchoContent::Event {
-                serialized_event: SerializableEventContent::new(&(*local_echo).into()).ok()?,
+                serialized_event: upload::merge_extra_content(
+                    SerializableEventContent::new(&(*local_echo).into()).ok()?,
+                    extra_content,
+                )
+                .ok()?,
                 send_handle: SendHandle {
                     room: room.clone(),
                     transaction_id: transaction_id.into(),
@@ -2554,7 +2567,7 @@ impl QueueStorage {
             }
 
             #[cfg(feature = "unstable-msc4274")]
-            DependentQueuedRequestKind::FinishGallery { local_echo, item_infos } => {
+            DependentQueuedRequestKind::FinishGallery { local_echo, item_infos, extra_content } => {
                 let Some(parent_key) = parent_key else {
                     // Not finished yet, we should retry later => false.
                     return Ok(false);
@@ -2565,6 +2578,7 @@ impl QueueStorage {
                     parent_key,
                     *local_echo,
                     item_infos,
+                    extra_content,
                     new_updates,
                 )
                 .await?;
