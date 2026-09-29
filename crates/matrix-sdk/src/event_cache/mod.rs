@@ -345,29 +345,29 @@ impl EventCache {
                 redecryptor::Redecryptor::new(&client, Arc::downgrade(&self.inner), receiver, &self.inner.linked_chunk_update_sender)
             };
 
-        let thread_subscriber_task = client
-            .task_monitor()
-            .spawn_infinite_task(
-                "event_cache::thread_subscriber",
-                tasks::thread_subscriber_task(
-                    self.inner.client.clone(),
-                    self.inner.linked_chunk_update_sender.clone(),
-                    self.inner.thread_subscriber_sender.clone(),
-                ),
-            )
-            .abort_on_drop();
+            let thread_subscriber_task = client
+                .task_monitor()
+                .spawn_infinite_task(
+                    "event_cache::thread_subscriber",
+                    tasks::thread_subscriber_task(
+                        self.inner.client.clone(),
+                        self.inner.linked_chunk_update_sender.clone(),
+                        self.inner.thread_subscriber_sender.clone(),
+                    ),
+                )
+                .abort_on_drop();
 
-        #[cfg(feature = "experimental-search")]
-        let search_indexing_task = client
-            .task_monitor()
-            .spawn_infinite_task(
-                "event_cache::search_indexing",
-                tasks::search_indexing_task(
-                    self.inner.client.clone(),
-                    self.inner.linked_chunk_update_sender.clone(),
-                ),
-            )
-            .abort_on_drop();
+            #[cfg(feature = "experimental-search")]
+            let search_indexing_task = client
+                .task_monitor()
+                .spawn_infinite_task(
+                    "event_cache::search_indexing",
+                    tasks::search_indexing_task(
+                        self.inner.client.clone(),
+                        self.inner.linked_chunk_update_sender.clone(),
+                    ),
+                )
+                .abort_on_drop();
 
             if self.inner.enable_automatic_back_pagination {
                 // Deferred initialization of the shared back-pagination queue.
