@@ -1246,8 +1246,8 @@ async fn send_todevice_send_event(
 
 #[tokio::test]
 async fn test_todevice_when_switching_sync() -> Result<()> {
-    // We use the `SendSecret` event here because it lets us embed arbitrary strings to tell
-    // messages apart.
+    // We use the `SendSecret` event here because it lets us embed arbitrary strings
+    // to tell messages apart.
 
     let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
     let alice_user_id = alice.user_id().unwrap().to_owned();
