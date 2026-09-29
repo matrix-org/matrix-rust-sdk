@@ -99,6 +99,10 @@ impl LimitedUrl {
         }
     }
 
+    fn new_unchecked(parsed: Url, raw: Vec<u8>) -> Self {
+        Self { parsed, raw }
+    }
+
     /// Return the length of the URL.
     ///
     /// Is returned as an `u8` as it is guaranteed to be <= [`u8::MAX`].
@@ -265,7 +269,7 @@ impl QrCodeData {
             // that's the maximum amount of bytes we might have read. So we can
             // skip the constructor here.
             let parsed_url = Url::parse(str::from_utf8(&base_url)?)?;
-            let base_url = LimitedUrl { parsed: parsed_url, raw: base_url };
+            let base_url = LimitedUrl::new_unchecked(parsed_url, base_url);
 
             Ok(Self { public_key, rendezvous_id, base_url, intent })
         } else {
@@ -334,6 +338,34 @@ mod test {
     const QR_CODE_DATA_BASE64: &str = "SU9fRUxFTUVOVF9NU0M0Mzg4AwG0yzZ1QVpQ1jlnoxWX3d5jrWRFfELxjS2gN\
                                        7pz9y+3PBowMUhYOUswMFExSDZLUEQ0N0VHNEcxVDNYRyRodHRwczovL3N5bm\
                                        Fwc2Utb2lkYy5sYWIuZWxlbWVudC5kZXY";
+
+    #[test]
+    fn cant_create_too_long_url() {
+        let too_long = "http://example.org".to_owned() + &"A".repeat(256);
+        let too_long = Url::parse(&too_long).unwrap();
+        LimitedUrl::new(too_long).expect_err("Can't create an URL that's too long");
+    }
+
+    #[test]
+    fn limited_url_is_not_normalized() {
+        let raw = "http://example.org/";
+        let with_slash = Url::parse(raw).unwrap();
+        let url = LimitedUrl::new_unchecked(with_slash, raw.into());
+
+        assert_eq!(url.as_bytes(), b"http://example.org/");
+
+        let raw = "http://example.org";
+        let without_slash = Url::parse(raw).unwrap();
+        let url = LimitedUrl::new_unchecked(without_slash, raw.into());
+
+        assert_eq!(url.as_bytes(), b"http://example.org");
+    }
+
+    #[test]
+    fn cant_create_too_long_limited_string() {
+        let too_long = "A".repeat(256);
+        LimitedString::new(too_long).expect_err("Can't create a limited string that's too long");
+    }
 
     #[test]
     fn parse_qr_data() {
