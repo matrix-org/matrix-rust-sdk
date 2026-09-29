@@ -96,13 +96,6 @@ use self::{
 /// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Clone, Debug)]
 pub enum EventCacheError {
-    /// The [`EventCache`] instance hasn't been initialized with
-    /// [`EventCache::subscribe`]
-    #[error(
-        "The EventCache hasn't subscribed to sync responses yet, call `EventCache::subscribe()`"
-    )]
-    NotSubscribedYet,
-
     /// Room cache is not found.
     #[error("Room cache `{room_id}` is not found.")]
     RoomNotFound {
@@ -425,13 +418,11 @@ impl EventCache {
         &self,
         room_id: &RoomId,
     ) -> Result<(RoomEventCache, Arc<EventCacheDropHandles>)> {
-        let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
-            return Err(EventCacheError::NotSubscribedYet);
-        };
+        let drop_handles = self.inner.drop_handles.get().unwrap();
 
         let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
 
-        Ok((caches_for_room.room().clone(), drop_handles))
+        Ok((caches_for_room.room().clone(), drop_handles.clone()))
     }
 
     /// Return a thread-specific view over the [`EventCache`].
@@ -440,13 +431,14 @@ impl EventCache {
         room_id: &RoomId,
         thread_id: &EventId,
     ) -> Result<(ThreadEventCache, Arc<EventCacheDropHandles>)> {
-        let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
-            return Err(EventCacheError::NotSubscribedYet);
-        };
+        let drop_handles = self.inner.drop_handles.get().unwrap();
 
         let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
 
-        Ok((caches_for_room.thread(thread_id.to_owned()).await?.deref().clone(), drop_handles))
+        Ok((
+            caches_for_room.thread(thread_id.to_owned()).await?.deref().clone(),
+            drop_handles.clone(),
+        ))
     }
 
     /// Return a pinned-events-specific view over the [`EventCache`].
@@ -454,13 +446,11 @@ impl EventCache {
         &self,
         room_id: &RoomId,
     ) -> Result<(PinnedEventsCache, Arc<EventCacheDropHandles>)> {
-        let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
-            return Err(EventCacheError::NotSubscribedYet);
-        };
+        let drop_handles = self.inner.drop_handles.get().unwrap();
 
         let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
 
-        Ok((caches_for_room.pinned_events().await?.clone(), drop_handles))
+        Ok((caches_for_room.pinned_events().await?.clone(), drop_handles.clone()))
     }
 
     /// Return an event-focused view over the [`EventCache`].
@@ -471,9 +461,7 @@ impl EventCache {
         thread_mode: EventFocusThreadMode,
         number_of_initial_events: u16,
     ) -> Result<(EventFocusedCache, Arc<EventCacheDropHandles>)> {
-        let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
-            return Err(EventCacheError::NotSubscribedYet);
-        };
+        let drop_handles = self.inner.drop_handles.get().unwrap();
 
         let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
 
@@ -483,7 +471,7 @@ impl EventCache {
                 .await?
                 .deref()
                 .clone(),
-            drop_handles,
+            drop_handles.clone(),
         ))
     }
 
@@ -844,22 +832,6 @@ mod tests {
     use crate::test_utils::{
         assert_event_matches_msg, client::MockClientBuilder, logged_in_client,
     };
-
-    #[async_test]
-    async fn test_must_explicitly_subscribe() {
-        let client = logged_in_client(None).await;
-
-        let event_cache = client.event_cache();
-
-        // If I create a room event subscriber for a room before subscribing the
-        // event cache,
-        let room_id = room_id!("!omelette:fromage.fr");
-        let result = event_cache.room(room_id).await;
-
-        // Then it fails, because one must explicitly call `.subscribe()` on the
-        // event cache.
-        assert_matches!(result, Err(EventCacheError::NotSubscribedYet));
-    }
 
     #[async_test]
     async fn test_get_event_by_id() {
