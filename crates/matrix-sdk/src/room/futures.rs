@@ -97,7 +97,7 @@ impl<'a> SendMessageLikeEvent<'a> {
     /// [`Client::supports_sticky_events`]: crate::Client::supports_sticky_events
     #[cfg(feature = "unstable-msc4354")]
     pub fn with_sticky_duration(mut self, duration: Duration) -> Self {
-        self.sticky_duration = Some(sticky_duration_ms(duration));
+        self.sticky_duration = Some(crate::utils::sticky_duration_ms(duration));
         self
     }
 
@@ -197,7 +197,7 @@ impl<'a> SendRawMessageLikeEvent<'a> {
     /// [`Client::supports_sticky_events`]: crate::Client::supports_sticky_events
     #[cfg(feature = "unstable-msc4354")]
     pub fn with_sticky_duration(mut self, duration: Duration) -> Self {
-        self.sticky_duration = Some(sticky_duration_ms(duration));
+        self.sticky_duration = Some(crate::utils::sticky_duration_ms(duration));
         self
     }
 
@@ -307,13 +307,6 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
 
         Box::pin(fut.instrument(tracing_span))
     }
-}
-
-/// Convert a `Duration` into the sticky duration of a request, clamped to one
-/// hour.
-#[cfg(feature = "unstable-msc4354")]
-fn sticky_duration_ms(duration: Duration) -> StickyDurationMs {
-    StickyDurationMs::new_clamped(u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
 }
 
 /// Future returned by [`Room::send_attachment`].

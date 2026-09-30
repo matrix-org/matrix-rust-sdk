@@ -2,8 +2,7 @@ use matrix_sdk_crypto::{UserIdentity as SdkUserIdentity, types::CrossSigningKey}
 
 use crate::CryptoStoreError;
 
-/// Enum representing cross signing identity of our own user or some other
-/// user.
+/// Enum representing cross signing identity of our own user or some other user.
 #[derive(uniffi::Enum)]
 pub enum UserIdentity {
     /// Our own user identity.

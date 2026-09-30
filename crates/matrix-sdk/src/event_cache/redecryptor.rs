@@ -569,10 +569,9 @@ impl EventCache {
             // Filter out results that are `None`, i.e. a thread where no UTD has been replaced.
             .flatten()
             {
-                let new_thread_summary =
-                    thread_cache.state().read().await?.compute_thread_summary().await?;
+                let new_thread_summary = thread_cache.update_thread_summary().await?;
 
-                all_caches.room.update_thread_summary(&thread_id, new_thread_summary).await?;
+                all_caches.room.update_thread_summary(&thread_id, new_thread_summary)?;
             }
         }
 
@@ -1423,8 +1422,9 @@ mod tests {
             &self,
             room_id: &RoomId,
             thread_id: &EventId,
-        ) -> Result<ThreadInfo, Self::Error> {
-            self.memory_store.load_thread_info(room_id, thread_id).await
+            insert_default_if_missing: bool,
+        ) -> Result<Option<ThreadInfo>, Self::Error> {
+            self.memory_store.load_thread_info(room_id, thread_id, insert_default_if_missing).await
         }
 
         async fn update_thread_info(

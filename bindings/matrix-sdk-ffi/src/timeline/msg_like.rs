@@ -149,7 +149,11 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
                             .into_iter()
                             .map(|i| PollAnswer { id: i.id, text: i.text })
                             .collect(),
-                        votes: results.votes,
+                        votes: results
+                            .votes
+                            .into_iter()
+                            .map(|(id, users)| (id, users.into_iter().map(Into::into).collect()))
+                            .collect(),
                         end_time: results.end_time.map(|t| t.into()),
                         has_been_edited: results.has_been_edited,
                     },

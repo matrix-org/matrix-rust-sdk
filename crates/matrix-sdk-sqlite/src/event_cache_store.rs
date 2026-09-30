@@ -1189,13 +1189,14 @@ impl EventCacheStore for SqliteEventCacheStore {
                 //
                 // The current solution is to run two queries:
                 //
-                // - one to get each chunk and its number of events, by doing a single `SELECT`
-                //   query over the `event_chunks` table, grouping by chunk ids. This gives us a
-                //   list of `(chunk_id, num_events)` pairs, which can be transformed into a
+                // - one to get each chunk and its number of events, by doing a
+                //   single `SELECT` query over the `event_chunks` table,
+                //   grouping by chunk ids. This gives us a list of `(chunk_id,
+                //   num_events)` pairs, which can be transformed into a
                 //   hashmap.
-                // - one to get each chunk's metadata (id, previous, next, type) from the
-                //   database with a `SELECT`, and then use the hashmap to get the number of
-                //   events.
+                // - one to get each chunk's metadata (id, previous, next, type)
+                //   from the database with a `SELECT`, and then use the hashmap
+                //   to get the number of events.
                 //
                 // This strategy minimizes the number of queries to the
                 // database, and keeps them super simple, while doing a bit more
@@ -1411,14 +1412,15 @@ impl EventCacheStore for SqliteEventCacheStore {
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
-    ) -> Result<ThreadInfo, Self::Error> {
+        insert_default_if_missing: bool,
+    ) -> Result<Option<ThreadInfo>, Self::Error> {
         let linked_chunk_id = LinkedChunkId::Thread(room_id, thread_id);
         let hashed_linked_chunk_id =
             self.encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &linked_chunk_id);
         let encryption = self.encryption.clone();
 
         // First off, try by selecting the thread info. It's the most common
-        // case. If it doesn't exist, create an empty one.
+        // case.
         //
         // We do that with 2 transactions.
         let maybe_thread_info = self
@@ -1442,12 +1444,15 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await?;
 
         if let Some(thread_info) = maybe_thread_info {
-            return Ok(thread_info);
+            return Ok(Some(thread_info));
+        } else if !insert_default_if_missing {
+            // The thread info doesn't exist, but we don't want to create one.
+            return Ok(None);
         }
 
-        // The thread doesn't exist, let's create it.
+        // The thread info doesn't exist, and we want to create it!
 
-        let thread_info = ThreadInfo::new();
+        let thread_info = ThreadInfo::default();
         let hashed_linked_chunk_id =
             self.encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &linked_chunk_id);
         let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
@@ -1466,7 +1471,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             })
             .await?;
 
-        Ok(thread_info)
+        Ok(Some(thread_info))
     }
 
     async fn update_thread_info(
@@ -1506,7 +1511,8 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // Remove all the chunks, and let cascading do its job.
                         txn.execute("DELETE FROM linked_chunks", ())?;
 
-                        // Also clear all the events' contents, and let cascading do its job.
+                        // Also clear all the events' contents, and let
+                        // cascading do its job.
                         txn.execute("DELETE FROM events", ())?;
 
                         Ok(())
@@ -2324,7 +2330,8 @@ mod encrypted_tests {
             .await
             .expect("We should be able to attempt to find event relations");
 
-        // Ensure that we only got the single related event the first room contains.
+        // Ensure that we only got the single related event the first room
+        // contains.
         similar_asserts::assert_eq!(
             results.len(),
             1,

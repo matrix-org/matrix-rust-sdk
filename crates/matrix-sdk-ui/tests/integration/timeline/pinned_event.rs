@@ -997,6 +997,171 @@ async fn test_pinned_events_listener_task_reloads_events_when_ids_change() {
     assert_eq!(values[0].event_id(), Some(event_id1));
 }
 
+#[async_test]
+async fn test_pinned_events_listener_task_does_not_reload_events_when_ids_are_unchanged() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = owned_room_id!("!a_room:example.org");
+    let event_id1 = event_id!("$1");
+    let event_id2 = event_id!("$2");
+
+    let f = EventFactory::new().room(&room_id).sender(user_id!("@example:localhost"));
+    let joined_room_builder = JoinedRoomBuilder::new(&room_id).add_state_bulk(vec![
+        f.room_pinned_events(vec![event_id1.to_owned(), event_id2.to_owned()]).into(),
+    ]);
+
+    server.sync_room(&client, joined_room_builder).await;
+
+    let pinned_event_1 = f.text_msg("Event 1").event_id(event_id1).into_event();
+    let pinned_event_2 = f.text_msg("Event 2").event_id(event_id2).into_event();
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(pinned_event_1)
+        .named("fetch pinned_event_1")
+        .expect(1)
+        .mount()
+        .await;
+
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(pinned_event_2)
+        .named("fetch pinned_event_2")
+        .expect(1)
+        .mount()
+        .await;
+
+    // Only the first pinned event has a related event.
+    server
+        .mock_room_relations()
+        .match_target_event(event_id1.to_owned())
+        .ok(RoomRelationsResponseTemplate::default()
+            .events(vec![f.reaction(event_id1, "👍").into_raw_timeline()]))
+        .named("fetch the relations of pinned_event_1")
+        .expect(1)
+        .mount()
+        .await;
+
+    // The second pinned event has no related events to cache, so reloading it
+    // would request its relations again.
+    server
+        .mock_room_relations()
+        .match_target_event(event_id2.to_owned())
+        .ok(RoomRelationsResponseTemplate::default())
+        .named("fetch the relations of pinned_event_2")
+        .expect(1)
+        .mount()
+        .await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().expect("Subscribed to event cache");
+
+    let (pinned_events_cache, _handle) =
+        event_cache.pinned_events(&room_id).await.expect("Got pinned events cache");
+
+    let (_items, mut receiver) =
+        pinned_events_cache.subscribe().await.expect("Subscribed to pinned events cache");
+
+    // We get an initial diff with the pinned events and the reaction.
+    let diffs = timeout(receiver.recv(), Duration::from_secs(3))
+        .await
+        .expect("Stream timed out")
+        .expect("Got stream diff");
+    assert_eq!(diffs.diffs.len(), 1);
+    assert_let!(VectorDiff::Append { values } = &diffs.diffs[0]);
+    assert_eq!(values.len(), 3);
+
+    // A sync that doesn't change the pinned events still updates the room info,
+    // which notifies the listener task.
+    let joined_room_builder =
+        JoinedRoomBuilder::new(&room_id).add_timeline_event(f.text_msg("Not pinned"));
+    server.sync_room(&client, joined_room_builder).await;
+
+    // Give the listener task some time to (not) reload the pinned events.
+    sleep(Duration::from_millis(200)).await;
+    assert!(receiver.is_empty());
+
+    // The mocks check that the pinned events and their relations were only
+    // fetched once, when the mock server is dropped.
+}
+
+#[async_test]
+async fn test_pinned_events_listener_task_does_not_reload_events_after_a_redaction() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = owned_room_id!("!a_room:example.org");
+    let pinned_event_id = event_id!("$1");
+    let redaction_event_id = event_id!("$2");
+
+    let f = EventFactory::new().room(&room_id).sender(user_id!("@example:localhost"));
+    let joined_room_builder = JoinedRoomBuilder::new(&room_id)
+        .add_state_bulk(vec![f.room_pinned_events(vec![pinned_event_id.to_owned()]).into()]);
+
+    server.sync_room(&client, joined_room_builder).await;
+
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(f.text_msg("Event 1").event_id(pinned_event_id).into_event())
+        .named("fetch the pinned event")
+        .expect(1)
+        .mount()
+        .await;
+
+    // The redaction isn't a relation, so reloading the pinned event would
+    // request its relations again.
+    server
+        .mock_room_relations()
+        .match_target_event(pinned_event_id.to_owned())
+        .ok(RoomRelationsResponseTemplate::default())
+        .named("fetch the relations of the pinned event")
+        .expect(1)
+        .mount()
+        .await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().expect("Subscribed to event cache");
+
+    let (pinned_events_cache, _handle) =
+        event_cache.pinned_events(&room_id).await.expect("Got pinned events cache");
+
+    let (_items, mut receiver) =
+        pinned_events_cache.subscribe().await.expect("Subscribed to pinned events cache");
+
+    let diffs = timeout(receiver.recv(), Duration::from_secs(3))
+        .await
+        .expect("Stream timed out")
+        .expect("Got stream diff");
+    assert_eq!(diffs.diffs.len(), 1);
+    assert_let!(VectorDiff::Append { values } = &diffs.diffs[0]);
+    assert_eq!(values.len(), 1);
+    assert_eq!(values[0].event_id(), Some(pinned_event_id));
+
+    // The redaction of the pinned event gets added to the pinned events cache.
+    let joined_room_builder = JoinedRoomBuilder::new(&room_id)
+        .add_timeline_event(f.redaction(pinned_event_id).event_id(redaction_event_id));
+    server.sync_room(&client, joined_room_builder).await;
+
+    let diffs = timeout(receiver.recv(), Duration::from_secs(3))
+        .await
+        .expect("Stream timed out")
+        .expect("Got stream diff");
+    assert_eq!(diffs.diffs.len(), 1);
+    assert_let!(VectorDiff::Append { values } = &diffs.diffs[0]);
+    assert_eq!(values.len(), 1);
+    assert_eq!(values[0].event_id(), Some(redaction_event_id));
+
+    // Now that the cache holds the redaction, an unrelated sync notifies the
+    // listener task again, which must not reload the pinned events.
+    let joined_room_builder =
+        JoinedRoomBuilder::new(&room_id).add_timeline_event(f.text_msg("Not pinned"));
+    server.sync_room(&client, joined_room_builder).await;
+
+    sleep(Duration::from_millis(200)).await;
+    assert!(receiver.is_empty());
+}
+
 async fn mock_events_endpoint(
     server: &MatrixMockServer,
     room_id: &RoomId,

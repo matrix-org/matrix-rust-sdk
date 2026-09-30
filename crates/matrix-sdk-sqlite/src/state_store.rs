@@ -1879,12 +1879,13 @@ impl StateStore for SqliteStateStore {
                 //
                 // This is for compatibility reasons since:
                 //
-                // 1. Previously "Alice" and "alice" were considered to be distinct display
-                //    names, while we now consider them to be the same so we need to merge the
-                //    previously distinct buckets of user IDs.
-                // 2. We can't do a migration to merge the previously distinct buckets of user
-                //    IDs since the display names itself are hashed before they are persisted in
-                //    the store.
+                // 1. Previously "Alice" and "alice" were considered to be
+                //    distinct display names, while we now consider them to be
+                //    the same so we need to merge the previously distinct
+                //    buckets of user IDs.
+                // 2. We can't do a migration to merge the previously distinct
+                //    buckets of user IDs since the display names itself are
+                //    hashed before they are persisted in the store.
                 let raw =
                     (self.encode_key(keys::DISPLAY_NAME, display_name.as_raw_str()), display_name);
                 let normalized = display_name.as_normalized_str().map(|normalized| {
@@ -2194,7 +2195,8 @@ impl StateStore for SqliteStateStore {
         // See comment in `save_send_queue_request`.
         let transaction_id = transaction_id.to_string();
 
-        // Serialize the error to json bytes (encrypted if option is enabled) if set.
+        // Serialize the error to json bytes (encrypted if option is enabled) if
+        // set.
         let error_value = error.map(|e| self.serialize_value(&e)).transpose()?;
 
         self.write()
@@ -2352,7 +2354,8 @@ impl StateStore for SqliteStateStore {
     ) -> Result<Vec<DependentQueuedRequest>> {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
 
-        // Note: transaction_id is not encoded, see why in `save_send_queue_request`.
+        // Note: transaction_id is not encoded, see why in
+        // `save_send_queue_request`.
         let res: Vec<(String, String, Option<Vec<u8>>, Vec<u8>, Option<u64>)> = self
             .read()
             .await?
@@ -2664,7 +2667,7 @@ mod encrypted_tests {
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteStateStore;
-    use crate::{Base64Variant, SqliteStoreConfig, utils::SqliteAsyncConnExt};
+    use crate::{Base64Variant, SqliteStoreConfig, Synchronous, utils::SqliteAsyncConnExt};
 
     static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
@@ -2703,7 +2706,8 @@ mod encrypted_tests {
         // ...which the next open uses.
         drop(SqliteStateStore::open_with_config(&config).await.unwrap());
 
-        // The `cipher` entry was replaced, so the old passphrase can't work anymore.
+        // The `cipher` entry was replaced, so the old passphrase can't work
+        // anymore.
         let config = SqliteStoreConfig::new(&tmpdir_path).passphrase(Some(&passphrase));
         drop(
             SqliteStateStore::open_with_config(&config)
@@ -2711,7 +2715,8 @@ mod encrypted_tests {
                 .expect_err("The old passphrase-only method shouldn't work anymore"),
         );
 
-        // The `cipher` entry was replaced, so now only high entropy or key work.
+        // The `cipher` entry was replaced, so now only high entropy or key
+        // work.
         let config = SqliteStoreConfig::new(&tmpdir_path)
             .high_entropy_passphrase(Some(KEY), Base64Variant::Padded);
         drop(
@@ -2778,6 +2783,38 @@ mod encrypted_tests {
         // The value passed to `SqliteStoreConfig` is in bytes. It stays in
         // bytes in SQLite.
         assert_eq!(journal_size_limit, 1500);
+    }
+
+    #[async_test]
+    async fn test_synchronous() {
+        // The values SQLite reports for `OFF`, `NORMAL`, `FULL` and `EXTRA`.
+        let all = [
+            (Synchronous::Off, 0),
+            (Synchronous::Normal, 1),
+            (Synchronous::Full, 2),
+            (Synchronous::Extra, 3),
+        ];
+
+        for (synchronous, expected) in all {
+            let tmpdir_path = new_state_store_workspace();
+            let store_open_config = SqliteStoreConfig::new(tmpdir_path).synchronous(synchronous);
+
+            let store = SqliteStateStore::open_with_config(&store_open_config).await.unwrap();
+
+            // `PRAGMA synchronous` is per-connection, so every connection must
+            // carry it.
+            let write_conn = store.write().await.unwrap();
+            let read_conn = store.read().await.unwrap();
+
+            for conn in [&*write_conn, &read_conn] {
+                let value = conn
+                    .query_row("PRAGMA synchronous", (), |row| row.get::<_, u8>(0))
+                    .await
+                    .unwrap();
+
+                assert_eq!(value, expected);
+            }
+        }
     }
 
     statestore_integration_tests!();

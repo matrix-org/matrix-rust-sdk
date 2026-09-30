@@ -189,6 +189,14 @@ pub(in crate::timeline) async fn thread_updates_task(
                 }
             }
 
+            ThreadEventCacheUpdate::UpdateSummary(_) => {
+                trace!("Received a new thread summary update; ignore it");
+
+                // A Thread Timeline doesn't care about the thread summary, yet.
+                // For the moment, only the Main/Unthreaded Timeline contains
+                // thread roots, which care about the thread summaries.
+            }
+
             ThreadEventCacheUpdate::AddReadReceiptEvent { event } => {
                 trace!("Received a new read receipt event from sync.");
 
@@ -269,6 +277,12 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
 
                 if has_diffs && matches!(origin, RemoteEventOrigin::Cache) {
                     timeline_controller.retry_event_decryption(None).await;
+                }
+            }
+
+            RoomEventCacheUpdate::UpdateThreadSummary { thread_root, thread_summary } => {
+                if matches!(timeline_focus, TimelineFocus::Live { .. }) {
+                    timeline_controller.handle_thread_summary(thread_root, thread_summary).await;
                 }
             }
 

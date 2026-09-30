@@ -122,8 +122,8 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                 .parse()
                 .expect("Failed to parse the `source_line`");
 
-            // Ensure we have parsed the duration correctly (in case Rust stdlib changes
-            // something).
+            // Ensure we have parsed the duration correctly (in case Rust stdlib
+            // changes something).
             assert_eq!(
                 duration_as_str,
                 format!("{duration:?}"),

@@ -35,8 +35,8 @@ struct Cli {
 }
 
 async fn login(cli: Cli) -> Result<Client> {
-    // Note that when encryption is enabled, you should use a persistent store to be
-    // able to restore the session with a working encryption setup.
+    // Note that when encryption is enabled, you should use a persistent store
+    // to be able to restore the session with a working encryption setup.
     // See the `persist_session` example.
     let mut builder = Client::builder().homeserver_url(cli.homeserver);
 

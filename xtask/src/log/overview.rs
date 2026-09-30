@@ -138,24 +138,25 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
             let mut tree_node = &mut tree;
 
             for target in full_target.split("::") {
-                tree_node =
-                    match tree_node.entry(target.to_owned()).or_insert_with(|| Target::Node {
+                tree_node = match tree_node.entry(target.to_owned()).or_insert_with(|| {
+                    Target::Node {
                         number_of_errors: 0,
                         number_of_warnings: 0,
                         node: TargetTree::default(),
-                    }) {
-                        Target::Leaf(_) => panic!("Expect a `Node`, not a `Leaf`"),
-                        Target::Node { number_of_errors, number_of_warnings, node } => {
-                            // Adjust number of specific log levels all the targets.
-                            match level {
-                                Level::Error => *number_of_errors += 1,
-                                Level::Warn => *number_of_warnings += 1,
-                                _ => (),
-                            }
-
-                            node
+                    }
+                }) {
+                    Target::Leaf(_) => panic!("Expect a `Node`, not a `Leaf`"),
+                    Target::Node { number_of_errors, number_of_warnings, node } => {
+                        // Adjust number of specific log levels all the targets.
+                        match level {
+                            Level::Error => *number_of_errors += 1,
+                            Level::Warn => *number_of_warnings += 1,
+                            _ => (),
                         }
-                    };
+
+                        node
+                    }
+                };
             }
 
             let span =

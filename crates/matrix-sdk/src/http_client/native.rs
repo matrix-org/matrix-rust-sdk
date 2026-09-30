@@ -170,6 +170,9 @@ impl HttpClient {
             .adjust(|err, backon_suggested_timeout| {
                 adjust_backoff(err, backon_suggested_timeout, has_retry_limit)
             })
+            .notify(|error, duration| {
+                warn!("Error {error:?} received, will retry in {duration:?}");
+            })
             .await
     }
 }

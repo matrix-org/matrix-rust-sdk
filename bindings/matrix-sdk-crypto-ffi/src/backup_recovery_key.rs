@@ -34,8 +34,8 @@ pub enum DecodeError {
     /// An error happened while decoding the recovery key.
     #[error(transparent)]
     Decode(#[from] matrix_sdk_crypto::backups::DecodeError),
-    /// An error happened in the storage layer while trying to save the
-    /// decoded recovery key.
+    /// An error happened in the storage layer while trying to save the decoded
+    /// recovery key.
     #[error(transparent)]
     CryptoStore(#[from] InnerStoreError),
 }

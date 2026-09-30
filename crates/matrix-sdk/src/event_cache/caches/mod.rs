@@ -369,10 +369,9 @@ impl Caches {
                 thread.handle_joined_room_update(timeline, read_receipts).await?;
 
                 if update_thread_summary {
-                    let new_thread_summary =
-                        thread.state().read().await?.compute_thread_summary().await?;
+                    let new_thread_summary = thread.update_thread_summary().await?;
 
-                    room.update_thread_summary(thread.thread_id(), new_thread_summary).await?;
+                    room.update_thread_summary(thread.thread_id(), new_thread_summary)?;
                 }
             }
         }

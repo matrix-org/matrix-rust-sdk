@@ -608,7 +608,8 @@ impl MediaStoreInner for SqliteMediaStore {
                     }
                 }
 
-                // Finally, if the cache size is too big, remove old items until it fits.
+                // Finally, if the cache size is too big, remove old items until
+                // it fits.
                 if let Some(max_cache_size) = policy.max_cache_size {
                     // i64 is the integer type used by SQLite, use it here to
                     // avoid usize overflow during the conversion of the result.
@@ -623,9 +624,11 @@ impl MediaStoreInner for SqliteMediaStore {
                         )?
                         .unwrap_or_default();
 
-                    // If the cache size is overflowing or bigger than max cache size, clean up.
+                    // If the cache size is overflowing or bigger than max cache
+                    // size, clean up.
                     if cache_size > max_cache_size {
-                        // Get the sizes of the media contents ordered by last access.
+                        // Get the sizes of the media contents ordered by last
+                        // access.
                         let mut cached_stmt = txn.prepare_cached(
                             "SELECT rowid, length(data) FROM media \
                              WHERE ignore_policy IS FALSE ORDER BY last_access DESC",

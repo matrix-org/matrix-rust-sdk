@@ -29,8 +29,8 @@ async fn test_repeated_join_leave() -> Result<()> {
         is_direct: true,
     });
 
-    // Sync after 1 second to so that create_room receives the event it is waiting
-    // for.
+    // Sync after 1 second to so that create_room receives the event it is
+    // waiting for.
     let peter_clone = peter.clone();
     spawn(async move {
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -71,9 +71,10 @@ async fn test_repeated_join_leave() -> Result<()> {
         assert_eq!(*membership.membership(), MembershipState::Join);
         assert_eq!(room.state(), RoomState::Joined);
 
-        // Syncs can overwrite the internal state. If the sync lags behind because we
-        // change so often so fast, we can get errors in the asserts here. So we have to
-        // wait here a bit till the sync happened.
+        // Syncs can overwrite the internal state. If the sync lags behind
+        // because we change so often so fast, we can get errors in the
+        // asserts here. So we have to wait here a bit till the sync
+        // happened.
         room.sync_up().await;
 
         // Leave the room
@@ -96,8 +97,8 @@ async fn test_repeated_join_leave() -> Result<()> {
     // Stop the sync.
     join_handle.abort();
 
-    // Now check the underlying state store that it also has the correct information
-    // (for when the client restarts).
+    // Now check the underlying state store that it also has the correct
+    // information (for when the client restarts).
     let invited = karl.state_store().get_user_ids(room_id, RoomMemberships::INVITE).await?;
     assert_eq!(invited.len(), 1);
     assert_eq!(invited[0], karl_id);

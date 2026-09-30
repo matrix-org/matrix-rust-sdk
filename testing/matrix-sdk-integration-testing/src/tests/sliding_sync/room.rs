@@ -202,8 +202,8 @@ async fn test_room_avatar_group_conversation() -> Result<()> {
     let alice_room = alice.get_room(alice_room.room_id()).unwrap();
     assert_eq!(alice_room.state(), RoomState::Joined);
 
-    // Here, there should be no avatar (group conversation and no avatar has been
-    // set in the room).
+    // Here, there should be no avatar (group conversation and no avatar has
+    // been set in the room).
     for _ in 0..3 {
         sleep(Duration::from_secs(1)).await;
         assert_eq!(alice_room.avatar_url(), None);
@@ -240,9 +240,9 @@ async fn test_room_avatar_group_conversation() -> Result<()> {
 
 #[tokio::test]
 async fn test_joined_user_can_create_push_context_with_room_list_service() -> Result<()> {
-    // This regression test for #3031 checks that we properly get the logged-in room
-    // member information, when connecting on the first time using the room
-    // list service.
+    // This regression test for #3031 checks that we properly get the logged-in
+    // room member information, when connecting on the first time using the
+    // room list service.
     //
     // Now the conditions to trigger this bug were quite precise:
     // - obviously we shouldn't have had any previous info about the logged-in
@@ -255,9 +255,9 @@ async fn test_joined_user_can_create_push_context_with_room_list_service() -> Re
     // One way to trigger this is to have a room we've joined, but in which we
     // haven't sent the last event.
     //
-    // Set this up, by creating a room, inviting another user, have the other user
-    // send a message, and fake a new "device" by creating another client for
-    // the same user.
+    // Set this up, by creating a room, inviting another user, have the other
+    // user send a message, and fake a new "device" by creating another
+    // client for the same user.
 
     let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
@@ -479,7 +479,8 @@ async fn test_room_notification_count() -> Result<()> {
     let mut update_observer = UpdateObserver::new(alice_room.subscribe_info());
 
     {
-        // At first, nothing has happened, so we shouldn't have any notifications.
+        // At first, nothing has happened, so we shouldn't have any
+        // notifications.
         assert_eq!(alice_room.num_unread_messages(), 0);
         assert_eq!(alice_room.num_unread_mentions(), 0);
         assert_eq!(alice_room.num_unread_notifications(), 0);
@@ -560,8 +561,9 @@ async fn test_room_notification_count() -> Result<()> {
         assert_eq!(alice_room.num_unread_notifications(), 0);
         assert_eq!(alice_room.num_unread_mentions(), 0);
 
-        // Sometimes the server is slow at realizing that the room has been marked as
-        // read, and zeroing the server-side notification_count.
+        // Sometimes the server is slow at realizing that the room has been
+        // marked as read, and zeroing the server-side
+        // notification_count.
         if alice_room.unread_notification_counts().notification_count == 2 {
             update_observer
                 .next()
@@ -685,9 +687,10 @@ impl wiremock::Respond for &CustomResponder {
             .headers(request.headers.clone())
             .body(request.body.clone());
 
-        // Run await inside of non-async fn by spawning a new thread and creating a new
-        // runtime. We need to do this because the current runtime can't run blocking
-        // tasks (hence can't run `Handle::block_on`).
+        // Run await inside of non-async fn by spawning a new thread and
+        // creating a new runtime. We need to do this because the
+        // current runtime can't run blocking tasks (hence can't run
+        // `Handle::block_on`).
         let drop_todevice = self.drop_todevice.clone();
 
         std::thread::spawn(move || {
@@ -765,8 +768,8 @@ async fn test_delayed_invite_response_and_sent_message_decryption() {
         .unwrap();
     alice_room.enable_encryption().await.unwrap();
 
-    // Initial message to make sure any lazy /members call is performed before the
-    // test actually starts
+    // Initial message to make sure any lazy /members call is performed before
+    // the test actually starts
     alice_room
         .send(RoomMessageEventContent::text_plain("dummy message to make members call"))
         .await
@@ -979,13 +982,13 @@ async fn test_room_preview() -> Result<()> {
     let room_id = room.room_id();
     let private_room_id = private_room.room_id();
 
-    // Wait for Alice's stream to stabilize (stop updating when we haven't received
-    // successful updates for more than 2 seconds).
+    // Wait for Alice's stream to stabilize (stop updating when we haven't
+    // received successful updates for more than 2 seconds).
     let stream = sliding_alice.sync();
     pin_mut!(stream);
 
-    // Wait for updates coming in under than 15 seconds. After that, we consider the
-    // sync as stable.
+    // Wait for updates coming in under than 15 seconds. After that, we consider
+    // the sync as stable.
     loop {
         match timeout(Duration::from_secs(15), stream.next()).await {
             Ok(None) | Err(_) => break,
@@ -999,8 +1002,8 @@ async fn test_room_preview() -> Result<()> {
     get_room_preview_with_room_summary(&alice, &bob, &room_alias, room_id, private_room_id).await;
 
     {
-        // Dummy test for `Client::get_room_preview` which may call one or the other
-        // methods.
+        // Dummy test for `Client::get_room_preview` which may call one or the
+        // other methods.
         info!("Alice gets a preview of the public room using any method");
         let preview = alice.get_room_preview(room_id.into(), Vec::new()).await?;
         assert_room_preview(&preview, &room_alias);
@@ -1138,16 +1141,16 @@ async fn get_room_preview_with_room_state(
     assert_eq!(preview.state, Some(RoomState::Joined));
     assert!(preview.heroes.is_some());
 
-    // Bob definitely doesn't know about the room, but they can get a preview of the
-    // room too.
+    // Bob definitely doesn't know about the room, but they can get a preview of
+    // the room too.
     info!("Bob gets a preview of the public room from state events");
     let preview = RoomPreview::from_state_events(bob, room_id).await.unwrap();
     assert_room_preview(&preview, room_alias);
     assert!(preview.state.is_none());
     assert!(preview.heroes.is_some());
 
-    // Bob can't preview the second room, because its history visibility is neither
-    // world-readable, nor have they joined the room before.
+    // Bob can't preview the second room, because its history visibility is
+    // neither world-readable, nor have they joined the room before.
     info!("Bob gets a preview of the private room from state events");
     let preview_result = RoomPreview::from_state_events(bob, public_no_history_room_id).await;
     assert_eq!(preview_result.unwrap_err().as_client_api_error().unwrap().status_code, 403);
@@ -1187,8 +1190,8 @@ async fn get_room_preview_with_room_summary(
     assert_eq!(preview.state, Some(RoomState::Joined));
     assert!(preview.heroes.is_some());
 
-    // Bob definitely doesn't know about the room, but they can get a preview of the
-    // room too.
+    // Bob definitely doesn't know about the room, but they can get a preview of
+    // the room too.
     info!("Bob gets a preview of the public room from msc3266 using the room id");
     let preview =
         RoomPreview::from_room_summary(bob, room_id.to_owned(), room_id.into(), Vec::new())
@@ -1198,8 +1201,8 @@ async fn get_room_preview_with_room_summary(
     assert!(preview.state.is_none());
     assert!(preview.heroes.is_none());
 
-    // Bob can preview the second room with the room summary (because its join rule
-    // is set to public, or because Alice is a member of that room).
+    // Bob can preview the second room with the room summary (because its join
+    // rule is set to public, or because Alice is a member of that room).
     info!("Bob gets a preview of the private room from msc3266 using the room id");
     let preview = RoomPreview::from_room_summary(
         bob,

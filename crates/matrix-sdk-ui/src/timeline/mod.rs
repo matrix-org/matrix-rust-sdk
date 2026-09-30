@@ -163,7 +163,7 @@ pub enum TimelineFocus {
     },
 
     /// Focus on a specific thread
-    Thread { root_event_id: OwnedEventId },
+    Thread { thread_id: OwnedEventId },
 
     /// Only show pinned events.
     PinnedEvents,
@@ -212,7 +212,9 @@ impl TimelineFocus {
         match self {
             TimelineFocus::Live { .. } => "live".to_owned(),
             TimelineFocus::Event { target, .. } => format!("permalink:{target}"),
-            TimelineFocus::Thread { root_event_id, .. } => format!("thread:{root_event_id}"),
+            TimelineFocus::Thread { thread_id, .. } => {
+                format!("thread:{thread_id}")
+            }
             TimelineFocus::PinnedEvents => "pinned-events".to_owned(),
         }
     }
@@ -717,6 +719,42 @@ impl Timeline {
         SendAttachment::new(self, source.into(), mime_type, config)
     }
 
+    /// Replaces the attachment of a message the current user sent, or adds one
+    /// to a message which had none, through the send queue.
+    ///
+    /// See [`RoomSendQueue::edit_with_attachment()`] for the details. The
+    /// `in_reply_to` of the `config` is ignored: an edit carries no other
+    /// relation.
+    ///
+    /// [`RoomSendQueue::edit_with_attachment()`]: matrix_sdk::send_queue::RoomSendQueue::edit_with_attachment
+    #[instrument(skip_all, fields(%event_id))]
+    pub async fn edit_with_attachment(
+        &self,
+        event_id: &EventId,
+        source: impl Into<AttachmentSource>,
+        mime_type: Mime,
+        config: AttachmentConfig,
+    ) -> Result<(), Error> {
+        let (data, filename) = source.into().try_into_bytes_and_filename()?;
+
+        let config = matrix_sdk::attachment::AttachmentConfig {
+            txn_id: config.txn_id,
+            info: config.info,
+            thumbnail: config.thumbnail,
+            caption: config.caption,
+            mentions: config.mentions,
+            extra_content: config.extra_content,
+            reply: None,
+        };
+
+        self.room()
+            .send_queue()
+            .edit_with_attachment(event_id, filename, mime_type, data, config)
+            .await?;
+
+        Ok(())
+    }
+
     /// Sends a media gallery to the room.
     ///
     /// If the encryption feature is enabled, this method will transparently
@@ -1170,6 +1208,7 @@ pub struct GalleryConfig {
     pub(crate) caption: Option<TextMessageEventContent>,
     pub(crate) mentions: Option<Mentions>,
     pub(crate) in_reply_to: Option<OwnedEventId>,
+    pub(crate) extra_content: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[cfg(feature = "unstable-msc4274")]
@@ -1233,6 +1272,20 @@ impl GalleryConfig {
         self
     }
 
+    /// Set additional top-level fields for the gallery event's content.
+    ///
+    /// Objects are merged recursively; the event's own fields take precedence
+    /// on conflicts. To add fields to individual items, use
+    /// [`GalleryItemInfo::extra_content`].
+    #[must_use]
+    pub fn extra_content(
+        mut self,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
+    ) -> Self {
+        self.extra_content = extra_content;
+        self
+    }
+
     /// Returns the number of media items in the gallery.
     pub fn len(&self) -> usize {
         self.items.len()
@@ -1258,6 +1311,10 @@ pub struct GalleryItemInfo {
     pub caption: Option<TextMessageEventContent>,
     /// The thumbnail.
     pub thumbnail: Option<Thumbnail>,
+    /// Additional fields to merge into this item's content, for example a
+    /// spoiler flag. Objects are merged recursively; the item's own fields take
+    /// precedence on conflicts.
+    pub extra_content: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[cfg(feature = "unstable-msc4274")]
@@ -1273,6 +1330,7 @@ impl TryFrom<GalleryItemInfo> for matrix_sdk::attachment::GalleryItemInfo {
             attachment_info: value.attachment_info,
             caption: value.caption,
             thumbnail: value.thumbnail,
+            extra_content: value.extra_content,
         })
     }
 }

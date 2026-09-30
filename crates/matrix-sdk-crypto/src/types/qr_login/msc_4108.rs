@@ -118,17 +118,17 @@ impl QrCodeData {
         // 2. One byte version, only 0x02 is supported.
         // 3. One byte intent, either 0x03 or 0x04.
         // 4. 32 bytes for the ephemeral Curve25519 key.
-        // 5. Two bytes for the length of the rendezvous URL, a u16 in big-endian
-        //    encoding.
+        // 5. Two bytes for the length of the rendezvous URL, a u16 in
+        //    big-endian encoding.
         // 6. The UTF-8 encoded string containing the rendezvous URL.
-        // 7. If the intent from point 3. is 0x04, then two bytes for the length of the
-        //    homeserver URL, a u16 in big-endian encoding.
+        // 7. If the intent from point 3. is 0x04, then two bytes for the length
+        //    of the homeserver URL, a u16 in big-endian encoding.
         // 8. If the intent from point 3. is 0x04, then the UTF-8 encoded string
         //    containing the homeserver URL.
         let mut reader = Cursor::new(bytes);
 
-        // 1. Let's get the prefix first and double check if this QR code is intended
-        //    for the QR code login mechanism.
+        // 1. Let's get the prefix first and double check if this QR code is
+        //    intended for the QR code login mechanism.
         let mut prefix = [0u8; PREFIX.len()];
         reader.read_exact(&mut prefix)?;
 
@@ -142,8 +142,8 @@ impl QrCodeData {
         // 2. Next up is the version, we continue only if the version matches.
         let version = reader.read_u8()?;
         if version == VERSION {
-            // 3. The intent is the next one to parse, we return an error immediately the
-            //    intent isn't 0x03 or 0x04.
+            // 3. The intent is the next one to parse, we return an error
+            //    immediately the intent isn't 0x03 or 0x04.
             let intent = QrCodeIntent::try_from(reader.read_u8()?)?;
 
             // 4. Let's get the public key and convert it to our strongly typed
@@ -162,8 +162,8 @@ impl QrCodeData {
             let intent_data = match intent {
                 QrCodeIntent::Login => Msc4108IntentData::Login,
                 QrCodeIntent::Reciprocate => {
-                    // 7. If the intent is 0x04, we attempt to read the two bytes for the length of
-                    //    the homeserver URL.
+                    // 7. If the intent is 0x04, we attempt to read the two
+                    //    bytes for the length of the homeserver URL.
                     let server_name_len = reader.read_u16::<BigEndian>()?;
 
                     // 8. We read and parse the homeserver URL.

@@ -46,10 +46,5 @@ expression: "serde_json::to_value(&room_event).unwrap()"
       }
     }
   },
-  "thread_summary": {
-    "Some": {
-      "num_replies": 2
-    }
-  },
   "timestamp": 2189
 }

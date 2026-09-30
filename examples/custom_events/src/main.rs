@@ -1,5 +1,6 @@
-///
-///  This is an example showcasing how to build a very simple bot with custom
+#![recursion_limit = "256"]
+
+/// This is an example showcasing how to build a very simple bot with custom
 /// events  using the matrix-sdk. To try it, you need a rust build setup, then
 /// you can run: `cargo run -p example-custom-events -- <homeserver_url> <user>
 /// <password>`
@@ -173,8 +174,8 @@ async fn on_stripped_state_member(
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // set up some simple stderr logging. You can configure it by changing the env
-    // var `RUST_LOG`
+    // set up some simple stderr logging. You can configure it by changing the
+    // env var `RUST_LOG`
     tracing_subscriber::fmt::init();
 
     // parse the command line for homeserver, username and password

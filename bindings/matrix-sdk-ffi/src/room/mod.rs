@@ -482,13 +482,13 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `event_type` - The type of the state event to send (e.g.
+    /// - `event_type` - The type of the state event to send (e.g.
     ///   `"m.room.name"` or a custom type).
     ///
-    /// * `state_key` - A unique key which defines the overwriting semantics for
+    /// - `state_key` - A unique key which defines the overwriting semantics for
     ///   this piece of room state. This is often an empty string.
     ///
-    /// * `content` - The content of the state event encoded as a JSON string.
+    /// - `content` - The content of the state event encoded as a JSON string.
     ///
     /// Returns the event ID of the newly created state event.
     pub async fn send_state_event_raw(
@@ -513,7 +513,7 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `event_type` - The type of the state events to read. For a type that
+    /// - `event_type` - The type of the state events to read. For a type that
     ///   has no variant of its own, build one from its string representation
     ///   with `stateEventTypeFromString("com.example.custom")`.
     ///
@@ -532,15 +532,15 @@ impl Room {
     /// Subscribe to the room state events of the given type.
     ///
     /// The listener is called with the full current list of state events of
-    /// that type, one per state key, immediately and then after every sync
-    /// that changed any of them. All the changes of one sync are reported as a
+    /// that type, one per state key, immediately and then after every sync that
+    /// changed any of them. All the changes of one sync are reported as a
     /// single snapshot.
     ///
     /// Use the returned [`TaskHandle`] to cancel the subscription.
     ///
     /// # Arguments
     ///
-    /// * `event_type` - The type of the state events to listen to. For a type
+    /// - `event_type` - The type of the state events to listen to. For a type
     ///   that has no variant of its own, build one from its string
     ///   representation with `stateEventTypeFromString("com.example.custom")`.
     pub fn subscribe_to_state_events(
@@ -566,9 +566,8 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `event_id` - The ID of the event to redact
-    ///
-    /// * `reason` - The reason for the event being redacted (optional). its
+    /// - `event_id` - The ID of the event to redact
+    /// - `reason` - The reason for the event being redacted (optional). its
     ///   transaction ID (optional). If not given one is created.
     pub async fn redact(
         &self,
@@ -596,11 +595,9 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `event_id` - The ID of the event to report
-    ///
-    /// * `reason` - The reason for the event being reported (optional).
-    ///
-    /// * `score` - The score to rate this content as where -100 is most
+    /// - `event_id` - The ID of the event to report
+    /// - `reason` - The reason for the event being reported (optional).
+    /// - `score` - The score to rate this content as where -100 is most
     ///   offensive and 0 is inoffensive (optional).
     pub async fn report_content(
         &self,
@@ -612,12 +609,12 @@ impl Room {
         Ok(())
     }
 
-    /// Reports a room as inappropriate to the server.
-    /// The caller is not required to be joined to the room to report it.
+    /// Reports a room as inappropriate to the server. The caller is not
+    /// required to be joined to the room to report it.
     ///
     /// # Arguments
     ///
-    /// * `reason` - The reason the room is being reported.
+    /// - `reason` - The reason the room is being reported.
     ///
     /// # Errors
     ///
@@ -675,11 +672,11 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `mime_type` - The mime description of the avatar, for example
+    /// - `mime_type` - The mime description of the avatar, for example
     ///   image/jpeg
-    /// * `data` - The raw data that will be uploaded to the homeserver's
+    /// - `data` - The raw data that will be uploaded to the homeserver's
     ///   content repository
-    /// * `media_info` - The media info used as avatar image info.
+    /// - `media_info` - The media info used as avatar image info.
     pub async fn upload_avatar(
         &self,
         mime_type: String,
@@ -808,11 +805,11 @@ impl Room {
     /// optionally scoped to a thread.
     ///
     /// The receipt is read from the local store, which is fed by sync, so it
-    /// also reflects receipts sent by the user's other devices. Returns
-    /// `None` if the user has no matching receipt in this room.
+    /// also reflects receipts sent by the user's other devices. Returns `None`
+    /// if the user has no matching receipt in this room.
     ///
-    /// Note: [`ReceiptType::FullyRead`] is a marker, not an event receipt,
-    /// and is rejected.
+    /// Note: [`ReceiptType::FullyRead`] is a marker, not an event receipt, and
+    /// is rejected.
     pub async fn load_user_receipt(
         &self,
         receipt_type: ReceiptType,
@@ -835,11 +832,10 @@ impl Room {
     /// scoped to a thread.
     ///
     /// This allows sending receipts for events without instantiating the
-    /// [`Timeline`] they belong to, e.g. marking a thread as read from its
-    /// root and latest event ids. Note that this won't check whether sending
-    /// the receipt is necessary or valid (i.e. it can move a receipt
-    /// backwards); prefer [`Timeline::send_single_receipt`] when a timeline
-    /// is available.
+    /// [`Timeline`] they belong to, e.g. marking a thread as read from its root
+    /// and latest event ids. Note that this won't check whether sending the
+    /// receipt is necessary or valid (i.e. it can move a receipt backwards);
+    /// prefer [`Timeline::send_single_receipt`] when a timeline is available.
     pub async fn send_single_receipt(
         &self,
         receipt_type: ReceiptType,
@@ -859,9 +855,8 @@ impl Room {
     /// **Warning:** using this method is **NOT** recommended, as providing the
     /// latest event id can cause incorrect read receipts. This method won't
     /// check if sending the read receipt is necessary or valid. It should
-    /// *only* be used when some constraint prevents you from instantiating a
-    /// [`Timeline`]. For any other case use [`Timeline::mark_as_read`]
-    /// instead.
+    /// _only_ be used when some constraint prevents you from instantiating a
+    /// [`Timeline`]. For any other case use [`Timeline::mark_as_read`] instead.
     pub async fn mark_as_fully_read_unchecked(&self, event_id: String) -> Result<(), ClientError> {
         let event_id = EventId::parse(event_id)?;
 
@@ -944,8 +939,8 @@ impl Room {
     /// Subscribe to all send queue updates in this room.
     ///
     /// The given listener will be immediately called with
-    /// `RoomSendQueueUpdate::NewLocalEvent` for each local echo existing in
-    /// the queue.
+    /// `RoomSendQueueUpdate::NewLocalEvent` for each local echo existing in the
+    /// queue.
     pub async fn subscribe_to_send_queue_updates(
         &self,
         listener: Box<dyn SendQueueListener>,
@@ -1021,15 +1016,15 @@ impl Room {
         Ok(())
     }
 
-    /// Remove verification requirements for the given users and
-    /// resend messages that failed to send because their identities were no
-    /// longer verified (in response to
+    /// Remove verification requirements for the given users and resend messages
+    /// that failed to send because their identities were no longer verified (in
+    /// response to
     /// `SessionRecipientCollectionError::VerifiedUserChangedIdentity`)
     ///
     /// # Arguments
     ///
-    /// * `user_ids` - The list of users identifiers received in the error
-    /// * `transaction_id` - The send queue transaction identifier of the local
+    /// - `user_ids` - The list of users identifiers received in the error
+    /// - `transaction_id` - The send queue transaction identifier of the local
     ///   echo the send error applies to
     pub async fn withdraw_verification_and_resend(
         &self,
@@ -1052,15 +1047,16 @@ impl Room {
         Ok(())
     }
 
-    /// Set the local trust for the given devices to `LocalTrust::Ignored`
-    /// and resend messages that failed to send because said devices are
-    /// unverified (in response to
+    /// Set the local trust for the given devices to `LocalTrust::Ignored` and
+    /// resend messages that failed to send because said devices are unverified
+    /// (in response to
     /// `SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice`).
+    ///
     /// # Arguments
     ///
-    /// * `devices` - The map of users identifiers to device identifiers
+    /// - `devices` - The map of users identifiers to device identifiers
     ///   received in the error
-    /// * `transaction_id` - The send queue transaction identifier of the local
+    /// - `transaction_id` - The send queue transaction identifier of the local
     ///   echo the send error applies to
     pub async fn ignore_device_trust_and_resend(
         &self,
@@ -1089,9 +1085,8 @@ impl Room {
     /// Subscribes to requests to join this room (knock member events), using a
     /// `listener` to be notified of the changes.
     ///
-    /// The current requests to join the room will be emitted immediately
-    /// when subscribing, along with a [`TaskHandle`] to cancel the
-    /// subscription.
+    /// The current requests to join the room will be emitted immediately when
+    /// subscribing, along with a [`TaskHandle`] to cancel the subscription.
     pub async fn subscribe_to_knock_requests(
         self: Arc<Self>,
         listener: Box<dyn KnockRequestsListener>,
@@ -1138,6 +1133,7 @@ impl Room {
     /// Publish a new room alias for this room in the room directory.
     ///
     /// Returns:
+    ///
     /// - `true` if the room alias didn't exist and it's now published.
     /// - `false` if the room alias was already present so it couldn't be
     ///   published.
@@ -1156,6 +1152,7 @@ impl Room {
     /// Remove an existing room alias for this room in the room directory.
     ///
     /// Returns:
+    ///
     /// - `true` if the room alias was present and it's now removed from the
     ///   room directory.
     /// - `false` if the room alias didn't exist so it couldn't be removed.
@@ -1241,7 +1238,7 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `rtc_notification_event_id` - the event id of the m.rtc.notification
+    /// - `rtc_notification_event_id` - the event id of the m.rtc.notification
     ///   event.
     pub async fn decline_call(&self, rtc_notification_event_id: String) -> Result<(), ClientError> {
         let parsed_id = EventId::parse(rtc_notification_event_id.as_str())?;
@@ -1256,8 +1253,8 @@ impl Room {
     /// Subscribes to call decline for a currently ringing call, using a
     /// `listener` to be notified when someone declines.
     ///
-    /// Will error if `rtc_notification_event_id` is not a valid event id.
-    /// Use the [`TaskHandle`] to cancel the subscription.
+    /// Will error if `rtc_notification_event_id` is not a valid event id. Use
+    /// the [`TaskHandle`] to cancel the subscription.
     pub fn subscribe_to_call_decline_events(
         self: Arc<Self>,
         rtc_notification_event_id: String,
@@ -1335,8 +1332,8 @@ impl Room {
     /// root event id.
     ///
     /// If `subscribed` is `true`, it will subscribe to the thread, with a
-    /// precision that the subscription was manually requested by the user
-    /// (i.e. not automatic).
+    /// precision that the subscription was manually requested by the user (i.e.
+    /// not automatic).
     ///
     /// If the thread was already subscribed to (resp. unsubscribed from), while
     /// trying to subscribe to it (resp. unsubscribe from it), it will do
@@ -2053,13 +2050,12 @@ pub enum RoomHistoryVisibility {
     /// they were invited onwards.
     ///
     /// Events stop being accessible when the member's state changes to
-    /// something other than *invite* or *join*.
+    /// something other than _invite_ or _join_.
     Invited,
 
     /// Previous events are accessible to newly joined members from the point
-    /// they joined the room onwards.
-    /// Events stop being accessible when the member's state changes to
-    /// something other than *join*.
+    /// they joined the room onwards. Events stop being accessible when the
+    /// member's state changes to something other than _join_.
     Joined,
 
     /// Previous events are always accessible to newly joined members.
@@ -2180,8 +2176,8 @@ pub enum RoomSendQueueUpdate {
 
     /// An error happened when an event was being sent.
     ///
-    /// The event has not been removed from the queue. All the send queues
-    /// will be disabled after this happens, and must be manually re-enabled.
+    /// The event has not been removed from the queue. All the send queues will
+    /// be disabled after this happens, and must be manually re-enabled.
     SendError {
         /// Transaction id used to identify this event.
         transaction_id: String,
@@ -2190,8 +2186,8 @@ pub enum RoomSendQueueUpdate {
         /// Whether the error is considered recoverable or not.
         ///
         /// An error that's recoverable will disable the room's send queue,
-        /// while an unrecoverable error will be parked, until the user
-        /// decides to cancel sending it.
+        /// while an unrecoverable error will be parked, until the user decides
+        /// to cancel sending it.
         is_recoverable: bool,
     },
 
@@ -2284,9 +2280,9 @@ mod tests {
     ///
     /// Regression test: when `Room.inner` was `SdkRoom` (not wrapped in
     /// [`AsyncRuntimeDropped`]), garbage-collection of an orphaned `Room` on
-    /// the Hermes JS thread caused `SyncWrapper<rusqlite::Connection>::drop`
-    /// to call `tokio::task::spawn_blocking` from a thread with no tokio
-    /// runtime context. Rust turns a panic inside `Drop` into SIGABRT.
+    /// the Hermes JS thread caused `SyncWrapper<rusqlite::Connection>::drop` to
+    /// call `tokio::task::spawn_blocking` from a thread with no tokio runtime
+    /// context. Rust turns a panic inside `Drop` into SIGABRT.
     ///
     /// The fix wraps `inner` in [`AsyncRuntimeDropped`], which enters the
     /// global tokio runtime context before running `SdkRoom`'s destructor.
@@ -2311,8 +2307,8 @@ mod tests {
         // already been released and GC finalises the last room JS object.
         drop(client);
 
-        // Simulate Hermes GC on the JS thread (a non-tokio thread).
-        // Without the `AsyncRuntimeDropped` wrapper this causes a SIGABRT.
+        // Simulate Hermes GC on the JS thread (a non-tokio thread). Without the
+        // `AsyncRuntimeDropped` wrapper this causes a SIGABRT.
         std::thread::spawn(move || drop(ffi_room))
             .join()
             .expect("Room::drop panicked on a non-tokio thread");

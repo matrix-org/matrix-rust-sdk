@@ -23,7 +23,7 @@ use matrix_sdk_base::{
     linked_chunk::OwnedLinkedChunkId, serde_helpers::extract_thread_root_from_content,
     sync::RoomUpdates,
 };
-use ruma::{OwnedEventId, OwnedTransactionId, RoomId};
+use ruma::{OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId};
 use tokio::{
     select,
     sync::{
@@ -95,7 +95,7 @@ pub(super) async fn room_updates_task(
 #[instrument(skip_all)]
 pub(super) async fn ignore_user_list_update_task(
     inner: Arc<EventCacheInner>,
-    mut ignore_user_list_stream: Subscriber<Vec<String>>,
+    mut ignore_user_list_stream: Subscriber<Vec<OwnedUserId>>,
 ) {
     let span = info_span!(parent: Span::none(), "ignore_user_list_update_task");
     span.follows_from(Span::current());

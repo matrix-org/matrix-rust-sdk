@@ -610,7 +610,8 @@ async fn test_reset_while_backpaginating() {
     // So events have to happen in this order:
     //
     // - the backpagination request is sent, with a prev-batch A
-    // - the sync endpoint returns _after_ the backpagination started, before the
+    // - the sync endpoint returns _after_ the backpagination started, before
+    //   the
     // backpagination ends
     // - the backpagination ends, with a prev-batch token that's now stale.
     //
@@ -951,8 +952,9 @@ async fn test_backpaginate_with_no_initial_events() {
     // - We don't have a prev-batch token to start with, so the first
     //   back-pagination doesn't start before DEFAULT_WAIT_FOR_TOKEN_DURATION
     //   seconds.
-    // - While the back-pagination is actually running, we need a sync adding events
-    //   to happen (after DEFAULT_WAIT_FOR_TOKEN_DURATION + 500 milliseconds).
+    // - While the back-pagination is actually running, we need a sync adding
+    //   events to happen (after DEFAULT_WAIT_FOR_TOKEN_DURATION + 500
+    //   milliseconds).
     // - The back-pagination finishes after this sync (after
     //   DEFAULT_WAIT_FOR_TOKEN_DURATION + 1 seconds).
 
@@ -2189,10 +2191,10 @@ async fn test_deduplication() {
 
     // What should we see?
     //
-    // - On `updates_stream`: 2 events from the loaded chunk #1 must be removed, and
-    //   6 events must be added inserted (!); indeed, 4 are removed and re-inserted
-    //   at the back, plus 2 events are newly inserted at the back, so 6 are
-    //   inserted,
+    // - On `updates_stream`: 2 events from the loaded chunk #1 must be removed,
+    //   and 6 events must be added inserted (!); indeed, 4 are removed and
+    //   re-inserted at the back, plus 2 events are newly inserted at the back,
+    //   so 6 are inserted,
     // - On the store, 2 events must be removed from chunk #0
     //
     // First off, let's check `updates_stream`.
@@ -3096,8 +3098,8 @@ async fn test_order_tracker_is_reset_when_cross_process_is_dirty() {
     //
     // - process A syncs 2 events,
     // - process B syncs a gap + 1 event (to ensure process A won't be able to
-    //   retrieve an event if something went wrong): it is dirty, it will reload, no
-    //   problem,
+    //   retrieve an event if something went wrong): it is dirty, it will
+    //   reload, no problem,
     // - process B syncs a gap + 1 event again: it is not dirty, no problem.
     // - process A is syncs 3 events: it is dirty, it will reload, but if the
     //   `OrderTracker` is not reset correctly, it will panic.

@@ -41,15 +41,12 @@ use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
 use as_variant::as_variant;
 use matrix_sdk::{
-    check_validity_of_replacement_events,
-    deserialized_responses::EncryptionInfo,
-    send_queue::{
-        RoomSendQueueError, RoomSendQueueStorageError, SendHandle, SendReactionHandle,
-        SendRedactionHandle,
-    },
+    check_validity_of_replacement_events, deserialized_responses::EncryptionInfo,
+    send_queue::SendHandle,
 };
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, TransactionId,
+    UserId,
     events::{
         AnySyncTimelineEvent, beacon_info::BeaconInfoEventContent,
         poll::unstable_start::NewUnstablePollStartEventContentWithoutRelation,
@@ -163,35 +160,6 @@ pub(crate) enum AggregationKind {
     },
 }
 
-/// The handle to abort an aggregation while it's still a local echo.
-#[derive(Clone, Debug)]
-pub(crate) enum AggregationSendHandle {
-    /// The aggregation was queued as a regular event.
-    Event(SendHandle),
-    /// A reaction to a local echo, queued as a child request of that echo.
-    Reaction(SendReactionHandle),
-    /// A redaction, queued as a dedicated request.
-    Redaction(SendRedactionHandle),
-}
-
-impl AggregationSendHandle {
-    pub async fn abort(&self) -> Result<bool, RoomSendQueueStorageError> {
-        match self {
-            Self::Event(handle) => handle.abort().await,
-            Self::Reaction(handle) => handle.abort().await,
-            Self::Redaction(handle) => handle.abort().await,
-        }
-    }
-
-    pub async fn unwedge(&self) -> Result<(), RoomSendQueueError> {
-        match self {
-            Self::Event(handle) => handle.unwedge().await,
-            Self::Reaction(handle) => handle.unwedge().await,
-            Self::Redaction(handle) => handle.unwedge().await,
-        }
-    }
-}
-
 /// An aggregation is an event related to another event (for instance a
 /// reaction, a poll's response, etc.).
 ///
@@ -213,7 +181,7 @@ pub(crate) struct Aggregation {
     pub send_state: Option<EventSendState>,
 
     /// Lets one of our local echoes be aborted while it's still pending.
-    pub send_handle: Option<AggregationSendHandle>,
+    pub send_handle: Option<SendHandle>,
 }
 
 /// Get the poll state from a given [`TimelineItemContent`].
@@ -280,7 +248,7 @@ impl Aggregation {
     pub fn new_local(
         own_id: TimelineEventItemId,
         kind: AggregationKind,
-        send_handle: Option<AggregationSendHandle>,
+        send_handle: Option<SendHandle>,
     ) -> Self {
         Self {
             kind,
@@ -646,8 +614,8 @@ impl Aggregations {
         // related_events, in chronological order:
         //
         // 1. The local echo with a transaction ID.
-        // 2. The local echo with the event ID returned by the server after sending the
-        //    event.
+        // 2. The local echo with the event ID returned by the server after
+        //    sending the event.
         // 3. The remote echo received via sync.
         //
         // The transition from states 1 to 2 is handled in
@@ -923,6 +891,45 @@ impl Aggregations {
         true
     }
 
+    /// Replace the content of one of our pending message edits, e.g. once the
+    /// media it carries has been uploaded.
+    ///
+    /// Returns whether a matching edit has been found.
+    pub fn replace_local_edit(
+        &mut self,
+        txn_id: &TransactionId,
+        replacement: Replacement<RoomMessageEventContentWithoutRelation>,
+        items: &mut ObservableItemsTransaction<'_>,
+        rules: &RoomVersionRules,
+    ) -> bool {
+        let from = TimelineEventItemId::TransactionId(txn_id.to_owned());
+
+        let Some(target) = self.inverted_map.get(&from).cloned() else {
+            return false;
+        };
+
+        let Some(found) = self
+            .related_events
+            .get_mut(&target)
+            .and_then(|aggs| aggs.iter_mut().find(|agg| agg.own_id == from))
+        else {
+            return false;
+        };
+
+        let AggregationKind::Edit(PendingEdit { kind: PendingEditKind::RoomMessage(prev), .. }) =
+            &mut found.kind
+        else {
+            return false;
+        };
+
+        *prev = replacement;
+
+        let updated = found.clone();
+        find_item_and_apply_aggregation(self, items, &target, updated, rules);
+
+        true
+    }
+
     /// Returns the id of the event this aggregation relates to, if it's a known
     /// aggregation.
     pub fn is_aggregation_of(&self, item: &TimelineEventItemId) -> Option<&TimelineEventItemId> {
@@ -949,7 +956,7 @@ impl Aggregations {
         &self,
         target: &TimelineEventItemId,
         matches_kind: impl Fn(&AggregationKind) -> bool,
-    ) -> Option<AggregationSendHandle> {
+    ) -> Option<SendHandle> {
         self.related_events
             .get(target)?
             .iter()

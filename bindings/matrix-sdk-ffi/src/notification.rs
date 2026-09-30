@@ -68,9 +68,9 @@ pub struct NotificationItem {
     pub sender_info: NotificationSenderInfo,
     pub room_info: NotificationRoomInfo,
 
-    /// Is the notification supposed to be at the "noisy" level?
-    /// Can be `None` if we couldn't determine this, because we lacked
-    /// information to create a push context.
+    /// Is the notification supposed to be at the "noisy" level? Can be `None`
+    /// if we couldn't determine this, because we lacked information to create a
+    /// push context.
     pub is_noisy: Option<bool>,
     pub has_mention: Option<bool>,
     pub thread_id: Option<String>,
@@ -135,8 +135,8 @@ pub enum NotificationStatus {
     /// The event couldn't be found in the network queries used to find it.
     EventNotFound,
     /// The event has been filtered out, either because of the user's push
-    /// rules, or because the user which triggered it is ignored by the
-    /// current user.
+    /// rules, or because the user which triggered it is ignored by the current
+    /// user.
     EventFilteredOut,
     /// The event has been redacted.
     EventRedacted,
@@ -195,8 +195,8 @@ pub struct NotificationClientTimeouts {
     /// missing room key, i.e. how long the homeserver waits for a to-device
     /// message to arrive before answering.
     ///
-    /// Together with `decryption_deadline`, this determines how many
-    /// iterations are run when the homeserver has nothing to return.
+    /// Together with `decryption_deadline`, this determines how many iterations
+    /// are run when the homeserver has nothing to return.
     pub encryption_sync_poll_timeout: Duration,
 
     /// Extra time allowed for the network round trip of each request of the
@@ -236,8 +236,8 @@ pub struct NotificationClient {
     /// A reference to the FFI client.
     ///
     /// Note: we do this to make it so that the FFI `NotificationClient` keeps
-    /// the FFI `Client` and thus the SDK `Client` alive. Otherwise, we
-    /// would need to repeat the hack done in the FFI `Client::drop` method.
+    /// the FFI `Client` and thus the SDK `Client` alive. Otherwise, we would
+    /// need to repeat the hack done in the FFI `Client::drop` method.
     pub(crate) client: Arc<Client>,
 }
 

@@ -1064,8 +1064,9 @@ impl IdentityManager {
             //
             // XXX: this is racy. It's possible that:
             //
-            // - `failures` included the user's server when `users_for_key_query` was
-            //   called, so the user was not returned in the `KeyQueryRequest`, and:
+            // - `failures` included the user's server when
+            //   `users_for_key_query` was called, so the user was not returned
+            //   in the `KeyQueryRequest`, and:
             // - The backoff has now expired.
             //
             // In that case, we'll end up waiting for the _next_
@@ -1154,9 +1155,9 @@ impl IdentityManager {
         device_changes: &DeviceChanges,
     ) -> Result<(), CryptoStoreError> {
         for device in device_changes.new.iter().chain(device_changes.changed.iter()) {
-            // 1. Look for InboundGroupSessions from the device whose sender_data is
-            //    UnknownDevice. For such sessions, we now have the device, and can update
-            //    the sender_data accordingly.
+            // 1. Look for InboundGroupSessions from the device whose
+            //    sender_data is UnknownDevice. For such sessions, we now have
+            //    the device, and can update the sender_data accordingly.
             //
             // In theory, we only need to do this for new devices. In practice,
             // I'm a bit worried about races leading us to getting stuck in the
@@ -1166,10 +1167,11 @@ impl IdentityManager {
                 .await?;
 
             // 2. If, and only if, the device is now correctly cross-signed (ie,
-            //    device.is_cross_signed_by_owner() is true, and we have the master
-            //    cross-signing key for the owner), look for InboundGroupSessions from the
-            //    device whose sender_data is DeviceInfo. We can also update the sender_data
-            //    for these sessions.
+            //    device.is_cross_signed_by_owner() is true, and we have the
+            //    master cross-signing key for the owner), look for
+            //    InboundGroupSessions from the device whose sender_data is
+            //    DeviceInfo. We can also update the sender_data for these
+            //    sessions.
             //
             // In theory, we can skip a couple of steps of the SenderDataFinder
             // algorithm, because we're doing the cross-signing check here. In

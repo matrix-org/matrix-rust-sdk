@@ -57,7 +57,7 @@ impl<T> Drop for AsyncRuntimeDropped<T> {
     fn drop(&mut self) {
         let _guard = get_runtime_handle().enter();
         // SAFETY: self.inner is never used again, which is the only requirement
-        //         for ManuallyDrop::drop to be used safely.
+        // for ManuallyDrop::drop to be used safely.
         unsafe {
             ManuallyDrop::drop(&mut self.0);
         }

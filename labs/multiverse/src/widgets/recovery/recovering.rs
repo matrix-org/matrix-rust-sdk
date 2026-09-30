@@ -241,8 +241,9 @@ impl RecoveringView {
                     }
                     (_, Esc) => Yes,
                     (_, Enter) => {
-                        // We expect a single line since pressing enter gets us here, still, let's
-                        // just join all the lines into a single one.
+                        // We expect a single line since pressing enter gets us
+                        // here, still, let's just join all the lines into a
+                        // single one.
                         let recovery_key = recovery_text_area.lines().join("");
                         let client = self.client.clone();
 

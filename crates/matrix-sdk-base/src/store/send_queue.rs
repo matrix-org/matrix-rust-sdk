@@ -17,6 +17,8 @@
 use std::{collections::BTreeMap, fmt, ops::Deref};
 
 use as_variant::as_variant;
+#[cfg(feature = "unstable-msc4354")]
+use ruma::events::sticky::StickyDurationMs;
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedTransactionId, OwnedUserId,
     TransactionId, UInt,
@@ -88,6 +90,12 @@ pub enum QueuedRequestKind {
     Event {
         /// The content of the message-like event we'd like to send.
         content: SerializableEventContent,
+
+        /// How long the event should be sticky for, if it is to be sent as a
+        /// sticky event.
+        #[cfg(feature = "unstable-msc4354")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sticky_duration: Option<StickyDurationMs>,
     },
 
     /// Content to upload on the media server.
@@ -129,7 +137,11 @@ pub enum QueuedRequestKind {
 
 impl From<SerializableEventContent> for QueuedRequestKind {
     fn from(content: SerializableEventContent) -> Self {
-        Self::Event { content }
+        Self::Event {
+            content,
+            #[cfg(feature = "unstable-msc4354")]
+            sticky_duration: None,
+        }
     }
 }
 
@@ -161,7 +173,7 @@ pub struct QueuedRequest {
 impl QueuedRequest {
     /// Returns `Some` if the queued request is about sending an event.
     pub fn as_event(&self) -> Option<&SerializableEventContent> {
-        as_variant!(&self.kind, QueuedRequestKind::Event { content } => content)
+        as_variant!(&self.kind, QueuedRequestKind::Event { content, .. } => content)
     }
 
     /// True if the request couldn't be sent because of an unrecoverable API
@@ -297,6 +309,11 @@ pub enum DependentQueuedRequestKind {
 
         /// Metadata about the gallery items.
         item_infos: Vec<FinishGalleryItemInfo>,
+
+        /// Additional top-level fields to merge into the final event content
+        /// before it is sent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
     },
 }
 
@@ -329,6 +346,9 @@ pub struct FinishGalleryItemInfo {
     pub file_upload: OwnedTransactionId,
     /// Information about the thumbnail, if present.
     pub thumbnail_info: Option<FinishUploadThumbnailInfo>,
+    /// Additional fields to merge into this item's content before sending.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_content: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 /// A transaction id identifying a [`DependentQueuedRequest`] rather than its
@@ -547,6 +567,32 @@ mod tests {
     use strass::assert_let;
 
     use super::DependentQueuedRequestKind;
+
+    #[cfg(feature = "unstable-msc4274")]
+    #[test]
+    fn test_gallery_extra_content_storage_compatibility() {
+        let legacy = serde_json::json!({
+            "FinishGallery": {
+                "local_echo": { "msgtype": "dm.filament.gallery", "body": "gallery", "itemtypes": [] },
+                "item_infos": [{ "file_upload": "upload", "thumbnail_info": null }],
+            }
+        });
+        let kind: DependentQueuedRequestKind = serde_json::from_value(legacy.clone()).unwrap();
+        assert_let!(
+            DependentQueuedRequestKind::FinishGallery { item_infos, extra_content, .. } = &kind
+        );
+        assert!(extra_content.is_none());
+        assert!(item_infos[0].extra_content.is_none());
+        assert_eq!(serde_json::to_value(&kind).unwrap(), legacy);
+
+        let mut with_extra = legacy;
+        with_extra["FinishGallery"]["extra_content"] =
+            serde_json::json!({ "com.example.gallery": true });
+        with_extra["FinishGallery"]["item_infos"][0]["extra_content"] =
+            serde_json::json!({ "org.matrix.msc2448.is_spoiler": true });
+        let kind: DependentQueuedRequestKind = serde_json::from_value(with_extra.clone()).unwrap();
+        assert_eq!(serde_json::to_value(kind).unwrap(), with_extra);
+    }
 
     #[test]
     fn test_deserialize_legacy_redact_event() {

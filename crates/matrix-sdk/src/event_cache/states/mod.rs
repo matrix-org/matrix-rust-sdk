@@ -125,10 +125,11 @@ impl StateLock {
         // once the dirty is cleaned up. It can potentially create a deadlock in
         // the following situation:
         //
-        // - `read` is called once, it takes a write lock, then downgrades it to a read
-        //   lock: the guard is kept alive somewhere,
-        // - `read` is called again, and waits to obtain the write lock, which is
-        //   impossible as long as the guard from the previous call is not dropped.
+        // - `read` is called once, it takes a write lock, then downgrades it to
+        //   a read lock: the guard is kept alive somewhere,
+        // - `read` is called again, and waits to obtain the write lock, which
+        //   is impossible as long as the guard from the previous call is not
+        //   dropped.
         //
         // ## “Atomic” read and write
         //
@@ -520,7 +521,8 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                     _tracing_timer: None,
                 };
 
-                let updates_as_vector_diffs = thread_state.reload(preprocessing).await?;
+                let (updates_as_vector_diffs, thread_summary) =
+                    thread_state.reload(preprocessing).await?;
                 thread_state.update_sender.send(
                     thread::ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
                         diffs: updates_as_vector_diffs,
@@ -528,6 +530,9 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                     }),
                     Some(room::RoomEventCacheGenericUpdate { room_id: room_id.clone() }),
                 );
+                thread_state
+                    .update_sender
+                    .send(thread::ThreadEventCacheUpdate::UpdateSummary(thread_summary), None);
             }
 
             // Pinned events.

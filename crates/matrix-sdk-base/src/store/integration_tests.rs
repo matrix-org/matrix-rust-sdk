@@ -46,6 +46,8 @@ use ruma::{
 use serde_json::json;
 use strass::assert_let;
 
+#[cfg(feature = "unstable-msc4354")]
+use super::QueuedRequestKind;
 use super::{
     DependentQueuedRequestKind, DisplayName, DynStateStore, RoomLoadSettings,
     SupportedVersionsResponse, WellKnownResponse, send_queue::SentRequestKey,
@@ -112,6 +114,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_send_queue_priority(&self) -> TestResult;
     /// Test operations related to send queue dependents.
     async fn test_send_queue_dependents(&self) -> TestResult;
+    /// Test that the sticky duration of a queued event survives a round-trip.
+    async fn test_send_queue_sticky_events(&self) -> TestResult;
     /// Test an update to a send queue dependent request.
     async fn test_update_send_queue_dependent(&self) -> TestResult;
     /// Test saving/restoring the supported versions of the server.
@@ -1769,6 +1773,63 @@ impl StateStoreIntegrationTests for DynStateStore {
         Ok(())
     }
 
+    #[cfg(not(feature = "unstable-msc4354"))]
+    async fn test_send_queue_sticky_events(&self) -> TestResult {
+        Ok(()) // Dummy test when the feature is off because we cannot check features where the method is registered.
+    }
+
+    #[cfg(feature = "unstable-msc4354")]
+    async fn test_send_queue_sticky_events(&self) -> TestResult {
+        use ruma::events::sticky::StickyDurationMs;
+
+        let room_id = room_id!("!test_send_queue_sticky_events:localhost");
+
+        // A regular event isn't sticky.
+        let content =
+            SerializableEventContent::new(&RoomMessageEventContent::text_plain("regular").into())?;
+        let regular_txn = TransactionId::new();
+        self.save_send_queue_request(
+            room_id,
+            regular_txn.clone(),
+            MilliSecondsSinceUnixEpoch::now(),
+            content.into(),
+            0,
+        )
+        .await?;
+
+        // A sticky event keeps its duration across a round-trip.
+        let content =
+            SerializableEventContent::new(&RoomMessageEventContent::text_plain("sticky").into())?;
+        let sticky_txn = TransactionId::new();
+        self.save_send_queue_request(
+            room_id,
+            sticky_txn.clone(),
+            MilliSecondsSinceUnixEpoch::now(),
+            QueuedRequestKind::Event {
+                content,
+                sticky_duration: Some(StickyDurationMs::new_clamped(300_000u32)),
+            },
+            0,
+        )
+        .await?;
+
+        let pending = self.load_send_queue_requests(room_id).await?;
+        assert_eq!(pending.len(), 2);
+
+        assert_eq!(pending[0].transaction_id, regular_txn);
+        assert_matches!(&pending[0].kind, QueuedRequestKind::Event { sticky_duration: None, .. });
+
+        assert_eq!(pending[1].transaction_id, sticky_txn);
+        assert_matches!(
+            &pending[1].kind,
+            QueuedRequestKind::Event { sticky_duration: Some(duration), .. } => {
+                assert_eq!(duration.get(), 300_000);
+            }
+        );
+
+        Ok(())
+    }
+
     async fn test_send_queue_dependents(&self) -> TestResult {
         let room_id = room_id!("!test_send_queue_dependents:localhost");
 
@@ -2541,6 +2602,12 @@ macro_rules! statestore_integration_tests {
             async fn test_send_queue_dependents() -> TestResult {
                 let store = get_store().await?.into_state_store();
                 store.test_send_queue_dependents().await
+            }
+
+            #[async_test]
+            async fn test_send_queue_sticky_events() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_send_queue_sticky_events().await
             }
 
             #[async_test]

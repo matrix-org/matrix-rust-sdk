@@ -26,20 +26,17 @@ use futures_core::Stream;
 use futures_util::future::try_join_all;
 use imbl::{HashSet, Vector};
 use matrix_sdk::{
-    deserialized_responses::TimelineEvent,
+    deserialized_responses::{ThreadSummary, TimelineEvent},
     event_cache::{
         DecryptionRetryRequest, EventCache, EventFocusedCache, PaginationStatus, PinnedEventsCache,
         RoomEventCache, Subscriber as EventCacheSubscriber, ThreadEventCache,
         ThreadEventCacheUpdate,
     },
-    send_queue::{
-        LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
-        SendRedactionHandle,
-    },
+    send_queue::{LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle},
     task_monitor::BackgroundTaskHandle,
 };
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
     TransactionId, UserId,
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     events::{
@@ -155,7 +152,7 @@ pub(in crate::timeline) enum TimelineFocusKind {
     /// A live timeline for a thread.
     Thread {
         /// The root event for the current thread.
-        root_event_id: OwnedEventId,
+        thread_id: OwnedEventId,
 
         /// The cache holding all the events for this focus.
         event_cache: ThreadEventCache,
@@ -168,6 +165,15 @@ pub(in crate::timeline) enum TimelineFocusKind {
 }
 
 impl TimelineFocusKind {
+    /// Get the room ID of this timeline.
+    pub(super) fn room_id(&self) -> &RoomId {
+        match self {
+            TimelineFocusKind::Live { event_cache, .. } => event_cache.room_id(),
+            TimelineFocusKind::Thread { event_cache, .. } => event_cache.room_id(),
+            TimelineFocusKind::Event { event_cache, .. } => event_cache.room_id(),
+            TimelineFocusKind::PinnedEvents { event_cache } => event_cache.room_id(),
+        }
+    }
     /// Returns the [`ReceiptThread`] that should be used for the current
     /// timeline focus.
     ///
@@ -204,12 +210,13 @@ impl TimelineFocusKind {
         self.thread_root().is_some()
     }
 
-    /// If the focus is a thread, returns its root event ID.
+    /// If the focus is a thread or event-focused, returns its thread root event
+    /// ID if any.
     fn thread_root(&self) -> Option<&EventId> {
         match self {
             TimelineFocusKind::Event { thread_root, .. } => thread_root.get().map(|v| &**v),
             TimelineFocusKind::Live { .. } | TimelineFocusKind::PinnedEvents { .. } => None,
-            TimelineFocusKind::Thread { root_event_id, .. } => Some(root_event_id),
+            TimelineFocusKind::Thread { thread_id, .. } => Some(thread_id),
         }
     }
 }
@@ -428,15 +435,15 @@ impl<P: RoomDataProvider> TimelineController<P> {
                         .await?
                         .0,
                     focused_event_id: target.clone(),
-                    // This will be initialized in `Self::init_focus`.
+                    // This will be initialised in `Self::init_focus`.
                     thread_root: OnceLock::new(),
                     thread_mode: *thread_mode,
                 }
             }
 
-            TimelineFocus::Thread { root_event_id, .. } => TimelineFocusKind::Thread {
-                event_cache: event_cache.thread(room_id, root_event_id).await?.0,
-                root_event_id: root_event_id.clone(),
+            TimelineFocus::Thread { thread_id, .. } => TimelineFocusKind::Thread {
+                event_cache: event_cache.thread(room_id, thread_id).await?.0,
+                thread_id: thread_id.clone(),
             },
 
             TimelineFocus::PinnedEvents => TimelineFocusKind::PinnedEvents {
@@ -446,6 +453,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
         let focus = Arc::new(focus);
         let state = Arc::new(RwLock::new(TimelineState::new(
+            event_cache.clone(),
             focus.clone(),
             room_data_provider.own_user_id().to_owned(),
             room_data_provider.room_version_rules(),
@@ -709,7 +717,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         &self,
         item_id: &TimelineEventItemId,
         target: SendTarget,
-    ) -> Result<Option<AggregationSendHandle>, Error> {
+    ) -> Result<Option<SendHandle>, Error> {
         let state = self.state.read().await;
 
         let Some((_, item)) = rfind_event_by_item_id(&state.items, item_id) else {
@@ -721,7 +729,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         let aggregations = &state.meta.aggregations;
 
         let handle = match &target {
-            SendTarget::Event => item.local_echo_send_handle().map(AggregationSendHandle::Event),
+            SendTarget::Event => item.local_echo_send_handle(),
             SendTarget::Edit => aggregations
                 .pending_send_handle(&target_id, |kind| matches!(kind, AggregationKind::Edit(_))),
             SendTarget::Redaction => aggregations
@@ -771,6 +779,17 @@ impl<P: RoomDataProvider> TimelineController<P> {
         state
             .handle_remote_aggregations(diffs, origin, &self.room_data_provider, &self.settings)
             .await
+    }
+
+    /// Handle an update of the thread summary of a single event that is a
+    /// thread root.
+    pub(super) async fn handle_thread_summary(
+        &self,
+        thread_root: OwnedEventId,
+        thread_summary: ThreadSummary,
+    ) {
+        let mut state = self.state.write().await;
+        state.handle_thread_summary(thread_root, thread_summary, &self.room_data_provider).await
     }
 
     pub(super) async fn clear(&self) {
@@ -1074,6 +1093,20 @@ impl<P: RoomDataProvider> TimelineController<P> {
         let Some((idx, prev_item)) =
             rfind_event_item(&txn.items, |it| it.transaction_id() == Some(txn_id))
         else {
+            // Not a standalone item: maybe one of our pending edits.
+            if let Some(Relation::Replacement(replacement)) = content.relates_to
+                && txn.meta.aggregations.replace_local_edit(
+                    txn_id,
+                    replacement,
+                    &mut txn.items,
+                    &txn.meta.room_version_rules,
+                )
+            {
+                debug!("Replaced local echo of an edit");
+                txn.commit();
+                return true;
+            }
+
             debug!("Can't find local echo to replace");
             return false;
         };
@@ -1332,7 +1365,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     async fn handle_local_reaction(
         &self,
         reaction_key: String,
-        send_handle: SendReactionHandle,
+        send_handle: SendHandle,
         applies_to: OwnedTransactionId,
     ) {
         let mut state = self.state.write().await;
@@ -1348,7 +1381,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 sender: self.room_data_provider.own_user_id().to_owned(),
                 timestamp: MilliSecondsSinceUnixEpoch::now(),
             },
-            Some(AggregationSendHandle::Reaction(send_handle)),
+            Some(send_handle),
         );
 
         tr.meta.aggregations.add(target.clone(), aggregation.clone());
@@ -1368,7 +1401,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         &self,
         txn_id: OwnedTransactionId,
         redacts: OwnedEventId,
-        send_handle: Option<SendRedactionHandle>,
+        send_handle: Option<SendHandle>,
     ) {
         let mut state = self.state.write().await;
         let mut tr = state.transaction();
@@ -1378,7 +1411,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         let aggregation = Aggregation::new_local(
             TimelineEventItemId::TransactionId(txn_id),
             AggregationKind::Redaction,
-            send_handle.map(AggregationSendHandle::Redaction),
+            send_handle,
         );
 
         tr.meta.aggregations.add(target.clone(), aggregation.clone());

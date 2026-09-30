@@ -814,10 +814,11 @@ fn filter_any_sync_state_event(
                     // This member _is_ the current user, not someone else! This
                     // is a valid state event:
                     //
-                    // - the user is joining a room (for the first time or again): we want a
-                    //   `LatestEventValue` to get a first value!
-                    // - the user is being invited: we want a `LatestEventValue` to represent the
-                    //   invitation!
+                    // - the user is joining a room (for the first time or
+                    //   again): we want a `LatestEventValue` to get a first
+                    //   value!
+                    // - the user is being invited: we want a `LatestEventValue`
+                    //   to represent the invitation!
                     if member.state_key.deref() == own_user_id {
                         filter_break()
                     } else {
@@ -1720,10 +1721,7 @@ mod builder_tests {
     };
     use crate::{
         Client, Error,
-        send_queue::{
-            AbstractProgress, LocalEcho, LocalEchoContent, RoomSendQueue, SendHandle,
-            SendReactionHandle, SendRedactionHandle,
-        },
+        send_queue::{AbstractProgress, LocalEcho, LocalEchoContent, RoomSendQueue, SendHandle},
         test_utils::mocks::MatrixMockServer,
     };
 
@@ -2868,9 +2866,10 @@ mod builder_tests {
             let transaction_id = OwnedTransactionId::from("txnid1");
             let content = LocalEchoContent::React {
                 key: "<< 1".to_owned(),
-                send_handle: SendReactionHandle::new(
+                send_handle: SendHandle::new(
                     room_send_queue.clone(),
-                    ChildTransactionId::new(),
+                    ChildTransactionId::new().into(),
+                    MilliSecondsSinceUnixEpoch::now(),
                 ),
                 applies_to: transaction_id_0,
             };
@@ -3840,9 +3839,10 @@ mod builder_tests {
             let content = LocalEchoContent::Redaction {
                 redacts: event_id.to_owned(),
                 reason: Some("whatever".to_owned()),
-                send_handle: SendRedactionHandle::new(
+                send_handle: SendHandle::new(
                     room_send_queue.clone(),
                     transaction_id.clone(),
+                    MilliSecondsSinceUnixEpoch::now(),
                 ),
                 send_error: None,
             };

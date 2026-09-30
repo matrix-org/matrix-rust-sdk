@@ -213,7 +213,8 @@ fn format_text_message(
         }
 
         if !read_receipts.is_empty() {
-            // Read by [5 first users who read it], optionally followed by "and X others".
+            // Read by [5 first users who read it], optionally followed by "and
+            // X others".
             let mut read_by = read_receipts
                 .iter()
                 .take(5)

@@ -584,9 +584,10 @@ async fn test_timeline_reset_while_paginating() {
 
     // The pagination with the first token will be hit twice:
     //
-    // - first, before the sync response comes, then the gap is stored in the cache.
-    // - second, after all other gaps have been resolved, we get back to resolving
-    //   this one.
+    // - first, before the sync response comes, then the gap is stored in the
+    //   cache.
+    // - second, after all other gaps have been resolved, we get back to
+    //   resolving this one.
     server
         .mock_room_messages()
         .match_from("pagination_1")
