@@ -3831,6 +3831,7 @@ dependencies = [
  "matrix-sdk-crypto",
  "matrix-sdk-ffi-macros",
  "matrix-sdk-sqlite",
+ "matrix-sdk-test",
  "matrix-sdk-ui",
  "mime",
  "oauth2",
