@@ -369,7 +369,9 @@ impl GalleryConfig {
 
     /// Set additional top-level fields for the gallery event's content.
     ///
-    /// The event's own fields take precedence on conflicts.
+    /// Objects are merged recursively; the event's own fields take precedence
+    /// on conflicts. To add fields to individual items, use
+    /// [`GalleryItemInfo::extra_content`].
     #[must_use]
     pub fn extra_content(
         mut self,
@@ -406,4 +408,8 @@ pub struct GalleryItemInfo {
     pub caption: Option<TextMessageEventContent>,
     /// The thumbnail.
     pub thumbnail: Option<Thumbnail>,
+    /// Additional fields to merge into this item's content, for example a
+    /// spoiler flag. Objects are merged recursively; the item's own fields take
+    /// precedence on conflicts.
+    pub extra_content: Option<serde_json::Map<String, serde_json::Value>>,
 }
