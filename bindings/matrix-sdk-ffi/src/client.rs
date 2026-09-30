@@ -1916,6 +1916,7 @@ impl Client {
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(user_ids) = subscriber.next().await {
+                let user_ids = user_ids.into_iter().map(Into::into).collect();
                 listener.call(user_ids);
             }
         })))
