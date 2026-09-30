@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 // Copyright 2023 Kévin Commaille.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
