@@ -367,7 +367,7 @@ mod tests {
 
     use futures_util::TryStreamExt as _;
     use matrix_sdk_search::index::SearchResult;
-    use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
     use ruma::{OwnedEventId, OwnedRoomId, event_id, room_id, user_id};
 
     use crate::{sleep::sleep, test_utils::mocks::MatrixMockServer};
@@ -598,9 +598,7 @@ mod tests {
                         f.text_msg("it's a mad world").room(room_id2).event_id(result_event_id2),
                     ))
                     // Note: adding a DM room for room_id1 here.
-                    .add_global_account_data(
-                        f.direct().add_user((*BOB).to_owned().into(), room_id1),
-                    );
+                    .add_global_account_data(f.direct().add_user(User::Bob.into(), room_id1));
             })
             .await;
 

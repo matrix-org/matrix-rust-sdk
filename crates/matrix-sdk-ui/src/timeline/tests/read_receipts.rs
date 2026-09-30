@@ -17,7 +17,7 @@ use std::{assert_matches, sync::Arc};
 use eyeball_im::VectorDiff;
 use matrix_sdk::assert_next_with_timeout;
 use matrix_sdk_test::{
-    ALICE, BOB, CAROL, JoinedRoomBuilder, async_test, event_factory::EventFactory,
+    ALICE, BOB, CAROL, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
 };
 use ruma::{
     event_id,
@@ -74,7 +74,7 @@ async fn test_read_receipts_updates_on_live_events() {
     let item_b = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_b = item_b.as_event().unwrap();
     assert_eq!(event_b.read_receipts().len(), 1);
-    assert!(event_b.read_receipts().get(*BOB).is_some());
+    assert!(event_b.read_receipts().get(&User::Bob).is_some());
 
     // Implicit read receipt of Bob is updated.
     timeline.handle_live_event(f.text_msg("C").sender(*BOB)).await;
@@ -86,7 +86,7 @@ async fn test_read_receipts_updates_on_live_events() {
     let item_c = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_c = item_c.as_event().unwrap();
     assert_eq!(event_c.read_receipts().len(), 1);
-    assert!(event_c.read_receipts().get(*BOB).is_some());
+    assert!(event_c.read_receipts().get(&User::Bob).is_some());
 
     timeline.handle_live_event(f.text_msg("D").sender(*ALICE)).await;
 
@@ -111,7 +111,7 @@ async fn test_read_receipts_updates_on_live_events() {
     let item_d = assert_next_matches!(stream, VectorDiff::Set { index: 4, value } => value);
     let event_d = item_d.as_event().unwrap();
     assert_eq!(event_d.read_receipts().len(), 1);
-    assert!(event_d.read_receipts().get(*BOB).is_some());
+    assert!(event_d.read_receipts().get(&User::Bob).is_some());
 }
 
 #[async_test]
@@ -148,12 +148,12 @@ async fn test_read_receipts_updates_on_back_paginated_events() {
     // Implicit read receipt of Bob.
     let event_a = items[2].as_event().unwrap();
     assert_eq!(event_a.read_receipts().len(), 1);
-    assert!(event_a.read_receipts().get(*BOB).is_some());
+    assert!(event_a.read_receipts().get(&User::Bob).is_some());
 
     // Implicit read receipt of Carol, explicit read receipt of Bob ignored.
     let event_b = items[1].as_event().unwrap();
     assert_eq!(event_b.read_receipts().len(), 1);
-    assert!(event_b.read_receipts().get(*CAROL).is_some());
+    assert!(event_b.read_receipts().get(&User::Carol).is_some());
 }
 
 #[async_test]
@@ -183,7 +183,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
     let item_a = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     let event_a = item_a.as_event().unwrap();
     assert_eq!(event_a.read_receipts().len(), 1);
-    assert!(event_a.read_receipts().get(*BOB).is_some());
+    assert!(event_a.read_receipts().get(&User::Bob).is_some());
 
     // Implicit read receipt of Bob is updated.
     timeline.handle_live_event(f.text_msg("C").sender(*BOB)).await;
@@ -195,7 +195,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
     let item_c = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_c = item_c.as_event().unwrap();
     assert_eq!(event_c.read_receipts().len(), 1);
-    assert!(event_c.read_receipts().get(*BOB).is_some());
+    assert!(event_c.read_receipts().get(&User::Bob).is_some());
 
     // Populate more events.
     let event_d_id = owned_event_id!("$event_d");
@@ -235,7 +235,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
     let item_e = assert_next_matches!(stream, VectorDiff::Set { index: 3, value } => value);
     let event_e = item_e.as_event().unwrap();
     assert_eq!(event_e.read_receipts().len(), 1);
-    assert!(event_e.read_receipts().get(*BOB).is_some());
+    assert!(event_e.read_receipts().get(&User::Bob).is_some());
 
     assert_pending!(stream);
 }
@@ -287,14 +287,14 @@ async fn test_read_receipts_updates_on_filtered_events_with_stored() {
     let item_a = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     let event_a = item_a.as_event().unwrap();
     assert_eq!(event_a.read_receipts().len(), 1);
-    assert!(event_a.read_receipts().get(*BOB).is_some());
+    assert!(event_a.read_receipts().get(&User::Bob).is_some());
 
     // Implicit read receipt of Carol.
     let item_a = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     let event_a = item_a.as_event().unwrap();
     assert_eq!(event_a.read_receipts().len(), 2);
-    assert!(event_a.read_receipts().get(*BOB).is_some());
-    assert!(event_a.read_receipts().get(*CAROL).is_some());
+    assert!(event_a.read_receipts().get(&User::Bob).is_some());
+    assert!(event_a.read_receipts().get(&User::Carol).is_some());
 
     // Implicit read receipt of Bob is updated.
     timeline.handle_live_event(f.text_msg("C").sender(*BOB)).await;
@@ -306,7 +306,7 @@ async fn test_read_receipts_updates_on_filtered_events_with_stored() {
     let item_c = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_c = item_c.as_event().unwrap();
     assert_eq!(event_c.read_receipts().len(), 1);
-    assert!(event_c.read_receipts().get(*BOB).is_some());
+    assert!(event_c.read_receipts().get(&User::Bob).is_some());
 
     assert_pending!(stream);
 }
@@ -374,8 +374,8 @@ async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
     let item_c = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     let event_c = item_c.as_event().unwrap();
     assert_eq!(event_c.read_receipts().len(), 2);
-    assert!(event_c.read_receipts().get(*BOB).is_some());
-    assert!(event_c.read_receipts().get(*CAROL).is_some());
+    assert!(event_c.read_receipts().get(&User::Bob).is_some());
+    assert!(event_c.read_receipts().get(&User::Carol).is_some());
 
     // Reinsert a new date divider before the first back-paginated event.
     let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
@@ -478,7 +478,7 @@ async fn test_read_receipts_updates_on_message_decryption() {
     let clear_event = value.as_event().unwrap();
     assert!(clear_event.content().is_message());
     assert_eq!(clear_event.read_receipts().len(), 1);
-    assert!(clear_event.read_receipts().get(*CAROL).is_some());
+    assert!(clear_event.read_receipts().get(&User::Carol).is_some());
 
     assert_let!(VectorDiff::PushFront { value } = &updates[2]);
     assert!(value.is_date_divider());
@@ -499,7 +499,7 @@ async fn test_read_receipts_updates_on_message_decryption() {
 
     assert_eq!(session_id, SESSION_ID);
     assert_eq!(encrypted_event.read_receipts().len(), 1);
-    assert!(encrypted_event.read_receipts().get(*BOB).is_some());
+    assert!(encrypted_event.read_receipts().get(&User::Bob).is_some());
 
     // Decrypt encrypted message.
     let exported_keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "1234").unwrap();
@@ -520,8 +520,8 @@ async fn test_read_receipts_updates_on_message_decryption() {
     let clear_event = value.as_event().unwrap();
     assert!(clear_event.content().is_message());
     assert_eq!(clear_event.read_receipts().len(), 2);
-    assert!(clear_event.read_receipts().get(*CAROL).is_some());
-    assert!(clear_event.read_receipts().get(*BOB).is_some());
+    assert!(clear_event.read_receipts().get(&User::Carol).is_some());
+    assert!(clear_event.read_receipts().get(&User::Bob).is_some());
 
     // The second event is removed.
     assert_matches!(&updates[1], VectorDiff::Remove { index: 2 });
@@ -671,7 +671,7 @@ async fn test_clear_read_receipts() {
     // Implicit read receipt of Bob.
     let event_a = items[1].as_event().unwrap();
     assert_eq!(event_a.read_receipts().len(), 1);
-    assert!(event_a.read_receipts().get(*BOB).is_some());
+    assert!(event_a.read_receipts().get(&User::Bob).is_some());
 
     // We received a limited timeline.
     timeline.controller.clear().await;
@@ -700,7 +700,7 @@ async fn test_clear_read_receipts() {
     // New implicit read receipt of Bob.
     let event_b = items[2].as_event().unwrap();
     assert_eq!(event_b.read_receipts().len(), 1);
-    assert!(event_b.read_receipts().get(*BOB).is_some());
+    assert!(event_b.read_receipts().get(&User::Bob).is_some());
 }
 
 #[async_test]
@@ -914,7 +914,7 @@ async fn test_unthreaded_client_updates_threaded_read_receipts() {
     let item_b = assert_next_matches!(stream, VectorDiff::Set { index: 2, value } => value);
     let event_b = item_b.as_event().unwrap();
     assert_eq!(event_b.read_receipts().len(), 1);
-    assert!(event_b.read_receipts().get(*BOB).is_some());
+    assert!(event_b.read_receipts().get(&User::Bob).is_some());
     assert_pending!(stream);
 
     // Then Alice sends a message in a thread
@@ -946,7 +946,7 @@ async fn test_unthreaded_client_updates_threaded_read_receipts() {
     // The main timeline read receipts are still correct
     let event_b = timeline.controller.items().await[2].as_event().unwrap().to_owned();
     assert_eq!(event_b.read_receipts().len(), 1);
-    assert!(event_b.read_receipts().get(*BOB).is_some());
+    assert!(event_b.read_receipts().get(&User::Bob).is_some());
 
     assert_pending!(stream);
 }

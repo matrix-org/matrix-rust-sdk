@@ -35,7 +35,9 @@ use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_common::{
     deserialized_responses::EncryptionInfo, executor::spawn, locks::Mutex, timeout::timeout,
 };
-use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{
+    ALICE, BOB, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
+};
 use ruma::{
     OwnedRoomId, device_id, event_id,
     events::{
@@ -571,7 +573,7 @@ async fn test_receive_live_events() {
     assert_eq!(events[2]["api"], "toWidget");
     assert_eq!(events[2]["action"], "send_event");
     assert_eq!(events[2]["data"]["type"], "m.room.name");
-    assert_eq!(events[2]["data"]["sender"], BOB.as_str());
+    assert_eq!(events[2]["data"]["sender"], User::Bob);
     assert_eq!(events[2]["data"]["content"]["name"], "New Room Name");
 
     assert_eq!(to_device["api"], "toWidget");
@@ -864,7 +866,7 @@ async fn test_receive_state() {
     assert_eq!(msg["data"]["state"].as_array().unwrap().len(), 1);
     assert_eq!(msg["data"]["state"][0]["type"], "m.room.name");
     assert_eq!(msg["data"]["state"][0]["room_id"], ROOM_ID.as_str());
-    assert_eq!(msg["data"]["state"][0]["sender"], BOB.as_str());
+    assert_eq!(msg["data"]["state"][0]["sender"], User::Bob);
     assert_eq!(msg["data"]["state"][0]["state_key"], "");
     assert_eq!(msg["data"]["state"][0]["content"]["name"], "room name");
     // No further messages from the driver yet
@@ -910,7 +912,7 @@ async fn test_receive_state() {
     assert_eq!(msg["data"]["state"].as_array().unwrap().len(), 1);
     assert_eq!(msg["data"]["state"][0]["type"], "m.room.name");
     assert_eq!(msg["data"]["state"][0]["room_id"], ROOM_ID.as_str());
-    assert_eq!(msg["data"]["state"][0]["sender"], BOB.as_str());
+    assert_eq!(msg["data"]["state"][0]["sender"], User::Bob);
     assert_eq!(msg["data"]["state"][0]["state_key"], "");
     assert_eq!(msg["data"]["state"][0]["content"]["name"], "even newer room name");
 
@@ -919,7 +921,7 @@ async fn test_receive_state() {
     assert_eq!(msg["action"], "send_event");
     assert_eq!(msg["data"]["type"], "m.room.name");
     assert_eq!(msg["data"]["room_id"], ROOM_ID.as_str());
-    assert_eq!(msg["data"]["sender"], BOB.as_str());
+    assert_eq!(msg["data"]["sender"], User::Bob);
     assert_eq!(msg["data"]["state_key"], "");
     assert_eq!(msg["data"]["content"]["name"], "new room name");
 
@@ -928,7 +930,7 @@ async fn test_receive_state() {
     assert_eq!(msg["action"], "send_event");
     assert_eq!(msg["data"]["type"], "m.room.name");
     assert_eq!(msg["data"]["room_id"], ROOM_ID.as_str());
-    assert_eq!(msg["data"]["sender"], BOB.as_str());
+    assert_eq!(msg["data"]["sender"], User::Bob);
     assert_eq!(msg["data"]["state_key"], "");
     assert_eq!(msg["data"]["content"]["name"], "even newer room name");
 }
