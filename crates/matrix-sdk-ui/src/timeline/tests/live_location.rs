@@ -17,7 +17,7 @@
 use std::{assert_matches, time::Duration};
 
 use eyeball_im::VectorDiff;
-use matrix_sdk_test::{ALICE, BOB, async_test};
+use matrix_sdk_test::{ALICE, BOB, User, async_test};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, event_id,
     events::beacon_info::{BeaconInfoEventContent, RedactedBeaconInfoEventContent},
@@ -306,7 +306,7 @@ async fn test_multiple_users_sharing_produce_independent_items() {
         .await;
 
     let bob_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    assert_eq!(bob_item.sender(), *BOB);
+    assert_eq!(bob_item.sender(), User::Bob);
     assert_eq!(bob_item.content().as_live_location_state().unwrap().description(), Some("Bob"));
 
     assert_pending!(stream);
@@ -336,7 +336,7 @@ async fn test_multiple_users_sharing_produce_independent_items() {
 
     let bob_state = items
         .iter()
-        .find(|i| i.sender() == (*BOB))
+        .find(|i| i.sender() == User::Bob)
         .unwrap()
         .content()
         .as_live_location_state()
@@ -783,7 +783,7 @@ async fn test_reaction_on_live_location_item() {
 
     let reactions = item.reactions();
     let thumbs_up = reactions.get("👍").expect("👍 reaction should be present");
-    let reaction = thumbs_up.get(*BOB).expect("BOB's reaction should be present");
+    let reaction = thumbs_up.get(&User::Bob).expect("BOB's reaction should be present");
     assert_matches!(&reaction.send_state, None);
 
     assert_pending!(stream);
@@ -816,15 +816,15 @@ async fn test_multiple_reactions_on_live_location_item() {
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     let reactions = item.reactions();
     assert_eq!(reactions.len(), 1);
-    assert!(reactions.get("👍").unwrap().get(*ALICE).is_some());
+    assert!(reactions.get("👍").unwrap().get(&User::Alice).is_some());
 
     timeline.handle_live_event(timeline.factory.reaction(beacon_id, "❤️").sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
 
     let reactions = item.reactions();
     assert_eq!(reactions.len(), 2, "two distinct reaction keys");
-    assert!(reactions.get("👍").unwrap().get(*ALICE).is_some());
-    assert!(reactions.get("❤️").unwrap().get(*BOB).is_some());
+    assert!(reactions.get("👍").unwrap().get(&User::Alice).is_some());
+    assert!(reactions.get("❤️").unwrap().get(&User::Bob).is_some());
 
     assert_pending!(stream);
 }
@@ -863,7 +863,7 @@ async fn test_reaction_before_live_location_item_is_applied_when_parent_arrives(
 
     let reactions = item.reactions();
     let thumbs_up = reactions.get("👍").expect("👍 reaction should be present");
-    assert!(thumbs_up.get(*BOB).is_some(), "BOB's reaction should be pre-applied");
+    assert!(thumbs_up.get(&User::Bob).is_some(), "BOB's reaction should be pre-applied");
 
     assert_pending!(stream);
 }
@@ -899,7 +899,7 @@ async fn test_local_reaction_on_live_location_item() {
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().as_live_location_state().is_some());
     let reactions = item.reactions();
-    let reaction = reactions.get("👍").unwrap().get(*ALICE).unwrap();
+    let reaction = reactions.get("👍").unwrap().get(&User::Alice).unwrap();
     assert_matches!(&reaction.send_state, Some(EventSendState::NotSentYet { .. }));
 
     // Receive the remote echo from sync.
@@ -910,7 +910,7 @@ async fn test_local_reaction_on_live_location_item() {
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().as_live_location_state().is_some());
     let reactions = item.reactions();
-    let reaction = reactions.get("👍").unwrap().get(*ALICE).unwrap();
+    let reaction = reactions.get("👍").unwrap().get(&User::Alice).unwrap();
     assert_matches!(&reaction.send_state, None);
 
     assert_pending!(stream);

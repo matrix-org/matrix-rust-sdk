@@ -20,7 +20,7 @@ use futures_util::{FutureExt as _, StreamExt as _};
 use imbl::vector;
 use matrix_sdk::assert_next_matches_with_timeout;
 use matrix_sdk_base::store::QueueWedgeError;
-use matrix_sdk_test::{ALICE, BOB, async_test};
+use matrix_sdk_test::{ALICE, BOB, User, async_test};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, event_id,
     events::{AnyMessageLikeEventContent, reaction::ReactionEventContent, relation::Annotation},
@@ -256,7 +256,7 @@ async fn test_reaction_on_a_state_event() {
 
     let reactions = item.reactions().clone();
     let by_sender = reactions.get(&REACTION_KEY.to_owned()).unwrap();
-    assert!(by_sender.contains_key(*BOB));
+    assert!(by_sender.contains_key(&User::Bob));
 }
 
 /// Returns the unique item id, the event id, and position of the message.

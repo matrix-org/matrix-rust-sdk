@@ -1393,7 +1393,7 @@ mod tests {
     use futures_util::FutureExt as _;
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{
-        BOB, InvitedRoomBuilder, LeftRoomBuilder, SyncResponseBuilder, async_test,
+        InvitedRoomBuilder, LeftRoomBuilder, SyncResponseBuilder, User, async_test,
         event_factory::EventFactory, ruma_response_from_json,
     };
     #[cfg(feature = "unstable-msc4426")]
@@ -2059,16 +2059,16 @@ mod tests {
         let f = EventFactory::new();
         let mut sync_builder = SyncResponseBuilder::new();
         let response = sync_builder
-            .add_global_account_data(f.ignored_user_list([(*BOB).into()]))
+            .add_global_account_data(f.ignored_user_list([User::Bob.into()]))
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
 
         assert_let!(Some(ignored) = subscriber.next().await);
-        assert_eq!(ignored, [BOB.to_string()]);
+        assert_eq!(ignored, [User::Bob]);
 
         // Receive the same response.
         let response = sync_builder
-            .add_global_account_data(f.ignored_user_list([(*BOB).into()]))
+            .add_global_account_data(f.ignored_user_list([User::Bob.into()]))
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
 

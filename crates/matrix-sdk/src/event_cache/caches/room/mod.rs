@@ -788,7 +788,7 @@ mod timed_tests {
         sync::Timeline,
     };
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
-    use matrix_sdk_test::{ALICE, BOB, async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{ALICE, BOB, User, async_test, event_factory::EventFactory};
     use ruma::{
         EventId, event_id,
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
@@ -1990,11 +1990,11 @@ mod timed_tests {
         let room = client.get_room(room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-        // Look for an event from `BOB`: it must be `event_0`.
+        // Look for an event from Bob: it must be `event_0`.
         assert_matches!(
             room_event_cache
                 .rfind_map_event_in_memory_by(|event| {
-                    (event.sender().as_deref() == Some(*BOB)).then(|| event.event_id().map(ToOwned::to_owned))
+                    (event.sender().is_some_and(|sender| sender == User::Bob)).then(|| event.event_id().map(ToOwned::to_owned))
                 })
                 .await,
             Ok(Some(event_id)) => {
