@@ -1296,10 +1296,7 @@ mod tests {
     use eyeball_im::VectorDiff;
     use matrix_sdk_base::{
         cross_process_lock::CrossProcessLockGeneration,
-        crypto::types::events::{
-            ToDeviceEvent,
-            room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
-        },
+        crypto::types::events::room::encrypted::EncryptedToDeviceEvent,
         deserialized_responses::{TimelineEventKind, UnableToDecryptReason, VerificationState},
         event_cache::{
             Event, Gap,
@@ -1617,69 +1614,35 @@ mod tests {
             .instrument(bob_span)
             .await;
 
+        // Mock the members endpoint, so that Alice can share room keys with
+        // Bob.
+        let member_factory = EventFactory::new().room(room_id);
+        matrix_mock_server
+            .mock_get_members()
+            .ok(vec![
+                member_factory.member(alice_user_id).into_raw(),
+                member_factory.member(bob_user_id).into_raw(),
+            ])
+            .mount()
+            .await;
+
         (alice, bob, matrix_mock_server, store)
-    }
-
-    async fn prepare_room(
-        matrix_mock_server: &MatrixMockServer,
-        event_factory: &EventFactory,
-        alice: &Client,
-        bob: &Client,
-        room_id: &RoomId,
-    ) -> (Raw<AnySyncTimelineEvent>, Raw<ToDeviceEvent<ToDeviceEncryptedEventContent>>) {
-        let alice_user_id = alice.user_id().unwrap();
-        let bob_user_id = bob.user_id().unwrap();
-
-        let alice_member_event = event_factory.member(alice_user_id).into_raw();
-        let bob_member_event = event_factory.member(bob_user_id).into_raw();
-
-        let room = alice
-            .get_room(room_id)
-            .expect("Alice should have access to the room now that we synced");
-
-        // Alice will send a single event to the room, but this will trigger a
-        // to-device message containing the room key to be sent as well. We
-        // capture both the event and the to-device message.
-
-        let event_type = "m.room.message";
-        let content = json!({"body": "It's a secret to everybody", "msgtype": "m.text"});
-
-        let event_id = event_id!("$some_id");
-        let (event_receiver, mock) =
-            matrix_mock_server.mock_room_send().ok_with_capture(event_id, alice_user_id);
-        let (_guard, room_key) = matrix_mock_server.mock_capture_put_to_device(alice_user_id).await;
-
-        {
-            let _guard = mock.mock_once().mount_as_scoped().await;
-
-            matrix_mock_server
-                .mock_get_members()
-                .ok(vec![alice_member_event.clone(), bob_member_event.clone()])
-                .mock_once()
-                .mount()
-                .await;
-
-            room.send_raw(event_type, content)
-                .await
-                .expect("We should be able to send an initial message");
-        };
-
-        // Let us retrieve the captured event and to-device message.
-        let event = event_receiver.await.expect("Alice should have sent the event by now");
-        let room_key = room_key.await;
-
-        (event, room_key)
     }
 
     #[async_test]
     async fn test_redecryptor() {
         let room_id = room_id!("!test:localhost");
 
-        let event_factory = EventFactory::new().room(room_id);
         let (alice, bob, matrix_mock_server, _) = set_up_clients(room_id, true, false).await;
 
-        let (event, room_key) =
-            prepare_room(&matrix_mock_server, &event_factory, &alice, &bob, room_id).await;
+        let (event, room_key) = send_encrypted(
+            &matrix_mock_server,
+            &alice,
+            room_id,
+            event_id!("$some_id"),
+            RoomMessageEventContent::text_plain("It's a secret to everybody"),
+        )
+        .await;
 
         // Let's now see what Bob's event cache does.
 
@@ -1701,12 +1664,12 @@ mod tests {
             .expect("We should be able to regenerate the Olm machine");
 
         // Let us forward the event to Bob.
-        matrix_mock_server
-            .mock_sync()
-            .ok_and_run(&bob, |builder| {
-                builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(event));
-            })
-            .await;
+        sync_room(
+            &matrix_mock_server,
+            &bob,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(event),
+        )
+        .await;
 
         // Alright, Bob has received an update from the cache.
 
@@ -1729,16 +1692,7 @@ mod tests {
         assert!(generic_stream.is_empty());
 
         // Now we send the room key to Bob.
-        matrix_mock_server
-            .mock_sync()
-            .ok_and_run(&bob, |builder| {
-                builder.add_to_device_event(
-                    room_key
-                        .deserialize_as()
-                        .expect("We should be able to deserialize the room key"),
-                );
-            })
-            .await;
+        sync_room_keys(&matrix_mock_server, &bob, &[room_key]).await;
 
         // Bob should receive a new update from the cache.
         assert_let_timeout!(
@@ -1766,11 +1720,16 @@ mod tests {
 
         let room_id = room_id!("!test:localhost");
 
-        let event_factory = EventFactory::new().room(room_id);
         let (alice, bob, matrix_mock_server, _) = set_up_clients(room_id, false, false).await;
 
-        let (event, room_key) =
-            prepare_room(&matrix_mock_server, &event_factory, &alice, &bob, room_id).await;
+        let (event, room_key) = send_encrypted(
+            &matrix_mock_server,
+            &alice,
+            room_id,
+            event_id!("$some_id"),
+            RoomMessageEventContent::text_plain("It's a secret to everybody"),
+        )
+        .await;
 
         // Let's now see what Bob's event cache does.
 
@@ -1785,13 +1744,13 @@ mod tests {
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         // Let us forward the event to Bob.
-        matrix_mock_server
-            .mock_sync()
-            .ok_and_run(&bob, |builder| {
-                builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(event));
-            })
-            .instrument(bob_span.clone())
-            .await;
+        sync_room(
+            &matrix_mock_server,
+            &bob,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(event),
+        )
+        .instrument(bob_span.clone())
+        .await;
 
         // Alright, Bob has received an update from the cache.
 
@@ -1814,17 +1773,7 @@ mod tests {
         assert!(generic_stream.is_empty());
 
         // Now we send the room key to Bob.
-        matrix_mock_server
-            .mock_sync()
-            .ok_and_run(&bob, |builder| {
-                builder.add_to_device_event(
-                    room_key
-                        .deserialize_as()
-                        .expect("We should be able to deserialize the room key"),
-                );
-            })
-            .instrument(bob_span.clone())
-            .await;
+        sync_room_keys(&matrix_mock_server, &bob, &[room_key]).instrument(bob_span.clone()).await;
 
         // Bob should receive a new update from the cache.
         assert_let_timeout!(
@@ -1902,14 +1851,19 @@ mod tests {
     async fn test_event_is_redecrypted_even_if_key_arrives_while_event_processing() {
         let room_id = room_id!("!test:localhost");
 
-        let event_factory = EventFactory::new().room(room_id);
         let (alice, bob, matrix_mock_server, delayed_store) =
             set_up_clients(room_id, true, true).await;
 
         let delayed_store = delayed_store.unwrap();
 
-        let (event, room_key) =
-            prepare_room(&matrix_mock_server, &event_factory, &alice, &bob, room_id).await;
+        let (event, room_key) = send_encrypted(
+            &matrix_mock_server,
+            &alice,
+            room_id,
+            event_id!("$some_id"),
+            RoomMessageEventContent::text_plain("It's a secret to everybody"),
+        )
+        .await;
 
         let event_cache = bob.event_cache();
 
@@ -1923,24 +1877,15 @@ mod tests {
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         // Let us forward the event to Bob.
-        matrix_mock_server
-            .mock_sync()
-            .ok_and_run(&bob, |builder| {
-                builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(event));
-            })
-            .await;
+        sync_room(
+            &matrix_mock_server,
+            &bob,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(event),
+        )
+        .await;
 
         // Now we send the room key to Bob.
-        matrix_mock_server
-            .mock_sync()
-            .ok_and_run(&bob, |builder| {
-                builder.add_to_device_event(
-                    room_key
-                        .deserialize_as()
-                        .expect("We should be able to deserialize the room key"),
-                );
-            })
-            .await;
+        sync_room_keys(&matrix_mock_server, &bob, &[room_key]).await;
 
         info!("Stopping the delay");
         delayed_store.stop_delaying().await;
@@ -2102,22 +2047,6 @@ mod tests {
         )
     }
 
-    /// Helper method to set up a test with two clients in a room, with mocked
-    /// members and encryption enabled.
-    async fn set_up_thread_test(room_id: &RoomId) -> (Client, Client, MatrixMockServer) {
-        let (alice, bob, matrix_mock_server, _) = set_up_clients(room_id, true, false).await;
-        let event_factory = EventFactory::new().room(room_id);
-        matrix_mock_server
-            .mock_get_members()
-            .ok(vec![
-                event_factory.member(alice.user_id().unwrap()).into_raw(),
-                event_factory.member(bob.user_id().unwrap()).into_raw(),
-            ])
-            .mount()
-            .await;
-        (alice, bob, matrix_mock_server)
-    }
-
     /// Case 1 (normal): the key arrives first, then the root and the reply as
     /// separate events.
     #[async_test]
@@ -2127,7 +2056,7 @@ mod tests {
         let reply_id = event_id!("$reply");
 
         // Alice and Bob are in an encrypted room ...
-        let (alice, bob, server) = set_up_thread_test(room_id).await;
+        let (alice, bob, server, _) = set_up_clients(room_id, true, false).await;
         let alice_id = alice.user_id().unwrap();
 
         // ... in which Alice sends a message.
@@ -2180,7 +2109,7 @@ mod tests {
         let reply_id = event_id!("$reply");
 
         // Alice and Bob are in an encrypted room ...
-        let (alice, bob, server) = set_up_thread_test(room_id).await;
+        let (alice, bob, server, _) = set_up_clients(room_id, true, false).await;
         let alice_id = alice.user_id().unwrap();
 
         // ... in which Alice sends a message.
@@ -2242,7 +2171,7 @@ mod tests {
         let reply_id = event_id!("$reply");
 
         // Alice and Bob are in an encrypted room ...
-        let (alice, bob, server) = set_up_thread_test(room_id).await;
+        let (alice, bob, server, _) = set_up_clients(room_id, true, false).await;
         let alice_id = alice.user_id().unwrap();
 
         // ... in which Alice sends a message.
@@ -2319,7 +2248,7 @@ mod tests {
         let reply_id = event_id!("$reply");
 
         // Alice and Bob are in an encrypted room ...
-        let (alice, bob, server) = set_up_thread_test(room_id).await;
+        let (alice, bob, server, _) = set_up_clients(room_id, true, false).await;
         let alice_id = alice.user_id().unwrap();
 
         // ... in which Alice sends a message.
