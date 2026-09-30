@@ -160,8 +160,10 @@ impl PollState {
                 .map(|i| PollResultAnswer { id: i.id.clone(), text: i.text.clone() })
                 .collect(),
             votes: results
-                .iter()
-                .map(|i| ((*i.0).to_owned(), i.1.iter().map(|i| i.to_string()).collect()))
+                .into_iter()
+                .map(|(id, users)| {
+                    (id.to_owned(), users.into_iter().map(ToOwned::to_owned).collect())
+                })
                 .collect(),
             end_time: self.end_event_timestamp,
             has_been_edited: self.has_been_edited,
@@ -194,7 +196,7 @@ pub struct PollResult {
     pub kind: PollKind,
     pub max_selections: u64,
     pub answers: Vec<PollResultAnswer>,
-    pub votes: HashMap<String, Vec<String>>,
+    pub votes: HashMap<String, Vec<OwnedUserId>>,
     pub end_time: Option<MilliSecondsSinceUnixEpoch>,
     pub has_been_edited: bool,
 }
