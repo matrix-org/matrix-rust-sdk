@@ -452,6 +452,7 @@ impl RoomSendQueue {
                 upload_file_txn: upload_file_txn.clone(),
                 file_media_request,
                 thumbnail: queue_thumbnail_info,
+                extra_content: item_info.extra_content,
             });
 
             media_handles.push(MediaHandles { upload_file_txn, upload_thumbnail_txn });
@@ -472,6 +473,9 @@ impl RoomSendQueue {
         let created_at = MilliSecondsSinceUnixEpoch::now();
 
         // Save requests in the queue storage.
+        let item_extra_content: Vec<_> =
+            item_queue_infos.iter().map(|item| item.extra_content.clone()).collect();
+
         self.inner
             .queue
             .push_gallery(
@@ -497,10 +501,11 @@ impl RoomSendQueue {
         self.send_update(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             transaction_id: send_event_txn.clone().into(),
             content: LocalEchoContent::Event {
-                serialized_event: merge_extra_content(
+                serialized_event: merge_gallery_extra_content(
                     SerializableEventContent::new(&event_content.into())
                         .map_err(RoomSendQueueStorageError::JsonSerialization)?,
                     extra_content,
+                    item_extra_content,
                 )?,
                 send_handle: send_handle.clone(),
                 send_error: None,
@@ -632,6 +637,45 @@ pub(super) fn merge_extra_content(
     Ok(SerializableEventContent::from_raw(raw, event_type))
 }
 
+/// Merge custom fields into the gallery and its items without replacing
+/// generated fields.
+#[cfg(feature = "unstable-msc4274")]
+pub(super) fn merge_gallery_extra_content(
+    content: SerializableEventContent,
+    extra_content: Option<serde_json::Map<String, serde_json::Value>>,
+    item_extra_content: impl IntoIterator<Item = Option<serde_json::Map<String, serde_json::Value>>>,
+) -> Result<SerializableEventContent, RoomSendQueueStorageError> {
+    let content = merge_extra_content(content, extra_content)?;
+    let mut item_extra_content = item_extra_content
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, extra)| {
+            extra.filter(|extra| !extra.is_empty()).map(|extra| (index, extra))
+        })
+        .peekable();
+    if item_extra_content.peek().is_none() {
+        return Ok(content);
+    }
+
+    let (raw, event_type) = content.into_raw();
+    let mut object: serde_json::Map<String, serde_json::Value> =
+        raw.deserialize_as().map_err(RoomSendQueueStorageError::JsonSerialization)?;
+
+    if let Some(serde_json::Value::Array(items)) = object.get_mut("itemtypes") {
+        for (index, extra) in item_extra_content {
+            if let Some(serde_json::Value::Object(item)) = items.get_mut(index) {
+                merge_missing_fields(item, extra);
+            }
+        }
+    }
+
+    let raw = ruma::serde::Raw::from_json(
+        serde_json::value::to_raw_value(&object)
+            .map_err(RoomSendQueueStorageError::JsonSerialization)?,
+    );
+    Ok(SerializableEventContent::from_raw(raw, event_type))
+}
+
 impl QueueStorage {
     /// Consumes a finished upload and queues sending of the final media event.
     #[allow(clippy::too_many_arguments)]
@@ -712,8 +756,12 @@ impl QueueStorage {
 
         let mut sent_infos = HashMap::new();
 
+        let item_extra_content: Vec<_> =
+            item_infos.iter().map(|item| item.extra_content.clone()).collect();
+
         for (item_info, sent_media) in zip(item_infos, sent_media_vec) {
-            let FinishGalleryItemInfo { file_upload: file_upload_txn, thumbnail_info } = item_info;
+            let FinishGalleryItemInfo { file_upload: file_upload_txn, thumbnail_info, .. } =
+                item_info;
 
             // Store the sent media under the original cache key for later
             // insertion into the local echo.
@@ -731,10 +779,11 @@ impl QueueStorage {
 
         update_gallery_event_after_upload(&mut local_echo, sent_infos);
 
-        let new_content = merge_extra_content(
+        let new_content = merge_gallery_extra_content(
             SerializableEventContent::new(&local_echo.into())
                 .map_err(RoomSendQueueStorageError::JsonSerialization)?,
             extra_content,
+            item_extra_content,
         )?;
 
         // Indicates observers that the upload finished, by editing the local

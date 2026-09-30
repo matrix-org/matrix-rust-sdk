@@ -153,7 +153,11 @@ mod galleries {
                     config = config.add_item(item.try_into()?);
                 }
 
-                config = config.caption(gallery.caption).mentions(gallery.mentions).reply(reply);
+                config = config
+                    .caption(gallery.caption)
+                    .mentions(gallery.mentions)
+                    .reply(reply)
+                    .extra_content(gallery.extra_content);
 
                 timeline
                     .room()

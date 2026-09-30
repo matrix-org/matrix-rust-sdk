@@ -2781,6 +2781,7 @@ async fn test_gallery_uploads() {
         ("com.example.key".to_owned(), json!("gallery")),
         // The gallery's own body must win over a conflicting extra value.
         ("body".to_owned(), json!("override attempt")),
+        ("itemtypes".to_owned(), json!([{ "body": "override attempt" }])),
     ]);
     let gallery = GalleryConfig::new()
         .txn_id(transaction_id.clone())
@@ -2791,6 +2792,19 @@ async fn test_gallery_uploads() {
             data: data1,
             thumbnail: Some(thumbnail1),
             caption: Some(TextMessageEventContent::plain("caption1")),
+            extra_content: Some(serde_json::Map::from_iter([
+                ("org.matrix.msc2448.is_spoiler".to_owned(), json!(true)),
+                ("body".to_owned(), json!("override attempt")),
+                ("url".to_owned(), json!("mxc://example.org/override")),
+                ("itemtype".to_owned(), json!("m.file")),
+                (
+                    "info".to_owned(),
+                    json!({
+                        "com.example.nested": "image",
+                        "mimetype": "override attempt",
+                    }),
+                ),
+            ])),
         })
         .add_item(GalleryItemInfo {
             attachment_info: attachment_info2,
@@ -2799,6 +2813,7 @@ async fn test_gallery_uploads() {
             data: data2,
             thumbnail: Some(thumbnail2),
             caption: Some(TextMessageEventContent::plain("caption2")),
+            extra_content: None,
         })
         .caption(Some(TextMessageEventContent::plain("caption")))
         .mentions(Some(mentions.clone()))
@@ -2863,6 +2878,20 @@ async fn test_gallery_uploads() {
     // Send the media.
     assert!(watch.is_empty());
     q.send_gallery(gallery).await.expect("queuing the gallery works");
+
+    let (local_echoes, _) = q.subscribe().await.unwrap();
+    assert_let!(LocalEchoContent::Event { serialized_event, .. } = &local_echoes[0].content);
+    let local_content: serde_json::Value = serialized_event.raw().0.deserialize_as().unwrap();
+    assert_eq!(local_content["com.example.key"], "gallery");
+    assert_eq!(local_content["itemtypes"][0]["org.matrix.msc2448.is_spoiler"], true);
+    assert!(local_content["itemtypes"][1].get("org.matrix.msc2448.is_spoiler").is_none());
+    assert_eq!(local_content["itemtypes"][0]["body"], "caption1");
+    assert!(
+        local_content["itemtypes"][0]["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("mxc://send-queue.localhost/")
+    );
 
     // ----------------------
     //
@@ -3193,6 +3222,13 @@ async fn test_gallery_uploads() {
     let sent_body = sent_body.lock().unwrap().take().unwrap();
     assert_eq!(sent_body["com.example.key"], "gallery");
     assert_eq!(sent_body["body"], "caption");
+    assert_eq!(sent_body["itemtypes"][0]["org.matrix.msc2448.is_spoiler"], true);
+    assert!(sent_body["itemtypes"][1].get("org.matrix.msc2448.is_spoiler").is_none());
+    assert_eq!(sent_body["itemtypes"][0]["body"], "caption1");
+    assert_eq!(sent_body["itemtypes"][0]["itemtype"], "m.image");
+    assert_eq!(sent_body["itemtypes"][0]["url"], "mxc://sdk.rs/media1");
+    assert_eq!(sent_body["itemtypes"][0]["info"]["mimetype"], "image/jpeg");
+    assert_eq!(sent_body["itemtypes"][0]["info"]["com.example.nested"], "image");
 
     // That's all, folks!
     assert!(watch.is_empty());
@@ -3533,6 +3569,7 @@ async fn test_wedged_gallery_upload_error_is_reflected_on_local_echo() {
         data: b"hello world".to_vec(),
         thumbnail: None,
         caption: None,
+        extra_content: None,
     });
 
     assert!(watch.is_empty());

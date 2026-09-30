@@ -638,17 +638,35 @@ async fn test_send_gallery_from_bytes() -> TestResult {
         .mount()
         .await;
 
-    mock.mock_room_send().ok(event_id!("$media")).mock_once().mount().await;
+    mock.mock_room_send()
+        .respond_with(|req: &wiremock::Request| {
+            let content: serde_json::Value = serde_json::from_slice(&req.body).unwrap();
+            assert_eq!(content["com.example.gallery"], true);
+            assert_eq!(content["itemtypes"][0]["org.matrix.msc2448.is_spoiler"], true);
+            assert_eq!(content["itemtypes"][0]["url"], "mxc://sdk.rs/media");
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$media" }))
+        })
+        .mock_once()
+        .mount()
+        .await;
 
     // Queue sending of a gallery.
     let gallery = GalleryConfig::new()
         .caption(Some(TextMessageEventContent::plain("caption")))
+        .extra_content(Some(serde_json::Map::from_iter([(
+            "com.example.gallery".to_owned(),
+            json!(true),
+        )])))
         .add_item(GalleryItemInfo {
             source: AttachmentSource::Data { bytes: data, filename: filename.to_owned() },
             content_type: mime::TEXT_PLAIN,
             attachment_info: AttachmentInfo::File(BaseFileInfo { size: None }),
             caption: Some(TextMessageEventContent::plain("item caption")),
             thumbnail: None,
+            extra_content: Some(serde_json::Map::from_iter([(
+                "org.matrix.msc2448.is_spoiler".to_owned(),
+                json!(true),
+            )])),
         });
     timeline.send_gallery(gallery).await?;
 

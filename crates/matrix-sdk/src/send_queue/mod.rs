@@ -1883,8 +1883,13 @@ impl QueueStorage {
             return Ok(());
         };
 
-        let GalleryItemQueueInfo { content_type, upload_file_txn, file_media_request, thumbnail } =
-            first;
+        let GalleryItemQueueInfo {
+            content_type,
+            upload_file_txn,
+            file_media_request,
+            thumbnail,
+            extra_content: item_extra_content,
+        } = first;
 
         let thumbnail_info = self
             .push_thumbnail_and_media_uploads(
@@ -1898,8 +1903,11 @@ impl QueueStorage {
             )
             .await?;
 
-        finish_item_infos
-            .push(FinishGalleryItemInfo { file_upload: upload_file_txn.clone(), thumbnail_info });
+        finish_item_infos.push(FinishGalleryItemInfo {
+            file_upload: upload_file_txn.clone(),
+            thumbnail_info,
+            extra_content: item_extra_content.clone(),
+        });
         thumbnail_file_sizes.push(thumbnail.as_ref().map(|t| t.file_size));
 
         let mut last_upload_file_txn = upload_file_txn.clone();
@@ -1910,6 +1918,7 @@ impl QueueStorage {
                 upload_file_txn,
                 file_media_request,
                 thumbnail,
+                extra_content: item_extra_content,
             } = item_queue_info;
 
             let thumbnail_info = if let Some(QueueThumbnailInfo {
@@ -1965,6 +1974,7 @@ impl QueueStorage {
             finish_item_infos.push(FinishGalleryItemInfo {
                 file_upload: upload_file_txn.clone(),
                 thumbnail_info: thumbnail_info.cloned(),
+                extra_content: item_extra_content.clone(),
             });
             thumbnail_file_sizes.push(thumbnail.as_ref().map(|t| t.file_size));
 
@@ -2304,9 +2314,10 @@ impl QueueStorage {
         Some(LocalEcho {
             transaction_id: transaction_id.clone().into(),
             content: LocalEchoContent::Event {
-                serialized_event: upload::merge_extra_content(
+                serialized_event: upload::merge_gallery_extra_content(
                     SerializableEventContent::new(&(*local_echo).into()).ok()?,
                     extra_content,
+                    item_infos.iter().map(|item| item.extra_content.clone()),
                 )
                 .ok()?,
                 send_handle: SendHandle {
@@ -2685,6 +2696,7 @@ struct GalleryItemQueueInfo {
     upload_file_txn: OwnedTransactionId,
     file_media_request: MediaRequestParameters,
     thumbnail: Option<QueueThumbnailInfo>,
+    extra_content: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 /// The content of a local echo.
