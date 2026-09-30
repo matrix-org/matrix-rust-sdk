@@ -48,7 +48,7 @@ use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, ttl::TtlValu
 use ruma::events::{InitialStateEvent, room::encryption::RoomEncryptionEventContent};
 use ruma::{
     DeviceId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName,
-    RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
+    OwnedUserId, RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
     api::{
         FeatureFlag, MatrixVersion, Metadata, OutgoingRequest, SupportedVersions,
         client::{
@@ -566,7 +566,7 @@ impl Client {
 
     /// Returns a subscriber that publishes an event every time the ignore user
     /// list changes.
-    pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<Vec<String>> {
+    pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<Vec<OwnedUserId>> {
         self.inner.base_client.subscribe_to_ignore_user_list_changes()
     }
 
@@ -753,7 +753,7 @@ impl Client {
     /// Requires the Profiles sliding sync extension to be enabled.
     pub fn subscribe_to_global_profile_updates(
         &self,
-    ) -> broadcast::Receiver<BTreeSet<ruma::OwnedUserId>> {
+    ) -> broadcast::Receiver<BTreeSet<OwnedUserId>> {
         self.base_client().subscribe_to_global_profile_updates()
     }
 

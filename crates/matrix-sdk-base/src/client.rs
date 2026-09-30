@@ -125,7 +125,7 @@ pub struct BaseClient {
     olm_machine: Arc<RwLock<Option<OlmMachine>>>,
 
     /// Observable of when a user is ignored/unignored.
-    pub(crate) ignore_user_list_changes: SharedObservable<Vec<String>>,
+    pub(crate) ignore_user_list_changes: SharedObservable<Vec<OwnedUserId>>,
 
     /// Broadcasts the user IDs whose global profile changed during a sync.
     /// Requires the Profiles sliding sync extension to be enabled.
@@ -1178,7 +1178,7 @@ impl BaseClient {
 
     /// Returns a subscriber that publishes an event every time the ignore user
     /// list changes
-    pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<Vec<String>> {
+    pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<Vec<OwnedUserId>> {
         self.ignore_user_list_changes.subscribe()
     }
 
