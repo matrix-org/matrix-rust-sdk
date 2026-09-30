@@ -38,6 +38,8 @@ unknown-registry = "deny"
 unknown-git = "deny"
 
 allow-git = [
+    # Well, it's Ruma.
+    "https://github.com/ruma/ruma",
     # A patch override for the bindings: https://github.com/rodrimati1992/const_panic/pull/10
     "https://github.com/jplatte/const_panic",
     # A patch override for the bindings: https://github.com/smol-rs/async-compat/pull/22
