@@ -79,6 +79,7 @@ use crate::{
     utils::{AsyncRuntimeDropped, u64_to_uint},
 };
 
+mod message_like_events;
 mod power_levels;
 pub mod room_info;
 #[cfg(feature = "unstable-msc4354")]
