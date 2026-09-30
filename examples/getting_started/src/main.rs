@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 ///
 ///  This is an example showcasing how to build a very simple bot using the
 /// matrix-sdk. To try it, you need a rust build setup, then you can run:
