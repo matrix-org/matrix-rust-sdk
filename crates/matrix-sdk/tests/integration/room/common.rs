@@ -9,14 +9,13 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::DmRoomDefinition;
 use matrix_sdk_test::{
-    BOB, DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, LeftRoomBuilder, SyncResponseBuilder, async_test,
-    bulk_room_members, event_factory::EventFactory, test_json,
+    BOB, DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, LeftRoomBuilder, SyncResponseBuilder, User,
+    async_test, bulk_room_members, event_factory::EventFactory, test_json,
 };
 use ruma::{
     event_id,
     events::{
         AnyGlobalAccountDataEvent, AnySyncStateEvent, AnySyncTimelineEvent, StateEventType,
-        direct::DirectUserIdentifier,
         room::{avatar, member::MembershipState, message::RoomMessageEventContent},
     },
     mxc_uri, owned_room_alias_id, room_id, room_version_id, user_id,
@@ -705,7 +704,7 @@ async fn test_is_direct() {
 
     // Set the room as direct.
     let direct_content = json!({
-        *BOB: [*DEFAULT_TEST_ROOM_ID],
+        User::Bob: [*DEFAULT_TEST_ROOM_ID],
     });
 
     // Setting the room as direct will request the members of the room.
@@ -737,9 +736,8 @@ async fn test_is_direct() {
 
     // Mock the sync response we should get from the homeserver.
     let f = EventFactory::new();
-    sync_builder.add_global_account_data(
-        f.direct().add_user((*BOB).to_owned().into(), *DEFAULT_TEST_ROOM_ID),
-    );
+    sync_builder
+        .add_global_account_data(f.direct().add_user(User::Bob.into(), *DEFAULT_TEST_ROOM_ID));
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
@@ -747,7 +745,7 @@ async fn test_is_direct() {
     // The room is direct now.
     let direct_targets = room.direct_targets();
     assert_eq!(direct_targets.len(), 1);
-    assert!(direct_targets.contains(<&DirectUserIdentifier>::from(*BOB)));
+    assert!(direct_targets.contains(User::Bob.as_str()));
     assert!(room.is_direct().await.unwrap());
 
     // Unset the room as direct.

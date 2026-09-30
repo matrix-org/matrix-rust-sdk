@@ -25,7 +25,9 @@ use matrix_sdk::{
     test_utils::mocks::{MatrixMockServer, RoomContextResponseTemplate},
 };
 use matrix_sdk_base::event_cache::store::{EventCacheStore, MemoryStore};
-use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{
+    ALICE, BOB, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
+};
 use matrix_sdk_ui::timeline::{
     AnyOtherStateEventContentChange, Error, EventSendState, MsgLikeKind, OtherMessageLike,
     RedactError, RoomExt, TimelineBuilder, TimelineEventFocusThreadMode, TimelineEventItemId,
@@ -346,7 +348,7 @@ async fn test_reaction() {
     let group = &reactions["👍"];
     assert_eq!(group.len(), 1);
     let senders: Vec<_> = group.keys().collect();
-    assert_eq!(senders.as_slice(), [*BOB]);
+    assert_eq!(senders, &[User::Bob]);
 
     // The date divider.
     assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[3]);

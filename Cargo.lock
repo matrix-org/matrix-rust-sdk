@@ -4041,6 +4041,7 @@ dependencies = [
  "ctor",
  "getrandom 0.4.3",
  "http",
+ "indexmap",
  "insta",
  "matrix-sdk-common",
  "matrix-sdk-test-macros",

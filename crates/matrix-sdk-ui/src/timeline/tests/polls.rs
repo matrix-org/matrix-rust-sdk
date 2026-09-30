@@ -1,5 +1,5 @@
 use fakes::poll_a2;
-use matrix_sdk_test::{ALICE, BOB, async_test};
+use matrix_sdk_test::{ALICE, BOB, User, async_test};
 use ruma::{
     EventId, OwnedEventId, UserId, event_id,
     events::poll::unstable_start::{
@@ -130,18 +130,18 @@ async fn test_a_somewhat_complex_voting_session_yields_the_expected_outcome() {
     // Alice votes
     timeline.send_poll_response(&ALICE, vec!["id_up"], &poll_id).await;
     let results = timeline.poll_state().await.results();
-    assert_eq!(results.votes["id_up"], vec![ALICE.to_string()]);
+    assert_eq!(results.votes["id_up"], &[User::Alice]);
 
     // Now Bob also votes
     timeline.send_poll_response(&BOB, vec!["id_up"], &poll_id).await;
     let results = timeline.poll_state().await.results();
-    assert_eq!(results.votes["id_up"], vec![ALICE.to_string(), BOB.to_string()]);
+    assert_eq!(results.votes["id_up"], &[User::Alice, User::Bob]);
 
     // Alice changes her mind and votes again
     timeline.send_poll_response(&ALICE, vec!["id_down"], &poll_id).await;
     let results = timeline.poll_state().await.results();
-    assert_eq!(results.votes["id_up"], vec![BOB.to_string()]);
-    assert_eq!(results.votes["id_down"], vec![ALICE.to_string()]);
+    assert_eq!(results.votes["id_up"], &[User::Bob]);
+    assert_eq!(results.votes["id_down"], &[User::Alice]);
 
     // Poll finishes
     timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
@@ -149,8 +149,8 @@ async fn test_a_somewhat_complex_voting_session_yields_the_expected_outcome() {
     // Now Bob also changes his mind but it's too late, his vote won't count
     timeline.send_poll_response(&BOB, vec!["id_down"], &poll_id).await;
     let results = timeline.poll_state().await.results();
-    assert_eq!(results.votes["id_up"], vec![BOB.to_string()]);
-    assert_eq!(results.votes["id_down"], vec![ALICE.to_string()]);
+    assert_eq!(results.votes["id_up"], &[User::Bob]);
+    assert_eq!(results.votes["id_down"], &[User::Alice]);
 }
 
 #[async_test]
@@ -178,8 +178,8 @@ async fn test_events_received_before_start_are_not_lost() {
     timeline.send_poll_response(&BOB, vec!["1"], &poll_id).await;
 
     let results = timeline.poll_state().await.results();
-    assert_eq!(results.votes["0"], vec![BOB.to_string()]);
-    assert_eq!(results.votes["1"], vec![ALICE.to_string()]);
+    assert_eq!(results.votes["0"], &[User::Bob]);
+    assert_eq!(results.votes["1"], &[User::Alice]);
 }
 
 #[async_test]
