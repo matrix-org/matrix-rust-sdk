@@ -676,6 +676,108 @@ pub(super) fn merge_gallery_extra_content(
     Ok(SerializableEventContent::from_raw(raw, event_type))
 }
 
+/// Updates the caption of a queued media event.
+///
+/// The caption is edited on the typed content, which drops the fields it
+/// doesn't know about, such as the extra content of an attachment or of a
+/// gallery's items; they are put back on the edited content.
+fn update_serialized_media_caption(
+    serialized: &SerializableEventContent,
+    caption: Option<String>,
+    formatted_caption: Option<FormattedBody>,
+    mentions: Option<Mentions>,
+) -> Result<SerializableEventContent, RoomSendQueueStorageError> {
+    let AnyMessageLikeEventContent::RoomMessage(mut content) = serialized.deserialize()? else {
+        return Err(RoomSendQueueStorageError::InvalidMediaCaptionEdit);
+    };
+
+    let unknown = unknown_fields(serialized, &content);
+
+    if !update_media_caption(&mut content, caption, formatted_caption, mentions) {
+        return Err(RoomSendQueueStorageError::InvalidMediaCaptionEdit);
+    }
+
+    let mut edited = serde_json::to_value(&content)?;
+    if let Some(unknown) = unknown {
+        restore_unknown_fields(&mut edited, unknown);
+    }
+
+    Ok(SerializableEventContent::from_raw(
+        ruma::serde::Raw::from_json(serde_json::value::to_raw_value(&edited)?),
+        serialized.raw().1.to_owned(),
+    ))
+}
+
+/// Returns the fields of a serialized content that its typed form can't hold,
+/// like the extra content of an attachment.
+pub(super) fn unknown_fields(
+    serialized: &SerializableEventContent,
+    typed: &impl serde::Serialize,
+) -> Option<serde_json::Value> {
+    let full = serialized.raw().0.deserialize_as().ok()?;
+    let known = serde_json::to_value(typed).ok()?;
+    diff_unknown_fields(&full, &known)
+}
+
+/// Returns the parts of `full` that `known` doesn't have. Arrays are compared
+/// item by item, with `null` standing for an item with nothing to add.
+fn diff_unknown_fields(
+    full: &serde_json::Value,
+    known: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    use serde_json::Value;
+
+    match (full, known) {
+        (Value::Object(full), Value::Object(known)) => {
+            let unknown: serde_json::Map<_, _> = full
+                .iter()
+                .filter_map(|(key, value)| match known.get(key) {
+                    Some(known) => {
+                        diff_unknown_fields(value, known).map(|value| (key.clone(), value))
+                    }
+                    None => Some((key.clone(), value.clone())),
+                })
+                .collect();
+            (!unknown.is_empty()).then_some(Value::Object(unknown))
+        }
+        (Value::Array(full), Value::Array(known)) if full.len() == known.len() => {
+            let unknown: Vec<_> = full
+                .iter()
+                .zip(known)
+                .map(|(full, known)| diff_unknown_fields(full, known).unwrap_or(Value::Null))
+                .collect();
+            unknown.iter().any(|value| !value.is_null()).then_some(Value::Array(unknown))
+        }
+        _ => None,
+    }
+}
+
+/// Puts back what [`unknown_fields`] found, without replacing any field.
+pub(super) fn restore_unknown_fields(target: &mut serde_json::Value, unknown: serde_json::Value) {
+    use serde_json::Value;
+
+    match (target, unknown) {
+        (Value::Object(target), Value::Object(unknown)) => {
+            for (key, value) in unknown {
+                match target.get_mut(&key) {
+                    Some(existing) => restore_unknown_fields(existing, value),
+                    None => {
+                        target.insert(key, value);
+                    }
+                }
+            }
+        }
+        (Value::Array(target), Value::Array(unknown)) => {
+            for (item, value) in target.iter_mut().zip(unknown) {
+                if !value.is_null() {
+                    restore_unknown_fields(item, value);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 impl QueueStorage {
     /// Consumes a finished upload and queues sending of the final media event.
     #[allow(clippy::too_many_arguments)]
@@ -1025,7 +1127,7 @@ impl QueueStorage {
         caption: Option<String>,
         formatted_caption: Option<FormattedBody>,
         mentions: Option<Mentions>,
-    ) -> Result<Option<AnyMessageLikeEventContent>, RoomSendQueueStorageError> {
+    ) -> Result<Option<SerializableEventContent>, RoomSendQueueStorageError> {
         // This error will be popular here.
         use RoomSendQueueStorageError::InvalidMediaCaptionEdit;
 
@@ -1070,7 +1172,7 @@ impl QueueStorage {
                     local_echo: local_echo.clone(),
                     file_upload,
                     thumbnail_info,
-                    extra_content,
+                    extra_content: extra_content.clone(),
                 };
                 store
                     .update_dependent_queued_request(
@@ -1081,7 +1183,11 @@ impl QueueStorage {
                     .await?;
 
                 trace!("caption successfully updated");
-                return Ok(Some((*local_echo).into()));
+                return merge_extra_content(
+                    SerializableEventContent::new(&(*local_echo).into())?,
+                    extra_content,
+                )
+                .map(Some);
             }
         }
 
@@ -1097,17 +1203,12 @@ impl QueueStorage {
             return Err(InvalidMediaCaptionEdit);
         };
 
-        let deserialized = serialized_content.deserialize()?;
-        let AnyMessageLikeEventContent::RoomMessage(mut content) = deserialized else {
-            return Err(InvalidMediaCaptionEdit);
-        };
-
-        if !update_media_caption(&mut content, caption, formatted_caption, mentions) {
-            return Err(InvalidMediaCaptionEdit);
-        }
-
-        let any_content: AnyMessageLikeEventContent = content.into();
-        let new_serialized = SerializableEventContent::new(&any_content.clone())?;
+        let new_serialized = update_serialized_media_caption(
+            &serialized_content,
+            caption,
+            formatted_caption,
+            mentions,
+        )?;
 
         // If the request is active (being sent), send a dependent request.
         if let Some(being_sent) = guard.being_sent.as_ref()
@@ -1120,19 +1221,19 @@ impl QueueStorage {
                     txn,
                     ChildTransactionId::new(),
                     MilliSecondsSinceUnixEpoch::now(),
-                    DependentQueuedRequestKind::EditEvent { new_content: new_serialized },
+                    DependentQueuedRequestKind::EditEvent { new_content: new_serialized.clone() },
                 )
                 .await?;
 
             trace!("media event was being sent, pushed a dependent edit");
-            return Ok(Some(any_content));
+            return Ok(Some(new_serialized));
         }
 
         // The request is not active: edit the local echo.
-        store.update_send_queue_request(&self.room_id, txn, new_serialized.into()).await?;
+        store.update_send_queue_request(&self.room_id, txn, new_serialized.clone().into()).await?;
 
         trace!("media event was not being sent, updated local echo");
-        Ok(Some(any_content))
+        Ok(Some(new_serialized))
     }
 }
 
@@ -1250,4 +1351,106 @@ async fn update_media_cache_keys_after_upload(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk_base::store::SerializableEventContent;
+    use serde_json::{Value, json};
+
+    use super::{RoomSendQueueStorageError, update_serialized_media_caption};
+
+    fn try_edit_caption(content: Value) -> Result<Value, RoomSendQueueStorageError> {
+        let serialized = SerializableEventContent::from_raw(
+            ruma::serde::Raw::from_json(serde_json::value::to_raw_value(&content).unwrap()),
+            "m.room.message".to_owned(),
+        );
+        let edited = update_serialized_media_caption(
+            &serialized,
+            Some("new caption".to_owned()),
+            None,
+            None,
+        )?;
+        Ok(edited.raw().0.deserialize_as().unwrap())
+    }
+
+    fn edit_caption(content: Value) -> Value {
+        try_edit_caption(content).unwrap()
+    }
+
+    #[test]
+    fn test_caption_edit_keeps_extra_content() {
+        let edited = edit_caption(json!({
+            "msgtype": "m.image",
+            "body": "old caption",
+            "filename": "image.jpg",
+            "format": "org.matrix.custom.html",
+            "formatted_body": "<b>old caption</b>",
+            "url": "mxc://sdk.rs/media",
+            "info": { "mimetype": "image/jpeg", "com.example.info": 1 },
+            "com.example.key": "kept",
+        }));
+
+        assert_eq!(edited["body"], "new caption");
+        assert_eq!(edited["filename"], "image.jpg");
+        // Fields the edit removes don't come back.
+        assert!(edited.get("formatted_body").is_none());
+        assert_eq!(edited["com.example.key"], "kept");
+        assert_eq!(edited["info"]["com.example.info"], 1);
+    }
+
+    #[test]
+    fn test_caption_edit_of_a_media_edit_keeps_extra_content() {
+        // A pending media edit: its canonical content is in `m.new_content`.
+        let edited = edit_caption(json!({
+            "msgtype": "m.image",
+            "body": "* old caption",
+            "filename": "image.jpg",
+            "url": "mxc://sdk.rs/media",
+            "m.new_content": {
+                "msgtype": "m.image",
+                "body": "old caption",
+                "filename": "image.jpg",
+                "url": "mxc://sdk.rs/media",
+                "com.example.inner": "kept",
+            },
+            "m.relates_to": { "rel_type": "m.replace", "event_id": "$1" },
+            "com.example.key": "kept",
+        }));
+
+        assert_eq!(edited["m.new_content"]["body"], "new caption");
+        assert_eq!(edited["m.new_content"]["com.example.inner"], "kept");
+        assert_eq!(edited["com.example.key"], "kept");
+        assert_eq!(edited["m.relates_to"]["event_id"], "$1");
+    }
+
+    #[test]
+    fn test_caption_edit_rejects_non_media() {
+        let result = try_edit_caption(json!({ "msgtype": "m.text", "body": "hello" }));
+        assert!(matches!(result, Err(RoomSendQueueStorageError::InvalidMediaCaptionEdit)));
+    }
+
+    #[cfg(feature = "unstable-msc4274")]
+    #[test]
+    fn test_gallery_caption_edit_keeps_item_extra_content() {
+        let edited = edit_caption(json!({
+            "msgtype": "dm.filament.gallery",
+            "body": "old caption",
+            "itemtypes": [
+                { "itemtype": "m.image", "body": "a.jpg", "url": "mxc://sdk.rs/a" },
+                {
+                    "itemtype": "m.image",
+                    "body": "b.jpg",
+                    "url": "mxc://sdk.rs/b",
+                    "org.matrix.msc2448.is_spoiler": true,
+                },
+            ],
+            "com.example.key": "kept",
+        }));
+
+        assert_eq!(edited["body"], "new caption");
+        assert_eq!(edited["com.example.key"], "kept");
+        assert!(edited["itemtypes"][0].get("org.matrix.msc2448.is_spoiler").is_none());
+        assert_eq!(edited["itemtypes"][1]["org.matrix.msc2448.is_spoiler"], true);
+    }
 }
