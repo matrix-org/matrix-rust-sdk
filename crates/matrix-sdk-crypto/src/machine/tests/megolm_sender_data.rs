@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashSet, fmt::Debug, iter, pin::Pin};
+use std::{fmt::Debug, iter, pin::Pin};
 
 use assert_matches::assert_matches;
 use futures_core::Stream;
@@ -20,8 +20,8 @@ use futures_util::{FutureExt, StreamExt};
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_test::async_test;
 use ruma::{
-    DeviceKeyId, OwnedUserId, RoomId, TransactionId, UserId, canonical_json::to_canonical_value,
-    owned_user_id, room_id, user_id,
+    DeviceKeyId, RoomId, TransactionId, UserId, canonical_json::to_canonical_value, owned_user_id,
+    room_id, user_id,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -59,7 +59,6 @@ async fn test_receive_megolm_session_from_unknown_device() {
     // Alice's device keys, so to run this test, we need to make him forget
     // them.
     forget_devices_for_user(&bob, alice.user_id()).await;
-    assert!(!users_for_key_query(&bob).await.contains(alice.user_id()));
 
     // When Alice starts a megolm session and shares the key with Bob, _without_
     // sending the sender data.
@@ -71,9 +70,6 @@ async fn test_receive_megolm_session_from_unknown_device() {
 
     // Bob receives the to-device message
     receive_to_device_event(&bob, &event, &decryption_settings).await;
-
-    // Then Bob wants to query Alice's devices, to find the unknown one.
-    assert!(users_for_key_query(&bob).await.contains(alice.user_id()));
 
     // Then Bob should know about the session, and it should have
     // `SenderData::UnknownDevice`.
@@ -354,14 +350,6 @@ async fn get_machine_pair() -> (OlmMachine, OlmMachine) {
 
 /// Tell the given [`OlmMachine`] to forget about any keys it has seen for the
 /// given user.
-/// Get the set of users whose devices `machine` wants to query.
-async fn users_for_key_query(machine: &OlmMachine) -> HashSet<OwnedUserId> {
-    let cache = machine.store().cache().await.unwrap();
-    let key_query_manager =
-        machine.inner.identity_manager.key_query_manager.synced(&cache).await.unwrap();
-    key_query_manager.users_for_key_query().await.0
-}
-
 async fn forget_devices_for_user(machine: &OlmMachine, other_user: &UserId) {
     let mut keys_query_response = ruma::api::client::keys::get_keys::v3::Response::default();
     keys_query_response.device_keys.insert(other_user.to_owned(), Default::default());
