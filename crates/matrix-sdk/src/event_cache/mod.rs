@@ -395,11 +395,6 @@ impl EventCache {
         self.inner.handle_room_updates(updates).await
     }
 
-    /// Check whether [`EventCache::subscribe`] has been called.
-    pub fn has_subscribed(&self) -> bool {
-        self.inner.drop_handles.get().is_some()
-    }
-
     /// Return a room-specific view over the [`EventCache`].
     pub async fn room(
         &self,
