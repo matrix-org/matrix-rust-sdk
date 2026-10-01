@@ -244,8 +244,8 @@ async fn test_read_receipts_updates_on_filtered_events() {
 async fn test_stored_receipts_survive_a_failed_batch_read() {
     // Same expectations as
     // `test_read_receipts_updates_on_filtered_events_with_stored`,
-    // with the batched receipt read failing: the events must fall back to their own
-    // reads, not be treated as having no receipts.
+    // with the batched receipt read failing: the events must fall back to their
+    // own reads, not be treated as having no receipts.
     let event_with_bob_receipt_id = event_id!("$event_with_bob_receipt");
 
     // Add initial unthreaded private receipt.

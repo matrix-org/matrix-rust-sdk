@@ -604,8 +604,9 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
 
         let mut receipts =
             if matches!(receipt_thread, ReceiptThread::Unthreaded | ReceiptThread::Main) {
-                // Same as in `load_read_receipts_for_event`: accept both the main and the
-                // unthreaded receipts, for compatibility with clients using either.
+                // Same as in `load_read_receipts_for_event`: accept both the
+                // main and the unthreaded receipts, for compatibility with
+                // clients using either.
                 let (main_receipts, unthreaded_receipts) = join(
                     room_data_provider.load_event_receipts_batch(event_ids, &ReceiptThread::Main),
                     room_data_provider
@@ -620,10 +621,10 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
                     return HashMap::new();
                 };
 
-                // Merge per event: extending the outer map directly would replace
-                // an event's main receipts with its unthreaded ones instead of
-                // combining them. Within an event, a user with both receipts is
-                // shown once, as in `load_read_receipts_for_event`.
+                // Merge per event: extending the outer map directly would
+                // replace an event's main receipts with its unthreaded ones
+                // instead of combining them. Within an event, a user with both
+                // receipts is shown once, as in `load_read_receipts_for_event`.
                 for (event_id, event_receipts) in unthreaded_receipts {
                     main_receipts.entry(event_id).or_default().extend(event_receipts);
                 }
