@@ -1650,7 +1650,6 @@ async fn test_initial_read_receipts_are_correctly_populated() {
 
     let server = MatrixMockServer::new().await;
     let client = client_with_threading_support(&server).await;
-    client.event_cache().subscribe().unwrap();
 
     let room_id = room_id!("!a:b.c");
     let thread_root = owned_event_id!("$root");
@@ -1715,7 +1714,6 @@ async fn test_initial_read_receipts_compatibility_mode() {
 
     let server = MatrixMockServer::new().await;
     let client = client_with_threading_support(&server).await;
-    client.event_cache().subscribe().unwrap();
 
     let room_id = room_id!("!a:b.c");
 
@@ -1792,7 +1790,6 @@ async fn test_send_read_receipts() {
 
     let server = MatrixMockServer::new().await;
     let client = client_with_threading_support(&server).await;
-    client.event_cache().subscribe().unwrap();
 
     let user_id = client.user_id().unwrap();
 
@@ -1980,7 +1977,6 @@ async fn test_send_read_receipt_moves_real_receipt_forward() {
 
     let server = MatrixMockServer::new().await;
     let client = client_with_threading_support(&server).await;
-    client.event_cache().subscribe().unwrap();
 
     let user_id = client.user_id().unwrap();
 
@@ -2053,7 +2049,6 @@ async fn test_send_read_receipt_with_only_own_events_is_a_no_op() {
 
     let server = MatrixMockServer::new().await;
     let client = client_with_threading_support(&server).await;
-    client.event_cache().subscribe().unwrap();
 
     let user_id = client.user_id().unwrap();
 
@@ -2112,7 +2107,6 @@ async fn test_permalink_doesnt_listen_to_thread_sync() {
 
     let client = client_with_threading_support(&server).await;
     let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
 
     let room_id = room_id!("!a:b.c");
     let room = server.sync_joined_room(&client, room_id).await;
@@ -2192,7 +2186,6 @@ async fn test_redacted_replied_to_is_updated() {
     let server = MatrixMockServer::new().await;
 
     let client = client_with_threading_support(&server).await;
-    client.event_cache().subscribe().unwrap();
 
     let room_id = room_id!("!a:b.c");
     let f = EventFactory::new().sender(&ALICE).room(room_id);
@@ -2296,8 +2289,6 @@ async fn test_redaction_affects_thread_summary() {
 
     let server = MatrixMockServer::new().await;
     let client = client_with_threading_support(&server).await;
-
-    client.event_cache().subscribe().unwrap();
 
     let room_id = room_id!("!a:b.c");
     let f = EventFactory::new().room(room_id).sender(&ALICE);

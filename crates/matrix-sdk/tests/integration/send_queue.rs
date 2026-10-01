@@ -2310,7 +2310,6 @@ async fn test_redaction() {
     let server = MatrixMockServer::new().await;
 
     let client = server.client_builder().build().await;
-    client.event_cache().subscribe().unwrap();
 
     let room_id = room_id!("!a:b.c");
     // Create a non-empty room, so that the Event Cache is not empty, and we can
@@ -4535,8 +4534,6 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
         .build()
         .await;
 
-    client.event_cache().subscribe().unwrap();
-
     let mut thread_subscriber_updates = client.event_cache().subscribe_thread_subscriber_updates();
 
     let room_id = room_id!("!a:b.c");
@@ -4641,8 +4638,6 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
 async fn test_sending_event_still_saves_sync_gap() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-
-    client.event_cache().subscribe().unwrap();
 
     let room_id = room_id!("!a:b.c");
 

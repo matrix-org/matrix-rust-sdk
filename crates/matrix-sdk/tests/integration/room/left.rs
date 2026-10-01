@@ -26,9 +26,6 @@ async fn test_forget_non_direct_room() {
     let (client, server) = logged_in_client_with_server().await;
     let user_id = client.user_id().unwrap();
 
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
-
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/forget$"))
         .and(header("authorization", "Bearer 1234"))
@@ -97,9 +94,6 @@ async fn test_forget_non_direct_room() {
 async fn test_forget_banned_room() {
     let (client, server) = logged_in_client_with_server().await;
     let user_id = client.user_id().unwrap();
-
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
 
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/forget$"))

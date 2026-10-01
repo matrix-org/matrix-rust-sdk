@@ -446,10 +446,6 @@ mod tests_latest_event {
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let weak_room = WeakRoom::new(weak_client, room_id.to_owned());
 
-        // Get a `RoomEventCache`.
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         let mut latest_event = LatestEvent::new(&weak_room, None);
 
         // First off, check the default value is `None`!
@@ -672,8 +668,6 @@ mod tests_latest_event {
         let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.clone());
 
         let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
         let send_queue = client.send_queue();
@@ -798,8 +792,6 @@ mod tests_latest_event {
         let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.clone());
 
         let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
         let mut latest_event = LatestEvent::new(&weak_room, None);
@@ -886,8 +878,6 @@ mod tests_latest_event {
             let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.clone());
 
             let event_cache = client.event_cache();
-            event_cache.subscribe().unwrap();
-
             let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
             // Check there is no `LatestEventValue` for the moment.

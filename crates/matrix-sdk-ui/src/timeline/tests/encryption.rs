@@ -82,7 +82,6 @@ pub(super) async fn get_client(
     } else {
         server.client_builder().logged_in_with_oauth().build().await
     };
-    client.event_cache().subscribe().unwrap();
 
     let event_factory = EventFactory::new().room(room_id);
     let member_event = event_factory.member(client.user_id().unwrap()).display_name("Alice");

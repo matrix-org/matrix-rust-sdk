@@ -297,19 +297,6 @@ impl EventCache {
         self.inner.thread_subscriber_sender.subscribe()
     }
 
-    /// Starts subscribing the [`EventCache`] to sync responses, if not done
-    /// before.
-    ///
-    /// Re-running this has no effect if we already subscribed before, and is
-    /// cheap.
-    pub fn subscribe(&self) -> Result<()> {
-        let client = self.inner.client()?;
-
-        self.initialize_tasks(&client);
-
-        Ok(())
-    }
-
     /// Initialize all the tasks used by the [`EventCache`].
     fn initialize_tasks(&self, client: &Client) {
         // Initialize the drop handles.
@@ -846,7 +833,6 @@ mod tests {
         client.base_client().get_or_create_room(room_id2, RoomState::Joined);
 
         let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         // Insert two rooms with a few events.
         let f = EventFactory::new().room(room_id1).sender(user_id!("@ben:saucisse.bzh"));
@@ -946,7 +932,6 @@ mod tests {
             .await;
 
         let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
@@ -1048,7 +1033,6 @@ mod tests {
             .await;
 
         let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
@@ -1098,7 +1082,6 @@ mod tests {
         let room_id = room_id!("!raclette:patate.ch");
 
         let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         // Room doesn't exist. It returns an error.
         assert_matches!(
@@ -1136,8 +1119,6 @@ mod tests {
                 .add_joined_room(JoinedRoomBuilder::new(room_id))
                 .build_sync_response();
             client.inner.base_client.receive_sync_response(response).await.unwrap();
-
-            client.event_cache().subscribe().unwrap();
 
             let (_room_event_cache, _drop_handles) =
                 client.get_room(room_id).unwrap().event_cache().await.unwrap();

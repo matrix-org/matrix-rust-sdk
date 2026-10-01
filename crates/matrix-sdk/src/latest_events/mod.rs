@@ -716,8 +716,6 @@ mod tests {
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_2, RoomState::Joined);
 
-        client.event_cache().subscribe().unwrap();
-
         let latest_events = client.latest_events().await;
 
         // Despites there are many rooms, zero `RoomLatestEvents` are created.
@@ -780,8 +778,6 @@ mod tests {
         client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
 
-        client.event_cache().subscribe().unwrap();
-
         let latest_events = client.latest_events().await;
 
         // Now let's fetch one room.
@@ -819,8 +815,6 @@ mod tests {
 
         client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
-
-        client.event_cache().subscribe().unwrap();
 
         let latest_events = client.latest_events().await;
 
@@ -1270,9 +1264,6 @@ mod tests {
         // Create the room.
         client.base_client().get_or_create_room(&room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         let latest_events = client.latest_events().await;
 
         // Subscribe to the latest event values for this room.
@@ -1356,9 +1347,6 @@ mod tests {
         // Create the room.
         client.base_client().get_or_create_room(&room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         let latest_events = client.latest_events().await;
 
         let mut latest_event_stream =
@@ -1403,7 +1391,6 @@ mod tests {
         let weak_client = WeakClient::from_client(&client);
 
         let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         let (latest_event_queue_sender, mut latest_event_queue_receiver) =
             mpsc::unbounded_channel();
@@ -1451,9 +1438,6 @@ mod tests {
         let client = server.client_builder().build().await;
         let own_user_id = client.user_id().unwrap();
         let other_user_id = user_id!("@other:servername");
-
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         let latest_events = client.latest_events().await;
 

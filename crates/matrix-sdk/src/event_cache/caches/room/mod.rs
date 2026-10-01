@@ -599,9 +599,6 @@ mod tests {
 
         let client = logged_in_client(None).await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
@@ -672,9 +669,6 @@ mod tests {
 
         let client = logged_in_client(None).await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
@@ -719,9 +713,6 @@ mod tests {
         event_factory: EventFactory,
     ) {
         let client = logged_in_client(None).await;
-
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -827,9 +818,6 @@ mod timed_tests {
 
         let event_cache = client.event_cache();
 
-        // Don't forget to subscribe and like.
-        event_cache.subscribe().unwrap();
-
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
@@ -907,9 +895,6 @@ mod timed_tests {
             .await;
 
         let event_cache = client.event_cache();
-
-        // Don't forget to subscribe and like.
-        event_cache.subscribe().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -1054,9 +1039,6 @@ mod timed_tests {
             .await;
 
         let event_cache = client.event_cache();
-
-        // Don't forget to subscribe and like.
-        event_cache.subscribe().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -1209,9 +1191,6 @@ mod timed_tests {
 
         let event_cache = client.event_cache();
 
-        // Don't forget to subscribe and like.
-        event_cache.subscribe().unwrap();
-
         // Let's check whether the generic updates are received for the
         // initialisation.
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
@@ -1341,11 +1320,6 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
-
-        // Don't forget to subscribe and like.
-        event_cache.subscribe().unwrap();
-
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
@@ -1371,7 +1345,6 @@ mod timed_tests {
         let client = MockClientBuilder::new(None).build().await;
 
         let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -1552,7 +1525,6 @@ mod timed_tests {
             .await;
 
         let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -1685,9 +1657,6 @@ mod timed_tests {
             })
             .build()
             .await;
-
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -1849,7 +1818,6 @@ mod timed_tests {
             .await;
 
         let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
@@ -1994,9 +1962,6 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
@@ -2110,12 +2075,6 @@ mod timed_tests {
 
         // Subscribe the event caches, and create the room.
         let (room_event_cache_p0, room_event_cache_p1) = {
-            let event_cache_p0 = client_p0.event_cache();
-            event_cache_p0.subscribe().unwrap();
-
-            let event_cache_p1 = client_p1.event_cache();
-            event_cache_p1.subscribe().unwrap();
-
             client_p0.base_client().get_or_create_room(room_id, RoomState::Joined);
             client_p1.base_client().get_or_create_room(room_id, RoomState::Joined);
 
@@ -2569,12 +2528,6 @@ mod timed_tests {
 
         // Subscribe the event caches, and create the room.
         let (room_event_cache_0_p0, room_event_cache_0_p1) = {
-            let event_cache_p0 = client_p0.event_cache();
-            event_cache_p0.subscribe().unwrap();
-
-            let event_cache_p1 = client_p1.event_cache();
-            event_cache_p1.subscribe().unwrap();
-
             client_p0.base_client().get_or_create_room(room_id_0, RoomState::Joined);
             client_p0.base_client().get_or_create_room(room_id_1, RoomState::Joined);
 
@@ -2618,8 +2571,6 @@ mod timed_tests {
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
         let event_cache = client.event_cache();
-
-        event_cache.subscribe().unwrap();
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
         let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();

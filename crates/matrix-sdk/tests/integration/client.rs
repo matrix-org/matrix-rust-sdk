@@ -1239,8 +1239,6 @@ async fn test_avatar_url_changes() {
     let changes = assert_next_matches!(updates, Ok(RoomUpdate::Joined { updates, .. }) => updates.avatar_changes);
     assert!(changes.is_none());
 
-    // Subscribe to the event cache to receive RoomEventCacheUpdate
-    client.event_cache().subscribe().expect("event cache subscription");
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("room");
     let (room_cache, _handle) = room.event_cache().await.expect("room cache");
     let (_, mut subscriber) = room_cache.subscribe().await.expect("subscription");
@@ -1263,6 +1261,8 @@ async fn test_avatar_url_changes() {
     client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
+    sleep(Duration::from_secs(1)).await;
+
     let changes = assert_next_matches!(updates, Ok(RoomUpdate::Joined { updates, .. }) => updates.avatar_changes.expect("avatar changes") );
     assert_eq!(changes.len(), 2);
     assert_let!(Some(Some(avatar_url)) = changes.get(example_id));
@@ -1272,16 +1272,27 @@ async fn test_avatar_url_changes() {
 
     // The room event cache emits a RoomEventCacheUpdate when the avatar URL
     // changes. This will trigger a timeline item refresh.
-    let changes = subscriber.recv().await.expect("subscription event");
-    assert_let!(RoomEventCacheUpdate::UpdateMembers { avatar_changes, .. } = changes);
-    assert!(avatar_changes.is_some());
-    assert_eq!(
-        avatar_changes.unwrap(),
-        BTreeMap::from([
-            (example_id.to_owned(), Some(owned_mxc_uri!("mxc://localhost/avatar"))),
-            (example_2_id.to_owned(), Some(owned_mxc_uri!("mxc://localhost/avatar2")))
-        ])
-    );
+    let mut found = false;
+
+    while !subscriber.is_empty() {
+        let changes = subscriber.recv().await.expect("subscription event");
+
+        if let RoomEventCacheUpdate::UpdateMembers { avatar_changes, .. } = changes
+            && let Some(avatar_changes) = avatar_changes
+        {
+            assert_eq!(
+                avatar_changes,
+                BTreeMap::from([
+                    (example_id.to_owned(), Some(owned_mxc_uri!("mxc://localhost/avatar"))),
+                    (example_2_id.to_owned(), Some(owned_mxc_uri!("mxc://localhost/avatar2")))
+                ])
+            );
+
+            found = true;
+        }
+    }
+
+    assert!(found, "Failed to receive an `UpdateMembers`");
 
     // And after that, receive the first room member without an avatar URL.
     let avatar_removal =

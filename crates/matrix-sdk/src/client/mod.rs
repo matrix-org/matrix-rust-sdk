@@ -378,9 +378,7 @@ pub(crate) struct ClientInner {
     /// store.
     pub(crate) sync_beat: event_listener::Event,
 
-    /// A central cache for events, inactive first.
-    ///
-    /// It becomes active when [`EventCache::subscribe`] is called.
+    /// A central cache for events.
     pub(crate) event_cache: OnceCell<EventCache>,
 
     /// End-to-end encryption related state.
@@ -4725,8 +4723,6 @@ pub(crate) mod tests {
                 .add_joined_room(JoinedRoomBuilder::new(room_id))
                 .build_sync_response();
             client.inner.base_client.receive_sync_response(response).await.unwrap();
-
-            client.event_cache().subscribe().unwrap();
 
             let (_room_event_cache, _drop_handles) =
                 client.get_room(room_id).unwrap().event_cache().await.unwrap();

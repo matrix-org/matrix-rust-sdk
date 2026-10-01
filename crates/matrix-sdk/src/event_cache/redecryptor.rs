@@ -1555,8 +1555,6 @@ mod tests {
             .instrument(bob_span.clone())
             .await;
 
-        bob.event_cache().subscribe().expect("Bob should be able to enable the event cache");
-
         // Ensure that Alice and Bob are aware of their devices and identities.
         matrix_mock_server.exchange_e2ee_identities(&alice, &bob).await;
 

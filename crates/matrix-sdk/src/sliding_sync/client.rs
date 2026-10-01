@@ -638,9 +638,6 @@ mod tests {
         // Create the room beforehand.
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        // Enable the event cache (required for the latest events).
-        client.event_cache().subscribe()?;
-
         // The latest event “listener” for this room has NOT been enabled.
         assert!(client.latest_events().await.is_listening_to_room(room_id).await.not());
 
@@ -689,7 +686,6 @@ mod tests {
 
         // Given a logged-in client.
         let client = MockClientBuilder::new(None).build().await;
-        client.event_cache().subscribe().unwrap();
 
         let mut room_info_notable_update_stream = client.room_info_notable_update_receiver();
 

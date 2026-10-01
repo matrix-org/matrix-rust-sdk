@@ -408,10 +408,6 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    // Subscribe to the event cache.
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
-
     let f = EventFactory::new().room(room_id).sender(*BOB);
     let event_id = event_id!("$1");
     let pinned_event = f
@@ -938,7 +934,6 @@ async fn test_pinned_events_listener_task_reloads_events_when_ids_change() {
         .await;
 
     let event_cache = client.event_cache();
-    event_cache.subscribe().expect("Subscribed to event cache");
 
     let (pinned_events_cache, _handle) =
         event_cache.pinned_events(&room_id).await.expect("Got pinned events cache");
@@ -1055,7 +1050,6 @@ async fn test_pinned_events_listener_task_does_not_reload_events_when_ids_are_un
         .await;
 
     let event_cache = client.event_cache();
-    event_cache.subscribe().expect("Subscribed to event cache");
 
     let (pinned_events_cache, _handle) =
         event_cache.pinned_events(&room_id).await.expect("Got pinned events cache");
@@ -1121,7 +1115,6 @@ async fn test_pinned_events_listener_task_does_not_reload_events_after_a_redacti
         .await;
 
     let event_cache = client.event_cache();
-    event_cache.subscribe().expect("Subscribed to event cache");
 
     let (pinned_events_cache, _handle) =
         event_cache.pinned_events(&room_id).await.expect("Got pinned events cache");

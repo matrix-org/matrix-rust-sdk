@@ -281,9 +281,6 @@ impl RoomListService {
             .map(Arc::new)
             .map_err(Error::SlidingSync)?;
 
-        // Eagerly subscribe the event cache to sync responses.
-        client.event_cache().subscribe()?;
-
         Ok(Self { client, sliding_sync, state_machine })
     }
 

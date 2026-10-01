@@ -162,8 +162,6 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!a98sd12bjh:example.org");
 
     // Provide the room with a previous-batch token, to speed up the first
@@ -982,8 +980,6 @@ async fn test_back_pagination_aborted() {
 
     let room_id = room_id!("!a98sd12bjh:example.org");
 
-    client.event_cache().subscribe().unwrap();
-
     let room = server
         .sync_room(
             &client,
@@ -1360,8 +1356,6 @@ async fn test_timeline_start_properly_inserted_when_created() {
 
     let mock_server = MatrixMockServer::new().await;
     let client = mock_server.client_builder().build().await;
-
-    client.event_cache().subscribe().unwrap();
 
     let room = mock_server
         .sync_room(
