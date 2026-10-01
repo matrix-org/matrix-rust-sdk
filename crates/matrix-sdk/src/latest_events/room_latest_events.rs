@@ -401,7 +401,6 @@ mod tests {
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
         let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         // A displayable message lives behind the gap.
         let f = EventFactory::new().room(room_id).sender(sender);

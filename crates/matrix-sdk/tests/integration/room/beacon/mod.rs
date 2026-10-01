@@ -140,9 +140,6 @@ async fn test_most_recent_event_in_stream() {
         )
         .await;
 
-    // Enable the event cache so the initial snapshot can be loaded from it.
-    client.event_cache().subscribe().unwrap();
-
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
 
     let mut timeline_events = Vec::new();
@@ -576,9 +573,6 @@ async fn test_multiple_users_in_stream() {
 async fn test_initial_load_contains_location_from_event_cache() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-
-    // Enable event cache BEFORE syncing so events get cached.
-    client.event_cache().subscribe().unwrap();
 
     let now = MilliSecondsSinceUnixEpoch::now();
     let f = EventFactory::new();

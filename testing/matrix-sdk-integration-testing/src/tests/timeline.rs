@@ -932,9 +932,6 @@ async fn test_thread_focused_timeline() -> TestResult {
     // Set up sync for another user Bob.
     let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
-    // Enable Bob's event cache, to speed up creating the in-thread reply event.
-    bob.event_cache().subscribe().unwrap();
-
     let bob_clone = bob.clone();
     let bob_sync = spawn(async move {
         bob_clone.sync(Default::default()).await.expect("sync failed for bob!");
@@ -1017,7 +1014,6 @@ async fn test_thread_focused_timeline() -> TestResult {
 async fn test_local_echo_to_send_event_has_encryption_info() -> TestResult {
     // Set up sync for user Alice, and create a room.
     let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
-    alice.event_cache().subscribe()?;
 
     debug!("Creating room…");
     let initial_state = vec![
@@ -1173,7 +1169,6 @@ async fn test_pinned_events_are_decrypted_after_recovering_with_event_count(
 
     // No rooms as of yet, we have not synced with the server as of yet.
     assert!(another_alice.rooms().is_empty());
-    another_alice.event_cache().subscribe()?;
 
     let sync_service = SyncService::builder(another_alice.clone()).build().await?;
     // We need to subscribe to the room, otherwise we won't request the
@@ -1314,7 +1309,6 @@ async fn test_permalink_timelines_redecrypt() -> TestResult {
 
     // No rooms as of yet, we have not synced with the server as of yet.
     assert!(another_alice.rooms().is_empty());
-    another_alice.event_cache().subscribe()?;
 
     let sync_service = SyncService::builder(another_alice.clone()).build().await?;
     // We need to subscribe to the room, otherwise we won't request the
@@ -1449,7 +1443,6 @@ async fn test_latest_thread_event_is_redecrypted_and_updated() -> TestResult {
 
     // No rooms as of yet, we have not synced with the server as of yet.
     assert!(alice2.rooms().is_empty());
-    alice2.event_cache().subscribe()?;
 
     let sync_service2 = SyncService::builder(alice2.clone()).build().await?;
 

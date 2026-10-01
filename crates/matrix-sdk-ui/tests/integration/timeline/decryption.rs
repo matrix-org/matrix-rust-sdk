@@ -144,10 +144,6 @@ async fn test_an_utd_from_the_event_cache_as_an_initial_item_is_decrypted() {
         assert_eq!(room_key_import_result.imported_count, 1);
     }
 
-    // Set up the event cache.
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
-
     let room = server.sync_joined_room(&client, room_id).await;
     let timeline = room.timeline().await.unwrap();
     let (initial_updates, mut updates_stream) = timeline.subscribe().await;
@@ -306,10 +302,6 @@ async fn test_an_utd_from_the_event_cache_as_a_paginated_item_is_decrypted() {
             .expect("Failed to import the keys");
         assert_eq!(room_key_import_result.imported_count, 1);
     }
-
-    // Set up the event cache.
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
 
     let room = server.sync_joined_room(&client, room_id).await;
     let timeline = room.timeline().await.unwrap();

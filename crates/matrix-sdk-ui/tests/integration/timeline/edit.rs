@@ -835,8 +835,6 @@ impl PendingEditHelper {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        client.event_cache().subscribe().unwrap();
-
         // Fill the initial prev-batch token to avoid waiting for it later.
         server
             .sync_room(

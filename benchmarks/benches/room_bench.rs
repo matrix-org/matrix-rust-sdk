@@ -227,8 +227,6 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
             .mount()
             .await;
 
-        client.event_cache().subscribe().unwrap();
-
         (server, client, room)
     });
 

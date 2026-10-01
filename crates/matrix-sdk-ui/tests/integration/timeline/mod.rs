@@ -804,8 +804,6 @@ async fn test_timeline_without_encryption_info() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!a98sd12bjh:example.org");
 
     let f = EventFactory::new();
@@ -832,8 +830,6 @@ async fn test_timeline_without_encryption_can_update() {
     // The room encryption state is NOT mocked on purpose.
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-
-    client.event_cache().subscribe().unwrap();
 
     let room_id = room_id!("!jEsUZKDJdhlrceRyVU:example.org");
 
@@ -931,10 +927,6 @@ async fn test_timeline_receives_a_limited_number_of_events_when_subscribing() {
         .await;
 
     mock_server.sync_joined_room(&client, room_id).await;
-
-    // Set up the event cache.
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
 
     let room = client.get_room(room_id).unwrap();
 

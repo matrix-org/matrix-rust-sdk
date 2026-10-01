@@ -122,13 +122,10 @@ impl TestTimelineBuilder {
         let client = server.client_builder().build().await;
         let _room = server.sync_joined_room(&client, room_data_provider.room_id()).await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         let controller = TimelineController::new(
             room_data_provider,
             &self.focus.unwrap_or(TimelineFocus::Live { hide_threaded_events: false }),
-            event_cache,
+            client.event_cache(),
             self.internal_id_prefix,
             self.utd_hook,
             self.is_room_encrypted,

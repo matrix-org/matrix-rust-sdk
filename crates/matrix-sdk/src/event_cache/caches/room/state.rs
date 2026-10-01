@@ -843,9 +843,6 @@ mod tests {
         let client = logged_in_client(None).await;
         let room_id = room_id!("!galette:saucisse.bzh");
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
         let event_id = event_id!("$1");
 

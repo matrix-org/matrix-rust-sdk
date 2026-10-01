@@ -53,9 +53,6 @@ async fn test_latest_event_is_recomputed_when_a_user_is_ignored() {
         .build()
         .await;
 
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
-
     // Create the room.
     let _room = server.sync_joined_room(&client, &room_id).await;
 

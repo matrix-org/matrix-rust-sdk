@@ -84,8 +84,6 @@ pub fn create_timeline_with_initial_events(c: &mut Criterion) {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        client.event_cache().subscribe().unwrap();
-
         let room = server.sync_room(&client, builder).await;
         drop(server);
 

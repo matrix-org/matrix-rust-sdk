@@ -515,8 +515,6 @@ mod tests {
         let mock_server = MatrixMockServer::new().await;
         let client = mock_server.client_builder().build().await;
 
-        client.event_cache().subscribe().unwrap();
-
         let room_id = room_id!("!room_id:localhost");
         let event_id = event_id!("$event_id:localost");
         let user_id = user_id!("@user_id:localost");
@@ -548,8 +546,6 @@ mod tests {
 
         let mock_server = MatrixMockServer::new().await;
         let client = mock_server.client_builder().build().await;
-
-        client.event_cache().subscribe().unwrap();
 
         let room_id = room_id!("!room_id:localhost");
         let image_id = event_id!("$image_id:localhost");
@@ -605,8 +601,6 @@ mod tests {
 
         let mock_server = MatrixMockServer::new().await;
         let client = mock_server.client_builder().build().await;
-
-        client.event_cache().subscribe().unwrap();
 
         let room_id = room_id!("!room_id:localhost");
         let sticker_id = event_id!("$sticker_id:localhost");
@@ -667,8 +661,6 @@ mod tests {
         let mock_server = MatrixMockServer::new().await;
         let client = mock_server.client_builder().build().await;
 
-        client.event_cache().subscribe().unwrap();
-
         let room_id = room_id!("!room_id:localhost");
         let poll_id = event_id!("$stable_poll_id:localhost");
         let user_id = user_id!("@user_id:localhost");
@@ -722,9 +714,6 @@ mod tests {
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         let room = server.sync_joined_room(&client, room_id).await;
 
@@ -809,9 +798,6 @@ mod tests {
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         let room = server.sync_joined_room(&client, room_id).await;
 
