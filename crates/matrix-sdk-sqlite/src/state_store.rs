@@ -2032,8 +2032,8 @@ impl StateStore for SqliteStateStore {
             })
             .await?;
 
-        // The `event_id` column may hold a hashed key, so the rows are grouped by
-        // the event id stored in their data instead.
+        // The `event_id` column may hold a hashed key, so the rows are grouped
+        // by the event id stored in their data instead.
         let mut receipts: HashMap<OwnedEventId, Vec<(OwnedUserId, Receipt)>> = HashMap::new();
         for data in rows {
             receipts.entry(data.event_id).or_default().push((data.user_id, data.receipt));
