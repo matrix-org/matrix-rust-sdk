@@ -3671,11 +3671,9 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `receipt_type` - The type of receipt to get.
-    ///
-    /// * `receipt_thread` - The thread a receipt applies to.
-    ///
-    /// * `event_ids` - The IDs of the events.
+    /// - `receipt_type` - The type of receipt to get.
+    /// - `receipt_thread` - The thread a receipt applies to.
+    /// - `event_ids` - The IDs of the events.
     ///
     /// Returns, for each event with receipts, a list of IDs of users who have
     /// sent a receipt for the event and the corresponding receipts.
