@@ -123,6 +123,8 @@ use std::{
 use as_variant::as_variant;
 use futures_core::Stream;
 use futures_util::{StreamExt, future::try_join_all, pin_mut};
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::deserialized_responses::UnableToDecryptReason;
 #[cfg(doc)]
 use matrix_sdk_base::{BaseClient, crypto::OlmMachine};
 use matrix_sdk_base::{
@@ -1251,6 +1253,29 @@ impl Redecryptor {
         }
 
         info!("Shutting down the event cache redecryptor");
+    }
+}
+
+/// Helper method used by `RoomEventCacheState` and `ThreadEventCacheState` to
+/// attempt to decrypt a bundled thread event we haven't tried to decrypt yet.
+pub(super) async fn try_decrypt_in_place(event: &mut TimelineEvent, room: Option<&Room>) {
+    if let TimelineEventKind::UnableToDecrypt { utd_info, .. } = &event.kind
+        && let Some(room) = room
+        && utd_info.reason == UnableToDecryptReason::Unknown
+    {
+        match room
+            // Cast safety: a `TimelineEventKind::UnableToDecrypt` always holds the
+            // `m.room.encrypted` event, and the `Unknown` reason above narrows this
+            // further to the branch that has positively checked the `type` field in
+            // `TimelineEvent::from_bundled_latest_event`.
+            .decrypt_event(event.raw().cast_ref_unchecked::<OriginalSyncRoomEncryptedEvent>(), None)
+            .await
+        {
+            Ok(decrypted) => *event = decrypted,
+            Err(e) => warn!(
+                "Failed to decrypt a bundled thread event we haven't tried to decrypt yet {e:?}"
+            ),
+        }
     }
 }
 
