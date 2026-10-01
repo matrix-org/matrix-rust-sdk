@@ -803,7 +803,8 @@ mod tests {
             RetryKind::Transient { .. }
         );
 
-        // The homeserver rejected the refresh token so retrying would only fail again.
+        // The homeserver rejected the refresh token so retrying would only fail
+        // again.
         assert_matches!(
             refresh_failure(
                 StatusCode::UNAUTHORIZED,

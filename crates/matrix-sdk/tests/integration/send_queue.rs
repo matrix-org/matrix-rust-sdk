@@ -1996,8 +1996,8 @@ async fn test_request_wedged_by_a_rejected_token_is_unwedged_on_refresh() {
     mock.verify_and_reset().await;
     mock.mock_room_state_encryption().plain().mount().await;
 
-    // The first /send is answered with a rejected access token, the second one goes
-    // through.
+    // The first /send is answered with a rejected access token, the second one
+    // goes through.
     mock.mock_room_send().error_unknown_token(false).mock_once().mount().await;
     mock.mock_room_send().ok(event_id!("$42")).mock_once().mount().await;
 
