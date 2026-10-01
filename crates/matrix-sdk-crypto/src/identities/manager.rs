@@ -1231,10 +1231,13 @@ impl IdentityManager {
         device: &DeviceData,
     ) -> Result<(), CryptoStoreError> {
         match SenderDataFinder::find_using_device_data(&self.store, device.clone(), session).await {
-            Ok(sender_data) => {
+            // Only accept more trusted data: imported sessions always fail the
+            // owner check, and overwriting them would drop their legacy flag.
+            Ok(sender_data) if sender_data.compare_trust_level(&session.sender_data).is_gt() => {
                 debug!("Updating existing InboundGroupSession with new SenderData {sender_data:?}");
                 session.sender_data = sender_data;
             }
+            Ok(_) => {}
             Err(SessionDeviceCheckError::CryptoStoreError(e)) => {
                 return Err(e);
             }
