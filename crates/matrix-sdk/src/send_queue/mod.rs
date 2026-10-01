@@ -262,8 +262,12 @@ impl SendQueue {
 
                 Ok(SessionChange::UnknownToken(_)) => {}
 
+                // A missed `TokensRefreshed` would leave requests wedged for good, while
+                // a spurious unwedge only costs a retry that gets wedged again.
                 Err(broadcast::error::RecvError::Lagged(num)) => {
-                    warn!(num, "missed some session changes");
+                    warn!(num, "missed some session changes, unwedging just in case");
+                    let Some(client) = client.get() else { break };
+                    client.send_queue().unwedge_requests_with_expired_token().await;
                 }
 
                 Err(broadcast::error::RecvError::Closed) => break,
@@ -3504,13 +3508,19 @@ mod tests {
     use matrix_sdk_test::{JoinedRoomBuilder, SyncResponseBuilder, async_test};
     use ruma::{
         MilliSecondsSinceUnixEpoch, TransactionId,
+        api::error::UnknownTokenErrorData,
+        event_id,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
         room_id,
     };
     use strass::assert_let;
 
-    use super::canonicalize_dependent_requests;
-    use crate::{client::WeakClient, test_utils::logged_in_client};
+    use super::{RoomSendQueueUpdate, canonicalize_dependent_requests};
+    use crate::{
+        SessionChange,
+        client::WeakClient,
+        test_utils::{logged_in_client, mocks::MatrixMockServer},
+    };
 
     #[test]
     fn test_canonicalize_dependent_events_created_at() {
@@ -3779,5 +3789,36 @@ mod tests {
         assert_eq!(res.len(), 2);
         assert_eq!(res[0].own_transaction_id, edit_id);
         assert_eq!(res[1].own_transaction_id, react_id);
+    }
+
+    #[async_test]
+    async fn test_request_wedged_by_a_rejected_token_is_unwedged_on_lag() {
+        let mock = MatrixMockServer::new().await;
+        let client = mock.client_builder().build().await;
+        let room = mock.sync_joined_room(&client, room_id!("!a:b.c")).await;
+
+        let q = room.send_queue();
+        let (_, mut watch) = q.subscribe().await.unwrap();
+
+        mock.mock_room_state_encryption().plain().mount().await;
+        mock.mock_room_send().error_unknown_token(false).mock_once().mount().await;
+        mock.mock_room_send().ok(event_id!("$42")).mock_once().mount().await;
+
+        q.send(RoomMessageEventContent::text_plain("hello").into()).await.unwrap();
+
+        assert_let!(Ok(RoomSendQueueUpdate::NewLocalEvent(_)) = watch.recv().await);
+        assert_let!(
+            Ok(RoomSendQueueUpdate::SendError { is_recoverable: false, .. }) = watch.recv().await
+        );
+
+        // The token gets refreshed, then rejected again before the send queue
+        // gets to see the refresh, so all it sees is a lag.
+        let sender = &client.auth_ctx().session_change_sender;
+        sender.send(SessionChange::TokensRefreshed).unwrap();
+        sender.send(SessionChange::UnknownToken(UnknownTokenErrorData::new())).unwrap();
+
+        // Which is still enough for the request to be retried.
+        assert_let!(Ok(RoomSendQueueUpdate::RetryEvent { .. }) = watch.recv().await);
+        assert_let!(Ok(RoomSendQueueUpdate::SentEvent { .. }) = watch.recv().await);
     }
 }
