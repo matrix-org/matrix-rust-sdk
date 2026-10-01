@@ -173,9 +173,6 @@ async fn test_pinned_events_are_loaded_from_network_then_are_reloaded_from_stora
 
         let event_cache = client.event_cache();
 
-        // Subscribe the event cache to sync updates.
-        event_cache.subscribe().unwrap();
-
         // Sync the room with the pinned event ID in the room state.
         //
         // This is important: the pinned events list must include our event ID,
@@ -233,9 +230,6 @@ async fn test_pinned_events_are_loaded_from_network_then_are_reloaded_from_stora
         .await;
 
     let event_cache = client.event_cache();
-
-    // Subscribe the event cache to sync updates.
-    event_cache.subscribe().unwrap();
 
     let _room = client.get_room(room_id).unwrap();
 
@@ -319,7 +313,6 @@ async fn test_pinned_events_are_reloaded_from_storage_from_many_chunks() {
         .await;
 
     let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
 
     let _room = server.sync_room(&client, JoinedRoomBuilder::new(room_id)).await;
 
@@ -382,9 +375,6 @@ async fn test_pinned_events_dont_include_thread_responses() {
 
     let client = server.client_builder().build().await;
     let event_cache = client.event_cache();
-
-    // Subscribe the event cache to sync updates.
-    event_cache.subscribe().unwrap();
 
     // Sync the room with the pinned event ID in the room state.
     //

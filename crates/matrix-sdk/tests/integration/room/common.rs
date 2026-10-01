@@ -576,9 +576,6 @@ async fn test_event() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let cache = client.event_cache();
-    let _ = cache.subscribe();
-
     let f = EventFactory::new().sender(user_id!("@example:localhost"));
     let room = server
         .sync_room(
@@ -628,7 +625,6 @@ async fn test_event_with_context() {
     let next_event_id = event_id!("$next_1234");
 
     let (client, server) = logged_in_client_with_server().await;
-    client.event_cache().subscribe().unwrap();
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 

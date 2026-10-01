@@ -150,8 +150,6 @@ async fn main() -> Result<()> {
         }
     });
 
-    client.event_cache().subscribe()?;
-
     let terminal = ratatui::init();
     execute!(stdout(), EnableMouseCapture)?;
     let mut app = App::new(client, share_pos).await?;

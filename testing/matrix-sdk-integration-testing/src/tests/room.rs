@@ -513,8 +513,6 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
     // No rooms as of yet, we have not synced with the server as of yet.
     assert!(alice2.rooms().is_empty());
 
-    alice2.event_cache().subscribe()?;
-
     let sync_service2 = SyncService::builder(alice2.clone()).build().await?;
 
     sync_service2.room_list_service().set_room_subscriptions(&[&room_id]).await;
@@ -598,8 +596,6 @@ async fn test_latest_event_few_rooms() -> Result<()> {
     // - Check that each room has their own latest event.
 
     let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
-
-    bob.event_cache().subscribe()?;
 
     // Spawn sync for bob.
     let bob_sync_service = SyncService::builder(bob.clone()).build().await?;
@@ -701,8 +697,6 @@ async fn test_latest_event_few_rooms() -> Result<()> {
         .build()
         .await?;
 
-    bob2.event_cache().subscribe()?;
-
     let bob2_sync_service = SyncService::builder(bob2.clone()).build().await?;
     bob2_sync_service.start().await;
 
@@ -786,9 +780,6 @@ async fn test_invite_declined_and_later_accepted() -> Result<()> {
 
     let alice_user_id = alice.user_id().unwrap().to_owned();
     let bob_user_id = bob.user_id().unwrap().to_owned();
-
-    alice.event_cache().subscribe()?;
-    bob.event_cache().subscribe()?;
 
     // Step 1, Alice creates a room.
     let (alice_room, event_id) = {

@@ -2336,7 +2336,6 @@ mod tests {
 
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
-        client.event_cache().subscribe().unwrap();
 
         let sliding_sync = client
             .sliding_sync("test")?

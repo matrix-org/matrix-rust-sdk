@@ -238,9 +238,6 @@ mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         let room_id = room_id!("!room:localhost");
         let event_id = event_id!("$event:localhost");
         let f = EventFactory::new().sender(user_id!("@user:localhost"));
@@ -291,9 +288,6 @@ mod tests {
     async fn test_search_resets_on_query_change() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         let room_id = room_id!("!room:localhost");
         let apple_event = event_id!("$apple:localhost");
