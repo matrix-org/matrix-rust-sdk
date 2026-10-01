@@ -4284,8 +4284,14 @@ async fn test_update_caption_before_event_is_sent() {
         .await;
 
     // Sending of the media event will succeed.
+    let sent_body = Arc::new(std::sync::Mutex::new(None));
+    let sent_body_clone = sent_body.clone();
     mock.mock_room_send()
-        .ok(event_id!("$media"))
+        .respond_with(move |req: &Request| {
+            *sent_body_clone.lock().unwrap() =
+                Some(serde_json::from_slice::<serde_json::Value>(&req.body).unwrap());
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$media" }))
+        })
         .mock_once()
         .named("send event")
         .mock_once()
@@ -4295,7 +4301,15 @@ async fn test_update_caption_before_event_is_sent() {
     // Send the media.
     assert!(watch.is_empty());
 
-    let (upload_handle, filename) = queue_attachment_no_thumbnail(&q).await;
+    let filename = "surprise.jpeg.exe";
+    let config = AttachmentConfig::new().extra_content(Some(serde_json::Map::from_iter([(
+        "com.example.key".to_owned(),
+        json!("kept"),
+    )])));
+    let upload_handle = q
+        .send_attachment(filename, mime::IMAGE_JPEG, b"hello world".to_vec(), config)
+        .await
+        .unwrap();
 
     // Let the upload request start.
     sleep(Duration::from_millis(300)).await;
@@ -4354,6 +4368,11 @@ async fn test_update_caption_before_event_is_sent() {
 
     // Then the event is sent.
     assert_update!((global_watch, watch) => sent { txn = upload_txn, });
+
+    // With the new caption, and the extra content it was queued with.
+    let sent_body = sent_body.lock().unwrap().take().unwrap();
+    assert_eq!(sent_body["body"], "caption");
+    assert_eq!(sent_body["com.example.key"], "kept");
 
     // That's all, folks!
     assert!(watch.is_empty());
@@ -4504,8 +4523,14 @@ async fn test_update_caption_while_sending_media_event() {
         .await;
 
     // There will be an edit event sent too; this one doesn't need to wait.
+    let sent_edit = Arc::new(std::sync::Mutex::new(None));
+    let sent_edit_clone = sent_edit.clone();
     mock.mock_room_send()
-        .ok(event_id!("$edit"))
+        .respond_with(move |req: &Request| {
+            *sent_edit_clone.lock().unwrap() =
+                Some(serde_json::from_slice::<serde_json::Value>(&req.body).unwrap());
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$edit" }))
+        })
         .mock_once()
         .named("edit event")
         .mock_once()
@@ -4529,7 +4554,15 @@ async fn test_update_caption_while_sending_media_event() {
     // Send the media.
     assert!(watch.is_empty());
 
-    let (upload_handle, filename) = queue_attachment_no_thumbnail(&q).await;
+    let filename = "surprise.jpeg.exe";
+    let config = AttachmentConfig::new().extra_content(Some(serde_json::Map::from_iter([(
+        "com.example.key".to_owned(),
+        json!("kept"),
+    )])));
+    let upload_handle = q
+        .send_attachment(filename, mime::IMAGE_JPEG, b"hello world".to_vec(), config)
+        .await
+        .unwrap();
 
     // See local echo.
     let (upload_txn, _send_handle, content) =
@@ -4581,6 +4614,12 @@ async fn test_update_caption_while_sending_media_event() {
     // Then the edit event is set, with another transaction id we don't know
     // about.
     assert_update!((global_watch, watch) => sent {});
+
+    // The edit kept the custom field in its new content only, so it doesn't
+    // notify again.
+    let sent_edit = sent_edit.lock().unwrap().take().unwrap();
+    assert_eq!(sent_edit["m.new_content"]["com.example.key"], "kept");
+    assert!(sent_edit.get("com.example.key").is_none());
 
     // That's all, folks!
     assert!(watch.is_empty());

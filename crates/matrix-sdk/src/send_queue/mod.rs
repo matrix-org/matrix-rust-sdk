@@ -2472,9 +2472,15 @@ impl QueueStorage {
                     // Check the event is one we know how to edit with an edit
                     // event.
 
+                    // Fields the typed content doesn't know about, like an
+                    // attachment's extra content, to put back in the edit.
+                    let mut unknown_fields = None;
+
                     // It must be deserializable…
                     let edited_content = match new_content.deserialize() {
                         Ok(AnyMessageLikeEventContent::RoomMessage(c)) => {
+                            unknown_fields = upload::unknown_fields(&new_content, &c);
+
                             // Assume no relationships.
                             EditedContent::RoomMessage(c.into())
                         }
@@ -2506,10 +2512,26 @@ impl QueueStorage {
                         }
                     };
 
+                    let mut edit_json = serde_json::to_value(&edit_event)
+                        .map_err(RoomSendQueueStorageError::JsonSerialization)?;
+
+                    // Only in the new content: the top level is what push rules
+                    // see, and an edit mustn't notify again.
+                    if let Some(serde_json::Value::Object(mut unknown)) = unknown_fields
+                        && let Some(edited) = edit_json.get_mut("m.new_content")
+                    {
+                        // The edit has its own relation and new content.
+                        unknown.remove("m.relates_to");
+                        unknown.remove("m.new_content");
+                        upload::restore_unknown_fields(edited, unknown.into());
+                    }
+
                     // Queue the edit event in the send queue 🧠.
                     let serializable = SerializableEventContent::from_raw(
-                        Raw::new(&edit_event)
-                            .map_err(RoomSendQueueStorageError::JsonSerialization)?,
+                        Raw::from_json(
+                            serde_json::value::to_raw_value(&edit_json)
+                                .map_err(RoomSendQueueStorageError::JsonSerialization)?,
+                        ),
                         edit_event.event_type().to_string(),
                     );
 
@@ -3332,9 +3354,6 @@ impl SendHandle {
 
             // Wake up the queue, in case the room was asleep before the edit.
             self.room.inner.notifier.notify_one();
-
-            let new_content = SerializableEventContent::new(&new_content)
-                .map_err(RoomSendQueueStorageError::JsonSerialization)?;
 
             // Propagate a replaced update too.
             self.room.send_update(RoomSendQueueUpdate::ReplacedLocalEvent {
