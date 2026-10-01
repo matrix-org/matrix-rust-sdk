@@ -1232,3 +1232,84 @@ async fn test_thread_backpagination_from_end_is_discarded_after_clear() {
 
     assert!(outcome.reached_start);
 }
+
+#[async_test]
+async fn test_concurrent_thread_backpaginations_share_one_request() {
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    let room_id = room_id!("!galette:saucisse.bzh");
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let thread_root_id = event_id!("$thread_root");
+
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("reply")
+                    .in_thread(thread_root_id, thread_root_id)
+                    .event_id(event_id!("$reply")),
+            ),
+        )
+        .await;
+
+    let (thread_event_cache, _drop_handles) =
+        event_cache.thread(room_id, thread_root_id).await.unwrap();
+
+    // A slow `/relations` response, so the second pagination starts while the
+    // first one is still in flight.
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/v1/rooms/.*/relations/\$thread_root"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({
+                    "chunk": [
+                        f.text_msg("older")
+                            .in_thread(thread_root_id, thread_root_id)
+                            .event_id(event_id!("$older"))
+                            .into_raw_timeline(),
+                    ],
+                }))
+                .set_delay(Duration::from_millis(500)),
+        )
+        .expect(1)
+        .mount(server.server())
+        .await;
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(f.text_msg("Thread root").event_id(thread_root_id).into())
+        .mount()
+        .await;
+
+    let first_pagination = thread_event_cache.pagination();
+    let first = spawn(async move { first_pagination.run_backwards_once(20).await });
+
+    super::wait_for_request(&server, "/relations/$thread_root").await;
+
+    // A second pagination, from another `ThreadPagination`, joins the first
+    // one instead of sending its own request.
+    let second = thread_event_cache.pagination().run_backwards_once(20).await.unwrap();
+    let first = first.await.unwrap().unwrap();
+
+    let relations_requests = server
+        .server()
+        .received_requests()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|request| request.url.path().ends_with("/relations/$thread_root"))
+        .count();
+    assert_eq!(relations_requests, 1);
+
+    for outcome in [first, second] {
+        assert!(outcome.reached_start);
+        let event_ids =
+            outcome.events.iter().map(|event| event.event_id().unwrap()).collect::<Vec<_>>();
+        assert_eq!(event_ids, [event_id!("$older"), thread_root_id]);
+    }
+}

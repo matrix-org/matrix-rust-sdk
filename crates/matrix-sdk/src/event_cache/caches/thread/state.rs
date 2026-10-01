@@ -53,6 +53,7 @@ use super::{
         },
         EventLocation,
         event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
+        pagination::SharedPaginationStatus,
         read_receipts::{
             MaybeReceiptEventContent, ThreadReadReceiptEventFilter, compute_unread_counts,
         },
@@ -82,6 +83,9 @@ pub struct ThreadEventCacheState {
 
     /// The linked chunk for this thread.
     thread_linked_chunk: EventLinkedChunk,
+
+    /// A clone of [`super::ThreadEventCacheInner::shared_pagination_status`].
+    pagination_status: SharedObservable<SharedPaginationStatus>,
 
     /// The information related to this thread, [`ThreadInfo`].
     pub thread_info: SharedObservable<ThreadInfo, AsyncLock>,
@@ -129,6 +133,7 @@ impl ThreadEventCacheState {
         store_guard: EventCacheStoreLockGuard,
         update_sender: ThreadEventCacheUpdateSender,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+        pagination_status: SharedObservable<SharedPaginationStatus>,
     ) -> Result<Self> {
         let linked_chunk_id = LinkedChunkId::Thread(&room_id, &thread_id);
 
@@ -193,6 +198,7 @@ impl ThreadEventCacheState {
                 linked_chunk,
                 full_linked_chunk_metadata,
             ),
+            pagination_status,
             thread_info: SharedObservable::new_async(thread_info),
             update_sender,
             linked_chunk_update_sender,
@@ -267,8 +273,15 @@ impl ThreadEventCacheState {
             // start of the timeline, since we don't know about that anymore.
             self.waited_for_initial_prev_token = false;
 
+            // Note: this may cancel an ongoing pagination.
+            self.pagination_status.set(SharedPaginationStatus::Idle { hit_timeline_start: false });
+
             return Ok(());
         }
+
+        // Let pagination observers know that we may have not reached the start
+        // of the thread. This may cancel an ongoing pagination.
+        self.pagination_status.set(SharedPaginationStatus::Idle { hit_timeline_start: false });
 
         Ok(())
     }
@@ -372,6 +385,11 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
                 // the start of the timeline, since we don't know about that
                 // anymore.
                 *self.waited_for_initial_prev_token_mut() = false;
+
+                // Note: this may cancel an ongoing pagination.
+                self.state
+                    .pagination_status
+                    .set(SharedPaginationStatus::Idle { hit_timeline_start: false });
             }
 
             ReloadPreprocessing::None => {}
