@@ -37,6 +37,7 @@ use ruma::{
 use strass::assert_let;
 use tokio::{spawn, sync::broadcast, task::yield_now, time::sleep};
 
+mod event_focused;
 mod read_receipts;
 mod threads;
 
