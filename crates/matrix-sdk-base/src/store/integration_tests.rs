@@ -1057,11 +1057,11 @@ impl StateStoreIntegrationTests for DynStateStore {
     }
 
     async fn test_receipts_bulk_loading(&self) -> TestResult {
-        let room_id = room_id!("!test_receipts_bulk_loading:localhost");
+        let room_id = room_id!("!r0");
 
-        let first_event_id = event_id!("$1435641916114394fHBLK:matrix.org");
-        let second_event_id = event_id!("$fHBLK1435641916114394:matrix.org");
-        let third_event_id = event_id!("$4394fHBLK143564191611:matrix.org");
+        let first_event_id = event_id!("$ev0");
+        let second_event_id = event_id!("$ev1");
+        let third_event_id = event_id!("$ev2");
 
         let first_receipt_ts = uint!(1436451550);
         let second_receipt_ts = uint!(1436451653);

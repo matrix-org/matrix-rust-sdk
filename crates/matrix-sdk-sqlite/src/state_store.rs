@@ -1174,35 +1174,6 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
             )
             .await?)
     }
-
-    async fn get_events_receipts(
-        &self,
-        room_id: Key,
-        receipt_type: Key,
-        thread: Key,
-        event_ids: Vec<Key>,
-    ) -> Result<Vec<Vec<u8>>> {
-        self.chunk_large_query_over(event_ids, None, move |txn, event_ids| {
-            let sql = format!(
-                "SELECT data FROM receipt
-                 WHERE room_id = ? AND receipt_type = ? AND thread = ? AND event_id IN ({})",
-                event_ids.host_parameters(),
-            );
-
-            let params = rusqlite::params_from_iter(
-                [room_id.clone(), receipt_type.clone(), thread.clone()]
-                    .into_iter()
-                    .chain(event_ids),
-            );
-
-            Ok(txn
-                .prepare(&sql)?
-                .query(params)?
-                .mapped(|row| row.get(0))
-                .collect::<Result<_, _>>()?)
-        })
-        .await
-    }
 }
 
 #[async_trait]
@@ -2036,17 +2007,35 @@ impl StateStore for SqliteStateStore {
         let encoded_event_ids =
             event_ids.iter().map(|&event_id| self.encode_key(keys::RECEIPT, event_id)).collect();
 
+        let this = self.clone();
         let rows = self
             .read()
             .await?
-            .get_events_receipts(room_id, receipt_type, receipt_thread, encoded_event_ids)
+            .chunk_large_query_over(encoded_event_ids, None, move |txn, event_ids| {
+                let sql = format!(
+                    "SELECT data FROM receipt
+                     WHERE room_id = ? AND receipt_type = ? AND thread = ? AND event_id IN ({})",
+                    event_ids.host_parameters(),
+                );
+
+                let params = rusqlite::params_from_iter(
+                    [room_id.clone(), receipt_type.clone(), receipt_thread.clone()]
+                        .into_iter()
+                        .chain(event_ids),
+                );
+
+                txn.prepare(&sql)?
+                    .query(params)?
+                    .mapped(|row| row.get::<_, Vec<u8>>(0))
+                    .map(|value| this.deserialize_json::<ReceiptData>(&value?))
+                    .collect()
+            })
             .await?;
 
         // The `event_id` column may hold a hashed key, so the rows are grouped by
         // the event id stored in their data instead.
         let mut receipts: HashMap<OwnedEventId, Vec<(OwnedUserId, Receipt)>> = HashMap::new();
-        for value in rows {
-            let data = self.deserialize_json::<ReceiptData>(&value)?;
+        for data in rows {
             receipts.entry(data.event_id).or_default().push((data.user_id, data.receipt));
         }
 

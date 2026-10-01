@@ -305,14 +305,11 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The id of the room for which the receipts should be
+    /// - `room_id` - The id of the room for which the receipts should be
     ///   fetched.
-    ///
-    /// * `receipt_type` - The type of the receipts.
-    ///
-    /// * `receipt_thread` - The thread a receipt applies to.
-    ///
-    /// * `event_ids` - The ids of the events for which the receipts should be
+    /// - `receipt_type` - The type of the receipts.
+    /// - `receipt_thread` - The thread a receipt applies to.
+    /// - `event_ids` - The ids of the events for which the receipts should be
     ///   fetched.
     async fn get_event_room_receipt_events_batch<'a>(
         &self,
