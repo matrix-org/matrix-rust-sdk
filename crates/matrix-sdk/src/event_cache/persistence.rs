@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, HashMap, HashSet},
+};
 
 use matrix_sdk_base::{
     deserialized_responses::TimelineEventKind,
@@ -21,6 +24,7 @@ use matrix_sdk_base::{
     linked_chunk::{ChunkMetadata, LinkedChunkId, OwnedLinkedChunkId, Update},
 };
 use ruma::{EventId, RoomId, events::relation::RelationType, serde::Raw};
+use serde::{Deserialize, Serialize};
 use serde_json::value::{RawValue, to_raw_value};
 use tokio::sync::broadcast::Sender;
 use tracing::trace;
@@ -273,15 +277,26 @@ fn strip_relations_if_present<T>(event: &mut Raw<T>) {
 /// raw JSON: nothing is parsed deeper than the keys, and the event is rebuilt
 /// around a new `unsigned`.
 fn without_bundled_relations<T>(event: &Raw<T>) -> Option<Raw<T>> {
-    let mut unsigned = event.get_field::<BTreeMap<String, &RawValue>>("unsigned").ok()??;
-    unsigned.remove("m.relations")?;
+    let RawFields(mut unsigned) = event.get_field("unsigned").ok()??;
+    unsigned.remove(&FieldName(Cow::Borrowed("m.relations")))?;
     let unsigned = to_raw_value(&unsigned).ok()?;
 
-    let mut fields: BTreeMap<String, &RawValue> = serde_json::from_str(event.json().get()).ok()?;
-    fields.insert("unsigned".to_owned(), &unsigned);
+    let RawFields(mut fields) = serde_json::from_str(event.json().get()).ok()?;
+    fields.insert(FieldName(Cow::Borrowed("unsigned")), &unsigned);
 
     Some(Raw::from_json(to_raw_value(&fields).ok()?))
 }
+
+/// The fields of a JSON object, with their values kept as raw JSON.
+#[derive(Deserialize)]
+#[serde(transparent)]
+struct RawFields<'a>(#[serde(borrow)] BTreeMap<FieldName<'a>, &'a RawValue>);
+
+/// The name of a JSON object field, borrowed from the JSON unless it has
+/// escapes.
+#[derive(Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(transparent)]
+struct FieldName<'a>(#[serde(borrow)] Cow<'a, str>);
 
 /// Find a single event, first in-memory, then in-store.
 pub async fn find_event(
@@ -445,6 +460,7 @@ mod tests {
                 "content": { "msgtype": "m.text", "body": "hey yo" },
                 "unsigned": {
                     "age": 3,
+                    "transaction_id": "txn",
                     "m.relations": {
                         "m.replace": {
                             "type": "m.room.message",
@@ -461,7 +477,9 @@ mod tests {
                     }
                 }
             })
-            .to_string(),
+            .to_string()
+            // An escaped field name can't be borrowed from the JSON.
+            .replace("transaction_id", r"transaction_\u0069d"),
         )
         .unwrap();
 
@@ -472,6 +490,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(unsigned.get("age"), Some(&json!(3)));
+        assert_eq!(unsigned.get("transaction_id"), Some(&json!("txn")));
         assert!(!unsigned.contains_key("m.relations"));
     }
 
