@@ -137,7 +137,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
     future::IntoFuture,
-    ops::Not,
     str::FromStr as _,
     sync::{
         Arc, OnceLock, RwLock,
@@ -1023,40 +1022,28 @@ impl RoomSendQueue {
                                     id.rules()
                                         .is_some_and(|rules| rules.redaction.content_field_redacts)
                                 });
-                                let redacts = if content_field_redacts.not() {
-                                    format!("\"redacts\":\"{redacts}\",")
-                                } else {
-                                    "".to_owned()
-                                };
-                                let reason = reason.map_or_else(
-                                    || "".to_owned(),
-                                    |r| format!("\"reason\": \"{r}\""),
-                                );
-                                let content = if content_field_redacts {
-                                    format!("\"redacts\":\"{redacts}\",{reason}")
-                                } else {
-                                    reason
-                                };
 
-                                let timeline_event = match Raw::from_json_string(
-                                    // Create a compact string: remove all useless spaces.
-                                    format!(
-                                        "{{\
-                                            {redacts}\
-                                            \"event_id\":\"{event_id}\",\
-                                            \"origin_server_ts\":{ts},\
-                                            \"sender\":\"{sender}\",\
-                                            \"type\":\"{type}\",\
-                                            \"content\":{{{content}}}\
-                                        }}",
-                                        redacts = redacts,
-                                        event_id = event_id,
-                                        ts = MilliSecondsSinceUnixEpoch::now().get(),
-                                        sender = room.client().user_id().expect("Client must be logged-in"),
-                                        type = TimelineEventType::RoomRedaction,
-                                        content = content
-                                    ),
-                                ) {
+                                let mut event = serde_json::json!({
+                                    "event_id": event_id,
+                                    "origin_server_ts": MilliSecondsSinceUnixEpoch::now().get(),
+                                    "sender": room.client().user_id().expect("Client must be logged-in"),
+                                    "type": TimelineEventType::RoomRedaction,
+                                    "content": {},
+                                });
+
+                                if content_field_redacts {
+                                    event["content"]["redacts"] = redacts.to_string().into();
+                                } else {
+                                    event["redacts"] = redacts.to_string().into();
+                                }
+
+                                if let Some(reason) = reason {
+                                    event["content"]["reason"] = reason.into();
+                                }
+
+                                let timeline_event = match serde_json::value::to_raw_value(&event)
+                                    .map(Raw::from_json)
+                                {
                                     Ok(event) => Some(TimelineEvent::from_plaintext(event)),
                                     Err(err) => {
                                         error!(
