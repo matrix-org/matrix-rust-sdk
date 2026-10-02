@@ -231,6 +231,11 @@ opt-level = 3
 inherits = "release"
 opt-level = "s"
 
+# Stripping host proc-macro dylibs built with `MACOSX_DEPLOYMENT_TARGET` >= 12.0
+# makes them fail to load on macOS 27 ("mis-aligned LINKEDIT string pool").
+[profile.small-release.build-override]
+strip = "none"
+
 # This is the same as `small-release`, but it also strips debug symbols.
 [profile.small-release-stripped]
 # Use release profile as a base
