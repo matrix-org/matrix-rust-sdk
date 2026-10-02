@@ -344,6 +344,34 @@ impl EventCacheStore for MemoryStore {
         Ok(deduplicated.into_values().collect())
     }
 
+    async fn find_events_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        cutoff_ms: u64,
+    ) -> Result<Vec<Event>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+
+        let mut events_by_id = HashMap::new();
+        for (_, (event, _)) in inner.events.items(room_id) {
+            let Some(timestamp) = event.timestamp() else {
+                continue;
+            };
+            if u64::from(timestamp.get()) >= cutoff_ms {
+                continue;
+            }
+            let Some(event_id) = event.event_id() else {
+                continue;
+            };
+
+            events_by_id.entry(event_id.to_owned()).or_insert_with(|| event.clone());
+        }
+
+        let mut results: Vec<_> = events_by_id.into_values().collect();
+        results.sort_by_key(Event::timestamp);
+
+        Ok(results)
+    }
+
     async fn get_room_events(
         &self,
         room_id: &RoomId,

@@ -1761,6 +1761,40 @@ impl EventCacheStore for SqliteEventCacheStore {
     }
 
     #[instrument(skip(self))]
+    async fn find_events_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        cutoff_ms: u64,
+    ) -> Result<Vec<Event>, Self::Error> {
+        let _timer = timer!("method");
+
+        let encryption = self.encryption.clone();
+        let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
+
+        self.read()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                let mut results = Vec::new();
+                let mut statement = txn.prepare(
+                    "SELECT content \
+                    FROM events \
+                    WHERE room_id = ? AND timestamp < ? \
+                    ORDER BY timestamp ASC",
+                )?;
+                let rows = statement
+                    .query_map((&hashed_room_id, cutoff_ms), |row| row.get::<_, Vec<u8>>(0))?;
+
+                for row in rows {
+                    let event = encryption.decode_event(&row?)?;
+                    results.push(event);
+                }
+
+                Ok(results)
+            })
+            .await
+    }
+
+    #[instrument(skip(self))]
     async fn get_room_events(
         &self,
         room_id: &RoomId,
