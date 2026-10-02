@@ -694,6 +694,11 @@ pub struct VideoMessageContent {
     pub formatted_caption: Option<FormattedBody>,
     pub source: Arc<MediaSource>,
     pub info: Option<VideoInfo>,
+    /// Whether this video should be displayed as a circle video.
+    ///
+    /// Defaults to `false`.
+    #[uniffi(default = false)]
+    pub circle: bool,
 }
 
 impl From<VideoMessageContent> for RumaVideoMessageEventContent {
@@ -703,6 +708,7 @@ impl From<VideoMessageContent> for RumaVideoMessageEventContent {
             .info(value.info.map(Into::into).map(Box::new));
         event_content.formatted = value.formatted_caption.map(Into::into);
         event_content.filename = filename;
+        event_content.circle = value.circle;
         event_content
     }
 }
@@ -717,6 +723,7 @@ impl TryFrom<RumaVideoMessageEventContent> for VideoMessageContent {
             formatted_caption: value.formatted_caption().map(Into::into),
             source: Arc::new(value.source.try_into()?),
             info: value.info.as_deref().map(TryInto::try_into).transpose()?,
+            circle: value.circle,
         })
     }
 }
@@ -895,6 +902,11 @@ pub struct VideoInfo {
     pub thumbnail_info: Option<ThumbnailInfo>,
     pub thumbnail_source: Option<Arc<MediaSource>>,
     pub blurhash: Option<String>,
+    /// Whether this video should be displayed as a circle video.
+    ///
+    /// Defaults to `false`.
+    #[uniffi(default = false)]
+    pub circle: bool,
 }
 
 impl From<VideoInfo> for RumaVideoInfo {
@@ -934,6 +946,7 @@ impl TryFrom<&VideoInfo> for BaseVideoInfo {
                 .transpose()
                 .map_err(|_| MediaInfoError::InvalidField)?,
             blurhash: value.blurhash.clone(),
+            circle: value.circle,
         })
     }
 }
@@ -1147,6 +1160,7 @@ impl TryFrom<&RumaVideoInfo> for VideoInfo {
                 .transpose()?
                 .map(Arc::new),
             blurhash: info.blurhash.clone(),
+            circle: false,
         })
     }
 }

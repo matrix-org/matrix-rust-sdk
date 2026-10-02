@@ -95,6 +95,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "f5e5e1c885f598036fd4326c56
     "unstable-msc4308",
     "unstable-msc4310",
     "unstable-msc4388",
+    "unstable-msc4546",
 ] }
 rustls = { version = "0.23.45", default-features = false }
 sentry = { version = "0.49.2", default-features = false }
