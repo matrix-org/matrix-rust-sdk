@@ -3148,3 +3148,79 @@ async fn test_order_tracker_is_reset_when_cross_process_is_dirty() {
 
     assert!(events.iter().any(|ev| ev.event_id() == Some(event_id_4)));
 }
+
+#[async_test]
+async fn test_backpagination_until_drops_rounds_from_before_clear() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    let room = server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    // The first round succeeds, but doesn't return enough events.
+    server
+        .mock_room_messages()
+        .ok(RoomMessagesResponseTemplate::default().end_token("prev_batch_1").events(vec![
+            f.text_msg("stale2").event_id(event_id!("$s2")).into_raw_timeline(),
+            f.text_msg("stale1").event_id(event_id!("$s1")).into_raw_timeline(),
+        ]))
+        .mock_once()
+        .mount()
+        .await;
+
+    // The second round's response arrives after the room has been cleared.
+    server
+        .mock_room_messages()
+        .match_from("prev_batch_1")
+        .ok(RoomMessagesResponseTemplate::default()
+            .end_token("prev_batch_2")
+            .events(vec![f.text_msg("stale0").event_id(event_id!("$s0")).into_raw_timeline()])
+            .with_delay(Duration::from_secs(2)))
+        .mock_once()
+        .mount()
+        .await;
+
+    // The restarted back-pagination reaches the start of the timeline.
+    server
+        .mock_room_messages()
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(vec![f.text_msg("fresh").event_id(event_id!("$fresh")).into_raw_timeline()]))
+        .mock_once()
+        .mount()
+        .await;
+
+    let pagination = room_event_cache.pagination();
+    let task = spawn(async move { pagination.run_backwards_until(10).await });
+
+    // Clear the room while the second request is in flight.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let requests = server.server().received_requests().await.unwrap_or_default();
+            if requests.iter().any(|request| {
+                request.url.query().is_some_and(|query| query.contains("from=prev_batch_1"))
+            }) {
+                return;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the second request should have been received");
+    client.event_cache().clear_all_rooms().await.unwrap();
+
+    let outcome = task.await.unwrap().unwrap();
+
+    // The events from the round before the clear aren't returned.
+    let event_ids =
+        outcome.events.iter().map(|event| event.event_id().unwrap()).collect::<Vec<_>>();
+    assert_eq!(event_ids, [event_id!("$fresh")]);
+    assert!(outcome.reached_start);
+
+    let events = room_event_cache.events().await.unwrap();
+    let event_ids = events.iter().map(|event| event.event_id().unwrap()).collect::<Vec<_>>();
+    assert_eq!(event_ids, [event_id!("$fresh")]);
+}
