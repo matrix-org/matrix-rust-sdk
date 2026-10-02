@@ -103,7 +103,8 @@ pub enum LoginProtocolsMessage {
         /// The homeserver we're going to log in to.
         ///
         /// Note: this doesn't match the MSC which says that it is a server name
-        /// not a full URL
+        /// not a full URL. This is an implementation mistake in the first
+        /// version of the QR code login support.
         homeserver: Url,
     },
 }
