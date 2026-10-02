@@ -8,14 +8,14 @@ use matrix_sdk::{
     assert_let_timeout, assert_next_matches_with_timeout,
     deserialized_responses::TimelineEvent,
     event_cache::{
-        BackPaginationOutcome, EventCacheError, PaginationStatus, RoomEventCacheUpdate,
-        TimelineVectorDiffs,
+        BackPaginationOutcome, EventCacheError, EventFocusThreadMode, PaginationStatus,
+        RoomEventCacheUpdate, TimelineVectorDiffs,
     },
     linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
     store::StoreConfig,
     test_utils::{
         assert_event_matches_msg,
-        mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
+        mocks::{MatrixMockServer, RoomContextResponseTemplate, RoomMessagesResponseTemplate},
     },
 };
 use matrix_sdk_base::event_cache::{
@@ -3147,4 +3147,45 @@ async fn test_order_tracker_is_reset_when_cross_process_is_dirty() {
     let events = room_event_cache_a.events().await.unwrap();
 
     assert!(events.iter().any(|ev| ev.event_id() == Some(event_id_4)));
+}
+
+#[async_test]
+async fn test_event_focused_cache_can_be_retried_after_a_failed_start() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let event_id = event_id!("$ev0");
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+    server.sync_joined_room(&client, room_id).await;
+
+    // The `/context` endpoint isn't mocked yet, so the initial request fails,
+    // and the event-focused cache can't be created.
+    let result = client
+        .event_cache()
+        .event_focused(room_id, event_id, EventFocusThreadMode::Automatic, 10)
+        .await;
+    assert!(result.is_err());
+
+    // Now the `/context` endpoint responds successfully.
+    server
+        .mock_room_event_context()
+        .ok(RoomContextResponseTemplate::new(f.text_msg("hello").event_id(event_id).into_event()))
+        .mock_once()
+        .mount()
+        .await;
+
+    // Retrying must create the event-focused cache.
+    let (event_focused_cache, _drop_handles) = client
+        .event_cache()
+        .event_focused(room_id, event_id, EventFocusThreadMode::Automatic, 10)
+        .await
+        .unwrap();
+
+    let events = event_focused_cache.events().await.unwrap();
+    assert_eq!(events.len(), 1);
+    assert_event_id!(events[0], "$ev0");
 }
