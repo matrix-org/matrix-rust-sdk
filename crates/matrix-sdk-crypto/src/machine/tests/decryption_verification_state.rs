@@ -585,6 +585,62 @@ async fn test_decryption_trust_with_identity_change() {
     .await;
 }
 
+/// A session imported from backup is a legacy session, so it should stay
+/// decryptable under `CrossSignedOrLegacy` once we learn about the sender's
+/// device via `/keys/query`.
+#[async_test]
+async fn test_backup_imported_session_stays_legacy_after_keys_query() {
+    // Alice sends an encrypted message to Bob's first device
+    let (alice, bob) = get_machine_pair_with_setup_sessions_test_helper(
+        tests::alice_id(),
+        tests::user_id(),
+        false,
+    )
+    .await;
+    let room_id = room_id!("!test:example.org");
+    let (event, session_id) = encrypt_message(&alice, room_id, &bob, "Secret message").await;
+    let exported = bob
+        .store()
+        .get_inbound_group_session(room_id, &session_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .export()
+        .await;
+
+    // A fresh device of Bob's restores the room key from backup, knowing
+    // nothing about Alice's devices. We simulate a restore from backup via
+    // `import_room_keys`.
+    let bob2 = OlmMachine::new(tests::user_id(), ruma::device_id!("BOB2")).await;
+    bob2.store().import_room_keys(vec![exported], Some("1"), |_, _| {}).await.unwrap();
+    check_decryption_trust_requirement(
+        &bob2,
+        &event,
+        room_id,
+        &[(TrustRequirement::CrossSignedOrLegacy, true)],
+    )
+    .await;
+
+    // Bob's new device then gets Alice's (not cross-signed) device in a
+    // `/keys/query` response.
+    let alice_device = DeviceData::from_machine_test_helper(&alice).await.unwrap();
+    let kq_response = json!({
+        "device_keys": { alice.user_id(): { alice.device_id(): alice_device.as_device_keys() } }
+    });
+    bob2.receive_keys_query_response(&TransactionId::new(), &ruma_response_from_json(&kq_response))
+        .await
+        .unwrap();
+
+    // Check that Bob's new device can still successfully decrypt the event.
+    check_decryption_trust_requirement(
+        &bob2,
+        &event,
+        room_id,
+        &[(TrustRequirement::CrossSignedOrLegacy, true)],
+    )
+    .await;
+}
+
 /// Helper function to set up Alice's cross-signing, and save her keys in Bob's
 /// storage.
 async fn set_up_alice_cross_signing(alice: &OlmMachine, bob: &OlmMachine) {
