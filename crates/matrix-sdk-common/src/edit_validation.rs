@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{events::AnySyncTimelineEvent, serde::Raw};
+use ruma::{
+    events::{AnySyncTimelineEvent, relation::RelationType},
+    serde::Raw,
+};
 use serde::Deserialize;
 
 use crate::deserialized_responses::EncryptionInfo;
@@ -101,8 +104,6 @@ pub fn check_validity_of_replacement_events(
     replacement_json: &Raw<AnySyncTimelineEvent>,
     replacement_encryption_info: Option<&EncryptionInfo>,
 ) -> Result<(), EditValidityError> {
-    const REPLACEMENT_REL_TYPE: &str = "m.replace";
-
     #[derive(Debug, Deserialize)]
     struct MinimalEvent<'a> {
         sender: &'a str,
@@ -126,7 +127,7 @@ pub fn check_validity_of_replacement_events(
 
     #[derive(Debug, Deserialize)]
     struct MinimalRelatesTo<'a> {
-        rel_type: Option<&'a str>,
+        rel_type: Option<RelationType>,
         event_id: Option<&'a str>,
     }
 
@@ -146,7 +147,7 @@ pub fn check_validity_of_replacement_events(
     // check if the replacement event is has the correct rel_type and if it's an
     // edit for the original event.
     if let Some(relates_to) = replacement_event.content.relates_to {
-        if relates_to.rel_type != Some(REPLACEMENT_REL_TYPE)
+        if relates_to.rel_type != Some(RelationType::Replacement)
             || relates_to.event_id != Some(original_event.event_id)
         {
             return Err(EditValidityError::NotReplacement);
@@ -174,7 +175,7 @@ pub fn check_validity_of_replacement_events(
     // you cannot edit an edit — though you can send multiple edits for a single
     // original event).
     if let Some(relates_to) = original_event.content.relates_to
-        && relates_to.rel_type == Some(REPLACEMENT_REL_TYPE)
+        && relates_to.rel_type == Some(RelationType::Replacement)
     {
         return Err(EditValidityError::OriginalEventIsReplacement);
     }

@@ -707,9 +707,10 @@ impl BaseClient {
                     ProcessedToDeviceEvent, ToDeviceUnableToDecryptInfo,
                     ToDeviceUnableToDecryptReason,
                 };
+                use ruma::events::ToDeviceEventType;
 
-                if let Ok(Some(event_type)) = raw.get_field::<String>("type") {
-                    if event_type == "m.room.encrypted" {
+                if let Ok(Some(event_type)) = raw.get_field::<ToDeviceEventType>("type") {
+                    if event_type == ToDeviceEventType::RoomEncrypted {
                         ProcessedToDeviceEvent::UnableToDecrypt {
                             encrypted_event: raw,
                             utd_info: ToDeviceUnableToDecryptInfo {
