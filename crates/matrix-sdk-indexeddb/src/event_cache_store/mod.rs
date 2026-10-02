@@ -14,7 +14,11 @@
 
 #![cfg_attr(not(test), allow(unused))]
 
-use std::{collections::HashMap, rc::Rc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    rc::Rc,
+    time::Duration,
+};
 
 use indexed_db_futures::{Build, database::Database};
 #[cfg(target_family = "wasm")]
@@ -653,6 +657,32 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                 (event.into(), position)
             })
             .collect())
+    }
+
+    #[instrument(skip(self))]
+    async fn find_events_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        cutoff_ms: u64,
+    ) -> Result<Vec<Event>, IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
+
+        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+        let events = transaction.get_events_before_timestamp(room_id, cutoff_ms).await?;
+
+        let mut seen_event_ids = HashSet::new();
+        let mut results = Vec::new();
+        for event in events {
+            let Some(event_id) = event.event_id().map(ToOwned::to_owned) else {
+                continue;
+            };
+
+            if seen_event_ids.insert(event_id) {
+                results.push(Event::from(event));
+            }
+        }
+
+        Ok(results)
     }
 
     #[instrument(skip(self))]
