@@ -289,8 +289,9 @@ pub(crate) mod tests {
 
     /// Deserialize the event for the given field name, check that the flag was
     /// read, and check that it is serialized with the name from the spec.
-    fn check_shared_history(shared_history: SharedHistoryField) -> Result<(), serde_json::Error> {
-        let event: RoomKeyEvent = serde_json::from_value(json(shared_history))?;
+    fn check_shared_history(shared_history: SharedHistoryField) {
+        let event: RoomKeyEvent = serde_json::from_value(json(shared_history))
+            .expect("We should be able to deserialize the m.room_key event");
 
         let content = assert_matches!(&event.content, RoomKeyContent::MegolmV1AesSha2(c) => c);
         assert!(content.shared_history, "The shared history flag should be read from the JSON");
@@ -299,24 +300,23 @@ pub(crate) mod tests {
             "The shared history flag should not be kept as a custom field"
         );
 
-        let serialized = serde_json::to_value(event)?;
+        let serialized = serde_json::to_value(event)
+            .expect("We should be able to serialize the m.room_key event");
         assert_eq!(serialized, json_stable());
-
-        Ok(())
     }
 
     #[test]
-    fn deserialization_stable() -> Result<(), serde_json::Error> {
-        check_shared_history(SharedHistoryField::Spec)
+    fn deserialization_stable() {
+        check_shared_history(SharedHistoryField::Spec);
     }
 
     #[test]
-    fn deserialization_unstable() -> Result<(), serde_json::Error> {
-        check_shared_history(SharedHistoryField::Unstable)
+    fn deserialization_unstable() {
+        check_shared_history(SharedHistoryField::Unstable);
     }
 
     #[test]
-    fn deserialization_legacy() -> Result<(), serde_json::Error> {
-        check_shared_history(SharedHistoryField::Legacy)
+    fn deserialization_legacy() {
+        check_shared_history(SharedHistoryField::Legacy);
     }
 }
