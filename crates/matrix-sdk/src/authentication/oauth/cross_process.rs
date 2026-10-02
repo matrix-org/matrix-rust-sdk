@@ -262,7 +262,7 @@ mod tests {
 
     use super::compute_session_hash;
     use crate::{
-        Error,
+        Client, Error, RefreshTokenError,
         authentication::oauth::cross_process::SessionHash,
         test_utils::{
             client::{
@@ -748,5 +748,190 @@ mod tests {
             app_refresh.is_ok(),
             "the app was signed out after the NSE rotated the refresh token: {app_refresh:?}"
         );
+    }
+
+    /// The refresh token can be rotated by another process while the app is
+    /// suspended during the token exchange of its own refresh. The race, in
+    /// order:
+    ///
+    /// 1. the app starts a refresh and sends the token exchange request,
+    /// 2. the OS suspends it while that request is in flight,
+    /// 3. the 500ms lock lease lapses, as the task renewing it is frozen too,
+    /// 4. the NSE takes the lock, refreshes, and rotates the refresh token,
+    /// 5. the app resumes, and the server rejects the token it sent in step 1.
+    ///
+    /// The app must notice the rotation, adopt the token the NSE stored, and
+    /// stay signed in.
+    ///
+    /// `app_can_reload` tells whether the app's reload callback manages to read
+    /// the session the NSE stored.
+    ///
+    /// Returns the app, the result of its refresh, and the store directory the
+    /// two clients share — keep that last one alive, dropping it wipes the
+    /// databases.
+    async fn run_refresh_interrupted_during_token_exchange(
+        app_can_reload: bool,
+    ) -> (Client, Result<(), RefreshTokenError>, tempfile::TempDir) {
+        use std::{
+            thread,
+            time::{Duration, Instant},
+        };
+
+        use matrix_sdk_common::cross_process_lock::LEASE_DURATION_MS;
+
+        let server = MatrixMockServer::new().await;
+        let oauth_server = server.oauth();
+
+        oauth_server.mock_server_metadata().ok().mount().await;
+
+        // The app's exchange is the first to reach the token endpoint, and is left
+        // in flight. By the time the app sees the response the NSE has rotated the
+        // token, so the one the app sent has been consumed: it is rejected.
+        oauth_server
+            .mock_token()
+            .with_delay(Duration::from_secs(1))
+            .invalid_grant()
+            .mock_once()
+            .mount()
+            .await;
+        // The NSE's exchange arrives second, and rotates the token.
+        oauth_server.mock_token().ok_with_tokens("1234", "ZYXWV").mount().await;
+
+        // The app and the NSE are two clients over one shared sqlite store, both
+        // restored with the same (prev) session.
+        let tmp_dir = tempfile::tempdir().unwrap();
+
+        let app = server
+            .client_builder()
+            .on_builder(|b| b.sqlite_store(&tmp_dir, None))
+            .unlogged()
+            .build()
+            .await;
+        app.oauth().enable_cross_process_refresh_lock("app".to_owned()).await.unwrap();
+        app.oauth()
+            .restore_session(
+                mock_session(mock_prev_session_tokens_with_refresh()),
+                RoomLoadSettings::default(),
+            )
+            .await
+            .unwrap();
+        app.set_session_callbacks(
+            Box::new(move |_| {
+                if app_can_reload {
+                    Ok(mock_session_tokens_with_refresh())
+                } else {
+                    Err("the app can't read the session back".into())
+                }
+            }),
+            Box::new(|_| Ok(())),
+        )
+        .unwrap();
+
+        let app_oauth = app.oauth();
+        let app_refresh = tokio::spawn(async move { app_oauth.refresh_access_token().await });
+
+        // Wait until the app has actually sent its token exchange before suspending
+        // it, so we know it is parked in that request.
+        let mut waited = Duration::ZERO;
+        while !server
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .any(|request| request.url.path().contains("/oauth2/token"))
+        {
+            assert!(waited < Duration::from_secs(5), "the app never sent its token exchange");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            waited += Duration::from_millis(10);
+        }
+
+        // The NSE runs on its own thread and runtime. Suspending the app below blocks
+        // the app's runtime thread, which would freeze the NSE too if the two shared a
+        // runtime — and a frozen NSE can never steal the lapsed lock.
+        thread::scope(|scope| {
+            scope.spawn(|| {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+
+                runtime.block_on(async {
+                    // The app is about to be frozen, so its lease stops being renewed and
+                    // lapses `LEASE_DURATION_MS` from here. Set the NSE up while that runs
+                    // down, rather than after it, so only the wait below stands between the
+                    // app's exchange and the NSE's rotation.
+                    let frozen_at = Instant::now();
+
+                    let nse = server
+                        .client_builder()
+                        .on_builder(|b| b.sqlite_store(&tmp_dir, None))
+                        .unlogged()
+                        .build()
+                        .await;
+                    nse.oauth()
+                        .enable_cross_process_refresh_lock("nse".to_owned())
+                        .await
+                        .unwrap();
+                    nse.oauth()
+                        .restore_session(
+                            mock_session(mock_prev_session_tokens_with_refresh()),
+                            RoomLoadSettings::default(),
+                        )
+                        .await
+                        .unwrap();
+                    nse.set_session_callbacks(
+                        Box::new(|_| Ok(mock_session_tokens_with_refresh())),
+                        Box::new(|_| Ok(())),
+                    )
+                    .unwrap();
+
+                    // Wait out what is left of the lapsing lease: the app holds the lock
+                    // across its exchange, and trying to take it any earlier only costs the
+                    // NSE a backoff round.
+                    let lease_lapsed = Duration::from_millis(LEASE_DURATION_MS as u64 + 50);
+                    tokio::time::sleep(lease_lapsed.saturating_sub(frozen_at.elapsed())).await;
+
+                    // The NSE steals the lapsed lock and refreshes, rotating the token
+                    // that the app's in-flight exchange is about to present.
+                    nse.oauth().refresh_access_token().await.unwrap();
+                    assert_eq!(nse.session_tokens(), Some(mock_session_tokens_with_refresh()));
+                });
+            });
+
+            // "Suspend" the app: blocking its runtime thread freezes every task on it,
+            // including the one renewing the lease.
+            thread::sleep(Duration::from_secs(2));
+        });
+
+        let app_refresh = app_refresh.await.expect("the app refresh task shouldn't panic");
+
+        (app, app_refresh, tmp_dir)
+    }
+
+    #[async_test]
+    async fn test_refresh_interrupted_during_token_exchange_does_not_sign_out() {
+        let (app, app_refresh, _store_dir) =
+            run_refresh_interrupted_during_token_exchange(true).await;
+
+        assert!(
+            app_refresh.is_ok(),
+            "the app was signed out after the NSE rotated the refresh token: {app_refresh:?}"
+        );
+        // Reporting success is only correct because the app now holds the token the
+        // NSE stored; the next request must not reuse the consumed one.
+        assert_eq!(app.session_tokens(), Some(mock_session_tokens_with_refresh()));
+    }
+
+    /// Recovering hinges on the reload callback handing us the session the
+    /// other process stored. When it can't, the app is still stuck with the
+    /// consumed refresh token, and reporting success would leave it
+    /// retrying forever with a token that can no longer work.
+    #[async_test]
+    async fn test_refresh_interrupted_during_token_exchange_fails_if_reload_fails() {
+        let (app, app_refresh, _store_dir) =
+            run_refresh_interrupted_during_token_exchange(false).await;
+
+        assert!(app_refresh.is_err(), "the failed exchange was reported as a success");
+        assert_eq!(app.session_tokens(), Some(mock_prev_session_tokens_with_refresh()));
     }
 }
