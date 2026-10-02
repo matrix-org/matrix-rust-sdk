@@ -220,27 +220,33 @@ impl MatrixDriver {
             ));
         }
 
-        if let Some(delay) = delay
-            && self.use_delayed_event_endpoint().await?
-        {
-            let request = send_delayed_event::unstable::Request::new_raw(
-                event_type,
-                self.room.room_id().to_owned(),
-                TransactionId::new(),
-                delay,
-                state_key.clone(),
-                Raw::from_json(content.clone()),
-            )?;
+        if let Some(delay) = delay {
+            if !self.room.client.unstable_features().await?.contains(&FeatureFlag::Msc4140) {
+                return Err(Error::UnknownError(
+                    "the homeserver does not support delayed events".into(),
+                ));
+            }
 
-            match self.room.client.send(request).await {
-                Ok(response) => return Ok(response.into()),
-                Err(error) if error.is_endpoint_not_implemented() => {
-                    debug!(
-                        "The delayed_event endpoint is not implemented, using the query parameter"
-                    );
-                    self.delayed_event_endpoint_unrecognized.store(true, Ordering::Relaxed);
+            if !self.delayed_event_endpoint_unrecognized.load(Ordering::Relaxed) {
+                let request = send_delayed_event::unstable::Request::new_raw(
+                    event_type,
+                    self.room.room_id().to_owned(),
+                    TransactionId::new(),
+                    delay,
+                    state_key.clone(),
+                    Raw::from_json(content.clone()),
+                )?;
+
+                match self.room.client.send(request).await {
+                    Ok(response) => return Ok(response.into()),
+                    Err(error) if error.is_endpoint_not_implemented() => {
+                        debug!(
+                            "The delayed_event endpoint is not implemented, using the query parameter"
+                        );
+                        self.delayed_event_endpoint_unrecognized.store(true, Ordering::Relaxed);
+                    }
+                    Err(error) => return Err(error.into()),
                 }
-                Err(error) => return Err(error.into()),
             }
         }
 
@@ -277,16 +283,6 @@ impl MatrixDriver {
                 self.room.client.send(r).await.map(|r| r.into())?
             }
         })
-    }
-
-    /// Whether to schedule delayed events through the MSC4140 `delayed_event`
-    /// endpoint rather than the `org.matrix.msc4140.delay` query parameter.
-    async fn use_delayed_event_endpoint(&self) -> Result<bool> {
-        if self.delayed_event_endpoint_unrecognized.load(Ordering::Relaxed) {
-            return Ok(false);
-        }
-
-        Ok(self.room.client.unstable_features().await?.contains(&FeatureFlag::Msc4140))
     }
 
     /// Send a request to the `/delayed_events`` endpoint

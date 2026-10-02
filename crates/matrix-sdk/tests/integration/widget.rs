@@ -1121,7 +1121,7 @@ async fn test_send_delayed_state_event() {
 }
 
 #[async_test]
-async fn test_send_delayed_message_event_with_query_parameter() {
+async fn test_send_delayed_event_without_msc4140_support() {
     // The homeserver doesn't advertise MSC4140.
     let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
 
@@ -1129,88 +1129,56 @@ async fn test_send_delayed_message_event_with_query_parameter() {
         &driver_handle,
         json!([
             "org.matrix.msc4157.send.delayed_event",
-            "org.matrix.msc2762.send.event:m.room.message"
-        ]),
-    )
-    .await;
-    mock_server
-        .mock_room_send()
-        .match_delayed_event(Duration::from_millis(1000))
-        .for_type(MessageLikeEventType::RoomMessage)
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "delay_id": "1234",
-        })))
-        .mock_once()
-        .mount()
-        .await;
-
-    send_request(
-        &driver_handle,
-        "send-room-message",
-        "send_event",
-        json!({
-            "type": "m.room.message",
-            "content": {
-                "msgtype": "m.text",
-                "body": "Message from a widget!",
-            },
-            "delay":1000,
-        }),
-    );
-
-    // Receive the response
-    let msg = recv_message(&driver_handle).await;
-    assert_eq!(msg["api"], "fromWidget");
-    assert_eq!(msg["action"], "send_event");
-    let delay_id = msg["response"]["delay_id"].as_str().unwrap();
-    assert_eq!(delay_id, "1234");
-}
-
-#[async_test]
-async fn test_send_delayed_state_event_with_query_parameter() {
-    // The homeserver doesn't advertise MSC4140.
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
-
-    negotiate_capabilities(
-        &driver_handle,
-        json!([
-            "org.matrix.msc4157.send.delayed_event",
+            "org.matrix.msc2762.send.event:m.room.message",
             "org.matrix.msc2762.send.state_event:m.room.name#"
         ]),
     )
     .await;
 
-    mock_server
-        .mock_room_send_state()
-        .match_delayed_event(Duration::from_millis(1000))
-        .for_type(StateEventType::RoomName)
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "delay_id": "1234",
-        })))
-        .mock_once()
-        .mount()
-        .await;
+    // Nothing is sent to the homeserver.
+    mock_server.mock_room_send_delayed_event().ok("1234").never().mount().await;
+    mock_server.mock_room_send().error500().never().mount().await;
+    mock_server.mock_room_send_state().error500().never().mount().await;
 
-    send_request(
-        &driver_handle,
-        "send-room-message",
-        "send_event",
-        json!({
-            "type": "m.room.name",
-            "state_key": "",
-            "content": {
-                "name": "Room Name set by Widget",
-            },
-            "delay":1000,
-        }),
-    );
+    for (request_id, request) in [
+        (
+            "send-room-message",
+            json!({
+                "type": "m.room.message",
+                "content": {
+                    "msgtype": "m.text",
+                    "body": "Message from a widget!",
+                },
+                "delay": 1000,
+            }),
+        ),
+        (
+            "send-room-name",
+            json!({
+                "type": "m.room.name",
+                "state_key": "",
+                "content": {
+                    "name": "Room Name set by Widget",
+                },
+                "delay": 1000,
+            }),
+        ),
+    ] {
+        send_request(&driver_handle, request_id, "send_event", request);
 
-    // Receive the response
-    let msg = recv_message(&driver_handle).await;
-    assert_eq!(msg["api"], "fromWidget");
-    assert_eq!(msg["action"], "send_event");
-    let delay_id = msg["response"]["delay_id"].as_str().unwrap();
-    assert_eq!(delay_id, "1234");
+        let msg = recv_message(&driver_handle).await;
+        assert_eq!(msg["api"], "fromWidget");
+        assert_eq!(msg["action"], "send_event");
+        assert_eq!(msg["requestId"], request_id);
+        assert_eq!(
+            msg["response"],
+            json!({
+                "error": {
+                    "message": "the homeserver does not support delayed events",
+                },
+            })
+        );
+    }
 }
 
 #[async_test]
@@ -1368,7 +1336,7 @@ async fn test_send_delayed_event_does_not_fall_back_on_other_errors() {
 
 #[async_test]
 async fn test_fail_sending_delay_rate_limit() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver_with_delayed_events().await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -1380,7 +1348,7 @@ async fn test_fail_sending_delay_rate_limit() {
     .await;
 
     mock_server
-        .mock_room_send()
+        .mock_room_send_delayed_event()
         .respond_with(ResponseTemplate::new(400).set_body_json(json!({
             "errcode": "M_LIMIT_EXCEEDED",
             "error": "Sending too many delay events"
