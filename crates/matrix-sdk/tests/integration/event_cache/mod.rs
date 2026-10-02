@@ -3148,3 +3148,140 @@ async fn test_order_tracker_is_reset_when_cross_process_is_dirty() {
 
     assert!(events.iter().any(|ev| ev.event_id() == Some(event_id_4)));
 }
+
+/// Wait until the mock server has received a request whose path ends with
+/// `path_suffix`.
+async fn wait_for_request(server: &MatrixMockServer, path_suffix: &str) {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let requests = server.server().received_requests().await.unwrap_or_default();
+
+            if requests.iter().any(|request| request.url.path().ends_with(path_suffix)) {
+                return;
+            }
+
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the request should have been received");
+}
+
+#[async_test]
+async fn test_backpagination_from_end_is_discarded_after_clear() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    // An empty room without a prev-batch token: the back-pagination starts
+    // from the end of the timeline, not from a gap.
+    let room = server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    // The first response arrives after the room has been cleared.
+    server
+        .mock_room_messages()
+        .ok(RoomMessagesResponseTemplate::default()
+            .end_token("stale_prev_batch")
+            .events(vec![
+                f.text_msg("stale2").event_id(event_id!("$s2")).into_raw_timeline(),
+                f.text_msg("stale1").event_id(event_id!("$s1")).into_raw_timeline(),
+            ])
+            .with_delay(Duration::from_secs(2)))
+        .mock_once()
+        .mount()
+        .await;
+
+    // The restarted back-pagination reaches the start of the timeline.
+    server
+        .mock_room_messages()
+        .ok(RoomMessagesResponseTemplate::default())
+        .mock_once()
+        .mount()
+        .await;
+
+    let pagination = room_event_cache.pagination();
+    let task = spawn(async move { pagination.run_backwards_once(20).await });
+
+    // Clear the room while the first request is in flight.
+    wait_for_request(&server, "/messages").await;
+    client.event_cache().clear_all_rooms().await.unwrap();
+
+    let outcome = task.await.unwrap().unwrap();
+
+    // The stale response hasn't been applied to the cleared room.
+    let events = room_event_cache.events().await.unwrap();
+    let event_ids = events.iter().map(|event| event.event_id().unwrap()).collect::<Vec<_>>();
+    assert!(event_ids.is_empty(), "{event_ids:?}");
+
+    assert!(outcome.reached_start);
+    assert!(outcome.events.is_empty());
+}
+
+#[async_test]
+async fn test_backpagination_from_end_is_discarded_after_clear_and_sync() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    // An empty room without a prev-batch token: the back-pagination starts
+    // from the end of the timeline, not from a gap.
+    let room = server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    // The first response arrives after the room has been cleared and synced.
+    server
+        .mock_room_messages()
+        .ok(RoomMessagesResponseTemplate::default()
+            .end_token("stale_prev_batch")
+            .events(vec![
+                f.text_msg("stale2").event_id(event_id!("$s2")).into_raw_timeline(),
+                f.text_msg("stale1").event_id(event_id!("$s1")).into_raw_timeline(),
+            ])
+            .with_delay(Duration::from_secs(2)))
+        .mock_once()
+        .mount()
+        .await;
+
+    // The restarted back-pagination resolves the gap from the new sync.
+    server
+        .mock_room_messages()
+        .match_from("fresh_prev_batch")
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(vec![f.text_msg("old").event_id(event_id!("$old"))]))
+        .mock_once()
+        .mount()
+        .await;
+
+    let pagination = room_event_cache.pagination();
+    let task = spawn(async move { pagination.run_backwards_once(20).await });
+
+    // Clear the room while the first request is in flight, then receive a
+    // limited sync.
+    wait_for_request(&server, "/messages").await;
+    client.event_cache().clear_all_rooms().await.unwrap();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("fresh").event_id(event_id!("$fresh")))
+                .set_timeline_prev_batch("fresh_prev_batch".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    let outcome = task.await.unwrap().unwrap();
+
+    // The stale response hasn't leaked into the new linked chunk.
+    let events = room_event_cache.events().await.unwrap();
+    let event_ids = events.iter().map(|event| event.event_id().unwrap()).collect::<Vec<_>>();
+    assert_eq!(event_ids, [event_id!("$old"), event_id!("$fresh")]);
+
+    assert!(outcome.reached_start);
+}
