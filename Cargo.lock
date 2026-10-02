@@ -4039,6 +4039,7 @@ version = "0.19.1"
 dependencies = [
  "as_variant",
  "ctor",
+ "equivalent",
  "getrandom 0.4.3",
  "http",
  "insta",

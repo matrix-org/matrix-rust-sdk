@@ -75,13 +75,17 @@ macro_rules! stripped_state_event {
 pub mod mocks;
 
 pub mod event_factory;
+mod identifiers;
 pub mod notification_settings;
 mod sync_builder;
 pub mod test_json;
 
-pub use self::sync_builder::{
-    InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
-    SyncResponseBuilder, bulk_room_members,
+pub use self::{
+    identifiers::*,
+    sync_builder::{
+        InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
+        SyncResponseBuilder, bulk_room_members,
+    },
 };
 
 pub static ALICE: LazyLock<&UserId> = LazyLock::new(|| user_id!("@alice:server.name"));

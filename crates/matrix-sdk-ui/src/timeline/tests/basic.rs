@@ -19,7 +19,7 @@ use imbl::vector;
 use matrix_sdk::{assert_next_with_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_base::ThreadingSupport;
 use matrix_sdk_test::{
-    ALICE, BOB, CAROL, JoinedRoomBuilder, async_test,
+    ALICE, BOB, CAROL, JoinedRoomBuilder, User, async_test,
     event_factory::{EventFactory, PreviousMembership},
 };
 use ruma::{
@@ -71,7 +71,7 @@ async fn test_initial_events() {
     assert_eq!(item.as_event().unwrap().sender(), *ALICE);
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    assert_eq!(item.as_event().unwrap().sender(), *BOB);
+    assert_eq!(item.as_event().unwrap().sender(), User::Bob);
 
     let item = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert_matches!(&item.kind, TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(_)));
@@ -315,11 +315,11 @@ async fn test_internal_id_prefix() {
     assert_eq!(event1.unique_id().0, "le_prefix_0");
 
     let event2 = &timeline_items[2];
-    assert_eq!(event2.as_event().unwrap().sender(), *BOB);
+    assert_eq!(event2.as_event().unwrap().sender(), User::Bob);
     assert_eq!(event2.unique_id().0, "le_prefix_1");
 
     let event3 = &timeline_items[3];
-    assert_eq!(event3.as_event().unwrap().sender(), *CAROL);
+    assert_eq!(event3.as_event().unwrap().sender(), User::Carol);
     assert_eq!(event3.unique_id().0, "le_prefix_2");
 }
 
@@ -352,11 +352,11 @@ async fn test_internal_id_reuse() {
     assert_eq!(event1.unique_id().0, "0");
 
     let event2 = &timeline_items[2];
-    assert_eq!(event2.as_event().unwrap().sender(), *BOB);
+    assert_eq!(event2.as_event().unwrap().sender(), User::Bob);
     assert_eq!(event2.unique_id().0, "1");
 
     let event3 = &timeline_items[3];
-    assert_eq!(event3.as_event().unwrap().sender(), *CAROL);
+    assert_eq!(event3.as_event().unwrap().sender(), User::Carol);
     assert_eq!(event3.unique_id().0, "2");
 
     // Then, handle a deduplication (removal then reinsertion of the same
@@ -386,11 +386,11 @@ async fn test_internal_id_reuse() {
     assert_eq!(event1.unique_id().0, "0");
 
     let event2 = &timeline_items[2];
-    assert_eq!(event2.as_event().unwrap().sender(), *BOB);
+    assert_eq!(event2.as_event().unwrap().sender(), User::Bob);
     assert_eq!(event2.unique_id().0, "1");
 
     let event3 = &timeline_items[3];
-    assert_eq!(event3.as_event().unwrap().sender(), *CAROL);
+    assert_eq!(event3.as_event().unwrap().sender(), User::Carol);
     assert_eq!(event3.unique_id().0, "2");
 }
 
