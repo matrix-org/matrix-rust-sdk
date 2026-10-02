@@ -53,8 +53,8 @@ use ruma::{
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey},
     events::{
         AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, GlobalAccountDataEventType,
-        MessageLikeEventType, RoomAccountDataEventType, StateEventType, receipt::ReceiptThread,
-        room::member::RoomMemberEvent,
+        MessageLikeEventType, RoomAccountDataEventType, StateEventType, TimelineEventType,
+        receipt::ReceiptThread, room::member::RoomMemberEvent,
     },
     media::Method,
     profile::{ProfileFieldName, ProfileFieldValue},
@@ -505,6 +505,18 @@ impl MatrixMockServer {
         let mock =
             Mock::given(method("PUT")).and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/.*/.*"));
         self.mock_endpoint(mock, RoomSendStateEndpoint::default()).expect_default_access_token()
+    }
+
+    /// Creates a prebuilt mock for scheduling a delayed event in a room through
+    /// the `delayed_event` endpoint of
+    /// [MSC4140](https://github.com/matrix-org/matrix-spec-proposals/pull/4140).
+    ///
+    /// Note: works with _any_ room. Note: works with _any_ event type.
+    pub fn mock_room_send_delayed_event(&self) -> MockEndpoint<'_, RoomSendDelayedEventEndpoint> {
+        let mock = Mock::given(method("PUT")).and(path_regex(
+            r"^/_matrix/client/unstable/org.matrix.msc4140/rooms/.*/delayed_event/.*/.*",
+        ));
+        self.mock_endpoint(mock, RoomSendDelayedEventEndpoint).expect_default_access_token()
     }
 
     /// Creates a prebuilt mock for asking whether _a_ room is encrypted or not.
@@ -2902,6 +2914,50 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     }
 }
 
+/// A prebuilt mock for scheduling a delayed event in a room.
+pub struct RoomSendDelayedEventEndpoint;
+
+impl<'a> MockEndpoint<'a, RoomSendDelayedEventEndpoint> {
+    /// Ensures that the scheduled event has the given type.
+    pub fn for_type(self, event_type: TimelineEventType) -> Self {
+        Self {
+            mock: self.mock.and(path_regex(format!(
+                r"^/_matrix/client/unstable/org.matrix.msc4140/rooms/.*/delayed_event/{event_type}/"
+            ))),
+            ..self
+        }
+    }
+
+    /// Ensures that the request asks for the event to be sent after `delay`.
+    pub fn with_delay(self, delay: Duration) -> Self {
+        Self {
+            mock: self.mock.and(body_partial_json(json!({ "delay_ms": delay.as_millis() }))),
+            ..self
+        }
+    }
+
+    /// Ensures that the scheduled event is a state event with the given state
+    /// key.
+    pub fn for_key(self, state_key: String) -> Self {
+        Self { mock: self.mock.and(body_partial_json(json!({ "state_key": state_key }))), ..self }
+    }
+
+    /// Ensures that the scheduled event is not a state event.
+    pub fn without_state_key(self) -> Self {
+        Self {
+            mock: self.mock.and(|request: &Request| {
+                request.body_json::<Value>().is_ok_and(|body| body.get("state_key").is_none())
+            }),
+            ..self
+        }
+    }
+
+    /// Returns a successful response with the given `delay_id`.
+    pub fn ok(self, delay_id: &str) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({ "delay_id": delay_id })))
+    }
+}
+
 /// A prebuilt mock for running sync v2.
 pub struct SyncEndpoint {
     sync_response_builder: Arc<Mutex<SyncResponseBuilder>>,
@@ -3728,6 +3784,11 @@ impl<'a> MockEndpoint<'a, VersionsEndpoint> {
     /// Indicate that sticky events (MSC4354) are supported by this homeserver.
     pub fn with_sticky_events(self) -> Self {
         self.with_feature("org.matrix.msc4354", true)
+    }
+
+    /// Indicate that delayed events (MSC4140) are supported by this homeserver.
+    pub fn with_delayed_events(self) -> Self {
+        self.with_feature("org.matrix.msc4140", true)
     }
 
     /// Set the supported versions in the response of this endpoint.

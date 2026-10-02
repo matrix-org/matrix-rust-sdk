@@ -19,7 +19,6 @@ use std::{fmt, time::Duration};
 
 use futures_util::{StreamExt, pin_mut};
 use matrix_sdk_common::executor::spawn;
-use ruma::api::client::delayed_events::DelayParameters;
 use serde::de::{self, Deserialize, Deserializer, Visitor};
 use tokio::sync::{
     Mutex,
@@ -249,15 +248,13 @@ impl WidgetDriver {
 
                     MatrixDriverRequestData::SendEvent(req) => {
                         let SendEventRequest { event_type, state_key, content, delay } = req;
-                        // The widget api action does not use the unstable
-                        // prefix: `org.matrix.msc4140.delay` so we cannot use
-                        // the `DelayParameters` here and need to convert
-                        // manually.
-                        let delay_event_parameter = delay.map(|d| DelayParameters::Timeout {
-                            timeout: Duration::from_millis(d),
-                        });
                         matrix_driver
-                            .send(event_type.into(), state_key, content, delay_event_parameter)
+                            .send(
+                                event_type.into(),
+                                state_key,
+                                content,
+                                delay.map(Duration::from_millis),
+                            )
                             .await
                             .map(MatrixDriverResponse::EventSent)
                     }

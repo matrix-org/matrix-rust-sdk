@@ -69,7 +69,7 @@ rcgen = { version = "0.14.10", default-features = false }
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode-perl"] }
 reqwest = { version = "0.13.5", default-features = false }
 rmp-serde = { version = "1.3.1", default-features = false }
-ruma = { git = "https://github.com/ruma/ruma", rev = "f5e5e1c885f598036fd4326c566e9d1928027d5d", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "ad33e8e8ccc731c88f9379b48c6487be673106c7", features = [
     "client-api-c",
     "compat-unset-avatar",
     "compat-upload-signatures",
