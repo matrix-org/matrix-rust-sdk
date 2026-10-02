@@ -2912,6 +2912,108 @@ async fn test_sequential_backpagination_after_concurrent() {
 }
 
 #[async_test]
+async fn test_cancelled_backpagination_does_not_clobber_newer_status() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!clobber:test.com");
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("latest").event_id(event_id!("$1")))
+                .set_timeline_prev_batch("first_batch".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+    wait_for_initial_events(events, &mut room_stream).await;
+
+    // Both back-pagination requests are slow, so they're still in flight while
+    // the rest of the test happens.
+    server
+        .mock_room_messages()
+        .match_from("first_batch")
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(vec![f.text_msg("old").event_id(event_id!("$2"))])
+            .with_delay(Duration::from_millis(500)))
+        .mount()
+        .await;
+
+    server
+        .mock_room_messages()
+        .match_from("second_batch")
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(vec![f.text_msg("older").event_id(event_id!("$3"))])
+            .with_delay(Duration::from_millis(500)))
+        .mount()
+        .await;
+
+    let pagination = room_event_cache.pagination();
+    let mut pagination_status = pagination.status();
+    assert_eq!(pagination_status.get(), PaginationStatus::Idle { hit_timeline_start: false });
+
+    // Start a first back-pagination.
+    let first = spawn({
+        let pagination = room_event_cache.pagination();
+        async move { pagination.run_backwards_once(10).await }
+    });
+    assert_next_matches_with_timeout!(pagination_status, PaginationStatus::Paginating);
+
+    // A limited sync resets the room, and the pagination status with it.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("newest").event_id(event_id!("$4")))
+                .set_timeline_prev_batch("second_batch".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+    assert_next_matches_with_timeout!(
+        pagination_status,
+        PaginationStatus::Idle { hit_timeline_start: false }
+    );
+
+    // A second back-pagination starts, and publishes its own status.
+    let second = spawn({
+        let pagination = room_event_cache.pagination();
+        async move { pagination.run_backwards_once(10).await }
+    });
+    assert_next_matches_with_timeout!(pagination_status, PaginationStatus::Paginating);
+
+    // The first back-pagination is cancelled.
+    first.abort();
+    assert!(first.await.unwrap_err().is_cancelled());
+
+    // It must not have overwritten the status of the second back-pagination.
+    let status_after_cancellation = pagination.status().get();
+
+    // A third caller must join the second back-pagination, instead of starting
+    // a new one.
+    pagination.run_backwards_once(10).await.unwrap();
+    second.await.unwrap().unwrap();
+
+    let num_second_batch_requests = server
+        .server()
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .filter(|request| request.url.query().is_some_and(|query| query.contains("second_batch")))
+        .count();
+    assert_eq!(num_second_batch_requests, 1);
+    assert_eq!(status_after_cancellation, PaginationStatus::Paginating);
+}
+
+#[async_test]
 async fn test_send_queue_does_insert_event_in_the_event_cache() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
