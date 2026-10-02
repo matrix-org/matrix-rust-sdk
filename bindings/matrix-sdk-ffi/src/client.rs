@@ -2223,7 +2223,10 @@ impl Client {
 
     /// Checks if the server supports the report room API.
     pub async fn is_report_room_api_supported(&self) -> Result<bool, ClientError> {
-        Ok(self.inner.server_versions().await?.contains(&ruma::api::MatrixVersion::V1_13))
+        use ruma::api::{Metadata, client::room::report_room};
+
+        let supported_versions = self.inner.supported_versions().await?;
+        Ok(report_room::v3::Request::PATH_BUILDER.is_supported(&supported_versions))
     }
 
     /// Checks if the server supports the LiveKit RTC focus for placing calls.
