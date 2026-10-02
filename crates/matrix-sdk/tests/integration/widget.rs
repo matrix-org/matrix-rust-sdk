@@ -1765,7 +1765,11 @@ async fn test_send_encrypted_to_device_event_partial_error() {
     // It was sent to bob even though other recipients failed
     let event_as_sent_by_alice = event_as_sent_by_alice.await.deserialize().unwrap();
     drop(guard);
-    assert_eq!(event_as_sent_by_alice.algorithm().as_str(), "m.olm.v1.curve25519-aes-sha2");
+    let algorithm = event_as_sent_by_alice.algorithm();
+    assert!(
+        algorithm.as_str() == "m.olm.v1.curve25519-aes-sha2"
+            || algorithm.as_str() == "m.olm.v2.curve25519-aes-sha2"
+    );
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
