@@ -71,15 +71,15 @@ use crate::{
 /// widgets.
 pub(crate) struct MatrixDriver {
     room: Room,
-    /// Whether the homeserver answered `M_UNRECOGNIZED` to the MSC4140
-    /// `delayed_event` endpoint.
-    delayed_event_endpoint_unrecognized: AtomicBool,
+    /// Whether to schedule delayed events through the MSC4140 `delayed_event`
+    /// endpoint. Cleared when the homeserver answers `M_UNRECOGNIZED`.
+    use_delayed_event_endpoint: AtomicBool,
 }
 
 impl MatrixDriver {
     /// Creates a new `MatrixDriver` for a given `room`.
     pub(crate) fn new(room: Room) -> Self {
-        Self { room, delayed_event_endpoint_unrecognized: AtomicBool::new(false) }
+        Self { room, use_delayed_event_endpoint: AtomicBool::new(true) }
     }
 
     /// Requests an OpenID token for the current user.
@@ -227,7 +227,7 @@ impl MatrixDriver {
                 ));
             }
 
-            if !self.delayed_event_endpoint_unrecognized.load(Ordering::Relaxed) {
+            if self.use_delayed_event_endpoint.load(Ordering::Relaxed) {
                 let request = send_delayed_event::unstable::Request::new_raw(
                     event_type,
                     self.room.room_id().to_owned(),
@@ -243,7 +243,7 @@ impl MatrixDriver {
                         debug!(
                             "The delayed_event endpoint is not implemented, using the query parameter"
                         );
-                        self.delayed_event_endpoint_unrecognized.store(true, Ordering::Relaxed);
+                        self.use_delayed_event_endpoint.store(false, Ordering::Relaxed);
                     }
                     Err(error) => return Err(error.into()),
                 }
