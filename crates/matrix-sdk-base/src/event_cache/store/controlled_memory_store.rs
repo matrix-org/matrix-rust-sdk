@@ -264,4 +264,12 @@ impl EventCacheStore for ControlledMemoryStore {
     async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
         self.inner.get_size().await
     }
+
+    async fn find_events_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        cutoff_ms: u64,
+    ) -> Result<Vec<Event>, Self::Error> {
+        self.inner.find_events_before_timestamp(room_id, cutoff_ms).await
+    }
 }
