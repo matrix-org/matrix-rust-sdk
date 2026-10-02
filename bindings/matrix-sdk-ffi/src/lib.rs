@@ -20,6 +20,7 @@ mod notification;
 mod notification_settings;
 mod password_strength;
 mod platform;
+mod presence;
 mod qr_code;
 mod room;
 mod room_alias;
