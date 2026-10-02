@@ -419,6 +419,10 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// Load the next-batch token for a to-device query, if any.
     async fn next_batch_token(&self) -> Result<Option<String>, Self::Error>;
 
+    /// Delete the next-batch token for a to-device query in case it was
+    /// malformed.
+    async fn delete_next_batch_token(&self) -> Result<(), Self::Error>;
+
     /// Close the store, releasing all held resources (database connections,
     /// file descriptors, file locks).
     ///
@@ -697,6 +701,10 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn next_batch_token(&self) -> Result<Option<String>, Self::Error> {
         self.0.next_batch_token().await.map_err(Into::into)
+    }
+
+    async fn delete_next_batch_token(&self) -> Result<(), Self::Error> {
+        self.0.delete_next_batch_token().await.map_err(Into::into)
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
