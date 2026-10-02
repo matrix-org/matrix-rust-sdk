@@ -109,7 +109,12 @@ pub struct ExportedRoomKey {
     /// defined in [MSC3061].
     ///
     /// [MSC3061]: https://github.com/matrix-org/matrix-spec-proposals/pull/3061
-    #[serde(default, rename = "m.shared_history", alias = "org.matrix.msc3061.shared_history")]
+    #[serde(
+        default,
+        rename = "shared_history",
+        alias = "m.shared_history",
+        alias = "org.matrix.msc3061.shared_history"
+    )]
     pub shared_history: bool,
 }
 
@@ -199,7 +204,12 @@ pub struct BackedUpRoomKey {
     /// defined in [MSC3061].
     ///
     /// [MSC3061]: https://github.com/matrix-org/matrix-spec-proposals/pull/3061
-    #[serde(default, rename = "m.shared_history", alias = "org.matrix.msc3061.shared_history")]
+    #[serde(
+        default,
+        rename = "shared_history",
+        alias = "m.shared_history",
+        alias = "org.matrix.msc3061.shared_history"
+    )]
     pub shared_history: bool,
 }
 

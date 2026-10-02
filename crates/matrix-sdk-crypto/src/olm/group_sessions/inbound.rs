@@ -938,7 +938,10 @@ mod tests {
     use crate::{
         Account,
         olm::{BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, KnownSenderData, SenderData},
-        types::{EventEncryptionAlgorithm, events::room_key},
+        types::{
+            EventEncryptionAlgorithm,
+            events::{room_key, room_key::tests::SharedHistoryField},
+        },
     };
 
     fn alice_id() -> &'static UserId {
@@ -1228,9 +1231,8 @@ mod tests {
         .unwrap()
     }
 
-    fn key_json(stable: bool) -> serde_json::Value {
-        let shared_history =
-            if stable { "m.shared_history" } else { "org.matrix.msc3061.shared_history" };
+    fn key_json(shared_history: SharedHistoryField) -> serde_json::Value {
+        let shared_history = shared_history.name();
 
         json!({
             "algorithm": "m.megolm.v1.aes-sha2",
@@ -1247,14 +1249,21 @@ mod tests {
         })
     }
 
-    #[async_test]
-    async fn test_shared_history_from_m_room_key_content_stable() {
-        let content = key_json(true);
+    fn check_shared_history_from_m_room_key_content(shared_history: SharedHistoryField) {
+        let content = key_json(shared_history);
 
         let sender_key = Curve25519PublicKey::from_bytes([0; 32]);
         let signing_key = Ed25519PublicKey::from_slice(&[0; 32]).expect("");
         let mut content: room_key::MegolmV1AesSha2Content = serde_json::from_value(content)
             .expect("We should be able to deserialize the m.room_key content");
+
+        let serialized = serde_json::to_value(&content)
+            .expect("We should be able to serialize the m.room_key content");
+        assert_eq!(
+            serialized,
+            key_json(SharedHistoryField::Spec),
+            "The m.room_key content should be serialized with the name from the spec"
+        );
 
         let session = InboundGroupSession::from_room_key_content(sender_key, signing_key, &content)
             .expect(
@@ -1278,40 +1287,23 @@ mod tests {
         );
     }
 
-    #[async_test]
-    async fn test_shared_history_from_m_room_key_content_unstable() {
-        let content = key_json(false);
-
-        let sender_key = Curve25519PublicKey::from_bytes([0; 32]);
-        let signing_key = Ed25519PublicKey::from_slice(&[0; 32]).expect("");
-        let mut content: room_key::MegolmV1AesSha2Content = serde_json::from_value(content)
-            .expect("We should be able to deserialize the m.room_key content");
-
-        let session = InboundGroupSession::from_room_key_content(sender_key, signing_key, &content)
-            .expect(
-                "We should be able to create an inbound group session from the room key content",
-            );
-
-        assert!(
-            session.shared_history,
-            "The shared history flag should be set as it was set in the m.room_key content"
-        );
-
-        content.shared_history = false;
-        let session = InboundGroupSession::from_room_key_content(sender_key, signing_key, &content)
-            .expect(
-                "We should be able to create an inbound group session from the room key content",
-            );
-
-        assert!(
-            !session.shared_history,
-            "The shared history flag should not be set as it was not set in the m.room_key content"
-        );
+    #[test]
+    fn test_shared_history_from_m_room_key_content_stable() {
+        check_shared_history_from_m_room_key_content(SharedHistoryField::Spec);
     }
 
-    fn exported_key_json(stable: bool) -> serde_json::Value {
-        let shared_history =
-            if stable { "m.shared_history" } else { "org.matrix.msc3061.shared_history" };
+    #[test]
+    fn test_shared_history_from_m_room_key_content_legacy() {
+        check_shared_history_from_m_room_key_content(SharedHistoryField::Legacy);
+    }
+
+    #[test]
+    fn test_shared_history_from_m_room_key_content_unstable() {
+        check_shared_history_from_m_room_key_content(SharedHistoryField::Unstable);
+    }
+
+    fn exported_key_json(shared_history: SharedHistoryField) -> serde_json::Value {
+        let shared_history = shared_history.name();
 
         json!({
             "algorithm": "m.megolm.v1.aes-sha2",
@@ -1327,12 +1319,19 @@ mod tests {
         })
     }
 
-    #[async_test]
-    async fn test_shared_history_from_exported_room_key_stable() {
-        let content = exported_key_json(true);
+    fn check_shared_history_from_exported_room_key(shared_history: SharedHistoryField) {
+        let content = exported_key_json(shared_history);
 
         let mut content: ExportedRoomKey = serde_json::from_value(content)
             .expect("We should be able to deserialize the m.room_key content");
+
+        let serialized = serde_json::to_value(&content)
+            .expect("We should be able to serialize the exported room key");
+        assert_eq!(
+            serialized,
+            exported_key_json(SharedHistoryField::Spec),
+            "The exported room key should be serialized with the name from the spec"
+        );
 
         let session = InboundGroupSession::from_export(&content).expect(
             "We should be able to create an inbound group session from the room key export",
@@ -1353,35 +1352,23 @@ mod tests {
         );
     }
 
-    #[async_test]
-    async fn test_shared_history_from_exported_room_key_unstable() {
-        let content = exported_key_json(false);
-
-        let mut content: ExportedRoomKey = serde_json::from_value(content)
-            .expect("We should be able to deserialize the m.room_key content");
-
-        let session = InboundGroupSession::from_export(&content).expect(
-            "We should be able to create an inbound group session from the room key export",
-        );
-        assert!(
-            session.shared_history,
-            "The shared history flag should be set as it was set in the exported room key"
-        );
-
-        content.shared_history = false;
-
-        let session = InboundGroupSession::from_export(&content).expect(
-            "We should be able to create an inbound group session from the room key export",
-        );
-        assert!(
-            !session.shared_history,
-            "The shared history flag should not be set as it was not set in the exported room key"
-        );
+    #[test]
+    fn test_shared_history_from_exported_room_key_stable() {
+        check_shared_history_from_exported_room_key(SharedHistoryField::Spec);
     }
 
-    fn backed_up_room_key(stable: bool) -> serde_json::Value {
-        let shared_history =
-            if stable { "m.shared_history" } else { "org.matrix.msc3061.shared_history" };
+    #[test]
+    fn test_shared_history_from_exported_room_key_legacy() {
+        check_shared_history_from_exported_room_key(SharedHistoryField::Legacy);
+    }
+
+    #[test]
+    fn test_shared_history_from_exported_room_key_unstable() {
+        check_shared_history_from_exported_room_key(SharedHistoryField::Unstable);
+    }
+
+    fn backed_up_room_key(shared_history: SharedHistoryField) -> serde_json::Value {
+        let shared_history = shared_history.name();
 
         json!({
                 "algorithm": "m.megolm.v1.aes-sha2",
@@ -1395,14 +1382,21 @@ mod tests {
         })
     }
 
-    #[async_test]
-    async fn test_shared_history_from_backed_up_room_key_stable() {
-        let content = backed_up_room_key(true);
+    fn check_shared_history_from_backed_up_room_key(shared_history: SharedHistoryField) {
+        let content = backed_up_room_key(shared_history);
 
         let session_id = "/2K+V777vipCxPZ0gpY9qcpz1DYaXwuMRIu0UEP0Wa0";
         let room_id = owned_room_id!("!room:id");
         let room_key: BackedUpRoomKey = serde_json::from_value(content)
             .expect("We should be able to deserialize the backed up room key");
+
+        let serialized = serde_json::to_value(&room_key)
+            .expect("We should be able to serialize the backed up room key");
+        assert_eq!(
+            serialized,
+            backed_up_room_key(SharedHistoryField::Spec),
+            "The backed up room key should be serialized with the name from the spec"
+        );
 
         let room_key =
             ExportedRoomKey::from_backed_up_room_key(room_id, session_id.to_owned(), room_key);
@@ -1416,25 +1410,19 @@ mod tests {
         );
     }
 
-    #[async_test]
-    async fn test_shared_history_from_backed_up_room_key_unstable() {
-        let content = backed_up_room_key(false);
+    #[test]
+    fn test_shared_history_from_backed_up_room_key_stable() {
+        check_shared_history_from_backed_up_room_key(SharedHistoryField::Spec);
+    }
 
-        let session_id = "/2K+V777vipCxPZ0gpY9qcpz1DYaXwuMRIu0UEP0Wa0";
-        let room_id = owned_room_id!("!room:id");
-        let room_key: BackedUpRoomKey = serde_json::from_value(content)
-            .expect("We should be able to deserialize the backed up room key");
+    #[test]
+    fn test_shared_history_from_backed_up_room_key_legacy() {
+        check_shared_history_from_backed_up_room_key(SharedHistoryField::Legacy);
+    }
 
-        let room_key =
-            ExportedRoomKey::from_backed_up_room_key(room_id, session_id.to_owned(), room_key);
-
-        let session = InboundGroupSession::from_export(&room_key).expect(
-            "We should be able to create an inbound group session from the room key export",
-        );
-        assert!(
-            session.shared_history,
-            "The shared history flag should be set as it was set in the backed up room key"
-        );
+    #[test]
+    fn test_shared_history_from_backed_up_room_key_unstable() {
+        check_shared_history_from_backed_up_room_key(SharedHistoryField::Unstable);
     }
 
     #[async_test]
