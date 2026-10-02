@@ -93,10 +93,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
-name = "anymap2"
-version = "0.13.0"
+name = "anymap3"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d301b3b94cb4b2f23d7917810addbbaff90738e0ca2be692bd027e70d7e0330c"
+checksum = "fb5dfbc6d8d2675589ccbe4d0fd61df2419075625f8c1a62325e718e2b0049f9"
 
 [[package]]
 name = "approx"
@@ -3553,7 +3553,7 @@ name = "matrix-sdk"
 version = "0.19.1"
 dependencies = [
  "anyhow",
- "anymap2",
+ "anymap3",
  "as_variant",
  "assert-json-diff",
  "assert_matches",
