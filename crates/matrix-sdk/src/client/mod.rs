@@ -1604,11 +1604,30 @@ impl Client {
 
     /// The total number of client-side computed unread notifications across all
     /// joined rooms. Rooms the user marked as unread by hand count as one each.
+    ///
+    /// Spaces and rooms that aren't the active version (their successor is
+    /// joined, left or banned) are skipped, as room lists hide them and the
+    /// user couldn't clear their notifications.
     pub fn total_unread_notifications(&self) -> u64 {
         self.base_client()
             .rooms_filtered(RoomStateFilter::JOINED)
             .iter()
-            .map(|room| room.num_unread_notifications().max(room.is_marked_unread().into()))
+            .map(|room| (room, room.num_unread_notifications().max(room.is_marked_unread().into())))
+            // Check whether the room is hidden only for the few rooms that count.
+            .filter(|(_, count)| *count > 0)
+            .filter(|(room, _)| !room.is_space())
+            .filter(|(room, _)| {
+                !room
+                    .successor_room()
+                    .and_then(|successor| self.base_client().get_room(&successor.room_id))
+                    .is_some_and(|successor| {
+                        matches!(
+                            successor.state(),
+                            RoomState::Joined | RoomState::Left | RoomState::Banned
+                        )
+                    })
+            })
+            .map(|(_, count)| count)
             .sum()
     }
 

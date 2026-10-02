@@ -1546,7 +1546,49 @@ async fn test_total_unread_notifications() {
     let invited_room = server.sync_room(&client, InvitedRoomBuilder::new(room_id!("!f:b.c"))).await;
     set_num_notifications(&invited_room, 100).await;
 
-    assert_eq!(client.total_unread_notifications(), 3 + 1 + 2);
+    // A joined space is hidden from room lists, so it doesn't contribute.
+    let space = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!g:b.c")).add_state_event(
+                f.create(user_id!("@alice:b.c"), RoomVersionId::V11).with_space_type(),
+            ),
+        )
+        .await;
+    assert!(space.is_space());
+    set_num_notifications(&space, 100).await;
+
+    // An old room version whose successor is joined is hidden from room lists,
+    // so it doesn't contribute. Its successor does.
+    let successor_room_id = room_id!("!i:b.c");
+    let old_version = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!h:b.c")).add_state_event(
+                f.room_tombstone("upgraded", successor_room_id).sender(user_id!("@alice:b.c")),
+            ),
+        )
+        .await;
+    set_num_notifications(&old_version, 100).await;
+    let successor_room = server.sync_joined_room(&client, successor_room_id).await;
+    set_num_notifications(&successor_room, 4).await;
+
+    // An old room version whose successor is only invited is still the active
+    // version, so it contributes.
+    let invited_successor_room_id = room_id!("!k:b.c");
+    let active_old_version = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!j:b.c")).add_state_event(
+                f.room_tombstone("upgraded", invited_successor_room_id)
+                    .sender(user_id!("@alice:b.c")),
+            ),
+        )
+        .await;
+    set_num_notifications(&active_old_version, 5).await;
+    server.sync_room(&client, InvitedRoomBuilder::new(invited_successor_room_id)).await;
+
+    assert_eq!(client.total_unread_notifications(), 3 + 1 + 2 + 4 + 5);
 }
 
 #[async_test]
