@@ -137,10 +137,7 @@ impl ToDeviceEvents {
 
             ToDeviceEvents::SecretSend(_) => ToDeviceEventType::SecretSend,
             ToDeviceEvents::SecretRequest(e) => e.content.event_type(),
-            // Todo add withheld type to ruma
-            ToDeviceEvents::RoomKeyWithheld(e) => {
-                ToDeviceEventType::from(e.content.event_type().to_owned())
-            }
+            ToDeviceEvents::RoomKeyWithheld(_) => ToDeviceEventType::RoomKeyWithheld,
         }
     }
 
