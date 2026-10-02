@@ -25,8 +25,13 @@ use ruma::{
     serde::Raw,
     user_id,
 };
+use serde_json::json;
 use strass::assert_let;
-use tokio::sync::broadcast;
+use tokio::{spawn, sync::broadcast};
+use wiremock::{
+    Mock, ResponseTemplate,
+    matchers::{method, path_regex},
+};
 
 /// Small helper for backpagination tests, to wait for initial events to
 /// stabilize.
@@ -1144,4 +1149,86 @@ async fn test_edits_touches_threads() {
 
     // The latest reply should still be our first edit, not the second one.
     assert_eq!(thread_info.latest_event.as_deref(), Some(first_edit));
+}
+
+#[async_test]
+async fn test_thread_backpagination_from_end_is_discarded_after_clear() {
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    let room_id = room_id!("!galette:saucisse.bzh");
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let thread_root_id = event_id!("$thread_root");
+
+    // Receive an in-thread event, without a gap: the thread back-pagination
+    // starts from the end of the thread.
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("reply")
+                    .in_thread(thread_root_id, thread_root_id)
+                    .event_id(event_id!("$reply")),
+            ),
+        )
+        .await;
+
+    let (thread_event_cache, _drop_handles) =
+        event_cache.thread(room_id, thread_root_id).await.unwrap();
+
+    // The first response arrives after the thread has been cleared.
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/v1/rooms/.*/relations/\$thread_root"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({
+                    "chunk": [
+                        f.text_msg("stale")
+                            .in_thread(thread_root_id, thread_root_id)
+                            .event_id(event_id!("$stale"))
+                            .into_raw_timeline(),
+                    ],
+                    "next_batch": "stale_token",
+                }))
+                .set_delay(Duration::from_secs(2)),
+        )
+        .up_to_n_times(1)
+        .mount(server.server())
+        .await;
+
+    // The restarted back-pagination reaches the start of the thread.
+    server
+        .mock_room_relations()
+        .match_target_event(thread_root_id.to_owned())
+        .ok(RoomRelationsResponseTemplate::default())
+        .mock_once()
+        .mount()
+        .await;
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(f.text_msg("Thread root").event_id(thread_root_id).into())
+        .mock_once()
+        .mount()
+        .await;
+
+    let pagination = thread_event_cache.pagination();
+    let task = spawn(async move { pagination.run_backwards_once(20).await });
+
+    // Clear the thread while the first request is in flight.
+    super::wait_for_request(&server, "/relations/$thread_root").await;
+    event_cache.clear_all_rooms().await.unwrap();
+
+    let outcome = task.await.unwrap().unwrap();
+
+    // The stale response hasn't been applied to the cleared thread.
+    let (events, _) = thread_event_cache.subscribe().await.unwrap();
+    let event_ids = events.iter().map(|event| event.event_id().unwrap()).collect::<Vec<_>>();
+    assert_eq!(event_ids, [thread_root_id]);
+
+    assert!(outcome.reached_start);
 }

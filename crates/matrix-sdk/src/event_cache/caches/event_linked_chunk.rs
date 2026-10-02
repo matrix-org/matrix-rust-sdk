@@ -44,6 +44,10 @@ pub(in crate::event_cache) struct EventLinkedChunk {
 
     /// Tracker of the events ordering in this room.
     pub order_tracker: OrderTracker<Event, Gap>,
+
+    /// Bumped every time the linked chunk is cleared or replaced, so that a
+    /// pagination can tell whether the chunk it started from is still there.
+    generation: u64,
 }
 
 impl Default for EventLinkedChunk {
@@ -75,7 +79,12 @@ impl EventLinkedChunk {
             .order_tracker(full_linked_chunk_metadata)
             .expect("`LinkedChunk` must have been built with `new_with_update_history`");
 
-        Self { chunks: linked_chunk, chunks_updates_as_vectordiffs, order_tracker }
+        Self { chunks: linked_chunk, chunks_updates_as_vectordiffs, order_tracker, generation: 0 }
+    }
+
+    /// The number of times this linked chunk has been cleared or replaced.
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     /// Clear all events.
@@ -84,6 +93,7 @@ impl EventLinkedChunk {
     /// the ether, forever.
     pub fn reset(&mut self) {
         self.chunks.clear();
+        self.generation += 1;
     }
 
     /// Push events after all events or gaps.
@@ -568,6 +578,7 @@ impl EventLinkedChunk {
         // want it to affect the chunk ordering.
         self.inhibit_updates_to_ordering_tracker(move |this| {
             lazy_loader::replace_with(&mut this.chunks, last_chunk, chunk_identifier_generator)?;
+            this.generation += 1;
 
             // Don't propagate those updates to the store; this is only for the
             // in-memory representation that we're doing this. Let's drain those
