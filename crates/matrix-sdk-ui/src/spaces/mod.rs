@@ -44,7 +44,7 @@ use matrix_sdk::{
 use ruma::{
     OwnedRoomId, RoomId, SpaceChildOrder,
     events::{
-        self, StateEventType, SyncStateEvent,
+        self, StateEventType, StaticEventContent, SyncStateEvent,
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
     },
 };
@@ -492,7 +492,11 @@ impl SpaceService {
             // state resolution so behaves quite differently from e.g. sending
             // an empty form of that state events".
             space_room
-                .send_state_event_raw("m.space.child", child_id.as_str(), serde_json::json!({}))
+                .send_state_event_raw(
+                    SpaceChildEventContent::TYPE,
+                    child_id.as_str(),
+                    serde_json::json!({}),
+                )
                 .await
                 .map_err(Error::UpdateRelationship)?;
         } else {
@@ -512,7 +516,7 @@ impl SpaceService {
                 // Same as the comment above.
                 child_room
                     .send_state_event_raw(
-                        "m.space.parent",
+                        SpaceParentEventContent::TYPE,
                         space_id.as_str(),
                         serde_json::json!({}),
                     )
