@@ -304,6 +304,67 @@ async fn test_extract_bundled_thread_summary() {
 }
 
 #[async_test]
+async fn test_uncomputed_thread_info_does_not_hide_bundled_thread_summary() {
+    // Opening a thread creates its `ThreadInfo` before the event cache counted
+    // any replies. That `ThreadInfo` must not hide the summary bundled with the
+    // thread root, and it gets seeded from that summary.
+
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    let room_id = room_id!("!a:b.c");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (initial_items, mut stream) = timeline.subscribe().await;
+    assert!(initial_items.is_empty());
+
+    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let thread_event_id = event_id!("$thread_root");
+    let latest_event_id = event_id!("$latest_event");
+
+    let (_thread_cache, _drop_handles) =
+        client.event_cache().thread(room_id, thread_event_id).await.unwrap();
+    let thread_info = client.event_cache().thread_info(room_id, thread_event_id).await.unwrap();
+    assert_eq!(thread_info.unwrap().number_of_replies, None);
+
+    let event = f
+        .text_msg("thready thread mcthreadface")
+        .with_bundled_thread_summary(
+            f.text_msg("the last one!").event_id(latest_event_id).into(),
+            42,
+            false,
+        )
+        .event_id(thread_event_id);
+
+    server.sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(event)).await;
+
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    // Message + day divider.
+    assert_eq!(timeline_updates.len(), 2);
+
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
+    let event_item = value.as_event().unwrap();
+    assert_eq!(event_item.event_id().unwrap(), thread_event_id);
+    assert_let!(Some(summary) = event_item.content().thread_summary());
+    assert_eq!(summary.num_replies, 42);
+    assert!(summary.latest_event.is_ready());
+
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
+    assert!(value.is_date_divider());
+
+    // The bundled summary has been saved in the `ThreadInfo`, so it survives
+    // when the thread root gets reloaded from the store, without its
+    // bundled relations.
+    let thread_info =
+        client.event_cache().thread_info(room_id, thread_event_id).await.unwrap().unwrap();
+    assert_eq!(thread_info.number_of_replies, Some(42));
+    assert_eq!(thread_info.latest_event.as_deref(), Some(latest_event_id));
+
+    assert_pending!(stream);
+}
+
+#[async_test]
 async fn test_redact_thread_root_keeps_thread_summary() {
     // Redacting the thread root must not hide the thread: the thread summary is
     // preserved on the redacted item.
