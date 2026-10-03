@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, ops::Not, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
@@ -362,15 +362,16 @@ impl Caches {
 
             for (thread_id, (timeline, read_receipts)) in timeline_and_read_receipts_for_threads {
                 // Update the thread summary if and only if there are new
-                // events.
-                let update_thread_summary = timeline.events.is_empty().not();
+                // events, other than the thread root itself.
+                let update_thread_summary =
+                    timeline.events.iter().any(|event| event.event_id() != Some(&*thread_id));
 
                 let thread = self.thread(thread_id).await?;
                 thread.handle_joined_room_update(timeline, read_receipts).await?;
 
-                if update_thread_summary {
-                    let new_thread_summary = thread.update_thread_summary().await?;
-
+                if update_thread_summary
+                    && let Some(new_thread_summary) = thread.update_thread_summary().await?
+                {
                     room.update_thread_summary(thread.thread_id(), new_thread_summary)?;
                 }
             }
