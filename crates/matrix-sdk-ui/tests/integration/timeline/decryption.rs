@@ -18,9 +18,12 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
     assert_next_matches_with_timeout,
+    cross_process_lock::CrossProcessLockConfig,
     linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
+    store::StoreConfig,
     test_utils::mocks::MatrixMockServer,
 };
+use matrix_sdk_base::event_cache::store::{EventCacheStore, MemoryStore};
 use matrix_sdk_test::{BOB, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::RoomExt;
 use ruma::{
@@ -59,65 +62,72 @@ async fn test_an_utd_from_the_event_cache_as_an_initial_item_is_decrypted() {
     let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
     let event_factory = EventFactory::new().room(room_id).sender(&BOB);
 
-    let mock_server = MatrixMockServer::new().await;
-    let client = mock_server.client_builder().build().await;
-
     // Set up the event cache store.
-    {
-        let event_cache_store = client.event_cache_store().lock().await.unwrap();
+    let event_cache_store = MemoryStore::new();
 
-        // The event cache contains one chunk as such:
-        //
-        // 1. a chunk of 1 item
-        //
-        // The item is an encrypted event! It has been stored before having a
-        // chance to be decrypted. Damn. We want to see if decryption will
-        // trigger automatically.
-        event_cache_store
-            .as_clean()
-            .unwrap()
-            .handle_linked_chunk_updates(
-                LinkedChunkId::Room(room_id),
-                vec![
-                    // chunk #1
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(0),
-                        next: None,
-                    },
-                    // … and its item
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(0), 0),
-                        items: vec![event_factory
-                            .event(RoomEncryptedEventContent::new(
-                                EncryptedEventScheme::MegolmV1AesSha2(
-                                    MegolmV1AesSha2ContentInit {
-                                        ciphertext: "\
-                                            AwgAEtABPRMavuZMDJrPo6pGQP4qVmpcuapuXtzKXJyi3YpEsjSWdzuRKIgJzD4P\
-                                            cSqJM1A8kzxecTQNJsC5q22+KSFEPxPnI4ltpm7GFowSoPSW9+bFdnlfUzEP1jPq\
-                                            YevHAsMJp2fRKkzQQbPordrUk1gNqEpGl4BYFeRqKl9GPdKFwy45huvQCLNNueql\
-                                            CFZVoYMuhxrfyMiJJAVNTofkr2um2mKjDTlajHtr39pTG8k0eOjSXkLOSdZvNOMz\
-                                            hGhSaFNeERSA2G2YbeknOvU7MvjiO0AKuxaAe1CaVhAI14FCgzrJ8g0y5nly+n7x\
-                                            QzL2G2Dn8EoXM5Iqj8W99iokQoVsSrUEnaQ1WnSIfewvDDt4LCaD/w7PGETMCQ"
-                                            .to_owned(),
-                                        sender_key: "DeHIg4gwhClxzFYcmNntPNF9YtsdZbmMy8+3kzCMXHA"
-                                            .to_owned(),
-                                        device_id: "NLAZCWIOCO".into(),
-                                        session_id: SESSION_ID.into(),
-                                    }
-                                    .into(),
-                                ),
-                                None,
-                            ))
-                            .event_id(event_id!("$ev0"))
-                            .into_utd_sync_timeline_event(),
-                          ],
-                    },
-                ],
+    // The event cache contains one chunk as such:
+    //
+    // 1. a chunk of 1 item
+    //
+    // The item is an encrypted event! It has been stored before having a
+    // chance to be decrypted. Damn. We want to see if decryption will
+    // trigger automatically.
+    event_cache_store
+        .handle_linked_chunk_updates(
+            LinkedChunkId::Room(room_id),
+            vec![
+                // chunk #1
+                Update::NewItemsChunk {
+                    previous: None,
+                    new: ChunkIdentifier::new(0),
+                    next: None,
+                },
+                // … and its item
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(0), 0),
+                    items: vec![event_factory
+                        .event(RoomEncryptedEventContent::new(
+                            EncryptedEventScheme::MegolmV1AesSha2(
+                                MegolmV1AesSha2ContentInit {
+                                    ciphertext: "\
+                                        AwgAEtABPRMavuZMDJrPo6pGQP4qVmpcuapuXtzKXJyi3YpEsjSWdzuRKIgJzD4P\
+                                        cSqJM1A8kzxecTQNJsC5q22+KSFEPxPnI4ltpm7GFowSoPSW9+bFdnlfUzEP1jPq\
+                                        YevHAsMJp2fRKkzQQbPordrUk1gNqEpGl4BYFeRqKl9GPdKFwy45huvQCLNNueql\
+                                        CFZVoYMuhxrfyMiJJAVNTofkr2um2mKjDTlajHtr39pTG8k0eOjSXkLOSdZvNOMz\
+                                        hGhSaFNeERSA2G2YbeknOvU7MvjiO0AKuxaAe1CaVhAI14FCgzrJ8g0y5nly+n7x\
+                                        QzL2G2Dn8EoXM5Iqj8W99iokQoVsSrUEnaQ1WnSIfewvDDt4LCaD/w7PGETMCQ"
+                                        .to_owned(),
+                                    sender_key: "DeHIg4gwhClxzFYcmNntPNF9YtsdZbmMy8+3kzCMXHA"
+                                        .to_owned(),
+                                    device_id: "NLAZCWIOCO".into(),
+                                    session_id: SESSION_ID.into(),
+                                }
+                                .into(),
+                            ),
+                            None,
+                        ))
+                        .event_id(event_id!("$ev0"))
+                        .into_utd_sync_timeline_event(),
+                      ],
+                },
+            ],
+        )
+        .await
+        .expect("Failed to setup the event cache");
+
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(move |builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                    holder_name: "foo".to_owned(),
+                })
+                .event_cache_store(event_cache_store),
             )
-            .await
-            .expect("Failed to setup the event cache");
-    }
+        })
+        .build()
+        .await;
 
     // Import the key to decrypt the cached event.
     {
@@ -134,11 +144,7 @@ async fn test_an_utd_from_the_event_cache_as_an_initial_item_is_decrypted() {
         assert_eq!(room_key_import_result.imported_count, 1);
     }
 
-    // Set up the event cache.
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
-
-    let room = mock_server.sync_joined_room(&client, room_id).await;
+    let room = server.sync_joined_room(&client, room_id).await;
     let timeline = room.timeline().await.unwrap();
     let (initial_updates, mut updates_stream) = timeline.subscribe().await;
 
@@ -199,81 +205,88 @@ async fn test_an_utd_from_the_event_cache_as_a_paginated_item_is_decrypted() {
     let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
     let event_factory = EventFactory::new().room(room_id).sender(&BOB);
 
-    let mock_server = MatrixMockServer::new().await;
-    let client = mock_server.client_builder().build().await;
-
     // Set up the event cache store.
-    {
-        let event_cache_store = client.event_cache_store().lock().await.unwrap();
+    let event_cache_store = MemoryStore::new();
 
-        // The event cache contains one chunk as such:
-        //
-        // 1. a chunk of 1 item
-        // 2. a chunk of 1 item
-        //
-        // The older item is an encrypted event! It has been stored before
-        // having a chance to be decrypted. Damn. We want to see if decryption
-        // will trigger automatically.
-        event_cache_store
-            .as_clean()
-            .unwrap()
-            .handle_linked_chunk_updates(
-                LinkedChunkId::Room(room_id),
-                vec![
-                    // chunk #1
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(0),
-                        next: None,
-                    },
-                    // … and its item
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(0), 0),
-                        items: vec![event_factory
-                            .event(RoomEncryptedEventContent::new(
-                                EncryptedEventScheme::MegolmV1AesSha2(
-                                    MegolmV1AesSha2ContentInit {
-                                        ciphertext: "\
-                                            AwgAEtABPRMavuZMDJrPo6pGQP4qVmpcuapuXtzKXJyi3YpEsjSWdzuRKIgJzD4P\
-                                            cSqJM1A8kzxecTQNJsC5q22+KSFEPxPnI4ltpm7GFowSoPSW9+bFdnlfUzEP1jPq\
-                                            YevHAsMJp2fRKkzQQbPordrUk1gNqEpGl4BYFeRqKl9GPdKFwy45huvQCLNNueql\
-                                            CFZVoYMuhxrfyMiJJAVNTofkr2um2mKjDTlajHtr39pTG8k0eOjSXkLOSdZvNOMz\
-                                            hGhSaFNeERSA2G2YbeknOvU7MvjiO0AKuxaAe1CaVhAI14FCgzrJ8g0y5nly+n7x\
-                                            QzL2G2Dn8EoXM5Iqj8W99iokQoVsSrUEnaQ1WnSIfewvDDt4LCaD/w7PGETMCQ"
-                                            .to_owned(),
-                                        sender_key: "DeHIg4gwhClxzFYcmNntPNF9YtsdZbmMy8+3kzCMXHA"
-                                            .to_owned(),
-                                        device_id: "NLAZCWIOCO".into(),
-                                        session_id: SESSION_ID.into(),
-                                    }
-                                    .into(),
-                                ),
-                                None,
-                            ))
-                            .event_id(event_id!("$ev0"))
-                            .into_utd_sync_timeline_event(),
-                          ],
-                    },
-                    // chunk #2
-                    Update::NewItemsChunk {
-                        previous: Some(ChunkIdentifier::new(0)),
-                        new: ChunkIdentifier::new(1),
-                        next: None,
-                    },
-                    // … and its item
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(1), 0),
-                        items: vec![event_factory
-                            .text_msg("hello")
-                            .event_id(event_id!("$ev1"))
-                            .into_event()
-                        ]
-                    }
-                ],
+    // The event cache contains one chunk as such:
+    //
+    // 1. a chunk of 1 item
+    // 2. a chunk of 1 item
+    //
+    // The older item is an encrypted event! It has been stored before
+    // having a chance to be decrypted. Damn. We want to see if decryption
+    // will trigger automatically.
+    event_cache_store
+        .handle_linked_chunk_updates(
+            LinkedChunkId::Room(room_id),
+            vec![
+                // chunk #1
+                Update::NewItemsChunk {
+                    previous: None,
+                    new: ChunkIdentifier::new(0),
+                    next: None,
+                },
+                // … and its item
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(0), 0),
+                    items: vec![event_factory
+                        .event(RoomEncryptedEventContent::new(
+                            EncryptedEventScheme::MegolmV1AesSha2(
+                                MegolmV1AesSha2ContentInit {
+                                    ciphertext: "\
+                                        AwgAEtABPRMavuZMDJrPo6pGQP4qVmpcuapuXtzKXJyi3YpEsjSWdzuRKIgJzD4P\
+                                        cSqJM1A8kzxecTQNJsC5q22+KSFEPxPnI4ltpm7GFowSoPSW9+bFdnlfUzEP1jPq\
+                                        YevHAsMJp2fRKkzQQbPordrUk1gNqEpGl4BYFeRqKl9GPdKFwy45huvQCLNNueql\
+                                        CFZVoYMuhxrfyMiJJAVNTofkr2um2mKjDTlajHtr39pTG8k0eOjSXkLOSdZvNOMz\
+                                        hGhSaFNeERSA2G2YbeknOvU7MvjiO0AKuxaAe1CaVhAI14FCgzrJ8g0y5nly+n7x\
+                                        QzL2G2Dn8EoXM5Iqj8W99iokQoVsSrUEnaQ1WnSIfewvDDt4LCaD/w7PGETMCQ"
+                                        .to_owned(),
+                                    sender_key: "DeHIg4gwhClxzFYcmNntPNF9YtsdZbmMy8+3kzCMXHA"
+                                        .to_owned(),
+                                    device_id: "NLAZCWIOCO".into(),
+                                    session_id: SESSION_ID.into(),
+                                }
+                                .into(),
+                            ),
+                            None,
+                        ))
+                        .event_id(event_id!("$ev0"))
+                        .into_utd_sync_timeline_event(),
+                      ],
+                },
+                // chunk #2
+                Update::NewItemsChunk {
+                    previous: Some(ChunkIdentifier::new(0)),
+                    new: ChunkIdentifier::new(1),
+                    next: None,
+                },
+                // … and its item
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(1), 0),
+                    items: vec![event_factory
+                        .text_msg("hello")
+                        .event_id(event_id!("$ev1"))
+                        .into_event()
+                    ]
+                }
+            ],
+        )
+        .await
+        .expect("Failed to setup the event cache");
+
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(move |builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                    holder_name: "foo".to_owned(),
+                })
+                .event_cache_store(event_cache_store),
             )
-            .await
-            .expect("Failed to setup the event cache");
-    }
+        })
+        .build()
+        .await;
 
     // Import the key to decrypt the cached event.
     {
@@ -290,11 +303,7 @@ async fn test_an_utd_from_the_event_cache_as_a_paginated_item_is_decrypted() {
         assert_eq!(room_key_import_result.imported_count, 1);
     }
 
-    // Set up the event cache.
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
-
-    let room = mock_server.sync_joined_room(&client, room_id).await;
+    let room = server.sync_joined_room(&client, room_id).await;
     let timeline = room.timeline().await.unwrap();
     let (initial_updates, mut updates_stream) = timeline.subscribe().await;
 

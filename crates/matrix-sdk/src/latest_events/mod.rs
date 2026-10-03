@@ -671,8 +671,11 @@ mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
         RoomState,
+        cross_process_lock::CrossProcessLockConfig,
         deserialized_responses::TimelineEventKind,
+        event_cache::store::{EventCacheStore, MemoryStore},
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
+        store::StoreConfig,
     };
     use matrix_sdk_test::{
         InvitedRoomBuilder, JoinedRoomBuilder, async_test, event_factory::EventFactory,
@@ -695,7 +698,7 @@ mod tests {
     };
     use crate::{
         latest_events::{LatestEventQueueUpdate, local_room_message},
-        test_utils::mocks::MatrixMockServer,
+        test_utils::{client::MockClientBuilder, mocks::MatrixMockServer},
     };
 
     #[async_test]
@@ -712,8 +715,6 @@ mod tests {
         client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_2, RoomState::Joined);
-
-        client.event_cache().subscribe().unwrap();
 
         let latest_events = client.latest_events().await;
 
@@ -777,8 +778,6 @@ mod tests {
         client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
 
-        client.event_cache().subscribe().unwrap();
-
         let latest_events = client.latest_events().await;
 
         // Now let's fetch one room.
@@ -816,8 +815,6 @@ mod tests {
 
         client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
-
-        client.event_cache().subscribe().unwrap();
 
         let latest_events = client.latest_events().await;
 
@@ -1267,9 +1264,6 @@ mod tests {
         // Create the room.
         client.base_client().get_or_create_room(&room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         let latest_events = client.latest_events().await;
 
         // Subscribe to the latest event values for this room.
@@ -1318,44 +1312,40 @@ mod tests {
         let event_factory = EventFactory::new().sender(user_id).room(&room_id);
         let event_id_0 = event_id!("$ev0");
 
-        let server = MatrixMockServer::new().await;
-        let client = server.client_builder().build().await;
+        // Initialise the event cache store.
+        let event_cache_store = MemoryStore::new();
+        event_cache_store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(&room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![event_factory.text_msg("hello").event_id(event_id_0).into()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
 
-        // Prelude.
-        {
-            // Create the room.
-            client.base_client().get_or_create_room(&room_id, RoomState::Joined);
-
-            // Initialise the event cache store.
-            client
-                .event_cache_store()
-                .lock()
-                .await
-                .expect("Could not acquire the event cache lock")
-                .as_clean()
-                .expect("Could not acquire a clean event cache lock")
-                .handle_linked_chunk_updates(
-                    LinkedChunkId::Room(&room_id),
-                    vec![
-                        Update::NewItemsChunk {
-                            previous: None,
-                            new: ChunkIdentifier::new(0),
-                            next: None,
-                        },
-                        Update::PushItems {
-                            at: Position::new(ChunkIdentifier::new(0), 0),
-                            items: vec![
-                                event_factory.text_msg("hello").event_id(event_id_0).into(),
-                            ],
-                        },
-                    ],
+        let client = MockClientBuilder::new(None)
+            .on_builder(move |builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                        holder_name: "foo".to_owned(),
+                    })
+                    .event_cache_store(event_cache_store),
                 )
-                .await
-                .unwrap();
-        }
+            })
+            .build()
+            .await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
+        // Create the room.
+        client.base_client().get_or_create_room(&room_id, RoomState::Joined);
 
         let latest_events = client.latest_events().await;
 
@@ -1401,7 +1391,6 @@ mod tests {
         let weak_client = WeakClient::from_client(&client);
 
         let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         let (latest_event_queue_sender, mut latest_event_queue_receiver) =
             mpsc::unbounded_channel();
@@ -1449,9 +1438,6 @@ mod tests {
         let client = server.client_builder().build().await;
         let own_user_id = client.user_id().unwrap();
         let other_user_id = user_id!("@other:servername");
-
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         let latest_events = client.latest_events().await;
 

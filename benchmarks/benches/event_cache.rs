@@ -110,22 +110,18 @@ fn handle_room_updates(c: &mut Criterion) {
             let client = runtime.block_on(async {
                 let event_cache_store = store_builder().await;
 
-                let client = MockClientBuilder::new(None)
+                MockClientBuilder::new(None)
                     .on_builder(|builder| {
                         builder.store_config(
                             StoreConfig::new(CrossProcessLockConfig::multi_process(
                                 "cross-process-store-locks-holder-name",
                             ))
                             .state_store(state_store.clone())
-                            .event_cache_store(event_cache_store.clone()),
+                            .event_cache_store(event_cache_store),
                         )
                     })
                     .build()
-                    .await;
-
-                client.event_cache().subscribe().unwrap();
-
-                client
+                    .await
             });
 
             // Define a state store with all rooms known in it. Define the
@@ -285,8 +281,6 @@ fn find_event_relations(c: &mut Criterion) {
                     })
                     .build()
                     .await;
-
-                client.event_cache().subscribe().unwrap();
 
                 // Sync the updates before starting the benchmark.
                 let mut update_recv = client.event_cache().subscribe_to_room_generic_updates();

@@ -96,13 +96,6 @@ use self::{
 /// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Clone, Debug)]
 pub enum EventCacheError {
-    /// The [`EventCache`] instance hasn't been initialized with
-    /// [`EventCache::subscribe`]
-    #[error(
-        "The EventCache hasn't subscribed to sync responses yet, call `EventCache::subscribe()`"
-    )]
-    NotSubscribedYet,
-
     /// Room cache is not found.
     #[error("Room cache `{room_id}` is not found.")]
     RoomNotFound {
@@ -255,13 +248,15 @@ impl EventCache {
         let (linked_chunk_update_sender, _) = channel(128);
 
         let weak_client = WeakClient::from_inner(client);
+        let client =
+            weak_client.get().expect("Unreachable: `client` is still alive, it can be upgraded");
 
         let (thread_subscriber_sender, _thread_subscriber_receiver) = channel(128);
 
         #[cfg(feature = "e2e-encryption")]
         let redecryption_channels = redecryptor::RedecryptorChannels::new();
 
-        Self {
+        let this = Self {
             inner: Arc::new(EventCacheInner {
                 client: weak_client,
                 config: StdRwLock::new(EventCacheConfig::default()),
@@ -277,7 +272,10 @@ impl EventCache {
                 back_pagination_queue: OnceLock::new(),
                 thread_subscriber_sender,
             }),
-        }
+        };
+        this.initialize_tasks(&client);
+
+        this
     }
 
     /// Get a read-only handle to the global configuration of the
@@ -299,14 +297,8 @@ impl EventCache {
         self.inner.thread_subscriber_sender.subscribe()
     }
 
-    /// Starts subscribing the [`EventCache`] to sync responses, if not done
-    /// before.
-    ///
-    /// Re-running this has no effect if we already subscribed before, and is
-    /// cheap.
-    pub fn subscribe(&self) -> Result<()> {
-        let client = self.inner.client()?;
-
+    /// Initialize all the tasks used by the [`EventCache`].
+    fn initialize_tasks(&self, client: &Client) {
         // Initialize the drop handles.
         let _ = self.inner.drop_handles.get_or_init(|| {
             let task_monitor = client.task_monitor();
@@ -342,32 +334,32 @@ impl EventCache {
                     .take()
                     .expect("We should have initialized the channel an subscribing should happen only once");
 
-                redecryptor::Redecryptor::new(&client, Arc::downgrade(&self.inner), receiver, &self.inner.linked_chunk_update_sender)
+                redecryptor::Redecryptor::new(client, Arc::downgrade(&self.inner), receiver, &self.inner.linked_chunk_update_sender)
             };
 
-        let thread_subscriber_task = client
-            .task_monitor()
-            .spawn_infinite_task(
-                "event_cache::thread_subscriber",
-                tasks::thread_subscriber_task(
-                    self.inner.client.clone(),
-                    self.inner.linked_chunk_update_sender.clone(),
-                    self.inner.thread_subscriber_sender.clone(),
-                ),
-            )
-            .abort_on_drop();
+            let thread_subscriber_task = client
+                .task_monitor()
+                .spawn_infinite_task(
+                    "event_cache::thread_subscriber",
+                    tasks::thread_subscriber_task(
+                        self.inner.client.clone(),
+                        self.inner.linked_chunk_update_sender.clone(),
+                        self.inner.thread_subscriber_sender.clone(),
+                    ),
+                )
+                .abort_on_drop();
 
-        #[cfg(feature = "experimental-search")]
-        let search_indexing_task = client
-            .task_monitor()
-            .spawn_infinite_task(
-                "event_cache::search_indexing",
-                tasks::search_indexing_task(
-                    self.inner.client.clone(),
-                    self.inner.linked_chunk_update_sender.clone(),
-                ),
-            )
-            .abort_on_drop();
+            #[cfg(feature = "experimental-search")]
+            let search_indexing_task = client
+                .task_monitor()
+                .spawn_infinite_task(
+                    "event_cache::search_indexing",
+                    tasks::search_indexing_task(
+                        self.inner.client.clone(),
+                        self.inner.linked_chunk_update_sender.clone(),
+                    ),
+                )
+                .abort_on_drop();
 
             if self.inner.enable_automatic_back_pagination {
                 // Deferred initialization of the shared back-pagination queue.
@@ -395,8 +387,6 @@ impl EventCache {
                 _search_indexing_task: search_indexing_task,
             })
         });
-
-        Ok(())
     }
 
     /// For benchmarking purposes only.
@@ -405,23 +395,16 @@ impl EventCache {
         self.inner.handle_room_updates(updates).await
     }
 
-    /// Check whether [`EventCache::subscribe`] has been called.
-    pub fn has_subscribed(&self) -> bool {
-        self.inner.drop_handles.get().is_some()
-    }
-
     /// Return a room-specific view over the [`EventCache`].
     pub async fn room(
         &self,
         room_id: &RoomId,
     ) -> Result<(RoomEventCache, Arc<EventCacheDropHandles>)> {
-        let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
-            return Err(EventCacheError::NotSubscribedYet);
-        };
+        let drop_handles = self.inner.drop_handles.get().unwrap();
 
         let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
 
-        Ok((caches_for_room.room().clone(), drop_handles))
+        Ok((caches_for_room.room().clone(), drop_handles.clone()))
     }
 
     /// Return a thread-specific view over the [`EventCache`].
@@ -430,13 +413,14 @@ impl EventCache {
         room_id: &RoomId,
         thread_id: &EventId,
     ) -> Result<(ThreadEventCache, Arc<EventCacheDropHandles>)> {
-        let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
-            return Err(EventCacheError::NotSubscribedYet);
-        };
+        let drop_handles = self.inner.drop_handles.get().unwrap();
 
         let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
 
-        Ok((caches_for_room.thread(thread_id.to_owned()).await?.deref().clone(), drop_handles))
+        Ok((
+            caches_for_room.thread(thread_id.to_owned()).await?.deref().clone(),
+            drop_handles.clone(),
+        ))
     }
 
     /// Return a pinned-events-specific view over the [`EventCache`].
@@ -444,13 +428,11 @@ impl EventCache {
         &self,
         room_id: &RoomId,
     ) -> Result<(PinnedEventsCache, Arc<EventCacheDropHandles>)> {
-        let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
-            return Err(EventCacheError::NotSubscribedYet);
-        };
+        let drop_handles = self.inner.drop_handles.get().unwrap();
 
         let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
 
-        Ok((caches_for_room.pinned_events().await?.clone(), drop_handles))
+        Ok((caches_for_room.pinned_events().await?.clone(), drop_handles.clone()))
     }
 
     /// Return an event-focused view over the [`EventCache`].
@@ -461,9 +443,7 @@ impl EventCache {
         thread_mode: EventFocusThreadMode,
         number_of_initial_events: u16,
     ) -> Result<(EventFocusedCache, Arc<EventCacheDropHandles>)> {
-        let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
-            return Err(EventCacheError::NotSubscribedYet);
-        };
+        let drop_handles = self.inner.drop_handles.get().unwrap();
 
         let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
 
@@ -473,7 +453,7 @@ impl EventCache {
                 .await?
                 .deref()
                 .clone(),
-            drop_handles,
+            drop_handles.clone(),
         ))
     }
 
@@ -602,7 +582,7 @@ struct EventCacheInner {
     /// instance.
     ///
     /// It's a `OnceLock` because its initialization is deferred to
-    /// [`EventCache::subscribe`].
+    /// [`EventCache::initialize_tasks`].
     ///
     /// See doc comment of [`tasks::auto_shrink_linked_chunk_task`].
     auto_shrink_sender: OnceLock<mpsc::Sender<AutoShrinkMessage>>,
@@ -821,7 +801,10 @@ mod tests {
     use futures_util::FutureExt as _;
     use matrix_sdk_base::{
         RoomState,
+        cross_process_lock::CrossProcessLockConfig,
+        event_cache::store::{EventCacheStore, MemoryStore},
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
+        store::StoreConfig,
         sync::{JoinedRoomUpdate, RoomUpdates, Timeline},
     };
     use matrix_sdk_test::{
@@ -836,22 +819,6 @@ mod tests {
     };
 
     #[async_test]
-    async fn test_must_explicitly_subscribe() {
-        let client = logged_in_client(None).await;
-
-        let event_cache = client.event_cache();
-
-        // If I create a room event subscriber for a room before subscribing the
-        // event cache,
-        let room_id = room_id!("!omelette:fromage.fr");
-        let result = event_cache.room(room_id).await;
-
-        // Then it fails, because one must explicitly call `.subscribe()` on the
-        // event cache.
-        assert_matches!(result, Err(EventCacheError::NotSubscribedYet));
-    }
-
-    #[async_test]
     async fn test_get_event_by_id() {
         let client = logged_in_client(None).await;
         let room_id1 = room_id!("!galette:saucisse.bzh");
@@ -861,7 +828,6 @@ mod tests {
         client.base_client().get_or_create_room(room_id2, RoomState::Joined);
 
         let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         // Insert two rooms with a few events.
         let f = EventFactory::new().room(room_id1).sender(user_id!("@ben:saucisse.bzh"));
@@ -916,25 +882,14 @@ mod tests {
     async fn test_generic_update_when_loading_rooms() {
         // Create 2 rooms. One of them has data in the event cache storage.
         let user = user_id!("@mnt_io:matrix.org");
-        let client = logged_in_client(None).await;
+
         let room_id_0 = room_id!("!raclette:patate.ch");
         let room_id_1 = room_id!("!fondue:patate.ch");
 
         let event_factory = EventFactory::new().room(room_id_0).sender(user);
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
-        client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
-        client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
-
-        client
-            .event_cache_store()
-            .lock()
-            .await
-            .expect("Could not acquire the event cache lock")
-            .as_clean()
-            .expect("Could not acquire a clean event cache lock")
+        let event_cache_store = MemoryStore::new();
+        event_cache_store
             .handle_linked_chunk_updates(
                 LinkedChunkId::Room(room_id_0),
                 vec![
@@ -958,6 +913,23 @@ mod tests {
             )
             .await
             .unwrap();
+
+        let client = MockClientBuilder::new(None)
+            .on_builder(move |builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                        holder_name: "foo".to_owned(),
+                    })
+                    .event_cache_store(event_cache_store),
+                )
+            })
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+
+        client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
+        client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
@@ -985,23 +957,12 @@ mod tests {
     async fn test_generic_update_when_paginating_room() {
         // Create 1 room, with 4 chunks in the event cache storage.
         let user = user_id!("@mnt_io:matrix.org");
-        let client = logged_in_client(None).await;
         let room_id = room_id!("!raclette:patate.ch");
 
         let event_factory = EventFactory::new().room(room_id).sender(user);
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
-        client.base_client().get_or_create_room(room_id, RoomState::Joined);
-
-        client
-            .event_cache_store()
-            .lock()
-            .await
-            .expect("Could not acquire the event cache lock")
-            .as_clean()
-            .expect("Could not acquire a clean event cache lock")
+        let event_cache_store = MemoryStore::new();
+        event_cache_store
             .handle_linked_chunk_updates(
                 LinkedChunkId::Room(room_id),
                 vec![
@@ -1054,6 +1015,22 @@ mod tests {
             .await
             .unwrap();
 
+        let client = MockClientBuilder::new(None)
+            .on_builder(move |builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                        holder_name: "foo".to_owned(),
+                    })
+                    .event_cache_store(event_cache_store),
+                )
+            })
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         // Room is initialised, it gets one event in the timeline.
@@ -1100,7 +1077,6 @@ mod tests {
         let room_id = room_id!("!raclette:patate.ch");
 
         let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         // Room doesn't exist. It returns an error.
         assert_matches!(
@@ -1128,7 +1104,7 @@ mod tests {
         sleep(Duration::from_secs(1)).await;
 
         let event_cache_weak = Arc::downgrade(&client.event_cache().inner);
-        assert_eq!(event_cache_weak.strong_count(), 1);
+        assert_eq!(event_cache_weak.strong_count(), 3);
 
         {
             let room_id = room_id!("!room:example.org");
@@ -1138,8 +1114,6 @@ mod tests {
                 .add_joined_room(JoinedRoomBuilder::new(room_id))
                 .build_sync_response();
             client.inner.base_client.receive_sync_response(response).await.unwrap();
-
-            client.event_cache().subscribe().unwrap();
 
             let (_room_event_cache, _drop_handles) =
                 client.get_room(room_id).unwrap().event_cache().await.unwrap();

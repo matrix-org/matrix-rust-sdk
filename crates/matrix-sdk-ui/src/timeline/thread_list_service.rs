@@ -173,12 +173,6 @@ impl ThreadListService {
         let items: Arc<Mutex<ObservableVector<ThreadListItem>>> =
             Arc::new(Mutex::new(ObservableVector::new()));
 
-        // Eagerly subscribe the event cache to sync responses (this is a cheap,
-        // synchronous, idempotent call).
-        if let Err(e) = room.client().event_cache().subscribe() {
-            warn!("ThreadListService: failed to subscribe event cache to sync: {e}");
-        }
-
         let event_cache_task = room
             .client()
             .task_monitor()

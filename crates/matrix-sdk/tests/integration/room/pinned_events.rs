@@ -8,7 +8,7 @@ use matrix_sdk::{
     test_utils::mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
     timeout::timeout,
 };
-use matrix_sdk_base::event_cache::store::MemoryStore;
+use matrix_sdk_base::event_cache::store::{EventCacheStore, MemoryStore};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{EventId, event_id, owned_event_id, room_id, user_id};
@@ -173,9 +173,6 @@ async fn test_pinned_events_are_loaded_from_network_then_are_reloaded_from_stora
 
         let event_cache = client.event_cache();
 
-        // Subscribe the event cache to sync updates.
-        event_cache.subscribe().unwrap();
-
         // Sync the room with the pinned event ID in the room state.
         //
         // This is important: the pinned events list must include our event ID,
@@ -234,9 +231,6 @@ async fn test_pinned_events_are_loaded_from_network_then_are_reloaded_from_stora
 
     let event_cache = client.event_cache();
 
-    // Subscribe the event cache to sync updates.
-    event_cache.subscribe().unwrap();
-
     let _room = client.get_room(room_id).unwrap();
 
     // Get the pinned events cache and subscribe to it.
@@ -278,21 +272,9 @@ async fn test_pinned_events_are_reloaded_from_storage_from_many_chunks() {
     let pinned_event_0 = f.text_msg("I'm pinned!").event_id(pinned_event_id_0).into_event();
     let pinned_event_1 = f.text_msg("I'm pinned too!").event_id(pinned_event_id_1).into_event();
 
-    // Create a client.
-    let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
-
-    let event_cache = client.event_cache();
-
     // Create a non empty Event Cache store containing two chunks.
-    event_cache.subscribe().unwrap();
-    client
-        .event_cache_store()
-        .lock()
-        .await
-        .unwrap()
-        .as_clean()
-        .unwrap()
+    let event_cache_store = MemoryStore::new();
+    event_cache_store
         .handle_linked_chunk_updates(
             LinkedChunkId::PinnedEvents(room_id),
             vec![
@@ -314,6 +296,23 @@ async fn test_pinned_events_are_reloaded_from_storage_from_many_chunks() {
         )
         .await
         .unwrap();
+
+    // Create a client.
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(move |builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                    holder_name: "foo".to_owned(),
+                })
+                .event_cache_store(event_cache_store),
+            )
+        })
+        .build()
+        .await;
+
+    let event_cache = client.event_cache();
 
     let _room = server.sync_room(&client, JoinedRoomBuilder::new(room_id)).await;
 
@@ -376,9 +375,6 @@ async fn test_pinned_events_dont_include_thread_responses() {
 
     let client = server.client_builder().build().await;
     let event_cache = client.event_cache();
-
-    // Subscribe the event cache to sync updates.
-    event_cache.subscribe().unwrap();
 
     // Sync the room with the pinned event ID in the room state.
     //

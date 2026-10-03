@@ -377,9 +377,6 @@ mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         let room_id = room_id!("!room_id:localhost");
         let room = server.sync_joined_room(&client, room_id).await;
 
@@ -426,9 +423,6 @@ mod tests {
     async fn test_global_message_search() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         let room_id1 = room_id!("!r1:localhost");
         let room_id2 = room_id!("!r2:localhost");
@@ -509,9 +503,6 @@ mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         let room_id1 = room_id!("!r1:localhost");
         let room_id2 = room_id!("!r2:localhost");
 
@@ -581,9 +572,6 @@ mod tests {
     async fn test_global_message_search_dm_or_groups() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         // This time, room_id1 is a DM room,
         let room_id1 = room_id!("!r1:localhost");

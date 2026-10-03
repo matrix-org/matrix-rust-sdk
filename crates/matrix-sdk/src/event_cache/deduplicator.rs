@@ -154,15 +154,16 @@ pub(super) struct DeduplicationOutcome {
 #[cfg(test)]
 #[cfg(not(target_family = "wasm"))] // These tests uses the cross-process lock, so need time support.
 mod tests {
-    use std::ops::Not as _;
+    use std::{ops::Not as _, sync::Arc};
 
     use matrix_sdk_base::{
-        deserialized_responses::TimelineEvent, event_cache::store::EventCacheStoreLock,
-        linked_chunk::ChunkIdentifier,
+        deserialized_responses::TimelineEvent,
+        event_cache::store::{EventCacheStore, EventCacheStoreLock, MemoryStore},
+        linked_chunk::{ChunkIdentifier, Update},
     };
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
-    use matrix_sdk_test::{async_test, event_factory::EventFactory};
-    use ruma::{EventId, owned_event_id, serde::Raw, user_id};
+    use matrix_sdk_test::{ALICE, BOB, async_test, event_factory::EventFactory};
+    use ruma::{EventId, event_id, owned_event_id, room_id, serde::Raw, user_id};
 
     use super::*;
 
@@ -176,14 +177,6 @@ mod tests {
 
     #[async_test]
     async fn test_store_based_duplicated_event_ids_from_in_memory_vs_in_store() {
-        use std::sync::Arc;
-
-        use matrix_sdk_base::{
-            event_cache::store::{EventCacheStore, MemoryStore},
-            linked_chunk::Update,
-        };
-        use ruma::room_id;
-
         let user_id = user_id!("@user:example.com");
         let event_id_0 = owned_event_id!("$ev0");
         let event_id_1 = owned_event_id!("$ev1");
@@ -314,15 +307,6 @@ mod tests {
 
     #[async_test]
     async fn test_storage_deduplication() {
-        use std::sync::Arc;
-
-        use matrix_sdk_base::{
-            event_cache::store::{EventCacheStore as _, MemoryStore},
-            linked_chunk::{ChunkIdentifier, Position, Update},
-        };
-        use matrix_sdk_test::{ALICE, BOB};
-        use ruma::{event_id, room_id};
-
         let user_id = user_id!("@user:example.com");
         let room_id = room_id!("!galette:saucisse.bzh");
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));

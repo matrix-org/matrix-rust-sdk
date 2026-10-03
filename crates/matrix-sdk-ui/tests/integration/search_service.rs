@@ -35,8 +35,6 @@ async fn test_search_backfill_makes_history_searchable() {
         .build()
         .await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let sender = user_id!("@bob:example.org");
     let f = EventFactory::new().room(room_id).sender(sender);

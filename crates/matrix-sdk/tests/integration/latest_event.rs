@@ -1,9 +1,12 @@
 use assert_matches::assert_matches;
 use matrix_sdk::{
+    cross_process_lock::CrossProcessLockConfig,
     latest_events::LatestEventValue,
     linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
+    store::StoreConfig,
     test_utils::mocks::MatrixMockServer,
 };
+use matrix_sdk_base::event_cache::store::{EventCacheStore, MemoryStore};
 use matrix_sdk_test::{async_test, event_factory::EventFactory};
 use ruma::{event_id, owned_room_id, user_id};
 use tokio::task::yield_now;
@@ -17,20 +20,9 @@ async fn test_latest_event_is_recomputed_when_a_user_is_ignored() {
     let event_bob = event_id!("$ev1");
     let event_factory = EventFactory::new().room(&room_id);
 
-    let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
-
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
-
     // Fill the event cache with one event.
-    client
-        .event_cache_store()
-        .lock()
-        .await
-        .expect("Could not acquire the event cache lock")
-        .as_clean()
-        .expect("Could not acquire a clean event cache lock")
+    let event_cache_store = MemoryStore::new();
+    event_cache_store
         .handle_linked_chunk_updates(
             LinkedChunkId::Room(&room_id),
             vec![
@@ -46,6 +38,20 @@ async fn test_latest_event_is_recomputed_when_a_user_is_ignored() {
         )
         .await
         .unwrap();
+
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(move |builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                    holder_name: "foo".to_owned(),
+                })
+                .event_cache_store(event_cache_store),
+            )
+        })
+        .build()
+        .await;
 
     // Create the room.
     let _room = server.sync_joined_room(&client, &room_id).await;
