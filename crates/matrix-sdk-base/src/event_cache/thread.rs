@@ -31,9 +31,8 @@ pub struct ThreadInfo {
     ///
     /// Thus, it can be zero!
     ///
-    /// It's `None` until the event cache computed it, or took it from the
-    /// summary bundled with the thread root, e.g. when the thread info was only
-    /// created to hold the thread's read receipts.
+    /// It's `None` until the event cache has seen one of the thread's replies,
+    /// e.g. when the thread info was only created to hold its read receipts.
     #[serde(default)] // For backwards compatibility.
     pub number_of_replies: Option<u32>,
 

@@ -299,7 +299,7 @@ impl ThreadEventCache {
 
     /// Update the [`ThreadSummary`] for this thread, and return a copy of it.
     ///
-    /// Returns `None` if the thread doesn't have a summary yet.
+    /// Returns `None` if we haven't seen any of the thread's replies yet.
     pub(in super::super) async fn update_thread_summary(&self) -> Result<Option<ThreadSummary>> {
         let mut state = self.inner.state.write().await?;
 

@@ -631,8 +631,6 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             // Handle redaction.
             self.maybe_apply_new_redaction(event).await?;
 
-            self.seed_thread_info_from_bundle(event).await?;
-
             #[cfg_attr(not(feature = "e2e-encryption"), allow(unused_mut))]
             if let Some(mut bundled_thread) = event.bundled_latest_thread_event() {
                 // Attempt to decrypt the bundled thread event in place. No-op
@@ -645,35 +643,6 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         }
 
         self.update_read_receipts(receipt_event).await?;
-
-        Ok(())
-    }
-
-    /// If the given event is a thread root with a bundled thread summary, save
-    /// that summary in the thread's
-    /// [`ThreadInfo`](matrix_sdk_base::event_cache::ThreadInfo), unless it has
-    /// already been computed.
-    ///
-    /// Bundled relations are stripped before events get stored, so this is what
-    /// keeps the thread summary of a thread root that's later reloaded from the
-    /// store.
-    async fn seed_thread_info_from_bundle(&mut self, event: &Event) -> Result<(), EventCacheError> {
-        let (Some(thread_id), Some(summary)) = (event.event_id(), event.thread_summary()) else {
-            return Ok(());
-        };
-
-        let room_id = &self.state.room_id;
-        let Some(mut thread_info) = self.store.load_thread_info(room_id, thread_id, true).await?
-        else {
-            return Ok(());
-        };
-        if thread_info.number_of_replies.is_some() {
-            return Ok(());
-        }
-
-        thread_info.number_of_replies = Some(summary.num_replies);
-        thread_info.latest_event = summary.latest_reply;
-        self.store.update_thread_info(room_id, thread_id, &thread_info).await?;
 
         Ok(())
     }

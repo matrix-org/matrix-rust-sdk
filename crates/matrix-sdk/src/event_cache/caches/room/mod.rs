@@ -988,6 +988,90 @@ mod timed_tests {
     }
 
     #[async_test]
+    async fn test_write_to_storage_keeps_thread_summary() {
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let thread_root_id = event_id!("$thread_root");
+        let latest_event_id = event_id!("$latest_event");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+        let event_cache_store = Arc::new(MemoryStore::new());
+
+        let client = MockClientBuilder::new(None)
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::multi_process("hodor"))
+                        .event_cache_store(event_cache_store.clone()),
+                )
+            })
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Propagate an update for a thread root that also has a bundled edit.
+        let ev = f
+            .text_msg("thread root")
+            .event_id(thread_root_id)
+            .with_bundled_edit(f.text_msg("Hello, Kind Sir").sender(*ALICE))
+            .with_bundled_thread_summary(
+                f.text_msg("latest reply").event_id(latest_event_id).into(),
+                42,
+                false,
+            )
+            .into_event();
+
+        let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev] };
+
+        room_event_cache
+            .handle_joined_room_update(
+                timeline,
+                MaybeReceiptEventContent::none(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+            )
+            .await
+            .unwrap();
+
+        // The stored thread root keeps its thread summary, but not the edit,
+        // nor the content of its latest event.
+        let linked_chunk = from_all_chunks::<3, _, _>(
+            event_cache_store.load_all_chunks(LinkedChunkId::Room(room_id)).await.unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+
+        let mut chunks = linked_chunk.chunks();
+        assert_matches!(chunks.next().unwrap().content(), ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+
+            let summary = events[0].thread_summary().unwrap();
+            assert_eq!(summary.num_replies, 42);
+            assert_eq!(summary.latest_reply.as_deref(), Some(latest_event_id));
+            assert!(events[0].bundled_latest_thread_event().is_none());
+
+            let ev = events[0].raw().deserialize().unwrap();
+            assert_let!(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) = ev);
+            assert!(msg.as_original().unwrap().unsigned.relations.replace.is_none());
+        });
+        assert!(chunks.next().is_none());
+
+        // The latest event is saved on its own.
+        let latest_event =
+            event_cache_store.find_event(room_id, latest_event_id).await.unwrap().unwrap();
+        assert_let!(
+            AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) =
+                latest_event.raw().deserialize().unwrap()
+        );
+        assert_eq!(msg.as_original().unwrap().content.body(), "latest reply");
+    }
+
+    #[async_test]
     async fn test_clear() {
         let room_id = room_id!("!galette:saucisse.bzh");
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
