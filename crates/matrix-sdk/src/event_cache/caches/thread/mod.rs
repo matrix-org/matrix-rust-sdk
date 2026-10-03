@@ -298,14 +298,18 @@ impl ThreadEventCache {
     }
 
     /// Update the [`ThreadSummary`] for this thread, and return a copy of it.
-    pub(in super::super) async fn update_thread_summary(&self) -> Result<ThreadSummary> {
+    ///
+    /// Returns `None` if we haven't seen any of the thread's replies yet.
+    pub(in super::super) async fn update_thread_summary(&self) -> Result<Option<ThreadSummary>> {
         let mut state = self.inner.state.write().await?;
 
         let thread_summary = state.update_thread_summary().await?;
 
-        state
-            .update_sender
-            .send(ThreadEventCacheUpdate::UpdateSummary(thread_summary.clone()), None);
+        if let Some(thread_summary) = &thread_summary {
+            state
+                .update_sender
+                .send(ThreadEventCacheUpdate::UpdateSummary(thread_summary.clone()), None);
+        }
 
         Ok(thread_summary)
     }
