@@ -349,6 +349,7 @@ impl SenderData {
 
     /// Return the ID of the device that established the associated megolm
     /// session, if we know it.
+    #[cfg(feature = "experimental-msc4350")]
     pub(crate) fn device_id(&self) -> Option<OwnedDeviceId> {
         match &self {
             SenderData::UnknownDevice { .. } => None,

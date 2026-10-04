@@ -31,6 +31,7 @@ use ruma::{
 use tokio::sync::Mutex;
 use tracing::{Level, debug, enabled, info, instrument, trace, warn};
 
+#[cfg(feature = "experimental-msc4350")]
 use crate::identities::impersonation::{ImpersonatableDevices, is_impersonatable};
 #[cfg(feature = "experimental-x509-identity-verification")]
 use crate::types::requests::OutgoingRequest;
@@ -109,6 +110,7 @@ pub(crate) struct IdentityManager {
     pub(crate) key_query_manager: Arc<KeyQueryManager>,
 
     /// MSC4350 impersonatable devices seen in key query responses.
+    #[cfg(feature = "experimental-msc4350")]
     impersonatable: ImpersonatableDevices,
 
     /// Details of the current "in-flight" key query request, if any
@@ -143,16 +145,31 @@ struct KeySetInfo {
     self_signing: SelfSigningPubkey,
 }
 
+/// Does the device keys object declare an MSC4350 impersonator? Always false
+/// when the `experimental-msc4350` feature is disabled.
+#[cfg(feature = "experimental-msc4350")]
+fn is_impersonatable_device(device_keys: &DeviceKeys) -> bool {
+    is_impersonatable(device_keys)
+}
+
+#[cfg(not(feature = "experimental-msc4350"))]
+fn is_impersonatable_device(_device_keys: &DeviceKeys) -> bool {
+    false
+}
+
 impl IdentityManager {
     const MAX_KEY_QUERY_USERS: usize = 250;
 
     pub fn new(store: Store) -> Self {
         let keys_query_request_details = Mutex::new(None);
+        #[cfg(feature = "experimental-msc4350")]
+        let impersonatable = ImpersonatableDevices::new(store.clone());
 
         IdentityManager {
             store,
             key_query_manager: Default::default(),
-            impersonatable: Default::default(),
+            #[cfg(feature = "experimental-msc4350")]
+            impersonatable,
             failures: Default::default(),
             keys_query_request_details: keys_query_request_details.into(),
             #[cfg(feature = "experimental-x509-identity-verification")]
@@ -167,6 +184,7 @@ impl IdentityManager {
     }
 
     /// The MSC4350 impersonatable devices we know of.
+    #[cfg(feature = "experimental-msc4350")]
     pub(crate) fn impersonatable_devices(&self) -> &ImpersonatableDevices {
         &self.impersonatable
     }
@@ -348,7 +366,7 @@ impl IdentityManager {
 
     async fn update_user_devices(
         store: Store,
-        impersonatable: ImpersonatableDevices,
+        #[cfg(feature = "experimental-msc4350")] impersonatable: ImpersonatableDevices,
         user_id: OwnedUserId,
         device_map: BTreeMap<OwnedDeviceId, Raw<ruma::encryption::DeviceKeys>>,
     ) -> StoreResult<DeviceChanges> {
@@ -357,22 +375,16 @@ impl IdentityManager {
         let mut changes = DeviceChanges::default();
 
         let current_devices: HashSet<OwnedDeviceId> = device_map.keys().cloned().collect();
-        debug!(?user_id, devices = ?current_devices, "Updating the devices of a user");
 
         // MSC4350 impersonatable devices have no keys of their own and can't be
         // stored as regular devices, so they are collected separately.
+        #[cfg(feature = "experimental-msc4350")]
         let mut impersonatable_devices = Vec::new();
 
         let tasks = device_map.into_iter().filter_map(|(device_id, device_keys)| match device_keys
             .deserialize_as::<DeviceKeys>(
         ) {
             Ok(device_keys) => {
-                debug!(
-                    ?user_id,
-                    ?device_id,
-                    impersonatable = is_impersonatable(&device_keys),
-                    "Parsed the device keys of a device",
-                );
                 if user_id != device_keys.user_id || device_id != device_keys.device_id {
                     warn!(
                         ?user_id,
@@ -382,8 +394,10 @@ impl IdentityManager {
                         "Mismatch in the device keys payload",
                     );
                     None
-                } else if is_impersonatable(&device_keys) {
-                    debug!(?user_id, ?device_id, "Recording an MSC4350 impersonatable device");
+                } else if cfg!(feature = "experimental-msc4350")
+                    && is_impersonatable_device(&device_keys)
+                {
+                    #[cfg(feature = "experimental-msc4350")]
                     impersonatable_devices.push(device_keys);
                     None
                 } else {
@@ -401,7 +415,8 @@ impl IdentityManager {
 
         let results = join_all(tasks).await;
 
-        impersonatable.replace_for_user(&user_id, impersonatable_devices);
+        #[cfg(feature = "experimental-msc4350")]
+        impersonatable.replace_for_user(&user_id, impersonatable_devices).await?;
 
         for device in results {
             let device = device.expect("Creating or updating a device panicked")?;
@@ -460,6 +475,7 @@ impl IdentityManager {
         let tasks = device_keys_map.into_iter().map(|(user_id, device_keys_map)| {
             spawn(Self::update_user_devices(
                 self.store.clone(),
+                #[cfg(feature = "experimental-msc4350")]
                 self.impersonatable.clone(),
                 user_id,
                 device_keys_map,
@@ -2191,13 +2207,11 @@ pub(crate) mod tests {
         manager.take();
     }
 
-    #[async_test]
-    async fn test_impersonatable_device_from_key_query_is_recorded() {
-        // The ghost device exactly as Synapse returns it from /keys/query (note the empty
-        // signature entry that Synapse adds for the device's owner).
-        let manager = manager_test_helper(user_id(), device_id()).await;
-        let ghost = ruma::user_id!("@fake_erin:test.local");
-        let response = ruma_response_from_json(&json!({
+    /// The ghost device exactly as Synapse returns it from /keys/query (note
+    /// the empty signature entry that Synapse adds for the device's owner).
+    #[cfg(feature = "experimental-msc4350")]
+    fn synapse_ghost_key_query_response() -> ruma::api::client::keys::get_keys::v3::Response {
+        ruma_response_from_json(&json!({
             "device_keys": {
                 "@fake_erin:test.local": {
                     "UJZXXSYVIA": {
@@ -2224,11 +2238,59 @@ pub(crate) mod tests {
                     }
                 }
             }
-        }));
+        }))
+    }
 
+    #[cfg(feature = "experimental-msc4350")]
+    #[async_test]
+    async fn test_impersonatable_device_from_key_query_is_recorded() {
+        let manager = manager_test_helper(user_id(), device_id()).await;
+        let ghost = ruma::user_id!("@fake_erin:test.local");
+
+        manager
+            .receive_keys_query_response(&TransactionId::new(), &synapse_ghost_key_query_response())
+            .await
+            .unwrap();
+
+        assert_eq!(manager.impersonatable_devices().for_user(ghost).await.unwrap().len(), 1);
+    }
+
+    #[cfg(feature = "experimental-msc4350")]
+    #[async_test]
+    async fn test_impersonatable_devices_are_persisted_in_the_store() {
+        let manager = manager_test_helper(user_id(), device_id()).await;
+        let ghost = ruma::user_id!("@fake_erin:test.local");
+        manager
+            .receive_keys_query_response(&TransactionId::new(), &synapse_ghost_key_query_response())
+            .await
+            .unwrap();
+
+        // A manager created later on the same store, as after a restart, still knows
+        // the device.
+        let restarted = crate::identities::manager::IdentityManager::new(manager.store.clone());
+        assert_eq!(restarted.impersonatable_devices().for_user(ghost).await.unwrap().len(), 1);
+
+        // A key query that lists no devices for the user removes it, from the store as
+        // well.
+        let response = ruma_response_from_json(&json!({ "device_keys": { ghost: {} } }));
         manager.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
+        assert!(manager.impersonatable_devices().for_user(ghost).await.unwrap().is_empty());
+        let restarted = crate::identities::manager::IdentityManager::new(manager.store.clone());
+        assert!(restarted.impersonatable_devices().for_user(ghost).await.unwrap().is_empty());
+    }
 
-        assert_eq!(manager.impersonatable_devices().for_user(ghost).len(), 1);
+    /// A device with an impersonator has no keys of its own, so it must not end
+    /// up in the device store as a regular device.
+    #[cfg(feature = "experimental-msc4350")]
+    #[async_test]
+    async fn test_impersonatable_device_is_not_stored_as_a_regular_device() {
+        let manager = manager_test_helper(user_id(), device_id()).await;
+        let ghost = ruma::user_id!("@fake_erin:test.local");
+        manager
+            .receive_keys_query_response(&TransactionId::new(), &synapse_ghost_key_query_response())
+            .await
+            .unwrap();
+        assert!(manager.store.get_device_data_for_user(ghost).await.unwrap().is_empty());
     }
 
     #[async_test]

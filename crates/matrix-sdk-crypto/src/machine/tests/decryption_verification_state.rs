@@ -765,145 +765,365 @@ async fn check_decryption_trust_requirement(
     }
 }
 
-/// MSC4350: a message sent with a bridge bot's device on behalf of a ghost user
-/// is only trusted when the ghost has a valid impersonatable device and the
-/// bot's device is cross-signed.
-#[async_test]
-async fn test_decryption_verification_state_impersonated_sender() {
-    use ruma::CanonicalJsonValue;
+/// Tests for MSC4350: a message sent with a bridge bot's device on behalf of a
+/// ghost user is only trusted when the ghost has a valid impersonatable device
+/// and the bot's device is cross-signed.
+#[cfg(feature = "experimental-msc4350")]
+mod impersonation {
+    use ruma::{CanonicalJsonValue, UserId, device_id};
+    use serde_json::Value;
 
-    let ghost_id = user_id!("@ghost:example.org");
-    let other_ghost_id = user_id!("@otherghost:example.org");
+    use super::*;
+    use crate::machine::CrossSigningBootstrapRequests;
 
-    // "alice" is the bridge bot, "bob" is the user receiving the ghost's messages.
-    let (bot, bob) = get_machine_pair_with_setup_sessions_test_helper(
-        tests::alice_id(),
-        tests::user_id(),
-        false,
-    )
-    .await;
-    let room_id = room_id!("!test:example.org");
+    const MISMATCHED: VerificationState =
+        VerificationState::Unverified(VerificationLevel::MismatchedSender);
+    const TRUSTED_UNVERIFIED: VerificationState =
+        VerificationState::Unverified(VerificationLevel::UnverifiedIdentity);
 
-    let to_device_requests = bot
-        .share_room_key(room_id, iter::once(bob.user_id()), EncryptionSettings::default())
-        .await
-        .unwrap();
-    let event = ToDeviceEvent::new(
-        bot.user_id().to_owned(),
-        tests::to_device_requests_to_content(to_device_requests),
-    );
-    let decryption_settings =
-        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
-    let group_session = bob
-        .store()
-        .with_transaction(async |tr| {
-            let res = bob
-                .decrypt_to_device_event(tr, &event, &mut Changes::default(), &decryption_settings)
-                .await?;
-            Ok(res)
-        })
-        .await
-        .unwrap()
-        .inbound_group_session
-        .unwrap();
-    bob.store().save_inbound_group_sessions(&[group_session]).await.unwrap();
+    fn ghost_id() -> &'static UserId {
+        user_id!("@ghost:example.org")
+    }
 
-    // The bot encrypts a message; we then claim it was sent by a ghost.
-    let content = RoomMessageEventContent::text_plain("hello from the ghost");
-    let result = bot
-        .encrypt_room_event(room_id, AnyMessageLikeEventContent::RoomMessage(content))
-        .await
-        .unwrap();
-    let event_from = |sender: &ruma::UserId| -> Raw<EncryptedEvent> {
-        json_convert(&json!({
-            "event_id": "$xxxxx:example.org",
-            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
-            "sender": sender,
-            "type": "m.room.encrypted",
-            "content": result.content.clone(),
-        }))
-        .unwrap()
-    };
-    let ghost_event = event_from(ghost_id);
-    let other_ghost_event = event_from(other_ghost_id);
+    /// A bridge bot ("alice") that has shared a room key with a user ("bob")
+    /// and sent a message, which can be presented as coming from any sender.
+    struct Fixture {
+        bot: OlmMachine,
+        bob: OlmMachine,
+        content: Value,
+        settings: DecryptionSettings,
+    }
 
-    let verification_state = async |event| {
-        bob.decrypt_room_event(&event, room_id, &decryption_settings)
-            .await
+    impl Fixture {
+        const ROOM_ID: &'static str = "!test:example.org";
+
+        fn room_id() -> &'static RoomId {
+            room_id!("!test:example.org")
+        }
+
+        async fn new() -> Self {
+            let (bot, bob) = get_machine_pair_with_setup_sessions_test_helper(
+                tests::alice_id(),
+                tests::user_id(),
+                false,
+            )
+            .await;
+            let settings =
+                DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+            let to_device_requests = bot
+                .share_room_key(
+                    Self::room_id(),
+                    iter::once(bob.user_id()),
+                    EncryptionSettings::default(),
+                )
+                .await
+                .unwrap();
+            let event = ToDeviceEvent::new(
+                bot.user_id().to_owned(),
+                tests::to_device_requests_to_content(to_device_requests),
+            );
+            let group_session = bob
+                .store()
+                .with_transaction(async |tr| {
+                    Ok(bob
+                        .decrypt_to_device_event(tr, &event, &mut Changes::default(), &settings)
+                        .await?)
+                })
+                .await
+                .unwrap()
+                .inbound_group_session
+                .unwrap();
+            bob.store().save_inbound_group_sessions(&[group_session]).await.unwrap();
+
+            let encrypted = bot
+                .encrypt_room_event(
+                    Self::room_id(),
+                    AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent::text_plain(
+                        "hello from the ghost",
+                    )),
+                )
+                .await
+                .unwrap();
+            let content = serde_json::to_value(&encrypted.content).unwrap();
+            Self { bot, bob, content, settings }
+        }
+
+        /// The encrypted message, presented as sent by `sender`.
+        fn event(&self, sender: &UserId) -> Raw<EncryptedEvent> {
+            json_convert(&json!({
+                "event_id": "$xxxxx:example.org",
+                "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+                "sender": sender,
+                "type": "m.room.encrypted",
+                "content": self.content,
+            }))
             .unwrap()
-            .encryption_info
-            .verification_state
-            .clone()
-    };
-    let mismatched = VerificationState::Unverified(VerificationLevel::MismatchedSender);
+        }
 
-    // Without an impersonatable device the ghost's message comes from the wrong sender.
-    assert_eq!(mismatched, verification_state(ghost_event.clone()).await);
+        async fn state(&self, sender: &UserId) -> VerificationState {
+            self.bob
+                .decrypt_room_event(&self.event(sender), Self::room_id(), &self.settings)
+                .await
+                .unwrap()
+                .encryption_info
+                .verification_state
+                .clone()
+        }
 
-    // Build the impersonatable device the ghost would publish, signed by the bot's device.
-    let bot_device_id = bot.device_id().to_owned();
-    let identity_keys = bot.identity_keys();
-    let ghost_device = async |user_id: &ruma::UserId| {
-        let mut device = json!({
-            "user_id": user_id,
-            "device_id": bot_device_id,
-            "algorithms": [],
-            "keys": {},
-            "fi.mau.msc4350.impersonator": {
-                "user_id": bot.user_id(),
-                "device_id": bot_device_id,
-                "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
-                "keys": {
-                    format!("curve25519:{bot_device_id}"): identity_keys.curve25519.to_base64(),
-                    format!("ed25519:{bot_device_id}"): identity_keys.ed25519.to_base64(),
+        async fn cross_sign_bot(&self) {
+            tests::setup_cross_signing_for_machine_test_helper(&self.bot, &self.bob).await;
+            tests::sign_alice_device_for_machine_test_helper(&self.bot, &self.bob).await;
+        }
+
+        /// The impersonatable device `user_id` would publish for the bot's
+        /// device. `tweak` can change the object before the bot signs
+        /// it.
+        async fn ghost_device_with(
+            &self,
+            user_id: &UserId,
+            tweak: impl FnOnce(&mut Value),
+        ) -> Value {
+            let device_id = self.bot.device_id().to_owned();
+            let keys = self.bot.identity_keys();
+            let mut device = json!({
+                "user_id": user_id,
+                "device_id": device_id,
+                "algorithms": [],
+                "keys": {},
+                "fi.mau.msc4350.impersonator": {
+                    "user_id": self.bot.user_id(),
+                    "device_id": device_id,
+                    "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
+                    "keys": {
+                        format!("curve25519:{device_id}"): keys.curve25519.to_base64(),
+                        format!("ed25519:{device_id}"): keys.ed25519.to_base64(),
+                    },
                 },
-            },
+            });
+            tweak(&mut device);
+            let signature = {
+                let cache = self.bot.store().cache().await.unwrap();
+                let account = cache.account().await.unwrap();
+                account.sign_json(CanonicalJsonValue::try_from(device.clone()).unwrap()).unwrap()
+            };
+            device["signatures"] = json!({
+                self.bot.user_id(): { format!("ed25519:{device_id}"): signature.to_base64() },
+            });
+            device
+        }
+
+        async fn ghost_device(&self, user_id: &UserId) -> Value {
+            self.ghost_device_with(user_id, |_| {}).await
+        }
+
+        /// Make the user's homeserver answer a `/keys/query` with these devices
+        /// (and nothing else).
+        async fn receive_devices(&self, devices: Vec<(&UserId, Value)>) {
+            let device_id = self.bot.device_id().to_string();
+            let device_keys: serde_json::Map<String, Value> = devices
+                .into_iter()
+                .map(|(user_id, device)| {
+                    (user_id.to_string(), json!({ device_id.clone(): device }))
+                })
+                .collect();
+            let response = ruma_response_from_json(&json!({ "device_keys": device_keys }));
+            self.bob.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
+        }
+
+        /// Publish the ghost's device together with a cross-signing identity of
+        /// the ghost. Returns the ghost's own machine, to sign things
+        /// with its self-signing key.
+        async fn receive_device_and_identity(&self, device: Value) -> OlmMachine {
+            let ghost = OlmMachine::new(ghost_id(), device_id!("GHOSTDEVICE")).await;
+            let CrossSigningBootstrapRequests { upload_signing_keys_req: keys, .. } =
+                ghost.bootstrap_cross_signing(false).await.unwrap();
+            let device_id = self.bot.device_id().to_string();
+            let response = ruma_response_from_json(&json!({
+                "device_keys": { ghost_id(): { device_id: device } },
+                "master_keys": { ghost_id(): keys.master_key.unwrap() },
+                "self_signing_keys": { ghost_id(): keys.self_signing_key.unwrap() },
+            }));
+            self.bob.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
+            ghost
+        }
+    }
+
+    /// Prints a ghost device, signed by a bot device, together with the bot's
+    /// device keys, as JSON. It is a test vector for other implementations
+    /// (a verifier in another language should accept the bot's signature on
+    /// the ghost device): `cargo test -p matrix-sdk-crypto --features
+    /// experimental-msc4350 print_test_vector -- --ignored --nocapture`.
+    #[async_test]
+    #[ignore = "only prints a test vector"]
+    async fn test_print_test_vector() {
+        let f = Fixture::new().await;
+        let bot_device =
+            f.bot.get_device(f.bot.user_id(), f.bot.device_id(), None).await.unwrap().unwrap();
+        let vector = json!({
+            "description": "MSC4350 impersonatable device signed by a matrix-rust-sdk device",
+            "bot_user_id": f.bot.user_id(),
+            "bot_device_id": f.bot.device_id(),
+            "bot_device_keys": bot_device.as_device_keys(),
+            "ghost_user_id": ghost_id(),
+            "ghost_device": f.ghost_device(ghost_id()).await,
         });
-        let signature = {
-            let cache = bot.store().cache().await.unwrap();
-            let account = cache.account().await.unwrap();
-            account.sign_json(CanonicalJsonValue::try_from(device.clone()).unwrap()).unwrap()
-        };
-        device["signatures"] = json!({
-            bot.user_id(): { format!("ed25519:{bot_device_id}"): signature.to_base64() },
-        });
-        device
-    };
-    let receive_ghost_devices = async |devices: Vec<(&ruma::UserId, serde_json::Value)>| {
-        let device_keys: serde_json::Map<String, serde_json::Value> = devices
-            .into_iter()
-            .map(|(user_id, device)| (user_id.to_string(), json!({ bot_device_id.to_string(): device })))
-            .collect();
-        let response = ruma_response_from_json(&json!({ "device_keys": device_keys }));
-        bob.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
-    };
+        println!("VECTOR_BEGIN\n{}\nVECTOR_END", serde_json::to_string_pretty(&vector).unwrap());
+    }
 
-    // One valid device for the ghost; and one for another ghost whose device was tampered with
-    // after it was signed.
-    let mut tampered = ghost_device(other_ghost_id).await;
-    tampered["fi.mau.msc4350.impersonator"]["user_id"] = json!("@mallory:example.org");
-    let valid = ghost_device(ghost_id).await;
-    receive_ghost_devices(vec![(ghost_id, valid), (other_ghost_id, tampered)]).await;
+    #[async_test]
+    async fn test_message_from_unknown_sender_is_mismatched() {
+        let f = Fixture::new().await;
+        f.cross_sign_bot().await;
+        assert_eq!(MISMATCHED, f.state(ghost_id()).await);
+    }
 
-    // The bot's device isn't cross-signed yet, so the message is still not trusted.
-    assert_eq!(mismatched, verification_state(ghost_event.clone()).await);
+    #[async_test]
+    async fn test_impersonated_message_is_trusted_once_the_bot_is_cross_signed() {
+        let f = Fixture::new().await;
+        f.receive_devices(vec![(ghost_id(), f.ghost_device(ghost_id()).await)]).await;
 
-    // Once the bot's device is cross-signed, the ghost's message is accepted. The ghost has no
-    // cross-signing identity, so only the bot's signature is needed.
-    tests::setup_cross_signing_for_machine_test_helper(&bot, &bob).await;
-    tests::sign_alice_device_for_machine_test_helper(&bot, &bob).await;
-    assert_eq!(
-        VerificationState::Unverified(VerificationLevel::UnverifiedIdentity),
-        verification_state(ghost_event.clone()).await
-    );
-    let encryption_info = bob.get_room_event_encryption_info(&ghost_event, room_id).await.unwrap();
-    assert_eq!(encryption_info.sender_device.as_deref(), Some(bot_device_id.as_ref()));
-    assert_matches!(encryption_info.verification_state.to_shield_state_lax(), ShieldState::None);
+        // The bot's device isn't cross-signed yet.
+        assert_eq!(MISMATCHED, f.state(ghost_id()).await);
 
-    // The ghost with the tampered device is still not trusted.
-    assert_eq!(mismatched, verification_state(other_ghost_event).await);
+        f.cross_sign_bot().await;
+        assert_eq!(TRUSTED_UNVERIFIED, f.state(ghost_id()).await);
 
-    // A user without any impersonatable device is still not trusted either.
-    let unknown_event = event_from(user_id!("@unknown:example.org"));
-    assert_eq!(mismatched, verification_state(unknown_event).await);
+        let info = f
+            .bob
+            .get_room_event_encryption_info(&f.event(ghost_id()), Fixture::room_id())
+            .await
+            .unwrap();
+        assert_eq!(info.sender_device.as_deref(), Some(f.bot.device_id()));
+        assert_matches!(info.verification_state.to_shield_state_lax(), ShieldState::None);
+
+        // Another user the bot has no device for is still not trusted.
+        assert_eq!(MISMATCHED, f.state(user_id!("@other:example.org")).await);
+    }
+
+    #[async_test]
+    async fn test_tampered_impersonator_is_rejected() {
+        let f = Fixture::new().await;
+        f.cross_sign_bot().await;
+        let mut device = f.ghost_device(ghost_id()).await;
+        device["fi.mau.msc4350.impersonator"]["algorithms"] = json!(["something.else"]);
+        f.receive_devices(vec![(ghost_id(), device)]).await;
+        assert_eq!(MISMATCHED, f.state(ghost_id()).await);
+    }
+
+    #[async_test]
+    async fn test_impersonator_with_other_keys_is_rejected() {
+        // Correctly signed, but the embedded keys aren't the bot device's real keys.
+        let f = Fixture::new().await;
+        f.cross_sign_bot().await;
+        let device_id = f.bot.device_id().to_string();
+        let other_key = f.bob.identity_keys().curve25519.to_base64();
+        let device = f
+            .ghost_device_with(ghost_id(), |device| {
+                device["fi.mau.msc4350.impersonator"]["keys"][format!("curve25519:{device_id}")] =
+                    json!(other_key);
+            })
+            .await;
+        f.receive_devices(vec![(ghost_id(), device)]).await;
+        assert_eq!(MISMATCHED, f.state(ghost_id()).await);
+    }
+
+    #[async_test]
+    async fn test_device_with_its_own_keys_or_algorithms_is_rejected() {
+        let f = Fixture::new().await;
+        f.cross_sign_bot().await;
+        let device_id = f.bot.device_id().to_string();
+
+        let with_keys = f
+            .ghost_device_with(ghost_id(), |device| {
+                device["keys"] = json!({ format!("ed25519:{device_id}"): f.bot.identity_keys().ed25519.to_base64() });
+            })
+            .await;
+        f.receive_devices(vec![(ghost_id(), with_keys)]).await;
+        assert_eq!(MISMATCHED, f.state(ghost_id()).await);
+
+        let with_algorithms = f
+            .ghost_device_with(ghost_id(), |device| {
+                device["algorithms"] = json!(["m.megolm.v1.aes-sha2"]);
+            })
+            .await;
+        f.receive_devices(vec![(ghost_id(), with_algorithms)]).await;
+        assert_eq!(MISMATCHED, f.state(ghost_id()).await);
+    }
+
+    #[async_test]
+    async fn test_malformed_impersonator_is_rejected() {
+        let f = Fixture::new().await;
+        f.cross_sign_bot().await;
+        let device = f
+            .ghost_device_with(ghost_id(), |device| {
+                device["fi.mau.msc4350.impersonator"] = json!("not an object");
+            })
+            .await;
+        f.receive_devices(vec![(ghost_id(), device)]).await;
+        assert_eq!(MISMATCHED, f.state(ghost_id()).await);
+    }
+
+    #[async_test]
+    async fn test_impersonator_is_replaced_and_removed_by_later_key_queries() {
+        let f = Fixture::new().await;
+        f.cross_sign_bot().await;
+        f.receive_devices(vec![(ghost_id(), f.ghost_device(ghost_id()).await)]).await;
+        assert_eq!(TRUSTED_UNVERIFIED, f.state(ghost_id()).await);
+
+        // A later response with a broken device replaces the good one...
+        let mut broken = f.ghost_device(ghost_id()).await;
+        broken["fi.mau.msc4350.impersonator"]["user_id"] = json!("@mallory:example.org");
+        f.receive_devices(vec![(ghost_id(), broken)]).await;
+        assert_eq!(MISMATCHED, f.state(ghost_id()).await);
+
+        // ...and a response listing no devices removes it.
+        f.receive_devices(vec![(ghost_id(), f.ghost_device(ghost_id()).await)]).await;
+        assert_eq!(TRUSTED_UNVERIFIED, f.state(ghost_id()).await);
+        let response = ruma_response_from_json(&json!({ "device_keys": { ghost_id(): {} } }));
+        f.bob.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
+        assert_eq!(MISMATCHED, f.state(ghost_id()).await);
+    }
+
+    #[async_test]
+    async fn test_ghost_with_cross_signing_keys_must_sign_the_device() {
+        let f = Fixture::new().await;
+        f.cross_sign_bot().await;
+
+        // The ghost has cross-signing keys, but its self-signing key hasn't signed the
+        // impersonatable device.
+        let unsigned = f.ghost_device(ghost_id()).await;
+        let ghost = f.receive_device_and_identity(unsigned.clone()).await;
+        assert_eq!(MISMATCHED, f.state(ghost_id()).await);
+
+        // Once the self-signing key has signed it, the message is trusted.
+        let mut device_keys: DeviceKeys = serde_json::from_value(unsigned).unwrap();
+        ghost.inner.user_identity.lock().await.sign_device_keys(&mut device_keys).await.unwrap();
+        f.receive_devices(vec![(ghost_id(), serde_json::to_value(&device_keys).unwrap())]).await;
+        assert_eq!(TRUSTED_UNVERIFIED, f.state(ghost_id()).await);
+    }
+
+    #[async_test]
+    async fn test_membership_check_of_the_impersonator() {
+        let f = Fixture::new().await;
+        f.cross_sign_bot().await;
+        f.receive_devices(vec![(ghost_id(), f.ghost_device(ghost_id()).await)]).await;
+
+        // Without a check, the membership isn't enforced.
+        assert_eq!(TRUSTED_UNVERIFIED, f.state(ghost_id()).await);
+
+        let bot_id = f.bot.user_id().to_owned();
+        let expected_room = Fixture::ROOM_ID.to_owned();
+        f.bob.set_impersonator_membership_check(Some(Arc::new(move |room_id, user_id| {
+            // Only the bot, and only in the room of the message, counts as a member.
+            user_id == bot_id && room_id.as_str() == expected_room
+        })));
+        assert_eq!(TRUSTED_UNVERIFIED, f.state(ghost_id()).await);
+
+        f.bob.set_impersonator_membership_check(Some(Arc::new(|_, _| false)));
+        assert_eq!(MISMATCHED, f.state(ghost_id()).await);
+
+        f.bob.set_impersonator_membership_check(None);
+        assert_eq!(TRUSTED_UNVERIFIED, f.state(ghost_id()).await);
+    }
 }

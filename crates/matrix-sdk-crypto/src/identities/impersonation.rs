@@ -29,47 +29,118 @@ use std::{
     sync::{Arc, RwLock as StdRwLock},
 };
 
-use ruma::{DeviceKeyAlgorithm, DeviceKeyId, OwnedUserId, UserId};
+use ruma::{DeviceKeyAlgorithm, DeviceKeyId, OwnedUserId, RoomId, UserId};
 use serde_json::Value;
 
 use super::DeviceData;
-use crate::{olm::VerifyJson, types::DeviceKeys};
+use crate::{
+    olm::VerifyJson,
+    store::{Result as StoreResult, Store},
+    types::DeviceKeys,
+};
 
 /// The name of the unstable field which marks a device as impersonatable.
 pub(crate) const IMPERSONATOR_FIELD: &str = "fi.mau.msc4350.impersonator";
+
+/// A function that tells whether a user is a member of a room.
+///
+/// MSC4350 only allows a message to be sent on behalf of a ghost user if the
+/// impersonating user (the bridge bot) is a member of the room. The crypto
+/// crate doesn't track room membership, so an embedding SDK that does can
+/// provide this check with [`OlmMachine::set_impersonator_membership_check`].
+/// Without one, the membership requirement isn't enforced.
+///
+/// [`OlmMachine::set_impersonator_membership_check`]: crate::OlmMachine::set_impersonator_membership_check
+pub type MembershipCheck = Arc<dyn Fn(&RoomId, &UserId) -> bool + Send + Sync>;
 
 /// Does the given device keys object declare an impersonator?
 pub(crate) fn is_impersonatable(device_keys: &DeviceKeys) -> bool {
     device_keys.other_field(IMPERSONATOR_FIELD).is_some()
 }
 
+fn store_key(user_id: &UserId) -> String {
+    format!("experimental-msc4350.impersonatable-devices.{user_id}")
+}
+
 /// The impersonatable devices we have seen in `/keys/query` responses, by
-/// user. They are validated lazily, when a message is received, because the
-/// impersonator's own device may not be known yet when the response arrives.
+/// user.
 ///
-/// The set is kept in memory only: it is rebuilt by the next key query after a
-/// restart.
-#[derive(Clone, Debug, Default)]
+/// They can't be stored as regular [`DeviceData`], because they have no keys of
+/// their own, so they are kept in a small cache that is backed by the crypto
+/// store's custom values (and therefore persisted by every store
+/// implementation without needing a schema change). They are validated lazily,
+/// when a message is received, because the impersonator's own device may not be
+/// known yet when the response arrives.
+#[derive(Clone)]
 pub(crate) struct ImpersonatableDevices {
-    inner: Arc<StdRwLock<BTreeMap<OwnedUserId, Vec<DeviceKeys>>>>,
+    store: Store,
+    cache: Arc<StdRwLock<BTreeMap<OwnedUserId, Arc<Vec<DeviceKeys>>>>>,
+    membership_check: Arc<StdRwLock<Option<MembershipCheck>>>,
+}
+
+impl std::fmt::Debug for ImpersonatableDevices {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ImpersonatableDevices")
+            .field("cache", &self.cache)
+            .field("membership_check", &self.membership_check.read().unwrap().is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl ImpersonatableDevices {
+    pub(crate) fn new(store: Store) -> Self {
+        Self { store, cache: Default::default(), membership_check: Default::default() }
+    }
+
     /// Replace the known impersonatable devices of a user. A key query
     /// response always lists all of a user's devices, so an empty list means
     /// the user has none any more.
-    pub(crate) fn replace_for_user(&self, user_id: &UserId, devices: Vec<DeviceKeys>) {
-        let mut inner = self.inner.write().unwrap();
+    pub(crate) async fn replace_for_user(
+        &self,
+        user_id: &UserId,
+        devices: Vec<DeviceKeys>,
+    ) -> StoreResult<()> {
+        let key = store_key(user_id);
         if devices.is_empty() {
-            inner.remove(user_id);
+            if self.cache.write().unwrap().remove(user_id).is_some()
+                || self.store.get_custom_value(&key).await?.is_some()
+            {
+                self.store.remove_custom_value(&key).await?;
+            }
         } else {
-            inner.insert(user_id.to_owned(), devices);
+            let serialized = serde_json::to_vec(&devices)?;
+            self.store.set_custom_value(&key, serialized).await?;
+            self.cache.write().unwrap().insert(user_id.to_owned(), Arc::new(devices));
         }
+        Ok(())
     }
 
-    /// The impersonatable devices we know of for the given user.
-    pub(crate) fn for_user(&self, user_id: &UserId) -> Vec<DeviceKeys> {
-        self.inner.read().unwrap().get(user_id).cloned().unwrap_or_default()
+    /// The impersonatable devices we know of for the given user, loading them
+    /// from the store the first time they are needed.
+    pub(crate) async fn for_user(&self, user_id: &UserId) -> StoreResult<Arc<Vec<DeviceKeys>>> {
+        if let Some(devices) = self.cache.read().unwrap().get(user_id) {
+            return Ok(devices.clone());
+        }
+        let devices: Vec<DeviceKeys> =
+            match self.store.get_custom_value(&store_key(user_id)).await? {
+                // A value we can't parse is treated as "nothing known"; the next key query replaces
+                // it.
+                Some(bytes) => serde_json::from_slice(&bytes).unwrap_or_default(),
+                None => Vec::new(),
+            };
+        let devices = Arc::new(devices);
+        if !devices.is_empty() {
+            self.cache.write().unwrap().insert(user_id.to_owned(), devices.clone());
+        }
+        Ok(devices)
+    }
+
+    pub(crate) fn set_membership_check(&self, check: Option<MembershipCheck>) {
+        *self.membership_check.write().unwrap() = check;
+    }
+
+    pub(crate) fn membership_check(&self) -> Option<MembershipCheck> {
+        self.membership_check.read().unwrap().clone()
     }
 }
 

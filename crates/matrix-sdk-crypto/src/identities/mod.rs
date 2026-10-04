@@ -41,6 +41,7 @@
 //! Both identity sets need to regularly fetched from the server using the
 //! `/keys/query` API call.
 pub(crate) mod device;
+#[cfg(feature = "experimental-msc4350")]
 pub(crate) mod impersonation;
 pub(crate) mod manager;
 pub(crate) mod room_identity_state;

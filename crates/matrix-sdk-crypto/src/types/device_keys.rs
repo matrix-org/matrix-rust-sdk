@@ -115,6 +115,7 @@ impl DeviceKeys {
     /// Get an additional, unknown field of the device keys object by name.
     ///
     /// Such fields are covered by the signatures of the device keys.
+    #[cfg(feature = "experimental-msc4350")]
     pub(crate) fn other_field(&self, name: &str) -> Option<&Value> {
         self.other.get(name)
     }
