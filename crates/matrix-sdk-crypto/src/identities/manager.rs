@@ -357,6 +357,7 @@ impl IdentityManager {
         let mut changes = DeviceChanges::default();
 
         let current_devices: HashSet<OwnedDeviceId> = device_map.keys().cloned().collect();
+        debug!(?user_id, devices = ?current_devices, "Updating the devices of a user");
 
         // MSC4350 impersonatable devices have no keys of their own and can't be
         // stored as regular devices, so they are collected separately.
@@ -366,6 +367,12 @@ impl IdentityManager {
             .deserialize_as::<DeviceKeys>(
         ) {
             Ok(device_keys) => {
+                debug!(
+                    ?user_id,
+                    ?device_id,
+                    impersonatable = is_impersonatable(&device_keys),
+                    "Parsed the device keys of a device",
+                );
                 if user_id != device_keys.user_id || device_id != device_keys.device_id {
                     warn!(
                         ?user_id,
@@ -376,6 +383,7 @@ impl IdentityManager {
                     );
                     None
                 } else if is_impersonatable(&device_keys) {
+                    debug!(?user_id, ?device_id, "Recording an MSC4350 impersonatable device");
                     impersonatable_devices.push(device_keys);
                     None
                 } else {
@@ -2181,6 +2189,46 @@ pub(crate) mod tests {
         assert_pending!(stream);
 
         manager.take();
+    }
+
+    #[async_test]
+    async fn test_impersonatable_device_from_key_query_is_recorded() {
+        // The ghost device exactly as Synapse returns it from /keys/query (note the empty
+        // signature entry that Synapse adds for the device's owner).
+        let manager = manager_test_helper(user_id(), device_id()).await;
+        let ghost = ruma::user_id!("@fake_erin:test.local");
+        let response = ruma_response_from_json(&json!({
+            "device_keys": {
+                "@fake_erin:test.local": {
+                    "UJZXXSYVIA": {
+                        "algorithms": [],
+                        "device_id": "UJZXXSYVIA",
+                        "fi.mau.msc4350.impersonator": {
+                            "algorithms": ["m.megolm.v1.aes-sha2", "m.olm.v1.curve25519-aes-sha2"],
+                            "device_id": "UJZXXSYVIA",
+                            "keys": {
+                                "curve25519:UJZXXSYVIA": "126hg77Q0Sr/XRemT8i99E7Q5gxfmaKM6zZHTl/1/ls",
+                                "ed25519:UJZXXSYVIA": "Cl7juA/J85CAdsIKbGyFSNj8w7oz2gg1FOxckXXFmz8"
+                            },
+                            "user_id": "@fakebot:test.local"
+                        },
+                        "keys": {},
+                        "signatures": {
+                            "@fakebot:test.local": {
+                                "ed25519:UJZXXSYVIA": "qk9Vtt9Kc8XFrIkenHXria5eNIeXLHdfunWvk5uNPyUMwur0CH3xItVLt412S1UvQQX/iLGf/hY9vzOKrLlGBg"
+                            },
+                            "@fake_erin:test.local": {}
+                        },
+                        "user_id": "@fake_erin:test.local",
+                        "unsigned": { "device_display_name": "Fake bridge" }
+                    }
+                }
+            }
+        }));
+
+        manager.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
+
+        assert_eq!(manager.impersonatable_devices().for_user(ghost).len(), 1);
     }
 
     #[async_test]

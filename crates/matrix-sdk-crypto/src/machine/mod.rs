@@ -2103,16 +2103,19 @@ impl OlmMachine {
     ) -> MegolmResult<Option<(VerificationState, Option<OwnedDeviceId>)>> {
         let candidates = self.inner.identity_manager.impersonatable_devices().for_user(sender);
         if candidates.is_empty() {
+            debug!(?sender, "No MSC4350 impersonatable devices known for the sender");
             return Ok(None);
         }
         let (Some(impersonator_user), Some(impersonator_device)) =
             (sender_data.user_id(), sender_data.device_id())
         else {
+            debug!(?sender, "MSC4350: session owner device unknown");
             return Ok(None);
         };
         let Some(impersonator) =
             self.store().get_device(&impersonator_user, &impersonator_device).await?
         else {
+            debug!(?sender, ?impersonator_user, ?impersonator_device, "MSC4350: impersonator device not in the store");
             return Ok(None);
         };
 
@@ -2120,10 +2123,12 @@ impl OlmMachine {
             .iter()
             .find(|candidate| is_validly_impersonated_by(candidate, impersonator.deref()))
         else {
+            debug!(?sender, ?impersonator_user, ?impersonator_device, candidates = candidates.len(), "MSC4350: no impersonatable device validly signed by the session owner");
             return Ok(None);
         };
 
         if !impersonator.is_cross_signed_by_owner() {
+            debug!(?sender, ?impersonator_user, ?impersonator_device, "MSC4350: impersonator device is not cross-signed by its owner");
             return Ok(None);
         }
 
@@ -2136,6 +2141,7 @@ impl OlmMachine {
         if let Some(self_signing_key) = self_signing_key
             && self_signing_key.verify_device_keys(ghost_device).is_err()
         {
+            debug!(?sender, "MSC4350: sender has cross-signing keys but did not sign the impersonatable device");
             return Ok(None);
         }
 
@@ -2144,6 +2150,7 @@ impl OlmMachine {
         } else {
             VerificationState::Unverified(VerificationLevel::UnverifiedIdentity)
         };
+        debug!(?sender, ?impersonator_user, ?impersonator_device, "MSC4350: accepted impersonated message");
         Ok(Some((state, Some(ghost_device.device_id.clone()))))
     }
 
