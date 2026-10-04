@@ -14,6 +14,7 @@
 
 #[cfg(feature = "experimental-encrypted-state-events")]
 use std::borrow::Borrow;
+use std::ops::Deref;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
@@ -79,7 +80,10 @@ use crate::{
     dehydrated_devices::{DehydratedDevices, DehydrationError},
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult, SetRoomSettingsError},
     gossiping::GossipMachine,
-    identities::{Device, IdentityManager, UserDevices, user::UserIdentity},
+    identities::{
+        Device, IdentityManager, UserDevices, impersonation::is_validly_impersonated_by,
+        user::UserIdentity,
+    },
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
         KnownSenderData, OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData,
@@ -2058,7 +2062,13 @@ impl OlmMachine {
         // appropriate `DeviceLinkProblem` for `VerificationLevel::None`.
         let (verification_state, device_id) = match sender_data.user_id() {
             Some(i) if i != sender => {
-                (VerificationState::Unverified(VerificationLevel::MismatchedSender), None)
+                // The session belongs to someone else than the claimed sender. That's only
+                // legitimate if the sender has an MSC4350 impersonatable device owned by the
+                // session owner (e.g. a bridge bot sending for its ghost users).
+                match self.verify_impersonation(&sender_data, sender).await? {
+                    Some(result) => result,
+                    None => (VerificationState::Unverified(VerificationLevel::MismatchedSender), None),
+                }
             }
 
             Some(_) | None => {
@@ -2067,6 +2077,74 @@ impl OlmMachine {
         };
 
         Ok((verification_state, device_id))
+    }
+
+    /// Check whether `sender` has an MSC4350 impersonatable device which
+    /// allows the owner of the session (described by `sender_data`) to send
+    /// messages as `sender`.
+    ///
+    /// Returns the verification state to use for the message if so, or `None`
+    /// if the message should be treated as coming from a mismatched sender.
+    ///
+    /// The conditions for trusting such a message are:
+    ///
+    /// * `sender` has an impersonatable device validly signed by the session
+    ///   owner's device (see [`is_validly_impersonated_by`]),
+    /// * the session owner's device is cross-signed by its owner, and
+    /// * if `sender` has cross-signing keys, the impersonatable device is signed
+    ///   by their self-signing key.
+    ///
+    /// MSC4350 also requires the impersonator to be a member of the room, which
+    /// can't be checked here as the crypto crate doesn't track room membership.
+    async fn verify_impersonation(
+        &self,
+        sender_data: &SenderData,
+        sender: &UserId,
+    ) -> MegolmResult<Option<(VerificationState, Option<OwnedDeviceId>)>> {
+        let candidates = self.inner.identity_manager.impersonatable_devices().for_user(sender);
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+        let (Some(impersonator_user), Some(impersonator_device)) =
+            (sender_data.user_id(), sender_data.device_id())
+        else {
+            return Ok(None);
+        };
+        let Some(impersonator) =
+            self.store().get_device(&impersonator_user, &impersonator_device).await?
+        else {
+            return Ok(None);
+        };
+
+        let Some(ghost_device) = candidates
+            .iter()
+            .find(|candidate| is_validly_impersonated_by(candidate, impersonator.deref()))
+        else {
+            return Ok(None);
+        };
+
+        if !impersonator.is_cross_signed_by_owner() {
+            return Ok(None);
+        }
+
+        let identity = self.store().get_identity(sender).await?;
+        let (self_signing_key, verified) = match &identity {
+            Some(UserIdentity::Own(own)) => (Some(own.self_signing_key()), own.is_verified()),
+            Some(UserIdentity::Other(other)) => (Some(other.self_signing_key()), other.is_verified()),
+            None => (None, false),
+        };
+        if let Some(self_signing_key) = self_signing_key
+            && self_signing_key.verify_device_keys(ghost_device).is_err()
+        {
+            return Ok(None);
+        }
+
+        let state = if verified {
+            VerificationState::Verified
+        } else {
+            VerificationState::Unverified(VerificationLevel::UnverifiedIdentity)
+        };
+        Ok(Some((state, Some(ghost_device.device_id.clone()))))
     }
 
     /// Get an up-to-date [`SenderData`] for the given session, suitable for

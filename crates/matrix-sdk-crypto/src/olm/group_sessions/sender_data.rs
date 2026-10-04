@@ -346,6 +346,18 @@ impl SenderData {
             }
         }
     }
+
+    /// Return the ID of the device that established the associated megolm
+    /// session, if we know it.
+    pub(crate) fn device_id(&self) -> Option<OwnedDeviceId> {
+        match &self {
+            SenderData::UnknownDevice { .. } => None,
+            SenderData::DeviceInfo { device_keys, .. } => Some(device_keys.device_id.clone()),
+            SenderData::VerificationViolation(known_sender_data)
+            | SenderData::SenderUnverified(known_sender_data)
+            | SenderData::SenderVerified(known_sender_data) => known_sender_data.device_id.clone(),
+        }
+    }
 }
 
 /// Used when deserialising and the sender_data property is missing. If we are

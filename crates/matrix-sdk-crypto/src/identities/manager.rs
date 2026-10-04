@@ -31,6 +31,7 @@ use ruma::{
 use tokio::sync::Mutex;
 use tracing::{Level, debug, enabled, info, instrument, trace, warn};
 
+use crate::identities::impersonation::{ImpersonatableDevices, is_impersonatable};
 #[cfg(feature = "experimental-x509-identity-verification")]
 use crate::types::requests::OutgoingRequest;
 use crate::{
@@ -107,6 +108,9 @@ pub(crate) struct IdentityManager {
 
     pub(crate) key_query_manager: Arc<KeyQueryManager>,
 
+    /// MSC4350 impersonatable devices seen in key query responses.
+    impersonatable: ImpersonatableDevices,
+
     /// Details of the current "in-flight" key query request, if any
     keys_query_request_details: Arc<Mutex<Option<KeysQueryRequestDetails>>>,
 
@@ -148,6 +152,7 @@ impl IdentityManager {
         IdentityManager {
             store,
             key_query_manager: Default::default(),
+            impersonatable: Default::default(),
             failures: Default::default(),
             keys_query_request_details: keys_query_request_details.into(),
             #[cfg(feature = "experimental-x509-identity-verification")]
@@ -159,6 +164,11 @@ impl IdentityManager {
 
     fn user_id(&self) -> &UserId {
         &self.store.static_account().user_id
+    }
+
+    /// The MSC4350 impersonatable devices we know of.
+    pub(crate) fn impersonatable_devices(&self) -> &ImpersonatableDevices {
+        &self.impersonatable
     }
 
     /// Receive a successful `/keys/query` response.
@@ -338,6 +348,7 @@ impl IdentityManager {
 
     async fn update_user_devices(
         store: Store,
+        impersonatable: ImpersonatableDevices,
         user_id: OwnedUserId,
         device_map: BTreeMap<OwnedDeviceId, Raw<ruma::encryption::DeviceKeys>>,
     ) -> StoreResult<DeviceChanges> {
@@ -346,6 +357,10 @@ impl IdentityManager {
         let mut changes = DeviceChanges::default();
 
         let current_devices: HashSet<OwnedDeviceId> = device_map.keys().cloned().collect();
+
+        // MSC4350 impersonatable devices have no keys of their own and can't be
+        // stored as regular devices, so they are collected separately.
+        let mut impersonatable_devices = Vec::new();
 
         let tasks = device_map.into_iter().filter_map(|(device_id, device_keys)| match device_keys
             .deserialize_as::<DeviceKeys>(
@@ -359,6 +374,9 @@ impl IdentityManager {
                         device_key_device_id = ?device_keys.device_id,
                         "Mismatch in the device keys payload",
                     );
+                    None
+                } else if is_impersonatable(&device_keys) {
+                    impersonatable_devices.push(device_keys);
                     None
                 } else {
                     Some(spawn(Self::update_or_create_device(store.clone(), device_keys)))
@@ -374,6 +392,8 @@ impl IdentityManager {
         });
 
         let results = join_all(tasks).await;
+
+        impersonatable.replace_for_user(&user_id, impersonatable_devices);
 
         for device in results {
             let device = device.expect("Creating or updating a device panicked")?;
@@ -430,7 +450,12 @@ impl IdentityManager {
         let mut changes = DeviceChanges::default();
 
         let tasks = device_keys_map.into_iter().map(|(user_id, device_keys_map)| {
-            spawn(Self::update_user_devices(self.store.clone(), user_id, device_keys_map))
+            spawn(Self::update_user_devices(
+                self.store.clone(),
+                self.impersonatable.clone(),
+                user_id,
+                device_keys_map,
+            ))
         });
 
         let results = join_all(tasks).await;
