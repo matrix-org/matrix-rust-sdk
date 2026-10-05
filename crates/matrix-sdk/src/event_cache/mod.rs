@@ -214,6 +214,122 @@ pub struct EventCacheDropHandles {
     _redecryptor: redecryptor::Redecryptor,
 }
 
+impl EventCacheDropHandles {
+    fn new(
+        event_cache_inner: &Arc<EventCacheInner>,
+        event_cache_config: RwLockReadGuard<'_, EventCacheConfig>,
+        client: Client,
+    ) -> Self {
+        let task_monitor = client.task_monitor();
+
+        // Spawn the task that will listen to all the room updates at once.
+        let listen_updates_task = task_monitor
+            .spawn_infinite_task(
+                "event_cache::room_updates_task",
+                tasks::room_updates_task(
+                    event_cache_inner.clone(),
+                    client.subscribe_to_all_room_updates(),
+                ),
+            )
+            .abort_on_drop();
+
+        let ignore_user_list_update_task = task_monitor
+            .spawn_infinite_task(
+                "event_cache::ignore_user_list_update_task",
+                tasks::ignore_user_list_update_task(
+                    event_cache_inner.clone(),
+                    client.subscribe_to_ignore_user_list_changes(),
+                ),
+            )
+            .abort_on_drop();
+
+        let (auto_shrink_sender, auto_shrink_receiver) = mpsc::channel(32);
+
+        // Force-initialize the sender in the [`RoomEventCacheInner`].
+        event_cache_inner.auto_shrink_sender.get_or_init(|| auto_shrink_sender);
+
+        let auto_shrink_linked_chunk_task = task_monitor
+            .spawn_infinite_task(
+                "event_cache::auto_shrink_linked_chunk_task",
+                tasks::auto_shrink_linked_chunk_task(
+                    Arc::downgrade(event_cache_inner),
+                    auto_shrink_receiver,
+                ),
+            )
+            .abort_on_drop();
+
+        #[cfg(feature = "e2e-encryption")]
+        let redecryptor = {
+            let receiver = event_cache_inner
+                .redecryption_channels
+                .decryption_request_receiver
+                .lock()
+                .take()
+                .expect(
+                    "We should have initialized the channel an subscribing should happen only once",
+                );
+
+            redecryptor::Redecryptor::new(
+                &client,
+                Arc::downgrade(&event_cache_inner),
+                receiver,
+                &event_cache_inner.linked_chunk_update_sender,
+            )
+        };
+
+        let thread_subscriber_task = client
+            .task_monitor()
+            .spawn_infinite_task(
+                "event_cache::thread_subscriber",
+                tasks::thread_subscriber_task(
+                    event_cache_inner.client.clone(),
+                    event_cache_inner.linked_chunk_update_sender.clone(),
+                    event_cache_inner.thread_subscriber_sender.clone(),
+                ),
+            )
+            .abort_on_drop();
+
+        #[cfg(feature = "experimental-search")]
+        let search_indexing_task = client
+            .task_monitor()
+            .spawn_infinite_task(
+                "event_cache::search_indexing",
+                tasks::search_indexing_task(
+                    event_cache_inner.client.clone(),
+                    event_cache_inner.linked_chunk_update_sender.clone(),
+                ),
+            )
+            .abort_on_drop();
+
+        if event_cache_inner.enable_automatic_back_pagination {
+            // Deferred initialization of the shared back-pagination queue.
+            trace!("spawning the back-pagination queue");
+            let max_concurrent = event_cache_config.max_concurrent_back_paginations;
+
+            event_cache_inner.back_pagination_queue.get_or_init(|| {
+                BackPaginationQueue::new(
+                    Arc::downgrade(event_cache_inner),
+                    max_concurrent,
+                    task_monitor,
+                )
+            });
+        } else {
+            trace!("back-pagination queue is disabled");
+        }
+
+        Self {
+            _listen_updates_task: listen_updates_task,
+            _ignore_user_list_update_task: ignore_user_list_update_task,
+            _auto_shrink_linked_chunk_task: auto_shrink_linked_chunk_task,
+            #[cfg(feature = "e2e-encryption")]
+            _redecryptor: redecryptor,
+            _thread_subscriber_task: thread_subscriber_task,
+            #[cfg(feature = "experimental-search")]
+            _search_indexing_task: search_indexing_task,
+        }
+    }
+}
+
 impl fmt::Debug for EventCacheDropHandles {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EventCacheDropHandles").finish_non_exhaustive()
@@ -228,7 +344,15 @@ impl fmt::Debug for EventCacheDropHandles {
 #[derive(Clone)]
 pub struct EventCache {
     /// Reference to the inner cache.
+    //
+    // It's behind an `Arc` to provide a cheap clone.
     inner: Arc<EventCacheInner>,
+
+    /// Handles to keep alive the tasks listening to updates.
+    //
+    // It's behind an `Arc` because this value is cloned and returned to callers
+    // of some methods.
+    drop_handles: Arc<EventCacheDropHandles>,
 }
 
 impl fmt::Debug for EventCache {
@@ -256,26 +380,25 @@ impl EventCache {
         #[cfg(feature = "e2e-encryption")]
         let redecryption_channels = redecryptor::RedecryptorChannels::new();
 
-        let this = Self {
-            inner: Arc::new(EventCacheInner {
-                client: weak_client,
-                config: StdRwLock::new(EventCacheConfig::default()),
-                state: StateLock::new(event_cache_store),
-                by_room: Default::default(),
-                drop_handles: Default::default(),
-                auto_shrink_sender: Default::default(),
-                generic_update_sender,
-                linked_chunk_update_sender,
-                #[cfg(feature = "e2e-encryption")]
-                redecryption_channels,
-                enable_automatic_back_pagination,
-                back_pagination_queue: OnceLock::new(),
-                thread_subscriber_sender,
-            }),
-        };
-        this.initialize_tasks(&client);
+        let inner = Arc::new(EventCacheInner {
+            client: weak_client,
+            config: StdRwLock::new(EventCacheConfig::default()),
+            state: StateLock::new(event_cache_store),
+            by_room: Default::default(),
+            auto_shrink_sender: Default::default(),
+            generic_update_sender,
+            linked_chunk_update_sender,
+            #[cfg(feature = "e2e-encryption")]
+            redecryption_channels,
+            enable_automatic_back_pagination,
+            back_pagination_queue: OnceLock::new(),
+            thread_subscriber_sender,
+        });
 
-        this
+        let drop_handles =
+            Arc::new(EventCacheDropHandles::new(&inner, inner.config.read().unwrap(), client));
+
+        Self { inner, drop_handles }
     }
 
     /// Get a read-only handle to the global configuration of the
@@ -297,98 +420,6 @@ impl EventCache {
         self.inner.thread_subscriber_sender.subscribe()
     }
 
-    /// Initialize all the tasks used by the [`EventCache`].
-    fn initialize_tasks(&self, client: &Client) {
-        // Initialize the drop handles.
-        let _ = self.inner.drop_handles.get_or_init(|| {
-            let task_monitor = client.task_monitor();
-
-            // Spawn the task that will listen to all the room updates at once.
-            let listen_updates_task = task_monitor.spawn_infinite_task("event_cache::room_updates_task", tasks::room_updates_task(
-                self.inner.clone(),
-                client.subscribe_to_all_room_updates(),
-            )).abort_on_drop();
-
-            let ignore_user_list_update_task = task_monitor.spawn_infinite_task("event_cache::ignore_user_list_update_task", tasks::ignore_user_list_update_task(
-                self.inner.clone(),
-                client.subscribe_to_ignore_user_list_changes(),
-            )).abort_on_drop();
-
-            let (auto_shrink_sender, auto_shrink_receiver) = mpsc::channel(32);
-
-            // Force-initialize the sender in the [`RoomEventCacheInner`].
-            self.inner.auto_shrink_sender.get_or_init(|| auto_shrink_sender);
-
-            let auto_shrink_linked_chunk_task = task_monitor.spawn_infinite_task("event_cache::auto_shrink_linked_chunk_task", tasks::auto_shrink_linked_chunk_task(
-                Arc::downgrade(&self.inner),
-                auto_shrink_receiver,
-            )).abort_on_drop();
-
-            #[cfg(feature = "e2e-encryption")]
-            let redecryptor = {
-                let receiver = self
-                    .inner
-                    .redecryption_channels
-                    .decryption_request_receiver
-                    .lock()
-                    .take()
-                    .expect("We should have initialized the channel an subscribing should happen only once");
-
-                redecryptor::Redecryptor::new(client, Arc::downgrade(&self.inner), receiver, &self.inner.linked_chunk_update_sender)
-            };
-
-            let thread_subscriber_task = client
-                .task_monitor()
-                .spawn_infinite_task(
-                    "event_cache::thread_subscriber",
-                    tasks::thread_subscriber_task(
-                        self.inner.client.clone(),
-                        self.inner.linked_chunk_update_sender.clone(),
-                        self.inner.thread_subscriber_sender.clone(),
-                    ),
-                )
-                .abort_on_drop();
-
-            #[cfg(feature = "experimental-search")]
-            let search_indexing_task = client
-                .task_monitor()
-                .spawn_infinite_task(
-                    "event_cache::search_indexing",
-                    tasks::search_indexing_task(
-                        self.inner.client.clone(),
-                        self.inner.linked_chunk_update_sender.clone(),
-                    ),
-                )
-                .abort_on_drop();
-
-            if self.inner.enable_automatic_back_pagination {
-                // Deferred initialization of the shared back-pagination queue.
-                trace!("spawning the back-pagination queue");
-                let max_concurrent = self.config().max_concurrent_back_paginations;
-                self.inner.back_pagination_queue.get_or_init(|| {
-                    BackPaginationQueue::new(
-                        Arc::downgrade(&self.inner),
-                        max_concurrent,
-                        task_monitor,
-                    )
-                });
-            } else {
-                trace!("back-pagination queue is disabled");
-            }
-
-            Arc::new(EventCacheDropHandles {
-                _listen_updates_task: listen_updates_task,
-                _ignore_user_list_update_task: ignore_user_list_update_task,
-                _auto_shrink_linked_chunk_task: auto_shrink_linked_chunk_task,
-                #[cfg(feature = "e2e-encryption")]
-                _redecryptor: redecryptor,
-                _thread_subscriber_task: thread_subscriber_task,
-                #[cfg(feature = "experimental-search")]
-                _search_indexing_task: search_indexing_task,
-            })
-        });
-    }
-
     /// For benchmarking purposes only.
     #[doc(hidden)]
     pub async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
@@ -400,11 +431,11 @@ impl EventCache {
         &self,
         room_id: &RoomId,
     ) -> Result<(RoomEventCache, Arc<EventCacheDropHandles>)> {
-        let drop_handles = self.inner.drop_handles.get().unwrap();
+        let drop_handles = self.drop_handles.clone();
 
         let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
 
-        Ok((caches_for_room.room().clone(), drop_handles.clone()))
+        Ok((caches_for_room.room().clone(), drop_handles))
     }
 
     /// Return a thread-specific view over the [`EventCache`].
@@ -413,14 +444,11 @@ impl EventCache {
         room_id: &RoomId,
         thread_id: &EventId,
     ) -> Result<(ThreadEventCache, Arc<EventCacheDropHandles>)> {
-        let drop_handles = self.inner.drop_handles.get().unwrap();
+        let drop_handles = self.drop_handles.clone();
 
         let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
 
-        Ok((
-            caches_for_room.thread(thread_id.to_owned()).await?.deref().clone(),
-            drop_handles.clone(),
-        ))
+        Ok((caches_for_room.thread(thread_id.to_owned()).await?.deref().clone(), drop_handles))
     }
 
     /// Return a pinned-events-specific view over the [`EventCache`].
@@ -428,11 +456,11 @@ impl EventCache {
         &self,
         room_id: &RoomId,
     ) -> Result<(PinnedEventsCache, Arc<EventCacheDropHandles>)> {
-        let drop_handles = self.inner.drop_handles.get().unwrap();
+        let drop_handles = self.drop_handles.clone();
 
         let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
 
-        Ok((caches_for_room.pinned_events().await?.clone(), drop_handles.clone()))
+        Ok((caches_for_room.pinned_events().await?.clone(), drop_handles))
     }
 
     /// Return an event-focused view over the [`EventCache`].
@@ -443,7 +471,7 @@ impl EventCache {
         thread_mode: EventFocusThreadMode,
         number_of_initial_events: u16,
     ) -> Result<(EventFocusedCache, Arc<EventCacheDropHandles>)> {
-        let drop_handles = self.inner.drop_handles.get().unwrap();
+        let drop_handles = self.drop_handles.clone();
 
         let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
 
@@ -453,7 +481,7 @@ impl EventCache {
                 .await?
                 .deref()
                 .clone(),
-            drop_handles.clone(),
+            drop_handles,
         ))
     }
 
@@ -572,9 +600,6 @@ struct EventCacheInner {
     //
     // It's behind an `Arc` to get owned locks.
     by_room: Arc<RwLock<CachesByRoom>>,
-
-    /// Handles to keep alive the task listening to updates.
-    drop_handles: OnceLock<Arc<EventCacheDropHandles>>,
 
     /// A sender for notifications that a room _may_ need to be auto-shrunk.
     ///
