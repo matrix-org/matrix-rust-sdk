@@ -443,6 +443,75 @@ async fn test_encryption_sync_always_reloads_todevice_token() -> anyhow::Result<
     Ok(())
 }
 
+async fn restart_encryption_sync(
+    server: &MatrixMockServer,
+    client: matrix_sdk::Client,
+    second_pos: Option<&'static str>,
+) -> anyhow::Result<()> {
+    let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new_for_testing()));
+
+    {
+        let sync_permit_guard = sync_permit.clone().lock_owned().await;
+        let encryption_sync = EncryptionSyncService::new(client.clone(), None).await?;
+        let stream = encryption_sync.sync(sync_permit_guard);
+        pin_mut!(stream);
+
+        sliding_sync_then_assert_request_and_fake_response! {
+            [server, stream]
+            assert pos None,
+            assert request >= { "conn_id": "encryption" },
+            respond with = { "pos": "0" },
+        };
+
+        sliding_sync_then_assert_request_and_fake_response! {
+            [server, stream]
+            assert pos Some("0"),
+            assert request >= { "conn_id": "encryption" },
+            respond with = { "pos": "1" },
+        };
+    }
+
+    let sync_permit_guard = sync_permit.lock_owned().await;
+    let encryption_sync = EncryptionSyncService::new(client, None).await?;
+    let stream = encryption_sync.sync(sync_permit_guard);
+    pin_mut!(stream);
+
+    sliding_sync_then_assert_request_and_fake_response! {
+        [server, stream]
+        assert pos second_pos,
+        assert request >= { "conn_id": "encryption" },
+        respond with = { "pos": "2" },
+    };
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_encryption_sync_restores_pos_when_single_process() -> anyhow::Result<()> {
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|b| b.cross_process_store_config(CrossProcessLockConfig::SingleProcess))
+        .build()
+        .await;
+
+    restart_encryption_sync(&server, client, Some("1")).await
+}
+
+#[async_test]
+async fn test_encryption_sync_does_not_restore_pos_when_multi_process() -> anyhow::Result<()> {
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|b| {
+            b.cross_process_store_config(CrossProcessLockConfig::multi_process("tests"))
+        })
+        .build()
+        .await;
+
+    restart_encryption_sync(&server, client, None).await
+}
+
 #[async_test]
 async fn test_notification_client_does_not_upload_duplicate_one_time_keys() -> anyhow::Result<()> {
     use tempfile::tempdir;

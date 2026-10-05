@@ -82,11 +82,16 @@ impl EncryptionSyncService {
         let mut builder = client
             .sliding_sync("encryption")
             .map_err(Error::SlidingSync)?
-            //.share_pos() // TODO: This is racy, needs cross-process lock :')
             .with_to_device_extension(
                 assign!(http::request::ToDevice::default(), { enabled: Some(true)}),
             )
             .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: Some(true)}));
+
+        // Keeping the `pos` avoids marking every tracked user as dirty on start,
+        // but processes sharing the store would race on it.
+        if matches!(client.cross_process_lock_config(), CrossProcessLockConfig::SingleProcess) {
+            builder = builder.share_pos();
+        }
 
         if let Some((poll_timeout, network_timeout)) = poll_and_network_timeouts {
             builder = builder.poll_timeout(poll_timeout).network_timeout(network_timeout);
