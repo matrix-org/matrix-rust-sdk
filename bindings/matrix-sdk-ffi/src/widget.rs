@@ -213,6 +213,11 @@ pub fn get_element_call_required_permissions(
             // This allows the widget to check the room version, so it can know
             // about version-specific auth rules (namely MSC3779).
             WidgetEventFilter::StateWithType { event_type: StateEventType::RoomCreate.to_string() },
+            // To ignore bots and other service accounts when picking who to
+            // ring and when deciding whether the room is a DM.
+            WidgetEventFilter::StateWithType {
+                event_type: "io.element.functional_members".to_owned(),
+            },
         ]
         .into_iter()
         .chain(read_send.clone())
@@ -543,6 +548,7 @@ mod tests {
         cap_assert("org.matrix.msc2762.receive.event:org.matrix.rageshake_request");
         cap_assert("org.matrix.msc2762.receive.event:io.element.call.encryption_keys");
         cap_assert("org.matrix.msc2762.receive.state_event:m.room.create");
+        cap_assert("org.matrix.msc2762.receive.state_event:io.element.functional_members");
         cap_assert(
             "org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#@my_user:my_domain.org",
         );
