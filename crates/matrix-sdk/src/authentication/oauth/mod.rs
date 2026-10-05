@@ -753,7 +753,6 @@ impl OAuth {
 
         self.client.auth_ctx().set_session_tokens(tokens.clone());
         self.client
-            .base_client()
             .activate(
                 meta,
                 room_load_settings,
@@ -1007,7 +1006,6 @@ impl OAuth {
             }
         } else {
             self.client
-                .base_client()
                 .activate(
                     new_session,
                     RoomLoadSettings::default(),

@@ -146,7 +146,6 @@ async fn finish_login<Q>(
     trace!("Discovering our own user id.");
     let whoami_response = client.whoami().await.map_err(QRCodeLoginError::UserIdDiscovery)?;
     client
-        .base_client()
         .activate(
             SessionMeta {
                 user_id: whoami_response.user_id,
@@ -156,7 +155,7 @@ async fn finish_login<Q>(
             Some(account),
         )
         .await
-        .map_err(|error| QRCodeLoginError::SessionTokens(error.into()))?;
+        .map_err(QRCodeLoginError::SessionTokens)?;
 
     client.oauth().enable_cross_process_lock().await?;
 
