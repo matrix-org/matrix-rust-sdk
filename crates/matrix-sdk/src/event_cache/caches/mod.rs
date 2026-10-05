@@ -274,7 +274,16 @@ impl Caches {
                         self.internals.linked_chunk_update_sender.clone(),
                     )
                     .await?;
-                    cache.start_from(number_of_initial_events, thread_mode).await?;
+
+                    // The cache isn't inserted if it fails to start: remove its
+                    // state, so that it can be created again.
+                    if let Err(error) =
+                        cache.start_from(number_of_initial_events, thread_mode).await
+                    {
+                        cache.remove_state().await;
+
+                        return Err(error);
+                    }
 
                     event_focused_caches.insert(key.clone(), cache);
 

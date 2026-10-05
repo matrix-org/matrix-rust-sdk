@@ -647,6 +647,18 @@ where
     }
 }
 
+impl CacheStateLock<selectors::EventFocusedStateSelector> {
+    /// Remove the cache state from the full [`State`].
+    ///
+    /// The cache state lives in memory only, so this method only locks the
+    /// per-thread lock over the state, not the cross-process lock over the
+    /// store.
+    pub async fn remove(&self) {
+        let mut state = self.state_lock.inner.locked_state.write().await;
+        self.cache_state_selector.remove(&mut state);
+    }
+}
+
 // Fallible methods.
 impl<Selector> CacheStateLock<Selector>
 where

@@ -213,6 +213,13 @@ impl EventFocusedStateSelector {
     pub fn new(room_id: OwnedRoomId, key: EventFocusedCacheKey) -> Self {
         Self(room_id, key)
     }
+
+    /// Remove the [`EventFocusedCacheState`] from [`State`], if any.
+    pub(super) fn remove(&self, state: &mut State) {
+        if let Some(state_for_room) = state.by_room.get_mut(&self.0) {
+            state_for_room.event_focused.remove(&self.1);
+        }
+    }
 }
 
 impl CacheState for EventFocusedStateSelector {

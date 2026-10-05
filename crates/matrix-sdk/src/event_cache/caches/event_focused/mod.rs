@@ -649,6 +649,12 @@ impl EventFocusedCache {
         self.inner.write().await?.start_from(num_context_events, thread_mode).await
     }
 
+    /// Remove the state of this cache, registered by
+    /// [`EventFocusedCache::new`].
+    pub(super) async fn remove_state(&self) {
+        self.inner.remove().await;
+    }
+
     /// Paginate backwards in this event-focused timeline, be it room or thread
     /// pagination depending on the mode.
     pub async fn paginate_backwards(&self, num_events: u16) -> Result<PaginationResult> {
