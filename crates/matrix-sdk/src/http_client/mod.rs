@@ -216,8 +216,9 @@ impl HttpClient {
             // will be automatically dropped at the end of this function
             let _handle = self.concurrent_request_semaphore.acquire().await;
 
-            // There's a bunch of state in send_request, factor out a pinned inner
-            // future to reduce the size of futures that await this function.
+            // There's a bunch of state in send_request, factor out a pinned
+            // inner future to reduce the size of futures that await
+            // this function.
             match Box::pin(self.send_request::<R>(request, config, progress)).await {
                 Ok(response) => {
                     log_got_response();

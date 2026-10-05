@@ -809,12 +809,13 @@ impl IntoFuture for GetMediaContentRequest {
         let Self { media, request, use_cache, recv_progress } = self;
 
         Box::pin(async move {
-            // This is a local media. Force to read the media's content from the store: it
-            // cannot exist somewhere else!
+            // This is a local media. Force to read the media's content from the
+            // store: it cannot exist somewhere else!
             if Media::is_local_uri(&request.source) {
-                // Local medias are always cached with `MediaFormat::File`, be it the file
-                // itself or its thumbnail (see `RoomSendQueue::cache_media`), so ignore the
-                // requested format.
+                // Local medias are always cached with `MediaFormat::File`, be
+                // it the file itself or its thumbnail (see
+                // `RoomSendQueue::cache_media`), so ignore the requested
+                // format.
                 let request = &MediaRequestParameters {
                     source: request.source.clone(),
                     format: MediaFormat::File,
