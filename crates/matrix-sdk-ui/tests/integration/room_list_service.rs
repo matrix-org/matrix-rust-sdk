@@ -2129,17 +2129,17 @@ async fn test_room_sorting() -> Result<(), Error> {
     // | 4     | !r1     | 6       | Aaa  |
     // | 5     | !r4     | 5       |      |
 
-    // `!r6` receives a new name.
-    assert_entries_batch! {
-        [stream]
-        set [ 2 ] [ "!r6:bar.org" ];
-        end;
-    };
-
     // `!r3` receives a read receipt update.
     assert_entries_batch! {
         [stream]
         set [ 0 ] [ "!r3:bar.org" ];
+        end;
+    };
+
+    // `!r6` receives a new name.
+    assert_entries_batch! {
+        [stream]
+        set [ 2 ] [ "!r6:bar.org" ];
         end;
     };
 
