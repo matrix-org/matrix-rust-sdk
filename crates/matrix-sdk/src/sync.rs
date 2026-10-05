@@ -164,6 +164,10 @@ impl Client {
         #[cfg(feature = "e2e-encryption")]
         self.encryption().backups().maybe_trigger_backup();
 
+        // The Event Cache now receives the room updates.
+        Box::pin(self.event_cache().handle_room_updates(response.rooms.clone())).await?;
+
+        // Finally, let's call the sync response handler.
         self.call_sync_response_handlers(&response).await?;
 
         Ok(response)

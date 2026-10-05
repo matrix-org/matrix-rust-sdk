@@ -184,9 +184,6 @@ pub type Result<T> = std::result::Result<T, EventCacheError>;
 
 /// Hold handles to the tasks spawn by a [`EventCache`].
 pub struct EventCacheDropHandles {
-    /// Task that listens to room updates.
-    _listen_updates_task: BackgroundTaskHandle,
-
     /// Task that listens to updates to the user's ignored list.
     _ignore_user_list_update_task: BackgroundTaskHandle,
 
@@ -222,17 +219,6 @@ impl EventCacheDropHandles {
         client: Client,
     ) -> Self {
         let task_monitor = client.task_monitor();
-
-        // Spawn the task that will listen to all the room updates at once.
-        let listen_updates_task = task_monitor
-            .spawn_infinite_task(
-                "event_cache::room_updates_task",
-                tasks::room_updates_task(
-                    event_cache_inner.clone(),
-                    client.subscribe_to_all_room_updates(),
-                ),
-            )
-            .abort_on_drop();
 
         let ignore_user_list_update_task = task_monitor
             .spawn_infinite_task(
@@ -295,7 +281,6 @@ impl EventCacheDropHandles {
         }
 
         Self {
-            _listen_updates_task: listen_updates_task,
             _ignore_user_list_update_task: ignore_user_list_update_task,
             _auto_shrink_linked_chunk_task: auto_shrink_linked_chunk_task,
             // It is initialised with `EventCache::initialise_redecryptor`. See this method to learn
@@ -437,9 +422,21 @@ impl EventCache {
         self.inner.thread_subscriber_sender.subscribe()
     }
 
-    /// For benchmarking purposes only.
-    #[doc(hidden)]
+    /// Handle [`RoomUpdates`], i.e. the entry point of the `EventCache` for
+    /// receiving new updates.
+    ///
+    /// This method is `pub` because the `testing` feature is turned on.
+    #[cfg(feature = "testing")]
     pub async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
+        self.inner.handle_room_updates(updates).await
+    }
+
+    /// Handle [`RoomUpdates`], i.e. the entry point of the `EventCache` for
+    /// receiving new updates.
+    ///
+    /// This method is `pub(crate)` because the `testing` feature is turned off.
+    #[cfg(not(feature = "testing"))]
+    pub(crate) async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
         self.inner.handle_room_updates(updates).await
     }
 
@@ -1139,7 +1136,7 @@ mod tests {
         sleep(Duration::from_secs(1)).await;
 
         let event_cache_weak = Arc::downgrade(&client.event_cache().inner);
-        assert_eq!(event_cache_weak.strong_count(), 3);
+        assert_eq!(event_cache_weak.strong_count(), 2);
 
         {
             let room_id = room_id!("!room:example.org");
