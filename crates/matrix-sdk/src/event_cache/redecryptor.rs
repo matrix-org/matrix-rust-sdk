@@ -367,7 +367,7 @@ fn filter_timeline_event_to_decrypted(
     event_id.zip(event)
 }
 
-impl EventCache {
+impl EventCacheInner {
     /// Retrieve a set of events that we weren't able to decrypt.
     ///
     /// # Arguments
@@ -380,7 +380,7 @@ impl EventCache {
         room_id: &RoomId,
         session_id: SessionId<'_>,
     ) -> Result<Vec<EventIdAndUtd>, EventCacheError> {
-        let caches = self.inner.all_caches_for_room(room_id).await?;
+        let caches = self.all_caches_for_room(room_id).await?;
 
         Ok(caches
             .all_events_of_type(Some("m.room.encrypted"), Some(session_id))
@@ -394,7 +394,7 @@ impl EventCache {
     async fn all_in_memory_encrypted_events(&self) -> BTreeMap<OwnedRoomId, Vec<EventIdAndUtd>> {
         let mut utds = BTreeMap::new();
 
-        for (room_id, caches) in self.inner.by_room.read().await.iter() {
+        for (room_id, caches) in self.by_room.read().await.iter() {
             let room_utds: Vec<_> = caches
                 .all_in_memory_events()
                 .await
@@ -414,7 +414,7 @@ impl EventCache {
         room_id: &RoomId,
         session_id: SessionId<'_>,
     ) -> Result<Vec<EventIdAndEvent>, EventCacheError> {
-        let caches = self.inner.all_caches_for_room(room_id).await?;
+        let caches = self.all_caches_for_room(room_id).await?;
 
         Ok(caches
             .all_events_of_type(None, Some(session_id))
@@ -426,7 +426,7 @@ impl EventCache {
     async fn all_in_memory_decrypted_events(&self) -> BTreeMap<OwnedRoomId, Vec<EventIdAndEvent>> {
         let mut decrypted_events = BTreeMap::new();
 
-        for (room_id, caches) in self.inner.by_room.read().await.iter() {
+        for (room_id, caches) in self.by_room.read().await.iter() {
             let room_utds: Vec<_> = caches
                 .all_in_memory_events()
                 .await
@@ -468,7 +468,7 @@ impl EventCache {
         let event_ids: BTreeSet<_> =
             resolved_utds.iter().map(|resolved_utd| resolved_utd.event_id.clone()).collect();
 
-        let all_caches = self.inner.all_caches_for_room(room_id).await?;
+        let all_caches = self.all_caches_for_room(room_id).await?;
         let mut maybe_resolved_events = Vec::with_capacity(resolved_utds.len());
 
         // # Room cache, thread caches, and pinned-event cache
@@ -599,7 +599,7 @@ impl EventCache {
 
         let report =
             RedecryptorReport::ResolvedUtds { room_id: room_id.to_owned(), events: event_ids };
-        let _ = self.inner.redecryption_channels.utd_reporter.send(report);
+        let _ = self.redecryption_channels.utd_reporter.send(report);
 
         Ok(())
     }
@@ -640,7 +640,7 @@ impl EventCache {
                 }
             }
         } else {
-            let client = self.inner.client().ok()?;
+            let client = self.client().ok()?;
             let machine = client.olm_machine().await;
             let machine = machine.as_ref()?;
 
@@ -710,7 +710,7 @@ impl EventCache {
             return Ok(());
         }
 
-        let room = self.inner.client().ok().and_then(|client| client.get_room(room_id));
+        let room = self.client().ok().and_then(|client| client.get_room(room_id));
         let push_context =
             if let Some(room) = &room { room.push_context().await.ok().flatten() } else { None };
 
@@ -795,7 +795,7 @@ impl EventCache {
     ) -> Result<(), EventCacheError> {
         trace!("Updating encryption info");
 
-        let Ok(client) = self.inner.client() else {
+        let Ok(client) = self.client() else {
             return Ok(());
         };
 
@@ -819,7 +819,7 @@ impl EventCache {
         let decrypted_events = self.all_in_memory_decrypted_events().await;
 
         for (room_id, events) in decrypted_events.into_iter() {
-            let Some(room) = self.inner.client().ok().and_then(|c| c.get_room(&room_id)) else {
+            let Some(room) = self.client().ok().and_then(|c| c.get_room(&room_id)) else {
                 continue;
             };
 
@@ -845,7 +845,9 @@ impl EventCache {
         self.retry_decryption_for_in_memory_events().await;
         self.retry_update_encryption_info_for_in_memory_events().await;
     }
+}
 
+impl EventCache {
     /// Explicitly request the redecryption of a set of events.
     ///
     /// The redecryption logic in the event cache might sometimes miss that a
@@ -949,21 +951,16 @@ impl EventCache {
     }
 }
 
-#[inline(always)]
-fn upgrade_event_cache(cache: &Weak<EventCacheInner>) -> Option<EventCache> {
-    cache.upgrade().map(|inner| EventCache { inner })
-}
-
 async fn send_report_and_retry_memory_events(
     cache: &Weak<EventCacheInner>,
     report: RedecryptorReport,
 ) -> Result<(), ()> {
-    let Some(cache) = upgrade_event_cache(cache) else {
+    let Some(cache) = cache.upgrade() else {
         return Err(());
     };
 
     cache.retry_in_memory_events().await;
-    let _ = cache.inner.redecryption_channels.utd_reporter.send(report);
+    let _ = cache.redecryption_channels.utd_reporter.send(report);
 
     Ok(())
 }
@@ -1054,7 +1051,7 @@ impl Redecryptor {
                 // received to decrypt events that were encrypted with a certain
                 // room key.
                 Some(request) = decryption_request_stream.next() => {
-                        let Some(cache) = upgrade_event_cache(cache) else {
+                        let Some(cache) = cache.upgrade() else {
                             break false;
                         };
 
@@ -1085,7 +1082,7 @@ impl Redecryptor {
                             // persisted in our store, let's attempt to
                             // redecrypt events that were encrypted using these
                             // room keys.
-                            let Some(cache) = upgrade_event_cache(cache) else {
+                            let Some(cache) = cache.upgrade() else {
                                 break false;
                             };
 
@@ -1132,7 +1129,7 @@ impl Redecryptor {
                 withheld_info = withheld_stream.next() => {
                     match withheld_info {
                         Some(infos) => {
-                            let Some(cache) = upgrade_event_cache(cache) else {
+                            let Some(cache) = cache.upgrade() else {
                                 break false;
                             };
 
@@ -1159,7 +1156,7 @@ impl Redecryptor {
                 Some(event_updates) = events_stream.next() => {
                     match event_updates {
                         Ok(updates) => {
-                            let Some(cache) = upgrade_event_cache(cache) else {
+                            let Some(cache) = cache.upgrade() else {
                                 break false;
                             };
 
