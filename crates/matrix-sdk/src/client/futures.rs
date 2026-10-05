@@ -19,7 +19,6 @@ use std::{fmt::Debug, future::IntoFuture};
 use eyeball::{SharedObservable, Subscriber};
 use js_int::UInt;
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm, boxed_into_future};
-use oauth2::{RequestTokenError, basic::BasicErrorResponseType};
 use ruma::api::{
     OutgoingRequest,
     client::media,
@@ -31,7 +30,6 @@ use tracing::{error, trace};
 use super::super::Client;
 use crate::{
     Error, RefreshTokenError, TransmissionProgress,
-    authentication::oauth::OAuthError,
     config::RequestConfig,
     error::{HttpError, HttpResult},
     http_client::{SupportedAuthScheme, SupportedPathBuilder},
@@ -143,40 +141,13 @@ where
                         Ok(RetryRequest::No)
                     }
 
-                    RefreshTokenError::OAuth(oauth_error) => {
-                        match &**oauth_error {
-                            OAuthError::RefreshToken(RequestTokenError::ServerResponse(
-                                error_response,
-                            )) if *error_response.error()
-                                == BasicErrorResponseType::InvalidGrant =>
-                            {
-                                error!(
-                                    "Token refresh: OAuth 2.0 refresh_token rejected \
-                                         with invalid grant"
-                                );
-                                // The refresh was denied, signal to sign out
-                                // the user.
-                                client.broadcast_unknown_token(unknown_token_data);
-                            }
-                            _ => {
-                                trace!("Token refresh: OAuth 2.0 refresh encountered a problem.");
-                                // The refresh failed for other reasons, no need
-                                // to sign out.
-                            }
-                        }
-                        Err(HttpError::RefreshToken(refresh_error))
-                    }
-
-                    RefreshTokenError::MatrixAuth(http_error) => {
-                        // Only an answer from the homeserver means the token is
-                        // gone. A transport failure or a 5xx says nothing about
-                        // the session.
-                        let rejected = http_error
-                            .as_client_api_error()
-                            .is_some_and(|error| !error.status_code.is_server_error());
-
-                        if rejected {
-                            error!("Token refresh: the homeserver rejected the refresh token");
+                    RefreshTokenError::OAuth(_) | RefreshTokenError::MatrixAuth(_) => {
+                        if refresh_error.is_session_rejected() {
+                            error!(
+                                "Token refresh: the refresh token was rejected: {refresh_error}"
+                            );
+                            // The refresh was denied, signal to sign out the
+                            // user.
                             client.broadcast_unknown_token(unknown_token_data);
                         } else {
                             trace!("Token refresh: the refresh request itself failed.");

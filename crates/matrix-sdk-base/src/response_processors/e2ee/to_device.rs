@@ -21,7 +21,7 @@ use matrix_sdk_crypto::{DecryptionSettings, EncryptionSyncChanges, OlmMachine};
 use ruma::{
     OneTimeKeyAlgorithm, UInt,
     api::client::sync::sync_events::{DeviceLists, v3, v5},
-    events::AnyToDeviceEvent,
+    events::{AnyToDeviceEvent, ToDeviceEventType},
     serde::Raw,
 };
 
@@ -120,8 +120,8 @@ async fn process(
                 .to_device_events
                 .into_iter()
                 .map(|raw| {
-                    if let Ok(Some(event_type)) = raw.get_field::<String>("type") {
-                        if event_type == "m.room.encrypted" {
+                    if let Ok(Some(event_type)) = raw.get_field::<ToDeviceEventType>("type") {
+                        if event_type == ToDeviceEventType::RoomEncrypted {
                             ProcessedToDeviceEvent::UnableToDecrypt {
                                 encrypted_event: raw,
                                 utd_info: ToDeviceUnableToDecryptInfo {

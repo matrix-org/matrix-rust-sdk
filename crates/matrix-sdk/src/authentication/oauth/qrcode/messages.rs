@@ -33,15 +33,7 @@ pub enum QrAuthMessage {
     /// Message declaring the available protocols for sign in. Sent by the
     /// existing device.
     #[serde(rename = "m.login.protocols")]
-    LoginProtocols {
-        /// The login protocols the existing device supports.
-        protocols: Vec<LoginProtocolType>,
-        /// The homeserver we're going to log in to.
-        ///
-        /// Note: this doesn't match the MSC which says that it is a server name
-        /// not a full URL
-        homeserver: Url,
-    },
+    LoginProtocols(LoginProtocolsMessage),
 
     /// Message declaring which protocols from the previous `m.login.protocols`
     /// message the new device has picked. Sent by the new device.
@@ -79,8 +71,16 @@ pub enum QrAuthMessage {
     LoginFailure {
         /// The claimed reason for the login failure.
         reason: LoginFailureReason,
-        /// The homeserver that we attempted to log in to.
-        homeserver: Option<Url>,
+        /// The homeserver the new device should use, optionally sent by the
+        /// existing device so the user doesn't have to type it in.
+        ///
+        /// The MSC defines this as a server name, but older implementations
+        /// send a homeserver URL, so both are accepted as is. Either form can
+        /// be passed to [`ClientBuilder::server_name_or_homeserver_url()`].
+        ///
+        /// [`ClientBuilder::server_name_or_homeserver_url()`]: crate::ClientBuilder::server_name_or_homeserver_url
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        homeserver: Option<String>,
     },
 
     /// Message containing end-to-end encryption related secrets, the new device
@@ -89,6 +89,32 @@ pub enum QrAuthMessage {
     /// device.
     #[serde(rename = "m.login.secrets")]
     LoginSecrets(SecretsBundle),
+}
+
+/// Message declaring the available protocols for sign in. Sent by the
+/// existing device.
+///
+/// Supports both the MSC4108 variant of the m.login.protocols message as well
+/// as the MSC4388 variant.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum LoginProtocolsMessage {
+    Msc4388 {
+        /// The login protocols the existing device supports.
+        protocols: Vec<LoginProtocolType>,
+        /// The homeserver we're going to log in to.
+        base_url: Url,
+    },
+    Msc4108 {
+        /// The login protocols the existing device supports.
+        protocols: Vec<LoginProtocolType>,
+        /// The homeserver we're going to log in to.
+        ///
+        /// Note: this doesn't match the MSC which says that it is a server name
+        /// not a full URL. This is an implementation mistake in the first
+        /// version of the QR code login support.
+        homeserver: Url,
+    },
 }
 
 impl QrAuthMessage {
@@ -173,17 +199,48 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_protocols_serialization() {
+    fn test_protocols_serialization_msc_4108() {
+        const HOMESERVER: &str = "https://matrix-client.matrix.org/";
+
         let json = json!({
             "type": "m.login.protocols",
             "protocols": ["device_authorization_grant"],
-            "homeserver": "https://matrix-client.matrix.org/"
+            "homeserver": HOMESERVER,
 
         });
 
         let message: QrAuthMessage = serde_json::from_value(json.clone()).unwrap();
-        assert_let!(QrAuthMessage::LoginProtocols { protocols, .. } = &message);
+        assert_let!(
+            QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4108 {
+                protocols,
+                homeserver
+            }) = &message
+        );
         assert!(protocols.contains(&LoginProtocolType::DeviceAuthorizationGrant));
+        assert_eq!(homeserver.as_str(), HOMESERVER);
+
+        let serialized = serde_json::to_value(&message).unwrap();
+        assert_eq!(json, serialized);
+    }
+
+    #[test]
+    fn test_protocols_serialization_msc_4388() {
+        const HOMESERVER: &str = "https://matrix-client.matrix.org/";
+
+        let json = json!({
+            "type": "m.login.protocols",
+            "protocols": ["device_authorization_grant"],
+            "base_url": HOMESERVER,
+
+        });
+
+        let message: QrAuthMessage = serde_json::from_value(json.clone()).unwrap();
+        assert_let!(
+            QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4388 { protocols, base_url }) =
+                &message
+        );
+        assert!(protocols.contains(&LoginProtocolType::DeviceAuthorizationGrant));
+        assert_eq!(base_url.as_str(), HOMESERVER);
 
         let serialized = serde_json::to_value(&message).unwrap();
         assert_eq!(json, serialized);
@@ -254,10 +311,55 @@ mod test {
         });
 
         let message: QrAuthMessage = serde_json::from_value(json.clone()).unwrap();
-        assert_let!(QrAuthMessage::LoginFailure { reason, .. } = &message);
+        assert_let!(QrAuthMessage::LoginFailure { reason, homeserver } = &message);
         assert_eq!(reason, &LoginFailureReason::UnsupportedProtocol);
+        // Older implementations send a URL, which we keep as is.
+        assert_eq!(homeserver.as_deref(), Some("https://matrix-client.matrix.org/"));
         let serialized = serde_json::to_value(&message).unwrap();
         assert_eq!(json, serialized);
+    }
+
+    #[test]
+    fn test_login_failure_with_server_name() {
+        // The MSC defines the homeserver as a server name, not a URL.
+        let json = json!({
+            "type": "m.login.failure",
+            "reason": "unsupported_protocol",
+            "homeserver": "matrix.org"
+        });
+
+        let message: QrAuthMessage = serde_json::from_value(json.clone()).unwrap();
+        assert_let!(QrAuthMessage::LoginFailure { reason, homeserver } = &message);
+        assert_eq!(reason, &LoginFailureReason::UnsupportedProtocol);
+        assert_eq!(homeserver.as_deref(), Some("matrix.org"));
+        let serialized = serde_json::to_value(&message).unwrap();
+        assert_eq!(json, serialized);
+    }
+
+    #[test]
+    fn test_login_failure_without_homeserver() {
+        let json = json!({
+            "type": "m.login.failure",
+            "reason": "user_cancelled",
+        });
+
+        let message: QrAuthMessage = serde_json::from_value(json.clone()).unwrap();
+        assert_let!(QrAuthMessage::LoginFailure { reason, homeserver } = &message);
+        assert_eq!(reason, &LoginFailureReason::UserCancelled);
+        assert!(homeserver.is_none());
+
+        // A missing homeserver must not be serialized as `null`.
+        let serialized = serde_json::to_value(&message).unwrap();
+        assert_eq!(json, serialized);
+
+        // But we accept an explicit `null` from other implementations.
+        let message: QrAuthMessage = serde_json::from_value(json!({
+            "type": "m.login.failure",
+            "reason": "user_cancelled",
+            "homeserver": null,
+        }))
+        .unwrap();
+        assert_let!(QrAuthMessage::LoginFailure { homeserver: None, .. } = &message);
     }
 
     #[test]

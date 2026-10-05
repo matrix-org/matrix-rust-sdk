@@ -20,7 +20,6 @@ pub fn create(c: &mut Criterion) {
     let (server, client) = runtime.block_on(async {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        client.event_cache().subscribe().unwrap();
 
         (server, client)
     });

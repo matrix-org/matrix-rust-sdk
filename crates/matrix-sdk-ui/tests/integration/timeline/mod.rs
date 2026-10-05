@@ -19,9 +19,12 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
     assert_let_timeout,
+    cross_process_lock::CrossProcessLockConfig,
     linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
+    store::StoreConfig,
     test_utils::mocks::{MatrixMockServer, RoomContextResponseTemplate},
 };
+use matrix_sdk_base::event_cache::store::{EventCacheStore, MemoryStore};
 use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{
     AnyOtherStateEventContentChange, Error, EventSendState, MsgLikeKind, OtherMessageLike,
@@ -801,8 +804,6 @@ async fn test_timeline_without_encryption_info() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!a98sd12bjh:example.org");
 
     let f = EventFactory::new();
@@ -829,8 +830,6 @@ async fn test_timeline_without_encryption_can_update() {
     // The room encryption state is NOT mocked on purpose.
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-
-    client.event_cache().subscribe().unwrap();
 
     let room_id = room_id!("!jEsUZKDJdhlrceRyVU:example.org");
 
@@ -888,47 +887,46 @@ async fn test_timeline_receives_a_limited_number_of_events_when_subscribing() {
     let room_id = room_id!("!foo:bar.baz");
     let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
 
+    // Let's store events in the event cache _before_ the timeline is created.
+    let event_cache_store = MemoryStore::new();
+
+    // The event cache contains 30 events.
+    event_cache_store
+        .handle_linked_chunk_updates(
+            LinkedChunkId::Room(room_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(42), next: None },
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(42), 0),
+                    items: (0..30)
+                        .map(|nth| {
+                            event_factory
+                                .text_msg("foo")
+                                .event_id(&EventId::parse(format!("$ev{nth}")).unwrap())
+                                .into_event()
+                        })
+                        .collect::<Vec<_>>(),
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
     let mock_server = MatrixMockServer::new().await;
-    let client = mock_server.client_builder().build().await;
+    let client = mock_server
+        .client_builder()
+        .on_builder(move |builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                    holder_name: "foo".to_owned(),
+                })
+                .event_cache_store(event_cache_store),
+            )
+        })
+        .build()
+        .await;
 
     mock_server.sync_joined_room(&client, room_id).await;
-
-    // Let's store events in the event cache _before_ the timeline is created.
-    {
-        let event_cache_store = client.event_cache_store().lock().await.unwrap();
-
-        // The event cache contains 30 events.
-        event_cache_store
-            .as_clean()
-            .unwrap()
-            .handle_linked_chunk_updates(
-                LinkedChunkId::Room(room_id),
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: (0..30)
-                            .map(|nth| {
-                                event_factory
-                                    .text_msg("foo")
-                                    .event_id(&EventId::parse(format!("$ev{nth}")).unwrap())
-                                    .into_event()
-                            })
-                            .collect::<Vec<_>>(),
-                    },
-                ],
-            )
-            .await
-            .unwrap();
-    }
-
-    // Set up the event cache.
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
 
     let room = client.get_room(room_id).unwrap();
 

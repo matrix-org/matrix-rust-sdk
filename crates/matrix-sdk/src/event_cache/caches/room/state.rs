@@ -61,6 +61,8 @@ use super::{
     },
     RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdateSender, sort_positions_descending,
 };
+#[cfg(feature = "e2e-encryption")]
+use crate::event_cache::redecryptor;
 use crate::room::WeakRoom;
 
 pub struct RoomEventCacheState {
@@ -622,11 +624,20 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     where
         I: Iterator<Item = &'i Event>,
     {
+        #[cfg(feature = "e2e-encryption")]
+        let room: Option<crate::Room> = self.state.weak_room.get();
+
         for event in events {
+            // Handle redaction.
             self.maybe_apply_new_redaction(event).await?;
 
-            // Save a bundled thread event, if there was one.
-            if let Some(bundled_thread) = event.bundled_latest_thread_event() {
+            #[cfg_attr(not(feature = "e2e-encryption"), allow(unused_mut))]
+            if let Some(mut bundled_thread) = event.bundled_latest_thread_event() {
+                // Attempt to decrypt the bundled thread event in place. No-op
+                // if unencrypted or we know concretely why it
+                // can't be decrypted.
+                #[cfg(feature = "e2e-encryption")]
+                redecryptor::try_decrypt_in_place(&mut bundled_thread, room.as_ref()).await;
                 self.save_events([bundled_thread]).await?;
             }
         }
@@ -831,9 +842,6 @@ mod tests {
     async fn test_save_event() {
         let client = logged_in_client(None).await;
         let room_id = room_id!("!galette:saucisse.bzh");
-
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
         let event_id = event_id!("$1");

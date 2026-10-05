@@ -1281,7 +1281,6 @@ mod tests {
         let _ = server.sync_joined_room(&client, room_id).await;
 
         let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         // Given a timeline with clashing receipts
         let mut items = create_items_with_receipts(vec![
@@ -1321,7 +1320,6 @@ mod tests {
         let _ = server.sync_joined_room(&client, room_id).await;
 
         let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         // Given a timeline with receipts, but no clashes (users are different)
         let mut items = create_items_with_receipts(vec![
@@ -1361,7 +1359,6 @@ mod tests {
         let _ = server.sync_joined_room(&client, room_id).await;
 
         let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
 
         // Given a timeline with receipts, but no clashes (users are different)
         let mut items = create_items_with_receipts(vec![

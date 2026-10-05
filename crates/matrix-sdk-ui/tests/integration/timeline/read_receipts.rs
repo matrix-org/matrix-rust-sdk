@@ -1943,8 +1943,6 @@ async fn test_no_duplicate_receipt_after_backpagination() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!a98sd12bjh:example.org");
 
     // We want the following final state in the room:
@@ -2074,8 +2072,6 @@ async fn test_no_duplicate_receipt_after_backpagination_with_message_like_events
     // old one, tripping the `check_no_duplicate_read_receipts` invariant.
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-
-    client.event_cache().subscribe().unwrap();
 
     let room_id = room_id!("!a98sd12bjh:example.org");
 

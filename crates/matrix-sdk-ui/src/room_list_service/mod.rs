@@ -281,9 +281,6 @@ impl RoomListService {
             .map(Arc::new)
             .map_err(Error::SlidingSync)?;
 
-        // Eagerly subscribe the event cache to sync responses.
-        client.event_cache().subscribe()?;
-
         Ok(Self { client, sliding_sync, state_machine })
     }
 
@@ -535,10 +532,6 @@ impl RoomListService {
     }
 
     async fn listen_to_latest_events(&self, room_ids: &[&RoomId]) {
-        if !self.client.event_cache().has_subscribed() {
-            return;
-        }
-
         let latest_events = self.client.latest_events().await;
 
         for room_id in room_ids {

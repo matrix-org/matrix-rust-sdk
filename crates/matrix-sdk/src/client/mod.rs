@@ -31,6 +31,7 @@ use futures_util::{StreamExt, join};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{
     DecryptionSettings, store::LockableCryptoStore, store::types::RoomPendingKeyBundleDetails,
+    vodozemac::olm,
 };
 use matrix_sdk_base::{
     BaseClient, DmRoomDefinition, RoomInfoNotableUpdate, RoomState, RoomStateFilter,
@@ -378,9 +379,7 @@ pub(crate) struct ClientInner {
     /// store.
     pub(crate) sync_beat: event_listener::Event,
 
-    /// A central cache for events, inactive first.
-    ///
-    /// It becomes active when [`EventCache::subscribe`] is called.
+    /// A central cache for events.
     pub(crate) event_cache: OnceCell<EventCache>,
 
     /// End-to-end encryption related state.
@@ -564,6 +563,65 @@ impl Client {
         Self::builder().homeserver_url(homeserver_url).build().await
     }
 
+    /// Activate the client.
+    ///
+    /// A client is considered active when:
+    ///
+    /// 1. It has a `SessionMeta` (user ID, device ID and access token),
+    /// 2. Has loaded cached data from storage,
+    /// 3. If encryption is enabled:
+    ///    - it initialized or restored its `OlmMachine`,
+    ///    - it initialized R2D2 (aka `event_cache::redecryptor::Redecryptor`).
+    ///
+    /// # Arguments
+    ///
+    /// - `session_meta` - The meta of a session that the user already has from
+    ///   a previous login call.
+    /// - `room_load_settings` — Specify how many rooms must be restored; use
+    ///   `::default()` if you don't know which value to pick.
+    #[cfg_attr(
+        feature = "e2e-encryption",
+        doc = " - `custom_account` - A custom
+  [`matrix_sdk_base::crypto::vodozemac::olm::Account`] to be used for the
+  identity and one-time keys of this [`BaseClient`]. If no account is
+  provided, a new default one or one from the store will be used. If an
+  account is provided and one already exists in the store for this
+  [`UserId`]/[`DeviceId`] combination, an error will be raised. This is
+  useful if one wishes to create identity keys before knowing the
+  user/device IDs, e.g., to use the identity key as the device ID."
+    )]
+    ///
+    /// # Panics
+    ///
+    /// This method panics if it is called twice.
+    ///
+    /// [`UserId`]: ruma::UserId
+    pub(crate) async fn activate(
+        &self,
+        session_meta: SessionMeta,
+        room_load_settings: RoomLoadSettings,
+        #[cfg(feature = "e2e-encryption")] custom_account: Option<olm::Account>,
+    ) -> Result<()> {
+        // First off, activate the base client.
+        self.inner
+            .base_client
+            .activate(
+                session_meta,
+                room_load_settings,
+                #[cfg(feature = "e2e-encryption")]
+                custom_account,
+            )
+            .await?;
+
+        // Next, activate R2D2 since the `OlmMachine` is now setup.
+        #[cfg(feature = "e2e-encryption")]
+        if let Some(event_cache) = self.inner.event_cache.get() {
+            event_cache.initialise_redecryptor()?;
+        }
+
+        Ok(())
+    }
+
     /// Returns a subscriber that publishes an event every time the ignore user
     /// list changes.
     pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<Vec<OwnedUserId>> {
@@ -702,7 +760,7 @@ impl Client {
     ///    is logged in,
     /// 2. Has loaded cached data from storage,
     /// 3. If encryption is enabled, it also initialized or restored its
-    ///    `OlmMachine`.
+    ///    `OlmMachine`, and R2D2 is enabled.
     pub fn is_active(&self) -> bool {
         self.inner.base_client.is_active()
     }
@@ -4728,8 +4786,6 @@ pub(crate) mod tests {
                 .add_joined_room(JoinedRoomBuilder::new(room_id))
                 .build_sync_response();
             client.inner.base_client.receive_sync_response(response).await.unwrap();
-
-            client.event_cache().subscribe().unwrap();
 
             let (_room_event_cache, _drop_handles) =
                 client.get_room(room_id).unwrap().event_cache().await.unwrap();

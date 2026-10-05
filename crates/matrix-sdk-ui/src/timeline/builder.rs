@@ -161,11 +161,8 @@ impl TimelineBuilder {
     pub async fn build(self) -> Result<Timeline, Error> {
         let Self { room, settings, unable_to_decrypt_hook, focus, internal_id_prefix } = self;
 
-        // Subscribe the event cache to sync responses, in case we hadn't done
-        // it yet.
         let client = room.client();
         let event_cache = client.event_cache();
-        event_cache.subscribe()?;
 
         let room_id = room.room_id();
         let (room_event_cache, event_cache_drop) = event_cache.room(room_id).await?;

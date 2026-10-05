@@ -386,7 +386,8 @@ impl BaseClient {
     ///
     /// - `session_meta` - The meta of a session that the user already has from
     ///   a previous login call.
-    ///
+    /// - `room_load_settings` — Specify how many rooms must be restored; use
+    ///   `::default()` if you don't know which value to pick.
     /// - `custom_account` - A custom
     ///   [`matrix_sdk_crypto::vodozemac::olm::Account`] to be used for the
     ///   identity and one-time keys of this [`BaseClient`]. If no account is
@@ -395,9 +396,6 @@ impl BaseClient {
     ///   [`UserId`]/[`DeviceId`] combination, an error will be raised. This is
     ///   useful if one wishes to create identity keys before knowing the
     ///   user/device IDs, e.g., to use the identity key as the device ID.
-    ///
-    /// - `room_load_settings` — Specify how many rooms must be restored; use
-    ///   `::default()` if you don't know which value to pick.
     ///
     /// # Panics
     ///
@@ -709,9 +707,10 @@ impl BaseClient {
                     ProcessedToDeviceEvent, ToDeviceUnableToDecryptInfo,
                     ToDeviceUnableToDecryptReason,
                 };
+                use ruma::events::ToDeviceEventType;
 
-                if let Ok(Some(event_type)) = raw.get_field::<String>("type") {
-                    if event_type == "m.room.encrypted" {
+                if let Ok(Some(event_type)) = raw.get_field::<ToDeviceEventType>("type") {
+                    if event_type == ToDeviceEventType::RoomEncrypted {
                         ProcessedToDeviceEvent::UnableToDecrypt {
                             encrypted_event: raw,
                             utd_info: ToDeviceUnableToDecryptInfo {

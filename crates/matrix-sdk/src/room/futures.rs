@@ -26,6 +26,8 @@ use eyeball::SharedObservable;
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 use matrix_sdk_common::boxed_into_future;
 use mime::Mime;
+#[cfg(feature = "e2e-encryption")]
+use ruma::events::MessageLikeEventType;
 #[cfg(feature = "unstable-msc4354")]
 use ruma::events::sticky::StickyDurationMs;
 #[cfg(doc)]
@@ -40,7 +42,7 @@ use ruma::{
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::{
     api::client::state::send_state_event,
-    events::{AnyStateEventContent, StateEventContent},
+    events::{AnyStateEventContent, StateEventContent, StateEventType},
 };
 use tracing::{Instrument, Span, info, trace};
 
@@ -264,7 +266,7 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
                 Span::current().record("is_room_encrypted", true);
                 // Reactions are currently famously not encrypted, skip
                 // encrypting them until they are.
-                if event_type == "m.reaction" {
+                if MessageLikeEventType::from(event_type) == MessageLikeEventType::Reaction {
                     trace!("Sending plaintext event because of the event type.");
                 } else {
                     trace!(
@@ -453,17 +455,17 @@ impl<'a> SendRawStateEvent<'a> {
 
         // Check the event is not critical.
         if matches!(
-            event_type,
-            "m.room.create"
-                | "m.room.member"
-                | "m.room.join_rules"
-                | "m.room.power_levels"
-                | "m.room.third_party_invite"
-                | "m.room.history_visibility"
-                | "m.room.guest_access"
-                | "m.room.encryption"
-                | "m.space.child"
-                | "m.space.parent"
+            StateEventType::from(event_type),
+            StateEventType::RoomCreate
+                | StateEventType::RoomMember
+                | StateEventType::RoomJoinRules
+                | StateEventType::RoomPowerLevels
+                | StateEventType::RoomThirdPartyInvite
+                | StateEventType::RoomHistoryVisibility
+                | StateEventType::RoomGuestAccess
+                | StateEventType::RoomEncryption
+                | StateEventType::SpaceChild
+                | StateEventType::SpaceParent
         ) {
             trace!("Sending plaintext event as its type is excluded from encryption.");
             return false;

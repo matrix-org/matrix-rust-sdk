@@ -7,6 +7,7 @@ use matrix_sdk::attachment::{GalleryConfig, GalleryItemInfo};
 use matrix_sdk::{
     Client, MemoryStore, ThreadingSupport, assert_let_timeout,
     attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo, Thumbnail},
+    authentication::matrix::MatrixSession,
     config::StoreConfig,
     event_cache::RoomEventCacheUpdate,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
@@ -15,7 +16,11 @@ use matrix_sdk::{
         AbstractProgress, LocalEcho, LocalEchoContent, RoomSendQueue, RoomSendQueueError,
         RoomSendQueueStorageError, RoomSendQueueUpdate, SendHandle, SendQueueUpdate,
     },
-    test_utils::mocks::{MatrixMock, MatrixMockServer, RoomMessagesResponseTemplate},
+    store::RoomLoadSettings,
+    test_utils::{
+        client::{mock_session_meta, mock_session_tokens_with_refresh},
+        mocks::{MatrixMock, MatrixMockServer, RoomMessagesResponseTemplate},
+    },
 };
 use matrix_sdk_base::media::store::MemoryMediaStore;
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
@@ -54,7 +59,10 @@ use tokio::{
     task::yield_now,
     time::{sleep, timeout},
 };
-use wiremock::{Request, ResponseTemplate};
+use wiremock::{
+    Mock, Request, ResponseTemplate,
+    matchers::{method, path},
+};
 
 /// Queues an attachment whenever the actual data/mime type etc. don't matter.
 ///
@@ -1961,6 +1969,66 @@ async fn test_unwedge_unrecoverable_errors() {
 }
 
 #[async_test]
+async fn test_request_wedged_by_a_rejected_token_is_unwedged_on_refresh() {
+    let mock = MatrixMockServer::new().await;
+
+    // A session with a refresh token so it can get a working access token back.
+    let client = mock.client_builder().unlogged().build().await;
+    client
+        .matrix_auth()
+        .restore_session(
+            MatrixSession { meta: mock_session_meta(), tokens: mock_session_tokens_with_refresh() },
+            RoomLoadSettings::default(),
+        )
+        .await
+        .unwrap();
+
+    let room_id = room_id!("!a:b.c");
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let mut errors = client.send_queue().subscribe_errors();
+    client.send_queue().set_enabled(true).await;
+
+    let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+    let (_, mut watch) = q.subscribe().await.unwrap();
+
+    mock.verify_and_reset().await;
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // The first /send is answered with a rejected access token, the second one
+    // goes through.
+    mock.mock_room_send().error_unknown_token(false).mock_once().mount().await;
+    mock.mock_room_send().ok(event_id!("$42")).mock_once().mount().await;
+
+    q.send(RoomMessageEventContent::text_plain("hello").into()).await.unwrap();
+
+    let (txn, _) = assert_update!((global_watch, watch) => local echo { body = "hello" });
+
+    // The request is wedged, and stays that way on its own.
+    let report = errors.recv().await.unwrap();
+    assert!(!report.is_recoverable);
+    assert_update!((global_watch, watch) => error { recoverable = false, txn = txn });
+    assert!(watch.is_empty());
+
+    // The session gets a working access token again.
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/v3/refresh"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "5678",
+        })))
+        .mount(mock.server())
+        .await;
+
+    client.matrix_auth().refresh_access_token().await.unwrap();
+
+    // Which is enough for the request to go out, without anyone unwedging it by
+    // hand.
+    assert_update!((global_watch, watch) => retry { txn = txn });
+    assert_update!((global_watch, watch) => sent { txn = txn, event_id = event_id!("$42") });
+}
+
+#[async_test]
 async fn test_unwedge_reaction() {
     let mock = MatrixMockServer::new().await;
 
@@ -2310,7 +2378,6 @@ async fn test_redaction() {
     let server = MatrixMockServer::new().await;
 
     let client = server.client_builder().build().await;
-    client.event_cache().subscribe().unwrap();
 
     let room_id = room_id!("!a:b.c");
     // Create a non-empty room, so that the Event Cache is not empty, and we can
@@ -4216,8 +4283,14 @@ async fn test_update_caption_before_event_is_sent() {
         .await;
 
     // Sending of the media event will succeed.
+    let sent_body = Arc::new(std::sync::Mutex::new(None));
+    let sent_body_clone = sent_body.clone();
     mock.mock_room_send()
-        .ok(event_id!("$media"))
+        .respond_with(move |req: &Request| {
+            *sent_body_clone.lock().unwrap() =
+                Some(serde_json::from_slice::<serde_json::Value>(&req.body).unwrap());
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$media" }))
+        })
         .mock_once()
         .named("send event")
         .mock_once()
@@ -4227,7 +4300,15 @@ async fn test_update_caption_before_event_is_sent() {
     // Send the media.
     assert!(watch.is_empty());
 
-    let (upload_handle, filename) = queue_attachment_no_thumbnail(&q).await;
+    let filename = "surprise.jpeg.exe";
+    let config = AttachmentConfig::new().extra_content(Some(serde_json::Map::from_iter([(
+        "com.example.key".to_owned(),
+        json!("kept"),
+    )])));
+    let upload_handle = q
+        .send_attachment(filename, mime::IMAGE_JPEG, b"hello world".to_vec(), config)
+        .await
+        .unwrap();
 
     // Let the upload request start.
     sleep(Duration::from_millis(300)).await;
@@ -4286,6 +4367,11 @@ async fn test_update_caption_before_event_is_sent() {
 
     // Then the event is sent.
     assert_update!((global_watch, watch) => sent { txn = upload_txn, });
+
+    // With the new caption, and the extra content it was queued with.
+    let sent_body = sent_body.lock().unwrap().take().unwrap();
+    assert_eq!(sent_body["body"], "caption");
+    assert_eq!(sent_body["com.example.key"], "kept");
 
     // That's all, folks!
     assert!(watch.is_empty());
@@ -4436,8 +4522,14 @@ async fn test_update_caption_while_sending_media_event() {
         .await;
 
     // There will be an edit event sent too; this one doesn't need to wait.
+    let sent_edit = Arc::new(std::sync::Mutex::new(None));
+    let sent_edit_clone = sent_edit.clone();
     mock.mock_room_send()
-        .ok(event_id!("$edit"))
+        .respond_with(move |req: &Request| {
+            *sent_edit_clone.lock().unwrap() =
+                Some(serde_json::from_slice::<serde_json::Value>(&req.body).unwrap());
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$edit" }))
+        })
         .mock_once()
         .named("edit event")
         .mock_once()
@@ -4461,7 +4553,15 @@ async fn test_update_caption_while_sending_media_event() {
     // Send the media.
     assert!(watch.is_empty());
 
-    let (upload_handle, filename) = queue_attachment_no_thumbnail(&q).await;
+    let filename = "surprise.jpeg.exe";
+    let config = AttachmentConfig::new().extra_content(Some(serde_json::Map::from_iter([(
+        "com.example.key".to_owned(),
+        json!("kept"),
+    )])));
+    let upload_handle = q
+        .send_attachment(filename, mime::IMAGE_JPEG, b"hello world".to_vec(), config)
+        .await
+        .unwrap();
 
     // See local echo.
     let (upload_txn, _send_handle, content) =
@@ -4514,6 +4614,12 @@ async fn test_update_caption_while_sending_media_event() {
     // about.
     assert_update!((global_watch, watch) => sent {});
 
+    // The edit kept the custom field in its new content only, so it doesn't
+    // notify again.
+    let sent_edit = sent_edit.lock().unwrap().take().unwrap();
+    assert_eq!(sent_edit["m.new_content"]["com.example.key"], "kept");
+    assert!(sent_edit.get("com.example.key").is_none());
+
     // That's all, folks!
     assert!(watch.is_empty());
 }
@@ -4521,6 +4627,9 @@ async fn test_update_caption_while_sending_media_event() {
 #[async_test]
 async fn test_sending_reply_in_thread_auto_subscribe() {
     let server = MatrixMockServer::new().await;
+
+    // Make sure to advertise support for thread subscriptions.
+    server.mock_versions().with_thread_subscriptions().ok().mount().await;
 
     // Assuming a client that's interested in thread subscriptions,
     let client = server
@@ -4531,11 +4640,6 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
         })
         .build()
         .await;
-
-    // Make sure to advertise support for thread subscriptions.
-    server.mock_versions().with_thread_subscriptions().ok().mount().await;
-
-    client.event_cache().subscribe().unwrap();
 
     let mut thread_subscriber_updates = client.event_cache().subscribe_thread_subscriber_updates();
 
@@ -4641,8 +4745,6 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
 async fn test_sending_event_still_saves_sync_gap() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-
-    client.event_cache().subscribe().unwrap();
 
     let room_id = room_id!("!a:b.c");
 
