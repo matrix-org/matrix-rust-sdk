@@ -537,6 +537,8 @@ mod test {
         UnexpectedMessageInsteadOfSecrets,
         RefuseSecrets,
         LetSessionExpire,
+        /// Offer no login protocols in the `m.login.protocols` message.
+        NoProtocols,
     }
 
     /// The possible token responses.
@@ -563,7 +565,7 @@ mod test {
     async fn grant_login(
         alice: SecureChannel,
         check_code_receiver: tokio::sync::oneshot::Receiver<u8>,
-        behavior: AliceBehaviour,
+        behaviour: AliceBehaviour,
     ) {
         let alice = alice.connect().await.expect("Alice should be able to connect the channel");
 
@@ -573,6 +575,19 @@ mod test {
         let mut alice =
             alice.confirm(check_code).expect("Alice should be able to confirm the secure channel");
 
+        if matches!(behaviour, AliceBehaviour::NoProtocols) {
+            // Bob can't use any of the protocols, so he should tell us and
+            // stop.
+            let message: QrAuthMessage = alice
+                .receive_json()
+                .await
+                .expect("Alice should receive the `m.login.failure` message from Bob");
+            assert_let!(QrAuthMessage::LoginFailure { reason, .. } = message);
+            assert_eq!(reason, LoginFailureReason::UnsupportedProtocol);
+
+            return;
+        }
+
         let message = alice
             .receive_json()
             .await
@@ -581,7 +596,7 @@ mod test {
         assert_let!(QrAuthMessage::LoginProtocol { protocol, .. } = message);
         assert_eq!(protocol, LoginProtocolType::DeviceAuthorizationGrant);
 
-        let message = match behavior {
+        let message = match behaviour {
             AliceBehaviour::DeclinedProtocol => QrAuthMessage::LoginFailure {
                 reason: LoginFailureReason::UnsupportedProtocol,
                 homeserver: None,
@@ -592,10 +607,16 @@ mod test {
 
         alice.send_json(message).await.unwrap();
 
-        let message: QrAuthMessage = alice.receive_json().await.unwrap();
-        assert_let!(QrAuthMessage::LoginSuccess = message);
+        // We declined, so Bob stops without replying.
+        if matches!(behaviour, AliceBehaviour::DeclinedProtocol) {
+            return;
+        }
 
-        let message = match behavior {
+        // Bob tells us if he couldn't log in, in which case we stop too.
+        let message: QrAuthMessage = alice.receive_json().await.unwrap();
+        let QrAuthMessage::LoginSuccess = message else { return };
+
+        let message = match behaviour {
             AliceBehaviour::UnexpectedMessageInsteadOfSecrets => QrAuthMessage::LoginDeclined,
             AliceBehaviour::RefuseSecrets => QrAuthMessage::LoginFailure {
                 reason: LoginFailureReason::DeviceNotFound,
@@ -693,7 +714,7 @@ mod test {
         alice: &Client,
         qr_receiver: tokio::sync::oneshot::Receiver<QrCodeData>,
         cctx_receiver: tokio::sync::oneshot::Receiver<CheckCodeSender>,
-        behavior: AliceBehaviour,
+        behaviour: AliceBehaviour,
     ) {
         let qr_code_data = qr_receiver.await.expect("Alice should receive the QR code");
 
@@ -720,14 +741,31 @@ mod test {
             .expect("Alice should be able to send the check code to Bob");
 
         // Alice sends m.login.protocols message
+        let protocols = match behaviour {
+            AliceBehaviour::NoProtocols => vec![],
+            _ => vec![LoginProtocolType::DeviceAuthorizationGrant],
+        };
         let message = QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4108 {
-            protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
+            protocols,
             homeserver: alice.homeserver(),
         });
         channel
             .send_json(message)
             .await
             .expect("Alice should be able to send the `m.login.protocols` message to Bob");
+
+        if matches!(behaviour, AliceBehaviour::NoProtocols) {
+            // Bob can't use any of the protocols, so he should tell us and
+            // stop.
+            let message: QrAuthMessage = channel
+                .receive_json()
+                .await
+                .expect("Alice should receive the `m.login.failure` message from Bob");
+            assert_let!(QrAuthMessage::LoginFailure { reason, .. } = message);
+            assert_eq!(reason, LoginFailureReason::UnsupportedProtocol);
+
+            return;
+        }
 
         // Alice receives m.login.protocol message
         let message: QrAuthMessage = channel
@@ -738,7 +776,7 @@ mod test {
         assert_eq!(protocol, LoginProtocolType::DeviceAuthorizationGrant);
 
         // Alice sends m.login.protocol_accepted message
-        let message = match behavior {
+        let message = match behaviour {
             AliceBehaviour::DeclinedProtocol => QrAuthMessage::LoginFailure {
                 reason: LoginFailureReason::UnsupportedProtocol,
                 homeserver: None,
@@ -751,14 +789,20 @@ mod test {
             .await
             .expect("Alice should be able to send the `m.login.protocol_accepted` message to Bob");
 
+        // We declined, so Bob stops without replying.
+        if matches!(behaviour, AliceBehaviour::DeclinedProtocol) {
+            return;
+        }
+
+        // Bob tells us if he couldn't log in, in which case we stop too.
         let message: QrAuthMessage = channel
             .receive_json()
             .await
             .expect("Alice should be able to receive the `m.login.success` message from Bob");
-        assert_let!(QrAuthMessage::LoginSuccess = message);
+        let QrAuthMessage::LoginSuccess = message else { return };
 
         // Alice sends m.login.secrets message
-        let message = match behavior {
+        let message = match behaviour {
             AliceBehaviour::UnexpectedMessageInsteadOfSecrets => QrAuthMessage::LoginDeclined,
             AliceBehaviour::RefuseSecrets => QrAuthMessage::LoginFailure {
                 reason: LoginFailureReason::DeviceNotFound,
@@ -999,10 +1043,10 @@ mod test {
 
     async fn test_failure(
         token_response: TokenResponse,
-        alice_behavior: AliceBehaviour,
+        alice_behaviour: AliceBehaviour,
     ) -> Result<(), QRCodeLoginError> {
         let server = MatrixMockServer::new().await;
-        let expiration = match alice_behavior {
+        let expiration = match alice_behaviour {
             AliceBehaviour::LetSessionExpire => Duration::from_secs(2),
             _ => Duration::MAX,
         };
@@ -1011,8 +1055,8 @@ mod test {
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
         let oauth_server = server.oauth();
-        let expected_calls = match alice_behavior {
-            AliceBehaviour::LetSessionExpire => 0,
+        let expected_calls = match alice_behaviour {
+            AliceBehaviour::LetSessionExpire | AliceBehaviour::NoProtocols => 0,
             _ => 1,
         };
         oauth_server
@@ -1092,20 +1136,24 @@ mod test {
             }
         });
 
-        if !matches!(alice_behavior, AliceBehaviour::LetSessionExpire) {
-            let _alice_task =
-                spawn(async move { grant_login(alice, receiver, alice_behavior).await });
+        let alice_task = (!matches!(alice_behaviour, AliceBehaviour::LetSessionExpire))
+            .then(|| spawn(async { grant_login(alice, receiver, alice_behaviour).await }));
+
+        let result = login_bob.await;
+
+        if let Some(alice_task) = alice_task {
+            alice_task.await.expect("Alice should have completed her task successfully");
         }
 
-        login_bob.await
+        result
     }
 
     async fn test_generated_failure(
         token_response: TokenResponse,
-        alice_behavior: AliceBehaviour,
+        alice_behaviour: AliceBehaviour,
     ) -> Result<(), QRCodeLoginError> {
         let server = MatrixMockServer::new().await;
-        let expiration = match alice_behavior {
+        let expiration = match alice_behaviour {
             AliceBehaviour::LetSessionExpire => Duration::from_secs(2),
             _ => Duration::MAX,
         };
@@ -1116,8 +1164,8 @@ mod test {
         let (cctx_sender, cctx_receiver) = tokio::sync::oneshot::channel();
 
         let oauth_server = server.oauth();
-        let expected_calls = match alice_behavior {
-            AliceBehaviour::LetSessionExpire => 0,
+        let expected_calls = match alice_behaviour {
+            AliceBehaviour::LetSessionExpire | AliceBehaviour::NoProtocols => 0,
             _ => 1,
         };
         oauth_server
@@ -1210,14 +1258,26 @@ mod test {
             }
         });
 
-        if !matches!(alice_behavior, AliceBehaviour::LetSessionExpire) {
-            let _alice_task = spawn(async move {
-                grant_login_with_generated_qr(&alice, qr_receiver, cctx_receiver, alice_behavior)
+        let alice_task =
+            (!matches!(alice_behaviour, AliceBehaviour::LetSessionExpire)).then(|| {
+                spawn(async move {
+                    grant_login_with_generated_qr(
+                        &alice,
+                        qr_receiver,
+                        cctx_receiver,
+                        alice_behaviour,
+                    )
                     .await
+                })
             });
+
+        let result = bob_login.await;
+
+        if let Some(alice_task) = alice_task {
+            alice_task.await.expect("Alice should have completed her task successfully");
         }
 
-        bob_login.await
+        result
     }
 
     #[async_test]
@@ -1279,6 +1339,19 @@ mod test {
             reason,
             LoginFailureReason::UnsupportedProtocol,
             "Alice should have told us that the protocol is unsupported."
+        );
+    }
+
+    #[async_test]
+    async fn test_generated_qr_login_no_protocols() {
+        let result = test_generated_failure(TokenResponse::Ok, AliceBehaviour::NoProtocols).await;
+
+        assert_matches!(
+            result,
+            Err(QRCodeLoginError::LoginFailure {
+                reason: LoginFailureReason::UnsupportedProtocol,
+                homeserver: None
+            })
         );
     }
 
