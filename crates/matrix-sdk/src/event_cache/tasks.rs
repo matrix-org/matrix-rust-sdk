@@ -21,74 +21,25 @@ use std::{
 use eyeball::Subscriber;
 use matrix_sdk_base::{
     linked_chunk::OwnedLinkedChunkId, serde_helpers::extract_thread_root_from_content,
-    sync::RoomUpdates,
 };
 use ruma::{OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId};
 use tokio::{
     select,
     sync::{
         OwnedRwLockReadGuard,
-        broadcast::{Receiver, Sender, error::RecvError},
+        broadcast::{Sender, error::RecvError},
         mpsc,
     },
 };
 use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, trace, warn};
 
 use super::{
-    AutoShrinkMessage, Caches, CachesByRoom, EventCacheError, EventCacheInner,
-    RoomEventCacheLinkedChunkUpdate,
+    AutoShrinkMessage, Caches, CachesByRoom, EventCacheInner, RoomEventCacheLinkedChunkUpdate,
 };
 use crate::{
     client::WeakClient,
     send_queue::{LocalEchoContent, RoomSendQueueUpdate, SendQueueUpdate},
 };
-
-/// Listen to [`RoomUpdates`] to update the Event Cache.
-#[instrument(skip_all)]
-pub(super) async fn room_updates_task(
-    inner: Arc<EventCacheInner>,
-    mut room_updates_feed: Receiver<RoomUpdates>,
-) {
-    trace!("Spawning the listen task");
-    loop {
-        match room_updates_feed.recv().await {
-            Ok(updates) => {
-                trace!("Receiving `RoomUpdates`");
-
-                if let Err(err) = inner.handle_room_updates(updates).await {
-                    match err {
-                        EventCacheError::ClientDropped => {
-                            // The client has dropped, exit the listen task.
-                            info!(
-                                "Closing the event cache global listen task because client dropped"
-                            );
-                            break;
-                        }
-                        err => {
-                            error!("Error when handling room updates: {err}");
-                        }
-                    }
-                }
-            }
-
-            Err(RecvError::Lagged(num_skipped)) => {
-                // Forget everything we know; we could have missed events, and
-                // we have no way to reconcile at the moment! TODO: implement
-                // Smart Matching™,
-                warn!(num_skipped, "Lagged behind room updates, clearing all rooms");
-                if let Err(err) = inner.clear_all_rooms().await {
-                    error!("when clearing storage after lag in listen_task: {err}");
-                }
-            }
-
-            Err(RecvError::Closed) => {
-                // The sender has shut down, exit.
-                info!("Closing the event cache global listen task because receiver closed");
-                break;
-            }
-        }
-    }
-}
 
 /// Listen to _ignore user list update changes_ to clear the rooms when a user
 /// is ignored or unignored.

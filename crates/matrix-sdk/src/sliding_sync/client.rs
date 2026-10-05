@@ -149,6 +149,11 @@ impl Client {
             .await?;
 
         tracing::debug!("done processing on base_client");
+
+        // The Event Cache now receives the room updates.
+        Box::pin(self.event_cache().handle_room_updates(response.rooms.clone())).await?;
+
+        // Finally, let's call the sync response handler.
         self.call_sync_response_handlers(&response).await?;
 
         Ok(response)
@@ -259,6 +264,10 @@ impl SlidingSyncResponseProcessor {
 
         response.to_device.extend(self.to_device_events);
 
+        // The Event Cache now receives the room updates.
+        Box::pin(self.client.event_cache().handle_room_updates(response.rooms.clone())).await?;
+
+        // Finally, let's call the sync response handler.
         self.client.call_sync_response_handlers(&response).await?;
 
         Ok(response)
