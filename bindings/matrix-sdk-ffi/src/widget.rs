@@ -216,7 +216,7 @@ pub fn get_element_call_required_permissions(
             // To ignore bots and other service accounts when picking who to
             // ring and when deciding whether the room is a DM.
             WidgetEventFilter::StateWithType {
-                event_type: "io.element.functional_members".to_owned(),
+                event_type: StateEventType::MemberHints.to_string(),
             },
         ]
         .into_iter()
