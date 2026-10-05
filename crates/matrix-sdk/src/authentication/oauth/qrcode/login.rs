@@ -601,8 +601,14 @@ mod test {
 
         alice.send_json(message).await.unwrap();
 
+        // We declined, so Bob stops without replying.
+        if matches!(behaviour, AliceBehaviour::DeclinedProtocol) {
+            return;
+        }
+
+        // Bob tells us if he couldn't log in, in which case we stop too.
         let message: QrAuthMessage = alice.receive_json().await.unwrap();
-        assert_let!(QrAuthMessage::LoginSuccess = message);
+        let QrAuthMessage::LoginSuccess = message else { return };
 
         let message = match behaviour {
             AliceBehaviour::UnexpectedMessageInsteadOfSecrets => QrAuthMessage::LoginDeclined,
@@ -773,11 +779,17 @@ mod test {
             .await
             .expect("Alice should be able to send the `m.login.protocol_accepted` message to Bob");
 
+        // We declined, so Bob stops without replying.
+        if matches!(behaviour, AliceBehaviour::DeclinedProtocol) {
+            return;
+        }
+
+        // Bob tells us if he couldn't log in, in which case we stop too.
         let message: QrAuthMessage = channel
             .receive_json()
             .await
             .expect("Alice should be able to receive the `m.login.success` message from Bob");
-        assert_let!(QrAuthMessage::LoginSuccess = message);
+        let QrAuthMessage::LoginSuccess = message else { return };
 
         // Alice sends m.login.secrets message
         let message = match behaviour {
@@ -1114,20 +1126,13 @@ mod test {
             }
         });
 
-        // Only wait for Alice where her part of the exchange finishes, so that
-        // her assertions are checked.
-        let wait_for_alice = matches!(alice_behaviour, AliceBehaviour::NoProtocols);
-
-        let alice_task = if !matches!(alice_behaviour, AliceBehaviour::LetSessionExpire) {
-            Some(spawn(async { grant_login(alice, receiver, alice_behaviour).await }))
-        } else {
-            None
-        };
+        let alice_task = (!matches!(alice_behaviour, AliceBehaviour::LetSessionExpire))
+            .then(|| spawn(async { grant_login(alice, receiver, alice_behaviour).await }));
 
         let result = login_bob.await;
 
-        if wait_for_alice {
-            alice_task.unwrap().await.expect("Alice should have completed her task successfully");
+        if let Some(alice_task) = alice_task {
+            alice_task.await.expect("Alice should have completed her task successfully");
         }
 
         result
@@ -1243,23 +1248,23 @@ mod test {
             }
         });
 
-        // Only wait for Alice where her part of the exchange finishes, so that
-        // her assertions are checked.
-        let wait_for_alice = matches!(alice_behaviour, AliceBehaviour::NoProtocols);
-
-        let alice_task = if !matches!(alice_behaviour, AliceBehaviour::LetSessionExpire) {
-            Some(spawn(async move {
-                grant_login_with_generated_qr(&alice, qr_receiver, cctx_receiver, alice_behaviour)
+        let alice_task =
+            (!matches!(alice_behaviour, AliceBehaviour::LetSessionExpire)).then(|| {
+                spawn(async move {
+                    grant_login_with_generated_qr(
+                        &alice,
+                        qr_receiver,
+                        cctx_receiver,
+                        alice_behaviour,
+                    )
                     .await
-            }))
-        } else {
-            None
-        };
+                })
+            });
 
         let result = bob_login.await;
 
-        if wait_for_alice {
-            alice_task.unwrap().await.expect("Alice should have completed her task successfully");
+        if let Some(alice_task) = alice_task {
+            alice_task.await.expect("Alice should have completed her task successfully");
         }
 
         result
@@ -1331,9 +1336,13 @@ mod test {
     async fn test_generated_qr_login_no_protocols() {
         let result = test_generated_failure(TokenResponse::Ok, AliceBehaviour::NoProtocols).await;
 
-        assert_let!(Err(QRCodeLoginError::LoginFailure { reason, homeserver }) = result);
-        assert_eq!(reason, LoginFailureReason::UnsupportedProtocol);
-        assert!(homeserver.is_none());
+        assert_matches!(
+            result,
+            Err(QRCodeLoginError::LoginFailure {
+                reason: LoginFailureReason::UnsupportedProtocol,
+                homeserver: None
+            })
+        );
     }
 
     #[async_test]
