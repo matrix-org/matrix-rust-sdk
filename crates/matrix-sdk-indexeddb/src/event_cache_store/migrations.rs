@@ -515,6 +515,7 @@ pub mod v8 {
 
     /// Upgrade database from `v8` to `v9`
     pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
+        v9::empty_event_cache(transaction)?;
         v9::add_out_of_band_index_to_events_object_store(transaction)?;
         Ok(Version::V9)
     }
@@ -531,6 +532,24 @@ pub mod v9 {
 
         pub const EVENTS_OUT_OF_BAND: &str = "events_out_of_band";
         pub const EVENTS_OUT_OF_BAND_KEY_PATH: &str = "out_of_band";
+    }
+
+    /// Empty the entire store, as the logic for querying whether events are
+    /// stored out-of-band has changed.
+    pub fn empty_event_cache(transaction: &Transaction<'_>) -> Result<(), Error> {
+        let linked_chunks = transaction.object_store(keys::LINKED_CHUNKS)?;
+        linked_chunks.clear()?;
+
+        let gaps = transaction.object_store(keys::GAPS)?;
+        gaps.clear()?;
+
+        let events = transaction.object_store(keys::EVENTS)?;
+        events.clear()?;
+
+        let threads = transaction.object_store(keys::THREADS)?;
+        threads.clear()?;
+
+        Ok(())
     }
 
     /// Add a new index to the events object store which tracks whether the
