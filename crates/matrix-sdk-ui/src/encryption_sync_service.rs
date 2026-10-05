@@ -87,8 +87,8 @@ impl EncryptionSyncService {
             )
             .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: Some(true)}));
 
-        // Keeping the `pos` avoids marking every tracked user as dirty on start,
-        // but processes sharing the store would race on it.
+        // Keeping the `pos` avoids marking every tracked user as dirty on
+        // start, but processes sharing the store would race on it.
         if matches!(client.cross_process_lock_config(), CrossProcessLockConfig::SingleProcess) {
             builder = builder.share_pos();
         }
