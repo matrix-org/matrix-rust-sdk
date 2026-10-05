@@ -218,6 +218,7 @@ impl EventCacheDropHandles {
     fn new(
         event_cache_inner: &Arc<EventCacheInner>,
         event_cache_config: RwLockReadGuard<'_, EventCacheConfig>,
+        auto_shrink_receiver: mpsc::Receiver<AutoShrinkMessage>,
         client: Client,
     ) -> Self {
         let task_monitor = client.task_monitor();
@@ -242,11 +243,6 @@ impl EventCacheDropHandles {
                 ),
             )
             .abort_on_drop();
-
-        let (auto_shrink_sender, auto_shrink_receiver) = mpsc::channel(32);
-
-        // Force-initialize the sender in the [`RoomEventCacheInner`].
-        event_cache_inner.auto_shrink_sender.get_or_init(|| auto_shrink_sender);
 
         let auto_shrink_linked_chunk_task = task_monitor
             .spawn_infinite_task(
@@ -375,6 +371,8 @@ impl EventCache {
         let client =
             weak_client.get().expect("Unreachable: `client` is still alive, it can be upgraded");
 
+        let (auto_shrink_sender, auto_shrink_receiver) = mpsc::channel(32);
+
         let (thread_subscriber_sender, _thread_subscriber_receiver) = channel(128);
 
         #[cfg(feature = "e2e-encryption")]
@@ -385,7 +383,7 @@ impl EventCache {
             config: StdRwLock::new(EventCacheConfig::default()),
             state: StateLock::new(event_cache_store),
             by_room: Default::default(),
-            auto_shrink_sender: Default::default(),
+            auto_shrink_sender,
             generic_update_sender,
             linked_chunk_update_sender,
             #[cfg(feature = "e2e-encryption")]
@@ -395,8 +393,12 @@ impl EventCache {
             thread_subscriber_sender,
         });
 
-        let drop_handles =
-            Arc::new(EventCacheDropHandles::new(&inner, inner.config.read().unwrap(), client));
+        let drop_handles = Arc::new(EventCacheDropHandles::new(
+            &inner,
+            inner.config.read().unwrap(),
+            auto_shrink_receiver,
+            client,
+        ));
 
         Self { inner, drop_handles }
     }
@@ -606,11 +608,8 @@ struct EventCacheInner {
     /// Needs to live here, so it may be passed to each [`RoomEventCache`]
     /// instance.
     ///
-    /// It's a `OnceLock` because its initialization is deferred to
-    /// [`EventCache::initialize_tasks`].
-    ///
     /// See doc comment of [`tasks::auto_shrink_linked_chunk_task`].
-    auto_shrink_sender: OnceLock<mpsc::Sender<AutoShrinkMessage>>,
+    auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
 
     /// A sender for room generic update.
     ///
@@ -784,11 +783,7 @@ impl EventCacheInner {
                     room_id,
                     self.generic_update_sender.clone(),
                     self.linked_chunk_update_sender.clone(),
-                    // SAFETY: we must have subscribed before reaching this
-                    // code, otherwise something is very wrong.
-                    self.auto_shrink_sender.get().cloned().expect(
-                        "we must have called `EventCache::subscribe()` before calling here.",
-                    ),
+                    self.auto_shrink_sender.clone(),
                     &self.state,
                     self.back_pagination_queue.get().cloned(),
                 )
