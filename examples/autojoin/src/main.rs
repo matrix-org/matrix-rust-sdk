@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use std::{env, process::exit};
 
 use matrix_sdk::{
@@ -41,8 +43,8 @@ async fn login_and_sync(
     username: &str,
     password: &str,
 ) -> anyhow::Result<()> {
-    // Note that when encryption is enabled, you should use a persistent store to be
-    // able to restore the session with a working encryption setup.
+    // Note that when encryption is enabled, you should use a persistent store
+    // to be able to restore the session with a working encryption setup.
     // See the `persist_session` example.
     let client = Client::builder().homeserver_url(homeserver_url).build().await?;
 

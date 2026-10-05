@@ -1912,10 +1912,12 @@ impl Client {
     ) -> Arc<TaskHandle> {
         let mut subscriber = self.inner.subscribe_to_ignore_user_list_changes();
 
-        listener.call(subscriber.next_now());
+        let user_ids = subscriber.next_now().into_iter().map(Into::into).collect();
+        listener.call(user_ids);
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(user_ids) = subscriber.next().await {
+                let user_ids = user_ids.into_iter().map(Into::into).collect();
                 listener.call(user_ids);
             }
         })))

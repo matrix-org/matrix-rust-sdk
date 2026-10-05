@@ -659,16 +659,6 @@ impl ClientBuilder {
         let homeserver_cfg = self.homeserver_cfg.ok_or(ClientBuildError::MissingHomeserver)?;
         Span::current().record("homeserver", debug(&homeserver_cfg));
 
-        #[cfg_attr(target_family = "wasm", allow(clippy::infallible_destructuring_match))]
-        let inner_http_client = match self.http_cfg.unwrap_or_default() {
-            #[cfg(not(target_family = "wasm"))]
-            HttpConfig::Settings(mut settings) => {
-                settings.timeout = self.request_config.timeout;
-                settings.make_client()?
-            }
-            HttpConfig::Custom(c) => c,
-        };
-
         let base_client = if let Some(base_client) = self.base_client {
             base_client
         } else {
@@ -693,7 +683,18 @@ impl ClientBuilder {
             client
         };
 
-        let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
+        let http_client = HttpClient::new(
+            #[cfg_attr(target_family = "wasm", allow(clippy::infallible_destructuring_match))]
+            match self.http_cfg.unwrap_or_default() {
+                #[cfg(not(target_family = "wasm"))]
+                HttpConfig::Settings(mut settings) => {
+                    settings.timeout = self.request_config.timeout;
+                    settings.make_client()?
+                }
+                HttpConfig::Custom(c) => c,
+            },
+            self.request_config,
+        );
 
         #[allow(unused_variables)]
         let HomeserverDiscoveryResult { server, homeserver, supported_versions, well_known } =

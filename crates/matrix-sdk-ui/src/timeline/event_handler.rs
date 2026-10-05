@@ -1185,7 +1185,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 // Try to keep precise insertion semantics here, in this exact
                 // order:
                 //
-                // - _push back_ when the new item is inserted after all items (the assumption
+                // - _push back_ when the new item is inserted after all items
+                //   (the assumption
                 // being that this is the hot path, because most of the time new
                 // events come from the sync),
                 // - _push front_ when the new item is inserted at index 0,

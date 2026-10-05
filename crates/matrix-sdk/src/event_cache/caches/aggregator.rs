@@ -189,8 +189,9 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
             _ => None,
         })
     {
-        // 1. Create an empty `Timeline` if it doesn't exist so that it triggers the
-        //    update for this thread in `Caches`. This is done by `default_entry`.
+        // 1. Create an empty `Timeline` if it doesn't exist so that it triggers
+        //    the update for this thread in `Caches`. This is done by
+        //    `default_entry`.
         // 2. Accumulate the read receipt event.
         new_events_by_thread
             .entry(thread_root.to_owned())

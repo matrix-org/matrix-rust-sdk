@@ -30,6 +30,7 @@ use matrix_sdk_base::{
     cross_process_lock::CrossProcessLockUnobtained, event_cache::store::EventCacheStoreError,
     media::store::MediaStoreError,
 };
+use oauth2::{RequestTokenError, basic::BasicErrorResponseType};
 use reqwest::Error as ReqwestError;
 use ruma::{
     IdParseError,
@@ -121,6 +122,16 @@ impl HttpError {
         self.as_client_api_error().and_then(ruma::api::error::Error::error_kind)
     }
 
+    /// Whether the homeserver rejected the access token this request was sent
+    /// with.
+    pub(crate) fn is_rejected_token(&self) -> bool {
+        match self {
+            Self::RefreshToken(_) => true,
+            Self::Cached(inner) => inner.is_rejected_token(),
+            _ => matches!(self.client_api_error_kind(), Some(ErrorKind::UnknownToken(_))),
+        }
+    }
+
     /// Try to destructure the error into a user-interactive auth info.
     ///
     /// Some requests require user-interactive auth, doing such a request will
@@ -149,6 +160,15 @@ impl HttpError {
                 FromHttpResponseError::Server(api_error) => RetryKind::from_api_error(api_error),
                 _ => RetryKind::Permanent,
             },
+
+            HttpError::RefreshToken(error) => {
+                if error.is_session_rejected() {
+                    RetryKind::Permanent
+                } else {
+                    RetryKind::Transient { retry_after: None }
+                }
+            }
+
             _ => RetryKind::Permanent,
         }
     }
@@ -168,6 +188,7 @@ impl From<FromHttpResponseError<RumaApiError>> for HttpError {
 
 /// How should we behave with respect to retry behavior after an [`HttpError`]
 /// happened?
+#[derive(Debug)]
 pub(crate) enum RetryKind {
     /// The request failed because of an error at the network layer.
     NetworkFailure,
@@ -678,6 +699,27 @@ pub enum RefreshTokenError {
     OAuth(#[from] Arc<OAuthError>),
 }
 
+impl RefreshTokenError {
+    /// Whether the session was rejected, as opposed to the refresh request
+    /// itself not getting through.
+    pub(crate) fn is_session_rejected(&self) -> bool {
+        match self {
+            // There is no refresh token to exchange and retrying won't fix it.
+            Self::RefreshTokenRequired => true,
+
+            Self::MatrixAuth(http_error) => http_error
+                .as_client_api_error()
+                .is_some_and(|error| !error.status_code.is_server_error()),
+
+            Self::OAuth(oauth_error) => matches!(
+                &**oauth_error,
+                OAuthError::RefreshToken(RequestTokenError::ServerResponse(error_response))
+                    if *error_response.error() == BasicErrorResponseType::InvalidGrant
+            ),
+        }
+    }
+}
+
 /// Errors that can occur when manipulating push notification settings.
 #[derive(Debug, Error, Clone, PartialEq)]
 pub enum NotificationSettingsError {
@@ -730,5 +772,52 @@ pub struct WrongRoomState {
 impl WrongRoomState {
     pub(crate) fn new(expected: &'static str, got: RoomState) -> Self {
         Self { expected, got }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_matches::assert_matches;
+    use http::StatusCode;
+    use ruma::api::EndpointError as _;
+
+    use super::{HttpError, RefreshTokenError, RetryKind, RumaApiError};
+    use crate::error::FromHttpResponseError;
+
+    /// The error a request gets back when refreshing its access token failed
+    /// against the homeserver with the given status code and body.
+    fn refresh_failure(status_code: StatusCode, body: &str) -> HttpError {
+        let response = http::Response::builder().status(status_code).body(body.as_bytes()).unwrap();
+        let api_error = RumaApiError::from_http_response(response);
+
+        HttpError::RefreshToken(RefreshTokenError::MatrixAuth(std::sync::Arc::new(HttpError::Api(
+            Box::new(FromHttpResponseError::Server(api_error)),
+        ))))
+    }
+
+    #[test]
+    fn test_retry_kind_of_a_failed_refresh() {
+        // A 5xx should be retried worth sending again.
+        assert_matches!(
+            refresh_failure(StatusCode::BAD_GATEWAY, "").retry_kind(),
+            RetryKind::Transient { .. }
+        );
+
+        // The homeserver rejected the refresh token so retrying would only fail
+        // again.
+        assert_matches!(
+            refresh_failure(
+                StatusCode::UNAUTHORIZED,
+                r#"{"errcode": "M_UNKNOWN_TOKEN", "error": "Token is not active"}"#,
+            )
+            .retry_kind(),
+            RetryKind::Permanent
+        );
+
+        // There is no refresh token to exchange and retrying won't work.
+        assert_matches!(
+            HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired).retry_kind(),
+            RetryKind::Permanent
+        );
     }
 }

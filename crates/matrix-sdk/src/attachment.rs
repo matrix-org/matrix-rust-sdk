@@ -303,6 +303,7 @@ pub struct GalleryConfig {
     pub(crate) caption: Option<TextMessageEventContent>,
     pub(crate) mentions: Option<Mentions>,
     pub(crate) reply: Option<Reply>,
+    pub(crate) extra_content: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[cfg(feature = "unstable-msc4274")]
@@ -366,6 +367,20 @@ impl GalleryConfig {
         self
     }
 
+    /// Set additional top-level fields for the gallery event's content.
+    ///
+    /// Objects are merged recursively; the event's own fields take precedence
+    /// on conflicts. To add fields to individual items, use
+    /// [`GalleryItemInfo::extra_content`].
+    #[must_use]
+    pub fn extra_content(
+        mut self,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
+    ) -> Self {
+        self.extra_content = extra_content;
+        self
+    }
+
     /// Returns the number of media items in the gallery.
     pub fn len(&self) -> usize {
         self.items.len()
@@ -393,4 +408,8 @@ pub struct GalleryItemInfo {
     pub caption: Option<TextMessageEventContent>,
     /// The thumbnail.
     pub thumbnail: Option<Thumbnail>,
+    /// Additional fields to merge into this item's content, for example a
+    /// spoiler flag. Objects are merged recursively; the item's own fields take
+    /// precedence on conflicts.
+    pub extra_content: Option<serde_json::Map<String, serde_json::Value>>,
 }

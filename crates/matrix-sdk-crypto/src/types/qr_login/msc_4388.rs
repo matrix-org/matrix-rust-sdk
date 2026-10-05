@@ -77,7 +77,10 @@ pub struct InvalidLengthError {
 /// A wrapper type for a [`Url`] which limits the length of the URL to
 /// [`u8::MAX`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LimitedUrl(Url);
+pub struct LimitedUrl {
+    parsed: Url,
+    raw: Vec<u8>,
+}
 
 impl LimitedUrl {
     /// The maximum length a [`LimitedUrl`] can have.
@@ -88,10 +91,16 @@ impl LimitedUrl {
     /// Returns `None` if the [`Url`] is too long.
     pub fn new(s: Url) -> Result<Self, InvalidLengthError> {
         if s.as_str().len() <= Self::MAX_SIZE {
-            Ok(Self(s))
+            let raw = s.as_str().as_bytes().to_vec();
+
+            Ok(Self { parsed: s, raw })
         } else {
             Err(InvalidLengthError { got: s.as_str().len(), max: Self::MAX_SIZE })
         }
+    }
+
+    fn new_unchecked(parsed: Url, raw: Vec<u8>) -> Self {
+        Self { parsed, raw }
     }
 
     /// Return the length of the URL.
@@ -99,30 +108,28 @@ impl LimitedUrl {
     /// Is returned as an `u8` as it is guaranteed to be <= [`u8::MAX`].
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> u8 {
-        self.0.as_str().len() as u8
+        self.raw.len() as u8
+    }
+
+    /// Get a reference to the byte representation of the string.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.raw
     }
 
     /// Get a reference to the underlying [`Url`].
     pub fn as_url(&self) -> &Url {
-        &self.0
+        &self.parsed
     }
 
     /// Get a reference to the string representation of this URL.
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
-    }
-
-    /// Get a reference to the byte representation of the URL.
-    ///
-    /// This is a shorthand for `url.as_str().as_bytes()`.
-    pub fn as_bytes(&self) -> &[u8] {
-        self.0.as_str().as_bytes()
+        self.parsed.as_str()
     }
 }
 
 impl fmt::Display for LimitedUrl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        self.parsed.fmt(f)
     }
 }
 
@@ -212,8 +219,8 @@ impl QrCodeData {
         // 8. The UTF-8 encoded string containing the server base URL.
         let mut reader = Cursor::new(bytes);
 
-        // 1. Let's get the prefix first and double check if this QR code is intended
-        //    for the QR code login mechanism.
+        // 1. Let's get the prefix first and double check if this QR code is
+        //    intended for the QR code login mechanism.
         let mut prefix = [0u8; PREFIX.len()];
         reader.read_exact(&mut prefix)?;
 
@@ -228,8 +235,8 @@ impl QrCodeData {
         let qr_type = reader.read_u8()?;
 
         if qr_type == TYPE {
-            // 3. The intent is the next one to parse, we return an error immediately if the
-            //    intent isn't 0x00 or 0x01.
+            // 3. The intent is the next one to parse, we return an error
+            //    immediately if the intent isn't 0x00 or 0x01.
             let intent = QrCodeIntent::try_from(reader.read_u8()?)?;
 
             // 4. Let's get the public key and convert it to our strongly typed
@@ -261,8 +268,8 @@ impl QrCodeData {
             // Same here, the length is also guaranteed to be <= u8::MAX because
             // that's the maximum amount of bytes we might have read. So we can
             // skip the constructor here.
-            let base_url = Url::parse(str::from_utf8(&base_url)?)?;
-            let base_url = LimitedUrl(base_url);
+            let parsed_url = Url::parse(str::from_utf8(&base_url)?)?;
+            let base_url = LimitedUrl::new_unchecked(parsed_url, base_url);
 
             Ok(Self { public_key, rendezvous_id, base_url, intent })
         } else {
@@ -276,15 +283,7 @@ impl QrCodeData {
     /// containing a QR code.
     pub fn to_bytes(&self) -> Vec<u8> {
         let rendezvous_id_len = self.rendezvous_id.len();
-
-        // if path is / then don't include the trailing slash
-        let base_url = if self.base_url.as_url().path() == "/" {
-            self.base_url.as_str().trim_end_matches('/')
-        } else {
-            self.base_url.as_str()
-        };
-
-        let base_url_len = base_url.len() as u8;
+        let base_url_len = self.base_url.len();
 
         [
             PREFIX,
@@ -294,7 +293,7 @@ impl QrCodeData {
             &[rendezvous_id_len],
             self.rendezvous_id.as_bytes(),
             &[base_url_len],
-            base_url.as_bytes(),
+            self.base_url.as_bytes(),
         ]
         .concat()
     }
@@ -339,6 +338,34 @@ mod test {
     const QR_CODE_DATA_BASE64: &str = "SU9fRUxFTUVOVF9NU0M0Mzg4AwG0yzZ1QVpQ1jlnoxWX3d5jrWRFfELxjS2gN\
                                        7pz9y+3PBowMUhYOUswMFExSDZLUEQ0N0VHNEcxVDNYRyRodHRwczovL3N5bm\
                                        Fwc2Utb2lkYy5sYWIuZWxlbWVudC5kZXY";
+
+    #[test]
+    fn cant_create_too_long_url() {
+        let too_long = "http://example.org".to_owned() + &"A".repeat(256);
+        let too_long = Url::parse(&too_long).unwrap();
+        LimitedUrl::new(too_long).expect_err("Can't create an URL that's too long");
+    }
+
+    #[test]
+    fn limited_url_is_not_normalized() {
+        let raw = "http://example.org/";
+        let with_slash = Url::parse(raw).unwrap();
+        let url = LimitedUrl::new_unchecked(with_slash, raw.into());
+
+        assert_eq!(url.as_bytes(), b"http://example.org/");
+
+        let raw = "http://example.org";
+        let without_slash = Url::parse(raw).unwrap();
+        let url = LimitedUrl::new_unchecked(without_slash, raw.into());
+
+        assert_eq!(url.as_bytes(), b"http://example.org");
+    }
+
+    #[test]
+    fn cant_create_too_long_limited_string() {
+        let too_long = "A".repeat(256);
+        LimitedString::new(too_long).expect_err("Can't create a limited string that's too long");
+    }
 
     #[test]
     fn parse_qr_data() {

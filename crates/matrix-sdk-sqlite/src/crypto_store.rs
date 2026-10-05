@@ -1359,7 +1359,8 @@ impl CryptoStore for SqliteCryptoStore {
         sessions: Vec<InboundGroupSession>,
         backed_up_to_version: Option<&str>,
     ) -> matrix_sdk_crypto::store::Result<(), Self::Error> {
-        // Sanity-check that the data in the sessions corresponds to backed_up_version
+        // Sanity-check that the data in the sessions corresponds to
+        // backed_up_version
         sessions.iter().for_each(|s| {
             let backed_up = s.backed_up();
             if backed_up != backed_up_to_version.is_some() {
@@ -1952,7 +1953,8 @@ mod tests {
         let tmpdir = tempdir().unwrap();
         let destination = tmpdir.path().join(db_name);
 
-        // Copy the test database to the tempdir so our test runs are idempotent.
+        // Copy the test database to the tempdir so our test runs are
+        // idempotent.
         std::fs::copy(&database_path, destination).unwrap();
 
         tmpdir

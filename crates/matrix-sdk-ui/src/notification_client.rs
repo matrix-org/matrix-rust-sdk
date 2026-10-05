@@ -1027,7 +1027,7 @@ fn is_event_encrypted(event_type: TimelineEventType) -> bool {
 
     #[cfg(feature = "unstable-msc3956")]
     let is_still_encrypted =
-        is_still_encrypted || matches!(event_type, ruma::events::TimelineEventType::Encrypted);
+        is_still_encrypted || matches!(event_type, TimelineEventType::Encrypted);
 
     is_still_encrypted
 }

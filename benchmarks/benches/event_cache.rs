@@ -34,13 +34,15 @@ fn handle_room_updates(c: &mut Criterion) {
     const NUM_EVENTS: usize = 1000;
 
     for num_rooms in [1, 10, 100] {
-        // Add some joined rooms, each with NUM_EVENTS in it, to the sync response.
+        // Add some joined rooms, each with NUM_EVENTS in it, to the sync
+        // response.
         let mut room_updates = RoomUpdates::default();
 
         let mut changes = matrix_sdk::StateChanges::default();
 
         for i in 0..num_rooms {
-            // Synapse's room IDs for rooms v1 to v11 have an 18 characters localpart.
+            // Synapse's room IDs for rooms v1 to v11 have an 18 characters
+            // localpart.
             let raw_room_id = format!("!firstbatchroom{i:04}:example.com");
 
             let room_id = if i % 10 == 9 {
@@ -75,7 +77,8 @@ fn handle_room_updates(c: &mut Criterion) {
                 Box::new(move || {
                     let temp_dir = temp_dir.clone();
                     Box::pin(async move {
-                        // Remove all the files in the temp_dir, to reset the event cache state.
+                        // Remove all the files in the temp_dir, to reset the
+                        // event cache state.
                         for entry in temp_dir.path().read_dir().unwrap() {
                             let entry = entry.unwrap();
                             let path = entry.path();

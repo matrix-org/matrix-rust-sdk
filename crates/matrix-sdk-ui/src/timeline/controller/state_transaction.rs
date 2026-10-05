@@ -799,20 +799,22 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 
         // Try to fetch the `SdkThreadSummary`.
         //
-        // Why are we doing that for all events? Using `TimelineEvent::is_thread_root`
-        // will not work in all cases. Imagine an event `$ev0`, a regular event, not a
-        // thread, then a thread is created later targeting `$ev0`: in this case `$ev0`
-        // has no thread summary when it's received first. It will have one if we get
-        // the event via a back-pagination and if the thread already exists though. It
-        // proves that using `TimelineEvent::is_thread_root` is not reliable in all
-        // cases.
+        // Why are we doing that for all events? Using
+        // `TimelineEvent::is_thread_root` will not work in all cases.
+        // Imagine an event `$ev0`, a regular event, not a thread, then
+        // a thread is created later targeting `$ev0`: in this case `$ev0`
+        // has no thread summary when it's received first. It will have one if
+        // we get the event via a back-pagination and if the thread
+        // already exists though. It proves that using
+        // `TimelineEvent::is_thread_root` is not reliable in all cases.
         //
-        // We have no choice here: we must fetch the `ThreadInfo` for each new event.
-        // Receiving a new event doesn't happen in a hot loop, so it should not impact
-        // performance too much.
+        // We have no choice here: we must fetch the `ThreadInfo` for each new
+        // event. Receiving a new event doesn't happen in a hot loop, so
+        // it should not impact performance too much.
         let sdk_thread_summary = if let Some(event_id) = event.event_id() {
-            // Read the thread summary data from the `ThreadInfo` if it exists in the Event
-            // Cache, because they are the most up-to-date.
+            // Read the thread summary data from the `ThreadInfo` if it exists
+            // in the Event Cache, because they are the most
+            // up-to-date.
             if let Ok(Some(thread_info)) =
                 self.meta.event_cache.thread_info(self.focus.room_id(), event_id).await
             {

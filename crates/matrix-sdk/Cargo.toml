@@ -105,7 +105,7 @@ experimental-x509-identity-verification = ["e2e-encryption", "matrix-sdk-base/ex
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
-anymap2 = { version = "0.13.0", default-features = false }
+anymap3 = { version = "1.1.0", default-features = false, features = ["std"] }
 as_variant.workspace = true
 async-stream.workspace = true
 async-trait.workspace = true

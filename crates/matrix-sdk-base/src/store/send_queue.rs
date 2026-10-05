@@ -213,6 +213,11 @@ pub enum QueueWedgeError {
     #[error("Own verification is required")]
     CrossVerificationRequired,
 
+    /// The homeserver rejected the session's access token and the request can't
+    /// go out until the session has a working one again.
+    #[error("The access token was rejected")]
+    ExpiredAccessToken,
+
     /// Media content was cached in the media store, but has disappeared before
     /// we could upload it.
     #[error("Media content disappeared")]
@@ -309,6 +314,11 @@ pub enum DependentQueuedRequestKind {
 
         /// Metadata about the gallery items.
         item_infos: Vec<FinishGalleryItemInfo>,
+
+        /// Additional top-level fields to merge into the final event content
+        /// before it is sent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
     },
 }
 
@@ -341,6 +351,9 @@ pub struct FinishGalleryItemInfo {
     pub file_upload: OwnedTransactionId,
     /// Information about the thumbnail, if present.
     pub thumbnail_info: Option<FinishUploadThumbnailInfo>,
+    /// Additional fields to merge into this item's content before sending.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_content: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 /// A transaction id identifying a [`DependentQueuedRequest`] rather than its
@@ -559,6 +572,32 @@ mod tests {
     use strass::assert_let;
 
     use super::DependentQueuedRequestKind;
+
+    #[cfg(feature = "unstable-msc4274")]
+    #[test]
+    fn test_gallery_extra_content_storage_compatibility() {
+        let legacy = serde_json::json!({
+            "FinishGallery": {
+                "local_echo": { "msgtype": "dm.filament.gallery", "body": "gallery", "itemtypes": [] },
+                "item_infos": [{ "file_upload": "upload", "thumbnail_info": null }],
+            }
+        });
+        let kind: DependentQueuedRequestKind = serde_json::from_value(legacy.clone()).unwrap();
+        assert_let!(
+            DependentQueuedRequestKind::FinishGallery { item_infos, extra_content, .. } = &kind
+        );
+        assert!(extra_content.is_none());
+        assert!(item_infos[0].extra_content.is_none());
+        assert_eq!(serde_json::to_value(&kind).unwrap(), legacy);
+
+        let mut with_extra = legacy;
+        with_extra["FinishGallery"]["extra_content"] =
+            serde_json::json!({ "com.example.gallery": true });
+        with_extra["FinishGallery"]["item_infos"][0]["extra_content"] =
+            serde_json::json!({ "org.matrix.msc2448.is_spoiler": true });
+        let kind: DependentQueuedRequestKind = serde_json::from_value(with_extra.clone()).unwrap();
+        assert_eq!(serde_json::to_value(kind).unwrap(), with_extra);
+    }
 
     #[test]
     fn test_deserialize_legacy_redact_event() {

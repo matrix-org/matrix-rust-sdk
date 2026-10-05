@@ -61,6 +61,8 @@ use super::{
     },
     ThreadEventCacheUpdateSender,
 };
+#[cfg(feature = "e2e-encryption")]
+use crate::event_cache::redecryptor;
 use crate::room::WeakRoom;
 
 pub struct ThreadEventCacheState {
@@ -469,12 +471,21 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     where
         I: Iterator<Item = &'i Event>,
     {
+        #[cfg(feature = "e2e-encryption")]
+        let room = self.state.weak_room.get();
+
         for event in events {
             // Handle redaction.
             self.maybe_apply_new_redaction(event).await?;
 
             // Save a bundled thread event, if there was one.
-            if let Some(bundled_thread) = event.bundled_latest_thread_event() {
+            #[cfg_attr(not(feature = "e2e-encryption"), allow(unused_mut))]
+            if let Some(mut bundled_thread) = event.bundled_latest_thread_event() {
+                // Attempt to decrypt the bundled thread event in place. No-op
+                // if unencrypted or we know concretely why it
+                // can't be decrypted.
+                #[cfg(feature = "e2e-encryption")]
+                redecryptor::try_decrypt_in_place(&mut bundled_thread, room.as_ref()).await;
                 self.save_events([bundled_thread]).await?;
             }
         }
@@ -664,9 +675,11 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         ) {
             // It's safe to cast `redacted_event` here:
             //
-            // - either the event was an `AnyTimelineEvent` cast to `AnySyncTimelineEvent`
-            //   when calling .raw(), so it's still one under the hood.
-            // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
+            // - either the event was an `AnyTimelineEvent` cast to
+            //   `AnySyncTimelineEvent` when calling .raw(), so it's still one
+            //   under the hood.
+            // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this
+            //   case.
             target_event.replace_raw(redacted_event.cast_unchecked());
 
             self.replace_event_at(location, target_event.clone()).await?;

@@ -269,8 +269,9 @@ impl RoomEventCache {
         thread_id: &EventId,
         new_thread_summary: ThreadSummary,
     ) -> Result<()> {
-        // Nothing to do here apart of sending an update. The `ThreadSummary` is stored
-        // inside `ThreadInfo` already, this cache doesn't need to hold it.
+        // Nothing to do here apart of sending an update. The `ThreadSummary` is
+        // stored inside `ThreadInfo` already, this cache doesn't need
+        // to hold it.
         self.inner.update_sender.send(
             RoomEventCacheUpdate::UpdateThreadSummary {
                 thread_root: thread_id.to_owned(),

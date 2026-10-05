@@ -247,9 +247,11 @@ impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
         ) {
             // It's safe to cast `redacted_event` here:
             //
-            // - either the event was an `AnyTimelineEvent` cast to `AnySyncTimelineEvent`
-            //   when calling .raw(), so it's still one under the hood.
-            // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
+            // - either the event was an `AnyTimelineEvent` cast to
+            //   `AnySyncTimelineEvent` when calling .raw(), so it's still one
+            //   under the hood.
+            // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this
+            //   case.
             target_event.replace_raw(redacted_event.cast_unchecked());
 
             self.replace_event_at(location, target_event.clone()).await?;

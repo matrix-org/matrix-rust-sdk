@@ -120,13 +120,13 @@ impl Backups {
             // that the `auth_data` has not been tampered with. This can be done
             // either by:
             //
-            // - checking that it is signed by the user's master cross-signing key or by a
-            //   verified device belonging to the same user, or
-            // - by deriving the public key from a private key that it obtained from a
-            //   trusted source. Trusted sources for the private key include the user
-            //   entering the key, retrieving the key stored in secret storage, or obtaining
-            //   the key via secret sharing from a verified device belonging to the same
-            //   user.
+            // - checking that it is signed by the user's master cross-signing
+            //   key or by a verified device belonging to the same user, or
+            // - by deriving the public key from a private key that it obtained
+            //   from a trusted source. Trusted sources for the private key
+            //   include the user entering the key, retrieving the key stored in
+            //   secret storage, or obtaining the key via secret sharing from a
+            //   verified device belonging to the same user.
             //
             // [1]: https://spec.matrix.org/v1.8/client-server-api/#post_matrixclientv3room_keysversion
             // [spec]: https://spec.matrix.org/v1.8/client-server-api/#server-side-key-backups
