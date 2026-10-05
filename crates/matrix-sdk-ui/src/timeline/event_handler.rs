@@ -1216,11 +1216,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 // aggregations system, which reaches us here as an `UpdateAt`.
                 // If the item is already redacted (via the aggregations system,
                 // applied earlier in the diff batch), skip it to avoid a
-                // spurious duplicate update.
+                // spurious duplicate update; unless it has no raw JSON yet,
+                // since the redacted event (with its `redacted_because`) is
+                // only to be found in this update.
                 let already_redacted = item.content().is_redacted()
-                    && self.items[*idx]
-                        .as_event()
-                        .is_some_and(|existing| existing.content().is_redacted());
+                    && self.items[*idx].as_event().is_some_and(|existing| {
+                        existing.content().is_redacted() && existing.original_json().is_some()
+                    });
 
                 if already_redacted {
                     trace!("Item at position {idx} is already redacted, skipping the update");
