@@ -211,7 +211,7 @@ pub struct EventCacheDropHandles {
 
     /// The task used to automatically redecrypt UTDs.
     #[cfg(feature = "e2e-encryption")]
-    _redecryptor: redecryptor::Redecryptor,
+    redecryptor: OnceLock<redecryptor::Redecryptor>,
 }
 
 impl EventCacheDropHandles {
@@ -253,25 +253,6 @@ impl EventCacheDropHandles {
                 ),
             )
             .abort_on_drop();
-
-        #[cfg(feature = "e2e-encryption")]
-        let redecryptor = {
-            let receiver = event_cache_inner
-                .redecryption_channels
-                .decryption_request_receiver
-                .lock()
-                .take()
-                .expect(
-                    "We should have initialized the channel an subscribing should happen only once",
-                );
-
-            redecryptor::Redecryptor::new(
-                &client,
-                Arc::downgrade(&event_cache_inner),
-                receiver,
-                &event_cache_inner.linked_chunk_update_sender,
-            )
-        };
 
         let thread_subscriber_task = client
             .task_monitor()
@@ -317,8 +298,10 @@ impl EventCacheDropHandles {
             _listen_updates_task: listen_updates_task,
             _ignore_user_list_update_task: ignore_user_list_update_task,
             _auto_shrink_linked_chunk_task: auto_shrink_linked_chunk_task,
+            // It is initialised with `EventCache::initialise_redecryptor`. See this method to learn
+            // more.
             #[cfg(feature = "e2e-encryption")]
-            _redecryptor: redecryptor,
+            redecryptor: OnceLock::new(),
             _thread_subscriber_task: thread_subscriber_task,
             #[cfg(feature = "experimental-search")]
             _search_indexing_task: search_indexing_task,
@@ -412,6 +395,38 @@ impl EventCache {
     /// Get a writable handle to the global configuration of the [`EventCache`].
     pub fn config_mut(&self) -> RwLockWriteGuard<'_, EventCacheConfig> {
         self.inner.config.write().unwrap()
+    }
+
+    /// Initialise `Redecryptor`, aka R2D2.
+    ///
+    /// The `EventCache` is built when the `Client` is built. When a `Client` is
+    /// built, the `OlmMachine` does not exist. Thus, `Redecryptor` will fail to
+    /// start because it needs an `OlmMachine`. That's why this method exists:
+    /// once the `OlmMachine` is created, this method is called to build
+    /// `Redecryptor`. This usually happens in [`Client::activate`].
+    ///
+    /// This method initialises `Redecryptor` only once. Calling it several
+    /// times will have no effect.
+    ///
+    /// It returns an error if the `Client` has been dropped.
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) fn initialise_redecryptor(&self) -> Result<()> {
+        let client = self.inner.client()?;
+        let receiver =
+            self.inner.redecryption_channels.decryption_request_receiver.lock().take().expect(
+                "We should have initialized the channel an subscribing should happen only once",
+            );
+
+        self.drop_handles.redecryptor.get_or_init(|| {
+            redecryptor::Redecryptor::new(
+                &client,
+                Arc::downgrade(&self.inner),
+                receiver,
+                &self.inner.linked_chunk_update_sender,
+            )
+        });
+
+        Ok(())
     }
 
     /// Subscribes to updates that a thread subscription has been sent.
