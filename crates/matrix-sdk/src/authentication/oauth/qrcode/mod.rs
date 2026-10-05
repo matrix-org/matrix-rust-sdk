@@ -36,7 +36,6 @@ pub use oauth2::{
 use ruma::api::error::ErrorKind;
 use thiserror::Error;
 use tokio::sync::Mutex;
-use url::Url;
 pub use vodozemac::ecies::{Error as EciesError, MessageDecodeError as EciesMessageDecodeError};
 
 mod grant;
@@ -70,8 +69,9 @@ pub enum QRCodeLoginError {
     LoginFailure {
         /// The reason, as signaled by the other device, for the login failure.
         reason: LoginFailureReason,
-        /// The homeserver that we attempted to log in to.
-        homeserver: Option<Url>,
+        /// The homeserver the other device suggested we use, either as a
+        /// server name or as a homeserver URL.
+        homeserver: Option<String>,
     },
 
     /// An unexpected message was received from the other device.
