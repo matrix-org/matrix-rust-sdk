@@ -602,8 +602,8 @@ impl Client {
         room_load_settings: RoomLoadSettings,
         #[cfg(feature = "e2e-encryption")] custom_account: Option<olm::Account>,
     ) -> Result<()> {
-        Ok(self
-            .inner
+        // First off, activate the base client.
+        self.inner
             .base_client
             .activate(
                 session_meta,
@@ -611,7 +611,15 @@ impl Client {
                 #[cfg(feature = "e2e-encryption")]
                 custom_account,
             )
-            .await?)
+            .await?;
+
+        // Next, activate R2D2 since the `OlmMachine` is now setup.
+        #[cfg(feature = "e2e-encryption")]
+        if let Some(event_cache) = self.inner.event_cache.get() {
+            event_cache.initialise_redecryptor()?;
+        }
+
+        Ok(())
     }
 
     /// Returns a subscriber that publishes an event every time the ignore user
