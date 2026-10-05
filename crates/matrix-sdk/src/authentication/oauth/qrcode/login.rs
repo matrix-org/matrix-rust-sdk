@@ -577,7 +577,8 @@ mod test {
             alice.confirm(check_code).expect("Alice should be able to confirm the secure channel");
 
         if matches!(behaviour, AliceBehaviour::NoProtocols) {
-            // Bob can't use any of the protocols, so he should tell us and stop.
+            // Bob can't use any of the protocols, so he should tell us and
+            // stop.
             let message: QrAuthMessage = alice
                 .receive_json()
                 .await
@@ -755,7 +756,8 @@ mod test {
             .expect("Alice should be able to send the `m.login.protocols` message to Bob");
 
         if matches!(behaviour, AliceBehaviour::NoProtocols) {
-            // Bob can't use any of the protocols, so he should tell us and stop.
+            // Bob can't use any of the protocols, so he should tell us and
+            // stop.
             let message: QrAuthMessage = channel
                 .receive_json()
                 .await
