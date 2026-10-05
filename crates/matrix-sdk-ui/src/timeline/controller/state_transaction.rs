@@ -381,7 +381,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         // FIXME: This branch is a complete hackjob.
                         //
                         // The reason being is that this branch is here to
-                        // handle UTD -> Decrypted event remplacements for
+                        // handle UTD -> Decrypted event replacements for
                         // focused timelines. But this transition should
                         // naturally happen the same way it happens for
                         // unfocused timelines.
