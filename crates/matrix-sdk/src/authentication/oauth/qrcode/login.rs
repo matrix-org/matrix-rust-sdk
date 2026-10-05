@@ -560,12 +560,63 @@ mod test {
         serde_json::from_value(json).expect("We should be able to deserialize a secrets bundle")
     }
 
+    /// Receive the message Bob sends in place of `m.login.success` when he
+    /// fails to get a token, and check it.
+    ///
+    /// Returns `true` if Bob logged in successfully.
+    async fn receive_login_outcome(
+        channel: &mut EstablishedSecureChannel,
+        token_response: TokenResponse,
+    ) -> bool {
+        let message: QrAuthMessage = channel
+            .receive_json()
+            .await
+            .expect("Alice should be able to receive the login outcome from Bob");
+
+        match token_response {
+            TokenResponse::Ok => {
+                assert_let!(QrAuthMessage::LoginSuccess = message);
+                true
+            }
+            TokenResponse::AccessDenied => {
+                assert_let!(QrAuthMessage::LoginDeclined = message);
+                false
+            }
+            TokenResponse::ExpiredToken => {
+                assert_matches!(
+                    message,
+                    QrAuthMessage::LoginFailure {
+                        reason: LoginFailureReason::AuthorizationExpired,
+                        homeserver: None
+                    }
+                );
+                false
+            }
+        }
+    }
+
+    /// Check that Bob tells Alice that he received a message he didn't expect.
+    async fn receive_unexpected_message_error(channel: &mut EstablishedSecureChannel) {
+        let message: QrAuthMessage = channel
+            .receive_json()
+            .await
+            .expect("Alice should receive the `m.login.failure` message from Bob");
+        assert_matches!(
+            message,
+            QrAuthMessage::LoginFailure {
+                reason: LoginFailureReason::UnexpectedMessageReceived,
+                homeserver: None
+            }
+        );
+    }
+
     /// This is most of the code that is required to be the other side, the
     /// existing device, of the QR login dance.
     async fn grant_login(
         alice: SecureChannel,
         check_code_receiver: tokio::sync::oneshot::Receiver<u8>,
         behaviour: AliceBehaviour,
+        token_response: TokenResponse,
     ) {
         let alice = alice.connect().await.expect("Alice should be able to connect the channel");
 
@@ -607,14 +658,19 @@ mod test {
 
         alice.send_json(message).await.unwrap();
 
-        // We declined, so Bob stops without replying.
-        if matches!(behaviour, AliceBehaviour::DeclinedProtocol) {
-            return;
+        match behaviour {
+            // We declined, so Bob stops without replying.
+            AliceBehaviour::DeclinedProtocol => return,
+            AliceBehaviour::UnexpectedMessage => {
+                receive_unexpected_message_error(&mut alice).await;
+                return;
+            }
+            _ => (),
         }
 
-        // Bob tells us if he couldn't log in, in which case we stop too.
-        let message: QrAuthMessage = alice.receive_json().await.unwrap();
-        let QrAuthMessage::LoginSuccess = message else { return };
+        if !receive_login_outcome(&mut alice, token_response).await {
+            return;
+        }
 
         let message = match behaviour {
             AliceBehaviour::UnexpectedMessageInsteadOfSecrets => QrAuthMessage::LoginDeclined,
@@ -626,6 +682,10 @@ mod test {
         };
 
         alice.send_json(message).await.unwrap();
+
+        if matches!(behaviour, AliceBehaviour::UnexpectedMessageInsteadOfSecrets) {
+            receive_unexpected_message_error(&mut alice).await;
+        }
     }
 
     #[async_test]
@@ -695,8 +755,9 @@ mod test {
                 }
             }
         });
-        let alice_task =
-            spawn(async { grant_login(alice, receiver, AliceBehaviour::HappyPath).await });
+        let alice_task = spawn(async {
+            grant_login(alice, receiver, AliceBehaviour::HappyPath, TokenResponse::Ok).await
+        });
 
         // Wait for all tasks to finish.
         login_bob.await.expect("Bob should be able to login");
@@ -715,6 +776,7 @@ mod test {
         qr_receiver: tokio::sync::oneshot::Receiver<QrCodeData>,
         cctx_receiver: tokio::sync::oneshot::Receiver<CheckCodeSender>,
         behaviour: AliceBehaviour,
+        token_response: TokenResponse,
     ) {
         let qr_code_data = qr_receiver.await.expect("Alice should receive the QR code");
 
@@ -789,17 +851,19 @@ mod test {
             .await
             .expect("Alice should be able to send the `m.login.protocol_accepted` message to Bob");
 
-        // We declined, so Bob stops without replying.
-        if matches!(behaviour, AliceBehaviour::DeclinedProtocol) {
-            return;
+        match behaviour {
+            // We declined, so Bob stops without replying.
+            AliceBehaviour::DeclinedProtocol => return,
+            AliceBehaviour::UnexpectedMessage => {
+                receive_unexpected_message_error(&mut channel).await;
+                return;
+            }
+            _ => (),
         }
 
-        // Bob tells us if he couldn't log in, in which case we stop too.
-        let message: QrAuthMessage = channel
-            .receive_json()
-            .await
-            .expect("Alice should be able to receive the `m.login.success` message from Bob");
-        let QrAuthMessage::LoginSuccess = message else { return };
+        if !receive_login_outcome(&mut channel, token_response).await {
+            return;
+        }
 
         // Alice sends m.login.secrets message
         let message = match behaviour {
@@ -814,6 +878,10 @@ mod test {
             .send_json(message)
             .await
             .expect("Alice should be able to send the `m.login.secrets` message to Bob");
+
+        if matches!(behaviour, AliceBehaviour::UnexpectedMessageInsteadOfSecrets) {
+            receive_unexpected_message_error(&mut channel).await;
+        }
     }
 
     #[async_test]
@@ -904,6 +972,7 @@ mod test {
                 qr_receiver,
                 cctx_receiver,
                 AliceBehaviour::HappyPath,
+                TokenResponse::Ok,
             )
             .await
         });
@@ -1022,6 +1091,7 @@ mod test {
                 qr_receiver,
                 cctx_receiver,
                 AliceBehaviour::HappyPath,
+                TokenResponse::Ok,
             )
             .await
         });
@@ -1136,8 +1206,10 @@ mod test {
             }
         });
 
-        let alice_task = (!matches!(alice_behaviour, AliceBehaviour::LetSessionExpire))
-            .then(|| spawn(async { grant_login(alice, receiver, alice_behaviour).await }));
+        let alice_task =
+            (!matches!(alice_behaviour, AliceBehaviour::LetSessionExpire)).then(|| {
+                spawn(async { grant_login(alice, receiver, alice_behaviour, token_response).await })
+            });
 
         let result = login_bob.await;
 
@@ -1266,6 +1338,7 @@ mod test {
                         qr_receiver,
                         cctx_receiver,
                         alice_behaviour,
+                        token_response,
                     )
                     .await
                 })
@@ -1501,8 +1574,9 @@ mod test {
                 }
             }
         });
-        let _alice_task =
-            spawn(async move { grant_login(alice, receiver, AliceBehaviour::HappyPath).await });
+        let _alice_task = spawn(async move {
+            grant_login(alice, receiver, AliceBehaviour::HappyPath, TokenResponse::Ok).await
+        });
         let error = login_bob.await.unwrap_err();
 
         assert_matches!(
