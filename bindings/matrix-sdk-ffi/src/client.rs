@@ -163,6 +163,8 @@ use crate::{
     utils::AsyncRuntimeDropped,
 };
 
+use std::ops::Deref;
+
 #[derive(Clone, uniffi::Record)]
 pub struct PusherIdentifiers {
     pub pushkey: String,
@@ -503,6 +505,10 @@ impl Client {
         }
 
         Ok(client)
+    }
+    /// get hold of the inner actual matrix client for reusing in other crates
+    pub fn cloned_inner(&self) -> MatrixClient {
+        self.inner.clone().deref().clone()
     }
 }
 
