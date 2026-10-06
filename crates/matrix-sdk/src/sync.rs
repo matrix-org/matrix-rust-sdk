@@ -189,8 +189,17 @@ impl Client {
         self.handle_sync_events(HandlerKind::Presence, None, presence).await?;
         self.handle_sync_to_device_events(to_device).await?;
 
-        // Ignore errors when there are no receivers.
-        let _ = self.inner.room_updates_sender.send(rooms.clone());
+        // Broadcast updates if and only if there is at least one receiver. The
+        // goal is to avoid to clone `rooms`.
+        //
+        // What if a receiver is created right after `receiver_count` is called?
+        // Well, the same thing as if this condition didn't exist: if the
+        // receiver would be created right after `send` is called, it would have
+        // missed the update. That's okay.
+        if self.inner.room_updates_sender.receiver_count() > 0 {
+            // Ignore errors when there are no receivers.
+            let _ = self.inner.room_updates_sender.send(rooms.clone());
+        }
 
         for (room_id, updates) in &rooms.joined {
             let Some(room) = self.get_room(room_id) else {
