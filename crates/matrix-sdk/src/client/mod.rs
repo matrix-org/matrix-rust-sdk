@@ -18,6 +18,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, btree_map},
     fmt::{self, Debug},
     future::{Future, ready},
+    ops::Not,
     pin::Pin,
     sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock, Weak},
     time::Duration,
@@ -1612,13 +1613,12 @@ impl Client {
         self.base_client()
             .rooms_filtered(RoomStateFilter::JOINED)
             .iter()
-            .map(|room| (room, room.num_unread_notifications().max(room.is_marked_unread().into())))
-            // Check whether the room is hidden only for the few rooms that count.
-            .filter(|(_, count)| *count > 0)
-            .filter(|(room, _)| !room.is_space())
-            .filter(|(room, _)| {
-                !room
-                    .successor_room()
+            // Exclude space.
+            .filter(|room| !room.is_space())
+            // Exclude tombstoned rooms where the successor is not joined, or has not been joined
+            // yet.
+            .filter(|room| {
+                room.successor_room()
                     .and_then(|successor| self.base_client().get_room(&successor.room_id))
                     .is_some_and(|successor| {
                         matches!(
@@ -1626,8 +1626,9 @@ impl Client {
                             RoomState::Joined | RoomState::Left | RoomState::Banned
                         )
                     })
+                    .not()
             })
-            .map(|(_, count)| count)
+            .map(|room| room.num_unread_notifications().max(room.is_marked_unread().into()))
             .sum()
     }
 
