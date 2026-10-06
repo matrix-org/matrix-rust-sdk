@@ -193,7 +193,7 @@ impl Client {
         // Ignore errors when there are no receivers.
         let _ = self.inner.room_updates_sender.send(rooms.clone());
 
-        for (room_id, room_info) in &rooms.joined {
+        for (room_id, updates) in &rooms.joined {
             let Some(room) = self.get_room(room_id) else {
                 error!(?room_id, "Can't call event handler, room not found");
                 continue;
@@ -201,7 +201,7 @@ impl Client {
 
             self.send_room_update(room_id, || RoomUpdate::Joined {
                 room: room.clone(),
-                updates: room_info.clone(),
+                updates: updates.clone(),
             });
 
             let JoinedRoomUpdate {
@@ -212,7 +212,7 @@ impl Client {
                 ephemeral,
                 ambiguity_changes: _,
                 avatar_changes: _,
-            } = room_info;
+            } = updates;
 
             let room = Some(&room);
             self.handle_sync_events(HandlerKind::RoomAccountData, room, account_data).await?;
@@ -223,7 +223,7 @@ impl Client {
             self.handle_sync_events(HandlerKind::EphemeralRoomData, room, ephemeral).await?;
         }
 
-        for (room_id, room_info) in &rooms.left {
+        for (room_id, updates) in &rooms.left {
             let Some(room) = self.get_room(room_id) else {
                 error!(?room_id, "Can't call event handler, room not found");
                 continue;
@@ -231,10 +231,10 @@ impl Client {
 
             self.send_room_update(room_id, || RoomUpdate::Left {
                 room: room.clone(),
-                updates: room_info.clone(),
+                updates: updates.clone(),
             });
 
-            let LeftRoomUpdate { timeline, state, account_data, ambiguity_changes: _ } = room_info;
+            let LeftRoomUpdate { timeline, state, account_data, ambiguity_changes: _ } = updates;
 
             let room = Some(&room);
             self.handle_sync_events(HandlerKind::RoomAccountData, room, account_data).await?;
@@ -242,7 +242,7 @@ impl Client {
             self.handle_sync_timeline_events(room, &timeline.events).await?;
         }
 
-        for (room_id, room_info) in &rooms.invited {
+        for (room_id, updates) in &rooms.invited {
             let Some(room) = self.get_room(room_id) else {
                 error!(?room_id, "Can't call event handler, room not found");
                 continue;
@@ -250,14 +250,14 @@ impl Client {
 
             self.send_room_update(room_id, || RoomUpdate::Invited {
                 room: room.clone(),
-                updates: room_info.clone(),
+                updates: updates.clone(),
             });
 
-            let invite_state = &room_info.invite_state.events;
+            let invite_state = &updates.invite_state.events;
             self.handle_sync_events(HandlerKind::StrippedState, Some(&room), invite_state).await?;
         }
 
-        for (room_id, room_info) in &rooms.knocked {
+        for (room_id, updates) in &rooms.knocked {
             let Some(room) = self.get_room(room_id) else {
                 error!(?room_id, "Can't call event handler, room not found");
                 continue;
@@ -265,10 +265,10 @@ impl Client {
 
             self.send_room_update(room_id, || RoomUpdate::Knocked {
                 room: room.clone(),
-                updates: room_info.clone(),
+                updates: updates.clone(),
             });
 
-            let knock_state = &room_info.knock_state.events;
+            let knock_state = &updates.knock_state.events;
             self.handle_sync_events(HandlerKind::StrippedState, Some(&room), knock_state).await?;
         }
 
