@@ -12,7 +12,7 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::{future::ready, ops::Deref, sync::Arc};
+use std::{future::ready, ops::Deref, pin::pin, sync::Arc};
 
 use async_cell::sync::AsyncCell;
 use async_rx::StreamExt as _;
@@ -20,7 +20,7 @@ use async_stream::stream;
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use eyeball_im_util::vector::VectorObserverExt;
-use futures_util::{Stream, StreamExt as _, pin_mut, stream};
+use futures_util::{Stream, StreamExt as _, stream};
 use matrix_sdk::{
     Client, Room, RoomRecencyStamp, RoomState, SlidingSync, SlidingSyncList,
     task_monitor::BackgroundTaskHandle,
@@ -78,7 +78,7 @@ impl RoomList {
             _loading_state_task: client
                 .task_monitor()
                 .spawn_infinite_task("room_list::loading_state_task", async move {
-                    pin_mut!(room_list_service_state);
+                    let mut room_list_service_state = pin!(room_list_service_state);
 
                     // As soon as `RoomListService` changes its state, if it
                     // isn't `Terminated` nor `Error`, we know we have fetched
@@ -203,7 +203,7 @@ fn merge_stream_and_receiver(
     mut room_info_notable_update_receiver: broadcast::Receiver<RoomInfoNotableUpdate>,
 ) -> impl Stream<Item = Vec<VectorDiff<RoomListItem>>> {
     stream! {
-        pin_mut!(raw_stream);
+        let mut raw_stream = pin!(raw_stream);
 
         loop {
             select! {

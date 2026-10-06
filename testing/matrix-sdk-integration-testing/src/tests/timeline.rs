@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{ops::Not as _, sync::Arc, time::Duration};
+use std::{ops::Not as _, pin::pin, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use assert_matches::assert_matches;
 use assign::assign;
 use eyeball_im::{Vector, VectorDiff};
-use futures::pin_mut;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
     Client, Room, RoomState, ThreadingSupport, assert_let_timeout, assert_next_with_timeout,
@@ -486,7 +485,7 @@ async fn test_enabling_backups_retries_decryption() {
         .await;
 
     let room_key_stream = bob.encryption().backups().room_keys_for_room_stream(room.room_id());
-    pin_mut!(room_key_stream);
+    let mut room_key_stream = pin!(room_key_stream);
 
     // Wait for the room key to arrive before continuing.
     let wait_for_room_key = async {
@@ -612,7 +611,7 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
 
     // Now we need to wait for Bob's device to turn up.
     let wait_for_bob_device = async {
-        pin_mut!(devices_stream);
+        let mut devices_stream = pin!(devices_stream);
 
         while let Some(devices) = devices_stream.next().await {
             if devices.new.contains_key(bob.user_id().unwrap()) {

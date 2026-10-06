@@ -16,12 +16,12 @@ use std::{
     collections::{BTreeMap, HashMap},
     fmt::Debug,
     path::PathBuf,
+    pin::pin,
     sync::{Arc, OnceLock},
     time::Duration,
 };
 
 use anyhow::{Context as _, anyhow};
-use futures_util::pin_mut;
 #[cfg(feature = "sqlite")]
 use matrix_sdk::STATE_STORE_DATABASE_NAME;
 #[cfg(not(target_family = "wasm"))]
@@ -948,7 +948,7 @@ impl Client {
         let stream = self.inner.observe_own_beacon_info_updates()?;
 
         Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(stream);
+            let mut stream = pin!(stream);
 
             while let Some(update) = stream.next().await {
                 listener.on_update(update.into());
@@ -1443,7 +1443,7 @@ impl Client {
         let stream = self.inner.subscribe_to_own_profile()?;
 
         Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(stream);
+            let mut stream = pin!(stream);
 
             while let Some(profile) = stream.next().await {
                 match UserProfile::from_profile(&user_id, &profile) {
@@ -2315,7 +2315,7 @@ impl Client {
 
         Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             // Listen for changes and notify the listener.
-            pin_mut!(stream);
+            let mut stream = pin!(stream);
             while let Some(media_preview_config) = stream.next().await {
                 listener.on_change(Some(media_preview_config.into()));
             }
@@ -2540,7 +2540,7 @@ impl Client {
         let messages = self.inner.subscribe_to_custom_to_device_messages(event_types);
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(messages);
+            let mut messages = pin!(messages);
 
             while let Some(message) = messages.next().await {
                 match ToDeviceMessage::try_from(message) {

@@ -15,11 +15,10 @@
 // Allow UniFFI to use methods marked as `#[deprecated]`.
 #![allow(deprecated)]
 
-use std::{collections::HashMap, fmt::Write as _, fs, panic, sync::Arc};
+use std::{collections::HashMap, fmt::Write as _, fs, panic, pin::pin, sync::Arc};
 
 use anyhow::{Context, Result};
 use eyeball_im::VectorDiff;
-use futures_util::pin_mut;
 use matrix_sdk::{
     attachment::{
         AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo, Thumbnail,
@@ -351,7 +350,7 @@ impl Timeline {
         listener.on_update(vec![TimelineDiff::new(VectorDiff::Reset { values: timeline_items })]);
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(timeline_stream);
+            let mut timeline_stream = pin!(timeline_stream);
 
             // Then forward new items.
             while let Some(diffs) = timeline_stream.next().await {

@@ -1,6 +1,6 @@
-use std::time::Duration;
+use std::{pin::pin, time::Duration};
 
-use futures_util::{FutureExt, StreamExt as _, pin_mut};
+use futures_util::{FutureExt, StreamExt as _};
 use js_int::uint;
 use matrix_sdk::{
     assert_let_timeout, live_locations_observer::LiveLocationShare,
@@ -233,7 +233,7 @@ async fn test_observe_single_live_location_share() {
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
     let live_locations_observer = room.live_locations_observer().await;
     let (initial, stream) = live_locations_observer.subscribe();
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     // Initial snapshot contains the beacon_info from state (no last_location
     // yet).
@@ -300,7 +300,7 @@ async fn test_observing_live_location_does_not_return_non_live() {
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
     let live_locations_observer = room.live_locations_observer().await;
     let (initial, stream) = live_locations_observer.subscribe();
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     // Initial is empty because beacon_info is not live.
     assert!(initial.is_empty());
@@ -353,7 +353,7 @@ async fn test_location_update_for_already_tracked_user() {
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
     let live_locations_observer = room.live_locations_observer().await;
     let (initial, stream) = live_locations_observer.subscribe();
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     // Initial snapshot contains the beacon_info from state (no last_location
     // yet).
@@ -442,7 +442,7 @@ async fn test_beacon_info_stop_removes_user_from_stream() {
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
     let live_locations_observer = room.live_locations_observer().await;
     let (initial, stream) = live_locations_observer.subscribe();
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     // Initial snapshot contains the beacon_info from state (no last_location
     // yet).
@@ -507,7 +507,7 @@ async fn test_multiple_users_in_stream() {
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
     let live_locations_observer = room.live_locations_observer().await;
     let (initial, stream) = live_locations_observer.subscribe();
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     // Initial snapshot contains both alice and bob beacon_infos from state.
     assert_eq!(initial.len(), 2);

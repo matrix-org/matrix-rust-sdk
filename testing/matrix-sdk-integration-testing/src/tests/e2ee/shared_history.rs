@@ -1,9 +1,9 @@
-use std::{assert_matches, ops::Deref, sync::Arc, time::Duration};
+use std::{assert_matches, ops::Deref, pin::pin, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use assign::assign;
 use eyeball_im::VectorDiff;
-use futures::{FutureExt, StreamExt, future, pin_mut};
+use futures::{FutureExt, StreamExt, future};
 use matrix_sdk::{
     Client, Room, assert_decrypted_message_eq, assert_next_with_timeout,
     deserialized_responses::TimelineEventKind,
@@ -128,7 +128,7 @@ async fn test_history_share_on_invite_helper(exclude_insecure_devices: bool) -> 
 
     bob.get_room(alice_room.room_id()).expect("Bob should have received the invite");
 
-    pin_mut!(bundle_stream);
+    let mut bundle_stream = pin!(bundle_stream);
 
     let info = bundle_stream
         .next()
@@ -338,12 +338,12 @@ async fn test_history_share_on_invite_pin_violation() -> Result<()> {
     alice_sync_service.stop().await;
 
     // Let's wait for the bundle to arrive.
-    pin_mut!(bundle_stream);
+    let mut bundle_stream = pin!(bundle_stream);
     assert_next_with_timeout!(bundle_stream, 3000);
 
     // Let us now wait till Alice's identity gets updated.
     info!("Bob is checking if alice's identity has changed");
-    pin_mut!(identity_stream);
+    let identity_stream = pin!(identity_stream);
     let mut identity_stream = identity_stream
         .filter(|updates| future::ready(updates.changed.contains_key(alice_user_id)));
     assert_next_with_timeout!(identity_stream, 2000);
@@ -776,7 +776,7 @@ async fn test_history_share_on_invite_no_forwarder_info_for_normal_events() -> R
 
     bob.get_room(alice_room.room_id()).expect("Bob should have received the invite");
 
-    pin_mut!(bundle_stream);
+    let mut bundle_stream = pin!(bundle_stream);
 
     let info = bundle_stream
         .next()
@@ -963,7 +963,7 @@ async fn test_history_share_on_invite_downloads_backup_keys() -> Result<()> {
 
     bob.get_room(&room_id).expect("Bob should have received the invite");
 
-    pin_mut!(bundle_stream);
+    let mut bundle_stream = pin!(bundle_stream);
 
     let info = bundle_stream
         .next()
@@ -1092,7 +1092,7 @@ async fn test_history_share_on_invite_respects_history_visibility() -> Result<()
         .await
         .expect("Charlie should be able to access their key bundle stream");
 
-    pin_mut!(charlie_bundle_stream);
+    let mut charlie_bundle_stream = pin!(charlie_bundle_stream);
 
     bob_room
         .invite_user_by_id(charlie.user_id().unwrap())
@@ -1545,7 +1545,7 @@ async fn wait_for_timeline_event(
     }
 
     // Otherwise, wait for it to arrive.
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     loop {
         let diffs = match tokio::time::timeout(Duration::from_millis(500), stream.next()).await {

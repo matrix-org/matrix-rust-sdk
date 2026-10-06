@@ -1631,11 +1631,10 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::ops::Deref;
     #[cfg(feature = "experimental-x509-identity-verification")]
     use std::sync::Arc;
+    use std::{ops::Deref, pin::pin};
 
-    use futures_util::pin_mut;
     use matrix_sdk_test::{async_test, ruma_response_from_json, test_json};
     use ruma::{
         TransactionId, api::client::keys::get_keys::v3::Response as KeysQueryResponse, device_id,
@@ -2045,7 +2044,7 @@ pub(crate) mod tests {
         let (request_id, _) = manager.build_key_query_for_users(vec![user_id()]);
 
         let stream = manager.store.devices_stream();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         manager.receive_keys_query_response(&request_id, &own_key_query()).await.unwrap();
 
@@ -2059,7 +2058,7 @@ pub(crate) mod tests {
         let (request_id, _) = manager.build_key_query_for_users(vec![user_id()]);
 
         let stream = manager.store.user_identities_stream();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         manager.receive_keys_query_response(&request_id, &own_key_query()).await.unwrap();
 
@@ -2073,7 +2072,7 @@ pub(crate) mod tests {
         let (request_id, _) = manager.as_ref().unwrap().build_key_query_for_users(vec![user_id()]);
 
         let stream = manager.as_ref().unwrap().store.identities_stream_raw();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         manager
             .as_ref()
@@ -2117,7 +2116,7 @@ pub(crate) mod tests {
             manager.as_ref().unwrap().build_key_query_for_users(vec![other_user_id()]);
 
         let stream = manager.as_ref().unwrap().store.identities_stream_raw();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         manager
             .as_ref()

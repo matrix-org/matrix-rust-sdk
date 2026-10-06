@@ -15,7 +15,7 @@
 use std::{collections::HashMap, fs, path::PathBuf, pin::pin, sync::Arc};
 
 use anyhow::{Context, Result};
-use futures_util::{StreamExt, pin_mut};
+use futures_util::StreamExt;
 use matrix_sdk::{
     ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType,
     DraftAttachment as SdkDraftAttachment, DraftAttachmentContent, DraftThumbnail, EncryptionState,
@@ -551,7 +551,7 @@ impl Room {
         let snapshots = self.inner.subscribe_to_state_events(event_type);
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(snapshots);
+            let mut snapshots = pin!(snapshots);
 
             while let Some(snapshot) = snapshots.next().await {
                 match snapshot {
@@ -1094,7 +1094,7 @@ impl Room {
         let (stream, seen_ids_cleanup_handle) = self.inner.subscribe_to_knock_requests().await?;
 
         let handle = Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(stream);
+            let mut stream = pin!(stream);
             while let Some(requests) = stream.next().await {
                 listener.call(requests.into_iter().map(Into::into).collect());
             }

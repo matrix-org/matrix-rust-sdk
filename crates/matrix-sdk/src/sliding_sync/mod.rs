@@ -1085,13 +1085,14 @@ mod tests {
         collections::BTreeMap,
         future::ready,
         ops::Not,
+        pin::pin,
         sync::{Arc, Mutex},
         time::Duration,
     };
 
     use assert_matches::assert_matches;
     use event_listener::Listener;
-    use futures_util::{StreamExt, future::join_all, pin_mut};
+    use futures_util::{StreamExt, future::join_all};
     use matrix_sdk_base::{RequestedRequiredStates, RoomMemberships};
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
@@ -1174,7 +1175,7 @@ mod tests {
 
         // Subscribing emits the currently stored value immediately.
         let stream = client.subscribe_to_own_profile().expect("client should be logged in");
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         let profile = stream.next().await.expect("should emit the initial profile");
         assert_eq!(profile.get_static::<DisplayName>().unwrap().as_deref(), Some("Example"));
@@ -1261,7 +1262,7 @@ mod tests {
         .await?;
 
         let stream = sliding_sync.sync();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         let room_id_0 = room_id!("!r0:bar.org");
         let room_id_1 = room_id!("!r1:bar.org");
@@ -1594,7 +1595,7 @@ mod tests {
         .await?;
 
         let stream = sliding_sync.sync();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         let room_id_0 = room_id!("!r0:bar.org");
         let room_id_1 = room_id!("!r1:bar.org");
@@ -1781,7 +1782,7 @@ mod tests {
         .await?;
 
         let _stream = sliding_sync.sync();
-        pin_mut!(_stream);
+        let mut _stream = pin!(_stream);
 
         sliding_sync
             .add_list(
@@ -2144,7 +2145,7 @@ mod tests {
         }
 
         let sync = sliding_sync.sync();
-        pin_mut!(sync);
+        let mut sync = pin!(sync);
 
         // Sync goes well, and then the position is saved both into the internal
         // memory and the database.
@@ -2233,7 +2234,7 @@ mod tests {
         }
 
         let sync = sliding_sync.sync();
-        pin_mut!(sync);
+        let mut sync = pin!(sync);
 
         // Sync goes well, and then the position is saved both into the internal
         // memory and the database.
@@ -2309,7 +2310,7 @@ mod tests {
 
         // Start the sync loop.
         let stream = sliding_sync.sync();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // The sync loop is actually running.
         assert!(stream.next().await.is_some());
@@ -2322,7 +2323,7 @@ mod tests {
 
         // Start a new sync loop.
         let stream = sliding_sync.sync();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // The sync loop is actually running.
         assert!(stream.next().await.is_some());
@@ -2843,7 +2844,7 @@ mod tests {
                 .await?;
 
         let stream = sliding_sync.sync();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         let cloned_sync = sliding_sync.clone();
         spawn(async move {

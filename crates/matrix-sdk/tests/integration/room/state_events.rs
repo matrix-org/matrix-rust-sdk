@@ -3,9 +3,8 @@
 //! They follow MatrixRTC call memberships, the use case this API exists for,
 //! and a fully custom state event type.
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, pin::pin};
 
-use futures_util::pin_mut;
 use matrix_sdk::{
     assert_next_with_timeout, deserialized_responses::RawAnySyncOrStrippedState,
     test_utils::mocks::MatrixMockServer,
@@ -40,7 +39,7 @@ async fn test_subscribe_to_state_events() {
     let room = server.sync_joined_room(&client, room_id).await;
 
     let stream = room.subscribe_to_state_events(StateEventType::CallMember);
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     // The current state comes first: nobody is in the call yet.
     let state = assert_next_with_timeout!(stream).unwrap();
@@ -107,7 +106,7 @@ async fn test_subscribe_to_state_events_yields_one_snapshot_per_sync() {
     let room = server.sync_joined_room(&client, room_id).await;
 
     let stream = room.subscribe_to_state_events(StateEventType::CallMember);
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     // Skip the current state.
     assert_next_with_timeout!(stream).unwrap();
@@ -141,7 +140,7 @@ async fn test_subscribe_to_state_events_ignores_the_timeline() {
     let room = server.sync_joined_room(&client, room_id).await;
 
     let stream = room.subscribe_to_state_events(StateEventType::CallMember);
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     // Skip the current state.
     assert_next_with_timeout!(stream).unwrap();
@@ -174,7 +173,7 @@ async fn test_subscribe_to_custom_state_events() {
     // A type the SDK knows nothing about works the same way.
     let event_type = StateEventType::from("rs.matrix-sdk.custom-state.test");
     let stream = room.subscribe_to_state_events(event_type);
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     let state = assert_next_with_timeout!(stream).unwrap();
     assert!(state.is_empty());

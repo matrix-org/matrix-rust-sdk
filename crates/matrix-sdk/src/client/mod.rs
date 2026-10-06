@@ -1487,13 +1487,15 @@ impl Client {
     /// ```no_run
     /// # async {
     /// # let client: matrix_sdk::Client = unimplemented!();
-    /// use futures_util::{StreamExt, pin_mut};
+    /// use std::pin::pin;
+    ///
+    /// use futures_util::StreamExt;
     /// use matrix_sdk::ruma::events::ToDeviceEventType;
     ///
     /// let messages = client.subscribe_to_custom_to_device_messages(vec![
     ///     ToDeviceEventType::from("io.element.call.encryption_keys"),
     /// ]);
-    /// pin_mut!(messages);
+    /// let mut messages = pin!(messages);
     ///
     /// while let Some(message) = messages.next().await {
     ///     let Some(encryption_info) = &message.encryption_info else {
@@ -4262,11 +4264,11 @@ struct PreJoinRoomInfo {
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) mod tests {
-    use std::{sync::Arc, time::Duration};
+    use std::{pin::pin, sync::Arc, time::Duration};
 
     use assert_matches::assert_matches;
     use eyeball::SharedObservable;
-    use futures_util::{FutureExt, StreamExt, pin_mut};
+    use futures_util::{FutureExt, StreamExt};
     use js_int::{UInt, uint};
     use matrix_sdk_base::{
         RoomState,
@@ -5594,7 +5596,7 @@ pub(crate) mod tests {
         let initial_value: MediaPreviewConfigEventContent = initial_value.unwrap();
         assert_eq!(initial_value.invite_avatars, Some(InviteAvatars::Off));
         assert_eq!(initial_value.media_previews, Some(MediaPreviews::Private));
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
         assert_pending!(stream);
 
         server
@@ -5645,7 +5647,7 @@ pub(crate) mod tests {
         let initial_value: MediaPreviewConfigEventContent = initial_value.unwrap();
         assert_eq!(initial_value.invite_avatars, Some(InviteAvatars::Off));
         assert_eq!(initial_value.media_previews, Some(MediaPreviews::Private));
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
         assert_pending!(stream);
 
         server

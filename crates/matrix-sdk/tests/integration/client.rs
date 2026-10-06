@@ -1,7 +1,7 @@
-use std::{assert_matches, collections::BTreeMap, ops::Not as _, time::Duration};
+use std::{assert_matches, collections::BTreeMap, ops::Not as _, pin::pin, time::Duration};
 
 use eyeball_im::VectorDiff;
-use futures_util::{FutureExt, StreamExt, pin_mut};
+use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
     Client, Error, MemoryStore, SlidingSyncList, StateChanges, StateStore, ThreadingSupport,
     assert_let_timeout,
@@ -1385,7 +1385,7 @@ async fn test_observe_own_beacon_info_updates_emits_room_id_event_id_and_content
     let client = server.client_builder().build().await;
 
     let stream = client.observe_own_beacon_info_updates().unwrap();
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     let now = MilliSecondsSinceUnixEpoch::now();
     let f = EventFactory::new();
@@ -1421,7 +1421,7 @@ async fn test_observe_own_beacon_info_updates_filters_other_users() {
     let client = server.client_builder().build().await;
 
     let stream = client.observe_own_beacon_info_updates().unwrap();
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     let now = MilliSecondsSinceUnixEpoch::now();
     let f = EventFactory::new();
@@ -1448,7 +1448,7 @@ async fn test_observe_own_beacon_info_updates_delivers_updates_from_multiple_roo
     let client = server.client_builder().build().await;
 
     let stream = client.observe_own_beacon_info_updates().unwrap();
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     let now = MilliSecondsSinceUnixEpoch::now();
     let f = EventFactory::new();
@@ -1494,7 +1494,7 @@ async fn test_observe_own_beacon_info_updates_stays_idle_without_matching_update
     let client = server.client_builder().build().await;
 
     let stream = client.observe_own_beacon_info_updates().unwrap();
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
 

@@ -1418,14 +1418,15 @@ impl Encryption {
     /// ```no_run
     /// # use matrix_sdk::Client;
     /// # use ruma::{device_id, user_id};
-    /// # use futures_util::{pin_mut, StreamExt};
+    /// # use std::pin::pin;
+    /// # use futures_util::StreamExt;
     /// # let client: Client = unimplemented!();
     /// # async {
     /// let devices_stream = client.encryption().devices_stream().await?;
     /// let user_id = client
     ///     .user_id()
     ///     .expect("We should know our user id after we have logged in");
-    /// pin_mut!(devices_stream);
+    /// let mut devices_stream = pin!(devices_stream);
     ///
     /// for device_updates in devices_stream.next().await {
     ///     if let Some(user_devices) = device_updates.new.get(user_id) {
@@ -1460,12 +1461,13 @@ impl Encryption {
     /// ```no_run
     /// # use matrix_sdk::Client;
     /// # use ruma::{device_id, user_id};
-    /// # use futures_util::{pin_mut, StreamExt};
+    /// # use std::pin::pin;
+    /// # use futures_util::StreamExt;
     /// # let client: Client = unimplemented!();
     /// # async {
     /// let identities_stream =
     ///     client.encryption().user_identities_stream().await?;
-    /// pin_mut!(identities_stream);
+    /// let mut identities_stream = pin!(identities_stream);
     ///
     /// for identity_updates in identities_stream.next().await {
     ///     for (_, identity) in identity_updates.new {

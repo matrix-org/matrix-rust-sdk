@@ -116,13 +116,13 @@
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet},
-    pin::Pin,
+    pin::{Pin, pin},
     sync::Weak,
 };
 
 use as_variant::as_variant;
 use futures_core::Stream;
-use futures_util::{StreamExt, future::try_join_all, pin_mut};
+use futures_util::{StreamExt, future::try_join_all};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::deserialized_responses::UnableToDecryptReason;
 #[cfg(doc)]
@@ -1042,8 +1042,8 @@ impl Redecryptor {
             return false;
         };
 
-        pin_mut!(room_key_stream);
-        pin_mut!(withheld_stream);
+        let mut room_key_stream = pin!(room_key_stream);
+        let mut withheld_stream = pin!(withheld_stream);
 
         loop {
             tokio::select! {
@@ -1224,9 +1224,9 @@ impl Redecryptor {
         // We pin the decryption request stream here since that one doesn't need
         // to be recreated and we don't want to miss messages coming from the
         // stream while recreating it unnecessarily.
-        pin_mut!(decryption_request_stream);
-        pin_mut!(events_stream);
-        pin_mut!(backup_state_stream);
+        let mut decryption_request_stream = pin!(decryption_request_stream);
+        let mut events_stream = pin!(events_stream);
+        let mut backup_state_stream = pin!(backup_state_stream);
 
         while Self::redecryption_loop(
             &cache,

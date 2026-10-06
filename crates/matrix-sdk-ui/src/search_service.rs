@@ -220,10 +220,9 @@ impl SearchService {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{pin::pin, time::Duration};
 
     use eyeball_im::VectorDiff;
-    use futures_util::pin_mut;
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
     use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{event_id, room_id, user_id};
@@ -272,7 +271,7 @@ mod tests {
         // Subscribing now yields the loaded results as the current state.
         let (initial, results_stream) = search.subscribe_to_results().await;
         assert_eq!(initial.len(), 1);
-        pin_mut!(results_stream);
+        let mut results_stream = pin!(results_stream);
         assert_pending!(results_stream);
 
         // The next page is empty, so the end is reached and nothing more is
@@ -320,7 +319,7 @@ mod tests {
         assert_eq!(initial.len(), 1);
         assert_let!(ResultType::Message(message) = &initial[0]);
         assert_eq!(message.event_id, apple_event);
-        pin_mut!(results_stream);
+        let mut results_stream = pin!(results_stream);
         assert_pending!(results_stream);
 
         // Changing the query clears the previous results and loads the new

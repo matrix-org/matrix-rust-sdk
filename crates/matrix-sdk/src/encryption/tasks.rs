@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, pin::pin, sync::Arc, time::Duration};
 
 use futures_core::Stream;
-use futures_util::{StreamExt, pin_mut};
+use futures_util::StreamExt;
 use matrix_sdk_base::crypto::store::types::{RoomKeyBundleInfo, RoomPendingKeyBundleDetails};
 #[cfg(feature = "experimental-encrypted-state-events")]
 use matrix_sdk_base::crypto::types::events::room::encrypted::{
@@ -451,7 +451,7 @@ impl BundleReceiverTask {
     }
 
     async fn listen_task(client: WeakClient, stream: impl Stream<Item = RoomKeyBundleInfo>) {
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // TODO: Listening to this stream is not enough for iOS due to the NSE
         // killing our OlmMachine and thus also this stream. We need to add an

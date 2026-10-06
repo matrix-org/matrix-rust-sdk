@@ -1,6 +1,8 @@
+use std::pin::pin;
+
 use anyhow::Result;
 use clap::Parser;
-use futures_util::{StreamExt, pin_mut};
+use futures_util::StreamExt;
 use matrix_sdk::{
     Client,
     config::SyncSettings,
@@ -73,7 +75,7 @@ async fn login(cli: &Cli) -> Result<Client> {
 
 async fn listen_for_backup_state_changes(client: Client) {
     let stream = client.encryption().backups().state_stream();
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     while let Some(state) = stream.next().await {
         let Ok(state) = state else { panic!("Error while receiving backup state updates") };

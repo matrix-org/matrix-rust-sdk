@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, pin::pin, sync::Arc};
 
-use futures_util::pin_mut;
 use imbl::Vector;
 use itertools::{Either, Itertools as _};
 use matrix_sdk::{event_cache::RedecryptorReport, task_monitor::BackgroundTaskHandle};
@@ -68,7 +67,7 @@ async fn redecryption_report_task(timeline_controller: TimelineController) {
     let client = timeline_controller.room().client();
     let stream = client.event_cache().subscribe_to_decryption_reports();
 
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     while let Some(report) = stream.next().await {
         match report {
