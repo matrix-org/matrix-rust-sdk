@@ -21,6 +21,7 @@ fs_extra = "1"
 indexmap.workspace = true
 lazy_static = "1.5.0"
 regex = "1"
+cargo_metadata = "0.23.1"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 uniffi_bindgen.workspace = true
