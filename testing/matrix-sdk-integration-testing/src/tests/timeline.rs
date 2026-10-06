@@ -192,7 +192,7 @@ async fn test_toggling_reaction() -> Result<()> {
         // Add the reaction.
         timeline.toggle_reaction(&item_id, &reaction_key).await.expect("toggling reaction");
 
-        sleep(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(2)).await;
 
         assert_let_timeout!(Some(timeline_updates) = stream.next());
         assert_eq!(timeline_updates.len(), 3);
