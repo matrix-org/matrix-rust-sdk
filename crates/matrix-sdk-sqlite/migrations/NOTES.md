@@ -20,8 +20,8 @@ migration scripts, with the hope that future us won't replicate these errors.
    of the schema, but all comments inside the tables _are_ part of the schema.
    It means that if a column has a comment, it will be displayed with the
    `.schema` command for example. However, if one needs to add a comment for a
-   table (which is very recommended), the comment must be inside the table, like
-   so:
+   table (which is very recommended), the comment must be inside the table.
+   Example with a `CREATE TABLE` command:
 
    ```sql
    CREATE TABLE IF NOT EXISTS "foo" (
@@ -30,6 +30,15 @@ migration scripts, with the hope that future us won't replicate these errors.
       -- First column!
       foo BLOB NOT NULL
    );
+   ```
+
+   Another example with an `ALTER TABLE` command:
+
+   ```sql
+   ALTER TABLE "foo" ADD COLUMN
+      -- New column!
+      bar INTEGER
+   ;
    ```
 
 ## Errors
