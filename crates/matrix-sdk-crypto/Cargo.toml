@@ -64,7 +64,6 @@ as_variant.workspace = true
 async-trait.workspace = true
 bs58 = { version = "0.5.1", default-features = false, features = ["std"] }
 byteorder.workspace = true
-cfg-if.workspace = true
 cms = { version = "0.2.3", default-features = false, features = ["std"], optional = true }
 ctr = { version = "0.10.1", default-features = false }
 eyeball.workspace = true

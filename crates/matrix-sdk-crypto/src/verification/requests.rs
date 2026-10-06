@@ -810,9 +810,13 @@ impl VerificationRequest {
         // We may have previously started QR verification and generated a QR
         // code. If we now switch to SAS flow, the previous verification has to
         // be replaced
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "qrcode")] {
-                if self.verification_cache.get_qr(sas.other_user_id(), sas.flow_id().as_str()).is_some() {
+        cfg_select! {
+            feature = "qrcode" => {
+                if self
+                    .verification_cache
+                    .get_qr(sas.other_user_id(), sas.flow_id().as_str())
+                    .is_some()
+                {
                     debug!(
                         user_id = ?self.other_user(),
                         flow_id = self.flow_id().as_str(),
@@ -822,7 +826,8 @@ impl VerificationRequest {
                 } else {
                     self.verification_cache.insert_sas(sas.clone());
                 }
-            } else {
+            }
+            _ => {
                 self.verification_cache.insert_sas(sas.clone());
             }
         }
