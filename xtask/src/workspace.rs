@@ -6,6 +6,32 @@ use xshell::cmd;
 
 use crate::{Result, sh};
 
+#[derive(Deserialize, Default, Debug)]
+pub struct XtaskMetadata {
+    pub ffi_crate: Option<String>,
+    pub kotlin_features: Option<String>,
+    pub swift_features: Option<String>,
+}
+
+pub fn xtask_metadata() -> Result<XtaskMetadata> {
+    #[derive(Deserialize, Default)]
+    struct WorkspaceMetadata {
+        #[serde(default)]
+        xtask: XtaskMetadata,
+    }
+    #[derive(Deserialize)]
+    struct Metadata {
+        #[serde(default)]
+        metadata: WorkspaceMetadata,
+    }
+
+    let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
+    let sh = sh();
+    let metadata_json = cmd!(sh, "{cargo} metadata --no-deps --format-version 1").read()?;
+    let xtask_info = serde_json::from_str::<Metadata>(&metadata_json)?.metadata.xtask;
+    Ok(xtask_info)
+}
+
 pub fn root_path() -> Result<Utf8PathBuf> {
     #[derive(Deserialize)]
     struct Metadata {

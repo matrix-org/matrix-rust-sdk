@@ -8,8 +8,8 @@ use xshell::cmd;
 use crate::{Result, sh, workspace};
 
 struct PackageValues {
-    name: &'static str,
-    features: &'static str,
+    name: String,
+    features: String,
 }
 
 #[derive(ValueEnum, Clone)]
@@ -21,11 +21,20 @@ enum Package {
 impl Package {
     fn values(self) -> PackageValues {
         match self {
-            Package::CryptoSDK => PackageValues { name: "matrix-sdk-crypto-ffi", features: "" },
-            Package::FullSDK => PackageValues {
-                name: "matrix-sdk-ffi",
-                features: "sentry,experimental-x509-identity-verification",
+            Package::CryptoSDK => PackageValues {
+                name: "matrix-sdk-crypto-ffi".to_string(),
+                features: "".to_string(),
             },
+            Package::FullSDK => {
+                let metadata = workspace::xtask_metadata()
+                    .expect("Failed to read workspace.metadata.xtask in Cargo.toml");
+                PackageValues {
+                    name: metadata.ffi_crate.unwrap_or_else(|| "matrix-sdk-ffi".to_string()),
+                    features: metadata.kotlin_features.unwrap_or_else(|| {
+                        "sentry,experimental-x509-identity-verification".to_string()
+                    }),
+                }
+            }
         }
     }
 }
@@ -88,8 +97,8 @@ fn build_android_library(
     package: Package,
 ) -> Result<()> {
     let package_values = package.values();
-    let package_name = package_values.name;
-    let package_features = package_values.features;
+    let package_name = package_values.name.as_ref();
+    let package_features = package_values.features.as_ref();
 
     let jni_libs_dir = src_dir.join("jniLibs");
     let jni_libs_dir_str = jni_libs_dir.as_str();
