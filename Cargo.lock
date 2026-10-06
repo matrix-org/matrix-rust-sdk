@@ -8291,7 +8291,6 @@ dependencies = [
  "clap",
  "fs_extra",
  "indexmap",
- "lazy_static",
  "regex",
  "serde",
  "serde_json",

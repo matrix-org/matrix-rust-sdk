@@ -5,88 +5,88 @@ use std::{
     ops::Not,
     path,
     str::FromStr,
+    sync::LazyLock,
 };
 
 use chrono::{DateTime, FixedOffset};
-use lazy_static::lazy_static;
 use regex::{Regex, RegexBuilder};
 
 use crate::Result;
 
 const OUTPUT_TEMPLATE: &str = include_str!("overview.template.html");
 
-lazy_static! {
-    static ref LINE_PARSER: Regex = {
-        RegexBuilder::new(
-            r#"
-            # Let's start.
-            ^
+static LINE_PARSER: LazyLock<Regex> = LazyLock::new(|| {
+    RegexBuilder::new(
+        r#"
+        # Let's start.
+        ^
 
-            # Datetime of the log line.
-            (?<datetime>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)
+        # Datetime of the log line.
+        (?<datetime>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)
 
-            # Log level.
-            \s+(?<level>\S+)
+        # Log level.
+        \s+(?<level>\S+)
 
-            # Target.
-            \s(?<target>matrix_[\w_]+(::[\w_]+)*):
+        # Target.
+        \s(?<target>matrix_[\w_]+(::[\w_]+)*):
 
-            # The log message. We don't care about it.
-            (?<message>.*)
+        # The log message. We don't care about it.
+        (?<message>.*)
 
-            # The source file and line.
-            \|\scrates/
-            (?<source_file>[^:]+)
-            :(?<source_line>\d+)
+        # The source file and line.
+        \|\scrates/
+        (?<source_file>[^:]+)
+        :(?<source_line>\d+)
 
-            # The spans.
-            \s\|\sspans:\s
-            (?<spans>.+)
-        "#,
-        )
-        .ignore_whitespace(true)
-        .build()
-        .expect("Failed to build the `line_parser` regex")
-    };
-    static ref MESSAGE_PARSER: Regex = {
-        RegexBuilder::new(
-            r#"
-            # Let's start.
-            ^
+        # The spans.
+        \s\|\sspans:\s
+        (?<spans>.+)
+    "#,
+    )
+    .ignore_whitespace(true)
+    .build()
+    .expect("Failed to build the `line_parser` regex")
+});
 
-            # Anything (trimmed)…
-            \s*(?<message>.*?)
+static MESSAGE_PARSER: LazyLock<Regex> = LazyLock::new(|| {
+    RegexBuilder::new(
+        r#"
+        # Let's start.
+        ^
 
-            # … until optional fields!
-            (\s(?<fields>[\w\d_]+=.*))?$
-        "#,
-        )
-        .ignore_whitespace(true)
-        .build()
-        .expect("Failed to build the `message_parser` regex")
-    };
-    static ref FIELDS_PARSER: Regex = {
-        RegexBuilder::new(
-            r#"
-            # Let's start.
-            ^
+        # Anything (trimmed)…
+        \s*(?<message>.*?)
 
-            # A name.
-            \s*(?<name>[\w\d_]+)
-            # Equal
-            =
-            # A value, which can be anything: it stops when a new field is found.
-            (?<value>.*?)
+        # … until optional fields!
+        (\s(?<fields>[\w\d_]+=.*))?$
+    "#,
+    )
+    .ignore_whitespace(true)
+    .build()
+    .expect("Failed to build the `message_parser` regex")
+});
 
-            # The new field (and everything else).
-            (?<next_fields>\s[\w\d_]+=.+)?$
-        "#,
-        )
-        .ignore_whitespace(true)
-        .build()
-        .expect("Failed to build the `fields_parser` regex")
-    };
-}
+static FIELDS_PARSER: LazyLock<Regex> = LazyLock::new(|| {
+    RegexBuilder::new(
+        r#"
+        # Let's start.
+        ^
+
+        # A name.
+        \s*(?<name>[\w\d_]+)
+        # Equal
+        =
+        # A value, which can be anything: it stops when a new field is found.
+        (?<value>.*?)
+
+        # The new field (and everything else).
+        (?<next_fields>\s[\w\d_]+=.+)?$
+    "#,
+    )
+    .ignore_whitespace(true)
+    .build()
+    .expect("Failed to build the `fields_parser` regex")
+});
 
 pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result<()> {
     let line_parser = &*LINE_PARSER;
