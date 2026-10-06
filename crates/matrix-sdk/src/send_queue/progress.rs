@@ -84,10 +84,9 @@ impl RoomSendQueue {
     ) -> MediaUploadProgressInfo {
         // Determine the item's index, if this is a gallery upload.
         let index = {
-            cfg_if::cfg_if! {
-                if #[cfg(feature = "unstable-msc4274")] {
-                    accumulated.len()
-                } else {
+            cfg_select! {
+                feature = "unstable-msc4274" => accumulated.len(),
+                _ => {
                     0 // Before MSC4274 only a single file (and thumbnail) could be sent per event.
                 }
             }
