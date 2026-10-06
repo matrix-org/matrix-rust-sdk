@@ -41,7 +41,7 @@ use ruma::{
     serde::Raw,
     time::Instant,
 };
-use tracing::{debug, error, instrument, warn};
+use tracing::{Level, error, instrument, warn};
 
 use crate::{Client, Result, Room, event_handler::HandlerKind};
 
@@ -180,11 +180,12 @@ impl Client {
         &self,
         response: &BaseSyncResponse,
     ) -> Result<()> {
-        let _timer = timer!(tracing::Level::TRACE, "_method");
+        let _timer = timer!(Level::TRACE, "_method");
 
         let BaseSyncResponse { rooms, presence, account_data, to_device, notifications } = response;
 
-        let now = Instant::now();
+        let timer = timer!(Level::DEBUG, "Run event handlers");
+
         self.handle_sync_events(HandlerKind::GlobalAccountData, None, account_data).await?;
         self.handle_sync_events(HandlerKind::Presence, None, presence).await?;
         self.handle_sync_to_device_events(to_device).await?;
@@ -271,9 +272,9 @@ impl Client {
             self.handle_sync_events(HandlerKind::StrippedState, Some(&room), knock_state).await?;
         }
 
-        debug!("Ran event handlers in {:?}", now.elapsed());
+        drop(timer);
 
-        let now = Instant::now();
+        let timer = timer!(Level::DEBUG, "Run notification handlers");
 
         // Construct notification event handler futures
         let mut futures = Vec::new();
@@ -296,7 +297,7 @@ impl Client {
             fut.await;
         }
 
-        debug!("Ran notification handlers in {:?}", now.elapsed());
+        drop(timer);
 
         Ok(())
     }
