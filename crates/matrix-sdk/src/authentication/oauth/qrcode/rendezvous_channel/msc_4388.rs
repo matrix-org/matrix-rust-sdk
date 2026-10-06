@@ -58,7 +58,7 @@ pub(super) struct InboundChannelCreationResult {
 /// Type representing the rendezvous ID of a rendezvous session.
 ///
 /// The sequence token will be put into the additional authenticated data and
-/// need to be at most [`u16::MAX`] bytes long for it to fit into it.
+/// need to be at most [`u8::MAX`] bytes long for it to fit into it.
 type SequenceToken = LimitedString;
 
 struct RendezvousMessage {
@@ -139,7 +139,7 @@ impl Channel {
         rendezvous_id: &RendezvousId,
     ) -> Result<InboundChannelCreationResult, SecureChannelError> {
         // Receive the initial message, which should be empty. But we need the
-        // ETAG to fully establish the rendezvous channel.
+        // sequence token to fully establish the rendezvous channel.
         let response =
             Self::receive_message_impl(&client, base_url.as_url(), rendezvous_id).await?;
         let sequence_token = SequenceToken::new(response.sequence_token)

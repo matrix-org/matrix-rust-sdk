@@ -280,12 +280,12 @@ pub enum MessageDecodeError {
     #[error("The sequence token is too long")]
     TooLongSequenceToken(InvalidLengthError),
 
-    /// The base URL of the homeserver needs to be at most [`u16::MAX`] bytes
+    /// The base URL of the homeserver needs to be at most [`u8::MAX`] bytes
     /// long, otherwise it can't be encoded as additional authenticated data.
     #[error("The base URL of the homeserver is too long")]
     TooLongBaseUrl(InvalidLengthError),
 
-    /// The rendezvous ID of the channel needs to be at most [`u16::MAX`] bytes
+    /// The rendezvous ID of the channel needs to be at most [`u8::MAX`] bytes
     /// long, otherwise it can't be encoded as additional authenticated data.
     #[error("The rendezvous ID is too long")]
     TooLongRendezvousId(InvalidLengthError),

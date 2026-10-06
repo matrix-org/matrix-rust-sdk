@@ -85,11 +85,11 @@ pub enum LoginQrCodeDecodeError {
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Error), uniffi(flat_error))]
 pub enum QrCodeCreationError {
-    /// The base URL of the homeserver needs to be at most [`u16::MAX`] bytes
+    /// The base URL of the homeserver needs to be at most [`u8::MAX`] bytes
     /// long, otherwise it doesn't fit into the QR code.
     #[error("The base URL of the homeserver is too long: {0}")]
     TooLongBaseUrl(InvalidLengthError),
-    /// The rendezvous ID of the channel needs to be at most [`u16::MAX`] bytes
+    /// The rendezvous ID of the channel needs to be at most [`u8::MAX`] bytes
     /// long, otherwise it doesn't fit into the QR code.
     #[error("The rendezvous ID is too long: {0}")]
     TooLongRendezvousId(InvalidLengthError),
