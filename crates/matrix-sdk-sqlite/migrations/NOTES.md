@@ -25,9 +25,9 @@ migration scripts, with the hope that future us won't replicate these errors.
 
    ```sql
    CREATE TABLE IF NOT EXISTS "foo" (
-      --- This table exists to address this and that.
+      -- This table exists to address this and that.
 
-      --- First column!
+      -- First column!
       foo BLOB NOT NULL
    );
    ```
