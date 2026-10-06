@@ -230,12 +230,10 @@ impl Serialize for RoomKeyContent {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use assert_matches::assert_matches;
     use serde_json::{Value, json};
     use similar_asserts::assert_eq;
 
-    use super::RoomKeyEvent;
-    use crate::types::events::room_key::RoomKeyContent;
+    use super::{MegolmV1AesSha2Content, RoomKeyEvent};
 
     /// The names under which the `shared_history` flag can appear in
     /// `m.room_key` contents, exported room keys and backed-up room keys.
@@ -290,16 +288,18 @@ pub(crate) mod tests {
     /// Deserialize the event for the given field name, check that the flag was
     /// read, and check that it is serialized with the name from the spec.
     fn check_shared_history(shared_history: SharedHistoryField) {
-        let event: RoomKeyEvent = serde_json::from_value(json(shared_history))
-            .expect("We should be able to deserialize the m.room_key event");
+        let json = json(shared_history);
 
-        let content = assert_matches!(&event.content, RoomKeyContent::MegolmV1AesSha2(c) => c);
+        let content: MegolmV1AesSha2Content = serde_json::from_value(json["content"].clone())
+            .expect("We should be able to deserialize the m.room_key content");
         assert!(content.shared_history, "The shared history flag should be read from the JSON");
         assert!(
             !content.other.contains_key(shared_history.name()),
             "The shared history flag should not be kept as a custom field"
         );
 
+        let event: RoomKeyEvent = serde_json::from_value(json)
+            .expect("We should be able to deserialize the m.room_key event");
         let serialized = serde_json::to_value(event)
             .expect("We should be able to serialize the m.room_key event");
         assert_eq!(serialized, json_stable());
