@@ -52,12 +52,11 @@ use ruma::{
     },
     profile::UserProfileUpdate,
     push::Ruleset,
-    time::Instant,
 };
 use tokio::sync::{Mutex, MutexGuard, broadcast};
 #[cfg(feature = "e2e-encryption")]
 use tokio::sync::{RwLock, RwLockReadGuard};
-use tracing::{Level, debug, enabled, info, instrument, warn};
+use tracing::{Level, debug, info, instrument, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
@@ -671,7 +670,7 @@ impl BaseClient {
             return Ok(SyncResponse::default());
         }
 
-        let now = if enabled!(Level::INFO) { Some(Instant::now()) } else { None };
+        let _time = timer!(Level::INFO, "Processing a sync response");
 
         // Acquire the state store lock and hold on to it while processing the
         // sync response below.
@@ -880,10 +879,6 @@ impl BaseClient {
 
         // Release the state store lock
         drop(state_store_guard);
-
-        if enabled!(Level::INFO) {
-            info!("Processed a sync response in {:?}", now.map(|now| now.elapsed()));
-        }
 
         let response = SyncResponse {
             rooms: room_updates,
