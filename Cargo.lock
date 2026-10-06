@@ -489,7 +489,6 @@ version = "1.0.0"
 dependencies = [
  "assert_matches",
  "codspeed-criterion-compat",
- "futures-util",
  "matrix-sdk",
  "matrix-sdk-base",
  "matrix-sdk-crypto",
