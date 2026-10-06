@@ -15,11 +15,12 @@
 use std::{
     collections::BTreeMap,
     ops::Deref,
+    pin::pin,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
-use futures_util::{StreamExt as _, pin_mut};
+use futures_util::StreamExt as _;
 use itertools::Itertools;
 use matrix_sdk::{
     Client, ClientBuildError, SlidingSyncList, SlidingSyncMode,
@@ -385,7 +386,7 @@ impl NotificationClient {
 
         let deadline = Instant::now() + self.timeouts.decryption_deadline;
         let iterations = encryption_sync.run_iterations(sync_permit_guard);
-        pin_mut!(iterations);
+        let mut iterations = pin!(iterations);
 
         let mut num_iterations = 0;
 
@@ -470,7 +471,7 @@ impl NotificationClient {
                 DecryptionAttempt::MissingRoomKey | DecryptionAttempt::Unrecoverable => None,
             });
         };
-        pin_mut!(room_keys);
+        let mut room_keys = pin!(room_keys);
 
         let deadline = Instant::now() + self.timeouts.decryption_deadline;
 
@@ -706,7 +707,7 @@ impl NotificationClient {
         let mut remaining_attempts = MAX_SLIDING_SYNC_ATTEMPTS;
 
         let stream = sync.sync();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // Sum the expected event count for each room
         let expected_event_count = requests.iter().map(|req| req.event_ids.len()).sum::<usize>();

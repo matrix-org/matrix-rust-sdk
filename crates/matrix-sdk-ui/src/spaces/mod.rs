@@ -30,11 +30,12 @@
 use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet, VecDeque},
+    pin::pin,
     sync::Arc,
 };
 
 use eyeball_im::{ObservableVector, VectorSubscriberBatchedStream};
-use futures_util::{future::join_all, pin_mut};
+use futures_util::future::join_all;
 use imbl::Vector;
 use itertools::Itertools;
 use matrix_sdk::{
@@ -166,7 +167,7 @@ impl SpaceService {
                 let all_room_updates_receiver = client.subscribe_to_all_room_updates();
 
                 async move {
-                    pin_mut!(all_room_updates_receiver);
+                    let mut all_room_updates_receiver = pin!(all_room_updates_receiver);
 
                     loop {
                         match all_room_updates_receiver.recv().await {
@@ -790,10 +791,10 @@ pub struct SpaceFilter {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, pin::pin};
 
     use eyeball_im::VectorDiff;
-    use futures_util::{StreamExt, pin_mut};
+    use futures_util::StreamExt;
     use matrix_sdk::{room::ParentSpace, test_utils::mocks::MatrixMockServer};
     use matrix_sdk_test::{
         JoinedRoomBuilder, LeftRoomBuilder, async_test, event_factory::EventFactory,
@@ -938,7 +939,7 @@ mod tests {
 
         let (initial_values, joined_spaces_subscriber) =
             space_service.subscribe_to_top_level_joined_spaces().await;
-        pin_mut!(joined_spaces_subscriber);
+        let mut joined_spaces_subscriber = pin!(joined_spaces_subscriber);
         assert_pending!(joined_spaces_subscriber);
 
         assert_eq!(
@@ -1145,7 +1146,7 @@ mod tests {
 
         let (initial_values, space_filters_subscriber) =
             space_service.subscribe_to_space_filters().await;
-        pin_mut!(space_filters_subscriber);
+        let mut space_filters_subscriber = pin!(space_filters_subscriber);
         assert_pending!(space_filters_subscriber);
 
         assert_eq!(initial_values, filters.into());
@@ -2008,7 +2009,7 @@ mod tests {
 
         let (initial_values, joined_spaces_subscriber) =
             space_service.subscribe_to_top_level_joined_spaces().await;
-        pin_mut!(joined_spaces_subscriber);
+        let mut joined_spaces_subscriber = pin!(joined_spaces_subscriber);
         assert_pending!(joined_spaces_subscriber);
 
         assert_eq!(

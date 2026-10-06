@@ -14,10 +14,10 @@
 
 //! Named futures for the recovery support.
 
-use std::future::IntoFuture;
+use std::{future::IntoFuture, pin::pin};
 
 use futures_core::Stream;
-use futures_util::{StreamExt, pin_mut};
+use futures_util::StreamExt;
 use matrix_sdk_common::boxed_into_future;
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tracing::{Instrument, Span, warn};
@@ -118,7 +118,7 @@ impl<'a> IntoFuture for Enable<'a> {
                 let progress_task = matrix_sdk_common::executor::spawn({
                     let progress = progress.clone();
                     async move {
-                        pin_mut!(upload_progress);
+                        let mut upload_progress = pin!(upload_progress);
 
                         while let Some(update) = upload_progress.next().await {
                             match update {

@@ -1,6 +1,7 @@
+use std::pin::pin;
+
 use assert_matches::assert_matches;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use futures_util::pin_mut;
 use matrix_sdk::{stream::StreamExt, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{JoinedRoomBuilder, base64_sha256_hash, event_factory::EventFactory};
 use matrix_sdk_ui::{
@@ -81,7 +82,7 @@ pub fn create(c: &mut Criterion) {
                 // computation.
                 entries_controller.set_filter(Box::new(new_filter_non_left()));
 
-                pin_mut!(entries_stream);
+                let mut entries_stream = pin!(entries_stream);
                 let update = entries_stream.next().await.expect("receiving the reset update");
                 assert_eq!(update.len(), 1);
                 assert_matches!(&update[0], VectorDiff::Reset { values } => {

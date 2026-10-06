@@ -3,11 +3,11 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     future,
+    pin::pin,
     sync::Arc,
 };
 
 use assert_matches::assert_matches;
-use futures_util::pin_mut;
 use matrix_sdk::{assert_next_with_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_common::{
@@ -442,7 +442,7 @@ async fn test_subscribe_to_encrypted_to_device_messages() {
     let messages = alice.subscribe_to_custom_to_device_messages(vec![ToDeviceEventType::from(
         "my.custom.to.device",
     )]);
-    pin_mut!(messages);
+    let mut messages = pin!(messages);
 
     let bob_alice_device = bob
         .encryption()

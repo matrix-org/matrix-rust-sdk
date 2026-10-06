@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use std::{pin::pin, sync::Arc};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use futures_util::{FutureExt, StreamExt, pin_mut};
+use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
     Client, RoomDisplayName,
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
@@ -359,7 +359,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
     let (_, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -537,7 +537,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
     // Start a sync, and drop it at the end of the block.
     {
         let sync = room_list.sync();
-        pin_mut!(sync);
+        let mut sync = pin!(sync);
 
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
@@ -566,7 +566,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
     // Start a sync, and drop it at the end of the block.
     {
         let sync = room_list.sync();
-        pin_mut!(sync);
+        let mut sync = pin!(sync);
 
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
@@ -595,7 +595,7 @@ async fn test_sync_resumes_from_previous_state() -> Result<(), Error> {
     // Start a sync, and drop it at the end of the block.
     {
         let sync = room_list.sync();
-        pin_mut!(sync);
+        let mut sync = pin!(sync);
 
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
@@ -633,7 +633,7 @@ async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Err
     {
         let (server, room_list) = new_persistent_room_list_service(store_path).await?;
         let sync = room_list.sync();
-        pin_mut!(sync);
+        let mut sync = pin!(sync);
 
         let all_rooms = room_list.all_rooms().await?;
         let mut all_rooms_loading_state = all_rooms.loading_state();
@@ -668,7 +668,7 @@ async fn test_sync_resumes_from_previous_state_after_restart() -> Result<(), Err
     {
         let (server, room_list) = new_persistent_room_list_service(store_path).await?;
         let sync = room_list.sync();
-        pin_mut!(sync);
+        let mut sync = pin!(sync);
 
         let all_rooms = room_list.all_rooms().await?;
         let mut all_rooms_loading_state = all_rooms.loading_state();
@@ -725,7 +725,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
     let (_, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -751,7 +751,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
 
     // Start a new sync.
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -800,7 +800,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
 
     // Start a new sync.
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -872,7 +872,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
 
     // Start a new sync.
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -968,7 +968,7 @@ async fn test_sync_resumes_from_error() -> Result<(), Error> {
 
     // Start a new sync.
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -1030,7 +1030,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     assert!(room_list.stop_sync().is_err());
 
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -1061,7 +1061,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
 
     // Start a new sync.
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -1116,7 +1116,7 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
 
     // Start a new sync.
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     // Do a regular sync from the `Terminated` state.
     sync_then_assert_request_and_fake_response! {
@@ -1200,7 +1200,7 @@ async fn test_loading_states() -> Result<(), Error> {
         let (client, server, room_list) = new_room_list_service().await?;
 
         let sync = room_list.sync();
-        pin_mut!(sync);
+        let mut sync = pin!(sync);
 
         let all_rooms = room_list.all_rooms().await?;
         let mut all_rooms_loading_state = all_rooms.loading_state();
@@ -1310,7 +1310,7 @@ async fn test_loading_states() -> Result<(), Error> {
         let mut all_rooms_loading_state = all_rooms.loading_state();
 
         let sync = room_list.sync();
-        pin_mut!(sync);
+        let mut sync = pin!(sync);
 
         // The loading state is loaded! Indeed, there is data loaded from the
         // cache.
@@ -1360,12 +1360,12 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     let (_client, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     let all_rooms = room_list.all_rooms().await?;
 
     let (dynamic_entries_stream, dynamic_entries) = all_rooms.entries_with_dynamic_adapters(5);
-    pin_mut!(dynamic_entries_stream);
+    let mut dynamic_entries_stream = pin!(dynamic_entries_stream);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -1799,12 +1799,12 @@ async fn test_room_sorting() -> Result<(), Error> {
     let (_client, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     let all_rooms = room_list.all_rooms().await?;
 
     let (stream, dynamic_entries) = all_rooms.entries_with_dynamic_adapters(10);
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -2160,7 +2160,7 @@ async fn test_room() -> Result<(), Error> {
     let (_, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     let room_id_0 = room_id!("!r0:bar.org");
     let room_id_1 = room_id!("!r1:bar.org");
@@ -2276,7 +2276,7 @@ async fn test_room_subscription() -> Result<(), Error> {
     let (_, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     let room_id_0 = room_id!("!r0:bar.org");
     let room_id_1 = room_id!("!r1:bar.org");
@@ -2533,7 +2533,7 @@ async fn test_remove_and_reset_room_subscriptions() -> Result<(), Error> {
     let (_, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     let room_id_0 = room_id!("!r0:bar.org");
     let room_id_1 = room_id!("!r1:bar.org");
@@ -2767,7 +2767,7 @@ async fn test_room_unread_notifications() -> Result<(), Error> {
     let (_, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     let room_id = room_id!("!r0:bar.org");
 
@@ -2839,7 +2839,7 @@ async fn test_room_timeline() -> Result<(), Error> {
     let (_, server, room_list) = new_room_list_service().await?;
 
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     let room_id = room_id!("!r0:bar.org");
 
@@ -2938,7 +2938,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     server.mock_room_state_encryption().plain().mount().await;
 
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     let room_id = room_id!("!r0:bar.org");
 
@@ -3013,7 +3013,7 @@ async fn test_sync_indicator() -> Result<(), Error> {
     const DELAY_BEFORE_HIDING: Duration = Duration::from_millis(0);
 
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     let sync_indicator = room_list.sync_indicator(DELAY_BEFORE_SHOWING, DELAY_BEFORE_HIDING);
 
@@ -3036,7 +3036,7 @@ async fn test_sync_indicator() -> Result<(), Error> {
     }
 
     let sync_indicator_task = spawn(async move {
-        pin_mut!(sync_indicator);
+        let mut sync_indicator = pin!(sync_indicator);
 
         let barrier = barrier_sync_indicator;
 
@@ -3153,7 +3153,7 @@ async fn test_sync_indicator() -> Result<(), Error> {
     };
 
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     barrier.wait().await;
 
@@ -3193,7 +3193,7 @@ async fn test_multiple_timeline_init() {
     let room_list = RoomListService::new(client.clone()).await.unwrap();
 
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     let room_id = room_id!("!r0:bar.org");
 
@@ -3288,7 +3288,7 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
         let room_list = RoomListService::new(client.clone()).await.unwrap();
 
         let sync = room_list.sync();
-        pin_mut!(sync);
+        let mut sync = pin!(sync);
 
         let room_id = room_id!("!r0:bar.org");
 
@@ -3372,7 +3372,7 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
     let room_list = RoomListService::new(client.clone()).await.unwrap();
 
     let sync = room_list.sync();
-    pin_mut!(sync);
+    let mut sync = pin!(sync);
 
     let room_id = room_id!("!r0:bar.org");
 

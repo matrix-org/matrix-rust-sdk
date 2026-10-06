@@ -12,11 +12,11 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::{cmp::Ordering, collections::HashMap, sync::Arc};
+use std::{cmp::Ordering, collections::HashMap, pin::pin, sync::Arc};
 
 use eyeball::{ObservableWriteGuard, SharedObservable, Subscriber};
 use eyeball_im::{ObservableVector, VectorSubscriberBatchedStream};
-use futures_util::{future::join_all, pin_mut};
+use futures_util::future::join_all;
 use imbl::Vector;
 use itertools::Itertools;
 use matrix_sdk::{
@@ -135,7 +135,7 @@ impl SpaceRoomList {
                 let rooms = rooms.clone();
 
                 async move {
-                    pin_mut!(all_room_updates_receiver);
+                    let mut all_room_updates_receiver = pin!(all_room_updates_receiver);
 
                     loop {
                         match all_room_updates_receiver.recv().await {
@@ -407,10 +407,9 @@ impl SpaceRoomList {
 
 #[cfg(test)]
 mod tests {
-    use std::{assert_matches, cmp::Ordering, collections::HashMap};
+    use std::{assert_matches, cmp::Ordering, collections::HashMap, pin::pin};
 
     use eyeball_im::VectorDiff;
-    use futures_util::pin_mut;
     use matrix_sdk::{RoomState, test_utils::mocks::MatrixMockServer};
     use matrix_sdk_test::{
         JoinedRoomBuilder, LeftRoomBuilder, async_test, event_factory::EventFactory,
@@ -481,11 +480,11 @@ mod tests {
         // and with pending subscribers
 
         let pagination_state_subscriber = room_list.subscribe_to_pagination_state_updates();
-        pin_mut!(pagination_state_subscriber);
+        let mut pagination_state_subscriber = pin!(pagination_state_subscriber);
         assert_pending!(pagination_state_subscriber);
 
         let (_, rooms_subscriber) = room_list.subscribe_to_room_updates().await;
-        pin_mut!(rooms_subscriber);
+        let mut rooms_subscriber = pin!(rooms_subscriber);
         assert_pending!(rooms_subscriber);
 
         // Paginating the room list
@@ -575,7 +574,7 @@ mod tests {
         assert_eq!(room_list.rooms().await.last().unwrap().state, None);
 
         let (_, rooms_subscriber) = room_list.subscribe_to_room_updates().await;
-        pin_mut!(rooms_subscriber);
+        let mut rooms_subscriber = pin!(rooms_subscriber);
         assert_pending!(rooms_subscriber);
 
         // Joining one of them though
@@ -619,7 +618,7 @@ mod tests {
         assert!(room_list.space().is_none());
 
         let parent_space_subscriber = room_list.subscribe_to_space_updates();
-        pin_mut!(parent_space_subscriber);
+        let mut parent_space_subscriber = pin!(parent_space_subscriber);
         assert_pending!(parent_space_subscriber);
 
         server
@@ -688,7 +687,7 @@ mod tests {
 
         // The parent space is known to the client
         let parent_space_subscriber = room_list.subscribe_to_space_updates();
-        pin_mut!(parent_space_subscriber);
+        let mut parent_space_subscriber = pin!(parent_space_subscriber);
         assert_pending!(parent_space_subscriber);
 
         // So any room info changes are automatically published
@@ -725,7 +724,7 @@ mod tests {
         let room_list = space_service.space_room_list(parent_space_id.to_owned()).await;
 
         let (_, rooms_subscriber) = room_list.subscribe_to_room_updates().await;
-        pin_mut!(rooms_subscriber);
+        let mut rooms_subscriber = pin!(rooms_subscriber);
 
         // When retrieving the parent and children via /hierarchy
         server
@@ -797,7 +796,7 @@ mod tests {
         let room_list = space_service.space_room_list(parent_space_id.to_owned()).await;
 
         let (_, rooms_subscriber) = room_list.subscribe_to_room_updates().await;
-        pin_mut!(rooms_subscriber);
+        let mut rooms_subscriber = pin!(rooms_subscriber);
 
         // Mock a /hierarchy response where one child is suggested and the other
         // is not.

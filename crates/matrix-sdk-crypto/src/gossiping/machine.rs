@@ -2103,7 +2103,9 @@ mod tests {
 
     #[async_test]
     async fn test_secret_broadcasting() {
-        use futures_util::{FutureExt, pin_mut};
+        use std::pin::pin;
+
+        use futures_util::FutureExt;
         use ruma::api::client::to_device::send_event_to_device::v3::Response as ToDeviceResponse;
         use serde_json::value::to_raw_value;
         use tokio_stream::StreamExt;
@@ -2188,7 +2190,7 @@ mod tests {
         let event = Raw::from_json(to_raw_value(&event).unwrap());
 
         let stream = bob_machine.store().secrets_stream();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         let decryption_settings =
             DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
@@ -2436,7 +2438,9 @@ mod tests {
     #[async_test]
     #[cfg(feature = "experimental-push-secrets")]
     async fn test_secret_push_receive() {
-        use futures_util::{FutureExt, pin_mut};
+        use std::pin::pin;
+
+        use futures_util::FutureExt;
         use serde_json::value::to_raw_value;
         use tokio_stream::StreamExt;
 
@@ -2479,7 +2483,7 @@ mod tests {
         let event = Raw::from_json(to_raw_value(&event).unwrap());
 
         let stream = bob_machine.store().secrets_stream();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         let decryption_settings =
             DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
@@ -2510,7 +2514,9 @@ mod tests {
     #[async_test]
     #[cfg(feature = "experimental-push-secrets")]
     async fn test_secret_push_receive_untrusted() {
-        use futures_util::{FutureExt, pin_mut};
+        use std::pin::pin;
+
+        use futures_util::FutureExt;
         use serde_json::value::to_raw_value;
         use tokio_stream::StreamExt;
 
@@ -2552,7 +2558,7 @@ mod tests {
         let event = Raw::from_json(to_raw_value(&event).unwrap());
 
         let stream = bob_machine.store().secrets_stream();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         let decryption_settings =
             DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };

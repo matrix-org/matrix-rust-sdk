@@ -24,13 +24,12 @@
 //! sync, if that is not desirable, the offline support for the [`SyncService`]
 //! may be enabled using the [`SyncServiceBuilder::with_offline_mode`] setting.
 
-use std::{sync::Arc, time::Duration};
+use std::{pin::pin, sync::Arc, time::Duration};
 
 use eyeball::{SharedObservable, Subscriber};
 use futures_util::{
     StreamExt as _,
     future::{Either, select},
-    pin_mut,
 };
 use matrix_sdk::{
     Client,
@@ -211,8 +210,8 @@ impl SyncTaskSupervisor {
             }
         };
 
-        pin_mut!(wait_for_termination_report);
-        pin_mut!(wait_to_be_online);
+        let wait_for_termination_report = pin!(wait_for_termination_report);
+        let wait_to_be_online = pin!(wait_to_be_online);
 
         let maybe_termination_report = select(wait_for_termination_report, wait_to_be_online).await;
 
@@ -386,7 +385,7 @@ impl SyncTaskSupervisor {
         sync_permit_guard: OwnedMutexGuard<EncryptionSyncPermit>,
     ) {
         let encryption_sync_stream = encryption_sync.sync(sync_permit_guard);
-        pin_mut!(encryption_sync_stream);
+        let mut encryption_sync_stream = pin!(encryption_sync_stream);
 
         let termination_report = loop {
             match encryption_sync_stream.next().await {
@@ -422,7 +421,7 @@ impl SyncTaskSupervisor {
         sender: Sender<TerminationReport>,
     ) {
         let room_list_stream = room_list_service.sync();
-        pin_mut!(room_list_stream);
+        let mut room_list_stream = pin!(room_list_stream);
 
         let termination_report = loop {
             match room_list_stream.next().await {

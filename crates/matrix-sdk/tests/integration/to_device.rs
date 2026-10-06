@@ -1,6 +1,7 @@
 //! Tests for [`matrix_sdk::Client::subscribe_to_custom_to_device_messages`].
 
-use futures_util::pin_mut;
+use std::pin::pin;
+
 use matrix_sdk::{assert_next_with_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::async_test;
 use ruma::events::ToDeviceEventType;
@@ -17,7 +18,7 @@ async fn test_subscribe_to_custom_to_device_messages() {
     let client = server.client_builder().build().await;
 
     let stream = client.subscribe_to_custom_to_device_messages(vec![custom("m.custom.wanted")]);
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     server
         .mock_sync()
@@ -45,7 +46,7 @@ async fn test_subscribe_to_custom_to_device_messages_filters_by_type() {
     let client = server.client_builder().build().await;
 
     let stream = client.subscribe_to_custom_to_device_messages(vec![custom("m.custom.wanted")]);
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     server
         .mock_sync()
@@ -77,7 +78,7 @@ async fn test_subscribe_to_custom_to_device_messages_empty_filter_yields_every_c
     let client = server.client_builder().build().await;
 
     let stream = client.subscribe_to_custom_to_device_messages(vec![]);
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     server
         .mock_sync()
@@ -135,7 +136,7 @@ async fn test_subscribe_to_custom_to_device_messages_never_yields_internal_types
         custom("m.room.encrypted"),
         custom("m.custom.wanted"),
     ]);
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     let bob_alice_device = bob
         .encryption()
@@ -219,7 +220,7 @@ async fn test_subscribe_to_custom_to_device_messages_stops_on_drop() {
     // A new subscription only sees what arrives after it was created: the
     // message sent while nobody was subscribed is gone, not buffered.
     let stream = client.subscribe_to_custom_to_device_messages(vec![custom("m.custom.wanted")]);
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
     assert_pending!(stream);
 
     server

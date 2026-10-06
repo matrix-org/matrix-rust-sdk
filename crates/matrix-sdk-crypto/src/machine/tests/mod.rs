@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{assert_matches, collections::BTreeMap, iter, ops::Not, sync::Arc, time::Duration};
+use std::{
+    assert_matches, collections::BTreeMap, iter, ops::Not, pin::pin, sync::Arc, time::Duration,
+};
 
-use futures_util::{FutureExt, StreamExt, pin_mut};
+use futures_util::{FutureExt, StreamExt};
 use itertools::Itertools;
 use matrix_sdk_common::{
     deserialized_responses::{
@@ -1145,7 +1147,7 @@ async fn test_withheld_unverified() {
     let room_id = room_id!("!test:example.org");
 
     let room_keys_withheld_received_stream = bob.store().room_keys_withheld_received_stream();
-    pin_mut!(room_keys_withheld_received_stream);
+    let mut room_keys_withheld_received_stream = pin!(room_keys_withheld_received_stream);
 
     let encryption_settings = EncryptionSettings::default();
     let encryption_settings = EncryptionSettings {
