@@ -57,7 +57,7 @@ pub mod utils;
 pub mod futures {
     //! Named futures returned from methods on types in [the crate root][crate].
 
-    pub use super::client::futures::SendRequest;
+    pub use super::client::futures::{RequestProgress, SendRequest};
 }
 pub mod sliding_sync;
 pub mod sync;
@@ -80,6 +80,7 @@ pub use error::{
     BeaconError, Error, HttpError, HttpResult, NotificationSettingsError, RefreshTokenError,
     Result, RumaApiError,
 };
+pub use eyeball::SharedObservable;
 pub use http_client::{SupportedAuthScheme, SupportedPathBuilder, TransmissionProgress};
 #[cfg(all(feature = "e2e-encryption", feature = "sqlite"))]
 pub use matrix_sdk_sqlite::SqliteCryptoStore;

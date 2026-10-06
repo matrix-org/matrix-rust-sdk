@@ -89,6 +89,101 @@ async fn test_get_media_content_no_auth() {
 }
 
 #[async_test]
+async fn test_get_media_content_reports_download_progress() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().no_server_versions().build().await;
+
+    server
+        .mock_versions()
+        .with_versions(vec!["v1.1"])
+        .ok()
+        .named("versions")
+        .expect(1)
+        .mount()
+        .await;
+
+    let media = client.media();
+
+    let request = MediaRequestParameters {
+        source: MediaSource::Plain(owned_mxc_uri!("mxc://localhost/textfile")),
+        format: MediaFormat::File,
+    };
+
+    let _mock_guard = server
+        .mock_media_download()
+        .ok_plain_text()
+        .named("get_media_content_progress")
+        .expect(1)
+        .mount_as_scoped()
+        .await;
+
+    let mut request_builder = media.get_media_content(&request, false);
+    let subscriber = request_builder.subscribe_to_receive_progress();
+    let content = request_builder.await.unwrap();
+
+    assert_eq!(content, b"Hello, World!");
+
+    let progress = subscriber.get();
+    assert_eq!(progress.current, content.len());
+    assert_eq!(progress.total, content.len());
+}
+
+#[async_test]
+async fn test_get_media_content_cache_hit_reports_full_progress() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().no_server_versions().build().await;
+
+    server
+        .mock_versions()
+        .with_versions(vec!["v1.1"])
+        .ok()
+        .named("versions")
+        .expect(1)
+        .mount()
+        .await;
+
+    let media = client.media();
+
+    let request = MediaRequestParameters {
+        source: MediaSource::Plain(owned_mxc_uri!("mxc://localhost/textfile")),
+        format: MediaFormat::File,
+    };
+
+    // Populate the cache.
+    {
+        let _mock_guard = server
+            .mock_media_download()
+            .ok_plain_text()
+            .named("get_media_content_cache_populate")
+            .expect(1)
+            .mount_as_scoped()
+            .await;
+
+        media.get_media_content(&request, true).await.unwrap();
+    }
+
+    // Cache hit: no HTTP request is made, but progress still reports full
+    // completion.
+    let _mock_guard = server
+        .mock_media_download()
+        .error500()
+        .named("get_media_content_cache_hit")
+        .expect(0)
+        .mount_as_scoped()
+        .await;
+
+    let mut request_builder = media.get_media_content(&request, true);
+    let subscriber = request_builder.subscribe_to_receive_progress();
+    let content = request_builder.await.unwrap();
+
+    assert_eq!(content, b"Hello, World!");
+
+    let progress = subscriber.get();
+    assert_eq!(progress.current, content.len());
+    assert_eq!(progress.total, content.len());
+}
+
+#[async_test]
 async fn test_get_media_file_no_auth() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().no_server_versions().build().await;
