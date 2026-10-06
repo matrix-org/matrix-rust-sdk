@@ -768,6 +768,17 @@ impl Client {
         self.inner.server.read().unwrap().clone()
     }
 
+    /// The server name used by the client.
+    /// as described in https://spec.matrix.org/v1.18/appendices/#server-name
+    pub fn server_name(&self) -> Option<Url> {
+        self.inner
+            .server
+            .read()
+            .unwrap()
+            .clone()
+            .and_then(|url| Some(format!("{}:{}", url.host_str()?, url.port_or_known_default()?)))
+    }
+
     /// The homeserver of the client.
     pub fn homeserver(&self) -> Url {
         self.inner.homeserver.read().unwrap().clone()
