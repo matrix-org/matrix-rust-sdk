@@ -913,23 +913,17 @@ impl RoomSendQueue {
                             // considered “crucial”.
                             if let Ok((room_event_cache, _drop_handles)) = room.event_cache().await
                             {
-                                let timeline_event = match Raw::from_json_string(
-                                    // Create a compact string: remove all useless spaces.
-                                    format!(
-                                        "{{\
-                                            \"event_id\":\"{event_id}\",\
-                                            \"origin_server_ts\":{ts},\
-                                            \"sender\":\"{sender}\",\
-                                            \"type\":\"{type}\",\
-                                            \"content\":{content}\
-                                        }}",
-                                        event_id = event_id,
-                                        ts = MilliSecondsSinceUnixEpoch::now().get(),
-                                        sender = room.client().user_id().expect("Client must be logged-in"),
-                                        type = event_type,
-                                        content = event.into_json(),
-                                    ),
-                                ) {
+                                let event = serde_json::json!({
+                                    "event_id": event_id,
+                                    "origin_server_ts": MilliSecondsSinceUnixEpoch::now().get(),
+                                    "sender": room.client().user_id().expect("Client must be logged-in"),
+                                    "type": event_type,
+                                    "content": event.into_json(),
+                                });
+
+                                let timeline_event = match serde_json::value::to_raw_value(&event)
+                                    .map(Raw::from_json)
+                                {
                                     Ok(event) => match encryption_info {
                                         #[cfg(feature = "e2e-encryption")]
                                         Some(encryption_info) => {
