@@ -337,9 +337,6 @@ impl EstablishedSecureChannel {
                     // transparently decrypt on receival.
                     let channel = Self { channel, crypto_channel };
 
-                    // We can create our EstablishedSecureChannel struct now and
-                    // use the convenient helpers which
-                    // transparently decrypt on receival.
                     (response, channel)
                 }
             };

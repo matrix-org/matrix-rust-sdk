@@ -461,6 +461,7 @@ impl IntoFuture for GrantLoginWithGeneratedQrCode {
             // message.
             //
             // -- MSC4108 OAuth 2.0 login step 1
+            // TODO: for MSC4388 always send `m.login.protocols`
 
             // Proceed with granting the login.
             //

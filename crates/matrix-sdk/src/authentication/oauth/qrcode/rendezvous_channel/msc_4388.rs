@@ -102,7 +102,6 @@ impl Channel {
         client: HttpClient,
         base_url: &LimitedUrl,
     ) -> Result<Self, SecureChannelError> {
-        use std::borrow::Cow;
 
         let request = create_rendezvous_session::unstable_msc4388::Request::new("".to_owned());
 
