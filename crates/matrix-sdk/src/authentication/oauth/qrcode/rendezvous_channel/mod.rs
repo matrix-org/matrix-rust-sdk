@@ -180,7 +180,7 @@ impl RendezvousChannel {
                 Some(
                     [
                         &base_url_len.to_be_bytes(),
-                        base_url.as_str().as_bytes(),
+                        base_url.as_bytes(),
                         &rendezvous_id_len.to_be_bytes(),
                         rendezvous_id.as_bytes(),
                         &sequence_token_len.to_be_bytes(),
