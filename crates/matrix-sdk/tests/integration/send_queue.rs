@@ -2070,7 +2070,6 @@ async fn test_unwedge_reaction() {
 }
 
 #[async_test]
-#[should_panic(expected = "CancelledLocalEvent")]
 async fn test_duplicate_reaction_does_not_wedge_the_queue() {
     let mock = MatrixMockServer::new().await;
 

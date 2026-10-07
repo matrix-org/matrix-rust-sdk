@@ -442,7 +442,6 @@ async fn test_reaction_remote_echo_before_sent_leaves_no_pending_state() {
 }
 
 #[async_test]
-#[should_panic(expected = "item.reactions()")]
 async fn test_dropping_a_local_reaction_keeps_the_same_remote_one() {
     let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
@@ -479,7 +478,6 @@ async fn test_dropping_a_local_reaction_keeps_the_same_remote_one() {
 }
 
 #[async_test]
-#[should_panic(expected = "send_state.is_none()")]
 async fn test_a_hidden_local_reaction_failing_leaves_the_same_remote_one_alone() {
     let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
@@ -522,7 +520,6 @@ async fn test_a_hidden_local_reaction_failing_leaves_the_same_remote_one_alone()
 }
 
 #[async_test]
-#[should_panic(expected = "on a `None` value")]
 async fn test_dropping_a_local_reaction_brings_back_the_same_remote_one() {
     let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;

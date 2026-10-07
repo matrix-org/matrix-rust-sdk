@@ -421,13 +421,16 @@ impl Aggregation {
                 }
             }
 
-            AggregationKind::Reaction { key, sender, .. } => {
-                // We only need to remove the previous reaction if it was there.
-                //
-                // Search for it.
-
-                let had_entry =
-                    event.reactions().get(key).and_then(|by_user| by_user.get(sender)).is_some();
+            AggregationKind::Reaction { key, sender, timestamp } => {
+                // We only need to remove the previous reaction if it was there,
+                // and it was this one: the same reaction from the same sender
+                // (e.g. sent from another of their devices) may have replaced
+                // it.
+                let had_entry = event
+                    .reactions()
+                    .get(key)
+                    .and_then(|by_user| by_user.get(sender))
+                    .is_some_and(|info| info.timestamp == *timestamp);
 
                 if had_entry {
                     let reactions = event.to_mut().reactions_mut();
@@ -481,9 +484,14 @@ impl Aggregation {
         event: &mut Cow<'_, EventTimelineItem>,
     ) -> bool {
         match &self.kind {
-            AggregationKind::Reaction { key, sender, .. } => {
-                let has_entry =
-                    event.reactions().get(key).and_then(|by_user| by_user.get(sender)).is_some();
+            AggregationKind::Reaction { key, sender, timestamp } => {
+                // Only if it's this reaction that's shown, not the same one
+                // from the same sender hiding it.
+                let has_entry = event
+                    .reactions()
+                    .get(key)
+                    .and_then(|by_user| by_user.get(sender))
+                    .is_some_and(|info| info.timestamp == *timestamp);
                 if !has_entry {
                     return false;
                 }
@@ -678,6 +686,31 @@ impl Aggregations {
             match aggregation.unapply(&mut cowed) {
                 ApplyAggregationResult::UpdatedItem => {
                     trace!("removed aggregation");
+
+                    // The same reaction from the same sender may still be
+                    // there, hidden by the one just removed: show it again.
+                    if let AggregationKind::Reaction { key, sender, .. } = &aggregation.kind
+                        && let Some((timestamp, send_state)) =
+                            self.related_events.get(found).and_then(|aggregations| {
+                                // The last one wins, as in `apply_all`.
+                                aggregations.iter().rev().find_map(|agg| match &agg.kind {
+                                    AggregationKind::Reaction { key: k, sender: s, timestamp }
+                                        if k == key && s == sender =>
+                                    {
+                                        Some((*timestamp, agg.send_state.clone()))
+                                    }
+                                    _ => None,
+                                })
+                            })
+                    {
+                        cowed
+                            .to_mut()
+                            .reactions_mut()
+                            .entry(key.clone())
+                            .or_default()
+                            .insert(sender.clone(), ReactionInfo { timestamp, send_state });
+                    }
+
                     items.replace(
                         item_pos,
                         TimelineItem::new(cowed.into_owned(), item.internal_id.to_owned()),
