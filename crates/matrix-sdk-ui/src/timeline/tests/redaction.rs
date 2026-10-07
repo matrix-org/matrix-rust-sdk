@@ -86,7 +86,8 @@ async fn test_redact_replied_to_event() {
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert!(replied_to_event.content.is_message());
 
-    timeline.handle_live_event(f.redaction(first_item.event_id().unwrap()).sender(&ALICE)).await;
+    // Someone else (a moderator) redacts Alice's message.
+    timeline.handle_live_event(f.redaction(first_item.event_id().unwrap()).sender(&BOB)).await;
 
     let first_item_again =
         assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
@@ -99,6 +100,56 @@ async fn test_redact_replied_to_event() {
     let in_reply_to = msglike.in_reply_to.clone().unwrap();
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert!(replied_to_event.content.is_redacted());
+    // The placeholder keeps the redacted event's own sender and timestamp, not
+    // the redaction's.
+    assert_eq!(replied_to_event.sender, *ALICE);
+    assert_eq!(replied_to_event.timestamp, first_item.timestamp());
+}
+
+#[async_test]
+async fn test_redact_replied_to_event_not_in_timeline() {
+    let timeline = TestTimeline::new().await;
+    let mut stream = timeline.subscribe_events().await;
+
+    let f = &timeline.factory;
+
+    timeline.handle_live_event(f.text_msg("Hello, world!").sender(&ALICE)).await;
+
+    let first_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let first_event_id = first_item.event_id().unwrap().to_owned();
+
+    timeline
+        .handle_live_event(f.text_msg("Hello, alice.").sender(&BOB).reply_to(&first_event_id))
+        .await;
+
+    let second_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let msglike = second_item.content().as_msglike().unwrap();
+    assert_let!(TimelineDetails::Ready(_) = &msglike.in_reply_to.as_ref().unwrap().event);
+
+    // The replied-to event leaves the timeline, but the reply keeps its
+    // details.
+    timeline
+        .controller
+        .handle_remote_events_with_diffs(
+            vec![VectorDiff::Remove { index: 0 }],
+            RemoteEventOrigin::Sync,
+        )
+        .await;
+    assert_next_matches!(stream, VectorDiff::Remove { index: 0 });
+
+    // Someone else (a moderator) redacts Alice's message.
+    timeline.handle_live_event(f.redaction(&first_event_id).sender(&BOB)).await;
+
+    let second_item_again =
+        assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    let msglike = second_item_again.content().as_msglike().unwrap();
+    assert_let!(
+        TimelineDetails::Ready(replied_to_event) = &msglike.in_reply_to.as_ref().unwrap().event
+    );
+    assert!(replied_to_event.content.is_redacted());
+    // The placeholder takes the sender and timestamp from the reply's details.
+    assert_eq!(replied_to_event.sender, *ALICE);
+    assert_eq!(replied_to_event.timestamp, first_item.timestamp());
 }
 
 #[async_test]
