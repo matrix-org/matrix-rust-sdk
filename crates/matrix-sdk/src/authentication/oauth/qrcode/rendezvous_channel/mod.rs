@@ -101,12 +101,9 @@ impl RendezvousChannel {
     #[cfg(feature = "unstable-msc4388")]
     pub(super) async fn create_inbound_msc4388(
         client: HttpClient,
-        base_url: &Url,
+        base_url: &LimitedUrl,
         rendezvous_id: &RendezvousId,
     ) -> Result<InboundChannelCreationResult, SecureChannelError> {
-        let base_url =
-            LimitedUrl::new(base_url.clone()).map_err(MessageDecodeError::TooLongBaseUrl)?;
-
         let msc_4388::InboundChannelCreationResult { channel, initial_message } =
             msc_4388::Channel::create_inbound(client, &base_url, rendezvous_id).await?;
 

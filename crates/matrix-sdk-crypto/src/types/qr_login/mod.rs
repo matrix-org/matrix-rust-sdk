@@ -119,7 +119,7 @@ pub enum QrCodeIntentData<'a> {
         rendezvous_id: &'a RendezvousId,
         /// The base URL of the homeserver that the device generating the QR is
         /// using.
-        base_url: &'a Url,
+        base_url: &'a LimitedUrl,
     },
 }
 
@@ -285,7 +285,7 @@ impl QrCodeData {
             },
             QrCodeDataInner::Msc4388(qr_code_data) => QrCodeIntentData::Msc4388 {
                 rendezvous_id: &qr_code_data.rendezvous_id,
-                base_url: qr_code_data.base_url.as_url(),
+                base_url: &qr_code_data.base_url,
             },
         }
     }
