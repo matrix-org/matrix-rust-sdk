@@ -105,7 +105,7 @@ impl RendezvousChannel {
         rendezvous_id: &RendezvousId,
     ) -> Result<InboundChannelCreationResult, SecureChannelError> {
         let msc_4388::InboundChannelCreationResult { channel, initial_message } =
-            msc_4388::Channel::create_inbound(client, &base_url, rendezvous_id).await?;
+            msc_4388::Channel::create_inbound(client, base_url, rendezvous_id).await?;
 
         Ok(InboundChannelCreationResult {
             channel: Self::Msc4388(channel),
