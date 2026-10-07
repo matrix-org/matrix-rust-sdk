@@ -325,8 +325,8 @@ impl IntoFuture for LoginWithQrCode {
             // matches.
             //
             // -- MSC4108 Secure channel setup step 7
-            // TODO: for MSC4388 always wait for `m.login.protocols`; check offered protocols; server swap if needed
-
+            // TODO: for MSC4388 always wait for `m.login.protocols`; check
+            // offered protocols; server swap if needed
 
             // Now attempt to finish the login.
             //
