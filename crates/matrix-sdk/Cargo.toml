@@ -15,7 +15,7 @@ features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [features]
-default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "rustls-aws-lc-rs"]
+default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "rustls-aws-lc-rs", "unstable-msc4388"]
 testing = [
     "matrix-sdk-sqlite?/testing",
     "matrix-sdk-indexeddb?/testing",
@@ -93,6 +93,9 @@ unstable-msc4274 = ["ruma/unstable-msc4274", "matrix-sdk-base/unstable-msc4274"]
 # Add support for sticky events (MSC4354), delivered over sliding sync via the
 # MSC4480 extension.
 unstable-msc4354 = ["matrix-sdk-base/unstable-msc4354"]
+
+# Support for the MSC4388 variant of the QR code login.
+unstable-msc4388 = []
 
 # Add support for user status profile fields (m.status, m.call).
 unstable-msc4426 = ["matrix-sdk-base/unstable-msc4426"]
