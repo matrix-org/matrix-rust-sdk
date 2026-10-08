@@ -443,7 +443,7 @@ pub(crate) struct BundleReceiverTask {
 impl BundleReceiverTask {
     pub async fn new(client: &Client) -> Self {
         let stream = client.encryption().historic_room_key_stream().await.expect("E2EE tasks should only be initialized once we have logged in and have access to an OlmMachine");
-        let weak_client = WeakClient::from_client(client);
+        let weak_client = client.downgrade();
         Self {
             _listen_handle: spawn(Self::listen_task(weak_client.clone(), stream)),
             _startup_handle: spawn(Self::startup_task(weak_client)),
@@ -620,7 +620,7 @@ mod test {
 
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
 
         let event_content = json!({
             "event_id": event_id,
