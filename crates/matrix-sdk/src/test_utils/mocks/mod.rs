@@ -375,7 +375,7 @@ impl MatrixMockServer {
         let mock = Mock::given(method("GET")).and(path("/_matrix/client/v3/sync"));
         self.mock_endpoint(
             mock,
-            SyncEndpoint { sync_response_builder: self.sync_response_builder.clone() },
+            SyncEndpoint { sync_response_builder: self.sync_response_builder.clone(), delay: None },
         )
     }
 
@@ -2976,9 +2976,50 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
 /// A prebuilt mock for running sync v2.
 pub struct SyncEndpoint {
     sync_response_builder: Arc<Mutex<SyncResponseBuilder>>,
+    delay: Option<Duration>,
 }
 
 impl<'a> MockEndpoint<'a, SyncEndpoint> {
+    /// Delays the sync response by the given duration, mimicking the
+    /// server-side long-polling.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use std::time::{Duration, Instant};
+    ///
+    /// use matrix_sdk::{ruma::room_id, test_utils::mocks::MatrixMockServer};
+    /// use matrix_sdk_test::JoinedRoomBuilder;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// let delay = Duration::from_millis(100);
+    ///
+    /// mock_server
+    ///     .mock_sync()
+    ///     .with_delay(delay)
+    ///     .ok(|builder| {
+    ///         builder.add_joined_room(JoinedRoomBuilder::new(room_id!("!a:b.c")));
+    ///     })
+    ///     .mount()
+    ///     .await;
+    ///
+    /// let start = Instant::now();
+    /// client.sync_once(Default::default()).await?;
+    ///
+    /// assert!(
+    ///     start.elapsed() >= delay,
+    ///     "The sync response should have been delayed"
+    /// );
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn with_delay(mut self, delay: Duration) -> Self {
+        self.endpoint.delay = Some(delay);
+        self
+    }
+
     /// Expect the given timeout, or lack thereof, in the request.
     pub fn timeout(mut self, timeout: Option<Duration>) -> Self {
         if let Some(timeout) = timeout {
@@ -3011,7 +3052,13 @@ impl<'a> MockEndpoint<'a, SyncEndpoint> {
             builder.build_json_sync_response()
         };
 
-        self.respond_with(ResponseTemplate::new(200).set_body_json(json_response))
+        let mut template = ResponseTemplate::new(200).set_body_json(json_response);
+
+        if let Some(delay) = self.endpoint.delay {
+            template = template.set_delay(delay);
+        }
+
+        self.respond_with(template)
     }
 
     /// Temporarily mocks the sync with the given endpoint and runs a client
