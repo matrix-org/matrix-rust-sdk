@@ -1,6 +1,7 @@
 // Copyright 2020 Damir Jelić
 // Copyright 2020 The Matrix.org Foundation C.I.C.
 // Copyright 2022 Famedly GmbH
+// Copyright 2026 Nordeck IT + Consulting GmbH <info@nordeck.net>
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -4223,10 +4224,14 @@ impl Client {
     }
 }
 
-/// A weak reference to the inner client, useful when trying to get a handle on
-/// the owning client.
+/// A weak reference to the inner [`Client`], useful when trying to get a handle on the owning
+/// client.
+///
+/// This is intended for use in background tasks that require a [`Client`], as otherwise killing all
+/// the [`Client`] instances wouldn't be sufficient to drop the underlying inner client, and resume
+/// in a memory leak at best, and confusing background syncs for a supposedly dead client at worst.
 #[derive(Clone, Debug)]
-pub(crate) struct WeakClient {
+pub struct WeakClient {
     client: Weak<ClientInner>,
 }
 
@@ -4248,7 +4253,6 @@ impl WeakClient {
 
     /// Gets the number of strong (`Arc`) pointers still pointing to this
     /// client.
-    #[allow(dead_code)]
     pub fn strong_count(&self) -> usize {
         self.client.strong_count()
     }
