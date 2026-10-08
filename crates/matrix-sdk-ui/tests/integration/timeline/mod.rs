@@ -473,6 +473,8 @@ async fn test_redact_message() {
     let item = item.as_event().unwrap();
     assert!(item.content().is_redacted());
     assert_matches!(item.redaction_send_state(), None);
+    // The redaction dropped the item's JSON, and nothing has replaced it yet.
+    assert!(item.latest_json().is_none());
 
     // Then the event cache handed over the redacted event, which carries the
     // redaction and its reason.

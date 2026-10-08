@@ -382,6 +382,8 @@ async fn test_retry_failed_redaction() {
     let item = item.as_event().unwrap();
     assert!(item.content().is_redacted());
     assert_matches!(item.redaction_send_state(), None);
+    // The redaction dropped the item's JSON, and nothing has replaced it yet.
+    assert!(item.latest_json().is_none());
 
     assert_let!(VectorDiff::Set { index: 1, value: item } = &updates[2]);
     let item = item.as_event().unwrap();
