@@ -170,7 +170,7 @@ impl<'a> MockEndpoint<'a, ServerMetadataEndpoint> {
     }
 
     /// Returns a successful metadata response without the device authorization
-    /// endpoint.
+    /// endpoint and grant type.
     pub fn ok_without_device_authorization(self) -> MatrixMock<'a> {
         let metadata = MockServerMetadataBuilder::new(&self.server.uri())
             .without_device_authorization()
@@ -205,7 +205,8 @@ impl MockServerMetadataBuilder {
         Self { issuer, with_device_authorization: true, with_registration: true }
     }
 
-    /// Don't generate the field for the device authorization endpoint.
+    /// Don't generate the field for the device authorization endpoint, and
+    /// don't advertise the device authorization grant type.
     fn without_device_authorization(mut self) -> Self {
         self.with_device_authorization = false;
         self
@@ -260,7 +261,7 @@ impl MockServerMetadataBuilder {
             "token_endpoint": self.token_endpoint(),
             "response_types_supported": ["code"],
             "response_modes_supported": ["query", "fragment"],
-            "grant_types_supported": ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"],
+            "grant_types_supported": ["authorization_code", "refresh_token"],
             "revocation_endpoint": self.revocation_endpoint(),
             "code_challenge_methods_supported": ["S256"],
             "account_management_uri": self.account_management_uri(),
@@ -270,6 +271,14 @@ impl MockServerMetadataBuilder {
         let json_metadata_object = json_metadata.as_object_mut().unwrap();
 
         if self.with_device_authorization {
+            json_metadata_object.insert(
+                "grant_types_supported".to_owned(),
+                json!([
+                    "authorization_code",
+                    "refresh_token",
+                    "urn:ietf:params:oauth:grant-type:device_code"
+                ]),
+            );
             json_metadata_object.insert(
                 "device_authorization_endpoint".to_owned(),
                 self.device_authorization_endpoint().as_str().into(),
