@@ -52,7 +52,7 @@ use super::{
     event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
     room::RoomEventCacheLinkedChunkUpdate,
 };
-use crate::{Room, client::WeakClient, config::RequestConfig, room::WeakRoom};
+use crate::{Room, config::RequestConfig, room::WeakRoom};
 
 pub struct PinnedEventsCacheState {
     /// The ID of the room owning this list of pinned events.
@@ -646,8 +646,7 @@ impl PinnedEventsCache {
             }
         }
 
-        let weak_room =
-            WeakRoom::new(WeakClient::from_client(&room.client()), room.room_id().to_owned());
+        let weak_room = WeakRoom::new(room.client().downgrade(), room.room_id().to_owned());
 
         let mut stream = room.pinned_event_ids_stream();
 

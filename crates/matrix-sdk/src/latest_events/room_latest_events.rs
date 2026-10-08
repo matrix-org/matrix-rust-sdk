@@ -353,7 +353,6 @@ mod tests {
     use super::RoomLatestEvents;
     use crate::{
         assert_let_timeout,
-        client::WeakClient,
         latest_events::LatestEventValue,
         room::WeakRoom,
         test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
@@ -413,7 +412,7 @@ mod tests {
             .mount()
             .await;
 
-        let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.to_owned());
+        let weak_room = WeakRoom::new(client.downgrade(), room_id.to_owned());
         let room_latest_events = RoomLatestEvents::new(weak_room, event_cache);
 
         // No candidate in memory yet.

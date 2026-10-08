@@ -111,7 +111,6 @@ use crate::encryption::{
 };
 use crate::{
     Client,
-    client::WeakClient,
     encryption::{backups::BackupState, secret_storage::SecretStorageError},
 };
 
@@ -727,7 +726,7 @@ impl Recovery {
         client: &Client,
     ) -> impl Future<Output = ()> + use<> {
         let mut stream = client.encryption().backups().state_stream();
-        let weak = WeakClient::from_client(client);
+        let weak = client.downgrade();
 
         async move {
             while let Some(update) = stream.next().await {
