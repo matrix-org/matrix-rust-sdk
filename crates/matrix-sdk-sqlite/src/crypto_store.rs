@@ -1896,13 +1896,7 @@ impl CryptoStore for SqliteCryptoStore {
     }
 
     async fn delete_next_batch_token(&self) -> Result<(), Self::Error> {
-        let key = "next_batch_token".to_owned();
-        self.write()
-            .await?
-            .interact(move |conn| conn.execute("DELETE FROM kv WHERE key = ?1", (&key,)))
-            .await
-            .unwrap()?;
-        Ok(())
+        self.remove_custom_value("next_batch_token").await
     }
 
     async fn close(&self) -> Result<()> {
