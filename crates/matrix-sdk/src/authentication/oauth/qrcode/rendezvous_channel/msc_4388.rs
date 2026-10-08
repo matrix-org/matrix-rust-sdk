@@ -100,33 +100,24 @@ impl Channel {
     /// through the channel.
     ///
     /// The rendezvous session is created on the homeserver of the given
-    /// [`Client`].
+    /// [`Client`]. If the [`Client`] is logged in, its access token is used to
+    /// create the session, since the homeserver might only allow authenticated
+    /// users to do so.
     pub(super) async fn create_outbound(client: &Client) -> Result<Self, SecureChannelError> {
         let base_url =
             LimitedUrl::new(client.homeserver()).map_err(MessageDecodeError::TooLongBaseUrl)?;
         let request = create_rendezvous_session::unstable_msc4388::Request::new("".to_owned());
 
-        let client = client.inner.http_client.clone();
-
-        // TODO: Use the `Client::send()` method here?
-        let response = client
-            .send(
-                request,
-                None,
-                base_url.to_string(),
-                None, // TODO: should also support passing in access token
-                Cow::Owned(SupportedVersions {
-                    versions: Default::default(),
-                    features: Default::default(),
-                }),
-                Default::default(),
-            )
-            .await?;
+        let response = client.send(request).await?;
 
         let rendezvous_id =
             RendezvousId::new(response.id).map_err(MessageDecodeError::TooLongRendezvousId)?;
         let sequence_token = SequenceToken::new(response.sequence_token)
             .map_err(MessageDecodeError::TooLongSequenceToken)?;
+
+        // The other requests on the rendezvous session don't use an access
+        // token, so we use the HTTP client directly for them.
+        let client = client.inner.http_client.clone();
 
         Ok(Self { client, base_url, rendezvous_id, sequence_token })
     }
@@ -291,8 +282,8 @@ mod test {
     use serde_json::json;
     use similar_asserts::assert_eq;
     use wiremock::{
-        Mock, MockServer, ResponseTemplate,
-        matchers::{method, path, path_regex},
+        Mock, MockServer, Request, ResponseTemplate,
+        matchers::{header, method, path, path_regex},
     };
 
     use super::*;
@@ -457,6 +448,63 @@ mod test {
             assert_eq!(response.status_code, StatusCode::OK);
             assert_eq!(response.data, "Hello world");
         }
+    }
+
+    /// A logged in client uses its access token to create the rendezvous
+    /// session, since the homeserver might only allow authenticated users to
+    /// do so.
+    #[async_test]
+    async fn test_creation_with_access_token() {
+        let server = MockServer::start().await;
+        let rendezvous_id = RendezvousId::new("abcdEFG12345".to_owned()).unwrap();
+
+        Mock::given(method("POST"))
+            .and(path(BASE_PATH))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": rendezvous_id.as_str(),
+                "sequence_token": "1",
+                "expires_in_ms": 10_000,
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = MockClientBuilder::new(Some(&server.uri())).build().await;
+
+        let alice = Channel::create_outbound(&client)
+            .await
+            .expect("We should be able to create an outbound rendezvous channel");
+
+        assert_eq!(alice.rendezvous_id(), &rendezvous_id);
+    }
+
+    /// A client that isn't logged in creates the rendezvous session without an
+    /// access token.
+    #[async_test]
+    async fn test_creation_without_access_token() {
+        let server = MockServer::start().await;
+        let rendezvous_id = RendezvousId::new("abcdEFG12345".to_owned()).unwrap();
+
+        Mock::given(method("POST"))
+            .and(path(BASE_PATH))
+            .and(|request: &Request| !request.headers.contains_key("authorization"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": rendezvous_id.as_str(),
+                "sequence_token": "1",
+                "expires_in_ms": 10_000,
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = MockClientBuilder::new(Some(&server.uri())).unlogged().build().await;
+
+        let alice = Channel::create_outbound(&client)
+            .await
+            .expect("We should be able to create an outbound rendezvous channel");
+
+        assert_eq!(alice.rendezvous_id(), &rendezvous_id);
     }
 
     #[async_test]
