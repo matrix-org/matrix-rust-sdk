@@ -58,7 +58,7 @@ use crate::{
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt,
+        SqliteKeyValueStoreConnExt, map_interact_err,
     },
 };
 
@@ -1836,7 +1836,8 @@ impl CryptoStore for SqliteCryptoStore {
             .await?
             .interact(move |conn| conn.execute("DELETE FROM kv WHERE key = ?1", (&key,)))
             .await
-            .unwrap()?;
+            .map_err(map_interact_err)
+            .flatten()?;
         Ok(())
     }
 
