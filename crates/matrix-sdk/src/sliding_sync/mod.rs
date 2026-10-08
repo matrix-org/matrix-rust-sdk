@@ -739,11 +739,6 @@ impl SlidingSync {
         self.inner.extensions.e2ee.enabled == Some(true)
     }
 
-    #[cfg(not(feature = "e2e-encryption"))]
-    fn is_e2ee_enabled(&self) -> bool {
-        false
-    }
-
     /// Is the thread subscriptions extension enabled for this sliding sync
     /// instance?
     fn is_thread_subscriptions_enabled(&self) -> bool {
@@ -754,6 +749,11 @@ impl SlidingSync {
     #[cfg(feature = "unstable-msc4354")]
     fn is_sticky_events_enabled(&self) -> bool {
         self.inner.extensions.sticky_events.enabled == Some(true)
+    }
+
+    #[cfg(not(feature = "e2e-encryption"))]
+    fn is_e2ee_enabled(&self) -> bool {
+        false
     }
 
     /// Should we process the room's subpart of a response?
@@ -833,15 +833,10 @@ impl SlidingSync {
                                 }
 
                                 #[cfg(feature = "e2e-encryption")]
-                                if let Some(ruma::api::error::Error{status_code: ::http::StatusCode::BAD_REQUEST, body: ErrorBody::Standard(StandardErrorBody {message, ..}), ..}) = error.as_client_api_error()
-                                    && message.contains("to_device")
-                                    && message.contains("should look like an int")
+                                if is_synapse_incompatible_token_error(&error)
                                     && let Some(olm_machine) = &*self.inner.client.olm_machine().await {
-                                    // Synapse uses different `to_device` tokens for Sliding Sync
-                                    // and sync v3. This error is returned if the sync v3 token is
-                                    // used with the Sliding Sync API. Just delete the token since
-                                    // that error should only happen once when upgrading to Sliding
-                                    // Sync.
+                                    // Just delete the token since that error should only happen
+                                    // once when upgrading to Sliding Sync.
 
 
                                     if let Ok(()) = olm_machine.store().delete_next_batch_token().await {
@@ -926,6 +921,27 @@ impl SlidingSync {
             self.inner.room_subscriptions.write().unwrap().clear();
         }
     }
+}
+
+/// Identify whether an error indicates an invalid `next_batch` token.
+///
+/// Synapse uses different `to_device` tokens for Sliding Sync and sync v3. This
+/// function matches the error that is returned if the sync v3 token is used
+/// with the Sliding Sync API.
+#[cfg(feature = "e2e-encryption")]
+fn is_synapse_incompatible_token_error(error: &crate::Error) -> bool {
+    let Some(ruma::api::error::Error {
+        status_code: ::http::StatusCode::BAD_REQUEST,
+        body: ErrorBody::Standard(StandardErrorBody { message, .. }),
+        ..
+    }) = error.as_client_api_error()
+    else {
+        return false;
+    };
+
+    message.starts_with("1 validation error for SlidingSyncBody")
+        && message.contains("'extensions.to_device.since' is invalid")
+        && message.contains("(should look like an int)")
 }
 
 /// Add a subscription for each room of `room_ids` that isn't subscribed yet,
