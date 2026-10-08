@@ -1246,8 +1246,8 @@ async fn send_todevice_send_event(
 
 #[tokio::test]
 async fn test_todevice_when_switching_sync() -> Result<()> {
-    // We use the `SendSecret` event here because it lets us embed arbitrary strings
-    // to tell messages apart.
+    // We use the `SendSecret` event here because it lets us embed arbitrary
+    // strings to tell messages apart.
 
     let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
     let alice_user_id = alice.user_id().unwrap().to_owned();
@@ -1262,7 +1262,8 @@ async fn test_todevice_when_switching_sync() -> Result<()> {
         });
     }
 
-    // Send one ToDevice message using sync v3 to get a cached `next_batch` token
+    // Send one ToDevice message using sync v3 to get a cached `next_batch`
+    // token
     let request_id_1 = "message-1";
     send_todevice_send_event(&bob, alice_user_id.clone(), request_id_1).await?;
 
