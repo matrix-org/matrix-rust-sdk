@@ -75,6 +75,53 @@ pub(super) async fn register_client(
     Ok(response)
 }
 
+/// Make sure that the given client metadata declares the given grant type in
+/// its `grant_types` field, adding it if necessary.
+///
+/// If the `grant_types` field is missing, it is set to the default value
+/// according to [RFC 7591], i.e. `authorization_code`, and the given grant
+/// type.
+///
+/// If the metadata cannot be deserialized as a JSON object, or if its
+/// `grant_types` field is not an array, it is returned unchanged.
+///
+/// [RFC 7591]: https://datatracker.ietf.org/doc/html/rfc7591#section-2
+pub(super) fn ensure_grant_type(
+    client_metadata: &Raw<ClientMetadata>,
+    grant_type: GrantType,
+) -> Raw<ClientMetadata> {
+    let Ok(mut metadata) =
+        client_metadata.deserialize_as_unchecked::<serde_json::Map<String, serde_json::Value>>()
+    else {
+        return client_metadata.clone();
+    };
+
+    let grant_type = serde_json::Value::from(grant_type.as_str());
+
+    match metadata.get_mut("grant_types") {
+        Some(serde_json::Value::Array(grant_types)) => {
+            if grant_types.contains(&grant_type) {
+                return client_metadata.clone();
+            }
+
+            grant_types.push(grant_type);
+        }
+        Some(_) => return client_metadata.clone(),
+        None => {
+            metadata.insert(
+                "grant_types".to_owned(),
+                vec![serde_json::Value::from(GrantType::AuthorizationCode.as_str()), grant_type]
+                    .into(),
+            );
+        }
+    }
+
+    match serde_json::value::to_raw_value(&metadata) {
+        Ok(json) => Raw::from_json(json),
+        Err(_) => client_metadata.clone(),
+    }
+}
+
 /// A successful response to OAuth 2.0 Dynamic Client Registration ([RFC 7591]).
 ///
 /// [RFC 7591]: http://tools.ietf.org/html/rfc7591
@@ -168,9 +215,11 @@ pub enum OAuthGrantType {
 
     /// The device authorization grant, defined in [RFC 8628].
     ///
-    /// This grant type is necessary to use [`OAuth::login_with_qr_code()`].
+    /// This grant type is necessary to use [`OAuth::login_with_device_code()`]
+    /// and [`OAuth::login_with_qr_code()`].
     ///
     /// [RFC 8628]: https://datatracker.ietf.org/doc/html/rfc8628
+    /// [`OAuth::login_with_device_code()`]: super::OAuth::login_with_device_code
     /// [`OAuth::login_with_qr_code()`]: super::OAuth::login_with_qr_code
     DeviceCode,
 }
@@ -355,7 +404,59 @@ mod tests {
     use serde_json::json;
     use url::Url;
 
-    use super::{ApplicationType, ClientMetadata, Localized, OAuthGrantType};
+    use ruma::{
+        api::client::discovery::get_authorization_server_metadata::v1::GrantType, serde::Raw,
+    };
+
+    use super::{ApplicationType, ClientMetadata, Localized, OAuthGrantType, ensure_grant_type};
+
+    #[test]
+    fn test_ensure_grant_type() {
+        let client_uri = Localized::new(
+            Url::parse("https://github.com/matrix-org/matrix-rust-sdk").unwrap(),
+            [],
+        );
+
+        // The grant type is added if it is missing.
+        let metadata = Raw::new(&ClientMetadata::new(
+            ApplicationType::Native,
+            vec![OAuthGrantType::AuthorizationCode {
+                redirect_uris: vec![Url::parse("http://127.0.0.1/").unwrap()],
+            }],
+            client_uri.clone(),
+        ))
+        .unwrap();
+        let metadata = ensure_grant_type(&metadata, GrantType::DeviceCode);
+        assert_eq!(
+            metadata.get_field::<Vec<String>>("grant_types").unwrap().unwrap(),
+            ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"]
+        );
+        assert_eq!(
+            metadata.get_field::<Vec<String>>("redirect_uris").unwrap().unwrap(),
+            ["http://127.0.0.1/"]
+        );
+
+        // The grant type is not duplicated if it is already present.
+        let metadata = Raw::new(&ClientMetadata::new(
+            ApplicationType::Native,
+            vec![OAuthGrantType::DeviceCode],
+            client_uri,
+        ))
+        .unwrap();
+        let metadata = ensure_grant_type(&metadata, GrantType::DeviceCode);
+        assert_eq!(
+            metadata.get_field::<Vec<String>>("grant_types").unwrap().unwrap(),
+            ["refresh_token", "urn:ietf:params:oauth:grant-type:device_code"]
+        );
+
+        // The default value is used if the field is missing.
+        let metadata = Raw::new(&json!({ "application_type": "native" })).unwrap().cast_unchecked();
+        let metadata = ensure_grant_type(&metadata, GrantType::DeviceCode);
+        assert_eq!(
+            metadata.get_field::<Vec<String>>("grant_types").unwrap().unwrap(),
+            ["authorization_code", "urn:ietf:params:oauth:grant-type:device_code"]
+        );
+    }
 
     #[test]
     fn test_serialize_minimal_client_metadata() {

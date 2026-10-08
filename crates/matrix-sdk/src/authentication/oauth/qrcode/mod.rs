@@ -23,7 +23,6 @@
 
 use std::sync::Arc;
 
-use as_variant::as_variant;
 pub use matrix_sdk_base::crypto::types::qr_login::{
     LoginQrCodeDecodeError, Msc4108IntentData, QrCodeData, QrCodeIntent, QrCodeIntentData,
 };
@@ -59,6 +58,7 @@ pub use self::{
 use super::CrossProcessRefreshLockError;
 #[cfg(doc)]
 use super::OAuth;
+pub use super::error::DeviceAuthorizationOAuthError;
 use crate::HttpError;
 
 /// The error type for failures while trying to log in a new device using a QR
@@ -213,43 +213,6 @@ impl From<SecureChannelError> for QRCodeGrantLoginError {
 impl From<SecretsBundleExportError> for QRCodeGrantLoginError {
     fn from(e: SecretsBundleExportError) -> Self {
         Self::MissingSecretsBackup(Some(e))
-    }
-}
-
-/// Error type describing failures in the interaction between the device
-/// attempting to log in and the OAuth 2.0 authorization server.
-#[derive(Debug, Error)]
-pub enum DeviceAuthorizationOAuthError {
-    /// A generic OAuth 2.0 error happened while we were attempting to register
-    /// the device with the OAuth 2.0 authorization server.
-    #[error(transparent)]
-    OAuth(#[from] crate::authentication::oauth::OAuthError),
-
-    /// The OAuth 2.0 server doesn't support the device authorization grant.
-    #[error("OAuth 2.0 server doesn't support the device authorization grant")]
-    NoDeviceAuthorizationEndpoint,
-
-    /// An error happened while we attempted to request a device authorization
-    /// from the OAuth 2.0 authorization server.
-    #[error(transparent)]
-    DeviceAuthorization(#[from] BasicRequestTokenError<HttpClientError<reqwest::Error>>),
-
-    /// An error happened while waiting for the access token to be issued and
-    /// sent to us by the OAuth 2.0 authorization server.
-    #[error(transparent)]
-    RequestToken(
-        #[from] RequestTokenError<HttpClientError<reqwest::Error>, DeviceCodeErrorResponse>,
-    ),
-}
-
-impl DeviceAuthorizationOAuthError {
-    /// If the [`DeviceAuthorizationOAuthError`] is of the
-    /// [`DeviceCodeErrorResponseType`] error variant, return it.
-    pub fn as_request_token_error(&self) -> Option<&DeviceCodeErrorResponseType> {
-        let error = as_variant!(self, DeviceAuthorizationOAuthError::RequestToken)?;
-        let request_token_error = as_variant!(error, RequestTokenError::ServerResponse)?;
-
-        Some(request_token_error.error())
     }
 }
 

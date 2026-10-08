@@ -230,9 +230,8 @@ async fn request_device_authorization(
     server_metadata: &AuthorizationServerMetadata,
     device_id: Curve25519PublicKey,
 ) -> Result<StandardDeviceAuthorizationResponse, DeviceAuthorizationOAuthError> {
-    let response = oauth
-        .request_device_authorization(server_metadata, Some(device_id.to_base64().into()))
-        .await?;
+    let (scopes, _) = OAuth::login_scopes(Some(device_id.to_base64().into()), None);
+    let response = oauth.request_device_authorization(server_metadata, scopes).await?;
     Ok(response)
 }
 

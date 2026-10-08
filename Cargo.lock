@@ -1933,6 +1933,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "example-oauth-device-code"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures-util",
+ "matrix-sdk",
+ "tokio",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "example-persist-session"
 version = "0.1.0"
 dependencies = [

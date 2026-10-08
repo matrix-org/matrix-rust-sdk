@@ -50,7 +50,7 @@
 //!
 //! # Login
 //!
-//! Currently, two login methods are supported by this API.
+//! Currently, three login methods are supported by this API.
 //!
 //! ## Login with the Authorization Code flow
 //!
@@ -71,6 +71,21 @@
 //!
 //! If the login needs to be cancelled before its completion,
 //! [`OAuth::abort_login()`] should be called to clean up the local data.
+//!
+//! ## Login with the Device Authorization Grant
+//!
+//! The use of the Device Authorization Grant is defined in [RFC 8628].
+//!
+//! This method is meant for clients that cannot open a browser or have limited
+//! input capabilities, like bots, bridges or command-line applications. The
+//! end-user needs to open a verification URI on another device, where they
+//! will be able to log into their account in the server's web UI and grant
+//! access to their Matrix account.
+//!
+//! [`OAuth::login_with_device_code()`] returns a [`LoginWithDeviceCode`] future
+//! that performs the whole login when awaited. The verification URI and the
+//! user code to present to the end-user are available with
+//! [`LoginWithDeviceCode::subscribe_to_progress()`].
 //!
 //! ## Login by scanning a QR Code
 //!
@@ -169,8 +184,8 @@ use as_variant::as_variant;
 #[cfg(feature = "e2e-encryption")]
 use error::CrossProcessRefreshLockError;
 use error::{
-    OAuthAuthorizationCodeError, OAuthClientRegistrationError, OAuthDiscoveryError,
-    OAuthTokenRevocationError, RedirectUriQueryParseError,
+    DeviceAuthorizationOAuthError, OAuthAuthorizationCodeError, OAuthClientRegistrationError,
+    OAuthDiscoveryError, OAuthTokenRevocationError, RedirectUriQueryParseError,
 };
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
@@ -200,6 +215,7 @@ use url::Url;
 mod auth_code_builder;
 #[cfg(feature = "e2e-encryption")]
 mod cross_process;
+mod device_code;
 pub mod error;
 mod http_client;
 #[cfg(feature = "e2e-encryption")]
@@ -217,7 +233,8 @@ use self::qrcode::{
 };
 pub use self::{
     auth_code_builder::{OAuthAuthCodeUrlBuilder, OAuthAuthorizationData},
-    error::OAuthError,
+    device_code::{DeviceCodeLoginProgress, LoginWithDeviceCode},
+    error::{DeviceCodeLoginError, OAuthError},
 };
 use self::{
     http_client::OAuthHttpClient,
@@ -1116,24 +1133,130 @@ impl OAuth {
         }
     }
 
-    /// Request codes from the authorization server for logging in with another
-    /// device.
-    #[cfg(feature = "e2e-encryption")]
+    /// Log in via OAuth 2.0 with the Device Authorization Grant.
+    ///
+    /// The use of the Device Authorization Grant is defined in [RFC 8628]. This
+    /// login method is meant for clients that cannot open a browser, or that
+    /// have limited input capabilities, like bots, bridges, or command-line
+    /// applications.
+    ///
+    /// The authorization server provides a verification URI and a user code,
+    /// that are available via [`LoginWithDeviceCode::subscribe_to_progress()`]
+    /// with the [`DeviceCodeLoginProgress::WaitingForToken`] variant. They must
+    /// be presented to the end-user, who will need to open the URI in a browser
+    /// on another device, log into their account in the server's web UI and
+    /// grant access to their Matrix account. Meanwhile, the client polls the
+    /// authorization server until the authorization is granted, denied, or
+    /// until it expires.
+    ///
+    /// When the authorization is granted, the session is loaded into the
+    /// client, like with [`OAuth::finish_login()`].
+    ///
+    /// The returned [`LoginWithDeviceCode`] must be awaited to perform the
+    /// login. Dropping the future before it completes cancels the login.
+    ///
+    /// # Arguments
+    ///
+    /// - `device_id` - The unique ID that will be associated with the session.
+    ///   If not set, a random one will be generated. It can be an existing
+    ///   device ID from a previous login call. Note that this should be done
+    ///   only if the client also holds the corresponding encryption keys.
+    ///
+    /// - `registration_data` - The data to restore or register the client with
+    ///   the server. If this is not provided, an error will occur unless
+    ///   [`OAuth::register_client()`] or [`OAuth::restore_registered_client()`]
+    ///   was called previously. If the client is registered with this data, the
+    ///   [`OAuthGrantType::DeviceCode`] grant type is added to the client
+    ///   metadata if it is missing.
+    ///
+    /// - `additional_scopes` - Additional scopes to request from the
+    ///   authorization server, e.g.
+    ///   "urn:matrix:client:com.example.msc9999.foo". The scopes for API access
+    ///   and the device ID according to the
+    ///   [specification](https://spec.matrix.org/v1.15/client-server-api/#allocated-scope-tokens)
+    ///   are always requested.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use futures_util::StreamExt;
+    /// use matrix_sdk::{
+    ///     authentication::oauth::{
+    ///         DeviceCodeLoginProgress, registration::ClientMetadata,
+    ///     },
+    ///     ruma::serde::Raw,
+    /// };
+    /// # use matrix_sdk::Client;
+    /// # let client: Client = unimplemented!();
+    /// # fn client_metadata() -> Raw<ClientMetadata> { unimplemented!() };
+    /// # _ = async {
+    /// let oauth = client.oauth();
+    /// let registration_data = client_metadata().into();
+    ///
+    /// let login = oauth.login_with_device_code(None, Some(registration_data), None);
+    /// let mut progress = login.subscribe_to_progress();
+    ///
+    /// // Show the verification URI and user code to the user while we wait for
+    /// // them to approve the login.
+    /// tokio::spawn(async move {
+    ///     while let Some(state) = progress.next().await {
+    ///         if let DeviceCodeLoginProgress::WaitingForToken {
+    ///             verification_uri,
+    ///             verification_uri_complete,
+    ///             user_code,
+    ///             ..
+    ///         } = state
+    ///         {
+    ///             match verification_uri_complete {
+    ///                 Some(uri) => println!("Open {uri} to log in"),
+    ///                 None => {
+    ///                     println!("Open {verification_uri} and enter the code {user_code}")
+    ///                 }
+    ///             }
+    ///         }
+    ///     }
+    /// });
+    ///
+    /// login.await?;
+    ///
+    /// // The session tokens can be persisted from the
+    /// // `OAuth::full_session()` method.
+    ///
+    /// // You can now make requests to the Matrix API.
+    /// let _me = client.whoami().await?;
+    /// # anyhow::Ok(()) };
+    /// ```
+    ///
+    /// [RFC 8628]: https://datatracker.ietf.org/doc/html/rfc8628
+    /// [`OAuthGrantType::DeviceCode`]: registration::OAuthGrantType::DeviceCode
+    pub fn login_with_device_code(
+        &self,
+        device_id: Option<OwnedDeviceId>,
+        registration_data: Option<ClientRegistrationData>,
+        additional_scopes: Option<Vec<Scope>>,
+    ) -> LoginWithDeviceCode {
+        let (scopes, device_id) = Self::login_scopes(device_id, additional_scopes);
+        LoginWithDeviceCode::new(self.clone(), scopes, device_id, registration_data)
+    }
+
+    /// Request codes from the authorization server for logging in with the
+    /// device authorization grant ([RFC 8628]).
+    ///
+    /// The `scopes` should be computed with [`OAuth::login_scopes()`].
+    ///
+    /// [RFC 8628]: https://datatracker.ietf.org/doc/html/rfc8628
     async fn request_device_authorization(
         &self,
         server_metadata: &AuthorizationServerMetadata,
-        device_id: Option<OwnedDeviceId>,
-    ) -> Result<oauth2::StandardDeviceAuthorizationResponse, qrcode::DeviceAuthorizationOAuthError>
-    {
-        let (scopes, _) = Self::login_scopes(device_id, None);
-
+        scopes: Vec<Scope>,
+    ) -> Result<oauth2::StandardDeviceAuthorizationResponse, DeviceAuthorizationOAuthError> {
         let client_id = self.client_id().ok_or(OAuthError::NotRegistered)?.clone();
 
         let device_authorization_url = server_metadata
             .device_authorization_endpoint
             .clone()
             .map(oauth2::DeviceAuthorizationUrl::from_url)
-            .ok_or(qrcode::DeviceAuthorizationOAuthError::NoDeviceAuthorizationEndpoint)?;
+            .ok_or(DeviceAuthorizationOAuthError::NoDeviceAuthorizationEndpoint)?;
 
         let response = OAuthClient::new(client_id)
             .set_device_authorization_url(device_authorization_url)
@@ -1146,14 +1269,15 @@ impl OAuth {
     }
 
     /// Exchange the device code against an access token.
-    #[cfg(feature = "e2e-encryption")]
+    ///
+    /// This polls the token endpoint until the user approves or denies the
+    /// authorization request, or until the device code expires. On success,
+    /// the session tokens are set on the client.
     async fn exchange_device_code(
         &self,
         server_metadata: &AuthorizationServerMetadata,
         device_authorization_response: &oauth2::StandardDeviceAuthorizationResponse,
-    ) -> Result<(), qrcode::DeviceAuthorizationOAuthError> {
-        use oauth2::TokenResponse;
-
+    ) -> Result<(), DeviceAuthorizationOAuthError> {
         let client_id = self.client_id().ok_or(OAuthError::NotRegistered)?.clone();
 
         let token_uri = TokenUrl::from_url(server_metadata.token_endpoint.clone());
