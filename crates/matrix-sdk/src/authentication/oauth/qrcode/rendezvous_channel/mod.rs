@@ -18,7 +18,7 @@ use tracing::instrument;
 use url::Url;
 
 use crate::{
-    HttpError,
+    Client, HttpError,
     authentication::oauth::qrcode::{MessageDecodeError, SecureChannelError},
     http_client::HttpClient,
 };
@@ -62,22 +62,22 @@ impl RendezvousChannel {
     /// By outbound we mean that we're going to tell the Matrix server to create
     /// a new rendezvous session. We're going to send an initial empty message
     /// through the channel.
+    ///
+    /// The rendezvous session is created on the homeserver of the given
+    /// [`Client`].
     pub(super) async fn create_outbound(
-        client: HttpClient,
-        rendezvous_server: &Url,
+        client: &Client,
         #[allow(unused_variables)] msc_4388: bool,
     ) -> Result<Self, SecureChannelError> {
         #[cfg(feature = "unstable-msc4388")]
         if msc_4388 {
-            let rendezvous_server = LimitedUrl::new(rendezvous_server.clone())
-                .map_err(MessageDecodeError::TooLongBaseUrl)?;
-            Ok(Self::Msc4388(msc_4388::Channel::create_outbound(client, &rendezvous_server).await?))
-        } else {
-            Ok(Self::Msc4108(msc_4108::Channel::create_outbound(client, rendezvous_server).await?))
+            return Ok(Self::Msc4388(msc_4388::Channel::create_outbound(client).await?));
         }
 
-        #[cfg(not(feature = "unstable-msc4388"))]
-        Ok(Self::Msc4108(msc_4108::Channel::create_outbound(client, rendezvous_server).await?))
+        let http_client = client.inner.http_client.clone();
+        Ok(Self::Msc4108(
+            msc_4108::Channel::create_outbound(http_client, &client.homeserver()).await?,
+        ))
     }
 
     /// Create a new inbound [`RendezvousChannel`].

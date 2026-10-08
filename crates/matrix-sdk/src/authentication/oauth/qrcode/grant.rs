@@ -415,12 +415,8 @@ impl IntoFuture for GrantLoginWithGeneratedQrCode {
             // a login with.
             //
             // -- MSC4108 Secure channel setup steps 1 & 2
-            let homeserver_url = self.client.homeserver();
-            let http_client = self.client.inner.http_client.clone();
             let secrets_bundle = export_secrets_bundle(&self.client).await?;
-            let channel =
-                SecureChannel::reciprocate(http_client, &homeserver_url, self.msc_4388_support)
-                    .await?;
+            let channel = SecureChannel::reciprocate(&self.client, self.msc_4388_support).await?;
 
             // Extract the QR code data and emit an update so that the caller
             // can present the QR code for scanning by the new device.
@@ -502,7 +498,6 @@ mod test {
             messages::{AuthorizationGrant, LoginProtocolType},
             secure_channel::{EstablishedSecureChannel, test::MockedRendezvousServer},
         },
-        http_client::HttpClient,
         test_utils::mocks::MatrixMockServer,
     };
 
@@ -1154,8 +1149,8 @@ mod test {
 
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
-        let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, msc_4388)
+        let client = rendezvous_server.unlogged_client().await;
+        let channel = SecureChannel::login(&client, msc_4388)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -1300,8 +1295,8 @@ mod test {
 
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
-        let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
+        let client = rendezvous_server.unlogged_client().await;
+        let channel = SecureChannel::login(&client, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -1548,8 +1543,8 @@ mod test {
 
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
-        let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
+        let client = rendezvous_server.unlogged_client().await;
+        let channel = SecureChannel::login(&client, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -1789,8 +1784,8 @@ mod test {
 
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
-        let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
+        let client = rendezvous_server.unlogged_client().await;
+        let channel = SecureChannel::login(&client, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -2178,8 +2173,8 @@ mod test {
 
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
-        let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
+        let client = rendezvous_server.unlogged_client().await;
+        let channel = SecureChannel::login(&client, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -2440,8 +2435,8 @@ mod test {
 
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
-        let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
+        let client = rendezvous_server.unlogged_client().await;
+        let channel = SecureChannel::login(&client, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -2642,8 +2637,8 @@ mod test {
 
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
-        let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
+        let client = rendezvous_server.unlogged_client().await;
+        let channel = SecureChannel::login(&client, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -2848,8 +2843,8 @@ mod test {
 
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
-        let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
+        let client = rendezvous_server.unlogged_client().await;
+        let channel = SecureChannel::login(&client, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -3118,8 +3113,8 @@ mod test {
 
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
-        let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
+        let client = rendezvous_server.unlogged_client().await;
+        let channel = SecureChannel::login(&client, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -3407,8 +3402,8 @@ mod test {
 
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
-        let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
+        let client = rendezvous_server.unlogged_client().await;
+        let channel = SecureChannel::login(&client, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -3662,8 +3657,8 @@ mod test {
 
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
-        let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
+        let client = rendezvous_server.unlogged_client().await;
+        let channel = SecureChannel::login(&client, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();
@@ -3931,8 +3926,8 @@ mod test {
 
         // Create a secure channel on the new client (Bob) and extract the QR
         // code.
-        let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url, false)
+        let client = rendezvous_server.unlogged_client().await;
+        let channel = SecureChannel::login(&client, false)
             .await
             .expect("Bob should be able to create a secure channel.");
         let qr_code_data = channel.qr_code_data().clone();

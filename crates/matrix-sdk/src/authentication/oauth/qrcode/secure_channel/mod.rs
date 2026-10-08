@@ -18,7 +18,6 @@ use matrix_sdk_base::crypto::types::qr_login::{
 };
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::{instrument, trace};
-use url::Url;
 use vodozemac::ecies::{Ecies, EstablishedEcies, InboundCreationResult, OutboundCreationResult};
 #[cfg(feature = "unstable-msc4388")]
 use vodozemac::hpke::{
@@ -31,6 +30,7 @@ use super::{
     rendezvous_channel::{InboundChannelCreationResult, RendezvousChannel, RendezvousInfo},
 };
 use crate::{
+    Client,
     authentication::oauth::qrcode::{DecryptionError, MessageDecodeError},
     config::RequestConfig,
     http_client::HttpClient,
@@ -57,13 +57,11 @@ pub(super) struct SecureChannel {
 
 impl SecureChannel {
     /// Create a new secure channel to request a login with.
-    pub(super) async fn login(
-        http_client: HttpClient,
-        homeserver_url: &Url,
-        msc_4388: bool,
-    ) -> Result<Self, Error> {
-        let channel =
-            RendezvousChannel::create_outbound(http_client, homeserver_url, msc_4388).await?;
+    ///
+    /// The rendezvous session is created on the homeserver of the given
+    /// [`Client`].
+    pub(super) async fn login(client: &Client, msc_4388: bool) -> Result<Self, Error> {
+        let channel = RendezvousChannel::create_outbound(client, msc_4388).await?;
 
         let (crypto_channel, qr_code_data) = match channel.rendezvous_info() {
             RendezvousInfo::Msc4108 { rendezvous_url } => {
@@ -86,7 +84,7 @@ impl SecureChannel {
                     crypto_channel.public_key(),
                     // TODO: Avoid the double conversion here?
                     rendezvous_id.as_str().to_owned(),
-                    homeserver_url.clone(),
+                    client.homeserver(),
                     QrCodeIntent::Login,
                 )?;
 
@@ -98,12 +96,12 @@ impl SecureChannel {
     }
 
     /// Create a new secure channel to reciprocate an existing login with.
-    pub(super) async fn reciprocate(
-        http_client: HttpClient,
-        homeserver_url: &Url,
-        msc_4388: bool,
-    ) -> Result<Self, Error> {
-        let mut channel = SecureChannel::login(http_client, homeserver_url, msc_4388).await?;
+    ///
+    /// The rendezvous session is created on the homeserver of the given
+    /// [`Client`].
+    pub(super) async fn reciprocate(client: &Client, msc_4388: bool) -> Result<Self, Error> {
+        let homeserver_url = client.homeserver();
+        let mut channel = SecureChannel::login(client, msc_4388).await?;
 
         match channel.channel.rendezvous_info() {
             RendezvousInfo::Msc4108 { rendezvous_url } => {
@@ -427,7 +425,7 @@ pub(super) mod test {
     };
 
     use super::{EstablishedSecureChannel, SecureChannel};
-    use crate::http_client::HttpClient;
+    use crate::{Client, test_utils::client::MockClientBuilder};
 
     #[allow(dead_code)]
     pub struct MockedRendezvousServer {
@@ -724,6 +722,12 @@ pub(super) mod test {
                 rendezvous_url,
             }
         }
+
+        /// Create a [`Client`] that isn't logged in, using this server as its
+        /// homeserver.
+        pub async fn unlogged_client(&self) -> Client {
+            MockClientBuilder::new(Some(self.homeserver_url.as_str())).unlogged().build().await
+        }
     }
 
     async fn test_creation(msc_4388: bool) {
@@ -731,8 +735,8 @@ pub(super) mod test {
         let rendezvous_server =
             MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, msc_4388).await;
 
-        let client = HttpClient::new(reqwest::Client::new(), Default::default());
-        let alice = SecureChannel::reciprocate(client, &rendezvous_server.homeserver_url, msc_4388)
+        let client = rendezvous_server.unlogged_client().await;
+        let alice = SecureChannel::reciprocate(&client, msc_4388)
             .await
             .expect("Alice should be able to create a secure channel.");
 

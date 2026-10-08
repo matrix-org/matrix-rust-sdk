@@ -33,7 +33,7 @@ use tracing::{debug, instrument, trace};
 use url::Url;
 
 use crate::{
-    HttpError, RumaApiError,
+    Client, HttpError, RumaApiError,
     authentication::oauth::qrcode::{MessageDecodeError, SecureChannelError},
     http_client::HttpClient,
 };
@@ -98,11 +98,15 @@ impl Channel {
     /// By outbound we mean that we're going to tell the Matrix server to create
     /// a new rendezvous session. We're going to send an initial empty message
     /// through the channel.
-    pub(super) async fn create_outbound(
-        client: HttpClient,
-        base_url: &LimitedUrl,
-    ) -> Result<Self, SecureChannelError> {
+    ///
+    /// The rendezvous session is created on the homeserver of the given
+    /// [`Client`].
+    pub(super) async fn create_outbound(client: &Client) -> Result<Self, SecureChannelError> {
+        let base_url =
+            LimitedUrl::new(client.homeserver()).map_err(MessageDecodeError::TooLongBaseUrl)?;
         let request = create_rendezvous_session::unstable_msc4388::Request::new("".to_owned());
+
+        let client = client.inner.http_client.clone();
 
         // TODO: Use the `Client::send()` method here?
         let response = client
@@ -124,7 +128,7 @@ impl Channel {
         let sequence_token = SequenceToken::new(response.sequence_token)
             .map_err(MessageDecodeError::TooLongSequenceToken)?;
 
-        Ok(Self { client, base_url: base_url.to_owned(), rendezvous_id, sequence_token })
+        Ok(Self { client, base_url, rendezvous_id, sequence_token })
     }
 
     /// Create a new inbound [`RendezvousChannel`].
@@ -292,7 +296,7 @@ mod test {
     };
 
     use super::*;
-    use crate::config::RequestConfig;
+    use crate::{config::RequestConfig, test_utils::client::MockClientBuilder};
 
     const BASE_PATH: &str = "/_matrix/client/unstable/io.element.msc4388/rendezvous";
 
@@ -326,9 +330,9 @@ mod test {
             .await
             .expect("We should be able to create a rendezvous");
 
-        let client = HttpClient::new(reqwest::Client::new(), RequestConfig::new().disable_retry());
+        let client = MockClientBuilder::new(Some(&server.uri())).unlogged().build().await;
 
-        let mut alice = Channel::create_outbound(client, &base_url)
+        let mut alice = Channel::create_outbound(&client)
             .await
             .expect("We should be able to create an outbound rendezvous channel");
 
@@ -459,17 +463,13 @@ mod test {
     async fn test_retry_mechanism() {
         let server = MockServer::start().await;
         let rendezvous_id = RendezvousId::new("abcdEFG12345".to_owned()).unwrap();
-        let base_url = LimitedUrl::new(
-            Url::parse(&server.uri()).expect("We should be able to parse the example homeserver"),
-        )
-        .unwrap();
         let rendezvous_path = mock_rendezvous_create(&server, &rendezvous_id)
             .await
             .expect("We should be able to create a rendezvous");
 
-        let client = HttpClient::new(reqwest::Client::new(), RequestConfig::new().disable_retry());
+        let client = MockClientBuilder::new(Some(&server.uri())).unlogged().build().await;
 
-        let mut alice = Channel::create_outbound(client, &base_url)
+        let mut alice = Channel::create_outbound(&client)
             .await
             .expect("We should be able to create an outbound rendezvous channel");
 
@@ -512,17 +512,13 @@ mod test {
     async fn test_receive_error() {
         let server = MockServer::start().await;
         let rendezvous_id = RendezvousId::new("abcdEFG12345".to_owned()).unwrap();
-        let url = LimitedUrl::new(
-            Url::parse(&server.uri()).expect("We should be able to parse the example homeserver"),
-        )
-        .unwrap();
         let rendezvous_path = mock_rendezvous_create(&server, &rendezvous_id)
             .await
             .expect("We should be able to create a rendezvous");
 
-        let client = HttpClient::new(reqwest::Client::new(), RequestConfig::new().disable_retry());
+        let client = MockClientBuilder::new(Some(&server.uri())).unlogged().build().await;
 
-        let mut alice = Channel::create_outbound(client, &url)
+        let mut alice = Channel::create_outbound(&client)
             .await
             .expect("We should be able to create an outbound rendezvous channel");
 
