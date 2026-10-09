@@ -489,12 +489,15 @@ impl Aggregation {
                 {
                     return false;
                 }
-                let reactions = event.to_mut().reactions_mut();
-                if let Some(info) =
-                    reactions.get_mut(key).and_then(|by_user| by_user.get_mut(sender))
-                {
-                    info.send_state = self.send_state.clone();
-                }
+                let Some(info) = event
+                    .to_mut()
+                    .reactions_mut()
+                    .get_mut(key)
+                    .and_then(|by_user| by_user.get_mut(sender))
+                else {
+                    return false;
+                };
+                info.send_state = self.send_state.clone();
                 true
             }
 
