@@ -357,6 +357,10 @@ macro_rules! make_media_type {
             }
 
             mime::VIDEO => {
+                let circle = match &$info {
+                    Some(AttachmentInfo::Video(video_info)) => video_info.circle,
+                    _ => false,
+                };
                 let info = assign!($info.map(VideoInfo::from).unwrap_or_default(), {
                     mimetype: Some($content_type.as_ref().to_owned()),
                     thumbnail_source,
@@ -365,7 +369,8 @@ macro_rules! make_media_type {
                 let content = assign!(VideoMessageEventContent::new(body, $source), {
                     info: Some(Box::new(info)),
                     formatted,
-                    filename
+                    filename,
+                    circle,
                 });
                 <$t>::Video(content)
             }
