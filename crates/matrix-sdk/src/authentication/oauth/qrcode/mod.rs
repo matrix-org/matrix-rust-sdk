@@ -54,7 +54,10 @@ mod secure_channel;
 pub use self::{
     grant::{GrantLoginProgress, GrantLoginWithGeneratedQrCode, GrantLoginWithScannedQrCode},
     login::{LoginProgress, LoginWithGeneratedQrCode, LoginWithQrCode},
-    messages::{LoginFailureReason, LoginProtocolType, QrAuthMessage},
+    messages::{
+        AuthorizationGrant, LoginFailureReason, LoginProtocolData, LoginProtocolType,
+        QrAuthMessage, UnknownLoginProtocol,
+    },
 };
 use super::CrossProcessRefreshLockError;
 #[cfg(doc)]
