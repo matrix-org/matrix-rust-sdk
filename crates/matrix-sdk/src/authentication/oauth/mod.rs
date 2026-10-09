@@ -1122,11 +1122,9 @@ impl OAuth {
     async fn request_device_authorization(
         &self,
         server_metadata: &AuthorizationServerMetadata,
-        device_id: Option<OwnedDeviceId>,
+        scopes: Vec<Scope>,
     ) -> Result<oauth2::StandardDeviceAuthorizationResponse, qrcode::DeviceAuthorizationOAuthError>
     {
-        let (scopes, _) = Self::login_scopes(device_id, None);
-
         let client_id = self.client_id().ok_or(OAuthError::NotRegistered)?.clone();
 
         let device_authorization_url = server_metadata
