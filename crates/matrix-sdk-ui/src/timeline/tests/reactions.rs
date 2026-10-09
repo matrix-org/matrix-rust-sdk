@@ -436,42 +436,6 @@ async fn test_reaction_remote_echo_before_sent_leaves_no_pending_state() {
 }
 
 #[async_test]
-async fn test_dropping_a_local_reaction_keeps_the_same_remote_one() {
-    let timeline = TestTimeline::new().await;
-    let mut stream = timeline.subscribe_events().await;
-    let f = &timeline.factory;
-
-    let event_id = owned_event_id!("$1");
-    timeline.handle_live_event(f.text_msg("hello").sender(*ALICE).event_id(&event_id)).await;
-    assert_next_matches!(stream, VectorDiff::PushBack { .. });
-
-    let txn_id = timeline
-        .handle_local_event(
-            ReactionEventContent::new(Annotation::new(event_id.clone(), "👍".to_owned())).into(),
-        )
-        .await;
-    assert_next_matches!(stream, VectorDiff::Set { index: 0, .. });
-
-    // The same reaction, sent from another of our devices, comes down the sync.
-    timeline
-        .handle_live_event(f.reaction(&event_id, "👍").sender(*ALICE).event_id(event_id!("$other")))
-        .await;
-    assert_next_matches!(stream, VectorDiff::Set { index: 0, .. });
-
-    // The send queue drops the local one, as the server already has it.
-    timeline
-        .handle_room_send_queue_update(RoomSendQueueUpdate::CancelledLocalEvent {
-            transaction_id: txn_id,
-        })
-        .await;
-
-    // The reaction from the other device is still there.
-    let items = timeline.controller.items().await;
-    let item = items.iter().find_map(|item| item.as_event()).unwrap();
-    assert!(item.reactions().get("👍").and_then(|by_user| by_user.get(*ALICE)).is_some());
-}
-
-#[async_test]
 async fn test_a_hidden_local_reaction_failing_leaves_the_same_remote_one_alone() {
     let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;

@@ -20,9 +20,11 @@ use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{EventSendState, RoomExt as _};
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
+use serde_json::json;
 use strass::assert_let;
 use stream_assert::assert_pending;
 use tokio::time::sleep;
+use wiremock::ResponseTemplate;
 
 #[async_test]
 async fn test_abort_before_being_sent() {
@@ -255,6 +257,101 @@ async fn test_redact_failed() {
 
     sleep(Duration::from_millis(150)).await;
     assert_pending!(stream);
+}
+
+#[async_test]
+async fn test_duplicate_reaction_keeps_the_remote_one() {
+    // This test checks that if the server rejects our reaction because the same
+    // one was sent from another device, the timeline keeps showing that one.
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (initial_items, mut stream) = timeline.subscribe().await;
+
+    assert!(initial_items.is_empty());
+
+    let f = EventFactory::new();
+
+    let event_id = event_id!("$1");
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(event_id)),
+        )
+        .await;
+
+    let item_id = {
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
+        assert_eq!(timeline_updates.len(), 2);
+
+        assert_let!(VectorDiff::PushBack { value: item } = &timeline_updates[0]);
+        item.as_event().unwrap().identifier()
+    };
+
+    // The server already has this reaction, and takes some time to say so.
+    server
+        .mock_room_send()
+        .respond_with(
+            ResponseTemplate::new(400)
+                .set_body_json(json!({
+                    "errcode": "M_DUPLICATE_ANNOTATION",
+                    "error": "Can't send same reaction twice",
+                }))
+                .set_delay(Duration::from_millis(150)),
+        )
+        .mock_once()
+        .mount()
+        .await;
+
+    timeline.toggle_reaction(&item_id, "👍").await.unwrap();
+
+    {
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
+        assert_eq!(timeline_updates.len(), 1);
+
+        assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+        let reactions = item.as_event().unwrap().reactions().clone();
+        assert_matches!(
+            &reactions.get("👍").unwrap().get(user_id).unwrap().send_state,
+            Some(EventSendState::NotSentYet { .. })
+        );
+    }
+
+    // Meanwhile, the same reaction sent from another device comes in.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.reaction(event_id, "👍").sender(user_id).event_id(event_id!("$2")),
+            ),
+        )
+        .await;
+
+    {
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
+        assert_eq!(timeline_updates.len(), 1);
+
+        assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+        let reactions = item.as_event().unwrap().reactions().clone();
+        assert!(reactions.get("👍").unwrap().get(user_id).unwrap().send_state.is_none());
+    }
+
+    // The server rejects our reaction, which is dropped: the remote one stays.
+    sleep(Duration::from_millis(300)).await;
+    assert_pending!(stream);
+
+    let items = timeline.items().await;
+    let reactions = items[1].as_event().unwrap().reactions().clone();
+    assert!(reactions.get("👍").unwrap().get(user_id).unwrap().send_state.is_none());
 }
 
 #[async_test]
