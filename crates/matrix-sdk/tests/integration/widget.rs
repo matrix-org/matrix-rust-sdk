@@ -37,7 +37,9 @@ use matrix_sdk_common::{
 };
 use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
-    OwnedRoomId, device_id, event_id,
+    OwnedRoomId,
+    api::FeatureFlag,
+    device_id, event_id,
     events::{
         AnySyncStateEvent, AnyToDeviceEvent, MessageLikeEventType, StateEventType,
         room::{member::MembershipState, message::RoomMessageEventContent},
@@ -85,7 +87,11 @@ async fn run_test_driver(
     is_room_e2ee: bool,
 ) -> (Client, MatrixMockServer, WidgetDriverHandle) {
     let mock_server = MatrixMockServer::new().await;
-    let client = mock_server.client_builder().build().await;
+
+    // Delayed events are only sent to a homeserver that advertises support for
+    // them.
+    let client =
+        mock_server.client_builder().unstable_features([FeatureFlag::Msc4140]).build().await;
 
     let room = mock_server.sync_joined_room(&client, &ROOM_ID).await;
 
