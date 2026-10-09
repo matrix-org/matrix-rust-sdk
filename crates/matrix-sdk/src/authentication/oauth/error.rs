@@ -289,7 +289,12 @@ pub enum ClientRegistrationErrorResponseType {
 impl ErrorResponseType for ClientRegistrationErrorResponseType {}
 
 /// Error type describing failures in the interaction between the device
-/// attempting to log in and the OAuth 2.0 authorization server.
+/// attempting to log in and the OAuth 2.0 authorization server, when using the
+/// device authorization grant defined in [RFC 8628] and specified for Matrix
+/// in [MSC4341].
+///
+/// [RFC 8628]: https://datatracker.ietf.org/doc/html/rfc8628
+/// [MSC4341]: https://github.com/matrix-org/matrix-spec-proposals/pull/4341
 #[derive(Debug, thiserror::Error)]
 pub enum DeviceAuthorizationOAuthError {
     /// A generic OAuth 2.0 error happened while we were attempting to register
