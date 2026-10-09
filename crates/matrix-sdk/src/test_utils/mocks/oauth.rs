@@ -306,6 +306,12 @@ pub struct DeviceAuthorizationEndpoint;
 impl<'a> MockEndpoint<'a, DeviceAuthorizationEndpoint> {
     /// Returns a successful device authorization response.
     pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_with_interval(5)
+    }
+
+    /// Returns a successful device authorization response with the given
+    /// polling interval, in seconds.
+    pub fn ok_with_interval(self, interval: u64) -> MatrixMock<'a> {
         let issuer_url = Url::parse(&self.server.uri())
             .expect("We should be able to parse the wiremock server URI");
         let verification_uri = issuer_url.join("link").unwrap();
@@ -315,7 +321,7 @@ impl<'a> MockEndpoint<'a, DeviceAuthorizationEndpoint> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "device_code": "N8NAYD9fOhMulpm37mSthx0xSw2p7vdR",
             "expires_in": 1200,
-            "interval": 5,
+            "interval": interval,
             "user_code": "N32YVC",
             "verification_uri": verification_uri,
             "verification_uri_complete": verification_uri_complete,
@@ -339,6 +345,14 @@ impl<'a> MockEndpoint<'a, TokenEndpoint> {
             "expires_in": 300,
             "refresh_token":  refresh_token,
             "token_type": "Bearer"
+        })))
+    }
+
+    /// Returns an error response when the authorization request using the
+    /// device authorization grant is still pending.
+    pub fn authorization_pending(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "error": "authorization_pending",
         })))
     }
 
