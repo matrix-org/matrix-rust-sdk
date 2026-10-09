@@ -1118,7 +1118,8 @@ impl RoomSendQueue {
                             RoomSendQueueUpdate::CancelledLocalEvent { transaction_id: txn_id },
                         ),
 
-                        // Aborted meanwhile, which already said so.
+                        // Removed meanwhile (aborted before we got here);
+                        // nothing to report.
                         Ok(false) => {}
 
                         Err(storage_error) => {
