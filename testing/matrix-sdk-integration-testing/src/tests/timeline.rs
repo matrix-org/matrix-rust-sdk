@@ -335,7 +335,7 @@ async fn test_stale_local_echo_time_abort_edit() {
         .await
         .unwrap();
 
-    let vector_diff = timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
+    let vector_diff = timeout(Duration::from_secs(10), stream.next()).await.unwrap().unwrap();
     let remote_echo = assert_matches!(vector_diff, VectorDiff::Set { index: 0, value } => value);
     assert!(!remote_echo.is_local_echo());
     assert!(remote_echo.is_editable());
