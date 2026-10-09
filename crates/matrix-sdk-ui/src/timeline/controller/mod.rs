@@ -1520,11 +1520,17 @@ impl TimelineController {
     ///
     /// Should be called only once after creation of the [`TimelineController`],
     /// with all its fields set.
-    pub(super) async fn init_focus(&self) -> Result<InitFocusResult, Error> {
+    ///
+    /// `initial_live_events` are the events of the room's event cache, as
+    /// returned when subscribing to it. They're only used for a live focus.
+    pub(super) async fn init_focus(
+        &self,
+        initial_live_events: Vec<TimelineEvent>,
+    ) -> Result<InitFocusResult, Error> {
         match self.focus.deref() {
             TimelineFocusKind::Live { event_cache, .. } => {
-                // Retrieve the cached events, and add them to the timeline.
-                let events = event_cache.events().await?;
+                // Add the cached events to the timeline.
+                let events = initial_live_events;
 
                 let has_events = !events.is_empty();
 
