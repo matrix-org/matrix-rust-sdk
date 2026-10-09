@@ -148,6 +148,7 @@ matrix-sdk-test.workspace = true
 similar-asserts.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+wiremock.workspace = true
 
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }
