@@ -86,8 +86,11 @@ async fn finish_login<Q>(
     // Now we need to inform the other device of the login protocols we picked
     // and the URL they should use to log us in.
     trace!("Letting the existing device know about the device authorization grant.");
-    let message =
-        QrAuthMessage::authorization_grant_login_protocol((&auth_grant_response).into(), device_id);
+    let message = QrAuthMessage::authorization_grant_login_protocol(
+        (&auth_grant_response).into(),
+        device_id,
+        channel.channel_variant(),
+    );
     channel.send_json(&message).await?;
 
     // Let's see if the other device agreed to our proposed protocols.
@@ -700,7 +703,7 @@ mod test {
             .expect("Alice should be able to receive the initial message from Bob");
 
         assert_let!(QrAuthMessage::LoginProtocol { protocol, .. } = message);
-        assert_eq!(protocol, LoginProtocolType::DeviceAuthorizationGrant);
+        assert_eq!(protocol.protocol(), LoginProtocolType::DeviceAuthorizationGrant);
 
         let message = match behaviour {
             AliceBehaviour::DeclinedProtocol => QrAuthMessage::LoginFailure {
@@ -925,7 +928,7 @@ mod test {
             .await
             .expect("Alice should be able to receive the `m.login.protocol` message from Bob");
         assert_let!(QrAuthMessage::LoginProtocol { protocol, .. } = message);
-        assert_eq!(protocol, LoginProtocolType::DeviceAuthorizationGrant);
+        assert_eq!(protocol.protocol(), LoginProtocolType::DeviceAuthorizationGrant);
 
         // Alice sends m.login.protocol_accepted message
         let message = match behaviour {
