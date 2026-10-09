@@ -166,7 +166,10 @@ impl TimelineBuilder {
 
         let room_id = room.room_id();
         let (room_event_cache, event_cache_drop) = event_cache.room(room_id).await?;
-        let (_, event_subscriber) = room_event_cache.subscribe().await?;
+        // We should use the initial events returned here, since fetching them
+        // separately later would race with the updates sent to
+        // the subscriber, and events could be received twice.
+        let (initial_events, event_subscriber) = room_event_cache.subscribe().await?;
 
         let is_room_encrypted = room
             .latest_encryption_state()
@@ -194,7 +197,8 @@ impl TimelineBuilder {
             controller.handle_active_call_update(initial_active_call_info.clone()).await;
         }
 
-        let InitFocusResult { focus_task, has_events } = controller.init_focus().await?;
+        let InitFocusResult { focus_task, has_events } =
+            controller.init_focus(initial_events).await?;
 
         let room_update_join_handle = room
             .client()
