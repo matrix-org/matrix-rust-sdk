@@ -1180,53 +1180,31 @@ impl OAuth {
     ///
     /// ```no_run
     /// use futures_util::StreamExt;
-    /// use matrix_sdk::{
-    ///     authentication::oauth::{
-    ///         DeviceCodeLoginProgress, registration::ClientMetadata,
-    ///     },
-    ///     ruma::serde::Raw,
-    /// };
+    /// use matrix_sdk::authentication::oauth::DeviceCodeLoginProgress;
     /// # use matrix_sdk::Client;
     /// # let client: Client = unimplemented!();
-    /// # fn client_metadata() -> Raw<ClientMetadata> { unimplemented!() };
     /// # _ = async {
-    /// let oauth = client.oauth();
-    /// let registration_data = client_metadata().into();
-    ///
-    /// let login = oauth.login_with_device_code(None, Some(registration_data), None);
+    /// let login = client.oauth().login_with_device_code(None, None, None);
     /// let mut progress = login.subscribe_to_progress();
     ///
-    /// // Show the verification URI and user code to the user while we wait for
-    /// // them to approve the login.
     /// tokio::spawn(async move {
     ///     while let Some(state) = progress.next().await {
-    ///         if let DeviceCodeLoginProgress::WaitingForToken {
-    ///             verification_uri,
-    ///             verification_uri_complete,
-    ///             user_code,
-    ///             ..
-    ///         } = state
+    ///         if let DeviceCodeLoginProgress::WaitingForToken { verification_uri, user_code, .. } =
+    ///             state
     ///         {
-    ///             match verification_uri_complete {
-    ///                 Some(uri) => println!("Open {uri} to log in"),
-    ///                 None => {
-    ///                     println!("Open {verification_uri} and enter the code {user_code}")
-    ///                 }
-    ///             }
+    ///             println!("Open {verification_uri} and enter the code {user_code}");
     ///         }
     ///     }
     /// });
     ///
     /// login.await?;
-    ///
-    /// // The session tokens can be persisted from the
-    /// // `OAuth::full_session()` method.
-    ///
-    /// // You can now make requests to the Matrix API.
-    /// let _me = client.whoami().await?;
     /// # anyhow::Ok(()) };
     /// ```
     ///
+    /// See the [`oauth_device_code`] example for a complete program, including
+    /// the client registration.
+    ///
+    /// [`oauth_device_code`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples/oauth_device_code
     /// [RFC 8628]: https://datatracker.ietf.org/doc/html/rfc8628
     /// [`OAuthGrantType::DeviceCode`]: registration::OAuthGrantType::DeviceCode
     pub fn login_with_device_code(
