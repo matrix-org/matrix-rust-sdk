@@ -336,11 +336,17 @@ async fn test_stale_local_echo_time_abort_edit() {
         .unwrap();
 
     let vector_diff = timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
-    let remote_echo = assert_matches!(vector_diff, VectorDiff::Set { index: 0, value } => value);
+    let (index, remote_echo) =
+        assert_matches!(vector_diff, VectorDiff::Set { index, value } => (index, value));
     assert!(!remote_echo.is_local_echo());
     assert!(remote_echo.is_editable());
 
-    assert_eq!(remote_echo.content().as_message().unwrap().body(), "bonjour");
+    assert_eq!(
+        remote_echo.content().as_message().unwrap().body(),
+        "bonjour",
+        "The message on the remote echo should match the edit"
+    );
+    assert_eq!(index, 0, "We only sent a single message and edited it, thus the index should be 0");
 
     alice_sync.abort();
 
