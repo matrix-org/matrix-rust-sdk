@@ -87,10 +87,6 @@ pub(super) async fn register_client(
 /// `grant_types` field is not an array, it is returned unchanged.
 ///
 /// [RFC 7591]: https://datatracker.ietf.org/doc/html/rfc7591#section-2
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "It will be used by the login with the device authorization grant")
-)]
 pub(super) fn ensure_grant_type(
     client_metadata: &Raw<ClientMetadata>,
     grant_type: GrantType,
@@ -240,9 +236,11 @@ pub enum OAuthGrantType {
 
     /// The device authorization grant, defined in [RFC 8628].
     ///
-    /// This grant type is necessary to use [`OAuth::login_with_qr_code()`].
+    /// This grant type is necessary to use [`OAuth::login_with_device_code()`]
+    /// and [`OAuth::login_with_qr_code()`].
     ///
     /// [RFC 8628]: https://datatracker.ietf.org/doc/html/rfc8628
+    /// [`OAuth::login_with_device_code()`]: super::OAuth::login_with_device_code
     /// [`OAuth::login_with_qr_code()`]: super::OAuth::login_with_qr_code
     DeviceCode,
 }
