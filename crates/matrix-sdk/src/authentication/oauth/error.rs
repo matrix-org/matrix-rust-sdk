@@ -1,4 +1,5 @@
 // Copyright 2025 Kévin Commaille
+// Copyright 2026 Nordeck IT + Consulting GmbH <info@nordeck.net>
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -327,5 +328,99 @@ impl DeviceAuthorizationOAuthError {
         let request_token_error = as_variant!(error, RequestTokenError::ServerResponse)?;
 
         Some(request_token_error.error())
+    }
+}
+
+/// All errors that can occur when logging in with the device authorization
+/// grant, using [`OAuth::login_with_device_code()`].
+///
+/// [`OAuth::login_with_device_code()`]: super::OAuth::login_with_device_code
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum DeviceCodeLoginError {
+    /// The client is not registered with the OAuth 2.0 authorization server,
+    /// and no [`ClientRegistrationData`] was provided to register it.
+    ///
+    /// [`ClientRegistrationData`]: super::ClientRegistrationData
+    #[error("client not registered")]
+    NotRegistered,
+
+    /// The OAuth 2.0 authorization server doesn't support the device
+    /// authorization grant, i.e. it doesn't advertise a
+    /// `device_authorization_endpoint` in its metadata.
+    #[error("OAuth 2.0 server doesn't support the device authorization grant")]
+    NoDeviceAuthorizationEndpoint,
+
+    /// The user denied the authorization request.
+    #[error("the authorization request was denied")]
+    AccessDenied,
+
+    /// The device code expired before the user approved the authorization
+    /// request.
+    #[error("the device code has expired")]
+    ExpiredToken,
+
+    /// A generic OAuth 2.0 error happened, for example while discovering the
+    /// server metadata or registering the client.
+    #[error(transparent)]
+    OAuth(OAuthError),
+
+    /// An error happened while requesting a device authorization from the
+    /// OAuth 2.0 authorization server.
+    #[error("failed to request device authorization: {0}")]
+    DeviceAuthorization(BasicRequestTokenError<HttpClientError<reqwest::Error>>),
+
+    /// An error happened while waiting for the access token to be issued by the
+    /// OAuth 2.0 authorization server.
+    #[error("failed to request token: {0}")]
+    RequestToken(RequestTokenError<HttpClientError<reqwest::Error>, DeviceCodeErrorResponse>),
+
+    /// An error happened while loading the session after we obtained the
+    /// access token, for example when discovering our user ID or setting up
+    /// the stores.
+    #[error("failed to load the session: {0}")]
+    SessionLoad(Box<crate::Error>),
+}
+
+impl From<OAuthError> for DeviceCodeLoginError {
+    fn from(error: OAuthError) -> Self {
+        match error {
+            OAuthError::NotRegistered => Self::NotRegistered,
+            error => Self::OAuth(error),
+        }
+    }
+}
+
+impl From<DeviceAuthorizationOAuthError> for DeviceCodeLoginError {
+    fn from(error: DeviceAuthorizationOAuthError) -> Self {
+        match error {
+            DeviceAuthorizationOAuthError::OAuth(error) => error.into(),
+            DeviceAuthorizationOAuthError::NoDeviceAuthorizationEndpoint => {
+                Self::NoDeviceAuthorizationEndpoint
+            }
+            DeviceAuthorizationOAuthError::DeviceAuthorization(error) => {
+                Self::DeviceAuthorization(error)
+            }
+            DeviceAuthorizationOAuthError::RequestToken(error) => {
+                if let RequestTokenError::ServerResponse(response) = &error {
+                    match response.error() {
+                        DeviceCodeErrorResponseType::AccessDenied => return Self::AccessDenied,
+                        DeviceCodeErrorResponseType::ExpiredToken => return Self::ExpiredToken,
+                        _ => {}
+                    }
+                }
+
+                Self::RequestToken(error)
+            }
+        }
+    }
+}
+
+impl From<crate::Error> for DeviceCodeLoginError {
+    fn from(error: crate::Error) -> Self {
+        match error {
+            crate::Error::OAuth(error) => (*error).into(),
+            error => Self::SessionLoad(Box::new(error)),
+        }
     }
 }
