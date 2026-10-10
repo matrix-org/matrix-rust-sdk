@@ -45,6 +45,9 @@ mod widget;
 
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
 
+/// Export the client for other ffi crates to reuse
+pub use client::Client;
+
 use self::{
     error::ClientError,
     ruma::{Mentions, RoomMessageEventContentWithoutRelationExt},
