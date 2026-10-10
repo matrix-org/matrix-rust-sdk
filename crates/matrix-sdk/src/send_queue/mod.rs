@@ -608,6 +608,7 @@ impl RoomSendQueue {
     async fn send_serialized(
         &self,
         content: SerializableEventContent,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
         #[cfg(feature = "unstable-msc4354")] sticky_duration: Option<StickyDurationMs>,
     ) -> Result<SendHandle, RoomSendQueueError> {
         let Some(room) = self.inner.room.get() else {
@@ -619,6 +620,7 @@ impl RoomSendQueue {
 
         let request = QueuedRequestKind::Event {
             content: content.clone(),
+            extra_content: extra_content.clone(),
             #[cfg(feature = "unstable-msc4354")]
             sticky_duration,
         };
@@ -639,7 +641,7 @@ impl RoomSendQueue {
         self.send_update(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             transaction_id,
             content: LocalEchoContent::Event {
-                serialized_event: content,
+                serialized_event: upload::merge_extra_content(content, extra_content)?,
                 send_handle: send_handle.clone(),
                 send_error: None,
             },
@@ -1192,10 +1194,13 @@ impl RoomSendQueue {
         match request.kind {
             QueuedRequestKind::Event {
                 content,
+                extra_content,
                 #[cfg(feature = "unstable-msc4354")]
                 sticky_duration,
             } => {
-                let (event, event_type) = content.into_raw();
+                let (event, event_type) = upload::merge_extra_content(content, extra_content)
+                    .map_err(|err| crate::Error::UnknownError(Box::new(err)))?
+                    .into_raw();
 
                 let future = room
                     .send_raw(&event_type, &event)
@@ -1833,25 +1838,39 @@ impl QueueStorage {
     /// Replace an event that has been sent with [`Self::push`] with the given
     /// transaction id, before it's been actually sent.
     ///
-    /// Returns whether the given transaction has been effectively edited. If
-    /// false, this either means that the transaction id was unrelated to this
-    /// queue, or that the request was sent before we edited it.
+    /// Returns the new content of the local echo, with the extra content the
+    /// event was queued with, if the given transaction has been effectively
+    /// edited. If `None`, this either means that the transaction id was
+    /// unrelated to this queue, or that the request was sent before we edited
+    /// it.
     async fn replace_event(
         &self,
         transaction_id: &TransactionId,
         serializable: SerializableEventContent,
-    ) -> Result<bool, RoomSendQueueStorageError> {
+    ) -> Result<Option<SerializableEventContent>, RoomSendQueueStorageError> {
         let guard = self.store.lock().await;
         let client = guard.client()?;
         let store = client.state_store();
 
         // Only an event the user composed has content to replace: a redaction
         // or a reaction has nothing to put the new content into.
-        if !store.load_send_queue_requests(&self.room_id).await?.iter().any(|request| {
-            request.transaction_id == transaction_id && is_own_event_request(request)
-        }) {
-            return Ok(false);
-        }
+        let Some(request) =
+            store.load_send_queue_requests(&self.room_id).await?.into_iter().find(|request| {
+                request.transaction_id == transaction_id && is_own_event_request(request)
+            })
+        else {
+            return Ok(None);
+        };
+
+        // Only the content is replaced: the extra content is stored apart
+        // from it, and stays as it is.
+        let mut kind = request.kind;
+        let QueuedRequestKind::Event { content, extra_content, .. } = &mut kind else {
+            return Ok(None);
+        };
+
+        let extra_content = extra_content.clone();
+        let local_echo = upload::merge_extra_content(serializable.clone(), extra_content.clone())?;
 
         if guard.being_sent.as_ref().map(|info| info.transaction_id.as_ref())
             == Some(transaction_id)
@@ -1863,23 +1882,21 @@ impl QueueStorage {
                     transaction_id,
                     ChildTransactionId::new(),
                     MilliSecondsSinceUnixEpoch::now(),
-                    DependentQueuedRequestKind::EditEvent { new_content: serializable },
+                    DependentQueuedRequestKind::EditEvent {
+                        new_content: serializable,
+                        extra_content,
+                    },
                 )
                 .await?;
 
-            return Ok(true);
+            return Ok(Some(local_echo));
         }
 
-        let request = QueuedRequestKind::Event {
-            content: serializable,
-            #[cfg(feature = "unstable-msc4354")]
-            sticky_duration: self.sticky_duration_of(store, transaction_id).await?,
-        };
+        *content = serializable;
 
-        let edited =
-            store.update_send_queue_request(&self.room_id, transaction_id, request).await?;
+        let edited = store.update_send_queue_request(&self.room_id, transaction_id, kind).await?;
 
-        Ok(edited)
+        Ok(edited.then_some(local_echo))
     }
 
     /// The sticky duration of the queued event `transaction_id`, if it is
@@ -2264,16 +2281,19 @@ impl QueueStorage {
             Some(LocalEcho {
                 transaction_id: queued.transaction_id.clone(),
                 content: match queued.kind {
-                    QueuedRequestKind::Event { content, .. } => LocalEchoContent::Event {
-                        serialized_event: content,
-                        send_handle: SendHandle {
-                            room: room.clone(),
-                            transaction_id: queued.transaction_id,
-                            media_handles: vec![],
-                            created_at: queued.created_at,
-                        },
-                        send_error: queued.error,
-                    },
+                    QueuedRequestKind::Event { content, extra_content, .. } => {
+                        LocalEchoContent::Event {
+                            serialized_event: upload::merge_extra_content(content, extra_content)
+                                .ok()?,
+                            send_handle: SendHandle {
+                                room: room.clone(),
+                                transaction_id: queued.transaction_id,
+                                media_handles: vec![],
+                                created_at: queued.created_at,
+                            },
+                            send_error: queued.error,
+                        }
+                    }
 
                     QueuedRequestKind::MediaUpload { .. } => {
                         // Don't return uploaded medias as their own things; the
@@ -2414,10 +2434,12 @@ impl QueueStorage {
         Some(LocalEcho {
             transaction_id: transaction_id.clone().into(),
             content: LocalEchoContent::Event {
-                serialized_event: upload::merge_gallery_extra_content(
+                serialized_event: upload::merge_extra_content(
                     SerializableEventContent::new(&(*local_echo).into()).ok()?,
-                    extra_content,
-                    item_infos.iter().map(|item| item.extra_content.clone()),
+                    upload::gallery_extra_content(
+                        extra_content,
+                        item_infos.iter().map(|item| item.extra_content.clone()),
+                    ),
                 )
                 .ok()?,
                 send_handle: SendHandle {
@@ -2456,7 +2478,7 @@ impl QueueStorage {
         let parent_key = dependent_request.parent_key;
 
         match dependent_request.kind {
-            DependentQueuedRequestKind::EditEvent { new_content } => {
+            DependentQueuedRequestKind::EditEvent { new_content, extra_content } => {
                 if let Some(parent_key) = parent_key {
                     let Some(event_id) = parent_key.into_event_id() else {
                         return Err(RoomSendQueueError::StorageError(
@@ -2472,15 +2494,9 @@ impl QueueStorage {
                     // Check the event is one we know how to edit with an edit
                     // event.
 
-                    // Fields the typed content doesn't know about, like an
-                    // attachment's extra content, to put back in the edit.
-                    let mut unknown_fields = None;
-
                     // It must be deserializable…
                     let edited_content = match new_content.deserialize() {
                         Ok(AnyMessageLikeEventContent::RoomMessage(c)) => {
-                            unknown_fields = upload::unknown_fields(&new_content, &c);
-
                             // Assume no relationships.
                             EditedContent::RoomMessage(c.into())
                         }
@@ -2515,15 +2531,17 @@ impl QueueStorage {
                     let mut edit_json = serde_json::to_value(&edit_event)
                         .map_err(RoomSendQueueStorageError::JsonSerialization)?;
 
-                    // Only in the new content: the top level is what push rules
-                    // see, and an edit mustn't notify again.
-                    if let Some(serde_json::Value::Object(mut unknown)) = unknown_fields
-                        && let Some(edited) = edit_json.get_mut("m.new_content")
+                    // The extra content only goes in the new content: the top
+                    // level is what push rules see, and an edit mustn't notify
+                    // again.
+                    if let Some(mut extra_content) = extra_content
+                        && let Some(serde_json::Value::Object(edited)) =
+                            edit_json.get_mut("m.new_content")
                     {
                         // The edit has its own relation and new content.
-                        unknown.remove("m.relates_to");
-                        unknown.remove("m.new_content");
-                        upload::restore_unknown_fields(edited, unknown.into());
+                        extra_content.remove("m.relates_to");
+                        extra_content.remove("m.new_content");
+                        upload::merge_missing_fields(edited, extra_content);
                     }
 
                     // Queue the edit event in the send queue 🧠.
@@ -2551,6 +2569,7 @@ impl QueueStorage {
 
                     let request = QueuedRequestKind::Event {
                         content: new_content,
+                        extra_content,
                         #[cfg(feature = "unstable-msc4354")]
                         sticky_duration: self
                             .sticky_duration_of(store, parent_transaction_id)
@@ -3067,7 +3086,8 @@ pub struct SendEvent<'a> {
 impl<'a> SendEvent<'a> {
     /// Merge additional top-level fields into the outgoing event's content.
     ///
-    /// The event's own fields take precedence on conflicts.
+    /// The event's own fields take precedence on conflicts. The additional
+    /// fields stay with the event if it is edited before it is sent.
     pub fn with_extra_content(
         mut self,
         extra_content: serde_json::Map<String, serde_json::Value>,
@@ -3094,14 +3114,12 @@ impl<'a> IntoFuture for SendEvent<'a> {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            let serialized = upload::merge_extra_content(
-                SerializableEventContent::new(&self.content)
-                    .map_err(RoomSendQueueStorageError::JsonSerialization)?,
-                self.extra_content,
-            )?;
+            let serialized = SerializableEventContent::new(&self.content)
+                .map_err(RoomSendQueueStorageError::JsonSerialization)?;
             self.queue
                 .send_serialized(
                     serialized,
+                    self.extra_content,
                     #[cfg(feature = "unstable-msc4354")]
                     self.sticky_duration,
                 )
@@ -3141,6 +3159,7 @@ impl<'a> IntoFuture for SendRawEvent<'a> {
             self.queue
                 .send_serialized(
                     self.content,
+                    None,
                     #[cfg(feature = "unstable-msc4354")]
                     self.sticky_duration,
                 )
@@ -3291,7 +3310,9 @@ impl SendHandle {
 
         let serializable = SerializableEventContent::from_raw(new_content, event_type);
 
-        if self.room.inner.queue.replace_event(&self.transaction_id, serializable.clone()).await? {
+        if let Some(new_content) =
+            self.room.inner.queue.replace_event(&self.transaction_id, serializable).await?
+        {
             trace!("successful edit");
 
             // Wake up the queue, in case the room was asleep before the edit.
@@ -3300,7 +3321,7 @@ impl SendHandle {
             // Propagate a replaced update too.
             self.room.send_update(RoomSendQueueUpdate::ReplacedLocalEvent {
                 transaction_id: self.transaction_id.clone(),
-                new_content: serializable,
+                new_content,
             });
 
             Ok(true)
@@ -3556,6 +3577,7 @@ mod tests {
                     &RoomMessageEventContent::text_plain("edit").into(),
                 )
                 .unwrap(),
+                extra_content: None,
             },
             parent_key: None,
             created_at,
@@ -3564,7 +3586,7 @@ mod tests {
         let res = canonicalize_dependent_requests(&[edit]);
 
         assert_eq!(res.len(), 1);
-        assert_let!(DependentQueuedRequestKind::EditEvent { new_content } = &res[0].kind);
+        assert_let!(DependentQueuedRequestKind::EditEvent { new_content, .. } = &res[0].kind);
         assert_let!(
             AnyMessageLikeEventContent::RoomMessage(msg) = new_content.deserialize().unwrap()
         );
@@ -3631,6 +3653,7 @@ mod tests {
                     &RoomMessageEventContent::text_plain("edit").into(),
                 )
                 .unwrap(),
+                extra_content: None,
             },
             parent_key: None,
             created_at: MilliSecondsSinceUnixEpoch::now(),
@@ -3665,6 +3688,7 @@ mod tests {
                     &RoomMessageEventContent::text_plain("edit").into(),
                 )
                 .unwrap(),
+                extra_content: None,
             },
             parent_key: None,
             created_at: MilliSecondsSinceUnixEpoch::now(),
@@ -3705,6 +3729,7 @@ mod tests {
                         &RoomMessageEventContent::text_plain(format!("edit{i}")).into(),
                     )
                     .unwrap(),
+                    extra_content: None,
                 },
                 parent_key: None,
                 created_at: MilliSecondsSinceUnixEpoch::now(),
@@ -3716,7 +3741,7 @@ mod tests {
         let res = canonicalize_dependent_requests(&inputs);
 
         assert_eq!(res.len(), 1);
-        assert_let!(DependentQueuedRequestKind::EditEvent { new_content } = &res[0].kind);
+        assert_let!(DependentQueuedRequestKind::EditEvent { new_content, .. } = &res[0].kind);
         assert_let!(
             AnyMessageLikeEventContent::RoomMessage(msg) = new_content.deserialize().unwrap()
         );
@@ -3749,6 +3774,7 @@ mod tests {
                         &RoomMessageEventContent::text_plain("edit").into(),
                     )
                     .unwrap(),
+                    extra_content: None,
                 },
                 parent_transaction_id: txn2.clone(),
                 parent_key: None,
@@ -3797,6 +3823,7 @@ mod tests {
                     &RoomMessageEventContent::text_plain("edit").into(),
                 )
                 .unwrap(),
+                extra_content: None,
             },
             parent_transaction_id: txn,
             parent_key: None,
