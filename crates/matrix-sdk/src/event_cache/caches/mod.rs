@@ -368,9 +368,9 @@ impl Caches {
                 let thread = self.thread(thread_id).await?;
                 thread.handle_joined_room_update(timeline, read_receipts).await?;
 
-                if update_thread_summary {
-                    let new_thread_summary = thread.update_thread_summary().await?;
-
+                if update_thread_summary
+                    && let Some(new_thread_summary) = thread.update_thread_summary().await?
+                {
                     room.update_thread_summary(thread.thread_id(), new_thread_summary)?;
                 }
             }
