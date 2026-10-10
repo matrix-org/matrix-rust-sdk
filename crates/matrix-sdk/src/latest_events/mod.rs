@@ -694,7 +694,7 @@ mod tests {
     use super::{
         LatestEventValue, RegisteredRooms, RemoteLatestEventValue, RoomEventCacheGenericUpdate,
         RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomLatestEvents, RoomSendQueueUpdate,
-        RwLock, SendQueueUpdate, WeakClient, WeakRoom, With, broadcast, listen_to_updates, mpsc,
+        RwLock, SendQueueUpdate, WeakRoom, With, broadcast, listen_to_updates, mpsc,
     };
     use crate::{
         latest_events::{LatestEventQueueUpdate, local_room_message},
@@ -856,7 +856,7 @@ mod tests {
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
         let weak_room = WeakRoom::new(weak_client, room_id.clone());
 
         let event_cache = client.event_cache();
@@ -926,7 +926,7 @@ mod tests {
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
         let weak_room = WeakRoom::new(weak_client, room_id.clone());
 
         let event_cache = client.event_cache();
@@ -1009,7 +1009,7 @@ mod tests {
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
         let weak_room = WeakRoom::new(weak_client, room_id.clone());
 
         let event_cache = client.event_cache();
@@ -1086,7 +1086,7 @@ mod tests {
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
         let weak_room = WeakRoom::new(weak_client, room_id.clone());
 
         let event_cache = client.event_cache();
@@ -1388,7 +1388,7 @@ mod tests {
         room_info_1.set_latest_event(LatestEventValue::LocalIsSending(local_room_message("foo")));
         room_1.update_room_info(|_| (room_info_1, Default::default())).await;
 
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
 
         let event_cache = client.event_cache();
 

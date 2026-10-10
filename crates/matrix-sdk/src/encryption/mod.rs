@@ -2278,7 +2278,7 @@ impl Encryption {
     ///
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
     fn setup_room_membership_session_discard_handler(&self) {
-        let client = WeakClient::from_client(&self.client);
+        let client = self.client.downgrade();
         self.client.add_event_handler(|ev: OriginalSyncRoomMemberEvent, room: Room| async move {
             let Some(client) = client.get() else {
                 // The main client has been dropped.
