@@ -18,7 +18,7 @@ use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use futures_util::{FutureExt as _, StreamExt as _};
 use imbl::vector;
-use matrix_sdk::assert_next_matches_with_timeout;
+use matrix_sdk::{assert_next_matches_with_timeout, send_queue::RoomSendQueueUpdate};
 use matrix_sdk_base::store::QueueWedgeError;
 use matrix_sdk_test::{ALICE, BOB, User, async_test};
 use ruma::{
@@ -433,6 +433,83 @@ async fn test_reaction_remote_echo_before_sent_leaves_no_pending_state() {
         .update_event_send_state(&txn_id, EventSendState::Sent { event_id: reaction_id })
         .await;
     assert_pending!(stream);
+}
+
+#[async_test]
+async fn test_a_hidden_local_reaction_failing_leaves_the_same_remote_one_alone() {
+    let timeline = TestTimeline::new().await;
+    let mut stream = timeline.subscribe_events().await;
+    let f = &timeline.factory;
+
+    let event_id = owned_event_id!("$1");
+    timeline.handle_live_event(f.text_msg("hello").sender(*ALICE).event_id(&event_id)).await;
+    assert_next_matches!(stream, VectorDiff::PushBack { .. });
+
+    let txn_id = timeline
+        .handle_local_event(
+            ReactionEventContent::new(Annotation::new(event_id.clone(), "👍".to_owned())).into(),
+        )
+        .await;
+    assert_next_matches!(stream, VectorDiff::Set { index: 0, .. });
+
+    // The same reaction, sent from another of our devices, hides the local one.
+    timeline
+        .handle_live_event(f.reaction(&event_id, "👍").sender(*ALICE).event_id(event_id!("$other")))
+        .await;
+    assert_next_matches!(stream, VectorDiff::Set { index: 0, .. });
+
+    // The hidden local one fails to be sent.
+    let error = Arc::new(matrix_sdk::Error::SendQueueWedgeError(Box::new(
+        QueueWedgeError::GenericApiError { msg: "nope".to_owned() },
+    )));
+    timeline
+        .controller
+        .update_event_send_state(
+            &txn_id,
+            EventSendState::SendingFailed { error, is_recoverable: true },
+        )
+        .await;
+
+    // The one from the other device isn't marked as failing.
+    let items = timeline.controller.items().await;
+    let item = items.iter().find_map(|item| item.as_event()).unwrap();
+    let info = item.reactions().get("👍").and_then(|by_user| by_user.get(*ALICE)).cloned();
+    assert!(info.unwrap().send_state.is_none());
+}
+
+#[async_test]
+async fn test_dropping_a_local_reaction_brings_back_the_same_remote_one() {
+    let timeline = TestTimeline::new().await;
+    let mut stream = timeline.subscribe_events().await;
+    let f = &timeline.factory;
+
+    let event_id = owned_event_id!("$1");
+    timeline.handle_live_event(f.text_msg("hello").sender(*ALICE).event_id(&event_id)).await;
+    assert_next_matches!(stream, VectorDiff::PushBack { .. });
+
+    // The reaction from another of our devices is already there (e.g. the
+    // timeline was rebuilt), then the queued local one is replayed on top.
+    timeline
+        .handle_live_event(f.reaction(&event_id, "👍").sender(*ALICE).event_id(event_id!("$other")))
+        .await;
+    assert_next_matches!(stream, VectorDiff::Set { index: 0, .. });
+    let txn_id = timeline
+        .handle_local_event(
+            ReactionEventContent::new(Annotation::new(event_id.clone(), "👍".to_owned())).into(),
+        )
+        .await;
+    assert_next_matches!(stream, VectorDiff::Set { index: 0, .. });
+
+    timeline
+        .handle_room_send_queue_update(RoomSendQueueUpdate::CancelledLocalEvent {
+            transaction_id: txn_id,
+        })
+        .await;
+
+    let items = timeline.controller.items().await;
+    let item = items.iter().find_map(|item| item.as_event()).unwrap();
+    let info = item.reactions().get("👍").and_then(|by_user| by_user.get(*ALICE)).cloned();
+    assert!(info.unwrap().send_state.is_none());
 }
 
 #[async_test]
