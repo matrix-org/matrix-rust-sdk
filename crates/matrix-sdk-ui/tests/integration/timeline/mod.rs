@@ -463,7 +463,7 @@ async fn test_redact_message() {
     assert!(item.as_event().unwrap().content().is_redacted());
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-    assert_eq!(timeline_updates.len(), 2);
+    assert_eq!(timeline_updates.len(), 3);
 
     // The redaction was sent, then its remote echo arrived.
     assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
@@ -475,6 +475,18 @@ async fn test_redact_message() {
     let item = item.as_event().unwrap();
     assert!(item.content().is_redacted());
     assert_matches!(item.redaction_send_state(), None);
+    // The redaction dropped the item's JSON, and nothing has replaced it yet.
+    assert!(item.latest_json().is_none());
+
+    // Then the event cache handed over the redacted event, which carries the
+    // redaction and its reason.
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[2]);
+    let item = item.as_event().unwrap();
+    assert!(item.content().is_redacted());
+    assert_matches!(item.redaction_send_state(), None);
+    let json = item.latest_json().unwrap().json().get();
+    assert!(json.contains("redacted_because"), "{json}");
+    assert!(json.contains("inapprops"), "{json}");
 
     // Redacting a local event works.
     timeline
