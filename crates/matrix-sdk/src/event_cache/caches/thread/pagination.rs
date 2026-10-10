@@ -110,6 +110,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             return Ok(LoadMoreEventsBackwardsOutcome::Gap {
                 prev_token: Some(prev_token),
                 waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
+                generation: state.thread_linked_chunk().generation(),
             });
         }
 
@@ -147,6 +148,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
                 return Ok(LoadMoreEventsBackwardsOutcome::Gap {
                     prev_token: None,
                     waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
+                    generation: state.thread_linked_chunk().generation(),
                 });
             }
 
@@ -204,6 +206,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
                 LoadMoreEventsBackwardsOutcome::Gap {
                     prev_token: Some(gap.token),
                     waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
+                    generation: state.thread_linked_chunk().generation(),
                 }
             }
 
@@ -284,6 +287,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         mut events: Vec<Event>,
         prev_token: Option<String>,
         mut new_token: Option<String>,
+        generation: u64,
     ) -> Result<Option<BackPaginationOutcome>> {
         let Some(room) = self.cache.weak_room.get() else {
             // The client is shutting down.
@@ -309,6 +313,12 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         }
 
         let mut state = self.cache.state.write().await?;
+
+        // The linked chunk has been cleared or replaced while the request was
+        // running: the response no longer fits in it, so restart.
+        if state.thread_linked_chunk().generation() != generation {
+            return Ok(None);
+        }
 
         // Check that the previous token still exists; otherwise it's a sign
         // that the thread's timeline has been cleared.
