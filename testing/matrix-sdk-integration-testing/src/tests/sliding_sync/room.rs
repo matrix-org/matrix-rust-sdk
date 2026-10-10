@@ -19,25 +19,31 @@ use matrix_sdk::{
     config::SyncSettings,
     room_preview::RoomPreview,
     ruma::{
-        RoomId,
+        OwnedUserId, RoomId,
         api::client::{
             receipt::create_receipt::v3::ReceiptType,
             room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
+            to_device::send_event_to_device::v3::Request as ToDeviceRequest,
         },
         assign,
         directory::PublicRoomsChunkInit,
         events::{
-            AnySyncMessageLikeEvent, InitialStateEvent, Mentions, StateEventType,
+            AnySyncMessageLikeEvent, AnyToDeviceEventContent, InitialStateEvent, Mentions,
+            StateEventType, ToDeviceEventType,
             receipt::ReceiptThread,
             room::{
                 history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
                 join_rules::{JoinRule, RoomJoinRulesEventContent},
                 message::RoomMessageEventContent,
             },
+            secret::send::{ToDeviceSecretSendEvent, ToDeviceSecretSendEventContent},
         },
         mxc_uri, owned_server_name,
         room::JoinRuleSummary,
-        room_id, uint,
+        room_id,
+        serde::Raw,
+        to_device::DeviceIdOrAllDevices,
+        uint,
     },
     sliding_sync::VersionBuilder,
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
@@ -1214,4 +1220,106 @@ async fn get_room_preview_with_room_summary(
     assert_eq!(preview.name.unwrap(), "Alice's Room 2");
     assert!(preview.state.is_none());
     assert!(preview.heroes.is_none());
+}
+
+async fn send_todevice_send_event(
+    client: &Client,
+    target: OwnedUserId,
+    request_id: &str,
+) -> Result<()> {
+    let message = ToDeviceSecretSendEventContent::new(request_id.into(), "".into());
+    let messages = BTreeMap::from_iter([(
+        target,
+        BTreeMap::from_iter([(
+            DeviceIdOrAllDevices::AllDevices,
+            Raw::new(&AnyToDeviceEventContent::from(message)).unwrap(),
+        )]),
+    )]);
+    client
+        .send(ToDeviceRequest::new_raw(
+            ToDeviceEventType::SecretSend,
+            format!("{request_id}-txn").into(),
+            messages,
+        ))
+        .await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_todevice_when_switching_sync() -> Result<()> {
+    // We use the `SendSecret` event here because it lets us embed arbitrary
+    // strings to tell messages apart.
+
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+    let alice_user_id = alice.user_id().unwrap().to_owned();
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
+    let bob_user_id = bob.user_id().unwrap().to_owned();
+
+    let received_events = Arc::new(Mutex::new(vec![]));
+    {
+        let received_events = Arc::clone(&received_events);
+        alice.add_event_handler(move |ev: ToDeviceSecretSendEvent| async move {
+            received_events.lock().await.push(ev.content.request_id);
+        });
+    }
+
+    // Send one ToDevice message using sync v3 to get a cached `next_batch`
+    // token
+    let request_id_1 = "message-1";
+    send_todevice_send_event(&bob, alice_user_id.clone(), request_id_1).await?;
+
+    alice.sync_once(Default::default()).await?;
+    assert!(received_events.lock().await.contains(&request_id_1.into()));
+
+    // Queue another message for alice
+    let request_id_2 = "message-2";
+    send_todevice_send_event(&bob, alice_user_id.clone(), request_id_2).await?;
+
+    // Set up sliding sync for alice
+    let sliding_alice = alice
+        .sliding_sync("main")?
+        .with_all_extensions()
+        .poll_timeout(Duration::from_secs(3))
+        .network_timeout(Duration::from_secs(3))
+        .build()
+        .await?;
+
+    spawn({
+        let alice_sliding = sliding_alice.clone();
+        async move {
+            let stream = alice_sliding.sync();
+            pin_mut!(stream);
+
+            while let Some(up) = stream.next().await {
+                let up = up.expect("sync should not fail");
+
+                info!("received update: {up:?}");
+            }
+        }
+    });
+
+    // Wait for the second message to arrive
+    let mut received = false;
+    for _ in 0..10 {
+        sleep(Duration::from_secs(1)).await;
+
+        if received_events.lock().await.contains(&request_id_2.into()) {
+            received = true;
+            break;
+        }
+    }
+    assert!(received, "ToDevice message was not delivered in 10 seconds");
+
+    // Switch back to sync v3
+    sliding_alice.stop_sync()?;
+    sleep(Duration::from_secs(1)).await;
+
+    let request_id_3 = "message-3";
+    send_todevice_send_event(&bob, alice_user_id.clone(), request_id_3).await?;
+
+    alice.sync_once(Default::default()).await?;
+    assert!(received_events.lock().await.contains(&request_id_3.into()));
+
+    Ok(())
 }
