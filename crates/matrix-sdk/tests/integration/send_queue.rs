@@ -3379,6 +3379,53 @@ async fn test_media_upload_with_extra_content() {
 }
 
 #[async_test]
+async fn test_media_upload_with_duplicate_mxc() {
+    // A homeserver that deduplicates uploads (e.g. matrix-media-repo) returns
+    // the same MXC URI for byte-identical content. Renaming the second upload's
+    // local cache key onto the existing remote key must not wedge the queue.
+    let mock = MatrixMockServer::new().await;
+
+    let room_id = room_id!("!a:b.c");
+    let tempdir = tempfile::tempdir().unwrap();
+    let client = mock
+        .client_builder()
+        .on_builder(|builder| builder.sqlite_store(tempdir.path(), None))
+        .build()
+        .await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+    let (_local_echoes, mut watch) = q.subscribe().await.unwrap();
+
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // Both uploads get the *same* MXC URI back.
+    mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/same")).mock_once().mount().await;
+    mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
+    mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/same")).mock_once().mount().await;
+    mock.mock_room_send().ok(event_id!("$2")).mock_once().mount().await;
+
+    // Queue two attachments with identical content.
+    let (_h1, _) = queue_attachment_no_thumbnail(&q).await;
+    let (txn1, _, _) = assert_update!((global_watch, watch) => local echo event);
+    let (_h2, _) = queue_attachment_no_thumbnail(&q).await;
+    let (txn2, _, _) = assert_update!((global_watch, watch) => local echo event);
+
+    // The first media goes all the way through...
+    assert_update!((global_watch, watch) => uploaded { related_to = txn1, mxc = mxc_uri!("mxc://sdk.rs/same") });
+    assert_update!((global_watch, watch) => edit local echo { txn = txn1 });
+    assert_update!((global_watch, watch) => sent { txn = txn1, event_id = event_id!("$1") });
+
+    // ...and so must the second one: before the fix, renaming its cache key onto
+    // the already-present remote key failed forever, and it was never sent.
+    assert_update!((global_watch, watch) => uploaded { related_to = txn2, mxc = mxc_uri!("mxc://sdk.rs/same") });
+    assert_update!((global_watch, watch) => edit local echo { txn = txn2 });
+    assert_update!((global_watch, watch) => sent { txn = txn2, event_id = event_id!("$2") });
+}
+
+#[async_test]
 async fn test_media_upload_retry() {
     let mock = MatrixMockServer::new().await;
 
