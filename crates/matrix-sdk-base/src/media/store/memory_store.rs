@@ -133,8 +133,23 @@ impl MediaStore for MemoryMediaStore {
         to: &MediaRequestParameters,
     ) -> Result<(), Self::Error> {
         let expected_key = from.unique_key();
+        let new_key = to.unique_key();
 
         let mut inner = self.inner.write().unwrap();
+
+        if !inner.media.iter().any(|media_content| media_content.key == expected_key) {
+            return Ok(());
+        }
+
+        // If 'to' is already cached, drop it first, and store the new one instead of having two
+        // entries with the same key.
+        if new_key != expected_key {
+            if let Some(index) =
+                inner.media.iter().position(|media_content| media_content.key == new_key)
+            {
+                inner.media.remove(index);
+            }
+        }
 
         if let Some(media_content) =
             inner.media.iter_mut().find(|media_content| media_content.key == expected_key)
