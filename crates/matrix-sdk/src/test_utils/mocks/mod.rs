@@ -375,7 +375,7 @@ impl MatrixMockServer {
         let mock = Mock::given(method("GET")).and(path("/_matrix/client/v3/sync"));
         self.mock_endpoint(
             mock,
-            SyncEndpoint { sync_response_builder: self.sync_response_builder.clone() },
+            SyncEndpoint { sync_response_builder: self.sync_response_builder.clone(), delay: None },
         )
     }
 
@@ -456,7 +456,7 @@ impl MatrixMockServer {
     pub fn mock_room_send(&self) -> MockEndpoint<'_, RoomSendEndpoint> {
         let mock = Mock::given(method("PUT"))
             .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*".to_owned()));
-        self.mock_endpoint(mock, RoomSendEndpoint)
+        self.mock_endpoint(mock, RoomSendEndpoint::default())
     }
 
     /// Creates a prebuilt mock for sending a state event in a room.
@@ -2216,9 +2216,22 @@ impl wiremock::Match for ExpectedAccessToken {
 }
 
 /// A prebuilt mock for sending a message like event in a room.
-pub struct RoomSendEndpoint;
+#[derive(Default)]
+pub struct RoomSendEndpoint {
+    room_id: Option<OwnedRoomId>,
+    event_type: Option<MessageLikeEventType>,
+}
 
 impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
+    fn generate_path_regexp(&self) -> String {
+        let RoomSendEndpoint { room_id, event_type } = &self.endpoint;
+        format!(
+            r"^/_matrix/client/v3/rooms/{}/send/{}",
+            room_id.as_ref().map_or_else(|| ".*".to_owned(), |r| percent_encoded_path(r.as_str())),
+            event_type.as_ref().map_or_else(|| ".*".to_owned(), |t| t.to_string()),
+        )
+    }
+
     /// Ensures that the request marks the event as sticky (MSC4354) for
     /// exactly `duration`.
     pub fn with_sticky_duration(self, duration: Duration) -> Self {
@@ -2328,15 +2341,73 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// );
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn for_type(self, event_type: MessageLikeEventType) -> Self {
-        Self {
-            // Note: we already defined a path when constructing the mock
-            // builder, but this one ought to be more specialized.
-            mock: self
-                .mock
-                .and(path_regex(format!(r"^/_matrix/client/v3/rooms/.*/send/{event_type}",))),
-            ..self
-        }
+    pub fn for_type(mut self, event_type: MessageLikeEventType) -> Self {
+        self.endpoint.event_type = Some(event_type);
+        // Note: we may have already defined a path, but this one ought to be
+        // more specialized (unless for_room/for_type were called multiple
+        // times).
+        let path = self.generate_path_regexp();
+        Self { mock: self.mock.and(path_regex(path)), ..self }
+    }
+
+    /// Ensures that the send endpoint request targets a specific room.
+    ///
+    /// This composes with [`Self::for_type`], in any order.
+    ///
+    /// # Examples
+    ///
+    /// see also [`MatrixMockServer::mock_room_send`] for more context.
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::{room_id, event_id}, test_utils::mocks::MatrixMockServer};
+    /// use serde_json::json;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_state_encryption().plain().mount().await;
+    ///
+    /// let room_id = room_id!("!room_id:localhost");
+    /// let room = mock_server.sync_joined_room(&client, room_id).await;
+    /// let other_room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!other_room_id:localhost"))
+    ///     .await;
+    ///
+    /// let event_id = event_id!("$some_id");
+    /// mock_server
+    ///     .mock_room_send()
+    ///     .for_type("m.room.message".into())
+    ///     .for_room(room_id)
+    ///     .ok(event_id)
+    ///     .expect(1)
+    ///     .mount()
+    ///     .await;
+    ///
+    /// let response_not_mocked = other_room.send_raw("m.room.message", json!({ "body": "Hello world" })).await;
+    /// // Sending to another room should not be mocked by the server.
+    /// assert!(response_not_mocked.is_err());
+    ///
+    /// let response_not_mocked = room.send_raw("m.room.reaction", json!({ "body": "Hello world" })).await;
+    /// // The `m.room.reaction` event type should not be mocked by the server.
+    /// assert!(response_not_mocked.is_err());
+    ///
+    /// let result = room.send_raw("m.room.message", json!({ "body": "Hello world" })).await?;
+    /// // The `m.room.message` event type in this room should be mocked by the server.
+    /// assert_eq!(
+    ///     event_id,
+    ///     result.response.event_id,
+    ///     "The event ID we mocked should match the one we received when we sent the event"
+    /// );
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn for_room(mut self, room_id: impl Into<OwnedRoomId>) -> Self {
+        self.endpoint.room_id = Some(room_id.into());
+        // Note: we may have already defined a path, but this one ought to be
+        // more specialized (unless for_room/for_type were called multiple
+        // times).
+        let path = self.generate_path_regexp();
+        Self { mock: self.mock.and(path_regex(path)), ..self }
     }
 
     /// Ensures the event was sent as a delayed event.
@@ -2905,9 +2976,50 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
 /// A prebuilt mock for running sync v2.
 pub struct SyncEndpoint {
     sync_response_builder: Arc<Mutex<SyncResponseBuilder>>,
+    delay: Option<Duration>,
 }
 
 impl<'a> MockEndpoint<'a, SyncEndpoint> {
+    /// Delays the sync response by the given duration, mimicking the
+    /// server-side long-polling.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use std::time::{Duration, Instant};
+    ///
+    /// use matrix_sdk::{ruma::room_id, test_utils::mocks::MatrixMockServer};
+    /// use matrix_sdk_test::JoinedRoomBuilder;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// let delay = Duration::from_millis(100);
+    ///
+    /// mock_server
+    ///     .mock_sync()
+    ///     .with_delay(delay)
+    ///     .ok(|builder| {
+    ///         builder.add_joined_room(JoinedRoomBuilder::new(room_id!("!a:b.c")));
+    ///     })
+    ///     .mount()
+    ///     .await;
+    ///
+    /// let start = Instant::now();
+    /// client.sync_once(Default::default()).await?;
+    ///
+    /// assert!(
+    ///     start.elapsed() >= delay,
+    ///     "The sync response should have been delayed"
+    /// );
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn with_delay(mut self, delay: Duration) -> Self {
+        self.endpoint.delay = Some(delay);
+        self
+    }
+
     /// Expect the given timeout, or lack thereof, in the request.
     pub fn timeout(mut self, timeout: Option<Duration>) -> Self {
         if let Some(timeout) = timeout {
@@ -2940,7 +3052,13 @@ impl<'a> MockEndpoint<'a, SyncEndpoint> {
             builder.build_json_sync_response()
         };
 
-        self.respond_with(ResponseTemplate::new(200).set_body_json(json_response))
+        let mut template = ResponseTemplate::new(200).set_body_json(json_response);
+
+        if let Some(delay) = self.endpoint.delay {
+            template = template.set_delay(delay);
+        }
+
+        self.respond_with(template)
     }
 
     /// Temporarily mocks the sync with the given endpoint and runs a client
