@@ -35,9 +35,7 @@ use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_common::{
     deserialized_responses::EncryptionInfo, executor::spawn, locks::Mutex, timeout::timeout,
 };
-use matrix_sdk_test::{
-    ALICE, BOB, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
-};
+use matrix_sdk_test::{BOB, JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use ruma::{
     OwnedRoomId, device_id, event_id,
     events::{
@@ -514,7 +512,7 @@ async fn test_receive_live_events() {
                     // sender
                     .add_timeline_event(
                         f.member(user_id!("@example:localhost"))
-                            .banned(&ALICE)
+                            .banned(User::Alice)
                             .previous(MembershipState::Join),
                     )
                     // set room topic - doesn't match
