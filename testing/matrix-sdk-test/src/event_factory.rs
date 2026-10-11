@@ -1700,14 +1700,15 @@ impl EventBuilder<RoomMemberEventContent> {
 
     /// Set that the sender of this event invited the user passed as a parameter
     /// here.
-    pub fn invited(mut self, invited_user: &UserId) -> Self {
+    pub fn invited(mut self, invited_user: impl Into<OwnedUserId> + Into<String>) -> Self {
+        let invited_user: String = invited_user.into();
         assert_ne!(
             self.sender.as_deref().unwrap(),
-            invited_user,
+            invited_user.as_str(),
             "invited user and sender can't be the same person"
         );
         self.content.membership = MembershipState::Invite;
-        self.state_key = Some(invited_user.to_string());
+        self.state_key = Some(invited_user);
         self
     }
 

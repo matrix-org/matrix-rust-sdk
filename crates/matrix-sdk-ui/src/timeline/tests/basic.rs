@@ -166,7 +166,9 @@ async fn test_room_member() {
 
     // Bob invites Alice.
     let f = &timeline.factory;
-    timeline.handle_live_event(f.member(User::Bob).invited(&ALICE).display_name("Alice")).await;
+    timeline
+        .handle_live_event(f.member(User::Bob).invited(User::Alice).display_name("Alice"))
+        .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(item.can_be_replied_to());
