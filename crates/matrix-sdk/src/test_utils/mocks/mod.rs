@@ -59,7 +59,7 @@ use ruma::{
     media::Method,
     profile::{ProfileFieldName, ProfileFieldValue},
     push::RuleKind,
-    serde::Raw,
+    serde::{JsonObject, Raw},
     time::Duration,
 };
 use serde::{Deserialize, Serialize};
@@ -1772,6 +1772,27 @@ impl MatrixMockServer {
     ) -> MockEndpoint<'_, GetHomeserverCapabilitiesEndpoint> {
         let mock = Mock::given(method("GET")).and(path("/_matrix/client/v3/capabilities"));
         self.mock_endpoint(mock, GetHomeserverCapabilitiesEndpoint)
+    }
+
+    /// Create a prebuilt mock for the endpoint used to deactivate an account
+    /// with the given parameters.
+    pub fn mock_deactivate_account(
+        &self,
+        id_server: Option<&str>,
+        erase: bool,
+    ) -> MockEndpoint<'_, DeactivateAccountEndpoint> {
+        let mut body = JsonObject::new();
+        if let Some(id_server) = id_server {
+            body.insert("id_server".to_owned(), id_server.into());
+        }
+        if erase {
+            body.insert("erase".to_owned(), erase.into());
+        }
+
+        let mock = Mock::given(method("POST"))
+            .and(path("/_matrix/client/v3/account/deactivate"))
+            .and(body_json(body));
+        self.mock_endpoint(mock, DeactivateAccountEndpoint)
     }
 }
 
@@ -5346,6 +5367,18 @@ impl<'a> MockEndpoint<'a, GetHomeserverCapabilitiesEndpoint> {
     pub fn ok_with_capabilities(self, capabilities: Capabilities) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "capabilities": capabilities,
+        })))
+    }
+}
+
+/// A prebuilt mock for `POST /_matrix/client/*/account/deactivate`.
+pub struct DeactivateAccountEndpoint;
+
+impl<'a> MockEndpoint<'a, DeactivateAccountEndpoint> {
+    /// Returns a successful response with a successful 3PID unbind.
+    pub fn ok_with_success(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id_server_unbind_result": "success",
         })))
     }
 }
