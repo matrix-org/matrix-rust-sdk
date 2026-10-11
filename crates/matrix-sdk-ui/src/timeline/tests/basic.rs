@@ -248,8 +248,8 @@ async fn test_room_member() {
 
     timeline
         .handle_live_event(f.redacted_state(
-            &ALICE,
-            ALICE.as_str(),
+            User::Alice,
+            User::Alice.as_str(),
             RedactedRoomMemberEventContent::new(MembershipState::Join),
         ))
         .await;
@@ -279,7 +279,7 @@ async fn test_other_state() {
     assert!(date_divider.is_date_divider());
 
     timeline
-        .handle_live_event(f.redacted_state(&ALICE, "", RedactedRoomTopicEventContent::new()))
+        .handle_live_event(f.redacted_state(User::Alice, "", RedactedRoomTopicEventContent::new()))
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
