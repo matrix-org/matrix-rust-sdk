@@ -736,8 +736,7 @@ async fn test_is_direct() {
 
     // Mock the sync response we should get from the homeserver.
     let f = EventFactory::new();
-    sync_builder
-        .add_global_account_data(f.direct().add_user(User::Bob.into(), *DEFAULT_TEST_ROOM_ID));
+    sync_builder.add_global_account_data(f.direct().add_user(User::Bob, *DEFAULT_TEST_ROOM_ID));
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
@@ -846,7 +845,7 @@ async fn test_is_dm_using_matrix_spec() {
     // We mock the m.direct account data with a single target for the room id
     let direct_data = EventFactory::new()
         .direct()
-        .add_user(alice_user_id.to_owned().into(), room_id)
+        .add_user(alice_user_id, room_id)
         .into_raw::<AnyGlobalAccountDataEvent>();
     server
         .mock_sync()
@@ -889,7 +888,7 @@ async fn test_is_dm_using_at_most_two_members_definition() {
     // We mock the m.direct account data with a single target for the room id
     let direct_data = EventFactory::new()
         .direct()
-        .add_user(alice_user_id.to_owned().into(), room_id)
+        .add_user(alice_user_id, room_id)
         .into_raw::<AnyGlobalAccountDataEvent>();
     server
         .mock_sync()

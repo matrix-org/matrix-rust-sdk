@@ -1612,9 +1612,7 @@ async fn test_dms_are_processed_in_any_sync_response() {
     let f = EventFactory::new();
     let mut sync_response_builder = SyncResponseBuilder::new();
     sync_response_builder.add_global_account_data(
-        f.direct()
-            .add_user(user_a_id.to_owned().into(), room_id_1)
-            .add_user(user_b_id.to_owned().into(), room_id_2),
+        f.direct().add_user(user_a_id, room_id_1).add_user(user_b_id, room_id_2),
     );
     sync_response_builder.add_joined_room(joined_room_builder);
     let json_response = sync_response_builder.build_json_sync_response();
