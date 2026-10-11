@@ -1737,14 +1737,15 @@ impl EventBuilder<RoomMemberEventContent> {
 
     /// Set that the sender of this event banned the user passed as a parameter
     /// here.
-    pub fn banned(mut self, banned_user: &UserId) -> Self {
+    pub fn banned(mut self, banned_user: impl Into<OwnedUserId> + Into<String>) -> Self {
+        let banned_user: String = banned_user.into();
         assert_ne!(
             self.sender.as_deref().unwrap(),
-            banned_user,
+            banned_user.as_str(),
             "a user can't ban itself" // hopefully
         );
         self.content.membership = MembershipState::Ban;
-        self.state_key = Some(banned_user.to_string());
+        self.state_key = Some(banned_user);
         self
     }
 
