@@ -985,16 +985,17 @@ impl EventFactory {
     ///     .display_name("Alice")
     ///     .into_raw();
     /// ```
-    pub fn member(&self, member: &UserId) -> EventBuilder<RoomMemberEventContent> {
+    pub fn member(&self, member: impl Into<OwnedUserId>) -> EventBuilder<RoomMemberEventContent> {
+        let member = member.into();
         let mut event = self.event(RoomMemberEventContent::new(MembershipState::Join));
 
         if self.sender.is_some() {
             event.sender = self.sender.clone();
         } else {
-            event.sender = Some(member.to_owned());
+            event.sender = Some(member.clone());
         }
 
-        event.state_key = Some(member.to_string());
+        event.state_key = Some(member.into());
 
         event
     }
