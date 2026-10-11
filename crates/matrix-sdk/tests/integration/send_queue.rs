@@ -3378,6 +3378,7 @@ async fn test_media_upload_with_extra_content() {
     assert_eq!(body["info"]["mimetype"], json!("image/jpeg"));
 }
 
+#[cfg(feature = "sqlite")]
 #[async_test]
 async fn test_media_upload_with_duplicate_mxc() {
     // A homeserver that deduplicates uploads (e.g. matrix-media-repo) returns
