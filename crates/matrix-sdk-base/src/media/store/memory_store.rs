@@ -141,10 +141,11 @@ impl MediaStore for MemoryMediaStore {
             return Ok(());
         }
 
-        // If 'to' is already cached, drop it first, and store the new one instead of having two
-        // entries with the same key.
-        if new_key != expected_key && let Some(index) =
-            inner.media.iter().position(|media_content| media_content.key == new_key)
+        // If 'to' is already cached, drop it first, and store the new one
+        // instead of having two entries with the same key.
+        if new_key != expected_key
+            && let Some(index) =
+                inner.media.iter().position(|media_content| media_content.key == new_key)
         {
             inner.media.remove(index);
         }
