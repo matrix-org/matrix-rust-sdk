@@ -203,7 +203,7 @@ async fn test_update_sender_profiles() {
                 .add_timeline_event(f.text_msg("text message event").sender(User::Bob))
                 // Carol kicks bob
                 .add_timeline_event(
-                    f.member(User::Carol).kicked(&BOB).previous(MembershipState::Join),
+                    f.member(User::Carol).kicked(User::Bob).previous(MembershipState::Join),
                 ),
         )
         .await;
@@ -262,7 +262,7 @@ async fn test_update_sender_profiles() {
                 .membership(MembershipState::Join)
                 .previous(MembershipState::Invite)
                 .into_raw(),
-            f.member(User::Carol).kicked(&BOB).previous(MembershipState::Join).into_raw(),
+            f.member(User::Carol).kicked(User::Bob).previous(MembershipState::Join).into_raw(),
         ])
         .mount()
         .await;

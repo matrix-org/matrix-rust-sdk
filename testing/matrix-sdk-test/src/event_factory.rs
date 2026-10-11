@@ -1723,14 +1723,15 @@ impl EventBuilder<RoomMemberEventContent> {
 
     /// Set that the sender of this event kicked the user passed as a parameter
     /// here.
-    pub fn kicked(mut self, kicked_user: &UserId) -> Self {
+    pub fn kicked(mut self, kicked_user: impl Into<OwnedUserId> + Into<String>) -> Self {
+        let kicked_user: String = kicked_user.into();
         assert_ne!(
             self.sender.as_deref().unwrap(),
-            kicked_user,
+            kicked_user.as_str(),
             "kicked user and sender can't be the same person, otherwise it's just a Leave"
         );
         self.content.membership = MembershipState::Leave;
-        self.state_key = Some(kicked_user.to_string());
+        self.state_key = Some(kicked_user);
         self
     }
 
