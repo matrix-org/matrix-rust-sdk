@@ -247,8 +247,8 @@ impl<E: StaticEventContent<IsPrefix = False>> EventBuilder<E> {
         self
     }
 
-    pub fn sender(mut self, sender: &UserId) -> Self {
-        self.sender = Some(sender.to_owned());
+    pub fn sender(mut self, sender: impl Into<OwnedUserId>) -> Self {
+        self.sender = Some(sender.into());
         self
     }
 

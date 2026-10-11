@@ -19,7 +19,7 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_common::executor::spawn;
-use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{BOB, JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails};
 use ruma::{
     event_id,
@@ -56,13 +56,13 @@ async fn test_batched() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("text message event").sender(&ALICE))
+                .add_timeline_event(f.text_msg("text message event").sender(User::Alice))
                 .add_timeline_event(
                     f.member(&BOB)
                         .membership(MembershipState::Join)
                         .previous(MembershipState::Invite),
                 )
-                .add_timeline_event(f.notice("notice message event").sender(&BOB)),
+                .add_timeline_event(f.notice("notice message event").sender(User::Bob)),
         )
         .await;
 

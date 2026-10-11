@@ -23,7 +23,9 @@ use matrix_sdk::{
         MatrixMockServer, RoomContextResponseTemplate, RoomRelationsResponseTemplate,
     },
 };
-use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{
+    ALICE, BOB, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
+};
 use matrix_sdk_ui::timeline::{
     EventSendState, RoomExt as _, TimelineBuilder, TimelineDetails, TimelineEventFocusThreadMode,
     TimelineEventItemId, TimelineFocus, VirtualTimelineItem,
@@ -326,7 +328,7 @@ async fn test_redact_thread_root_keeps_thread_summary() {
     let reply_event = f
         .text_msg("the last reply")
         .event_id(latest_event_id)
-        .sender(&BOB)
+        .sender(User::Bob)
         .into_raw_sync()
         .cast_unchecked();
 
@@ -358,7 +360,7 @@ async fn test_redact_thread_root_keeps_thread_summary() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.redaction(thread_event_id).sender(&ALICE)),
+                .add_timeline_event(f.redaction(thread_event_id).sender(User::Alice)),
         )
         .await;
 
@@ -398,7 +400,7 @@ async fn test_already_redacted_thread_root_keeps_bundled_thread_summary() {
     let reply_event = f
         .text_msg("the last reply")
         .event_id(latest_event_id)
-        .sender(&BOB)
+        .sender(User::Bob)
         .into_raw_sync()
         .cast_unchecked();
 
@@ -471,7 +473,7 @@ async fn test_new_thread_reply_causes_thread_summary_update() {
     let reply_event_id = event_id!("$thread_reply");
     let event = f
         .text_msg("thread reply")
-        .sender(&BOB)
+        .sender(User::Bob)
         .in_thread(thread_event_id, thread_event_id)
         .event_id(reply_event_id);
 
@@ -518,7 +520,7 @@ async fn test_new_thread_reply_causes_thread_summary_update() {
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
                 f.text_msg("another thread reply")
-                    .sender(&BOB)
+                    .sender(User::Bob)
                     .in_thread(thread_event_id, reply_event_id)
                     .event_id(another_reply_event_id),
             ),
@@ -595,7 +597,7 @@ async fn test_thread_msg_edit_reflects_in_summary() {
                 )
                 .add_timeline_event(
                     f.text_msg("threaded reply")
-                        .sender(&BOB)
+                        .sender(User::Bob)
                         .in_thread(thread_event_id, thread_event_id)
                         .event_id(reply_event_id),
                 ),
@@ -663,7 +665,7 @@ async fn test_thread_msg_edit_reflects_in_summary() {
                         reply_event_id,
                         RoomMessageEventContentWithoutRelation::text_plain("edited threaded reply"),
                     )
-                    .sender(&BOB)
+                    .sender(User::Bob)
                     .event_id(edit_reply_event_id),
             ),
         )
@@ -734,7 +736,7 @@ async fn test_thread_poll_edit_reflects_in_summary() {
                         "What's your favorite colour?",
                         vec!["Red", "Green", "Blue"],
                     )
-                    .sender(&BOB)
+                    .sender(User::Bob)
                     .in_thread(thread_event_id, thread_event_id)
                     .event_id(reply_event_id),
                 )
@@ -746,7 +748,7 @@ async fn test_thread_poll_edit_reflects_in_summary() {
                         "What's your favourite colour?",
                         vec!["Red", "Green", "Blue", "Yellow"],
                     )
-                    .sender(&BOB)
+                    .sender(User::Bob)
                     .event_id(edit_reply_event_id),
                 ),
         )

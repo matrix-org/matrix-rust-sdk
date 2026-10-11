@@ -24,7 +24,7 @@ use matrix_sdk_base::{
     deserialized_responses::{DecryptedRoomEvent, TimelineEvent},
     store::QueueWedgeError,
 };
-use matrix_sdk_test::{ALICE, BOB, async_test};
+use matrix_sdk_test::{ALICE, User, async_test};
 use ruma::{
     EventId, event_id,
     events::{
@@ -58,7 +58,7 @@ async fn test_live_redacted() {
     timeline
         .handle_live_event(
             f.text_msg(" * test")
-                .sender(&ALICE)
+                .sender(User::Alice)
                 .edit(redacted_event_id, MessageType::text_plain("test").into()),
         )
         .await;
@@ -77,7 +77,8 @@ async fn test_live_sanitized() {
     let f = &timeline.factory;
     timeline
         .handle_live_event(
-            f.text_html("**original** message", "<strong>original</strong> message").sender(&ALICE),
+            f.text_html("**original** message", "<strong>original</strong> message")
+                .sender(User::Alice),
         )
         .await;
 
@@ -98,7 +99,7 @@ async fn test_live_sanitized() {
     timeline
         .handle_live_event(
             f.text_html(format!("* {new_plain_content}"), format!("* {new_html_content}"))
-                .sender(&ALICE)
+                .sender(User::Alice)
                 .edit(
                     first_event_id,
                     MessageType::text_html(new_plain_content, new_html_content).into(),
@@ -375,7 +376,7 @@ async fn test_updated_reply_doesnt_lose_latest_edit() {
 
     // Start with a message event.
     let target = event_id!("$1");
-    timeline.handle_live_event(f.text_msg("hey").sender(&ALICE).event_id(target)).await;
+    timeline.handle_live_event(f.text_msg("hey").sender(User::Alice).event_id(target)).await;
 
     {
         let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -387,7 +388,7 @@ async fn test_updated_reply_doesnt_lose_latest_edit() {
     // Have someone send a reply.
     let reply = event_id!("$2");
     timeline
-        .handle_live_event(f.text_msg("hallo").sender(&BOB).reply_to(target).event_id(reply))
+        .handle_live_event(f.text_msg("hallo").sender(User::Bob).reply_to(target).event_id(reply))
         .await;
 
     {
@@ -401,7 +402,7 @@ async fn test_updated_reply_doesnt_lose_latest_edit() {
     timeline
         .handle_live_event(
             f.text_msg("* guten tag")
-                .sender(&BOB)
+                .sender(User::Bob)
                 .edit(reply, MessageType::text_plain("guten tag").into()),
         )
         .await;
@@ -417,7 +418,7 @@ async fn test_updated_reply_doesnt_lose_latest_edit() {
     timeline
         .handle_live_event(
             f.text_msg("* hello")
-                .sender(&ALICE)
+                .sender(User::Alice)
                 .edit(target, MessageType::text_plain("hello").into()),
         )
         .await;

@@ -264,7 +264,7 @@ async fn test_other_state() {
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
-    timeline.handle_live_event(f.room_name("Alice's room").sender(&ALICE)).await;
+    timeline.handle_live_event(f.room_name("Alice's room").sender(User::Alice)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_let!(TimelineItemContent::OtherState(ev) = item.as_event().unwrap().content());
@@ -417,7 +417,7 @@ async fn test_sanitized() {
                     <code unknown=\"code\">Some code</code>\
                 ",
             )
-            .sender(&ALICE),
+            .sender(User::Alice),
         )
         .await;
 
@@ -444,7 +444,7 @@ async fn test_reply() {
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
-    timeline.handle_live_event(f.text_msg("I want you to reply").sender(&ALICE)).await;
+    timeline.handle_live_event(f.text_msg("I want you to reply").sender(User::Alice)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let first_event = item.as_event().unwrap();
@@ -475,7 +475,9 @@ async fn test_reply() {
 
     timeline
         .handle_live_event(
-            f.text_html(reply_plain, reply_formatted_body).reply_to(first_event_id).sender(&BOB),
+            f.text_html(reply_plain, reply_formatted_body)
+                .reply_to(first_event_id)
+                .sender(User::Bob),
         )
         .await;
 
@@ -504,7 +506,7 @@ async fn test_thread() {
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
-    timeline.handle_live_event(f.text_msg("I want you to reply").sender(&ALICE)).await;
+    timeline.handle_live_event(f.text_msg("I want you to reply").sender(User::Alice)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let first_event = item.as_event().unwrap();
@@ -516,7 +518,7 @@ async fn test_thread() {
     timeline
         .handle_live_event(
             f.text_msg("I'm replying in a thread")
-                .sender(&BOB)
+                .sender(User::Bob)
                 .in_thread(first_event_id, first_event_id),
         )
         .await;

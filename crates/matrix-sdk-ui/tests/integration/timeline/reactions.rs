@@ -17,7 +17,7 @@ use std::{assert_matches, time::Duration};
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
-use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{EventSendState, RoomExt as _};
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
 use strass::assert_let;
@@ -49,7 +49,7 @@ async fn test_abort_before_being_sent() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(event_id)),
+                .add_timeline_event(f.text_msg("hello").sender(User::Alice).event_id(event_id)),
         )
         .await;
 
@@ -212,7 +212,7 @@ async fn test_redact_failed() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(event_id))
+                .add_timeline_event(f.text_msg("hello").sender(User::Alice).event_id(event_id))
                 .add_timeline_event(f.reaction(event_id, "😆").sender(user_id)),
         )
         .await;

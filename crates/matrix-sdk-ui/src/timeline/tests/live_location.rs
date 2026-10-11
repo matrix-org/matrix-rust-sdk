@@ -775,7 +775,7 @@ async fn test_reaction_on_live_location_item() {
     assert!(item.reactions().is_empty());
 
     // BOB reacts to the live location item.
-    timeline.handle_live_event(timeline.factory.reaction(beacon_id, "👍").sender(&BOB)).await;
+    timeline.handle_live_event(timeline.factory.reaction(beacon_id, "👍").sender(User::Bob)).await;
 
     // The item is updated in-place with the reaction applied.
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
@@ -812,13 +812,15 @@ async fn test_multiple_reactions_on_live_location_item() {
     let _item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
     // ALICE and BOB both react, with different keys.
-    timeline.handle_live_event(timeline.factory.reaction(beacon_id, "👍").sender(&ALICE)).await;
+    timeline
+        .handle_live_event(timeline.factory.reaction(beacon_id, "👍").sender(User::Alice))
+        .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     let reactions = item.reactions();
     assert_eq!(reactions.len(), 1);
     assert!(reactions.get("👍").unwrap().get(&User::Alice).is_some());
 
-    timeline.handle_live_event(timeline.factory.reaction(beacon_id, "❤️").sender(&BOB)).await;
+    timeline.handle_live_event(timeline.factory.reaction(beacon_id, "❤️").sender(User::Bob)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
 
     let reactions = item.reactions();
@@ -838,7 +840,7 @@ async fn test_reaction_before_live_location_item_is_applied_when_parent_arrives(
     let beacon_id = event_id!("$beacon_info:example.org");
 
     // Reaction arrives before the beacon_info.
-    timeline.handle_live_event(timeline.factory.reaction(beacon_id, "👍").sender(&BOB)).await;
+    timeline.handle_live_event(timeline.factory.reaction(beacon_id, "👍").sender(User::Bob)).await;
 
     // Nothing visible yet — no parent item to attach to.
     assert_pending!(stream);
@@ -903,7 +905,9 @@ async fn test_local_reaction_on_live_location_item() {
     assert_matches!(&reaction.send_state, Some(EventSendState::NotSentYet { .. }));
 
     // Receive the remote echo from sync.
-    timeline.handle_live_event(timeline.factory.reaction(beacon_id, "👍").sender(&ALICE)).await;
+    timeline
+        .handle_live_event(timeline.factory.reaction(beacon_id, "👍").sender(User::Alice))
+        .await;
 
     // The item is updated once more — now the reaction is a confirmed remote
     // echo.

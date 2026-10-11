@@ -436,7 +436,7 @@ async fn test_read_receipts_updates_on_message_decryption() {
         .unwrap();
     let (_, mut stream) = timeline.subscribe().await;
 
-    let event = event_factory.notice("I am not encrypted").sender(&CAROL);
+    let event = event_factory.notice("I am not encrypted").sender(User::Carol);
     let encrypted_event = event_factory
         .event(RoomEncryptedEventContent::new(
             EncryptedEventScheme::MegolmV1AesSha2(
@@ -457,7 +457,7 @@ async fn test_read_receipts_updates_on_message_decryption() {
             ),
             None,
         ))
-        .sender(&BOB);
+        .sender(User::Bob);
 
     server
         .mock_sync()

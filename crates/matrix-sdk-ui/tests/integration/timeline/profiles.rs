@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    ALICE, BOB, CAROL, DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, async_test,
+    ALICE, BOB, CAROL, DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, User, async_test,
     event_factory::{EventFactory, PreviousMembership},
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails};
@@ -60,12 +60,12 @@ async fn test_user_profile_after_being_banned() {
                         .previous(MembershipState::Invite),
                 )
                 // Bob sends a text message
-                .add_timeline_event(f.text_msg("hey!").sender(&BOB))
+                .add_timeline_event(f.text_msg("hey!").sender(User::Bob))
                 // Alice send some insults and gets banned
-                .add_timeline_event(f.text_msg("*insults*").sender(&ALICE))
-                .add_timeline_event(f.text_msg("Nope. You are out.").sender(&BOB))
+                .add_timeline_event(f.text_msg("*insults*").sender(User::Alice))
+                .add_timeline_event(f.text_msg("Nope. You are out.").sender(User::Bob))
                 .add_timeline_event(
-                    f.member(&ALICE).membership(MembershipState::Ban).sender(&BOB).previous(
+                    f.member(&ALICE).membership(MembershipState::Ban).sender(User::Bob).previous(
                         PreviousMembership::new(MembershipState::Join)
                             .display_name("*profanities*")
                             .avatar_url("mxc://456".into()),
@@ -129,9 +129,9 @@ async fn test_user_profile_after_leaving() {
                         .previous(MembershipState::Invite),
                 )
                 // Bob sends a text message
-                .add_timeline_event(f.text_msg("hey!").sender(&BOB))
+                .add_timeline_event(f.text_msg("hey!").sender(User::Bob))
                 // Alice send a message and leaves the room
-                .add_timeline_event(f.text_msg("bye now").sender(&ALICE))
+                .add_timeline_event(f.text_msg("bye now").sender(User::Alice))
                 .add_timeline_event(
                     f.member(&ALICE).membership(MembershipState::Leave).previous(
                         PreviousMembership::new(MembershipState::Join)
@@ -197,7 +197,7 @@ async fn test_update_sender_profiles() {
                         .previous(MembershipState::Invite),
                 )
                 // Bob sends a text message
-                .add_timeline_event(f.text_msg("text message event").sender(&BOB))
+                .add_timeline_event(f.text_msg("text message event").sender(User::Bob))
                 // Carol kicks bob
                 .add_timeline_event(f.member(&CAROL).kicked(&BOB).previous(MembershipState::Join)),
         )
