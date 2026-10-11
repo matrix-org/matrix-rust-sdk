@@ -6,7 +6,7 @@ use matrix_sdk::deserialized_responses::{
     AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, VerificationState,
 };
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
-use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, User, async_test, event_factory::EventFactory};
 use ruma::{
     event_id,
     events::{
@@ -33,7 +33,7 @@ async fn test_no_shield_in_unencrypted_room() {
     let mut stream = timeline.subscribe().await;
     let f = &timeline.factory;
 
-    timeline.handle_live_event(f.text_msg("Unencrypted message.").sender(&ALICE)).await;
+    timeline.handle_live_event(f.text_msg("Unencrypted message.").sender(User::Alice)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let shield = item.as_event().unwrap().get_shield(false);
@@ -46,7 +46,7 @@ async fn test_sent_in_clear_shield() {
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
-    timeline.handle_live_event(f.text_msg("Unencrypted message.").sender(&ALICE)).await;
+    timeline.handle_live_event(f.text_msg("Unencrypted message.").sender(User::Alice)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let shield = item.as_event().unwrap().get_shield(false);
@@ -150,7 +150,7 @@ async fn test_live_location_no_sent_in_clear_shield() {
     let event = timeline
         .factory
         .beacon_info(None, Duration::from_secs(3600), true, None)
-        .sender(&ALICE)
+        .sender(User::Alice)
         .state_key(&**ALICE)
         .event_id(beacon_id);
     timeline.handle_live_event(event).await;
@@ -176,7 +176,7 @@ async fn test_live_location_no_sent_in_clear_shield() {
     let encrypted_beacon_raw = timeline
         .factory
         .beacon(beacon_id.to_owned(), 48.8566, 2.3522, 20, Some(ts_enc))
-        .sender(&ALICE)
+        .sender(User::Alice)
         .room(&DEFAULT_TEST_ROOM_ID)
         .into_raw_timeline();
 
@@ -212,8 +212,10 @@ async fn test_live_location_no_sent_in_clear_shield() {
 
     // Send a beacon location update (plain-text, no encryption info).
     let ts = ruma::MilliSecondsSinceUnixEpoch(ruma::uint!(1_000_000));
-    let beacon_event =
-        timeline.factory.beacon(beacon_id.to_owned(), 51.5008, 0.1247, 35, Some(ts)).sender(&ALICE);
+    let beacon_event = timeline
+        .factory
+        .beacon(beacon_id.to_owned(), 51.5008, 0.1247, 35, Some(ts))
+        .sender(User::Alice);
     timeline.handle_live_event(beacon_event).await;
 
     // A beacon arrived without encryption → shield should be SentInClear.
@@ -256,7 +258,7 @@ async fn test_utd_shield() {
                 ),
                 None,
             ))
-            .sender(&ALICE)
+            .sender(User::Alice)
             .into_utd_sync_timeline_event(),
         )
         .await;

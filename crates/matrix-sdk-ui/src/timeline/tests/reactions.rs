@@ -20,7 +20,7 @@ use futures_util::{FutureExt as _, StreamExt as _};
 use imbl::vector;
 use matrix_sdk::assert_next_matches_with_timeout;
 use matrix_sdk_base::store::QueueWedgeError;
-use matrix_sdk_test::{ALICE, BOB, User, async_test};
+use matrix_sdk_test::{ALICE, User, async_test};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, event_id,
     events::{AnyMessageLikeEventContent, reaction::ReactionEventContent, relation::Annotation},
@@ -158,7 +158,9 @@ async fn test_redact_reaction_success() {
     // A reaction is added by sync.
     let reaction_id = event_id!("$reaction_id");
     timeline
-        .handle_live_event(f.reaction(&event_id, REACTION_KEY).sender(&ALICE).event_id(reaction_id))
+        .handle_live_event(
+            f.reaction(&event_id, REACTION_KEY).sender(User::Alice).event_id(reaction_id),
+        )
         .await;
     assert_reaction_is_updated!(stream, &event_id, item_pos, true);
 
@@ -246,9 +248,11 @@ async fn test_reaction_on_a_state_event() {
     let state_event_id = EventId::new_v1(server_name!("dummy.server"));
 
     timeline
-        .handle_live_event(f.room_name("Alice's room").sender(&ALICE).event_id(&state_event_id))
+        .handle_live_event(
+            f.room_name("Alice's room").sender(User::Alice).event_id(&state_event_id),
+        )
         .await;
-    timeline.handle_live_event(f.reaction(&state_event_id, REACTION_KEY).sender(&BOB)).await;
+    timeline.handle_live_event(f.reaction(&state_event_id, REACTION_KEY).sender(User::Bob)).await;
 
     let items = timeline.controller.items().await;
     let item = items.last().unwrap().as_event().unwrap();
@@ -264,7 +268,9 @@ async fn send_first_message(
     timeline: &TestTimeline,
     stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
 ) -> (TimelineEventItemId, OwnedEventId, usize) {
-    timeline.handle_live_event(timeline.factory.text_msg("I want you to react").sender(&BOB)).await;
+    timeline
+        .handle_live_event(timeline.factory.text_msg("I want you to react").sender(User::Bob))
+        .await;
 
     let item = assert_next_matches!(*stream, VectorDiff::PushBack { value } => value);
     let event_item = item.as_event().unwrap();
@@ -287,10 +293,10 @@ async fn test_reinserted_item_keeps_reactions() {
 
     // We receive an initial update with one event and a reaction to this event.
     let reaction_target = event_id!("$1");
-    let target_event = f.text_msg("hey").sender(&BOB).event_id(reaction_target).into_event();
+    let target_event = f.text_msg("hey").sender(User::Bob).event_id(reaction_target).into_event();
     let reaction_event = f
         .reaction(reaction_target, REACTION_KEY)
-        .sender(&ALICE)
+        .sender(User::Alice)
         .event_id(event_id!("$2"))
         .into_event();
 

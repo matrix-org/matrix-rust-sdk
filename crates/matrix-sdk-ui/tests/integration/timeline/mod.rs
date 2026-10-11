@@ -101,8 +101,12 @@ async fn test_timeline_is_threaded() {
         // threaded when no context is requested.
         let f = EventFactory::new();
         let event_id = event_id!("$target1");
-        let event =
-            f.text_msg("hello world").event_id(event_id).room(room_id).sender(&ALICE).into_event();
+        let event = f
+            .text_msg("hello world")
+            .event_id(event_id)
+            .room(room_id)
+            .sender(User::Alice)
+            .into_event();
         server
             .mock_room_event_context()
             .match_event_id()
@@ -134,7 +138,7 @@ async fn test_timeline_is_threaded() {
             .event_id(event_id)
             .in_thread(thread_root, thread_root)
             .room(room_id)
-            .sender(&ALICE)
+            .sender(User::Alice)
             .into_event();
 
         server
@@ -166,7 +170,7 @@ async fn test_timeline_is_threaded() {
             .text_msg("hey to you too")
             .event_id(event_id)
             .room(room_id)
-            .sender(&ALICE)
+            .sender(User::Alice)
             .into_event();
 
         server
@@ -197,7 +201,7 @@ async fn test_timeline_is_threaded() {
             .text_msg("hello world")
             .event_id(event_id!("$target4"))
             .room(room_id)
-            .sender(&ALICE)
+            .sender(User::Alice)
             .into_event();
         server
             .mock_room_event_context()
@@ -228,7 +232,7 @@ async fn test_timeline_is_threaded() {
             .event_id(event_id!("$target5"))
             .in_thread(thread_root, thread_root)
             .room(room_id)
-            .sender(&ALICE)
+            .sender(User::Alice)
             .into_event();
 
         server
@@ -258,7 +262,7 @@ async fn test_timeline_is_threaded() {
             .text_msg("hey to you too")
             .event_id(event_id!("$target6"))
             .room(room_id)
-            .sender(&ALICE)
+            .sender(User::Alice)
             .into_event();
 
         server
@@ -312,9 +316,9 @@ async fn test_reaction() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(msg_event_id))
+                .add_timeline_event(f.text_msg("hello").sender(User::Alice).event_id(msg_event_id))
                 .add_timeline_event(
-                    f.reaction(msg_event_id, "👍").sender(&BOB).event_id(reaction_event_id),
+                    f.reaction(msg_event_id, "👍").sender(User::Bob).event_id(reaction_event_id),
                 ),
         )
         .await;
@@ -360,7 +364,7 @@ async fn test_reaction() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.redaction(reaction_event_id).sender(&BOB)),
+                .add_timeline_event(f.redaction(reaction_event_id).sender(User::Bob)),
         )
         .await;
 
@@ -398,7 +402,7 @@ async fn test_redacted_message() {
                 .add_timeline_event(
                     f.redacted(*ALICE, RedactedRoomMessageEventContent::new()).event_id(event_id),
                 )
-                .add_timeline_event(f.redaction(event_id).sender(&ALICE)),
+                .add_timeline_event(f.redaction(event_id).sender(User::Alice)),
         )
         .await;
 
@@ -629,7 +633,9 @@ async fn test_read_marker() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
-                f.text_msg("hello").sender(&ALICE).event_id(event_id!("$someplace:example.org")),
+                f.text_msg("hello")
+                    .sender(User::Alice)
+                    .event_id(event_id!("$someplace:example.org")),
             ),
         )
         .await;
@@ -660,7 +666,7 @@ async fn test_read_marker() {
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
                 f.text_msg("hello to you!")
-                    .sender(&BOB)
+                    .sender(User::Bob)
                     .event_id(event_id!("$someotherplace:example.org")),
             ),
         )
@@ -705,7 +711,7 @@ async fn test_sync_highlighted() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
-                f.text_msg("hello").sender(&ALICE).event_id(event_id!("$msda7m0df9E9op3")),
+                f.text_msg("hello").sender(User::Alice).event_id(event_id!("$msda7m0df9E9op3")),
             ),
         )
         .await;
@@ -726,7 +732,7 @@ async fn test_sync_highlighted() {
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
                 f.room_tombstone("This room has been replaced", room_id!("!newroom:localhost"))
-                    .sender(&BOB),
+                    .sender(User::Bob),
             ),
         )
         .await;

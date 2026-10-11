@@ -171,7 +171,7 @@ async fn test_events_received_before_start_are_not_lost() {
     timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
 
     // Now the start event arrives
-    let start_ev = poll_a2(&timeline.factory).sender(&ALICE).event_id(&poll_id);
+    let start_ev = poll_a2(&timeline.factory).sender(User::Alice).event_id(&poll_id);
     timeline.handle_live_event(start_ev).await;
 
     // Now Bob votes again but his vote won't count
@@ -234,7 +234,7 @@ async fn test_poll_contains_relations() {
 
     let poll_start = poll_a2(&timeline.factory)
         .in_thread(thread_root_id, in_reply_to_id)
-        .sender(&ALICE)
+        .sender(User::Alice)
         .event_id(event_id!("$poll"));
 
     timeline.handle_live_event(poll_start).await;

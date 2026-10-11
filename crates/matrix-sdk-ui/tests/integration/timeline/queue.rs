@@ -19,7 +19,7 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{Error, assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_base::store::QueueWedgeError;
-use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{EventItemOrigin, EventSendState, RoomExt};
 use ruma::{
     MilliSecondsSinceUnixEpoch, event_id, events::room::message::RoomMessageEventContent, room_id,
@@ -289,7 +289,7 @@ async fn test_clear_with_echoes() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("another message").sender(&ALICE)),
+                .add_timeline_event(f.text_msg("another message").sender(User::Alice)),
         )
         .await;
 
