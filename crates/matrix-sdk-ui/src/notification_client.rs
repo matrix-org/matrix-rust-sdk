@@ -1323,7 +1323,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
-    use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{User, async_test, event_factory::EventFactory};
     use ruma::{
         api::client::sync::sync_events::v5,
         assign, event_id,
@@ -1439,7 +1439,7 @@ mod tests {
         let redacted_event = EventFactory::new()
             .room(room_id)
             .sender(user_id!("@sender:b.c"))
-            .redacted(&ALICE, RedactedRoomMessageEventContent::new())
+            .redacted(User::Alice, RedactedRoomMessageEventContent::new())
             .event_id(&event_id)
             .into_raw();
         let mut room = v5::response::Room::new();

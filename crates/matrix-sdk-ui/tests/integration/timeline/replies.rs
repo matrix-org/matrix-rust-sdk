@@ -1266,7 +1266,7 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
     let redacted_event_id_from_bob = event_id!("$event_from_bob");
     let f = EventFactory::new();
     let event_from_bob = f
-        .redacted(&BOB, RedactedReactionEventContent::new())
+        .redacted(User::Bob, RedactedReactionEventContent::new())
         .event_id(redacted_event_id_from_bob)
         .into_event();
     server

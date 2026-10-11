@@ -410,7 +410,7 @@ async fn test_already_redacted_thread_root_keeps_bundled_thread_summary() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
-                f.redacted(&ALICE, RedactedRoomMessageEventContent::new())
+                f.redacted(User::Alice, RedactedRoomMessageEventContent::new())
                     .event_id(thread_event_id)
                     .with_bundled_thread_summary(reply_event, 42, false),
             ),

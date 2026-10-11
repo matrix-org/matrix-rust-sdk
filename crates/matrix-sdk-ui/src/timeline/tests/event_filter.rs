@@ -17,7 +17,7 @@ use std::sync::Arc;
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::deserialized_responses::TimelineEvent;
-use matrix_sdk_test::{ALICE, User, async_test, sync_timeline_event};
+use matrix_sdk_test::{User, async_test, sync_timeline_event};
 use ruma::{
     events::{
         AnySyncTimelineEvent, MessageLikeEventType, StateEventType, TimelineEventType,
@@ -104,7 +104,9 @@ async fn test_filter_always_false() {
     let f = &timeline.factory;
     timeline.handle_live_event(f.text_msg("The first message").sender(User::Alice)).await;
 
-    timeline.handle_live_event(f.redacted(&ALICE, RedactedRoomMessageEventContent::new())).await;
+    timeline
+        .handle_live_event(f.redacted(User::Alice, RedactedRoomMessageEventContent::new()))
+        .await;
 
     timeline.handle_live_event(f.member(User::Alice).membership(MembershipState::Join)).await;
 
@@ -130,7 +132,9 @@ async fn test_custom_filter() {
     let _item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let _date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
 
-    timeline.handle_live_event(f.redacted(&ALICE, RedactedRoomMessageEventContent::new())).await;
+    timeline
+        .handle_live_event(f.redacted(User::Alice, RedactedRoomMessageEventContent::new()))
+        .await;
     let _item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
     timeline.handle_live_event(f.member(User::Alice).membership(MembershipState::Join)).await;

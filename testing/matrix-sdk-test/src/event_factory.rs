@@ -1159,7 +1159,7 @@ impl EventFactory {
     /// about the redaction itself.
     pub fn redacted<T: StaticEventContent<IsPrefix = False> + RedactedMessageLikeEventContent>(
         &self,
-        redacter: &UserId,
+        redacter: impl Into<OwnedUserId>,
         content: T,
     ) -> EventBuilder<T> {
         let mut builder = self.event(content);
@@ -1167,7 +1167,7 @@ impl EventFactory {
         let redacted_because = RedactedBecause {
             content: RoomRedactionEventContent::default(),
             event_id: EventId::new_v1(server_name!("dummy.server")),
-            sender: redacter.to_owned(),
+            sender: redacter.into(),
             origin_server_ts: self.next_server_ts(),
         };
         builder.unsigned.get_or_insert_with(Default::default).redacted_because =
