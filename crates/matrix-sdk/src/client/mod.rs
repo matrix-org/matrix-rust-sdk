@@ -5867,9 +5867,7 @@ pub(crate) mod tests {
         let f = EventFactory::new().sender(user_id!("@example:localhost"));
         let response = SyncResponseBuilder::default()
             .add_joined_room(JoinedRoomBuilder::default().add_state_event(f.member(user_id)))
-            .add_global_account_data(
-                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
-            )
+            .add_global_account_data(f.direct().add_user(user_id, *DEFAULT_TEST_ROOM_ID))
             .build_sync_response();
         client.base_client().receive_sync_response(response).await.unwrap();
 
@@ -5892,9 +5890,7 @@ pub(crate) mod tests {
                 JoinedRoomBuilder::default()
                     .add_state_event(f.member(user_id).invited(user_id).display_name("example")),
             )
-            .add_global_account_data(
-                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
-            )
+            .add_global_account_data(f.direct().add_user(user_id, *DEFAULT_TEST_ROOM_ID))
             .build_sync_response();
         client.base_client().receive_sync_response(response).await.unwrap();
 
@@ -5923,9 +5919,7 @@ pub(crate) mod tests {
             .add_joined_room(
                 JoinedRoomBuilder::default().add_state_event(f.member(user_id).leave()),
             )
-            .add_global_account_data(
-                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
-            )
+            .add_global_account_data(f.direct().add_user(user_id, *DEFAULT_TEST_ROOM_ID))
             .build_sync_response();
         client.base_client().receive_sync_response(response).await.unwrap();
 

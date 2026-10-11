@@ -74,9 +74,7 @@ mod tests {
                 let mut direct = EventFactory::new().direct();
                 for idx in 0..targets {
                     direct = direct.add_user(
-                        UserId::parse(format!("@user_{idx}:example.org"))
-                            .expect("UserId is valid")
-                            .into(),
+                        UserId::parse(format!("@user_{idx}:example.org")).expect("UserId is valid"),
                         room_id,
                     );
                 }

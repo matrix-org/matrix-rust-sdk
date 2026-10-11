@@ -1682,8 +1682,12 @@ impl From<PresenceBuilder> for Raw<PresenceEvent> {
 
 impl EventBuilder<DirectEventContent> {
     /// Add a user/room pair to the `m.direct` event.
-    pub fn add_user(mut self, user_id: OwnedDirectUserIdentifier, room_id: &RoomId) -> Self {
-        self.content.0.entry(user_id).or_default().push(room_id.to_owned());
+    pub fn add_user(
+        mut self,
+        user_id: impl Into<OwnedDirectUserIdentifier>,
+        room_id: &RoomId,
+    ) -> Self {
+        self.content.0.entry(user_id.into()).or_default().push(room_id.to_owned());
         self
     }
 }
