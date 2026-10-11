@@ -734,8 +734,8 @@ async fn test_redacted_beacon_info_produces_redacted_item() {
 
     timeline
         .handle_live_event(timeline.factory.redacted_state(
-            &ALICE,
-            ALICE.as_str(),
+            User::Alice,
+            User::Alice.as_str(),
             RedactedBeaconInfoEventContent::new(),
         ))
         .await;
