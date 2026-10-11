@@ -17,7 +17,7 @@ use std::sync::Arc;
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::deserialized_responses::TimelineEvent;
-use matrix_sdk_test::{ALICE, BOB, User, async_test, sync_timeline_event};
+use matrix_sdk_test::{ALICE, User, async_test, sync_timeline_event};
 use ruma::{
     events::{
         AnySyncTimelineEvent, MessageLikeEventType, StateEventType, TimelineEventType,
@@ -303,7 +303,7 @@ async fn test_event_filter_include_only_membership_changes() {
     timeline.handle_live_event(f.room_name("A new room name").sender(User::Alice)).await;
     timeline.handle_live_event(f.room_topic("A new room topic").sender(User::Alice)).await;
     // Alice invites Bob and Bob joins
-    timeline.handle_live_event(f.member(User::Alice).invited(&BOB)).await;
+    timeline.handle_live_event(f.member(User::Alice).invited(User::Bob)).await;
     timeline.handle_live_event(f.member(User::Bob).previous(MembershipState::Invite)).await;
     // Bob changes his display name
     timeline
@@ -356,7 +356,7 @@ async fn test_event_filter_include_only_profile_changes() {
     timeline.handle_live_event(f.room_name("A new room name").sender(User::Alice)).await;
     timeline.handle_live_event(f.room_topic("A new room topic").sender(User::Alice)).await;
     // Alice invites Bob and Bob joins
-    timeline.handle_live_event(f.member(User::Alice).invited(&BOB)).await;
+    timeline.handle_live_event(f.member(User::Alice).invited(User::Bob)).await;
     timeline.handle_live_event(f.member(User::Bob).previous(MembershipState::Invite)).await;
     // Bob changes his display name
     timeline
@@ -412,7 +412,7 @@ async fn test_event_filter_include_only_messages_and_membership_changes() {
     timeline.handle_live_event(f.room_name("A new room name").sender(User::Alice)).await;
     timeline.handle_live_event(f.room_topic("A new room topic").sender(User::Alice)).await;
     // Alice invites Bob and Bob joins
-    timeline.handle_live_event(f.member(User::Alice).invited(&BOB)).await;
+    timeline.handle_live_event(f.member(User::Alice).invited(User::Bob)).await;
     timeline.handle_live_event(f.member(User::Bob).previous(MembershipState::Invite)).await;
     // Bob changes his display name
     timeline
@@ -468,7 +468,7 @@ async fn test_event_filter_exclude_membership_changes() {
     timeline.handle_live_event(f.room_name("A new room name").sender(User::Alice)).await;
     timeline.handle_live_event(f.room_topic("A new room topic").sender(User::Alice)).await;
     // Alice invites Bob and Bob joins
-    timeline.handle_live_event(f.member(User::Alice).invited(&BOB)).await;
+    timeline.handle_live_event(f.member(User::Alice).invited(User::Bob)).await;
     timeline.handle_live_event(f.member(User::Bob).previous(MembershipState::Invite)).await;
     // Bob changes his display name
     timeline
@@ -522,7 +522,7 @@ async fn test_event_filter_exclude_profile_changes() {
     timeline.handle_live_event(f.room_name("A new room name").sender(User::Alice)).await;
     timeline.handle_live_event(f.room_topic("A new room topic").sender(User::Alice)).await;
     // Alice invites Bob and Bob joins
-    timeline.handle_live_event(f.member(User::Alice).invited(&BOB)).await;
+    timeline.handle_live_event(f.member(User::Alice).invited(User::Bob)).await;
     timeline.handle_live_event(f.member(User::Bob).previous(MembershipState::Invite)).await;
     // Bob changes his display name
     timeline
@@ -579,7 +579,7 @@ async fn test_event_filter_exclude_messages_and_membership_changes() {
     timeline.handle_live_event(f.room_name("A new room name").sender(User::Alice)).await;
     timeline.handle_live_event(f.room_topic("A new room topic").sender(User::Alice)).await;
     // Alice invites Bob and Bob joins
-    timeline.handle_live_event(f.member(User::Alice).invited(&BOB)).await;
+    timeline.handle_live_event(f.member(User::Alice).invited(User::Bob)).await;
     timeline.handle_live_event(f.member(User::Bob).previous(MembershipState::Invite)).await;
     // Bob changes his display name
     timeline
@@ -635,7 +635,7 @@ async fn test_event_filter_can_exclude_only_join_and_leave_membership_changes() 
     timeline.handle_live_event(f.room_name("A new room name").sender(User::Alice)).await;
     timeline.handle_live_event(f.room_topic("A new room topic").sender(User::Alice)).await;
     // Alice invites Bob and Bob changes his display name and leaves
-    timeline.handle_live_event(f.member(User::Alice).invited(&BOB)).await;
+    timeline.handle_live_event(f.member(User::Alice).invited(User::Bob)).await;
     timeline
         .handle_live_event(
             f.member(User::Bob).display_name("Big Bob 99").previous(MembershipState::Join),
