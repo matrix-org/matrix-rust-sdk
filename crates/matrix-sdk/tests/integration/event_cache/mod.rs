@@ -22,7 +22,9 @@ use matrix_sdk_base::event_cache::{
     store::{EventCacheStore, MemoryStore},
 };
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
-use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{
+    ALICE, BOB, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
+};
 use ruma::{
     EventId, event_id,
     events::{
@@ -1412,7 +1414,7 @@ async fn test_apply_redaction_when_redaction_comes_later() {
 #[async_test]
 async fn test_apply_redaction_on_an_in_store_event() {
     let room_id = room_id!("!foo:bar.baz");
-    let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
+    let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
 
     // Set up the event cache store.
     let event_cache_store = MemoryStore::new();
@@ -1614,7 +1616,7 @@ async fn test_apply_redaction_when_redacted_and_redaction_are_in_same_sync() {
 #[async_test]
 async fn test_lazy_loading() {
     let room_id = room_id!("!foo:bar.baz");
-    let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
+    let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
 
     // Set up the event cache store.
     let event_cache_store = MemoryStore::new();
@@ -1986,7 +1988,7 @@ async fn test_lazy_loading() {
 #[async_test]
 async fn test_deduplication() {
     let room_id = room_id!("!foo:bar.baz");
-    let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
+    let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
 
     // Set up the event cache store.
     let event_cache_store = MemoryStore::new();

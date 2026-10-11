@@ -888,8 +888,8 @@ impl EventFactory {
         self
     }
 
-    pub fn sender(mut self, sender: &UserId) -> Self {
-        self.sender = Some(sender.to_owned());
+    pub fn sender(mut self, sender: impl Into<OwnedUserId>) -> Self {
+        self.sender = Some(sender.into());
         self
     }
 

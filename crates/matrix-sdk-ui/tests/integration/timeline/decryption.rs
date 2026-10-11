@@ -24,7 +24,7 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::event_cache::store::{EventCacheStore, MemoryStore};
-use matrix_sdk_test::{BOB, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::RoomExt;
 use ruma::{
     event_id,
@@ -60,7 +60,7 @@ async fn test_an_utd_from_the_event_cache_as_an_initial_item_is_decrypted() {
         -----END MEGOLM SESSION DATA-----";
 
     let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
-    let event_factory = EventFactory::new().room(room_id).sender(&BOB);
+    let event_factory = EventFactory::new().room(room_id).sender(User::Bob);
 
     // Set up the event cache store.
     let event_cache_store = MemoryStore::new();
@@ -203,7 +203,7 @@ async fn test_an_utd_from_the_event_cache_as_a_paginated_item_is_decrypted() {
         -----END MEGOLM SESSION DATA-----";
 
     let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
-    let event_factory = EventFactory::new().room(room_id).sender(&BOB);
+    let event_factory = EventFactory::new().room(room_id).sender(User::Bob);
 
     // Set up the event cache store.
     let event_cache_store = MemoryStore::new();

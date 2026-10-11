@@ -264,7 +264,7 @@ async fn test_extract_bundled_thread_summary() {
     let (initial_items, mut stream) = timeline.subscribe().await;
     assert!(initial_items.is_empty());
 
-    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let thread_event_id = event_id!("$thread_root");
     let latest_event_id = event_id!("$latest_event");
 
@@ -319,7 +319,7 @@ async fn test_redact_thread_root_keeps_thread_summary() {
     let timeline = room.timeline().await.unwrap();
     let (_, mut stream) = timeline.subscribe().await;
 
-    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let thread_event_id = event_id!("$thread_root");
     let latest_event_id = event_id!("$latest_event");
 
@@ -391,7 +391,7 @@ async fn test_already_redacted_thread_root_keeps_bundled_thread_summary() {
     let timeline = room.timeline().await.unwrap();
     let (_, mut stream) = timeline.subscribe().await;
 
-    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let thread_event_id = event_id!("$thread_root");
     let latest_event_id = event_id!("$latest_event");
 
@@ -449,7 +449,7 @@ async fn test_new_thread_reply_causes_thread_summary_update() {
     assert!(initial_items.is_empty());
 
     // Start with a simple message, with no bundled thread info.
-    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let thread_event_id = event_id!("$thread_root");
 
     let event = f.text_msg("thready thread mcthreadface").event_id(thread_event_id);
@@ -584,7 +584,7 @@ async fn test_thread_msg_edit_reflects_in_summary() {
 
     // Start with a message (with no bundled thread info), and a threaded reply
     // to it.
-    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let thread_event_id = event_id!("$thread_root");
     let reply_event_id = event_id!("$thread_reply");
 
@@ -718,7 +718,7 @@ async fn test_thread_poll_edit_reflects_in_summary() {
     assert!(initial_items.is_empty());
 
     // Have all the events, including the edit, arrive in the same sync.
-    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let thread_event_id = event_id!("$thread_root");
     let reply_event_id = event_id!("$thread_reply");
     let edit_reply_event_id = event_id!("$thread_reply_edit");
@@ -2113,7 +2113,7 @@ async fn test_permalink_doesnt_listen_to_thread_sync() {
     let room_id = room_id!("!a:b.c");
     let room = server.sync_joined_room(&client, room_id).await;
 
-    let f = EventFactory::new().sender(&ALICE).room(room_id);
+    let f = EventFactory::new().sender(User::Alice).room(room_id);
     let thread_root = event_id!("$thread_root");
     let event = f
         .text_msg("hey to you too")
@@ -2190,7 +2190,7 @@ async fn test_redacted_replied_to_is_updated() {
     let client = client_with_threading_support(&server).await;
 
     let room_id = room_id!("!a:b.c");
-    let f = EventFactory::new().sender(&ALICE).room(room_id);
+    let f = EventFactory::new().sender(User::Alice).room(room_id);
     let thread_root = event_id!("$thread_root");
     let first_reply = event_id!("$first_reply");
     let second_reply = event_id!("$second_reply");
@@ -2293,7 +2293,7 @@ async fn test_redaction_affects_thread_summary() {
     let client = client_with_threading_support(&server).await;
 
     let room_id = room_id!("!a:b.c");
-    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
 
     let thread_root = event_id!("$thread_root");
     let thread_reply = event_id!("$thread_reply");

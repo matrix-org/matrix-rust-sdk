@@ -9,7 +9,7 @@ use matrix_sdk_base::event_cache::{
     Event, Gap,
     store::{DEFAULT_CHUNK_CAPACITY, DynEventCacheStore, IntoEventCacheStore, MemoryStore},
 };
-use matrix_sdk_test::{ALICE, event_factory::EventFactory};
+use matrix_sdk_test::{User, event_factory::EventFactory};
 use ruma::room_id;
 use tempfile::tempdir;
 use tokio::runtime::Builder;
@@ -35,7 +35,7 @@ fn writing(c: &mut Criterion) {
 
     let room_id = room_id!("!fabricandofitfaber:bar.baz");
     let linked_chunk_id = LinkedChunkId::Room(room_id);
-    let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
+    let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
 
     let mut group = c.benchmark_group("Linked chunk writing");
     group.sample_size(10).measurement_time(Duration::from_secs(30));
@@ -146,7 +146,7 @@ fn reading(c: &mut Criterion) {
 
     let room_id = room_id!("!fabricandofitfaber:bar.baz");
     let linked_chunk_id = LinkedChunkId::Room(room_id);
-    let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
+    let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
 
     let mut group = c.benchmark_group("Linked chunk reading");
     group.sample_size(10);
