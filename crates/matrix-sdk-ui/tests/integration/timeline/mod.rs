@@ -893,7 +893,7 @@ async fn test_timeline_without_encryption_can_update() {
 #[async_test]
 async fn test_timeline_receives_a_limited_number_of_events_when_subscribing() {
     let room_id = room_id!("!foo:bar.baz");
-    let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
+    let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
 
     // Let's store events in the event cache _before_ the timeline is created.
     let event_cache_store = MemoryStore::new();

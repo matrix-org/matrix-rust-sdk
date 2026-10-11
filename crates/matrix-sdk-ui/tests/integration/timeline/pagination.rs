@@ -1034,7 +1034,7 @@ async fn test_back_pagination_aborted() {
 #[async_test]
 async fn test_lazy_back_pagination() {
     let room_id = room_id!("!foo:bar.baz");
-    let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
+    let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
 
     let mock_server = MatrixMockServer::new().await;
     let client = mock_server.client_builder().build().await;
@@ -1275,7 +1275,7 @@ async fn test_lazy_back_pagination() {
 #[async_test]
 async fn test_from_an_empty_timeline_paginate_zero_event_and_then_sync_some_events() {
     let room_id = room_id!("!foo:bar.baz");
-    let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
+    let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
 
     let mock_server = MatrixMockServer::new().await;
     let client = mock_server.client_builder().build().await;
