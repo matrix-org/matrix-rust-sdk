@@ -143,12 +143,10 @@ impl MediaStore for MemoryMediaStore {
 
         // If 'to' is already cached, drop it first, and store the new one instead of having two
         // entries with the same key.
-        if new_key != expected_key {
-            if let Some(index) =
-                inner.media.iter().position(|media_content| media_content.key == new_key)
-            {
-                inner.media.remove(index);
-            }
+        if new_key != expected_key && let Some(index) =
+            inner.media.iter().position(|media_content| media_content.key == new_key)
+        {
+            inner.media.remove(index);
         }
 
         if let Some(media_content) =
