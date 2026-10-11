@@ -3419,8 +3419,9 @@ async fn test_media_upload_with_duplicate_mxc() {
     assert_update!((global_watch, watch) => edit local echo { txn = txn1 });
     assert_update!((global_watch, watch) => sent { txn = txn1, event_id = event_id!("$1") });
 
-    // ...and so must the second one: before the fix, renaming its cache key onto
-    // the already-present remote key failed forever, and it was never sent.
+    // ...and so must the second one: before the fix, renaming its cache key
+    // onto the already-present remote key failed forever, and it was never
+    // sent.
     assert_update!((global_watch, watch) => uploaded { related_to = txn2, mxc = mxc_uri!("mxc://sdk.rs/same") });
     assert_update!((global_watch, watch) => edit local echo { txn = txn2 });
     assert_update!((global_watch, watch) => sent { txn = txn2, event_id = event_id!("$2") });
