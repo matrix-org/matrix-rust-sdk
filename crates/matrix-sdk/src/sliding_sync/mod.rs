@@ -1095,7 +1095,7 @@ mod tests {
     use futures_util::{StreamExt, future::join_all};
     use matrix_sdk_base::{RequestedRequiredStates, RoomMemberships};
     use matrix_sdk_common::executor::spawn;
-    use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{ALICE, User, async_test, event_factory::EventFactory};
     use ruma::{
         OwnedRoomId, assign,
         events::{direct::DirectEvent, room::member::MembershipState},
@@ -3153,7 +3153,7 @@ mod tests {
             .and(wiremock::matchers::path_regex(r"/_matrix/client/v3/rooms/.*/members"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "chunk": [
-                    f.member(&ALICE).membership(MembershipState::Join).into_raw_timeline(),
+                    f.member(User::Alice).membership(MembershipState::Join).into_raw_timeline(),
                 ]
             })))
             .mount(server.server())

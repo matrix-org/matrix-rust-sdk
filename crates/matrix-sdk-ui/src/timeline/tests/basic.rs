@@ -166,7 +166,7 @@ async fn test_room_member() {
 
     // Bob invites Alice.
     let f = &timeline.factory;
-    timeline.handle_live_event(f.member(&BOB).invited(&ALICE).display_name("Alice")).await;
+    timeline.handle_live_event(f.member(User::Bob).invited(&ALICE).display_name("Alice")).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(item.can_be_replied_to());
@@ -176,7 +176,7 @@ async fn test_room_member() {
 
     timeline
         .handle_live_event(
-            f.member(&ALICE)
+            f.member(User::Alice)
                 .membership(MembershipState::Join)
                 .display_name("Alice")
                 .previous(PreviousMembership::new(MembershipState::Invite).display_name("Alice")),
@@ -190,7 +190,7 @@ async fn test_room_member() {
 
     timeline
         .handle_live_event(
-            f.member(&ALICE)
+            f.member(User::Alice)
                 .membership(MembershipState::Join)
                 .display_name("Alice In Wonderland")
                 .previous(PreviousMembership::new(MembershipState::Join).display_name("Alice")),
@@ -204,7 +204,7 @@ async fn test_room_member() {
 
     timeline
         .handle_live_event(
-            f.member(&ALICE)
+            f.member(User::Alice)
                 .membership(MembershipState::Join)
                 .display_name("Alice In Wonderland")
                 .avatar_url(mxc_uri!("mxc://lolcathost.io/abc"))
@@ -225,7 +225,7 @@ async fn test_room_member() {
         // it's possible to get the previous one using the getters.
         timeline
             .handle_live_event(
-                f.member(&ALICE).membership(MembershipState::Leave).previous(
+                f.member(User::Alice).membership(MembershipState::Leave).previous(
                     PreviousMembership::new(MembershipState::Join)
                         .display_name("Alice In Wonderland")
                         .avatar_url(mxc_uri!("mxc://lolcathost.io/abc")),
