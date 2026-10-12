@@ -1,11 +1,15 @@
-//! Tests for image packs: [`matrix_sdk::Room::image_packs`].
+//! Tests for image packs: [`matrix_sdk::Room::image_packs`] and the related
+//! [`matrix_sdk::Account`] methods.
 
-use matrix_sdk::{Error, test_utils::mocks::MatrixMockServer};
+use std::{collections::BTreeMap, pin::pin};
+
+use matrix_sdk::{Client, Error, assert_next_with_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
-    OwnedMxcUri, event_id,
+    OwnedMxcUri, OwnedRoomId, RoomId, event_id,
     events::{
         AnySyncStateEvent, StateEventType,
+        image_pack::rooms::{ImagePackRoomsEventContent, RoomImagePackMeta},
         room::image_pack::{ImagePackImage, ImagePackMeta, RoomImagePackEventContent},
     },
     room_id,
@@ -14,6 +18,7 @@ use ruma::{
 };
 use serde_json::json;
 use strass::assert_let;
+use stream_assert::assert_pending;
 
 /// An image pack containing an image for each of the given shortcodes.
 fn pack(shortcodes: &[&str]) -> RoomImagePackEventContent {
@@ -26,6 +31,33 @@ fn pack(shortcodes: &[&str]) -> RoomImagePackEventContent {
             })
             .collect(),
     )
+}
+
+/// The content of an `m.image_pack.rooms` event referencing the given packs.
+fn image_pack_rooms(packs: &[(&RoomId, &str)]) -> ImagePackRoomsEventContent {
+    let mut rooms = BTreeMap::<OwnedRoomId, BTreeMap<String, RoomImagePackMeta>>::new();
+    for (room_id, state_key) in packs {
+        rooms
+            .entry((*room_id).to_owned())
+            .or_default()
+            .insert((*state_key).to_owned(), RoomImagePackMeta::new());
+    }
+    ImagePackRoomsEventContent::new(rooms)
+}
+
+/// Sync the `m.image_pack.rooms` global account data.
+async fn sync_image_pack_rooms(
+    server: &MatrixMockServer,
+    client: &Client,
+    content: ImagePackRoomsEventContent,
+) {
+    let f = EventFactory::new();
+    server
+        .mock_sync()
+        .ok_and_run(client, |builder| {
+            builder.add_global_account_data(f.image_pack_rooms(content));
+        })
+        .await;
 }
 
 #[async_test]
@@ -129,4 +161,30 @@ async fn test_set_image_pack() {
     let result = room.set_image_pack("cats", pack(&["cat:wave"])).await;
     assert_let!(Err(Error::InvalidImagePackShortcode(shortcode)) = result);
     assert_eq!(shortcode, "cat:wave");
+}
+
+#[async_test]
+async fn test_observe_image_pack_rooms() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let account = client.account();
+
+    let room_id = room_id!("!room:example.org");
+
+    assert!(account.image_pack_rooms().await.unwrap().rooms.is_empty());
+
+    let (initial, stream) = account.observe_image_pack_rooms().await.unwrap();
+    assert!(initial.is_none());
+    let mut stream = pin!(stream);
+    assert_pending!(stream);
+
+    let content = image_pack_rooms(&[(room_id, "cats")]);
+    sync_image_pack_rooms(&server, &client, content.clone()).await;
+
+    let update = assert_next_with_timeout!(stream);
+    assert_eq!(json!(update), json!(content));
+    assert_eq!(json!(account.image_pack_rooms().await.unwrap()), json!(content));
+
+    let (initial, _stream) = account.observe_image_pack_rooms().await.unwrap();
+    assert_eq!(json!(initial.unwrap()), json!(content));
 }

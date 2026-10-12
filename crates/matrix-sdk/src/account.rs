@@ -14,6 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
+
 use futures_core::Stream;
 use futures_util::{StreamExt, stream};
 #[cfg(feature = "experimental-element-recent-emojis")]
@@ -58,6 +60,7 @@ use ruma::{
         AnyGlobalAccountDataEventContent, GlobalAccountDataEvent, GlobalAccountDataEventContent,
         GlobalAccountDataEventType, StaticEventContent,
         ignored_user_list::{IgnoredUser, IgnoredUserListEventContent},
+        image_pack::rooms::{ImagePackRoomsEventContent, RoomImagePackMeta},
         media_preview_config::{
             InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews,
             UnstableMediaPreviewConfigEventContent,
@@ -71,6 +74,7 @@ use ruma::{
     thirdparty::Medium,
 };
 use serde::Deserialize;
+use serde_json::Value;
 use tracing::{debug, error, warn};
 
 use crate::{Client, Error, Result, config::RequestConfig};
@@ -1425,6 +1429,64 @@ impl Account {
         Ok(())
     }
 
+    /// Get the room image packs that the user enabled globally, from storage.
+    ///
+    /// This is the content of the `m.image_pack.rooms` account data event. If
+    /// storage has no such event, or if the event fails to deserialize, this
+    /// method returns an empty content.
+    pub async fn image_pack_rooms(&self) -> Result<ImagePackRoomsEventContent> {
+        Ok(self.get_image_pack_rooms_event_content().await?.unwrap_or_default())
+    }
+
+    /// Get the content of the `m.image_pack.rooms` account data event from
+    /// storage.
+    ///
+    /// Returns `None` if there is no such event. This method ignores entries
+    /// that are not valid, so that a malformed event does not break image
+    /// packs.
+    async fn get_image_pack_rooms_event_content(
+        &self,
+    ) -> Result<Option<ImagePackRoomsEventContent>> {
+        let Some(raw) = self.account_data::<ImagePackRoomsEventContent>().await? else {
+            return Ok(None);
+        };
+
+        Ok(Some(SanitizedImagePackRooms::new(&raw).into_content()))
+    }
+
+    /// Observe the room image packs that the user enabled globally.
+    ///
+    /// Returns the current value of the `m.image_pack.rooms` account data
+    /// event, if any, and a stream that yields every new value received
+    /// through sync.
+    pub async fn observe_image_pack_rooms(
+        &self,
+    ) -> Result<(
+        Option<ImagePackRoomsEventContent>,
+        impl Stream<Item = ImagePackRoomsEventContent> + use<>,
+    )> {
+        let observer =
+            self.client.observe_events::<GlobalAccountDataEvent<ImagePackRoomsEventContent>, ()>();
+
+        let mut stream = observer.subscribe().map(|event| event.0.content);
+
+        let result_stream = async_stream::stream! {
+            // The observer must be alive for the stream to be alive, so this
+            // stream takes ownership of it.
+            let _observer = observer;
+
+            while let Some(item) = stream.next().await {
+                yield item
+            }
+        };
+
+        // Get the initial value after we create the observer, to make sure that
+        // we do not miss an update.
+        let initial_value = self.get_image_pack_rooms_event_content().await?;
+
+        Ok((initial_value, result_stream))
+    }
+
     /// Adds a recently used emoji to the list and uploads the updated
     /// `io.element.recent_emoji` content to the global account data.
     ///
@@ -1530,11 +1592,99 @@ fn get_raw_content<Ev, C>(raw: Option<Raw<Ev>>) -> Result<Option<Raw<C>>> {
         .map(|get_raw| get_raw.content))
 }
 
+/// A JSON object.
+type JsonObject = serde_json::Map<String, Value>;
+
+/// The content of an `m.image_pack.rooms` account data event, without the
+/// entries that are not valid.
+#[derive(Debug, Default)]
+struct SanitizedImagePackRooms {
+    /// The valid entries of the `rooms` field: the metadata of each image
+    /// pack, by state key, by room ID.
+    rooms: BTreeMap<OwnedRoomId, JsonObject>,
+}
+
+impl SanitizedImagePackRooms {
+    /// Sanitize the content of an `m.image_pack.rooms` account data event.
+    ///
+    /// This function drops entries that are not valid, that is room IDs that
+    /// are not valid and values that are not objects.
+    fn new<T>(raw: &Raw<T>) -> Self {
+        let mut content = match serde_json::from_str(raw.json().get()) {
+            Ok(Value::Object(content)) => content,
+            _ => {
+                warn!("m.image_pack.rooms event content is not an object, ignoring it");
+                JsonObject::new()
+            }
+        };
+
+        let rooms = match content.remove("rooms") {
+            Some(Value::Object(rooms)) => rooms,
+            None => JsonObject::new(),
+            Some(_) => {
+                warn!("`rooms` in m.image_pack.rooms is not an object, ignoring it");
+                JsonObject::new()
+            }
+        };
+
+        let rooms = rooms
+            .into_iter()
+            .filter_map(|(room_id, packs)| {
+                let Ok(room_id) = OwnedRoomId::try_from(room_id.as_str()) else {
+                    warn!(room_id, "Ignoring invalid room ID in m.image_pack.rooms");
+                    return None;
+                };
+
+                let Value::Object(packs) = packs else {
+                    warn!(?room_id, "Ignoring invalid image packs in m.image_pack.rooms");
+                    return None;
+                };
+
+                let packs = packs
+                    .into_iter()
+                    .filter(|(state_key, meta)| {
+                        let is_valid = meta.is_object();
+                        if !is_valid {
+                            warn!(
+                                ?room_id,
+                                state_key, "Ignoring invalid image pack in m.image_pack.rooms"
+                            );
+                        }
+                        is_valid
+                    })
+                    .collect();
+
+                Some((room_id, packs))
+            })
+            .collect();
+
+        Self { rooms }
+    }
+
+    /// Convert to the typed event content.
+    fn into_content(self) -> ImagePackRoomsEventContent {
+        ImagePackRoomsEventContent::new(
+            self.rooms
+                .into_iter()
+                .map(|(room_id, packs)| {
+                    let packs = packs
+                        .into_iter()
+                        .map(|(state_key, _)| (state_key, RoomImagePackMeta::new()));
+                    (room_id, packs.collect())
+                })
+                .collect(),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
+    use ruma::{room_id, serde::Raw};
+    use serde_json::{Value, json};
 
+    use super::SanitizedImagePackRooms;
     use crate::{Error, test_utils::client::MockClientBuilder};
 
     #[async_test]
@@ -1546,6 +1696,31 @@ mod tests {
             client.account().ignore_user(client.user_id().unwrap()).await,
             Err(Error::CantIgnoreLoggedInUser)
         );
+    }
+
+    #[test]
+    fn test_sanitize_image_pack_rooms() {
+        let sanitize = |content: Value| {
+            let raw = Raw::<Value>::new(&content).unwrap();
+            json!(SanitizedImagePackRooms::new(&raw).into_content())
+        };
+
+        // Content that is not an object is ignored.
+        assert_eq!(sanitize(json!(["not an object"])), json!({ "rooms": {} }));
+
+        // A `rooms` field that is not an object is ignored.
+        assert_eq!(sanitize(json!({ "rooms": "not an object" })), json!({ "rooms": {} }));
+
+        // Invalid entries are dropped, valid ones are kept.
+        let room_id = room_id!("!room:example.org");
+        let content = sanitize(json!({
+            "rooms": {
+                "not_a_room_id": { "": {} },
+                "!other:example.org": "not an object",
+                room_id: { "cats": { "x.custom": 1 }, "dogs": "not an object" },
+            },
+        }));
+        assert_eq!(content, json!({ "rooms": { room_id: { "cats": {} } } }));
     }
 }
 
