@@ -482,23 +482,18 @@ impl Aggregation {
     ) -> bool {
         match &self.kind {
             AggregationKind::Reaction { key, sender, .. } => {
-                // Only if it's this reaction that's shown, not the same one
-                // from the same sender hiding it.
-                if latest_reaction(siblings, key, sender)
-                    .is_none_or(|shown| shown.own_id != self.own_id)
-                {
-                    return false;
-                }
-                let Some(info) = event
+                if let Some(info) = event
                     .to_mut()
                     .reactions_mut()
                     .get_mut(key)
                     .and_then(|by_user| by_user.get_mut(sender))
-                else {
-                    return false;
-                };
-                info.send_state = self.send_state.clone();
-                true
+                    && info.send_state.is_some()
+                {
+                    info.send_state = self.send_state.clone();
+                    true
+                } else {
+                    false
+                }
             }
 
             AggregationKind::Edit(_) => {
