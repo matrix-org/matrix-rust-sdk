@@ -89,12 +89,22 @@ impl RoomKeyContent {
         }
 
         let serialize_helper = |content: &MegolmV1AesSha2Content| {
+            // Destructure the content so that the compiler reminds us to handle
+            // any newly added fields here.
+            let MegolmV1AesSha2Content {
+                room_id,
+                session_id,
+                session_key: _,
+                shared_history,
+                other,
+            } = content;
+
             let helper = Helper {
-                room_id: &content.room_id,
-                session_id: &content.session_id,
+                room_id,
+                session_id,
                 session_key: "",
-                shared_history: content.shared_history,
-                other: &content.other,
+                shared_history: *shared_history,
+                other,
             };
 
             let helper =
