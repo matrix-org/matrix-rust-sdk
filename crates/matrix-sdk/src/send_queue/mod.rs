@@ -168,8 +168,8 @@ use mime::Mime;
 #[cfg(feature = "unstable-msc4354")]
 use ruma::events::sticky::StickyDurationMs;
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
-    TransactionId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
+    TransactionId, UInt, UserId,
     events::{
         AnyMessageLikeEventContent, Mentions, MessageLikeEventContent as _, TimelineEventType,
         reaction::ReactionEventContent,
@@ -913,13 +913,13 @@ impl RoomSendQueue {
                             // considered “crucial”.
                             if let Ok((room_event_cache, _drop_handles)) = room.event_cache().await
                             {
-                                let event = serde_json::json!({
-                                    "event_id": event_id,
-                                    "origin_server_ts": MilliSecondsSinceUnixEpoch::now().get(),
-                                    "sender": room.client().user_id().expect("Client must be logged-in"),
-                                    "type": event_type,
-                                    "content": event.into_json(),
-                                });
+                                let event = build_timeline_event(
+                                    &event_id,
+                                    MilliSecondsSinceUnixEpoch::now().get(),
+                                    room.client().user_id().expect("Client must be logged-in"),
+                                    &event_type,
+                                    event.into_json(),
+                                );
 
                                 let timeline_event = match serde_json::value::to_raw_value(&event)
                                     .map(Raw::from_json)
@@ -1017,23 +1017,14 @@ impl RoomSendQueue {
                                         .is_some_and(|rules| rules.redaction.content_field_redacts)
                                 });
 
-                                let mut event = serde_json::json!({
-                                    "event_id": event_id,
-                                    "origin_server_ts": MilliSecondsSinceUnixEpoch::now().get(),
-                                    "sender": room.client().user_id().expect("Client must be logged-in"),
-                                    "type": TimelineEventType::RoomRedaction,
-                                    "content": {},
-                                });
-
-                                if content_field_redacts {
-                                    event["content"]["redacts"] = redacts.to_string().into();
-                                } else {
-                                    event["redacts"] = redacts.to_string().into();
-                                }
-
-                                if let Some(reason) = reason {
-                                    event["content"]["reason"] = reason.into();
-                                }
+                                let event = build_redaction_event(
+                                    &event_id,
+                                    MilliSecondsSinceUnixEpoch::now().get(),
+                                    room.client().user_id().expect("Client must be logged-in"),
+                                    &redacts,
+                                    reason.as_deref(),
+                                    content_field_redacts,
+                                );
 
                                 let timeline_event = match serde_json::value::to_raw_value(&event)
                                     .map(Raw::from_json)
@@ -3476,6 +3467,51 @@ fn canonicalize_dependent_requests(
     }
 
     by_txn.into_values().flat_map(|entries| entries.into_iter().cloned()).collect()
+}
+
+fn build_timeline_event(
+    event_id: &EventId,
+    now: UInt,
+    sender: &UserId,
+    event_type: &str,
+    content: Box<serde_json::value::RawValue>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "event_id": event_id,
+        "origin_server_ts": now,
+        "sender": sender,
+        "type": event_type,
+        "content": content
+    })
+}
+
+fn build_redaction_event(
+    event_id: &EventId,
+    now: UInt,
+    sender: &UserId,
+    redacts: &EventId,
+    reason: Option<&str>,
+    content_field_redacts: bool,
+) -> serde_json::Value {
+    let mut event = serde_json::json!({
+        "event_id": event_id,
+        "origin_server_ts": now,
+        "sender": sender,
+        "type": TimelineEventType::RoomRedaction,
+        "content": {},
+    });
+
+    if content_field_redacts {
+        event["content"]["redacts"] = redacts.to_string().into();
+    } else {
+        event["redacts"] = redacts.to_string().into();
+    }
+
+    if let Some(reason) = reason {
+        event["content"]["reason"] = reason.into();
+    }
+
+    event
 }
 
 #[cfg(all(test, not(target_family = "wasm")))]
