@@ -112,10 +112,16 @@ impl LatestEvents {
 
         // The task listening to the event cache, the send queue, and the room
         // infos updates.
+        //
+        // Note: we spawn the send queue observer here, instead of holding onto
+        // the `SendQueue` in the `listen_to_updates_task`, which would
+        // lead to a `Client` leak (since it's a field of
+        // the `SendQueue`).
+        let send_queue_generic_updates_subscriber = send_queue.subscribe();
         let listen_task_handle = spawn(listen_to_updates_task(
             registered_rooms.clone(),
             event_cache,
-            send_queue,
+            send_queue_generic_updates_subscriber,
             room_info_updates,
             latest_event_queue_sender,
         ))
@@ -466,13 +472,12 @@ enum LatestEventQueueUpdate {
 async fn listen_to_updates_task(
     registered_rooms: Arc<RegisteredRooms>,
     event_cache: EventCache,
-    send_queue: SendQueue,
+    mut send_queue_generic_updates_subscriber: broadcast::Receiver<SendQueueUpdate>,
     room_info_updates: broadcast::Receiver<RoomInfoNotableUpdate>,
     latest_event_queue_sender: mpsc::UnboundedSender<LatestEventQueueUpdate>,
 ) {
     let mut event_cache_generic_updates_subscriber =
         event_cache.subscribe_to_room_generic_updates();
-    let mut send_queue_generic_updates_subscriber = send_queue.subscribe();
     let mut room_info_updates_subscriber = room_info_updates.resubscribe();
 
     loop {
@@ -689,7 +694,10 @@ mod tests {
         owned_event_id, owned_room_id, room_id, user_id,
     };
     use stream_assert::assert_pending;
-    use tokio::{task::yield_now, time::timeout};
+    use tokio::{
+        task::yield_now,
+        time::{sleep, timeout},
+    };
 
     use super::{
         LatestEventValue, RegisteredRooms, RemoteLatestEventValue, RoomEventCacheGenericUpdate,
@@ -1548,5 +1556,37 @@ mod tests {
 
             assert_pending!(latest_event_stream);
         }
+    }
+
+    /// Test that the `LatestEvents` tasks don't hold onto a `Client`, which
+    /// would prevent it from being dropped.
+    #[async_test]
+    async fn test_client_can_drop_latest_events_tasks() {
+        let room_id = room_id!("!r0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // Syncing initializes the `LatestEvents`, and thus spawns its tasks.
+        let room = server.sync_joined_room(&client, room_id).await;
+        assert!(client.latest_events().await.is_listening_to_room(room_id).await);
+
+        // A `Room` holds onto a `Client`.
+        drop(room);
+
+        // Wait for anything to start up.
+        yield_now().await;
+
+        // Get a weak reference to the client.
+        let weak_client = WeakClient::from_client(&client);
+
+        // Dropping the client will drop the tasks.
+        drop(client);
+
+        // Wait for anything to shutdown.
+        sleep(Duration::from_secs(2)).await;
+
+        // The client has been dropped correctly.
+        assert_eq!(weak_client.strong_count(), 0);
     }
 }
