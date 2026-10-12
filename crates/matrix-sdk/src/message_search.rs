@@ -85,7 +85,7 @@
 use std::{collections::HashSet, pin::Pin};
 
 use async_stream::try_stream;
-use futures_util::{Stream, StreamExt as _};
+use futures_util::{Stream, StreamExt as _, TryStreamExt as _, stream};
 use matrix_sdk_base::{RoomStateFilter, deserialized_responses::TimelineEvent};
 use matrix_sdk_search::error::IndexError;
 #[cfg(doc)]
@@ -98,6 +98,10 @@ use crate::{Client, Room};
 /// Number of results pulled from the index in one go while paginating through a
 /// search stream.
 const SEARCH_RESULTS_PAGE_SIZE: usize = 100;
+
+/// Maximum number of events loaded concurrently while resolving a page of
+/// global search results.
+const MAX_CONCURRENT_EVENT_LOADS: usize = 10;
 
 /// A boxed, newest-first stream of `(timestamp, event_id)` results for a single
 /// room.
@@ -323,16 +327,18 @@ impl GlobalSearchBuilder {
             let mut pages = Box::pin(pages);
 
             while let Some(page) = pages.next().await {
-                let page = page?;
-                let mut events = Vec::with_capacity(page.len());
+                // Events missing from the event cache are fetched from the
+                // server, so load them concurrently, keeping the page's order.
+                let loads = page?.into_iter().filter_map(|(room_id, _timestamp, event_id)| {
+                    let room = client.get_room(&room_id)?;
+                    Some(async move {
+                        let event = room.load_or_fetch_event(&event_id, None).await?;
+                        Ok::<_, crate::Error>((room_id, event))
+                    })
+                });
 
-                for (room_id, _timestamp, event_id) in page {
-                    let Some(room) = client.get_room(&room_id) else {
-                        continue;
-                    };
-
-                    events.push((room_id, room.load_or_fetch_event(&event_id, None).await?));
-                }
+                let events: Vec<_> =
+                    stream::iter(loads).buffered(MAX_CONCURRENT_EVENT_LOADS).try_collect().await?;
 
                 yield events;
             }
