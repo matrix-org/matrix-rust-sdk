@@ -9,19 +9,22 @@ use matrix_sdk::{
     room::image_packs::{AvailableImagePack, ImagePackSource},
     test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{
+    InvitedRoomBuilder, JoinedRoomBuilder, LeftRoomBuilder, async_test, event_factory::EventFactory,
+};
 use ruma::{
-    OwnedMxcUri, OwnedRoomId, RoomId, event_id,
+    OwnedMxcUri, OwnedRoomId, RoomId, RoomVersionId, event_id,
     events::{
         AnyGlobalAccountDataEvent, AnySyncStateEvent, StateEventType,
         image_pack::rooms::{ImagePackRoomsEventContent, RoomImagePackMeta},
         room::image_pack::{ImagePackImage, ImagePackMeta, RoomImagePackEventContent},
+        space::parent::SpaceParentEventContent,
     },
     owned_room_id, room_id,
     serde::Raw,
     user_id,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 use strass::assert_let;
 use stream_assert::assert_pending;
 
@@ -89,6 +92,40 @@ async fn sync_room_with_packs(
             ),
         )
         .await
+}
+
+/// Sync a joined room with a parent space, which can be marked as canonical.
+///
+/// If `reciprocal` is true, the parent space also lists the room as a child, so
+/// that the relationship can be verified.
+async fn sync_room_with_parent(
+    server: &MatrixMockServer,
+    client: &Client,
+    room_id: &RoomId,
+    parent_id: &RoomId,
+    canonical: bool,
+    reciprocal: bool,
+) {
+    let f = EventFactory::new().room(room_id).sender(user_id!("@alice:example.org"));
+    let mut content = SpaceParentEventContent::new(vec![]);
+    content.canonical = canonical;
+    server
+        .sync_room(
+            client,
+            JoinedRoomBuilder::new(room_id)
+                .add_state_event(f.event(content).state_key(parent_id.as_str())),
+        )
+        .await;
+
+    if reciprocal {
+        server
+            .sync_room(
+                client,
+                JoinedRoomBuilder::new(parent_id)
+                    .add_state_event(f.space_child(parent_id.to_owned(), room_id.to_owned())),
+            )
+            .await;
+    }
 }
 
 #[async_test]
@@ -200,11 +237,18 @@ async fn test_available_image_packs() {
     let client = server.client_builder().build().await;
 
     let room_id = room_id!("!room:example.org");
+    let space_id = room_id!("!space:example.org");
+    let grand_space_id = room_id!("!grand_space:example.org");
     let other_room_id = room_id!("!other:example.org");
     let unknown_room_id = room_id!("!unknown:example.org");
 
     sync_room_with_packs(&server, &client, room_id, &["b", "a"]).await;
     sync_room_with_packs(&server, &client, other_room_id, &["global"]).await;
+    sync_room_with_packs(&server, &client, space_id, &["space"]).await;
+    sync_room_with_packs(&server, &client, grand_space_id, &["grand"]).await;
+
+    sync_room_with_parent(&server, &client, room_id, space_id, true, true).await;
+    sync_room_with_parent(&server, &client, space_id, grand_space_id, true, true).await;
 
     sync_image_pack_rooms(
         &server,
@@ -231,8 +275,277 @@ async fn test_available_image_packs() {
             (other_room_id.to_string(), "global".to_owned(), ImagePackSource::Global),
             (room_id.to_string(), "b".to_owned(), ImagePackSource::Global),
             (room_id.to_string(), "a".to_owned(), ImagePackSource::Room),
+            (
+                space_id.to_string(),
+                "space".to_owned(),
+                ImagePackSource::Space { space_id: space_id.to_owned() }
+            ),
+            (
+                grand_space_id.to_string(),
+                "grand".to_owned(),
+                ImagePackSource::Space { space_id: grand_space_id.to_owned() }
+            ),
         ]
     );
+}
+
+#[async_test]
+async fn test_available_image_packs_space_cycle() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!room:example.org");
+    let space_a = room_id!("!space_a:example.org");
+    let space_b = room_id!("!space_b:example.org");
+
+    sync_room_with_packs(&server, &client, space_a, &["a"]).await;
+    sync_room_with_packs(&server, &client, space_b, &["b"]).await;
+
+    sync_room_with_parent(&server, &client, room_id, space_a, true, true).await;
+    sync_room_with_parent(&server, &client, space_a, space_b, true, true).await;
+    sync_room_with_parent(&server, &client, space_b, space_a, true, true).await;
+
+    let room = client.get_room(room_id).unwrap();
+    let packs = room.available_image_packs().await.unwrap();
+
+    assert_eq!(
+        summary(&packs),
+        vec![
+            (
+                space_a.to_string(),
+                "a".to_owned(),
+                ImagePackSource::Space { space_id: space_a.to_owned() }
+            ),
+            (
+                space_b.to_string(),
+                "b".to_owned(),
+                ImagePackSource::Space { space_id: space_b.to_owned() }
+            ),
+        ]
+    );
+}
+
+#[async_test]
+async fn test_available_image_packs_ignores_non_canonical_parent() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!room:example.org");
+    let space_id = room_id!("!space:example.org");
+
+    sync_room_with_packs(&server, &client, space_id, &["space"]).await;
+    sync_room_with_parent(&server, &client, room_id, space_id, false, true).await;
+
+    let room = client.get_room(room_id).unwrap();
+    assert!(room.available_image_packs().await.unwrap().is_empty());
+}
+
+#[async_test]
+async fn test_available_image_packs_ignores_unverified_canonical_parent() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!room:example.org");
+    let space_id = room_id!("!space:example.org");
+
+    // The space does not list the room as a child, and the power levels of the
+    // space are unknown, so the relationship is not verified. The members of
+    // the space must not be fetched from the server.
+    sync_room_with_packs(&server, &client, space_id, &["space"]).await;
+    sync_room_with_parent(&server, &client, room_id, space_id, true, false).await;
+    server.mock_get_members().ok(vec![]).never().mount().await;
+
+    let room = client.get_room(room_id).unwrap();
+    assert!(room.available_image_packs().await.unwrap().is_empty());
+}
+
+#[async_test]
+async fn test_available_image_packs_verifies_canonical_parent_with_power_levels() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!room:example.org");
+    let space_id = room_id!("!space:example.org");
+    let other_space_id = room_id!("!other_space:example.org");
+    let alice = user_id!("@alice:example.org");
+
+    // Alice, the sender of the `m.space.parent` events, can send
+    // `m.space.child` events in `space_id` but not in `other_space_id`, which
+    // has the lowest room ID. Neither space lists the room as a child.
+    sync_room_with_packs(&server, &client, space_id, &["space"]).await;
+    sync_room_with_packs(&server, &client, other_space_id, &["other"]).await;
+
+    for (id, alice_level) in [(space_id, 100), (other_space_id, 0)] {
+        let f = EventFactory::new().room(id).sender(alice);
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(id).add_state_bulk([
+                    f.create(user_id!("@creator:example.org"), RoomVersionId::V1).into(),
+                    f.power_levels(&mut BTreeMap::from([(alice.to_owned(), alice_level.into())]))
+                        .into(),
+                ]),
+            )
+            .await;
+    }
+
+    sync_room_with_parent(&server, &client, room_id, space_id, true, false).await;
+    sync_room_with_parent(&server, &client, room_id, other_space_id, true, false).await;
+    server.mock_get_members().ok(vec![]).never().mount().await;
+
+    let room = client.get_room(room_id).unwrap();
+    assert_eq!(
+        summary(&room.available_image_packs().await.unwrap()),
+        vec![(
+            space_id.to_string(),
+            "space".to_owned(),
+            ImagePackSource::Space { space_id: space_id.to_owned() }
+        )]
+    );
+}
+
+#[async_test]
+async fn test_available_image_packs_in_invited_room() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!room:example.org");
+    let space_id = room_id!("!space:example.org");
+    let f = EventFactory::new().room(room_id).sender(user_id!("@alice:example.org"));
+
+    // The space lists the room as a child, so the relationship is verified.
+    sync_room_with_packs(&server, &client, space_id, &["space"]).await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(space_id)
+                .add_state_event(f.space_child(space_id.to_owned(), room_id.to_owned())),
+        )
+        .await;
+
+    // The state of an invited room is stripped.
+    let mut parent = SpaceParentEventContent::new(vec![]);
+    parent.canonical = true;
+    let room = server
+        .sync_room(
+            &client,
+            InvitedRoomBuilder::new(room_id)
+                .add_state_event(f.image_pack("invite", pack(&["cat"])))
+                .add_state_event(f.event(parent).state_key(space_id.as_str())),
+        )
+        .await;
+
+    assert_eq!(
+        summary(&room.available_image_packs().await.unwrap()),
+        vec![
+            (room_id.to_string(), "invite".to_owned(), ImagePackSource::Room),
+            (
+                space_id.to_string(),
+                "space".to_owned(),
+                ImagePackSource::Space { space_id: space_id.to_owned() }
+            ),
+        ]
+    );
+}
+
+#[async_test]
+async fn test_available_image_packs_ignores_left_canonical_space() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!room:example.org");
+    let space_id = room_id!("!space:example.org");
+
+    sync_room_with_packs(&server, &client, space_id, &["space"]).await;
+    sync_room_with_parent(&server, &client, room_id, space_id, true, true).await;
+    server.sync_room(&client, LeftRoomBuilder::new(space_id)).await;
+
+    let room = client.get_room(room_id).unwrap();
+    assert!(room.available_image_packs().await.unwrap().is_empty());
+}
+
+#[async_test]
+async fn test_available_image_packs_ignores_malformed_space_events() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!room:example.org");
+    let malformed_child_space_id = room_id!("!a_space:example.org");
+    let redacted_child_space_id = room_id!("!b_space:example.org");
+
+    let state_event = |room_id: &RoomId, event_type: &str, state_key: &str, extra: Value| {
+        let mut event = json!({
+            "type": event_type,
+            "state_key": state_key,
+            "event_id": format!("$event_{state_key}"),
+            "sender": "@alice:example.org",
+            "origin_server_ts": 1,
+            "room_id": room_id,
+        });
+        event.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        Raw::new(&event).unwrap().cast_unchecked::<AnySyncStateEvent>()
+    };
+
+    // The `m.space.child` event of the first space is malformed, and the one of
+    // the second space is redacted, so neither relationship is verified.
+    sync_room_with_packs(&server, &client, malformed_child_space_id, &["malformed"]).await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(malformed_child_space_id).add_state_event(state_event(
+                malformed_child_space_id,
+                "m.space.child",
+                room_id.as_str(),
+                json!({ "content": { "via": "not an array" } }),
+            )),
+        )
+        .await;
+
+    sync_room_with_packs(&server, &client, redacted_child_space_id, &["redacted"]).await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(redacted_child_space_id).add_state_event(state_event(
+                redacted_child_space_id,
+                "m.space.child",
+                room_id.as_str(),
+                json!({
+                    "content": {},
+                    "unsigned": {
+                        "redacted_because": {
+                            "type": "m.room.redaction",
+                            "event_id": "$redaction",
+                            "sender": "@alice:example.org",
+                            "origin_server_ts": 2,
+                            "redacts": format!("$event_{room_id}"),
+                            "content": {},
+                        },
+                    },
+                }),
+            )),
+        )
+        .await;
+
+    // The first `m.space.parent` event is malformed, because its state key is
+    // not a room ID.
+    let canonical = json!({ "content": { "via": ["example.org"], "canonical": true } });
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_state_bulk([
+                state_event(room_id, "m.space.parent", "not_a_room_id", canonical.clone()),
+                state_event(
+                    room_id,
+                    "m.space.parent",
+                    malformed_child_space_id.as_str(),
+                    canonical.clone(),
+                ),
+                state_event(room_id, "m.space.parent", redacted_child_space_id.as_str(), canonical),
+            ]),
+        )
+        .await;
+
+    assert!(room.available_image_packs().await.unwrap().is_empty());
 }
 
 #[async_test]

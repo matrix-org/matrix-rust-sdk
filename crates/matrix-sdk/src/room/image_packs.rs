@@ -17,17 +17,25 @@
 //!
 //! [image packs]: https://spec.matrix.org/v1.19/client-server-api/#image-packs
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use matrix_sdk_base::deserialized_responses::{RawSyncOrStrippedState, SyncOrStrippedState};
 use ruma::{
-    OwnedRoomId,
+    OwnedRoomId, OwnedUserId, UserId,
     api::client::state::send_state_event,
-    events::{SyncStateEvent, room::image_pack::RoomImagePackEventContent},
+    events::{
+        StateEventType, SyncStateEvent,
+        room::image_pack::RoomImagePackEventContent,
+        space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
+    },
 };
 use tracing::{debug, info};
 
 use crate::{Error, Result, Room, RoomState};
+
+/// The maximum number of canonical spaces to walk up when looking for image
+/// packs of the canonical space hierarchy of a room.
+const MAX_CANONICAL_SPACE_DEPTH: usize = 10;
 
 /// An image pack defined in a room, by an `m.room.image_pack` state event.
 #[derive(Clone, Debug)]
@@ -53,6 +61,12 @@ pub enum ImagePackSource {
 
     /// The image pack is defined in the room itself.
     Room,
+
+    /// The image pack is defined in the canonical space hierarchy of the room.
+    Space {
+        /// The ID of the space where the image pack is defined.
+        space_id: OwnedRoomId,
+    },
 }
 
 /// An image pack that is available in a room, with its source.
@@ -132,6 +146,9 @@ impl Room {
     ///    account data. This method skips packs in rooms that the user did not
     ///    join.
     /// 2. Image packs defined in this room.
+    /// 3. Image packs defined in the canonical space of this room, then in the
+    ///    canonical space of that space, and so on. This method only uses
+    ///    spaces that the user joined.
     ///
     /// Within each source, this method sorts image packs by room ID and state
     /// key, so that the order is stable. It returns an image pack only once,
@@ -188,7 +205,144 @@ impl Room {
             push(pack, ImagePackSource::Room);
         }
 
+        // 3. Image packs of the canonical space hierarchy.
+        for space in self.canonical_space_chain().await? {
+            let space_id = space.room_id().to_owned();
+            let mut space_packs = space.image_packs().await?;
+            space_packs.sort_by(|a, b| a.state_key.cmp(&b.state_key));
+
+            for pack in space_packs {
+                push(pack, ImagePackSource::Space { space_id: space_id.clone() });
+            }
+        }
+
         Ok(packs)
+    }
+
+    /// Get the canonical space hierarchy of this room, from storage.
+    ///
+    /// Returns the canonical parent space of this room, then the canonical
+    /// parent space of that space, and so on. The walk stops at the first space
+    /// that the user did not join, when it finds a cycle, or after
+    /// [`MAX_CANONICAL_SPACE_DEPTH`] spaces.
+    async fn canonical_space_chain(&self) -> Result<Vec<Room>> {
+        let mut spaces = Vec::new();
+        let mut visited = HashSet::from([self.room_id().to_owned()]);
+        let mut current = self.clone();
+
+        for _ in 0..MAX_CANONICAL_SPACE_DEPTH {
+            let Some(space) = current.canonical_parent_space().await? else {
+                break;
+            };
+
+            if !visited.insert(space.room_id().to_owned()) {
+                debug!(space_id = ?space.room_id(), "Cycle detected in the canonical space hierarchy");
+                break;
+            }
+
+            if space.state() != RoomState::Joined {
+                break;
+            }
+
+            spaces.push(space.clone());
+            current = space;
+        }
+
+        Ok(spaces)
+    }
+
+    /// Get the canonical parent space of this room, from storage.
+    ///
+    /// This method only uses parents with a verified relationship. A
+    /// relationship is verified if the parent has a reciprocal `m.space.child`
+    /// event. It is also verified if the sender of the `m.space.parent` event
+    /// has the power to send `m.space.child` events in the parent. This
+    /// prevents a room member from adding the image packs of any space to this
+    /// room.
+    ///
+    /// If more than one verified parent is marked as canonical, this method
+    /// returns the one with the lowest room ID. This makes the result
+    /// deterministic.
+    ///
+    /// Unlike [`Room::parent_spaces()`], this method never fetches the members
+    /// of a parent from the server. It compares the power of the sender only
+    /// with the power levels of the parent. If the power levels of a parent are
+    /// not in storage, the relationship is not verified.
+    async fn canonical_parent_space(&self) -> Result<Option<Room>> {
+        // Map the ID of each canonical parent to the sender of its
+        // `m.space.parent` event. A `BTreeMap` lets us check parents in
+        // ascending room ID order and stop at the first verified one.
+        let canonical_parents: BTreeMap<OwnedRoomId, OwnedUserId> = self
+            .get_state_events_static::<SpaceParentEventContent>()
+            .await?
+            .into_iter()
+            .filter_map(|raw| match raw.deserialize() {
+                Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(e)))
+                    if e.content.canonical =>
+                {
+                    Some((e.state_key, e.sender))
+                }
+                Ok(SyncOrStrippedState::Stripped(e)) if e.content.canonical => {
+                    Some((e.state_key, e.sender))
+                }
+                Ok(_) => None,
+                Err(e) => {
+                    info!(room_id = ?self.room_id(), "Could not deserialize m.space.parent: {e}");
+                    None
+                }
+            })
+            .collect();
+
+        for (space_id, sender) in canonical_parents {
+            let Some(space) = self.client.get_room(&space_id) else {
+                // We are not in the space, so we cannot verify the
+                // relationship.
+                continue;
+            };
+
+            if self.is_verified_child_of(&space, &sender).await? {
+                return Ok(Some(space));
+            }
+
+            debug!(
+                room_id = ?self.room_id(), ?space_id,
+                "Ignoring unverified canonical parent space"
+            );
+        }
+
+        Ok(None)
+    }
+
+    /// Whether the relationship between this room and the given parent space,
+    /// declared by `sender` in an `m.space.parent` event, can be verified from
+    /// storage.
+    async fn is_verified_child_of(&self, space: &Room, sender: &UserId) -> Result<bool> {
+        // A valid (non-redacted) `m.space.child` event in the parent pointing
+        // to this room makes the relationship reciprocal. A redacted event is
+        // missing the `via` key, which invalidates that end of the
+        // relationship.
+        if let Some(raw) = space
+            .get_state_event_static_for_key::<SpaceChildEventContent, _>(self.room_id())
+            .await?
+        {
+            match raw.deserialize() {
+                Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(_))) => return Ok(true),
+                Ok(_) => {}
+                Err(e) => {
+                    info!(
+                        room_id = ?self.room_id(), space_id = ?space.room_id(),
+                        "Could not deserialize m.space.child: {e}"
+                    );
+                }
+            }
+        }
+
+        // Otherwise, check whether the sender has the power to send an
+        // `m.space.child` event in the parent.
+        Ok(space
+            .power_levels()
+            .await
+            .is_ok_and(|pl| pl.user_can_send_state(sender, StateEventType::SpaceChild)))
     }
 
     fn deserialize_image_pack(
