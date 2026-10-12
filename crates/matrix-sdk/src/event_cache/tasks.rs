@@ -509,9 +509,8 @@ async fn index_linked_chunk_updates(
         };
         let redaction_rules = room.clone_info().room_version_rules_or_default().redaction;
 
-        let mut search_index_guard = client.search_index().lock().await;
-
-        if let Err(err) = search_index_guard
+        if let Err(err) = client
+            .search_index()
             .bulk_handle_timeline_event(timeline_events, &room_cache, &room_id, &redaction_rules)
             .await
         {
