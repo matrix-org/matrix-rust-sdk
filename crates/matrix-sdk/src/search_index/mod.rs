@@ -88,6 +88,23 @@ impl SearchIndex {
             search_index_store_kind: &self.search_index_store_kind,
         }
     }
+
+    /// Same as [`SearchIndexGuard::bulk_handle_timeline_event`], but only
+    /// locks the index once the events are parsed: parsing waits on the event
+    /// cache, and searches need the lock meanwhile.
+    pub(crate) async fn bulk_handle_timeline_event<T>(
+        &self,
+        events: T,
+        room_cache: &RoomEventCache,
+        room_id: &RoomId,
+        redaction_rules: &RedactionRules,
+    ) -> Result<(), IndexError>
+    where
+        T: Iterator<Item = TimelineEvent>,
+    {
+        let operations = parse_timeline_events(events, room_cache, redaction_rules).await;
+        self.lock().await.bulk_execute(operations, room_id)
+    }
 }
 
 /// Object that represents an acquired [`SearchIndex`].
@@ -234,12 +251,19 @@ impl SearchIndexGuard<'_> {
     where
         T: Iterator<Item = TimelineEvent>,
     {
-        let futures = events.map(|ev| parse_timeline_event(room_cache, ev, redaction_rules));
-
-        let operations: Vec<_> = join_all(futures).await.into_iter().flatten().collect();
-
+        let operations = parse_timeline_events(events, room_cache, redaction_rules).await;
         self.bulk_execute(operations, room_id)
     }
+}
+
+/// Derive the [`RoomIndexOperation`]s to execute for the given events.
+async fn parse_timeline_events(
+    events: impl Iterator<Item = TimelineEvent>,
+    room_cache: &RoomEventCache,
+    redaction_rules: &RedactionRules,
+) -> Vec<RoomIndexOperation> {
+    let futures = events.map(|ev| parse_timeline_event(room_cache, ev, redaction_rules));
+    join_all(futures).await.into_iter().flatten().collect()
 }
 
 /// Given an event id this function returns the most recent edit on said event
