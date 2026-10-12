@@ -99,6 +99,11 @@ use crate::{Client, Room};
 /// search stream.
 const SEARCH_RESULTS_PAGE_SIZE: usize = 100;
 
+/// Number of results yielded per page by a global search stream. Kept small so
+/// the first page, whose events may have to be fetched from the server, shows
+/// up quickly.
+const GLOBAL_SEARCH_PAGE_SIZE: usize = 20;
+
 /// Maximum number of events loaded concurrently while resolving a page of
 /// global search results.
 const MAX_CONCURRENT_EVENT_LOADS: usize = 10;
@@ -274,7 +279,7 @@ impl GlobalSearchBuilder {
                 };
             }
 
-            let mut page = Vec::with_capacity(SEARCH_RESULTS_PAGE_SIZE);
+            let mut page = Vec::with_capacity(GLOBAL_SEARCH_PAGE_SIZE);
 
             loop {
                 // Pick the room whose next result is the newest.
@@ -303,7 +308,7 @@ impl GlobalSearchBuilder {
                 };
 
                 page.push((room_id, timestamp, event_id));
-                if page.len() == SEARCH_RESULTS_PAGE_SIZE {
+                if page.len() == GLOBAL_SEARCH_PAGE_SIZE {
                     yield std::mem::take(&mut page);
                 }
             }
@@ -379,6 +384,7 @@ mod tests {
     use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
     use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, event_id, room_id, user_id};
 
+    use super::GLOBAL_SEARCH_PAGE_SIZE;
     use crate::{sleep::sleep, test_utils::mocks::MatrixMockServer};
 
     #[async_test]
@@ -577,6 +583,48 @@ mod tests {
         assert_eq!((&results[1].0, &results[1].2), (&room_id2.to_owned(), &r2_rank2.to_owned()));
         assert_eq!((&results[2].0, &results[2].2), (&room_id1.to_owned(), &r1_rank3.to_owned()));
         assert_eq!((&results[3].0, &results[3].2), (&room_id2.to_owned(), &r2_rank4.to_owned()));
+    }
+
+    #[async_test]
+    async fn test_global_message_search_events_pages() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!r1:localhost");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@user_id:localhost"));
+
+        let total = GLOBAL_SEARCH_PAGE_SIZE + 5;
+        let event_ids: Vec<OwnedEventId> =
+            (0..total).map(|i| format!("$event{i}:localhost").try_into().unwrap()).collect();
+
+        server
+            .sync_room(
+                &client,
+                event_ids.iter().enumerate().fold(
+                    JoinedRoomBuilder::new(room_id),
+                    |builder, (i, event_id)| {
+                        // The index stores dates with a seconds precision.
+                        let ts = (i as u64 + 1) * 1_000;
+                        builder.add_timeline_event(
+                            f.text_msg("world").event_id(event_id).server_ts(ts),
+                        )
+                    },
+                ),
+            )
+            .await;
+
+        sleep(Duration::from_millis(200)).await;
+
+        let pages: Vec<Vec<(OwnedRoomId, _)>> =
+            client.search_messages("world".to_owned()).build_events().try_collect().await.unwrap();
+
+        // Pages are capped, and events keep the newest-first order despite
+        // being loaded concurrently.
+        assert_eq!(pages.iter().map(Vec::len).collect::<Vec<_>>(), [GLOBAL_SEARCH_PAGE_SIZE, 5]);
+        let loaded: Vec<_> =
+            pages.iter().flatten().map(|(_, event)| event.event_id().unwrap()).collect();
+        let expected: Vec<_> = event_ids.into_iter().rev().collect();
+        assert_eq!(loaded, expected);
     }
 
     #[async_test]
