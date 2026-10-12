@@ -138,6 +138,18 @@ impl SearchIndexGuard<'_> {
         index.execute(operation)
     }
 
+    /// Whether a [`RoomIndex`] exists for this room, in memory or on disk.
+    fn has_index(&self, room_id: &RoomId) -> bool {
+        self.index_map.contains_key(room_id)
+            || match self.search_index_store_kind {
+                SearchIndexStoreKind::UnencryptedDirectory(path)
+                | SearchIndexStoreKind::EncryptedDirectory(path, _) => {
+                    path.join(room_id.as_str()).exists()
+                }
+                SearchIndexStoreKind::InMemory => false,
+            }
+    }
+
     /// Handle a [`RoomIndexOperation`] in the [`RoomIndex`] of a given
     /// [`RoomId`]
     ///
@@ -148,6 +160,11 @@ impl SearchIndexGuard<'_> {
         operations: Vec<RoomIndexOperation>,
         room_id: &RoomId,
     ) -> Result<(), IndexError> {
+        // Don't create an index (which is costly) for nothing.
+        if operations.is_empty() {
+            return Ok(());
+        }
+
         if !self.index_map.contains_key(room_id) {
             let index = self.create_index(room_id)?;
             self.index_map.insert(room_id.to_owned(), index);
@@ -167,6 +184,12 @@ impl SearchIndexGuard<'_> {
         pagination_offset: Option<usize>,
         room_id: &RoomId,
     ) -> Result<SearchResult, IndexError> {
+        // Nothing was ever indexed for this room: don't create an index (which
+        // is costly) only to find it empty.
+        if !self.has_index(room_id) {
+            return Ok(SearchResult { total_count: 0, events: Vec::new() });
+        }
+
         if !self.index_map.contains_key(room_id) {
             let index = self.create_index(room_id)?;
             self.index_map.insert(room_id.to_owned(), index);
@@ -508,6 +531,30 @@ mod tests {
     };
 
     use crate::test_utils::mocks::MatrixMockServer;
+
+    #[cfg(feature = "experimental-search")]
+    #[async_test]
+    async fn test_no_index_is_created_for_nothing() {
+        use super::{SearchIndex, SearchIndexStoreKind};
+
+        let dir = tempfile::tempdir().unwrap();
+        let search_index = SearchIndex::new(
+            Default::default(),
+            SearchIndexStoreKind::UnencryptedDirectory(dir.path().to_path_buf()),
+        );
+        let room_id = room_id!("!room_id:localhost");
+        let mut guard = search_index.lock().await;
+
+        // Searching a room that was never indexed finds nothing…
+        let result = guard.search("sentence", 10, None, room_id).unwrap();
+        assert_eq!(result.total_count, 0);
+        assert!(result.events.is_empty());
+
+        // … and so does an empty batch of operations: none creates an index.
+        guard.bulk_execute(Vec::new(), room_id).unwrap();
+
+        assert!(!dir.path().join(room_id.as_str()).exists());
+    }
 
     #[cfg(feature = "experimental-search")]
     #[async_test]
