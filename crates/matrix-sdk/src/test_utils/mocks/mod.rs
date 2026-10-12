@@ -56,6 +56,7 @@ use ruma::{
         MessageLikeEventType, RoomAccountDataEventType, StateEventType,
         receipt::ReceiptThread,
         room::member::{MembershipState, RoomMemberEvent},
+        tag::TagName,
     },
     media::Method,
     profile::{ProfileFieldName, ProfileFieldValue},
@@ -1753,6 +1754,21 @@ impl MatrixMockServer {
         let mock = Mock::given(method("PUT"))
             .and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/m.space.parent"));
         self.mock_endpoint(mock, SetSpaceParentEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to set a tag on a room.
+    pub fn mock_set_tag(&self, tag: &TagName) -> MockEndpoint<'_, SetTagEndpoint> {
+        let mock = Mock::given(method("PUT"))
+            .and(path_regex(format!("^/_matrix/client/v3/user/.*/rooms/.*/tags/{tag}$")));
+        self.mock_endpoint(mock, SetTagEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to remove a tag from a
+    /// room.
+    pub fn mock_delete_tag(&self, tag: &TagName) -> MockEndpoint<'_, DeleteTagEndpoint> {
+        let mock = Mock::given(method("DELETE"))
+            .and(path_regex(format!("^/_matrix/client/v3/user/.*/rooms/.*/tags/{tag}$")));
+        self.mock_endpoint(mock, DeleteTagEndpoint).expect_default_access_token()
     }
 
     /// Create a prebuilt mock for the endpoint used to get a profile field.
@@ -5425,6 +5441,28 @@ impl<'a> MockEndpoint<'a, SetSpaceParentEndpoint> {
     /// client is not authorized to set space parents.
     pub fn unauthorized(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(400))
+    }
+}
+
+/// A prebuilt mock for `PUT
+/// /_matrix/client/v3/user/{userId}/rooms/{roomId}/tags/{tag}`.
+pub struct SetTagEndpoint;
+
+impl<'a> MockEndpoint<'a, SetTagEndpoint> {
+    /// Returns a successful empty response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
+    }
+}
+
+/// A prebuilt mock for `DELETE
+/// /_matrix/client/v3/user/{userId}/rooms/{roomId}/tags/{tag}`.
+pub struct DeleteTagEndpoint;
+
+impl<'a> MockEndpoint<'a, DeleteTagEndpoint> {
+    /// Returns a successful empty response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
     }
 }
 

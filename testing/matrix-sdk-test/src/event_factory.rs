@@ -100,7 +100,7 @@ use ruma::{
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         space_order::SpaceOrderEventContent,
         sticker::StickerEventContent,
-        tag::{TagEventContent, Tags},
+        tag::{TagEventContent, TagInfo, TagName, Tags},
         typing::TypingEventContent,
     },
     owned_device_id,
@@ -1601,6 +1601,14 @@ impl EventFactory {
     /// Create a new `m.tag` room account data event with the given tags.
     pub fn tag(&self, tags: Tags) -> EventBuilder<TagEventContent> {
         self.room_account_data(tags.into())
+    }
+
+    /// Create a new `m.tag` room account data event with the given list of tag
+    /// names.
+    ///
+    /// For each name, a default [`TagInfo`] is constructed.
+    pub fn tag_from_names(&self, tag_names: Vec<TagName>) -> EventBuilder<TagEventContent> {
+        self.tag(tag_names.into_iter().map(|name| (name, TagInfo::default())).collect())
     }
 
     /// Create a new `m.space_order` room account data event with the given
