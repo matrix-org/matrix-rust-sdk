@@ -19,15 +19,23 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use matrix_sdk_base::deserialized_responses::{RawSyncOrStrippedState, SyncOrStrippedState};
+use matrix_sdk_base::{
+    StateChanges,
+    deserialized_responses::{RawSyncOrStrippedState, SyncOrStrippedState},
+};
 use ruma::{
-    OwnedRoomId, OwnedUserId, UserId,
-    api::client::state::send_state_event,
+    OwnedRoomId, OwnedUserId, RoomId, UserId,
+    api::client::state::{
+        get_state_event_for_key::{self, v3::StateEventFormat},
+        get_state_events, send_state_event,
+    },
+    assign,
     events::{
-        StateEventType, SyncStateEvent,
+        AnyStateEvent, StateEventType, SyncStateEvent,
         room::image_pack::RoomImagePackEventContent,
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
     },
+    serde::Raw,
 };
 use tracing::{debug, info};
 
@@ -219,6 +227,85 @@ impl Room {
         Ok(packs)
     }
 
+    /// Fetch from the server the image packs of other rooms that
+    /// [`Room::available_image_packs()`] needs, and save them to storage.
+    ///
+    /// The image packs of this room must already be in storage, for example
+    /// through the room subscription of the room list service. This method
+    /// fetches:
+    ///
+    /// - The image packs enabled globally, in the user's `m.image_pack.rooms`
+    ///   account data. This method fetches each pack individually.
+    /// - The image packs of the canonical space hierarchy of this room. This
+    ///   method fetches the full state of each space, because no endpoint
+    ///   fetches all the state events of a given type.
+    ///
+    /// Call this before [`Room::available_image_packs()`], for example when you
+    /// open an image pack picker. If the image packs of a room fail to fetch,
+    /// this method skips that room and fetches the others.
+    ///
+    /// If a room removes an image pack, this method does not remove the pack
+    /// from storage.
+    pub async fn load_image_packs(&self) -> Result<()> {
+        let mut changes = StateChanges::default();
+
+        // 1. Image packs enabled globally.
+        let image_pack_rooms = self.client.account().image_pack_rooms().await?;
+
+        for (room_id, state_keys) in image_pack_rooms.rooms {
+            if !self.client.get_room(&room_id).is_some_and(|room| room.state() == RoomState::Joined)
+            {
+                continue;
+            }
+
+            for state_key in state_keys.into_keys() {
+                let request = assign!(
+                    get_state_event_for_key::v3::Request::new(
+                        room_id.clone(),
+                        StateEventType::RoomImagePack,
+                        state_key.clone(),
+                    ),
+                    { format: StateEventFormat::Event }
+                );
+
+                match self.client.send(request).await {
+                    Ok(response) => {
+                        add_image_pack_event(&mut changes, &room_id, response.into_event());
+                    }
+                    Err(e) => {
+                        info!(
+                            ?room_id,
+                            state_key, "Could not load globally enabled image pack: {e}"
+                        );
+                    }
+                }
+            }
+        }
+
+        // 2. Image packs of the canonical space hierarchy.
+        for space in self.canonical_space_chain().await? {
+            let space_id = space.room_id();
+            let request = get_state_events::v3::Request::new(space_id.to_owned());
+
+            match self.client.send(request).await {
+                Ok(response) => {
+                    for event in response.room_state {
+                        add_image_pack_event(&mut changes, space_id, event);
+                    }
+                }
+                Err(e) => {
+                    info!(?space_id, "Could not load the image packs of a space: {e}");
+                }
+            }
+        }
+
+        if !changes.state.is_empty() {
+            self.client.state_store().save_changes(&changes).await?;
+        }
+
+        Ok(())
+    }
+
     /// Get the canonical space hierarchy of this room, from storage.
     ///
     /// Returns the canonical parent space of this room, then the canonical
@@ -365,6 +452,35 @@ impl Room {
 
         Some(ImagePack { room_id: self.room_id().to_owned(), state_key, content })
     }
+}
+
+/// Add the given state event to `changes` if it is an `m.room.image_pack`
+/// event, so that it is saved to storage.
+///
+/// This function ignores events without an event ID. A server that does not
+/// support `format=event` for a single state event returns only its content.
+fn add_image_pack_event(changes: &mut StateChanges, room_id: &RoomId, event: Raw<AnyStateEvent>) {
+    let Ok(Some(event_type)) = event.get_field::<String>("type") else {
+        return;
+    };
+    if event_type != StateEventType::RoomImagePack.to_string() {
+        return;
+    }
+
+    let (Ok(Some(state_key)), Ok(Some(_))) =
+        (event.get_field::<String>("state_key"), event.get_field::<String>("event_id"))
+    else {
+        info!(?room_id, "Ignoring m.room.image_pack event without a state key or an event ID");
+        return;
+    };
+
+    changes
+        .state
+        .entry(room_id.to_owned())
+        .or_default()
+        .entry(StateEventType::RoomImagePack)
+        .or_default()
+        .insert(state_key, event.cast_unchecked());
 }
 
 #[cfg(test)]

@@ -27,6 +27,10 @@ use ruma::{
 use serde_json::{Value, json};
 use strass::assert_let;
 use stream_assert::assert_pending;
+use wiremock::{
+    Mock, ResponseTemplate,
+    matchers::{method, path, query_param},
+};
 
 /// An image pack containing an image for each of the given shortcodes.
 fn pack(shortcodes: &[&str]) -> RoomImagePackEventContent {
@@ -290,6 +294,87 @@ async fn test_available_image_packs() {
 }
 
 #[async_test]
+async fn test_load_image_packs() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!room:example.org");
+    let space_id = room_id!("!space:example.org");
+    let other_room_id = room_id!("!other:example.org");
+
+    // The rooms are known, but their image packs were never synced.
+    sync_room_with_packs(&server, &client, other_room_id, &[]).await;
+    sync_room_with_parent(&server, &client, room_id, space_id, true, true).await;
+    sync_image_pack_rooms(
+        &server,
+        &client,
+        image_pack_rooms(&[(other_room_id, "global"), (other_room_id, "missing")]),
+    )
+    .await;
+
+    let room = client.get_room(room_id).unwrap();
+    assert!(room.available_image_packs().await.unwrap().is_empty());
+
+    let alice = user_id!("@alice:example.org");
+    let other_room_f = EventFactory::new().room(other_room_id).sender(alice);
+    let space_f = EventFactory::new().room(space_id).sender(alice);
+
+    // Globally enabled packs are fetched individually, as full events.
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "/_matrix/client/v3/rooms/{other_room_id}/state/m.room.image_pack/global"
+        )))
+        .and(query_param("format", "event"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(
+                other_room_f.image_pack("global", pack(&["cat"])).into_raw_timeline(),
+            ),
+        )
+        .expect(1)
+        .mount(server.server())
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "/_matrix/client/v3/rooms/{other_room_id}/state/m.room.image_pack/missing"
+        )))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "errcode": "M_NOT_FOUND",
+            "error": "Event not found",
+        })))
+        .expect(1)
+        .mount(server.server())
+        .await;
+
+    // The full state of canonical spaces is fetched, and only the image packs
+    // are kept.
+    Mock::given(method("GET"))
+        .and(path(format!("/_matrix/client/v3/rooms/{space_id}/state")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            space_f.image_pack("space", pack(&["dog"])).into_raw_timeline(),
+            space_f.room_topic("A space").into_raw_timeline(),
+        ])))
+        .expect(1)
+        .mount(server.server())
+        .await;
+
+    room.load_image_packs().await.unwrap();
+
+    assert_eq!(
+        summary(&room.available_image_packs().await.unwrap()),
+        vec![
+            (other_room_id.to_string(), "global".to_owned(), ImagePackSource::Global),
+            (
+                space_id.to_string(),
+                "space".to_owned(),
+                ImagePackSource::Space { space_id: space_id.to_owned() }
+            ),
+        ]
+    );
+    let space = client.get_room(space_id).unwrap();
+    assert!(space.topic().is_none());
+}
+
+#[async_test]
 async fn test_available_image_packs_space_cycle() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
@@ -546,6 +631,86 @@ async fn test_available_image_packs_ignores_malformed_space_events() {
         .await;
 
     assert!(room.available_image_packs().await.unwrap().is_empty());
+}
+
+#[async_test]
+async fn test_load_image_packs_skips_failures() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!room:example.org");
+    let space_id = room_id!("!space:example.org");
+    let grand_space_id = room_id!("!grand_space:example.org");
+    let other_room_id = room_id!("!other:example.org");
+    let unknown_room_id = room_id!("!unknown:example.org");
+
+    sync_room_with_packs(&server, &client, other_room_id, &[]).await;
+    sync_room_with_parent(&server, &client, room_id, space_id, true, true).await;
+    sync_room_with_parent(&server, &client, space_id, grand_space_id, true, true).await;
+    sync_image_pack_rooms(
+        &server,
+        &client,
+        image_pack_rooms(&[(other_room_id, "content_only"), (unknown_room_id, "")]),
+    )
+    .await;
+
+    // The user did not join this room, so its packs are not fetched.
+    Mock::given(method("GET"))
+        .and(path(format!("/_matrix/client/v3/rooms/{unknown_room_id}/state/m.room.image_pack/")))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(server.server())
+        .await;
+
+    // The server does not support `format=event`, so it returns only the
+    // content. The pack is ignored.
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "/_matrix/client/v3/rooms/{other_room_id}/state/m.room.image_pack/content_only"
+        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(pack(&["cat"])))
+        .expect(1)
+        .mount(server.server())
+        .await;
+
+    // The state of the first space fails to load, so it is skipped.
+    Mock::given(method("GET"))
+        .and(path(format!("/_matrix/client/v3/rooms/{space_id}/state")))
+        .respond_with(ResponseTemplate::new(500).set_body_json(json!({
+            "errcode": "M_UNKNOWN",
+            "error": "Internal server error",
+        })))
+        .expect(1)
+        .mount(server.server())
+        .await;
+
+    // The pack without an event ID is ignored.
+    let grand_space_f =
+        EventFactory::new().room(grand_space_id).sender(user_id!("@alice:example.org"));
+    Mock::given(method("GET"))
+        .and(path(format!("/_matrix/client/v3/rooms/{grand_space_id}/state")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                grand_space_f.image_pack("grand", pack(&["dog"])).into_raw_timeline(),
+                grand_space_f
+                    .image_pack("no_event_id", pack(&["dog"]))
+                    .no_event_id()
+                    .into_raw_timeline(),
+            ])))
+        .expect(1)
+        .mount(server.server())
+        .await;
+
+    let room = client.get_room(room_id).unwrap();
+    room.load_image_packs().await.unwrap();
+
+    assert_eq!(
+        summary(&room.available_image_packs().await.unwrap()),
+        vec![(
+            grand_space_id.to_string(),
+            "grand".to_owned(),
+            ImagePackSource::Space { space_id: grand_space_id.to_owned() }
+        )]
+    );
 }
 
 #[async_test]
