@@ -3524,15 +3524,18 @@ mod tests {
     };
     use matrix_sdk_test::{JoinedRoomBuilder, SyncResponseBuilder, async_test};
     use ruma::{
-        MilliSecondsSinceUnixEpoch, TransactionId,
+        MilliSecondsSinceUnixEpoch, TransactionId, UInt,
         api::error::UnknownTokenErrorData,
         event_id,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
-        room_id,
+        room_id, user_id,
     };
     use strass::assert_let;
 
-    use super::{RoomSendQueueUpdate, canonicalize_dependent_requests};
+    use super::{
+        RoomSendQueueUpdate, build_redaction_event, build_timeline_event,
+        canonicalize_dependent_requests,
+    };
     use crate::{
         SessionChange,
         client::WeakClient,
@@ -3837,5 +3840,73 @@ mod tests {
         // Which is still enough for the request to be retried.
         assert_let!(Ok(RoomSendQueueUpdate::RetryEvent { .. }) = watch.recv().await);
         assert_let!(Ok(RoomSendQueueUpdate::SentEvent { .. }) = watch.recv().await);
+    }
+
+    #[test]
+    fn test_build_timeline_event() {
+        let content = serde_json::value::to_raw_value(&serde_json::json!({
+            "msgtype": "m.text",
+            "body": "some text",
+        }))
+        .unwrap();
+
+        let now = UInt::new(1_700_000_000_000).unwrap();
+
+        let event = build_timeline_event(
+            event_id!("$123"),
+            now,
+            user_id!("@bob:matrix.org"),
+            "m.room.message",
+            content,
+        );
+
+        assert_eq!(event["event_id"], "$123");
+        assert_eq!(event["origin_server_ts"].as_u64(), Some(now.into()));
+        assert_eq!(event["sender"], "@bob:matrix.org");
+        assert_eq!(event["type"], "m.room.message");
+        assert_eq!(event["content"]["msgtype"], "m.text");
+        assert_eq!(event["content"]["body"], "some text");
+    }
+
+    #[test]
+    fn test_build_redaction_event_no_content_field_redacts() {
+        let now = UInt::new(1_700_000_000_000).unwrap();
+
+        let event = build_redaction_event(
+            event_id!("$123"),
+            now,
+            user_id!("@alice:matrix.org"),
+            event_id!("$1234"),
+            Some("reason"),
+            false,
+        );
+
+        assert_eq!(event["event_id"], "$123");
+        assert_eq!(event["origin_server_ts"].as_u64(), Some(now.into()));
+        assert_eq!(event["sender"], "@alice:matrix.org");
+        assert_eq!(event["type"], "m.room.redaction");
+        assert_eq!(event["redacts"], "$1234");
+        assert_eq!(event["content"]["reason"], "reason");
+    }
+
+    #[test]
+    fn test_build_redaction_event_content_field_redacts() {
+        let now = UInt::new(1_700_000_000_000).unwrap();
+
+        let event = build_redaction_event(
+            event_id!("$123"),
+            now,
+            user_id!("@alice:matrix.org"),
+            event_id!("$1234"),
+            Some("reason"),
+            true,
+        );
+
+        assert_eq!(event["event_id"], "$123");
+        assert_eq!(event["origin_server_ts"].as_u64(), Some(now.into()));
+        assert_eq!(event["sender"], "@alice:matrix.org");
+        assert_eq!(event["type"], "m.room.redaction");
+        assert_eq!(event["content"]["redacts"], "$1234");
+        assert_eq!(event["content"]["reason"], "reason");
     }
 }
