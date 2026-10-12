@@ -12,7 +12,7 @@ use ruma::{
         image_pack::rooms::{ImagePackRoomsEventContent, RoomImagePackMeta},
         room::image_pack::{ImagePackImage, ImagePackMeta, RoomImagePackEventContent},
     },
-    room_id,
+    owned_room_id, room_id,
     serde::Raw,
     user_id,
 };
@@ -161,6 +161,187 @@ async fn test_set_image_pack() {
     let result = room.set_image_pack("cats", pack(&["cat:wave"])).await;
     assert_let!(Err(Error::InvalidImagePackShortcode(shortcode)) = result);
     assert_eq!(shortcode, "cat:wave");
+}
+
+#[async_test]
+async fn test_enable_image_pack_globally_with_malformed_image_pack_rooms() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
+    let room_id = room_id!("!room:example.org");
+
+    let other_room_id = room_id!("!other:example.org");
+
+    // The invalid entries are dropped and the valid ones are kept, so the user
+    // can repair the event.
+    server
+        .mock_get_image_pack_rooms()
+        .ok(
+            user_id,
+            &json!({ "rooms": {
+                "not_a_room_id": { "": {} },
+                other_room_id: { "dogs": {}, "birds": "not an object" },
+            } }),
+        )
+        .mount()
+        .await;
+    server
+        .mock_set_image_pack_rooms()
+        .match_content(&image_pack_rooms(&[(other_room_id, "dogs"), (room_id, "cats")]))
+        .ok(user_id)
+        .mock_once()
+        .mount()
+        .await;
+
+    client.account().enable_image_pack_globally(room_id, "cats").await.unwrap();
+}
+
+#[async_test]
+async fn test_enable_and_disable_image_pack_globally() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
+    let account = client.account();
+
+    let room_id = room_id!("!room:example.org");
+    let other_room_id = owned_room_id!("!other:example.org");
+
+    // Enabling a pack without existing account data creates it.
+    {
+        let _get = server.mock_get_image_pack_rooms().not_found(user_id).mount_as_scoped().await;
+        let _set = server
+            .mock_set_image_pack_rooms()
+            .match_content(&image_pack_rooms(&[(room_id, "cats")]))
+            .ok(user_id)
+            .mock_once()
+            .mount_as_scoped()
+            .await;
+
+        account.enable_image_pack_globally(room_id, "cats").await.unwrap();
+
+        // Storage is updated before the sync echo arrives.
+        assert_eq!(
+            json!(account.image_pack_rooms().await.unwrap()),
+            json!(image_pack_rooms(&[(room_id, "cats")]))
+        );
+    }
+
+    // If the pack is already enabled, enabling it does not upload anything.
+    {
+        let _get = server
+            .mock_get_image_pack_rooms()
+            .ok(user_id, &image_pack_rooms(&[(room_id, "cats")]))
+            .mount_as_scoped()
+            .await;
+        let _set = server.mock_set_image_pack_rooms().ok(user_id).never().mount_as_scoped().await;
+
+        account.enable_image_pack_globally(room_id, "cats").await.unwrap();
+    }
+
+    // Disabling the last pack of a room removes the room.
+    {
+        let _get = server
+            .mock_get_image_pack_rooms()
+            .ok(user_id, &image_pack_rooms(&[(room_id, "cats"), (&other_room_id, "")]))
+            .mount_as_scoped()
+            .await;
+        let _set = server
+            .mock_set_image_pack_rooms()
+            .match_content(&image_pack_rooms(&[(&other_room_id, "")]))
+            .ok(user_id)
+            .mock_once()
+            .mount_as_scoped()
+            .await;
+
+        account.disable_image_pack_globally(room_id, "cats").await.unwrap();
+
+        assert_eq!(
+            json!(account.image_pack_rooms().await.unwrap()),
+            json!(image_pack_rooms(&[(&other_room_id, "")]))
+        );
+    }
+
+    // If the pack is not enabled, disabling it does not upload anything.
+    {
+        let _get = server
+            .mock_get_image_pack_rooms()
+            .ok(user_id, &image_pack_rooms(&[(&other_room_id, "")]))
+            .mount_as_scoped()
+            .await;
+        let _set = server.mock_set_image_pack_rooms().ok(user_id).never().mount_as_scoped().await;
+
+        account.disable_image_pack_globally(room_id, "cats").await.unwrap();
+    }
+}
+
+#[async_test]
+async fn test_enable_and_disable_image_pack_globally_keep_unknown_fields() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
+    let account = client.account();
+
+    let room_id = room_id!("!room:example.org");
+    let other_room_id = room_id!("!other:example.org");
+
+    // Fields unknown to this client, possibly written by other clients, must
+    // be kept when the event is updated.
+    let existing = json!({
+        "rooms": { other_room_id: { "dogs": { "x.custom": 1 } } },
+        "x.top_level": true,
+    });
+
+    {
+        let _get =
+            server.mock_get_image_pack_rooms().ok(user_id, &existing).mount_as_scoped().await;
+        let _set = server
+            .mock_set_image_pack_rooms()
+            .match_content(&json!({
+                "rooms": {
+                    other_room_id: { "dogs": { "x.custom": 1 } },
+                    room_id: { "cats": {} },
+                },
+                "x.top_level": true,
+            }))
+            .ok(user_id)
+            .mock_once()
+            .mount_as_scoped()
+            .await;
+
+        account.enable_image_pack_globally(room_id, "cats").await.unwrap();
+    }
+
+    {
+        let _get = server
+            .mock_get_image_pack_rooms()
+            .ok(
+                user_id,
+                &json!({
+                    "rooms": {
+                        other_room_id: { "dogs": { "x.custom": 1 } },
+                        room_id: { "cats": {} },
+                    },
+                    "x.top_level": true,
+                }),
+            )
+            .mount_as_scoped()
+            .await;
+        let _set = server
+            .mock_set_image_pack_rooms()
+            .match_content(&existing)
+            .ok(user_id)
+            .mock_once()
+            .mount_as_scoped()
+            .await;
+
+        account.disable_image_pack_globally(room_id, "cats").await.unwrap();
+    }
+
+    // Storage is updated with the uploaded content.
+    assert_eq!(
+        json!(account.image_pack_rooms().await.unwrap()),
+        json!(image_pack_rooms(&[(other_room_id, "dogs")]))
+    );
 }
 
 #[async_test]

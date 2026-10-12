@@ -25,7 +25,7 @@ use js_int::uint;
 #[cfg(feature = "experimental-element-recent-emojis")]
 use matrix_sdk_base::recent_emojis::RecentEmojisContent;
 use matrix_sdk_base::{
-    SendOutsideWasm, StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm,
+    SendOutsideWasm, StateChanges, StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm,
     media::{MediaFormat, MediaRequestParameters},
     store::StateStoreExt,
 };
@@ -74,7 +74,7 @@ use ruma::{
     thirdparty::Medium,
 };
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tracing::{debug, error, warn};
 
 use crate::{Client, Error, Result, config::RequestConfig};
@@ -1487,6 +1487,111 @@ impl Account {
         Ok((initial_value, result_stream))
     }
 
+    /// Enable the image pack with the given state key in the given room
+    /// globally. The pack then becomes available in all rooms.
+    ///
+    /// This adds a reference to the pack in the `m.image_pack.rooms` account
+    /// data event. It does nothing if the pack is already enabled.
+    pub async fn enable_image_pack_globally(
+        &self,
+        room_id: &RoomId,
+        state_key: &str,
+    ) -> Result<()> {
+        self.update_image_pack_rooms(|rooms| {
+            let packs = rooms.entry(room_id.to_owned()).or_default();
+
+            if packs.contains_key(state_key) {
+                return false;
+            }
+
+            packs.insert(state_key.to_owned(), json!({}));
+            true
+        })
+        .await
+    }
+
+    /// Disable the image pack with the given state key in the given room
+    /// globally.
+    ///
+    /// This removes the reference to the pack from the `m.image_pack.rooms`
+    /// account data event. It does nothing if the pack is not enabled.
+    pub async fn disable_image_pack_globally(
+        &self,
+        room_id: &RoomId,
+        state_key: &str,
+    ) -> Result<()> {
+        self.update_image_pack_rooms(|rooms| {
+            let Some(packs) = rooms.get_mut(room_id) else {
+                return false;
+            };
+
+            if packs.remove(state_key).is_none() {
+                return false;
+            }
+
+            // A room ID with no state keys has no defined meaning in the spec,
+            // so remove it.
+            if packs.is_empty() {
+                rooms.remove(room_id);
+            }
+
+            true
+        })
+        .await
+    }
+
+    /// Fetch the `m.image_pack.rooms` account data event from the server, apply
+    /// `update` to its `rooms` field, and upload it again if `update` returns
+    /// `true`.
+    ///
+    /// This method edits the content as JSON, not through
+    /// [`ImagePackRoomsEventContent`]. This keeps the fields that this client
+    /// does not know, for example metadata that other clients added.
+    async fn update_image_pack_rooms(
+        &self,
+        update: impl FnOnce(&mut BTreeMap<OwnedRoomId, JsonObject>) -> bool,
+    ) -> Result<()> {
+        // This does a read/update/store of an account data event stored on the
+        // homeserver. To prevent concurrent calls from overwriting the changes
+        // of each other, we hold a lock for the whole operation.
+        let _guard = self.client.locks().image_pack_rooms_lock.lock().await;
+
+        // We fetch the content from the server because `/sync` does not always
+        // give us the latest data quickly. We drop entries that are not valid
+        // instead of failing, so that the user can repair a malformed event
+        // from this client.
+        let mut sanitized = self
+            .fetch_account_data(GlobalAccountDataEventType::ImagePackRooms)
+            .await?
+            .map(|raw| SanitizedImagePackRooms::new(&raw))
+            .unwrap_or_default();
+
+        if !update(&mut sanitized.rooms) {
+            return Ok(());
+        }
+
+        let content = sanitized.into_json();
+
+        self.set_account_data_raw(
+            GlobalAccountDataEventType::ImagePackRooms,
+            Raw::new(&content)?.cast_unchecked(),
+        )
+        .await?;
+
+        // Update storage immediately, so that reads from storage do not return
+        // stale data until the sync echo arrives.
+        let event = Raw::new(&json!({
+            "type": ImagePackRoomsEventContent::TYPE,
+            "content": content,
+        }))?
+        .cast_unchecked();
+        let mut changes = StateChanges::default();
+        changes.account_data.insert(GlobalAccountDataEventType::ImagePackRooms, event);
+        self.client.state_store().save_changes(&changes).await?;
+
+        Ok(())
+    }
+
     /// Adds a recently used emoji to the list and uploads the updated
     /// `io.element.recent_emoji` content to the global account data.
     ///
@@ -1602,6 +1707,9 @@ struct SanitizedImagePackRooms {
     /// The valid entries of the `rooms` field: the metadata of each image
     /// pack, by state key, by room ID.
     rooms: BTreeMap<OwnedRoomId, JsonObject>,
+
+    /// The other fields of the content, that this client does not know.
+    other: JsonObject,
 }
 
 impl SanitizedImagePackRooms {
@@ -1610,7 +1718,7 @@ impl SanitizedImagePackRooms {
     /// This function drops entries that are not valid, that is room IDs that
     /// are not valid and values that are not objects.
     fn new<T>(raw: &Raw<T>) -> Self {
-        let mut content = match serde_json::from_str(raw.json().get()) {
+        let mut other = match serde_json::from_str(raw.json().get()) {
             Ok(Value::Object(content)) => content,
             _ => {
                 warn!("m.image_pack.rooms event content is not an object, ignoring it");
@@ -1618,7 +1726,7 @@ impl SanitizedImagePackRooms {
             }
         };
 
-        let rooms = match content.remove("rooms") {
+        let rooms = match other.remove("rooms") {
             Some(Value::Object(rooms)) => rooms,
             None => JsonObject::new(),
             Some(_) => {
@@ -1658,7 +1766,7 @@ impl SanitizedImagePackRooms {
             })
             .collect();
 
-        Self { rooms }
+        Self { rooms, other }
     }
 
     /// Convert to the typed event content.
@@ -1674,6 +1782,13 @@ impl SanitizedImagePackRooms {
                 })
                 .collect(),
         )
+    }
+
+    /// Convert to JSON, with the fields that this client does not know.
+    fn into_json(self) -> JsonObject {
+        let mut content = self.other;
+        content.insert("rooms".to_owned(), json!(self.rooms));
+        content
     }
 }
 
@@ -1702,24 +1817,33 @@ mod tests {
     fn test_sanitize_image_pack_rooms() {
         let sanitize = |content: Value| {
             let raw = Raw::<Value>::new(&content).unwrap();
-            json!(SanitizedImagePackRooms::new(&raw).into_content())
+            let json = SanitizedImagePackRooms::new(&raw).into_json();
+            let content = SanitizedImagePackRooms::new(&raw).into_content();
+            (Value::Object(json), json!(content))
         };
 
         // Content that is not an object is ignored.
-        assert_eq!(sanitize(json!(["not an object"])), json!({ "rooms": {} }));
+        let (raw, content) = sanitize(json!(["not an object"]));
+        assert_eq!(raw, json!({ "rooms": {} }));
+        assert_eq!(content, json!({ "rooms": {} }));
 
-        // A `rooms` field that is not an object is ignored.
-        assert_eq!(sanitize(json!({ "rooms": "not an object" })), json!({ "rooms": {} }));
+        // A `rooms` field that is not an object is ignored, but the other
+        // fields are kept.
+        let (raw, content) = sanitize(json!({ "rooms": "not an object", "x.custom": 1 }));
+        assert_eq!(raw, json!({ "rooms": {}, "x.custom": 1 }));
+        assert_eq!(content, json!({ "rooms": {} }));
 
-        // Invalid entries are dropped, valid ones are kept.
+        // Invalid entries are dropped, valid ones are kept with their unknown
+        // fields.
         let room_id = room_id!("!room:example.org");
-        let content = sanitize(json!({
+        let (raw, content) = sanitize(json!({
             "rooms": {
                 "not_a_room_id": { "": {} },
                 "!other:example.org": "not an object",
                 room_id: { "cats": { "x.custom": 1 }, "dogs": "not an object" },
             },
         }));
+        assert_eq!(raw, json!({ "rooms": { room_id: { "cats": { "x.custom": 1 } } } }));
         assert_eq!(content, json!({ "rooms": { room_id: { "cats": {} } } }));
     }
 }
