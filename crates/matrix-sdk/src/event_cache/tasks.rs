@@ -444,62 +444,78 @@ pub(super) async fn search_indexing_task(
 ) {
     let mut linked_chunk_update_receiver = linked_chunk_update_sender.subscribe();
 
+    // Indexing is slow (index opens and commits, under a global lock), and
+    // falling behind the broadcast channel drops updates whose events then
+    // never get indexed. So only queue the updates here, and index them in
+    // a separate task.
+    //
+    // The indexer stops on its own once `queue_sender` is dropped with this
+    // task.
+    let (queue_sender, queue_receiver) = mpsc::unbounded_channel();
+    matrix_sdk_common::executor::spawn(
+        index_linked_chunk_updates(client, queue_receiver).instrument(Span::current()),
+    );
+
     loop {
         match linked_chunk_update_receiver.recv().await {
             Ok(room_ec_lc_update) => {
-                let OwnedLinkedChunkId::Room(room_id) = room_ec_lc_update.linked_chunk_id.clone()
-                else {
-                    trace!("Received non-room updates, ignoring.");
-                    continue;
-                };
-
-                let mut timeline_events = room_ec_lc_update.events().peekable();
-
-                if timeline_events.peek().is_none() {
-                    continue;
-                }
-
-                let Some(client) = client.get() else {
-                    trace!("Client is shutting down, exiting search task");
-                    return;
-                };
-
-                let maybe_room_cache = client.event_cache().room(&room_id).await;
-                let Ok((room_cache, _drop_handles)) = maybe_room_cache else {
-                    warn!(for_room = %room_id, "Failed to get RoomEventCache: {maybe_room_cache:?}");
-                    continue;
-                };
-
-                let maybe_room = client.get_room(&room_id);
-                let Some(room) = maybe_room else {
-                    warn!(get_room = %room_id, "Failed to get room while indexing: {maybe_room:?}");
-                    continue;
-                };
-                let redaction_rules = room.clone_info().room_version_rules_or_default().redaction;
-
-                let mut search_index_guard = client.search_index().lock().await;
-
-                if let Err(err) = search_index_guard
-                    .bulk_handle_timeline_event(
-                        timeline_events,
-                        &room_cache,
-                        &room_id,
-                        &redaction_rules,
-                    )
-                    .await
-                {
-                    error!("Failed to handle events for indexing: {err}")
-                }
+                let _ = queue_sender.send(room_ec_lc_update);
             }
             Err(RecvError::Closed) => {
-                debug!(
-                    "Linked chunk update channel has been closed, exiting thread subscriber task"
-                );
+                debug!("Linked chunk update channel has been closed, exiting search indexing task");
                 break;
             }
             Err(RecvError::Lagged(num_skipped)) => {
                 warn!(num_skipped, "Lagged behind linked chunk updates");
             }
+        }
+    }
+}
+
+/// Index the queued linked chunk updates, one after the other, until the queue
+/// is closed or the client shuts down.
+#[cfg(feature = "experimental-search")]
+async fn index_linked_chunk_updates(
+    client: WeakClient,
+    mut queue_receiver: mpsc::UnboundedReceiver<RoomEventCacheLinkedChunkUpdate>,
+) {
+    while let Some(room_ec_lc_update) = queue_receiver.recv().await {
+        let OwnedLinkedChunkId::Room(room_id) = room_ec_lc_update.linked_chunk_id.clone() else {
+            trace!("Received non-room updates, ignoring.");
+            continue;
+        };
+
+        let mut timeline_events = room_ec_lc_update.events().peekable();
+
+        if timeline_events.peek().is_none() {
+            continue;
+        }
+
+        let Some(client) = client.get() else {
+            trace!("Client is shutting down, exiting search task");
+            return;
+        };
+
+        let maybe_room_cache = client.event_cache().room(&room_id).await;
+        let Ok((room_cache, _drop_handles)) = maybe_room_cache else {
+            warn!(for_room = %room_id, "Failed to get RoomEventCache: {maybe_room_cache:?}");
+            continue;
+        };
+
+        let maybe_room = client.get_room(&room_id);
+        let Some(room) = maybe_room else {
+            warn!(get_room = %room_id, "Failed to get room while indexing: {maybe_room:?}");
+            continue;
+        };
+        let redaction_rules = room.clone_info().room_version_rules_or_default().redaction;
+
+        let mut search_index_guard = client.search_index().lock().await;
+
+        if let Err(err) = search_index_guard
+            .bulk_handle_timeline_event(timeline_events, &room_cache, &room_id, &redaction_rules)
+            .await
+        {
+            error!("Failed to handle events for indexing: {err}")
         }
     }
 }
