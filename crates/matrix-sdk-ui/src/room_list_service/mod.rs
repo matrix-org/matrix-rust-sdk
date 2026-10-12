@@ -107,8 +107,14 @@ const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
 
 /// The default `required_state` constant value for sliding sync room
 /// subscriptions that must be added to `DEFAULT_REQUIRED_STATE`.
-const DEFAULT_ROOM_SUBSCRIPTION_EXTRA_REQUIRED_STATE: &[(StateEventType, &str)] =
-    &[(StateEventType::RoomPinnedEvents, "")];
+const DEFAULT_ROOM_SUBSCRIPTION_EXTRA_REQUIRED_STATE: &[(StateEventType, &str)] = &[
+    (StateEventType::RoomPinnedEvents, ""),
+    // `Room::available_image_packs` needs this to see the image packs of the
+    // room itself. We do not request them for all the rooms of the room list,
+    // because image packs can be large. `Room::load_image_packs` fetches the
+    // image packs of other rooms when the app needs them.
+    (StateEventType::RoomImagePack, "*"),
+];
 
 /// The default Sliding Sync connection ID for the room list service.
 pub(crate) const DEFAULT_CONNECTION_ID: &str = "room-list";
