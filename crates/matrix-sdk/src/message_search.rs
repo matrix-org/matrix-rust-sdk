@@ -628,6 +628,49 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_global_message_search_indexes_large_syncs() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let f = EventFactory::new().sender(user_id!("@user_id:localhost"));
+
+        // Many more rooms than the event cache's broadcast channel can buffer,
+        // all in one sync, while the indexer is stuck (e.g. on a slow commit):
+        // it must not drop any of them.
+        let room_ids: Vec<OwnedRoomId> =
+            (0..300).map(|i| format!("!room{i}:localhost").try_into().unwrap()).collect();
+
+        let index_guard = client.search_index().lock().await;
+
+        server
+            .mock_sync()
+            .ok_and_run(&client, |sync_builder| {
+                for room_id in &room_ids {
+                    sync_builder.add_joined_room(
+                        JoinedRoomBuilder::new(room_id)
+                            .add_timeline_event(f.text_msg("hello world").room(room_id)),
+                    );
+                }
+            })
+            .await;
+
+        drop(index_guard);
+
+        // Give the indexer up to 10 seconds to catch up.
+        let mut indexed = 0;
+        for _ in 0..100 {
+            let results: Vec<(OwnedRoomId, MilliSecondsSinceUnixEpoch, OwnedEventId)> =
+                client.search_messages("world".to_owned()).build().try_concat().await.unwrap();
+            indexed = results.len();
+            if indexed == room_ids.len() {
+                break;
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
+        assert_eq!(indexed, room_ids.len());
+    }
+
+    #[async_test]
     async fn test_global_message_search_dm_or_groups() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
