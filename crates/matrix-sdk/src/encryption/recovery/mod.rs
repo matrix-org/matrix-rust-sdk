@@ -419,7 +419,7 @@ impl Recovery {
     ///         CrossSigningResetAuthType::Uiaa(uiaa) => {
     ///             let password = "1234".to_owned();
     ///             let mut password = uiaa::Password::new(user_id, password);
-    ///             password.session = uiaa.session;
+    ///             password.session = Some(uiaa.session.clone());
     ///
     ///             handle.reset(uiaa::AuthData::Password(password)).await?;
     ///         }

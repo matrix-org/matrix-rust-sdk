@@ -432,7 +432,7 @@ impl CrossSigningResetHandle {
 #[derive(Debug, Clone)]
 pub enum CrossSigningResetAuthType {
     /// The homeserver requires user-interactive authentication.
-    Uiaa(UiaaInfo),
+    Uiaa(UiaaCrossSigningResetInfo),
     /// OAuth 2.0 is used for authentication and the user needs to open a URL to
     /// approve the upload of cross-signing keys.
     OAuth(OAuthCrossSigningResetInfo),
@@ -444,11 +444,33 @@ impl CrossSigningResetAuthType {
             if let Ok(Some(auth_info)) = OAuthCrossSigningResetInfo::from_auth_info(auth_info) {
                 Ok(Some(CrossSigningResetAuthType::OAuth(auth_info)))
             } else {
-                Ok(Some(CrossSigningResetAuthType::Uiaa(auth_info.clone())))
+                Ok(Some(CrossSigningResetAuthType::Uiaa(
+                    UiaaCrossSigningResetInfo::from_auth_info(auth_info)?,
+                )))
             }
         } else {
             Ok(None)
         }
+    }
+}
+
+/// User-interactive authentication specific information about the required
+/// authentication for the upload of cross-signing keys.
+#[derive(Debug, Clone)]
+pub struct UiaaCrossSigningResetInfo {
+    /// Session key to use to complete the authentication.
+    pub session: String,
+}
+
+impl UiaaCrossSigningResetInfo {
+    fn from_auth_info(auth_info: &UiaaInfo) -> Result<Self> {
+        Ok(UiaaCrossSigningResetInfo {
+            session: auth_info
+                .session
+                .as_ref()
+                .ok_or_else(|| serde_json::Error::custom("UIAA info is missing a session token"))?
+                .to_owned(),
+        })
     }
 }
 
@@ -1587,7 +1609,7 @@ impl Encryption {
     ///
     ///             let password = "1234".to_owned();
     ///             let mut password = uiaa::Password::new(user_id, password);
-    ///             password.session = uiaa.session;
+    ///             password.session = Some(uiaa.session.clone());
     ///
     ///             handle.auth(uiaa::AuthData::Password(password)).await?;
     ///         }
