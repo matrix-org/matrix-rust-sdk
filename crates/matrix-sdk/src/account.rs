@@ -1434,6 +1434,9 @@ impl Account {
     /// This is the content of the `m.image_pack.rooms` account data event. If
     /// storage has no such event, or if the event fails to deserialize, this
     /// method returns an empty content.
+    ///
+    /// Use [`Room::available_image_packs()`](crate::Room::available_image_packs)
+    /// to get the image packs that these references point to.
     pub async fn image_pack_rooms(&self) -> Result<ImagePackRoomsEventContent> {
         Ok(self.get_image_pack_rooms_event_content().await?.unwrap_or_default())
     }

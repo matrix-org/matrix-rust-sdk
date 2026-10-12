@@ -1,14 +1,19 @@
-//! Tests for image packs: [`matrix_sdk::Room::image_packs`] and the related
+//! Tests for image packs: [`matrix_sdk::Room::image_packs`],
+//! [`matrix_sdk::Room::available_image_packs`] and the related
 //! [`matrix_sdk::Account`] methods.
 
 use std::{collections::BTreeMap, pin::pin};
 
-use matrix_sdk::{Client, Error, assert_next_with_timeout, test_utils::mocks::MatrixMockServer};
+use matrix_sdk::{
+    Client, Error, assert_next_with_timeout,
+    room::image_packs::{AvailableImagePack, ImagePackSource},
+    test_utils::mocks::MatrixMockServer,
+};
 use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
     OwnedMxcUri, OwnedRoomId, RoomId, event_id,
     events::{
-        AnySyncStateEvent, StateEventType,
+        AnyGlobalAccountDataEvent, AnySyncStateEvent, StateEventType,
         image_pack::rooms::{ImagePackRoomsEventContent, RoomImagePackMeta},
         room::image_pack::{ImagePackImage, ImagePackMeta, RoomImagePackEventContent},
     },
@@ -45,6 +50,14 @@ fn image_pack_rooms(packs: &[(&RoomId, &str)]) -> ImagePackRoomsEventContent {
     ImagePackRoomsEventContent::new(rooms)
 }
 
+/// A summary of available packs, as `(room_id, state_key, source)` tuples.
+fn summary(packs: &[AvailableImagePack]) -> Vec<(String, String, ImagePackSource)> {
+    packs
+        .iter()
+        .map(|p| (p.pack.room_id.to_string(), p.pack.state_key.clone(), p.source.clone()))
+        .collect()
+}
+
 /// Sync the `m.image_pack.rooms` global account data.
 async fn sync_image_pack_rooms(
     server: &MatrixMockServer,
@@ -58,6 +71,24 @@ async fn sync_image_pack_rooms(
             builder.add_global_account_data(f.image_pack_rooms(content));
         })
         .await;
+}
+
+/// Sync a joined room with the given image packs.
+async fn sync_room_with_packs(
+    server: &MatrixMockServer,
+    client: &Client,
+    room_id: &RoomId,
+    packs: &[&str],
+) -> matrix_sdk::Room {
+    let f = EventFactory::new().room(room_id).sender(user_id!("@alice:example.org"));
+    server
+        .sync_room(
+            client,
+            JoinedRoomBuilder::new(room_id).add_state_bulk(
+                packs.iter().map(|state_key| f.image_pack(*state_key, pack(&["cat"])).into()),
+            ),
+        )
+        .await
 }
 
 #[async_test]
@@ -161,6 +192,78 @@ async fn test_set_image_pack() {
     let result = room.set_image_pack("cats", pack(&["cat:wave"])).await;
     assert_let!(Err(Error::InvalidImagePackShortcode(shortcode)) = result);
     assert_eq!(shortcode, "cat:wave");
+}
+
+#[async_test]
+async fn test_available_image_packs() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!room:example.org");
+    let other_room_id = room_id!("!other:example.org");
+    let unknown_room_id = room_id!("!unknown:example.org");
+
+    sync_room_with_packs(&server, &client, room_id, &["b", "a"]).await;
+    sync_room_with_packs(&server, &client, other_room_id, &["global"]).await;
+
+    sync_image_pack_rooms(
+        &server,
+        &client,
+        image_pack_rooms(&[
+            (other_room_id, "global"),
+            // This pack is also in the room itself. It must be returned only
+            // once, as global.
+            (room_id, "b"),
+            // The user did not join this room, so the pack is skipped.
+            (unknown_room_id, ""),
+            // This pack does not exist, so it is skipped.
+            (other_room_id, "missing"),
+        ]),
+    )
+    .await;
+
+    let room = client.get_room(room_id).unwrap();
+    let packs = room.available_image_packs().await.unwrap();
+
+    assert_eq!(
+        summary(&packs),
+        vec![
+            (other_room_id.to_string(), "global".to_owned(), ImagePackSource::Global),
+            (room_id.to_string(), "b".to_owned(), ImagePackSource::Global),
+            (room_id.to_string(), "a".to_owned(), ImagePackSource::Room),
+        ]
+    );
+}
+
+#[async_test]
+async fn test_available_image_packs_with_malformed_image_pack_rooms() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!room:example.org");
+    let room = sync_room_with_packs(&server, &client, room_id, &["cats"]).await;
+
+    // `not_a_room_id` is not a valid room ID, so the entry is ignored.
+    let raw: Raw<AnyGlobalAccountDataEvent> = Raw::new(&json!({
+        "type": "m.image_pack.rooms",
+        "content": { "rooms": { "not_a_room_id": { "": {} } } },
+    }))
+    .unwrap()
+    .cast_unchecked();
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_global_account_data(raw);
+        })
+        .await;
+
+    // The malformed account data is ignored. The packs of the room itself are
+    // still available.
+    assert!(client.account().image_pack_rooms().await.unwrap().rooms.is_empty());
+    assert_eq!(
+        summary(&room.available_image_packs().await.unwrap()),
+        vec![(room_id.to_string(), "cats".to_owned(), ImagePackSource::Room)]
+    );
 }
 
 #[async_test]
