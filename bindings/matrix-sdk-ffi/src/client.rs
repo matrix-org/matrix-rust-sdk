@@ -90,7 +90,7 @@ use ruma::{
             profile::{AvatarUrl, Call, DisplayName, ProfileFieldName, StaticProfileField, Status},
             room::create_room::{RoomPowerLevelsContentOverride, v3::CreationContent},
             rtc::RtcTransport as RumaRtcTransport,
-            uiaa::{EmailUserIdentifier, UserIdentifier},
+            uiaa::{self, EmailUserIdentifier, Password, UserIdentifier},
         },
         error::ErrorKind,
     },
@@ -151,8 +151,8 @@ use crate::{
     room_directory_search::RoomDirectorySearch,
     room_preview::RoomPreview,
     ruma::{
-        AccountDataEvent, AccountDataEventType, AuthData, InviteAvatars, MediaPreviewConfig,
-        MediaPreviews, MediaSource, PresenceState, RoomAccountDataEvent, UserCall, UserStatus,
+        AccountDataEvent, AccountDataEventType, InviteAvatars, MediaPreviewConfig, MediaPreviews,
+        MediaSource, PresenceState, RoomAccountDataEvent, UserCall, UserStatus,
     },
     runtime::get_runtime_handle,
     spaces::SpaceService,
@@ -2082,22 +2082,29 @@ impl Client {
     /// `encryption::reset_identity` this will only work with password-based
     /// authentication (`m.login.password`)
     ///
-    /// # Arguments
-    ///
-    /// - `auth_data` - This request uses the [User-Interactive Authentication
-    ///   API][uiaa]. The first request needs to set this to `None` and will
-    ///   always fail and the same request needs to be made but this time with
-    ///   some `auth_data` provided.
+    /// This sends the initial unauthenticated request to retrieve a User-
+    /// Interactive Authentication session, then completes it with the given
+    /// password.
     pub async fn deactivate_account(
         &self,
-        auth_data: Option<AuthData>,
+        password: String,
         erase_data: bool,
     ) -> Result<(), ClientError> {
-        if let Some(auth_data) = auth_data {
-            _ = self.inner.account().deactivate(None, Some(auth_data.into()), erase_data).await?;
-        } else {
-            _ = self.inner.account().deactivate(None, None, erase_data).await?;
-        }
+        let account = self.inner.account();
+
+        let Err(error) = account.deactivate(None, None, erase_data).await else {
+            return Ok(());
+        };
+
+        let Some(session) = error.as_uiaa_response().and_then(|info| info.session.clone()) else {
+            return Err(error.into());
+        };
+
+        let user_id = self.inner.user_id().context("No user ID found")?;
+        let mut password = Password::new(user_id.to_owned().into(), password);
+        password.session = Some(session);
+
+        account.deactivate(None, Some(uiaa::AuthData::Password(password)), erase_data).await?;
 
         Ok(())
     }

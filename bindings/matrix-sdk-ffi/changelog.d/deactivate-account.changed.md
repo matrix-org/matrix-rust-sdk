@@ -1,0 +1,1 @@
+[**breaking**] `Client::deactivate_account` now takes the user's `password` instead of optional `auth_data`, and performs the whole User-Interactive Authentication flow itself.
