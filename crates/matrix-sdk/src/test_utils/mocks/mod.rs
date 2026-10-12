@@ -53,8 +53,9 @@ use ruma::{
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey},
     events::{
         AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, GlobalAccountDataEventType,
-        MessageLikeEventType, RoomAccountDataEventType, StateEventType, receipt::ReceiptThread,
-        room::member::RoomMemberEvent,
+        MessageLikeEventType, RoomAccountDataEventType, StateEventType,
+        receipt::ReceiptThread,
+        room::member::{MembershipState, RoomMemberEvent},
     },
     media::Method,
     profile::{ProfileFieldName, ProfileFieldValue},
@@ -3741,16 +3742,48 @@ impl<'a> MockEndpoint<'a, VersionsEndpoint> {
 pub struct RoomSummaryEndpoint;
 
 impl<'a> MockEndpoint<'a, RoomSummaryEndpoint> {
+    /// Returns a successful response with some default data and the given
+    /// custom fields for the given room id.
+    ///
+    /// The custom fields may override the default data.
+    fn ok_with_custom_fields(
+        self,
+        room_id: &RoomId,
+        fields: Vec<(String, Value)>,
+    ) -> MatrixMock<'a> {
+        let mut body = as_variant!(
+            json!({
+                "room_id": room_id,
+                "guest_can_join": true,
+                "num_joined_members": 1,
+                "world_readable": true,
+                "join_rule": "public",
+            }),
+            Value::Object
+        )
+        .unwrap();
+        body.extend(fields);
+
+        self.respond_with(ResponseTemplate::new(200).set_body_json(body))
+    }
+
     /// Returns a successful response with some default data for the given room
     /// id.
     pub fn ok(self, room_id: &RoomId) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "room_id": room_id,
-            "guest_can_join": true,
-            "num_joined_members": 1,
-            "world_readable": true,
-            "join_rule": "public",
-        })))
+        self.ok_with_custom_fields(room_id, vec![])
+    }
+
+    /// Returns a successful response with some default data and the given
+    /// membership for the given room id.
+    pub fn ok_with_membership(
+        self,
+        room_id: &RoomId,
+        membership: MembershipState,
+    ) -> MatrixMock<'a> {
+        self.ok_with_custom_fields(
+            room_id,
+            vec![("membership".to_owned(), membership.as_str().into())],
+        )
     }
 }
 
