@@ -15,6 +15,7 @@ mod error;
 mod event;
 mod helpers;
 mod identity_status_change;
+mod image_pack;
 mod live_locations_observer;
 mod notification;
 mod notification_settings;

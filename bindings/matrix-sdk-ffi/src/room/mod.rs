@@ -63,6 +63,7 @@ use crate::{
     },
     event::TimelineEvent,
     identity_status_change::IdentityStatusChange,
+    image_pack::{AvailableImagePack, ImagePack, ImagePackContent},
     live_locations_observer::LiveLocationsObserver,
     room_member::{RoomMember, RoomMemberWithSenderInfo},
     room_preview::RoomPreview,
@@ -528,6 +529,49 @@ impl Room {
         let events = self.inner.get_state_events(event_type).await?;
 
         Ok(to_state_events(events))
+    }
+
+    /// Get all the image packs defined in this room, from storage.
+    pub async fn image_packs(&self) -> Result<Vec<ImagePack>, ClientError> {
+        Ok(self.inner.image_packs().await?.into_iter().map(Into::into).collect())
+    }
+
+    /// Get all the image packs that are available to the user in this room,
+    /// from storage.
+    ///
+    /// Packs are in the order recommended by the spec: packs enabled globally,
+    /// then packs of this room, then packs of the canonical space hierarchy.
+    pub async fn available_image_packs(&self) -> Result<Vec<AvailableImagePack>, ClientError> {
+        Ok(self.inner.available_image_packs().await?.into_iter().map(Into::into).collect())
+    }
+
+    /// Fetch from the server the image packs of other rooms that
+    /// [`Self::available_image_packs`] needs, and save them to storage.
+    ///
+    /// These are the globally enabled packs and the packs of the canonical
+    /// space hierarchy of this room.
+    ///
+    /// Call this before `available_image_packs`, for example when opening an
+    /// image pack picker.
+    pub async fn load_image_packs(&self) -> Result<(), ClientError> {
+        Ok(self.inner.load_image_packs().await?)
+    }
+
+    /// Create or replace the image pack with the given state key in this room.
+    ///
+    /// Returns the event ID of the state event.
+    ///
+    /// Fails if two images have the same shortcode, if a shortcode does not
+    /// match the grammar in the spec, or if a URL is not a valid `mxc://` URI.
+    pub async fn set_image_pack(
+        &self,
+        state_key: String,
+        content: ImagePackContent,
+    ) -> Result<String, ClientError> {
+        let existing = self.inner.image_pack(&state_key).await?;
+        let content = content.into_ruma(existing.as_ref().map(|pack| &pack.content))?;
+        let response = self.inner.set_image_pack(&state_key, content).await?;
+        Ok(response.event_id.to_string())
     }
 
     /// Subscribe to the room state events of the given type.
