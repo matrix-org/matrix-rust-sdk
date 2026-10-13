@@ -564,6 +564,35 @@ mod tests {
     }
 
     #[test]
+    fn test_encrypted_index_is_recreated_with_another_passphrase() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let room_id = room_id!("!r");
+        let add = RoomIndexOperation::Add(IndexableEvent::new(
+            event_id!("$ev").to_owned(),
+            event_id!("$ev").to_owned(),
+            user_id!("@mnt_io:matrix.org").to_owned(),
+            None,
+            "body".to_owned(),
+        ));
+
+        let mut index = RoomIndexBuilder::new_on_disk(tmpdir.path().to_path_buf(), room_id)
+            .encrypted("passphrase")
+            .build()
+            .unwrap();
+        index.execute(add).unwrap();
+        assert_eq!(index.search("body", 10, None).unwrap().events.len(), 1);
+        drop(index);
+
+        // The index can't be decrypted with another passphrase, so it's
+        // recreated, empty.
+        let index = RoomIndexBuilder::new_on_disk(tmpdir.path().to_path_buf(), room_id)
+            .encrypted("another passphrase")
+            .build()
+            .unwrap();
+        assert!(index.search("body", 10, None).unwrap().events.is_empty());
+    }
+
+    #[test]
     fn test_add_event_with_no_timestamp() {
         let mut index = RoomIndexBuilder::new_in_memory(room_id!("!r")).build();
 
