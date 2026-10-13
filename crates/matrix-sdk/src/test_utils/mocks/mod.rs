@@ -3234,10 +3234,7 @@ impl<'a> MockEndpoint<'a, RoomEventEndpoint> {
     pub fn ok(mut self, event: TimelineEvent) -> MatrixMock<'a> {
         let event_path = if self.endpoint.match_event_id {
             let event_id = event.event_id().expect("an event id is required");
-            // The event id should begin with `$`, which would be taken as the
-            // end of the regex so we need to escape it
-            // TODO(bnjbvr): use regex::escape.
-            event_id.as_str().replace("$", "\\$")
+            regex::escape(event_id.as_str())
         } else {
             // Event is at the end, so no need to add anything.
             "".to_owned()
