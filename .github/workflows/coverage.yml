@@ -131,7 +131,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest and llvm-cov
-        uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v 2.87.21
+        uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v 2.87.26
         with:
           tool: nextest,cargo-llvm-cov
 
