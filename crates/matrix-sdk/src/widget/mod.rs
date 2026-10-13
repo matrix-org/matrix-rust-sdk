@@ -289,6 +289,16 @@ impl WidgetDriver {
                         .get_rtc_transports()
                         .await
                         .map(MatrixDriverResponse::RtcTransportsReceived),
+
+                    MatrixDriverRequestData::RtcLivekitGetToken(req) => matrix_driver
+                        .get_rtc_livekit_token(req)
+                        .await
+                        .map(MatrixDriverResponse::RtcLivekitTokenReceived),
+
+                    MatrixDriverRequestData::RtcLivekitDelegateDelayedLeave(req) => matrix_driver
+                        .delegate_rtc_livekit_delayed_leave(req)
+                        .await
+                        .map(MatrixDriverResponse::RtcLivekitDelayedLeaveDelegated),
                 };
 
                 // Forward the Matrix driver response to the incoming message
