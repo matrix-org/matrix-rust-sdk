@@ -476,6 +476,41 @@ impl RoomListService {
         self.list_for(ALL_ROOMS_LIST_NAME).await
     }
 
+    /// Whether the user has joined at least one encrypted room.
+    ///
+    /// Spaces, as well as invited, knocked and left rooms, aren't taken into
+    /// account.
+    ///
+    /// The encryption state of the rooms is only reliably known once the
+    /// sliding sync has returned the first rooms. So this waits until the
+    /// [`RoomList`] of all the rooms is [`RoomListLoadingState::Loaded`]
+    /// before looking at them. This means that the sync of the
+    /// [`RoomListService`] needs to be running, see [`RoomListService::sync`],
+    /// otherwise this will wait indefinitely.
+    ///
+    /// A joined room whose encryption state is still unknown is considered to
+    /// be encrypted. It's better for the caller to be cautious about the user
+    /// losing access to messages than to wrongly reassure them.
+    pub async fn has_encrypted_rooms(&self) -> Result<bool, Error> {
+        let all_rooms = self.all_rooms().await?;
+        let mut loading_state = all_rooms.loading_state();
+
+        while let Some(state) = loading_state.next().await {
+            if matches!(state, RoomListLoadingState::Loaded { .. }) {
+                break;
+            }
+        }
+
+        Ok(self.client.joined_rooms().iter().any(|room| {
+            if room.is_space() {
+                return false;
+            }
+
+            let encryption_state = room.encryption_state();
+            encryption_state.is_encrypted() || encryption_state.is_unknown()
+        }))
+    }
+
     /// Get a [`Room`] if it exists.
     pub fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
         self.client.get_room(room_id).ok_or_else(|| Error::RoomNotFound(room_id.to_owned()))

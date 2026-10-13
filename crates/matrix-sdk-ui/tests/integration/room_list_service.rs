@@ -1193,6 +1193,177 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
     Ok(())
 }
 
+/// Runs `RoomListService::has_encrypted_rooms` while the first sliding sync
+/// request of the `RoomListService` is answered with the given `rooms`.
+///
+/// It also checks that the method waits for this first response.
+async fn has_encrypted_rooms_after_first_sync(rooms: Value) -> Result<bool, Error> {
+    let (_client, server, room_list) = new_room_list_service().await?;
+
+    let sync = room_list.sync();
+    let mut sync = pin!(sync);
+
+    let has_encrypted_rooms = room_list.has_encrypted_rooms();
+    let mut has_encrypted_rooms = pin!(has_encrypted_rooms);
+
+    // Nothing is known about the rooms before the first sync.
+    assert!(has_encrypted_rooms.as_mut().now_or_never().is_none());
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Init => SettingUp,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 1,
+                },
+            },
+            "rooms": rooms,
+        },
+    };
+
+    // Wait on Tokio to run all the tasks. Necessary only when testing.
+    yield_now().await;
+
+    has_encrypted_rooms.await
+}
+
+fn required_state_event(event_type: &str, content: Value) -> Value {
+    json!({
+        "content": content,
+        "event_id": format!("${event_type}"),
+        "origin_server_ts": 1,
+        "sender": "@example:bar.org",
+        "state_key": "",
+        "type": event_type,
+    })
+}
+
+#[async_test]
+async fn test_has_encrypted_rooms_with_an_encrypted_room() -> Result<(), Error> {
+    let has_encrypted_rooms = has_encrypted_rooms_after_first_sync(json!({
+        "!r0:bar.org": {
+            "initial": true,
+            "bump_stamp": 1,
+            "required_state": [
+                required_state_event("m.room.name", json!({ "name": "Not encrypted" })),
+            ],
+        },
+        "!r1:bar.org": {
+            "initial": true,
+            "bump_stamp": 2,
+            "required_state": [
+                required_state_event(
+                    "m.room.encryption",
+                    json!({ "algorithm": "m.megolm.v1.aes-sha2" }),
+                ),
+            ],
+        },
+    }))
+    .await?;
+
+    assert!(has_encrypted_rooms);
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_has_encrypted_rooms_without_any_room() -> Result<(), Error> {
+    assert!(!has_encrypted_rooms_after_first_sync(json!({})).await?);
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_has_encrypted_rooms_without_encrypted_rooms() -> Result<(), Error> {
+    let has_encrypted_rooms = has_encrypted_rooms_after_first_sync(json!({
+        "!r0:bar.org": {
+            "initial": true,
+            "bump_stamp": 1,
+            "required_state": [
+                required_state_event("m.room.name", json!({ "name": "Not encrypted" })),
+            ],
+        },
+    }))
+    .await?;
+
+    assert!(!has_encrypted_rooms);
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_has_encrypted_rooms_counts_unknown_encryption_as_encrypted() -> Result<(), Error> {
+    let (client, server, room_list) = new_room_list_service().await?;
+
+    // This room comes from a regular sync, which doesn't tell whether the room is
+    // encrypted or not, so its encryption state is unknown.
+    let room_id = room_id!("!unknown:bar.org");
+    server.sync_joined_room(&client, room_id).await;
+    assert!(client.get_room(room_id).unwrap().encryption_state().is_unknown());
+
+    let sync = room_list.sync();
+    let mut sync = pin!(sync);
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Init => SettingUp,
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 19]],
+                },
+            },
+        },
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 1,
+                },
+            },
+            "rooms": {},
+        },
+    };
+
+    // Wait on Tokio to run all the tasks. Necessary only when testing.
+    yield_now().await;
+
+    assert!(room_list.has_encrypted_rooms().await?);
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_has_encrypted_rooms_ignores_spaces() -> Result<(), Error> {
+    let has_encrypted_rooms = has_encrypted_rooms_after_first_sync(json!({
+        "!space:bar.org": {
+            "initial": true,
+            "bump_stamp": 1,
+            "required_state": [
+                required_state_event("m.room.create", json!({ "type": "m.space" })),
+                required_state_event(
+                    "m.room.encryption",
+                    json!({ "algorithm": "m.megolm.v1.aes-sha2" }),
+                ),
+            ],
+        },
+    }))
+    .await?;
+
+    assert!(!has_encrypted_rooms);
+
+    Ok(())
+}
+
 #[async_test]
 async fn test_loading_states() -> Result<(), Error> {
     // Test with an empty client, so no cache.
