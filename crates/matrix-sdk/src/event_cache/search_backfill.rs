@@ -87,6 +87,9 @@ impl EventCache {
     /// compete with interactive traffic. [`SearchBackfillStrategy::Background`]
     /// introduces them as fast as the concurrency cap allows.
     ///
+    /// Before that, the events already saved in the event cache store are
+    /// indexed, once.
+    ///
     /// No-ops if automatic back-pagination is disabled.
     pub async fn run_search_backfill(&self, strategy: SearchBackfillStrategy) {
         let Some(queue) = self.back_pagination_queue() else {
@@ -95,6 +98,9 @@ impl EventCache {
         let Ok(client) = self.inner.client() else {
             return;
         };
+
+        #[cfg(feature = "experimental-search")]
+        self.reindex_stored_events(&client).await;
 
         let enqueue_delay = strategy.enqueue_delay();
         let started = Instant::now();
@@ -168,6 +174,69 @@ impl EventCache {
             elapsed = ?started.elapsed(),
             "search backfill finished"
         );
+    }
+}
+
+/// Marker file, in the search index directory, telling that the events saved in
+/// the event cache store have been indexed. Bump it when the index format
+/// changes, so the events get indexed again.
+#[cfg(feature = "experimental-search")]
+const REINDEX_MARKER: &str = "reindexed-v1";
+
+impl EventCache {
+    /// Index the events saved in the event cache store, once: the search index
+    /// may have missed some, or have been recreated.
+    #[cfg(feature = "experimental-search")]
+    async fn reindex_stored_events(&self, client: &Client) {
+        let dir = client.search_index().directory();
+        if dir.is_some_and(|dir| dir.join(REINDEX_MARKER).exists()) {
+            return;
+        }
+
+        let started = Instant::now();
+        let rooms = client.joined_rooms();
+        info!(total_rooms = rooms.len(), "reindexing stored events");
+
+        for room in rooms {
+            let room_id = room.room_id();
+
+            let loaded = async {
+                let caches = self.inner.all_caches_for_room(room_id).await?;
+                Ok::<_, super::EventCacheError>((
+                    caches.room().clone(),
+                    caches.stored_events().await?,
+                ))
+            };
+            let Ok((room_cache, events)) = loaded.await.inspect_err(|err| {
+                warn!(%room_id, "couldn't load the room's stored events: {err}");
+            }) else {
+                continue;
+            };
+
+            let redaction_rules = room.clone_info().room_version_rules_or_default().redaction;
+            if let Err(err) = client
+                .search_index()
+                .bulk_handle_timeline_event(
+                    events.into_iter(),
+                    &room_cache,
+                    room_id,
+                    &redaction_rules,
+                )
+                .await
+            {
+                warn!(%room_id, "couldn't index the room's stored events: {err}");
+            }
+        }
+
+        // Only now, so an interrupted reindex starts over next time.
+        if let Some(dir) = dir
+            && let Err(err) = std::fs::create_dir_all(dir)
+                .and_then(|()| std::fs::write(dir.join(REINDEX_MARKER), b""))
+        {
+            warn!("couldn't write the reindex marker: {err}");
+        }
+
+        info!(elapsed = ?started.elapsed(), "reindexed stored events");
     }
 }
 
@@ -330,5 +399,56 @@ mod tests {
         assert_eq!(room_events.len(), 2);
         assert_eq!(room_events[0].event_id().unwrap(), event_id!("$1"));
         assert_eq!(room_events[1].event_id().unwrap(), event_id!("$2"));
+    }
+
+    /// A search backfill first indexes the events saved in the store, once.
+    #[cfg(feature = "experimental-search")]
+    #[async_test]
+    async fn test_search_backfill_reindexes_stored_events_once() {
+        use futures_util::TryStreamExt as _;
+        use matrix_sdk_base::cross_process_lock::MappedCrossProcessLockState;
+
+        use crate::search_index::SearchIndexStoreKind;
+
+        let index_dir = tempfile::tempdir().unwrap();
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| {
+                builder.with_enable_automatic_back_pagination(true).search_index_store(
+                    SearchIndexStoreKind::UnencryptedDirectory(index_dir.path().to_path_buf()),
+                )
+            })
+            .build()
+            .await;
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        let f = EventFactory::new().room(room_id).sender(*BOB);
+        server.sync_joined_room(&client, room_id).await;
+
+        // Save events straight into the store: the indexer never sees them.
+        let save = async |body: &str, event_id| {
+            let store = match client.event_cache_store().lock().await.unwrap() {
+                MappedCrossProcessLockState::Clean(store)
+                | MappedCrossProcessLockState::Dirty(store) => store,
+            };
+            store.save_event(room_id, f.text_msg(body).event_id(event_id).into()).await.unwrap();
+        };
+        let search = async |query: &str| -> usize {
+            let results: Vec<_> =
+                client.search_messages(query.to_owned()).build().try_concat().await.unwrap();
+            results.len()
+        };
+
+        save("comté", event_id!("$1")).await;
+        assert_eq!(search("comté").await, 0);
+
+        client.event_cache().run_search_backfill(SearchBackfillStrategy::Background).await;
+        assert_eq!(search("comté").await, 1);
+
+        // The reindex ran already: it doesn't run again.
+        save("beaufort", event_id!("$2")).await;
+        client.event_cache().run_search_backfill(SearchBackfillStrategy::Background).await;
+        assert_eq!(search("beaufort").await, 0);
     }
 }
