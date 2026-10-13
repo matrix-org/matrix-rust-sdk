@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, sync::LazyLock};
 
 use camino::Utf8PathBuf;
 use cargo_metadata::Metadata;
@@ -16,10 +16,11 @@ pub struct XtaskMetadata {
     pub swift_features: Option<String>,
 }
 
-lazy_static::lazy_static! {
-    static ref METADATA: Metadata = load_metadata().expect("failed to load `cargo metadata`");
-    static ref XTASK_METADATA: XtaskMetadata = load_xtask_metadata().expect("failed to load xtask metadata from `cargo metadata`");
-}
+static METADATA: LazyLock<Metadata> =
+    LazyLock::new(|| load_metadata().expect("failed to load `cargo metadata`"));
+static XTASK_METADATA: LazyLock<XtaskMetadata> = LazyLock::new(|| {
+    load_xtask_metadata().expect("failed to load xtask metadata from `cargo metadata`")
+});
 
 fn load_metadata() -> Result<Metadata> {
     let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
