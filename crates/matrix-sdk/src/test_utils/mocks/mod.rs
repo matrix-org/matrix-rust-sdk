@@ -2081,10 +2081,12 @@ impl<'a, T> MockEndpoint<'a, T> {
         self
     }
 
-    /// Internal helper to add a delay specified with [`Self::with_delay`] to a
-    /// [`ResponseTemplate`].
-    fn add_delay(&mut self, r: ResponseTemplate) -> ResponseTemplate {
-        if let Some(delay) = self.delay.take() { r.set_delay(delay) } else { r }
+    /// Internal helper to return the given template and apply the delay
+    /// specified with [`Self::with_delay`] onto it, if set.
+    fn respond_with_template(mut self, template: ResponseTemplate) -> MatrixMock<'a> {
+        let template =
+            if let Some(delay) = self.delay.take() { template.set_delay(delay) } else { template };
+        self.respond_with(template)
     }
 
     /// Returns a send endpoint that emulates a transient failure, i.e responds
@@ -2118,16 +2120,14 @@ impl<'a, T> MockEndpoint<'a, T> {
     ///     .await.expect_err("The sending of the event should have failed");
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn error500(mut self) -> MatrixMock<'a> {
-        let response_template = self.add_delay(ResponseTemplate::new(500));
-        self.respond_with(response_template)
+    pub fn error500(self) -> MatrixMock<'a> {
+        self.respond_with_template(ResponseTemplate::new(500))
     }
 
     /// Internal helper to return an HTTP response with the given HTTP status
     /// code and JSON object as the body.
-    fn respond_with_code_and_json<B: Serialize>(mut self, code: u16, json: B) -> MatrixMock<'a> {
-        let response_template = self.add_delay(ResponseTemplate::new(code));
-        self.respond_with(response_template.set_body_json(json))
+    fn respond_with_code_and_json<B: Serialize>(self, code: u16, json: B) -> MatrixMock<'a> {
+        self.respond_with_template(ResponseTemplate::new(code).set_body_json(json))
     }
 
     /// Returns a mocked endpoint that emulates an unimplemented endpoint, i.e
@@ -3258,13 +3258,12 @@ impl<'a> MockEndpoint<'a, RoomEventEndpoint> {
     /// The path restriction is applied automatically. This is useful when you
     /// need to configure specific response properties like delays.
     // TODO(bnjbvr): replace with set_delay.ok to add support for room matching.
-    pub fn ok_with_template(self, template: ResponseTemplate) -> MatrixMock<'a> {
-        let room_path = self.endpoint.room.map_or_else(|| ".*".to_owned(), |room| room.to_string());
-        let mock = self
-            .mock
-            .and(path_regex(format!(r"^/_matrix/client/v3/rooms/{room_path}/event/")))
-            .respond_with(template);
-        MatrixMock { server: self.server, mock }
+    pub fn ok_with_template(mut self, template: ResponseTemplate) -> MatrixMock<'a> {
+        let room_path =
+            self.endpoint.room.take().map_or_else(|| ".*".to_owned(), |room| room.to_string());
+        self.mock =
+            self.mock.and(path_regex(format!(r"^/_matrix/client/v3/rooms/{room_path}/event/")));
+        self.respond_with_template(template)
     }
 }
 
@@ -3699,9 +3698,8 @@ impl<'a> MockEndpoint<'a, RoomKeysVersionEndpoint> {
     }
 
     /// Returns an endpoint that 404 errors when we get it
-    pub fn error404(mut self) -> MatrixMock<'a> {
-        let response = self.add_delay(ResponseTemplate::new(404));
-        self.respond_with(response)
+    pub fn error404(self) -> MatrixMock<'a> {
+        self.respond_with_template(ResponseTemplate::new(404))
     }
 }
 
@@ -3916,9 +3914,8 @@ impl<'a> MockEndpoint<'a, SetRoomPinnedEventsEndpoint> {
 
     /// Returns an error response with a generic error code indicating the
     /// client is not authorized to set pinned events.
-    pub fn unauthorized(mut self) -> MatrixMock<'a> {
-        let response = self.add_delay(ResponseTemplate::new(400));
-        self.respond_with(response)
+    pub fn unauthorized(self) -> MatrixMock<'a> {
+        self.respond_with_template(ResponseTemplate::new(400))
     }
 }
 
@@ -4002,9 +3999,8 @@ impl<'a> MockEndpoint<'a, WellKnownEndpoint> {
     }
 
     /// Returns a 404 error response.
-    pub fn error404(mut self) -> MatrixMock<'a> {
-        let response = self.add_delay(ResponseTemplate::new(404));
-        self.respond_with(response)
+    pub fn error404(self) -> MatrixMock<'a> {
+        self.respond_with_template(ResponseTemplate::new(404))
     }
 }
 
@@ -4430,11 +4426,10 @@ impl<'a> MockEndpoint<'a, UpdateRecentEmojisEndpoint> {
     /// Returns a mock for a successful update of the recent emojis account data
     /// event. The request body contents should match the provided emoji list.
     #[cfg(feature = "experimental-element-recent-emojis")]
-    pub fn ok(self, user_id: &UserId) -> MatrixMock<'a> {
-        let mock =
-            global_account_data_mock_builder(self.mock, user_id, "io.element.recent_emoji".into())
-                .respond_with(ResponseTemplate::new(200).set_body_json(()));
-        MatrixMock { server: self.server, mock }
+    pub fn ok(mut self, user_id: &UserId) -> MatrixMock<'a> {
+        self.mock =
+            global_account_data_mock_builder(self.mock, user_id, "io.element.recent_emoji".into());
+        self.respond_with_template(ResponseTemplate::new(200).set_body_json(()))
     }
 }
 
@@ -4896,12 +4891,12 @@ pub struct MediaDownloadEndpoint;
 impl<'a> MockEndpoint<'a, MediaDownloadEndpoint> {
     /// Returns a successful response with a plain text content.
     pub fn ok_plain_text(self) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(200).set_body_string("Hello, World!"))
+        self.respond_with_template(ResponseTemplate::new(200).set_body_string("Hello, World!"))
     }
 
     /// Returns a successful response with a fake image content.
     pub fn ok_image(self) -> MatrixMock<'a> {
-        self.respond_with(
+        self.respond_with_template(
             ResponseTemplate::new(200).set_body_raw(b"binaryjpegfullimagedata", "image/jpeg"),
         )
     }
@@ -4913,7 +4908,7 @@ pub struct MediaThumbnailEndpoint;
 impl<'a> MockEndpoint<'a, MediaThumbnailEndpoint> {
     /// Returns a successful response with a fake image content.
     pub fn ok(self) -> MatrixMock<'a> {
-        self.respond_with(
+        self.respond_with_template(
             ResponseTemplate::new(200).set_body_raw(b"binaryjpegthumbnaildata", "image/jpeg"),
         )
     }
@@ -4977,19 +4972,19 @@ pub struct AuthedMediaDownloadEndpoint;
 impl<'a> MockEndpoint<'a, AuthedMediaDownloadEndpoint> {
     /// Returns a successful response with a plain text content.
     pub fn ok_plain_text(self) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(200).set_body_string("Hello, World!"))
+        self.respond_with_template(ResponseTemplate::new(200).set_body_string("Hello, World!"))
     }
 
     /// Returns a successful response with the given bytes.
     pub fn ok_bytes(self, bytes: Vec<u8>) -> MatrixMock<'a> {
-        self.respond_with(
+        self.respond_with_template(
             ResponseTemplate::new(200).set_body_raw(bytes, "application/octet-stream"),
         )
     }
 
     /// Returns a successful response with a fake image content.
     pub fn ok_image(self) -> MatrixMock<'a> {
-        self.respond_with(
+        self.respond_with_template(
             ResponseTemplate::new(200).set_body_raw(b"binaryjpegfullimagedata", "image/jpeg"),
         )
     }
@@ -5001,7 +4996,7 @@ pub struct AuthedMediaThumbnailEndpoint;
 impl<'a> MockEndpoint<'a, AuthedMediaThumbnailEndpoint> {
     /// Returns a successful response with a fake image content.
     pub fn ok(self) -> MatrixMock<'a> {
-        self.respond_with(
+        self.respond_with_template(
             ResponseTemplate::new(200).set_body_raw(b"binaryjpegthumbnaildata", "image/jpeg"),
         )
     }
@@ -5099,7 +5094,7 @@ impl<'a> MockEndpoint<'a, RoomPutThreadSubscriptionEndpoint> {
     /// subscription.
     pub fn ok(mut self) -> MatrixMock<'a> {
         self.mock = self.mock.and(path_regex(self.endpoint.matchers.endpoint_regexp_uri()));
-        self.respond_with(ResponseTemplate::new(200))
+        self.respond_with_template(ResponseTemplate::new(200))
     }
 
     /// Returns that the server skipped an automated thread subscription,
@@ -5147,7 +5142,7 @@ impl<'a> MockEndpoint<'a, RoomDeleteThreadSubscriptionEndpoint> {
     /// subscription.
     pub fn ok(mut self) -> MatrixMock<'a> {
         self.mock = self.mock.and(path_regex(self.endpoint.matchers.endpoint_regexp_uri()));
-        self.respond_with(ResponseTemplate::new(200))
+        self.respond_with_template(ResponseTemplate::new(200))
     }
 
     /// Match the request parameter against a specific room id.
@@ -5367,7 +5362,7 @@ impl<'a> MockEndpoint<'a, SetSpaceChildEndpoint> {
     /// Returns an error response with a generic error code indicating the
     /// client is not authorized to set space children.
     pub fn unauthorized(self) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(400))
+        self.respond_with_template(ResponseTemplate::new(400))
     }
 }
 
@@ -5384,7 +5379,7 @@ impl<'a> MockEndpoint<'a, SetSpaceParentEndpoint> {
     /// Returns an error response with a generic error code indicating the
     /// client is not authorized to set space parents.
     pub fn unauthorized(self) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(400))
+        self.respond_with_template(ResponseTemplate::new(400))
     }
 }
 
