@@ -95,6 +95,22 @@ impl SearchIndex {
         }
     }
 
+    /// The disk size of the room indexes, if they are stored on disk.
+    pub(crate) fn size(&self) -> Option<usize> {
+        fn dir_size(path: &Path) -> std::io::Result<u64> {
+            let mut size = 0;
+            for entry in std::fs::read_dir(path)? {
+                let entry = entry?;
+                let metadata = entry.metadata()?;
+                size += if metadata.is_dir() { dir_size(&entry.path())? } else { metadata.len() };
+            }
+            Ok(size)
+        }
+
+        let size = dir_size(self.directory()?).ok()?;
+        usize::try_from(size).ok()
+    }
+
     /// Acquire [`SearchIndexGuard`] for this [`SearchIndex`].
     pub async fn lock(&self) -> SearchIndexGuard<'_> {
         SearchIndexGuard {
@@ -569,6 +585,49 @@ mod tests {
     };
 
     use crate::test_utils::mocks::MatrixMockServer;
+
+    #[cfg(feature = "experimental-search")]
+    #[async_test]
+    async fn test_search_index_size() {
+        use super::SearchIndexStoreKind;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mock_server = MatrixMockServer::new().await;
+        let client = mock_server
+            .client_builder()
+            .on_builder(|builder| {
+                builder.search_index_store(SearchIndexStoreKind::UnencryptedDirectory(
+                    dir.path().join("search"),
+                ))
+            })
+            .build()
+            .await;
+
+        // Nothing indexed yet: the directory doesn't even exist.
+        assert_eq!(client.get_store_sizes().await.unwrap().search_index, None);
+
+        let room_id = room_id!("!room_id:localhost");
+        mock_server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id).add_timeline_event(
+                    EventFactory::new()
+                        .text_msg("this is a sentence")
+                        .room(room_id)
+                        .sender(user_id!("@user_id:localhost")),
+                ),
+            )
+            .await;
+
+        // Let the indexer process the event.
+        for _ in 0..50 {
+            if client.get_store_sizes().await.unwrap().search_index.is_some_and(|size| size > 0) {
+                return;
+            }
+            crate::sleep::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        panic!("the search index size was never reported");
+    }
 
     #[cfg(feature = "experimental-search")]
     #[async_test]
