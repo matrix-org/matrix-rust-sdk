@@ -50,6 +50,8 @@ const IV_SIZE: usize = 16;
 const KEY_SIZE: usize = 32;
 // 32 byte message authentication code since HMAC-SHA256 is used.
 const MAC_LENGTH: usize = 32;
+// HKDF info, making the derived keys unique to the search index.
+const HKDF_INFO: &[u8] = b"matrix-sdk-search-encryption-key";
 
 trait IntoTvError<E> {
     fn into_tv_err(self, path: &Path) -> E;
@@ -82,7 +84,7 @@ impl IntoTvError<OpenWriteError> for IoError {
 /// [HKDF][hkdf]:
 ///
 /// ```text
-///     encryption_key, mac_key = HKDF(SHA512, key, "", 512)
+///     encryption_key, mac_key = HKDF(SHA512, key, info = "matrix-sdk-search-encryption-key", 512)
 /// ```
 ///
 /// Those two keys are used to encrypt and authenticate the Tantivy files, using
@@ -133,7 +135,7 @@ impl EncryptedMmapDirectory {
         // Expand the key into an encryption and MAC key.
         let mut hkdf_result = Zeroizing::new([0u8; KEY_SIZE * 2]);
         Hkdf::<Sha512>::new(None, key.as_bytes())
-            .expand(&[], &mut *hkdf_result)
+            .expand(HKDF_INFO, &mut *hkdf_result)
             .map_err(|e| IoError::other(format!("unable to expand the key: {e:?}")))
             .map_err(|err| err.into_tv_err(path))?;
         let (encryption_key, mac_key) = hkdf_result.split_at(KEY_SIZE);
