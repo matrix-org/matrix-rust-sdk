@@ -15,7 +15,11 @@
 //! Matrix driver implementation that exposes Matrix functionality
 //! that is relevant for the widget API.
 
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
+};
 
 use async_stream::stream;
 use futures_core::Stream;
@@ -26,11 +30,18 @@ use matrix_sdk_base::{
 };
 use ruma::{
     EventId, OwnedDeviceId, OwnedMxcUri, OwnedUserId, RoomId, TransactionId,
-    api::client::{
-        account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
-        delayed_events::{self, update_delayed_event::UpdateAction},
-        filter::RoomEventFilter,
-        to_device::send_event_to_device::v3::Request as RumaToDeviceRequest,
+    api::{
+        FeatureFlag,
+        client::{
+            account::request_openid_token::v3::{
+                Request as OpenIdRequest, Response as OpenIdResponse,
+            },
+            delayed_events::{
+                self, DelayParameters, send_delayed_event, update_delayed_event::UpdateAction,
+            },
+            filter::RoomEventFilter,
+            to_device::send_event_to_device::v3::Request as RumaToDeviceRequest,
+        },
     },
     assign,
     events::{
@@ -48,7 +59,7 @@ use tokio::sync::{
     broadcast::{Receiver, error::RecvError},
     mpsc::{UnboundedReceiver, unbounded_channel},
 };
-use tracing::{error, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use super::{StateKeySelector, machine::SendEventResponse};
 use crate::{
@@ -60,12 +71,15 @@ use crate::{
 /// widgets.
 pub(crate) struct MatrixDriver {
     room: Room,
+    /// Whether to schedule delayed events through the MSC4140 `delayed_event`
+    /// endpoint. Cleared when the homeserver answers `M_UNRECOGNIZED`.
+    use_delayed_event_endpoint: AtomicBool,
 }
 
 impl MatrixDriver {
     /// Creates a new `MatrixDriver` for a given `room`.
     pub(crate) fn new(room: Room) -> Self {
-        Self { room }
+        Self { room, use_delayed_event_endpoint: AtomicBool::new(true) }
     }
 
     /// Requests an OpenID token for the current user.
@@ -193,7 +207,7 @@ impl MatrixDriver {
         event_type: TimelineEventType,
         state_key: Option<String>,
         content: Box<RawJsonValue>,
-        delayed_event_parameters: Option<delayed_events::DelayParameters>,
+        delay: Option<Duration>,
     ) -> Result<SendEventResponse> {
         let type_str = event_type.to_string();
 
@@ -205,6 +219,38 @@ impl MatrixDriver {
                 self.room.redact(&redacts, None, None).await?.event_id,
             ));
         }
+
+        if let Some(delay) = delay {
+            if !self.room.client.unstable_features().await?.contains(&FeatureFlag::Msc4140) {
+                return Err(Error::UnknownError(
+                    "the homeserver does not support delayed events".into(),
+                ));
+            }
+
+            if self.use_delayed_event_endpoint.load(Ordering::Relaxed) {
+                let request = send_delayed_event::unstable::Request::new_raw(
+                    event_type,
+                    self.room.room_id().to_owned(),
+                    TransactionId::new(),
+                    delay,
+                    state_key.clone(),
+                    Raw::from_json(content.clone()),
+                )?;
+
+                match self.room.client.send(request).await {
+                    Ok(response) => return Ok(response.into()),
+                    Err(error) if error.is_endpoint_not_implemented() => {
+                        debug!(
+                            "The delayed_event endpoint is not implemented, using the query parameter"
+                        );
+                        self.use_delayed_event_endpoint.store(false, Ordering::Relaxed);
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }
+
+        let delayed_event_parameters = delay.map(|timeout| DelayParameters::Timeout { timeout });
 
         Ok(match (state_key, delayed_event_parameters) {
             (None, None) => SendEventResponse::from_event_id(

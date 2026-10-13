@@ -19,7 +19,10 @@ use ruma::{
     OwnedEventId, OwnedRoomId,
     api::{
         client::{
-            delayed_events::{delayed_message_event, delayed_state_event, update_delayed_event},
+            delayed_events::{
+                delayed_message_event, delayed_state_event, send_delayed_event,
+                update_delayed_event,
+            },
             rtc::RtcTransport,
         },
         error::{ErrorBody, StandardErrorBody},
@@ -256,6 +259,12 @@ impl From<delayed_message_event::unstable::Response> for SendEventResponse {
 
 impl From<delayed_state_event::unstable::Response> for SendEventResponse {
     fn from(val: delayed_state_event::unstable::Response) -> Self {
+        SendEventResponse { room_id: None, event_id: None, delay_id: Some(val.delay_id) }
+    }
+}
+
+impl From<send_delayed_event::unstable::Response> for SendEventResponse {
+    fn from(val: send_delayed_event::unstable::Response) -> Self {
         SendEventResponse { room_id: None, event_id: None, delay_id: Some(val.delay_id) }
     }
 }
