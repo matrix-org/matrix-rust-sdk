@@ -43,10 +43,9 @@ mod utd;
 mod utils;
 mod widget;
 
-use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
-
 /// Export the client for other ffi crates to reuse
 pub use client::Client;
+use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
 
 use self::{
     error::ClientError,

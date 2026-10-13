@@ -15,6 +15,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt::Debug,
+    ops::Deref,
     path::PathBuf,
     sync::{Arc, OnceLock},
     time::Duration,
@@ -162,8 +163,6 @@ use crate::{
     utd::{UnableToDecryptDelegate, UtdHook},
     utils::AsyncRuntimeDropped,
 };
-
-use std::ops::Deref;
 
 #[derive(Clone, uniffi::Record)]
 pub struct PusherIdentifiers {
