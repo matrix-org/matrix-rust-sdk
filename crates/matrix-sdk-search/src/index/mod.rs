@@ -564,7 +564,7 @@ mod tests {
     }
 
     #[test]
-    fn test_encrypted_index_is_recreated_with_another_passphrase() {
+    fn test_encrypted_index_is_recreated_with_another_key() {
         let tmpdir = tempfile::tempdir().unwrap();
         let room_id = room_id!("!r");
         let add = RoomIndexOperation::Add(IndexableEvent::new(
@@ -576,17 +576,17 @@ mod tests {
         ));
 
         let mut index = RoomIndexBuilder::new_on_disk(tmpdir.path().to_path_buf(), room_id)
-            .encrypted("passphrase")
+            .encrypted("key")
             .build()
             .unwrap();
         index.execute(add).unwrap();
         assert_eq!(index.search("body", 10, None).unwrap().events.len(), 1);
         drop(index);
 
-        // The index can't be decrypted with another passphrase, so it's
+        // The index can't be decrypted with another key, so it's
         // recreated, empty.
         let index = RoomIndexBuilder::new_on_disk(tmpdir.path().to_path_buf(), room_id)
-            .encrypted("another passphrase")
+            .encrypted("another key")
             .build()
             .unwrap();
         assert!(index.search("body", 10, None).unwrap().events.is_empty());

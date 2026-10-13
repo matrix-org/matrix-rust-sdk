@@ -77,12 +77,12 @@ impl IntoTvError<OpenWriteError> for IoError {
 /// A Directory implementation that wraps a MmapDirectory and adds [AES][aes]
 /// based encryption to the file read/write operations.
 ///
-/// The passphrase must be a high-entropy key: it is expanded, without any key
+/// The key must be a high-entropy key: it is expanded, without any key
 /// stretching, into a 256 bit encryption key and a 256 bit MAC key using
 /// [HKDF][hkdf]:
 ///
 /// ```text
-///     encryption_key, mac_key = HKDF(SHA512, passphrase, "", 512)
+///     encryption_key, mac_key = HKDF(SHA512, key, "", 512)
 /// ```
 ///
 /// Those two keys are used to encrypt and authenticate the Tantivy files, using
@@ -117,27 +117,24 @@ impl EncryptedMmapDirectory {
     /// # Arguments
     ///
     /// - `path` - The path where the directory should reside in.
-    /// - `passphrase` - The high-entropy key used to encrypt the directory.
+    /// - `key` - The high-entropy key used to encrypt the directory.
     ///
-    /// Opening a directory with a different passphrase than the one it was
-    /// created with succeeds, but reading its files will then fail.
-    pub fn open_or_create<P: AsRef<Path>>(
-        path: P,
-        passphrase: &str,
-    ) -> Result<Self, OpenDirectoryError> {
+    /// Opening a directory with a different key than the one it was created
+    /// with succeeds, but reading its files will then fail.
+    pub fn open_or_create<P: AsRef<Path>>(path: P, key: &str) -> Result<Self, OpenDirectoryError> {
         let path = path.as_ref();
 
-        if passphrase.is_empty() {
-            return Err(IoError::other("empty passphrase").into_tv_err(path));
+        if key.is_empty() {
+            return Err(IoError::other("empty key").into_tv_err(path));
         }
 
         create_dir_all(path).map_err(|err| err.into_tv_err(path))?;
 
-        // Expand the passphrase into an encryption and MAC key.
+        // Expand the key into an encryption and MAC key.
         let mut hkdf_result = Zeroizing::new([0u8; KEY_SIZE * 2]);
-        Hkdf::<Sha512>::new(None, passphrase.as_bytes())
+        Hkdf::<Sha512>::new(None, key.as_bytes())
             .expand(&[], &mut *hkdf_result)
-            .map_err(|e| IoError::other(format!("unable to expand the passphrase: {e:?}")))
+            .map_err(|e| IoError::other(format!("unable to expand the key: {e:?}")))
             .map_err(|err| err.into_tv_err(path))?;
         let (encryption_key, mac_key) = hkdf_result.split_at(KEY_SIZE);
 
@@ -283,32 +280,32 @@ mod tests {
         let tmpdir = tempdir().unwrap();
         let file = Path::new("file");
 
-        let dir = EncryptedMmapDirectory::open_or_create(tmpdir.path(), "wordpass")
+        let dir = EncryptedMmapDirectory::open_or_create(tmpdir.path(), "key")
             .expect("Can't create a new store");
         dir.atomic_write(file, b"data").unwrap();
         drop(dir);
 
-        let dir = EncryptedMmapDirectory::open_or_create(tmpdir.path(), "wordpass")
+        let dir = EncryptedMmapDirectory::open_or_create(tmpdir.path(), "key")
             .expect("Can't open the existing store");
         assert_eq!(dir.atomic_read(file).unwrap(), b"data");
         drop(dir);
 
-        let dir = EncryptedMmapDirectory::open_or_create(tmpdir.path(), "password").unwrap();
-        assert!(dir.atomic_read(file).is_err(), "Read a file with the wrong passphrase");
+        let dir = EncryptedMmapDirectory::open_or_create(tmpdir.path(), "another key").unwrap();
+        assert!(dir.atomic_read(file).is_err(), "Read a file with the wrong key");
     }
 
     #[test]
-    fn create_store_with_empty_passphrase() {
+    fn create_store_with_empty_key() {
         let tmpdir = tempdir().unwrap();
         let dir = EncryptedMmapDirectory::open_or_create(tmpdir.path(), "");
-        assert!(dir.is_err(), "Created a store with an empty passphrase");
+        assert!(dir.is_err(), "Created a store with an empty key");
     }
 
     #[test]
     fn create_store_in_nonexistent_directory() {
         let tmpdir = tempdir().unwrap();
         let nested_path = tmpdir.path().join("nested").join("directory");
-        let dir = EncryptedMmapDirectory::open_or_create(&nested_path, "password")
+        let dir = EncryptedMmapDirectory::open_or_create(&nested_path, "key")
             .expect("Should create store in non-existent nested directory");
         drop(dir);
     }

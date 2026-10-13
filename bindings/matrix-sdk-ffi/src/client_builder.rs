@@ -904,20 +904,20 @@ impl ClientBuilder {
     /// `path` is the directory where the search index will be stored. It must
     /// be unique per session.
     ///
-    /// `password` is an optional password to encrypt the search index at rest.
-    /// If `None`, the search index will be stored unencrypted.
+    /// `key` is an optional high-entropy key to encrypt the search index at
+    /// rest. If `None`, the search index will be stored unencrypted.
     pub fn with_search_index_store(
         self: Arc<Self>,
         path: String,
-        password: Option<String>,
+        key: Option<String>,
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
 
         // Note: creation of the path is deferred to later.
         let path = PathBuf::from(path);
 
-        let kind = if let Some(password) = password {
-            SearchIndexStoreKind::EncryptedDirectory(path, password)
+        let kind = if let Some(key) = key {
+            SearchIndexStoreKind::EncryptedDirectory(path, key)
         } else {
             SearchIndexStoreKind::UnencryptedDirectory(path)
         };
