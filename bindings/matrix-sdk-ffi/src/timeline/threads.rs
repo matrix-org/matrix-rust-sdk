@@ -260,7 +260,7 @@ impl From<VectorDiff<UIThreadListItem>> for ThreadListUpdate {
 /// state publisher, making it straightforward to build reactive UIs on top of
 /// the thread list.
 ///
-/// Obtain an instance via [`Room::thread_list_service`].
+/// Obtain an instance via [`crate::Room::thread_list_service`].
 #[derive(uniffi::Object)]
 pub struct ThreadListService {
     inner: UIThreadListService,

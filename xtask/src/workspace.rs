@@ -3,7 +3,6 @@ use std::{env, sync::LazyLock};
 use camino::Utf8PathBuf;
 use cargo_metadata::Metadata;
 use serde::Deserialize;
-
 use serde_json::Value;
 use xshell::cmd;
 
