@@ -724,12 +724,11 @@ async fn test_compute_unread_counts_triggers_backpaginations() {
     server
         .mock_room_messages()
         .match_from("prev_batch")
-        .ok(RoomMessagesResponseTemplate::default()
-            .events(vec![
-                f.text_msg("hello 2").event_id(event_id!("$2")),
-                f.text_msg("hello 1").event_id(event_id!("$1")),
-            ])
-            .with_delay(Duration::from_millis(100)))
+        .with_delay(Duration::from_millis(100))
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            f.text_msg("hello 2").event_id(event_id!("$2")),
+            f.text_msg("hello 1").event_id(event_id!("$1")),
+        ]))
         .mock_once()
         .mount()
         .await;

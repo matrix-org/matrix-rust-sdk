@@ -579,9 +579,9 @@ async fn test_reset_while_backpaginating() {
     server
         .mock_room_messages()
         .match_from("first_backpagination")
+        .with_delay(Duration::from_millis(500))
         .ok(RoomMessagesResponseTemplate::default()
-            .events(vec![f.text_msg("lalala").into_raw_timeline()])
-            .with_delay(Duration::from_millis(500)))
+            .events(vec![f.text_msg("lalala").into_raw_timeline()]))
         .mock_once()
         .mount()
         .await;
@@ -899,13 +899,11 @@ async fn test_backpaginate_with_no_initial_events() {
     let wait_time = Duration::from_millis(500);
     server
         .mock_room_messages()
-        .ok(RoomMessagesResponseTemplate::default()
-            .end_token("prev_batch")
-            .events(vec![
-                f.text_msg("world").event_id(event_id!("$3")).into_raw_timeline(),
-                f.text_msg("hello").event_id(event_id!("$2")).into_raw_timeline(),
-            ])
-            .with_delay(2 * wait_time))
+        .with_delay(2 * wait_time)
+        .ok(RoomMessagesResponseTemplate::default().end_token("prev_batch").events(vec![
+            f.text_msg("world").event_id(event_id!("$3")).into_raw_timeline(),
+            f.text_msg("hello").event_id(event_id!("$2")).into_raw_timeline(),
+        ]))
         .mock_once()
         .mount()
         .await;
@@ -2662,12 +2660,11 @@ async fn test_concurrent_backpagination() {
     server
         .mock_room_messages()
         .match_from("prev_batch")
-        .ok(RoomMessagesResponseTemplate::default()
-            .events(vec![
-                f.text_msg("older2").event_id(event_id!("$2")),
-                f.text_msg("older1").event_id(event_id!("$3")),
-            ])
-            .with_delay(Duration::from_millis(200)))
+        .with_delay(Duration::from_millis(200))
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            f.text_msg("older2").event_id(event_id!("$2")),
+            f.text_msg("older1").event_id(event_id!("$3")),
+        ]))
         .mock_once() // Important: only mock once to ensure both calls share the same request
         .mount()
         .await;
@@ -2749,10 +2746,10 @@ async fn test_sequential_backpagination_after_concurrent() {
     server
         .mock_room_messages()
         .match_from("first_batch")
+        .with_delay(Duration::from_millis(100))
         .ok(RoomMessagesResponseTemplate::default()
             .events(vec![f.text_msg("batch1").event_id(event_id!("$2"))])
-            .end_token("second_batch")
-            .with_delay(Duration::from_millis(100)))
+            .end_token("second_batch"))
         .mock_once()
         .mount()
         .await;

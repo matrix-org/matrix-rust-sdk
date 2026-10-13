@@ -376,7 +376,7 @@ impl MatrixMockServer {
         let mock = Mock::given(method("GET")).and(path("/_matrix/client/v3/sync"));
         self.mock_endpoint(
             mock,
-            SyncEndpoint { sync_response_builder: self.sync_response_builder.clone(), delay: None },
+            SyncEndpoint { sync_response_builder: self.sync_response_builder.clone() },
         )
     }
 
@@ -1958,12 +1958,19 @@ pub struct MockEndpoint<'a, T> {
     server: &'a MockServer,
     mock: MockBuilder,
     endpoint: T,
+    delay: Option<Duration>,
     expected_access_token: ExpectedAccessToken,
 }
 
 impl<'a, T> MockEndpoint<'a, T> {
     fn new(server: &'a MockServer, mock: MockBuilder, endpoint: T) -> Self {
-        Self { server, mock, endpoint, expected_access_token: ExpectedAccessToken::Ignore }
+        Self {
+            server,
+            mock,
+            endpoint,
+            expected_access_token: ExpectedAccessToken::Ignore,
+            delay: None,
+        }
     }
 
     /// Expect authentication with the default access token on this endpoint.
@@ -2059,6 +2066,22 @@ impl<'a, T> MockEndpoint<'a, T> {
         MatrixMock { mock, server: self.server }
     }
 
+    /// For responses making use of [`ResponseTemplate`], add an additional delay before sending the
+    /// response, to simulate server-side latency.
+    ///
+    /// Note: this will only work with [`MockEndpoint`]'s generic methods, or with specific
+    /// implementations that take into account this delay when constructing the final mock. In
+    /// particular, this will NOT work when using `Self::respond_with` with a custom function; in
+    /// this case, the implementer must take the delay into account by themselves.
+    pub fn with_delay(mut self, delay: Duration) -> Self {
+        self.delay = Some(delay);
+        self
+    }
+
+    fn add_delay(&mut self, r: ResponseTemplate) -> ResponseTemplate {
+        if let Some(delay) = self.delay.take() { r.set_delay(delay) } else { r }
+    }
+
     /// Returns a send endpoint that emulates a transient failure, i.e responds
     /// with error 500.
     ///
@@ -2090,8 +2113,9 @@ impl<'a, T> MockEndpoint<'a, T> {
     ///     .await.expect_err("The sending of the event should have failed");
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn error500(self) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(500))
+    pub fn error500(mut self) -> MatrixMock<'a> {
+        let response_template = self.add_delay(ResponseTemplate::new(500));
+        self.respond_with(response_template)
     }
 
     /// Returns a mocked endpoint that emulates an unimplemented endpoint, i.e
@@ -2103,8 +2127,9 @@ impl<'a, T> MockEndpoint<'a, T> {
     ///
     /// This can be useful to check if an endpoint is called, even if it is not
     /// implemented by the server.
-    pub fn error_unrecognized(self) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(404).set_body_json(json!({
+    pub fn error_unrecognized(mut self) -> MatrixMock<'a> {
+        let response_template = self.add_delay(ResponseTemplate::new(404));
+        self.respond_with(response_template.set_body_json(json!({
             "errcode": "M_UNRECOGNIZED",
             "error": "Unrecognized request",
         })))
@@ -2113,26 +2138,33 @@ impl<'a, T> MockEndpoint<'a, T> {
     /// Returns a mocked endpoint that emulates an unknown token error, i.e
     /// responds with a 401 HTTP status code and an `M_UNKNOWN_TOKEN` Matrix
     /// error code.
-    pub fn error_unknown_token(self, soft_logout: bool) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(401).set_body_json(json!({
+    pub fn error_unknown_token(mut self, soft_logout: bool) -> MatrixMock<'a> {
+        let response_template = self.add_delay(ResponseTemplate::new(401));
+        self.respond_with(response_template.set_body_json(json!({
             "errcode": "M_UNKNOWN_TOKEN",
             "error": "Unrecognized access token",
             "soft_logout": soft_logout,
         })))
     }
 
+    /// Internal helper to return a 200 OK response with the given JSON object.
+    /// the body.
+    fn ok_json<B: Serialize>(mut self, json: B) -> MatrixMock<'a> {
+        let response_template = self.add_delay(ResponseTemplate::new(200));
+        self.respond_with(response_template.set_body_json(json))
+    }
+
     /// Internal helper to return an `{ event_id }` JSON struct along with a 200
     /// ok response.
     fn ok_with_event_id(self, event_id: OwnedEventId) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": event_id })))
+        self.ok_json(json!({ "event_id": event_id }))
     }
 
     /// Internal helper to return a 200 OK response with an empty JSON object in
     /// the body.
     fn ok_empty_json(self) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        self.ok_json(json!({}))
     }
-
     /// Returns an endpoint that emulates a permanent failure error (e.g. event
     /// is too large).
     ///
@@ -2164,8 +2196,9 @@ impl<'a, T> MockEndpoint<'a, T> {
     ///     .await.expect_err("The sending of the event should have failed");
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn error_too_large(self) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(413).set_body_json(json!({
+    pub fn error_too_large(mut self) -> MatrixMock<'a> {
+        let response_template = self.add_delay(ResponseTemplate::new(413));
+        self.respond_with(response_template.set_body_json(json!({
             // From https://spec.matrix.org/v1.10/client-server-api/#standard-error-response
             "errcode": "M_TOO_LARGE",
             "error": "Request body too large",
@@ -2977,50 +3010,9 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
 /// A prebuilt mock for running sync v2.
 pub struct SyncEndpoint {
     sync_response_builder: Arc<Mutex<SyncResponseBuilder>>,
-    delay: Option<Duration>,
 }
 
 impl<'a> MockEndpoint<'a, SyncEndpoint> {
-    /// Delays the sync response by the given duration, mimicking the
-    /// server-side long-polling.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # tokio_test::block_on(async {
-    /// use std::time::{Duration, Instant};
-    ///
-    /// use matrix_sdk::{ruma::room_id, test_utils::mocks::MatrixMockServer};
-    /// use matrix_sdk_test::JoinedRoomBuilder;
-    ///
-    /// let mock_server = MatrixMockServer::new().await;
-    /// let client = mock_server.client_builder().build().await;
-    ///
-    /// let delay = Duration::from_millis(100);
-    ///
-    /// mock_server
-    ///     .mock_sync()
-    ///     .with_delay(delay)
-    ///     .ok(|builder| {
-    ///         builder.add_joined_room(JoinedRoomBuilder::new(room_id!("!a:b.c")));
-    ///     })
-    ///     .mount()
-    ///     .await;
-    ///
-    /// let start = Instant::now();
-    /// client.sync_once(Default::default()).await?;
-    ///
-    /// assert!(
-    ///     start.elapsed() >= delay,
-    ///     "The sync response should have been delayed"
-    /// );
-    /// # anyhow::Ok(()) });
-    /// ```
-    pub fn with_delay(mut self, delay: Duration) -> Self {
-        self.endpoint.delay = Some(delay);
-        self
-    }
-
     /// Expect the given timeout, or lack thereof, in the request.
     pub fn timeout(mut self, timeout: Option<Duration>) -> Self {
         if let Some(timeout) = timeout {
@@ -3047,19 +3039,12 @@ impl<'a> MockEndpoint<'a, SyncEndpoint> {
     /// Mocks the sync endpoint, using the given function to generate the
     /// response.
     pub fn ok<F: FnOnce(&mut SyncResponseBuilder)>(self, func: F) -> MatrixMock<'a> {
-        let json_response = {
+        let response = {
             let mut builder = self.endpoint.sync_response_builder.lock().unwrap();
             func(&mut builder);
             builder.build_json_sync_response()
         };
-
-        let mut template = ResponseTemplate::new(200).set_body_json(json_response);
-
-        if let Some(delay) = self.endpoint.delay {
-            template = template.set_delay(delay);
-        }
-
-        self.respond_with(template)
+        self.ok_json(response)
     }
 
     /// Temporarily mocks the sync with the given endpoint and runs a client
@@ -3392,18 +3377,12 @@ impl<'a> MockEndpoint<'a, RoomMessagesEndpoint> {
     /// Note: pass `chunk` in the correct order: topological for forward
     /// pagination, reverse topological for backwards pagination.
     pub fn ok(self, response: RoomMessagesResponseTemplate) -> MatrixMock<'a> {
-        let mut template = ResponseTemplate::new(200).set_body_json(json!({
+        self.ok_json(json!({
             "start": response.start,
             "end": response.end,
             "chunk": response.chunk,
             "state": response.state,
-        }));
-
-        if let Some(delay) = response.delay {
-            template = template.set_delay(delay);
-        }
-
-        self.respond_with(template)
+        }))
     }
 }
 
@@ -3418,8 +3397,6 @@ pub struct RoomMessagesResponseTemplate {
     pub chunk: Vec<Raw<AnyTimelineEvent>>,
     /// The set of state events returned by this query.
     pub state: Vec<Raw<AnyStateEvent>>,
-    /// Optional delay to respond to the query.
-    pub delay: Option<Duration>,
 }
 
 impl RoomMessagesResponseTemplate {
@@ -3434,12 +3411,6 @@ impl RoomMessagesResponseTemplate {
         self.end = Some(token.into());
         self
     }
-
-    /// Respond with a given delay to the query.
-    pub fn with_delay(mut self, delay: Duration) -> Self {
-        self.delay = Some(delay);
-        self
-    }
 }
 
 impl Default for RoomMessagesResponseTemplate {
@@ -3449,7 +3420,6 @@ impl Default for RoomMessagesResponseTemplate {
             end: Default::default(),
             chunk: Default::default(),
             state: Default::default(),
-            delay: None,
         }
     }
 }
@@ -5226,8 +5196,6 @@ pub struct GetThreadSubscriptionsEndpoint {
     subscribed: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadSubscription>>,
     /// New thread unsubscriptions per (room id, thread root event id).
     unsubscribed: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadUnsubscription>>,
-    /// Optional delay to respond to the query.
-    delay: Option<Duration>,
 }
 
 impl<'a> MockEndpoint<'a, GetThreadSubscriptionsEndpoint> {
@@ -5253,16 +5221,11 @@ impl<'a> MockEndpoint<'a, GetThreadSubscriptionsEndpoint> {
         self
     }
 
-    /// Respond with a given delay to the query.
-    pub fn with_delay(mut self, delay: Duration) -> Self {
-        self.endpoint.delay = Some(delay);
-        self
-    }
-
     /// Match the `from` query parameter to a given value.
     pub fn match_from(self, from: &str) -> Self {
         Self { mock: self.mock.and(query_param("from", from)), ..self }
     }
+
     /// Match the `to` query parameter to a given value.
     pub fn match_to(self, to: &str) -> Self {
         Self { mock: self.mock.and(query_param("to", to)), ..self }
@@ -5271,19 +5234,12 @@ impl<'a> MockEndpoint<'a, GetThreadSubscriptionsEndpoint> {
     /// Returns a successful response with the given thread subscriptions, and
     /// "end" parameter to be used in the next query.
     pub fn ok(self, end: Option<String>) -> MatrixMock<'a> {
-        let response_body = json!({
+        let response = json!({
             "subscribed": self.endpoint.subscribed,
             "unsubscribed": self.endpoint.unsubscribed,
             "end": end,
         });
-
-        let mut template = ResponseTemplate::new(200).set_body_json(response_body);
-
-        if let Some(delay) = self.endpoint.delay {
-            template = template.set_delay(delay);
-        }
-
-        self.respond_with(template)
+        self.ok_json(response)
     }
 }
 
