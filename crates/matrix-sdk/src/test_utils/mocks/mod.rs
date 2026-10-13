@@ -2081,9 +2081,9 @@ impl<'a, T> MockEndpoint<'a, T> {
         self
     }
 
-    /// Internal helper to return the given template and apply the delay
+    /// Returns the given template as the response, and applies the delay
     /// specified with [`Self::with_delay`] onto it, if set.
-    fn respond_with_template(mut self, template: ResponseTemplate) -> MatrixMock<'a> {
+    pub fn respond_with_template(mut self, template: ResponseTemplate) -> MatrixMock<'a> {
         let template =
             if let Some(delay) = self.delay.take() { template.set_delay(delay) } else { template };
         self.respond_with(template)
@@ -2124,9 +2124,9 @@ impl<'a, T> MockEndpoint<'a, T> {
         self.respond_with_template(ResponseTemplate::new(500))
     }
 
-    /// Internal helper to return an HTTP response with the given HTTP status
-    /// code and JSON object as the body.
-    fn respond_with_code_and_json<B: Serialize>(self, code: u16, json: B) -> MatrixMock<'a> {
+    /// Returns an HTTP response with the given HTTP status code and JSON object
+    /// as the body.
+    pub fn respond_with_code_and_json<B: Serialize>(self, code: u16, json: B) -> MatrixMock<'a> {
         self.respond_with_template(ResponseTemplate::new(code).set_body_json(json))
     }
 
@@ -2163,21 +2163,18 @@ impl<'a, T> MockEndpoint<'a, T> {
         )
     }
 
-    /// Internal helper to return a 200 OK response with the given JSON object
-    /// as the body.
-    fn ok_json<B: Serialize>(self, json: B) -> MatrixMock<'a> {
+    /// Returns a 200 OK response with the given JSON object as the body.
+    pub fn ok_json<B: Serialize>(self, json: B) -> MatrixMock<'a> {
         self.respond_with_code_and_json(200, json)
     }
 
-    /// Internal helper to return an `{ event_id }` JSON struct along with a 200
-    /// ok response.
-    fn ok_with_event_id(self, event_id: OwnedEventId) -> MatrixMock<'a> {
+    /// Returns an `{ event_id }` JSON struct along with a 200 ok response.
+    pub fn ok_with_event_id(self, event_id: OwnedEventId) -> MatrixMock<'a> {
         self.ok_json(json!({ "event_id": event_id }))
     }
 
-    /// Internal helper to return a 200 OK response with an empty JSON object in
-    /// the body.
-    fn ok_empty_json(self) -> MatrixMock<'a> {
+    /// Returns a 200 OK response with an empty JSON object in the body.
+    pub fn ok_empty_json(self) -> MatrixMock<'a> {
         self.ok_json(json!({}))
     }
 

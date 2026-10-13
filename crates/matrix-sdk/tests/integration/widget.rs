@@ -305,7 +305,7 @@ async fn test_read_messages() {
     mock_server
         .mock_room_messages()
         .match_limit(2)
-        .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
+        .ok_json(response_json)
         .mock_once()
         .mount()
         .await;
@@ -437,7 +437,7 @@ async fn test_read_room_members() {
     mock_server
         .mock_room_messages()
         .match_limit(3)
-        .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
+        .ok_json(response_json)
         .mock_once()
         .mount()
         .await;
@@ -1025,9 +1025,9 @@ async fn test_send_delayed_message_event() {
         .mock_room_send()
         .match_delayed_event(Duration::from_millis(1000))
         .for_type(MessageLikeEventType::RoomMessage)
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        .ok_json(json!({
             "delay_id": "1234",
-        })))
+        }))
         .mock_once()
         .mount()
         .await;
@@ -1071,9 +1071,9 @@ async fn test_send_delayed_state_event() {
         .mock_room_send_state()
         .match_delayed_event(Duration::from_millis(1000))
         .for_type(StateEventType::RoomName)
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        .ok_json(json!({
             "delay_id": "1234",
-        })))
+        }))
         .mock_once()
         .mount()
         .await;
@@ -1115,10 +1115,13 @@ async fn test_fail_sending_delay_rate_limit() {
 
     mock_server
         .mock_room_send()
-        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
-            "errcode": "M_LIMIT_EXCEEDED",
-            "error": "Sending too many delay events"
-        })))
+        .respond_with_code_and_json(
+            400,
+            json!({
+                "errcode": "M_LIMIT_EXCEEDED",
+                "error": "Sending too many delay events"
+            }),
+        )
         .mock_once()
         .mount()
         .await;

@@ -24,7 +24,6 @@ use serde_json::json;
 use strass::assert_let;
 use stream_assert::assert_pending;
 use tokio::time::sleep;
-use wiremock::ResponseTemplate;
 
 #[async_test]
 async fn test_abort_before_being_sent() {
@@ -301,13 +300,13 @@ async fn test_duplicate_reaction_keeps_the_remote_one() {
     // The server already has this reaction, and takes some time to say so.
     server
         .mock_room_send()
-        .respond_with(
-            ResponseTemplate::new(400)
-                .set_body_json(json!({
-                    "errcode": "M_DUPLICATE_ANNOTATION",
-                    "error": "Can't send same reaction twice",
-                }))
-                .set_delay(Duration::from_millis(150)),
+        .with_delay(Duration::from_millis(150))
+        .respond_with_code_and_json(
+            400,
+            json!({
+                "errcode": "M_DUPLICATE_ANNOTATION",
+                "error": "Can't send same reaction twice",
+            }),
         )
         .mock_once()
         .mount()

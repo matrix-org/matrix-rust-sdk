@@ -584,12 +584,12 @@ async fn test_notification_client_does_not_upload_duplicate_one_time_keys() -> a
 
     server
         .mock_sync()
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        .ok_json(json!({
             "next_batch": "foo",
             "device_one_time_keys_count": {
                 "signed_curve25519": 49
             }
-        })))
+        }))
         .mount()
         .await;
 

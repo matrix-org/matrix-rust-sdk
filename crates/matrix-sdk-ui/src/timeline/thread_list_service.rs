@@ -494,9 +494,7 @@ mod tests {
         serde::Raw,
         user_id,
     };
-    use serde_json::json;
     use stream_assert::{assert_next_matches, assert_pending};
-    use wiremock::ResponseTemplate;
 
     use super::{ThreadListPaginationState, ThreadListService};
     use crate::timeline::{MsgLikeContent, MsgLikeKind, TimelineItemContent};
@@ -619,11 +617,8 @@ mod tests {
             vec![f.text_msg("Thread root").event_id(eid1).into_raw()];
         server
             .mock_room_threads()
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(json!({ "chunk": chunk, "next_batch": null }))
-                    .set_delay(Duration::from_millis(100)),
-            )
+            .with_delay(Duration::from_millis(100))
+            .ok(chunk, None)
             .expect(1)
             .mount()
             .await;
