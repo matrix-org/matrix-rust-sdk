@@ -403,9 +403,7 @@ async fn test_leave_room_fails_with_error() -> Result<(), anyhow::Error> {
 
     server
         .mock_room_leave()
-        .respond_with(
-            ResponseTemplate::new(429).set_body_json(json!({"errcode": "M_LIMIT_EXCEEDED"})),
-        )
+        .respond_with_code_and_json(429, json!({"errcode": "M_LIMIT_EXCEEDED"}))
         .mount()
         .await;
 

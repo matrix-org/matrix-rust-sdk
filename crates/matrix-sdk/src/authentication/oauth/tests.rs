@@ -11,7 +11,6 @@ use ruma::{
 };
 use tokio::sync::broadcast::error::TryRecvError;
 use url::Url;
-use wiremock::ResponseTemplate;
 
 use super::{
     AuthorizationCode, AuthorizationError, AuthorizationResponse, OAuth, OAuthAuthorizationData,
@@ -724,7 +723,8 @@ async fn test_server_metadata_cache_refresh_lock() {
     // Make the first request to the endpoint fail after a second.
     oauth_server
         .mock_server_metadata()
-        .respond_with(ResponseTemplate::new(500).set_delay(Duration::from_secs(1)))
+        .with_delay(Duration::from_secs(1))
+        .error500()
         .mock_once()
         .mount()
         .await;

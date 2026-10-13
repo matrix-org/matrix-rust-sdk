@@ -260,10 +260,8 @@ async fn test_fetch_removed_avatar_url() {
 
     server
         .mock_get_profile_field(user_id, ProfileFieldName::AvatarUrl)
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            // This is what Synapse returns after calling Account::set_avatar_url(None).
-            json!({"avatar_url":null}),
-        ))
+        // This is what Synapse returns after calling Account::set_avatar_url(None).
+        .ok_with_value(Some(serde_json::Value::Null))
         .mock_once()
         .named("get avatar_url")
         .mount()
