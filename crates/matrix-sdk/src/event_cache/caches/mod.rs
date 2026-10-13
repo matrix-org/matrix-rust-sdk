@@ -499,6 +499,13 @@ impl Caches {
         Ok(events.into_iter())
     }
 
+    /// Get all the events of this room saved in the store.
+    #[cfg(feature = "experimental-search")]
+    pub async fn stored_events(&self) -> Result<Vec<Event>> {
+        let state = self.internals.state.read().await?;
+        Ok(state.store.get_room_events(self.room.room_id(), None, None).await?)
+    }
+
     /// Get all encrypted events from all the event caches managed by this
     /// [`Caches`].
     ///

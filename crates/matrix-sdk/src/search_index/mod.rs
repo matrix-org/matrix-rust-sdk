@@ -16,7 +16,11 @@
 //! matrix-sdk-search crate. It provides a [`SearchIndex`] which wraps
 //! multiple [`RoomIndex`].
 
-use std::{collections::hash_map::HashMap, path::PathBuf, sync::Arc};
+use std::{
+    collections::hash_map::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use futures_util::future::join_all;
 use matrix_sdk_base::{
@@ -79,6 +83,16 @@ impl SearchIndex {
         search_index_store_kind: SearchIndexStoreKind,
     ) -> Self {
         Self { room_indexes, search_index_store_kind }
+    }
+
+    /// The directory the room indexes are stored in, if they are stored on
+    /// disk.
+    pub(crate) fn directory(&self) -> Option<&Path> {
+        match &self.search_index_store_kind {
+            SearchIndexStoreKind::UnencryptedDirectory(path)
+            | SearchIndexStoreKind::EncryptedDirectory(path, _) => Some(path),
+            SearchIndexStoreKind::InMemory => None,
+        }
     }
 
     /// Acquire [`SearchIndexGuard`] for this [`SearchIndex`].
