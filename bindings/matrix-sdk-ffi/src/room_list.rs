@@ -117,6 +117,15 @@ impl RoomListService {
         }))
     }
 
+    /// Whether the user has joined at least one encrypted room, spaces
+    /// excluded.
+    ///
+    /// This waits for the first sync of the room list, so the sync of the
+    /// service needs to be running.
+    async fn has_encrypted_rooms(&self) -> Result<bool, RoomListError> {
+        self.inner.has_encrypted_rooms().await.map_err(RoomListError::from)
+    }
+
     fn sync_indicator(
         &self,
         delay_before_showing_in_ms: u32,
