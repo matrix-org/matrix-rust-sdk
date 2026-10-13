@@ -3596,6 +3596,7 @@ dependencies = [
  "pin-project-lite",
  "proptest",
  "rand 0.10.2",
+ "regex",
  "reqwest",
  "ruma",
  "serde",

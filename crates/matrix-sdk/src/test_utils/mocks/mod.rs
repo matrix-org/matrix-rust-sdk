@@ -2227,9 +2227,9 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     fn generate_path_regexp(&self) -> String {
         let RoomSendEndpoint { room_id, event_type } = &self.endpoint;
         format!(
-            r"^/_matrix/client/v3/rooms/{}/send/{}",
-            room_id.as_ref().map_or_else(|| ".*".to_owned(), |r| percent_encoded_path(r.as_str())),
-            event_type.as_ref().map_or_else(|| ".*".to_owned(), |t| t.to_string()),
+            r"^/_matrix/client/v3/rooms/{}/send/{}/",
+            room_id.as_ref().map_or_else(|| ".*".to_owned(), |r| regex::escape(r.as_str())),
+            event_type.as_ref().map_or_else(|| ".*".to_owned(), |t| regex::escape(&t.to_string())),
         )
     }
 

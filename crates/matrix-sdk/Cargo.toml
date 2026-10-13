@@ -23,6 +23,7 @@ testing = [
     "wiremock",
     "matrix-sdk-test",
     "strass",
+    "dep:regex",
 ]
 
 e2e-encryption = [
@@ -142,6 +143,7 @@ oauth2-reqwest.workspace = true
 percent-encoding = "2.3.2"
 pin-project-lite.workspace = true
 rand = { workspace = true, optional = true }
+regex = { workspace = true, optional = true }
 ruma = { workspace = true, features = [
     "rand",
     "unstable-msc2448",
@@ -193,6 +195,7 @@ matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
 rand.workspace = true
+regex.workspace = true
 reqwest = { workspace = true, features = ["rustls"] }
 serde_urlencoded = "0.7.1"
 similar-asserts.workspace = true
