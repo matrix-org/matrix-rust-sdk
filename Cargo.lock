@@ -3959,13 +3959,11 @@ name = "matrix-sdk-search"
 version = "0.19.1"
 dependencies = [
  "aes",
- "byteorder",
  "ctr",
  "hkdf",
  "hmac",
  "matrix-sdk-test",
  "once_cell",
- "pbkdf2",
  "rand 0.10.2",
  "ruma",
  "sha2 0.11.0",
