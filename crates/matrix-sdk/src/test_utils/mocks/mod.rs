@@ -2350,6 +2350,10 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
 
     /// Ensures that the send endpoint request uses a specific event type.
     ///
+    /// Important note: this should be called at most once, at the risk of
+    /// confusing the path matching. The function will panic, if called
+    /// multiple times.
+    ///
     /// # Examples
     ///
     /// see also [`MatrixMockServer::mock_room_send`] for more context.
@@ -2391,6 +2395,7 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// # anyhow::Ok(()) });
     /// ```
     pub fn for_type(mut self, event_type: MessageLikeEventType) -> Self {
+        assert!(self.endpoint.event_type.is_none(), "you've called for_type() multiple times");
         self.endpoint.event_type = Some(event_type);
         // Note: we may have already defined a path, but this one ought to be
         // more specialized (unless for_room/for_type were called multiple
@@ -2402,6 +2407,10 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// Ensures that the send endpoint request targets a specific room.
     ///
     /// This composes with [`Self::for_type`], in any order.
+    ///
+    /// Important note: this should be called at most once, at the risk of
+    /// confusing the path matching. The function will panic, if called
+    /// multiple times.
     ///
     /// # Examples
     ///
@@ -2451,6 +2460,7 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// # anyhow::Ok(()) });
     /// ```
     pub fn for_room(mut self, room_id: impl Into<OwnedRoomId>) -> Self {
+        assert!(self.endpoint.room_id.is_none(), "you've called for_room() multiple times");
         self.endpoint.room_id = Some(room_id.into());
         // Note: we may have already defined a path, but this one ought to be
         // more specialized (unless for_room/for_type were called multiple
