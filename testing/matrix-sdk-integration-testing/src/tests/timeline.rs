@@ -54,8 +54,7 @@ use matrix_sdk_ui::{
     sync_service::SyncService,
     timeline::{
         EventSendState, EventTimelineItem, RoomExt, TimelineBuilder, TimelineDetails,
-        TimelineEventCondition, TimelineEventFilter, TimelineEventFocusThreadMode,
-        TimelineEventItemId, TimelineFocus, TimelineItem,
+        TimelineEventFocusThreadMode, TimelineEventItemId, TimelineFocus, TimelineItem,
     },
 };
 use similar_asserts::assert_eq;
@@ -148,12 +147,9 @@ async fn test_toggling_reaction() -> Result<()> {
     // Create a timeline for this room, with a timeline filter for messages to
     // ignore other events that might interfere with the checks.
     debug!("Creating timeline for messages…");
-    let event_filter = TimelineEventFilter::Include(vec![TimelineEventCondition::EventType(
-        TimelineEventType::RoomMessage,
-    )]);
     let timeline = Arc::new(
         room.timeline_builder()
-            .event_filter(move |event, _| event_filter.filter(event))
+            .event_filter(|event, _| event.event_type() == TimelineEventType::RoomMessage)
             .build()
             .await
             .unwrap(),
