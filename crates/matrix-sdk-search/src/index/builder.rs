@@ -57,12 +57,12 @@ impl PhysicalRoomIndexBuilder {
         }
     }
 
-    /// Make an encrypted index
-    pub fn encrypted<P: Into<String>>(&self, password: P) -> EncryptedPhysicalRoomIndexBuilder {
+    /// Make an index encrypted with the given high-entropy key
+    pub fn encrypted<K: Into<String>>(&self, key: K) -> EncryptedPhysicalRoomIndexBuilder {
         EncryptedPhysicalRoomIndexBuilder {
             path: self.path.clone(),
             room_id: self.room_id.clone(),
-            password: Zeroizing::new(password.into()),
+            key: Zeroizing::new(key.into()),
         }
     }
 }
@@ -102,14 +102,14 @@ impl UnencryptedPhysicalRoomIndexBuilder {
 pub struct EncryptedPhysicalRoomIndexBuilder {
     path: PathBuf,
     room_id: OwnedRoomId,
-    password: Zeroizing<String>,
+    key: Zeroizing<String>,
 }
 
 impl EncryptedPhysicalRoomIndexBuilder {
     /// Build the [`RoomIndex`].
     ///
     /// An existing index that can't be opened, e.g. because it was encrypted
-    /// with another passphrase or in an older format, is deleted and recreated.
+    /// with another key or in an older format, is deleted and recreated.
     pub fn build(&self) -> Result<RoomIndex, IndexError> {
         let path = self.path.join(self.room_id.as_str());
 
@@ -123,7 +123,7 @@ impl EncryptedPhysicalRoomIndexBuilder {
     }
 
     fn open(&self, path: &Path) -> Result<RoomIndex, IndexError> {
-        let mmap_dir = EncryptedMmapDirectory::open_or_create(path, &self.password)?;
+        let mmap_dir = EncryptedMmapDirectory::open_or_create(path, &self.key)?;
         let schema = RoomMessageSchema::new();
         let index = Index::open_or_create(mmap_dir, schema.as_tantivy_schema())?;
         Ok(RoomIndex::new_with(index, schema, &self.room_id))

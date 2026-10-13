@@ -14,7 +14,7 @@ use tempfile::TempDir;
 use tokio::runtime::{Builder, Runtime};
 
 const NUMBER_OF_ROOMS: usize = 1000;
-const PASSWORD: &str = "password";
+const KEY: &str = "key";
 
 fn room_ids(prefix: &str) -> Vec<OwnedRoomId> {
     (0..NUMBER_OF_ROOMS)
@@ -36,7 +36,7 @@ async fn client(
         .on_builder(|builder| {
             builder.search_index_store(SearchIndexStoreKind::EncryptedDirectory(
                 dir.to_path_buf(),
-                PASSWORD.to_owned(),
+                KEY.to_owned(),
             ))
         })
         .build()
