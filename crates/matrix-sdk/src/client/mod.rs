@@ -4112,11 +4112,17 @@ impl Client {
 
         let media_store_size = self.media_store().lock().await?.get_size().await.ok().flatten();
 
+        #[cfg(feature = "experimental-search")]
+        let search_index_size = self.search_index().size();
+        #[cfg(not(feature = "experimental-search"))]
+        let search_index_size = None;
+
         Ok(StoreSizes {
             crypto_store: crypto_store_size,
             state_store: state_store_size,
             event_cache_store: event_cache_store_size,
             media_store: media_store_size,
+            search_index: search_index_size,
         })
     }
 
@@ -4178,6 +4184,8 @@ pub struct StoreSizes {
     pub event_cache_store: Option<usize>,
     /// The size of the MediaStore.
     pub media_store: Option<usize>,
+    /// The size of the search index.
+    pub search_index: Option<usize>,
 }
 
 /// A custom to-device message received by the client.

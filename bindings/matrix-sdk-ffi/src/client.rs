@@ -3725,6 +3725,8 @@ pub struct StoreSizes {
     event_cache_store: Option<u64>,
     /// The size of the MediaStore.
     media_store: Option<u64>,
+    /// The size of the search index.
+    search_index: Option<u64>,
 }
 
 impl From<matrix_sdk::StoreSizes> for StoreSizes {
@@ -3734,6 +3736,7 @@ impl From<matrix_sdk::StoreSizes> for StoreSizes {
             state_store: value.state_store.map(|v| v as u64),
             event_cache_store: value.event_cache_store.map(|v| v as u64),
             media_store: value.media_store.map(|v| v as u64),
+            search_index: value.search_index.map(|v| v as u64),
         }
     }
 }
