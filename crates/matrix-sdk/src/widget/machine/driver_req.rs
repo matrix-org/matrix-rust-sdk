@@ -17,7 +17,7 @@
 use std::{collections::BTreeMap, marker::PhantomData};
 
 use ruma::{
-    OwnedMxcUri, OwnedUserId,
+    OwnedMxcUri, OwnedRoomId, OwnedServerName, OwnedUserId,
     api::client::{account::request_openid_token, delayed_events::update_delayed_event},
     events::{AnyStateEvent, AnyTimelineEvent, AnyToDeviceEventContent},
     serde::Raw,
@@ -33,7 +33,10 @@ use super::{
 };
 use crate::widget::{
     Capabilities, StateKeySelector,
-    machine::from_widget::{DownloadFileResponse, RtcTransportsResponse},
+    machine::from_widget::{
+        DownloadFileResponse, RtcLivekitDelegateDelayedLeaveResponse, RtcLivekitGetTokenResponse,
+        RtcTransportsResponse,
+    },
 };
 
 #[derive(Clone, Debug)]
@@ -68,6 +71,13 @@ pub(crate) enum MatrixDriverRequestData {
 
     /// Get the RTC transports advertised by the homeserver.
     GetRtcTransports,
+
+    /// Get a token to authenticate with a LiveKit SFU from the homeserver.
+    RtcLivekitGetToken(RtcLivekitGetTokenRequest),
+
+    /// Hand the delayed leave event of a MatrixRTC session over to the
+    /// homeserver.
+    RtcLivekitDelegateDelayedLeave(RtcLivekitDelegateDelayedLeaveRequest),
 }
 
 /// A handle to a pending `toWidget` request.
@@ -381,4 +391,66 @@ impl From<DownloadFileRequest> for MatrixDriverRequestData {
     fn from(req: DownloadFileRequest) -> Self {
         MatrixDriverRequestData::DownloadFile(req)
     }
+}
+
+/// Ask the client to obtain a token to authenticate with a LiveKit SFU from
+/// the homeserver's `/rtc/livekit/get_token` endpoint
+/// ([MSC4195](https://github.com/matrix-org/matrix-spec-proposals/pull/4195)),
+/// on behalf of the widget. Defined by
+/// [MSC4533](https://github.com/matrix-org/matrix-spec-proposals/pull/4533).
+#[derive(Deserialize, Debug, Clone)]
+pub(crate) struct RtcLivekitGetTokenRequest {
+    /// The server name of the sender of the `m.rtc.member` event.
+    ///
+    /// If this is `None`, the homeserver uses its own server name.
+    #[serde(default)]
+    pub(crate) server_name: Option<OwnedServerName>,
+    /// The WebSocket URL of the LiveKit SFU to obtain a token for.
+    pub(crate) url: String,
+    /// The room where the `m.rtc.member` event is present.
+    pub(crate) room_id: OwnedRoomId,
+    /// The slot ID from the `m.rtc.member` event.
+    pub(crate) slot_id: String,
+    /// The `member.id` property of the requesting user's own `m.rtc.member`
+    /// event.
+    pub(crate) member_id: String,
+}
+
+impl From<RtcLivekitGetTokenRequest> for MatrixDriverRequestData {
+    fn from(req: RtcLivekitGetTokenRequest) -> Self {
+        MatrixDriverRequestData::RtcLivekitGetToken(req)
+    }
+}
+
+impl MatrixDriverRequest for RtcLivekitGetTokenRequest {
+    type Response = RtcLivekitGetTokenResponse;
+}
+
+/// Ask the client to hand the delayed leave event of a MatrixRTC session over
+/// to the homeserver via its `/rtc/livekit/delegate_delayed_leave` endpoint
+/// ([MSC4195](https://github.com/matrix-org/matrix-spec-proposals/pull/4195)),
+/// on behalf of the widget. Defined by
+/// [MSC4533](https://github.com/matrix-org/matrix-spec-proposals/pull/4533).
+#[derive(Deserialize, Debug, Clone)]
+pub(crate) struct RtcLivekitDelegateDelayedLeaveRequest {
+    /// The WebSocket URL of the LiveKit SFU that the user has connected to.
+    pub(crate) url: String,
+    /// The room where the `m.rtc.member` event is present.
+    pub(crate) room_id: OwnedRoomId,
+    /// The slot ID from the `m.rtc.member` event.
+    pub(crate) slot_id: String,
+    /// The `member.id` property of the `m.rtc.member` event.
+    pub(crate) member_id: String,
+    /// The ID of the delayed `m.rtc.member` leave event to delegate.
+    pub(crate) delay_id: String,
+}
+
+impl From<RtcLivekitDelegateDelayedLeaveRequest> for MatrixDriverRequestData {
+    fn from(req: RtcLivekitDelegateDelayedLeaveRequest) -> Self {
+        MatrixDriverRequestData::RtcLivekitDelegateDelayedLeave(req)
+    }
+}
+
+impl MatrixDriverRequest for RtcLivekitDelegateDelayedLeaveRequest {
+    type Response = RtcLivekitDelegateDelayedLeaveResponse;
 }
