@@ -32,7 +32,6 @@ use ruma::{
 use strass::assert_let;
 use stream_assert::assert_pending;
 use tokio::time::sleep;
-use wiremock::ResponseTemplate;
 
 #[async_test]
 async fn test_pinned_event_with_reaction() {
@@ -786,14 +785,11 @@ async fn test_ensure_max_concurrency_is_observed() {
         .add_state_bulk(vec![f.room_pinned_events(pinned_event_ids).into()]);
 
     let pinned_event =
-        EventFactory::new().room(&room_id).sender(*BOB).text_msg("A message").into_raw_timeline();
+        EventFactory::new().room(&room_id).sender(*BOB).text_msg("A message").into_event();
     server
         .mock_room_event()
-        .ok_with_template(
-            ResponseTemplate::new(200)
-                .set_delay(Duration::from_secs(60))
-                .set_body_json(pinned_event.json()),
-        )
+        .with_delay(Duration::from_secs(60))
+        .ok(pinned_event)
         // Verify this endpoint is only called the max concurrent amount of times.
         .expect(max_concurrent_requests as u64)
         .mount()
