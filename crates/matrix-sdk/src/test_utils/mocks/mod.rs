@@ -2571,61 +2571,6 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
         self.ok_with_event_id(returned_event_id.into())
     }
 
-    /// Returns a send endpoint that emulates success after a delay, i.e. the
-    /// event has been sent with the given event id, but the response is delayed
-    /// by the given duration.
-    ///
-    /// This is useful for testing ordering guarantees when multiple events are
-    /// in-flight simultaneously.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # tokio_test::block_on(async {
-    /// use std::time::Duration;
-    ///
-    /// use matrix_sdk::{
-    ///     ruma::{event_id, room_id},
-    ///     test_utils::mocks::MatrixMockServer,
-    /// };
-    /// use serde_json::json;
-    ///
-    /// let mock_server = MatrixMockServer::new().await;
-    /// let client = mock_server.client_builder().build().await;
-    ///
-    /// mock_server.mock_room_state_encryption().plain().mount().await;
-    ///
-    /// let room = mock_server
-    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
-    ///     .await;
-    ///
-    /// mock_server
-    ///     .mock_room_send()
-    ///     .ok_with_delay(event_id!("$some_id"), Duration::from_millis(100))
-    ///     .mock_once()
-    ///     .mount()
-    ///     .await;
-    ///
-    /// let result = room.send_raw("m.room.message", json!({ "body": "Hello world" })).await?;
-    ///
-    /// assert_eq!(
-    ///     event_id!("$some_id"),
-    ///     result.response.event_id,
-    ///     "The event ID we mocked should match the one we received when we sent the event"
-    /// );
-    /// # anyhow::Ok(()) });
-    /// ```
-    pub fn ok_with_delay(
-        self,
-        returned_event_id: impl Into<OwnedEventId>,
-        delay: Duration,
-    ) -> MatrixMock<'a> {
-        // TODO(bnjbvr): replace all callers with a combination of
-        // `set_delay`/`ok_with_event_id`.
-        let event_id = returned_event_id.into();
-        self.with_delay(delay).ok_json(json!({ "event_id": event_id }))
-    }
-
     /// Returns a send endpoint that emulates success, i.e. the event has been
     /// sent with the given event id.
     ///
@@ -3248,19 +3193,6 @@ impl<'a> MockEndpoint<'a, RoomEventEndpoint> {
             .and(path_regex(format!(r"^/_matrix/client/v3/rooms/{room_path}/event/{event_path}")));
 
         self.ok_json(event.into_raw().json())
-    }
-
-    /// Returns a room event endpoint mock with a custom [`ResponseTemplate`].
-    ///
-    /// The path restriction is applied automatically. This is useful when you
-    /// need to configure specific response properties like delays.
-    // TODO(bnjbvr): replace with set_delay.ok to add support for room matching.
-    pub fn ok_with_template(mut self, template: ResponseTemplate) -> MatrixMock<'a> {
-        let room_path =
-            self.endpoint.room.take().map_or_else(|| ".*".to_owned(), |room| room.to_string());
-        self.mock =
-            self.mock.and(path_regex(format!(r"^/_matrix/client/v3/rooms/{room_path}/event/")));
-        self.respond_with_template(template)
     }
 }
 

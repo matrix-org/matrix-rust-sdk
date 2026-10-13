@@ -77,7 +77,8 @@ async fn test_abort_before_being_sent() {
     // sending.
     server
         .mock_room_send()
-        .ok_with_delay(event_id!("$2"), Duration::from_millis(150))
+        .with_delay(Duration::from_millis(150))
+        .ok(event_id!("$2"))
         .mock_once()
         .named("send for the first reaction")
         .mount()
@@ -377,7 +378,8 @@ async fn test_local_reaction_to_local_echo() {
     // check other things in the meanwhile.
     server
         .mock_room_send()
-        .ok_with_delay(event_id!("$0"), Duration::from_millis(150))
+        .with_delay(Duration::from_millis(150))
+        .ok(event_id!("$0"))
         .mock_once()
         .mount()
         .await;
