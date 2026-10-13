@@ -19,7 +19,7 @@ use imbl::vector;
 use matrix_sdk::{assert_next_with_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_base::ThreadingSupport;
 use matrix_sdk_test::{
-    ALICE, BOB, CAROL, JoinedRoomBuilder, async_test,
+    ALICE, BOB, CAROL, JoinedRoomBuilder, User, async_test,
     event_factory::{EventFactory, PreviousMembership},
 };
 use ruma::{
@@ -71,7 +71,7 @@ async fn test_initial_events() {
     assert_eq!(item.as_event().unwrap().sender(), *ALICE);
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    assert_eq!(item.as_event().unwrap().sender(), *BOB);
+    assert_eq!(item.as_event().unwrap().sender(), User::Bob);
 
     let item = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert_matches!(&item.kind, TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(_)));
@@ -166,7 +166,9 @@ async fn test_room_member() {
 
     // Bob invites Alice.
     let f = &timeline.factory;
-    timeline.handle_live_event(f.member(&BOB).invited(&ALICE).display_name("Alice")).await;
+    timeline
+        .handle_live_event(f.member(User::Bob).invited(User::Alice).display_name("Alice"))
+        .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(item.can_be_replied_to());
@@ -176,7 +178,7 @@ async fn test_room_member() {
 
     timeline
         .handle_live_event(
-            f.member(&ALICE)
+            f.member(User::Alice)
                 .membership(MembershipState::Join)
                 .display_name("Alice")
                 .previous(PreviousMembership::new(MembershipState::Invite).display_name("Alice")),
@@ -190,7 +192,7 @@ async fn test_room_member() {
 
     timeline
         .handle_live_event(
-            f.member(&ALICE)
+            f.member(User::Alice)
                 .membership(MembershipState::Join)
                 .display_name("Alice In Wonderland")
                 .previous(PreviousMembership::new(MembershipState::Join).display_name("Alice")),
@@ -204,7 +206,7 @@ async fn test_room_member() {
 
     timeline
         .handle_live_event(
-            f.member(&ALICE)
+            f.member(User::Alice)
                 .membership(MembershipState::Join)
                 .display_name("Alice In Wonderland")
                 .avatar_url(mxc_uri!("mxc://lolcathost.io/abc"))
@@ -225,7 +227,7 @@ async fn test_room_member() {
         // it's possible to get the previous one using the getters.
         timeline
             .handle_live_event(
-                f.member(&ALICE).membership(MembershipState::Leave).previous(
+                f.member(User::Alice).membership(MembershipState::Leave).previous(
                     PreviousMembership::new(MembershipState::Join)
                         .display_name("Alice In Wonderland")
                         .avatar_url(mxc_uri!("mxc://lolcathost.io/abc")),
@@ -246,8 +248,8 @@ async fn test_room_member() {
 
     timeline
         .handle_live_event(f.redacted_state(
-            &ALICE,
-            ALICE.as_str(),
+            User::Alice,
+            User::Alice.as_str(),
             RedactedRoomMemberEventContent::new(MembershipState::Join),
         ))
         .await;
@@ -264,7 +266,7 @@ async fn test_other_state() {
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
-    timeline.handle_live_event(f.room_name("Alice's room").sender(&ALICE)).await;
+    timeline.handle_live_event(f.room_name("Alice's room").sender(User::Alice)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_let!(TimelineItemContent::OtherState(ev) = item.as_event().unwrap().content());
@@ -277,7 +279,7 @@ async fn test_other_state() {
     assert!(date_divider.is_date_divider());
 
     timeline
-        .handle_live_event(f.redacted_state(&ALICE, "", RedactedRoomTopicEventContent::new()))
+        .handle_live_event(f.redacted_state(User::Alice, "", RedactedRoomTopicEventContent::new()))
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -315,11 +317,11 @@ async fn test_internal_id_prefix() {
     assert_eq!(event1.unique_id().0, "le_prefix_0");
 
     let event2 = &timeline_items[2];
-    assert_eq!(event2.as_event().unwrap().sender(), *BOB);
+    assert_eq!(event2.as_event().unwrap().sender(), User::Bob);
     assert_eq!(event2.unique_id().0, "le_prefix_1");
 
     let event3 = &timeline_items[3];
-    assert_eq!(event3.as_event().unwrap().sender(), *CAROL);
+    assert_eq!(event3.as_event().unwrap().sender(), User::Carol);
     assert_eq!(event3.unique_id().0, "le_prefix_2");
 }
 
@@ -352,11 +354,11 @@ async fn test_internal_id_reuse() {
     assert_eq!(event1.unique_id().0, "0");
 
     let event2 = &timeline_items[2];
-    assert_eq!(event2.as_event().unwrap().sender(), *BOB);
+    assert_eq!(event2.as_event().unwrap().sender(), User::Bob);
     assert_eq!(event2.unique_id().0, "1");
 
     let event3 = &timeline_items[3];
-    assert_eq!(event3.as_event().unwrap().sender(), *CAROL);
+    assert_eq!(event3.as_event().unwrap().sender(), User::Carol);
     assert_eq!(event3.unique_id().0, "2");
 
     // Then, handle a deduplication (removal then reinsertion of the same
@@ -386,11 +388,11 @@ async fn test_internal_id_reuse() {
     assert_eq!(event1.unique_id().0, "0");
 
     let event2 = &timeline_items[2];
-    assert_eq!(event2.as_event().unwrap().sender(), *BOB);
+    assert_eq!(event2.as_event().unwrap().sender(), User::Bob);
     assert_eq!(event2.unique_id().0, "1");
 
     let event3 = &timeline_items[3];
-    assert_eq!(event3.as_event().unwrap().sender(), *CAROL);
+    assert_eq!(event3.as_event().unwrap().sender(), User::Carol);
     assert_eq!(event3.unique_id().0, "2");
 }
 
@@ -417,7 +419,7 @@ async fn test_sanitized() {
                     <code unknown=\"code\">Some code</code>\
                 ",
             )
-            .sender(&ALICE),
+            .sender(User::Alice),
         )
         .await;
 
@@ -444,7 +446,7 @@ async fn test_reply() {
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
-    timeline.handle_live_event(f.text_msg("I want you to reply").sender(&ALICE)).await;
+    timeline.handle_live_event(f.text_msg("I want you to reply").sender(User::Alice)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let first_event = item.as_event().unwrap();
@@ -475,7 +477,9 @@ async fn test_reply() {
 
     timeline
         .handle_live_event(
-            f.text_html(reply_plain, reply_formatted_body).reply_to(first_event_id).sender(&BOB),
+            f.text_html(reply_plain, reply_formatted_body)
+                .reply_to(first_event_id)
+                .sender(User::Bob),
         )
         .await;
 
@@ -504,7 +508,7 @@ async fn test_thread() {
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
-    timeline.handle_live_event(f.text_msg("I want you to reply").sender(&ALICE)).await;
+    timeline.handle_live_event(f.text_msg("I want you to reply").sender(User::Alice)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let first_event = item.as_event().unwrap();
@@ -516,7 +520,7 @@ async fn test_thread() {
     timeline
         .handle_live_event(
             f.text_msg("I'm replying in a thread")
-                .sender(&BOB)
+                .sender(User::Bob)
                 .in_thread(first_event_id, first_event_id),
         )
         .await;

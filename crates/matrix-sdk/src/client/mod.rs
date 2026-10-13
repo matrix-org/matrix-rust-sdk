@@ -1,6 +1,7 @@
 // Copyright 2020 Damir Jelić
 // Copyright 2020 The Matrix.org Foundation C.I.C.
 // Copyright 2022 Famedly GmbH
+// Copyright 2026 Nordeck IT + Consulting GmbH <info@nordeck.net>
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -1487,13 +1488,15 @@ impl Client {
     /// ```no_run
     /// # async {
     /// # let client: matrix_sdk::Client = unimplemented!();
-    /// use futures_util::{StreamExt, pin_mut};
+    /// use std::pin::pin;
+    ///
+    /// use futures_util::StreamExt;
     /// use matrix_sdk::ruma::events::ToDeviceEventType;
     ///
     /// let messages = client.subscribe_to_custom_to_device_messages(vec![
     ///     ToDeviceEventType::from("io.element.call.encryption_keys"),
     /// ]);
-    /// pin_mut!(messages);
+    /// let mut messages = pin!(messages);
     ///
     /// while let Some(message) = messages.next().await {
     ///     let Some(encryption_info) = &message.encryption_info else {
@@ -3734,6 +3737,19 @@ impl Client {
         self.inner.base_client.sync_token().await
     }
 
+    /// Wait until the next sync has been processed by the [`Client`].
+    ///
+    /// This will block until the [`Client`] has processed a sync response. This
+    /// works both for the sync v2 and the simplified sliding sync.
+    ///
+    /// Note this isn't concerned whether the sync was done by a specific
+    /// high-level sync service (like the encryption service or the sliding
+    /// sync service), but about low-level sync connections: for such
+    /// services, it will wait until *any* sync has completed.
+    pub async fn wait_for_sync(&self) {
+        self.inner.sync_beat.listen().await;
+    }
+
     /// Gets information about the owner of a given access token.
     pub async fn whoami(&self) -> HttpResult<whoami::v3::Response> {
         let request = whoami::v3::Request::new();
@@ -4262,11 +4278,18 @@ struct PreJoinRoomInfo {
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) mod tests {
-    use std::{sync::Arc, time::Duration};
+    use std::{
+        pin::pin,
+        sync::{
+            Arc,
+            atomic::{AtomicU32, Ordering},
+        },
+        time::Duration,
+    };
 
     use assert_matches::assert_matches;
     use eyeball::SharedObservable;
-    use futures_util::{FutureExt, StreamExt, pin_mut};
+    use futures_util::{FutureExt, StreamExt};
     use js_int::{UInt, uint};
     use matrix_sdk_base::{
         RoomState,
@@ -5594,7 +5617,7 @@ pub(crate) mod tests {
         let initial_value: MediaPreviewConfigEventContent = initial_value.unwrap();
         assert_eq!(initial_value.invite_avatars, Some(InviteAvatars::Off));
         assert_eq!(initial_value.media_previews, Some(MediaPreviews::Private));
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
         assert_pending!(stream);
 
         server
@@ -5645,7 +5668,7 @@ pub(crate) mod tests {
         let initial_value: MediaPreviewConfigEventContent = initial_value.unwrap();
         assert_eq!(initial_value.invite_avatars, Some(InviteAvatars::Off));
         assert_eq!(initial_value.media_previews, Some(MediaPreviews::Private));
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
         assert_pending!(stream);
 
         server
@@ -5844,9 +5867,7 @@ pub(crate) mod tests {
         let f = EventFactory::new().sender(user_id!("@example:localhost"));
         let response = SyncResponseBuilder::default()
             .add_joined_room(JoinedRoomBuilder::default().add_state_event(f.member(user_id)))
-            .add_global_account_data(
-                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
-            )
+            .add_global_account_data(f.direct().add_user(user_id, *DEFAULT_TEST_ROOM_ID))
             .build_sync_response();
         client.base_client().receive_sync_response(response).await.unwrap();
 
@@ -5869,9 +5890,7 @@ pub(crate) mod tests {
                 JoinedRoomBuilder::default()
                     .add_state_event(f.member(user_id).invited(user_id).display_name("example")),
             )
-            .add_global_account_data(
-                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
-            )
+            .add_global_account_data(f.direct().add_user(user_id, *DEFAULT_TEST_ROOM_ID))
             .build_sync_response();
         client.base_client().receive_sync_response(response).await.unwrap();
 
@@ -5900,9 +5919,7 @@ pub(crate) mod tests {
             .add_joined_room(
                 JoinedRoomBuilder::default().add_state_event(f.member(user_id).leave()),
             )
-            .add_global_account_data(
-                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
-            )
+            .add_global_account_data(f.direct().add_user(user_id, *DEFAULT_TEST_ROOM_ID))
             .build_sync_response();
         client.base_client().receive_sync_response(response).await.unwrap();
 
@@ -6086,5 +6103,48 @@ pub(crate) mod tests {
         assert!(response.policies.is_empty());
         assert!(response.limits.max_lifetime.is_none());
         assert!(response.limits.min_lifetime.is_none());
+    }
+
+    #[async_test]
+    async fn test_wait_for_sync() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let num_syncs = AtomicU32::new(0);
+
+        assert_eq!(num_syncs.load(Ordering::SeqCst), 0);
+
+        // Spawn a task that waits for 2 syncs in the background.
+        let client_clone = client.clone();
+        let task = spawn(async move {
+            client_clone.wait_for_sync().await;
+            client_clone.wait_for_sync().await;
+        });
+
+        // Sync once,
+        server
+            .mock_sync()
+            .ok_and_run(&client, |_| {
+                num_syncs.fetch_add(1, Ordering::SeqCst);
+            })
+            .await;
+
+        assert_eq!(num_syncs.load(Ordering::SeqCst), 1);
+
+        // Sync twice,
+        server
+            .mock_sync()
+            .ok_and_run(&client, |_| {
+                num_syncs.fetch_add(1, Ordering::SeqCst);
+            })
+            .await;
+
+        assert_eq!(num_syncs.load(Ordering::SeqCst), 2);
+
+        // The two waits should have completed by now!
+        timeout(Duration::from_secs(1), task)
+            .await
+            .expect("no timeout")
+            .expect("task didn't panick");
     }
 }

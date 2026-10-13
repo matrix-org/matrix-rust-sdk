@@ -18,9 +18,9 @@ use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use futures_util::{FutureExt as _, StreamExt as _};
 use imbl::vector;
-use matrix_sdk::assert_next_matches_with_timeout;
+use matrix_sdk::{assert_next_matches_with_timeout, send_queue::RoomSendQueueUpdate};
 use matrix_sdk_base::store::QueueWedgeError;
-use matrix_sdk_test::{ALICE, BOB, async_test};
+use matrix_sdk_test::{ALICE, User, async_test};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, event_id,
     events::{AnyMessageLikeEventContent, reaction::ReactionEventContent, relation::Annotation},
@@ -158,7 +158,9 @@ async fn test_redact_reaction_success() {
     // A reaction is added by sync.
     let reaction_id = event_id!("$reaction_id");
     timeline
-        .handle_live_event(f.reaction(&event_id, REACTION_KEY).sender(&ALICE).event_id(reaction_id))
+        .handle_live_event(
+            f.reaction(&event_id, REACTION_KEY).sender(User::Alice).event_id(reaction_id),
+        )
         .await;
     assert_reaction_is_updated!(stream, &event_id, item_pos, true);
 
@@ -246,9 +248,11 @@ async fn test_reaction_on_a_state_event() {
     let state_event_id = EventId::new_v1(server_name!("dummy.server"));
 
     timeline
-        .handle_live_event(f.room_name("Alice's room").sender(&ALICE).event_id(&state_event_id))
+        .handle_live_event(
+            f.room_name("Alice's room").sender(User::Alice).event_id(&state_event_id),
+        )
         .await;
-    timeline.handle_live_event(f.reaction(&state_event_id, REACTION_KEY).sender(&BOB)).await;
+    timeline.handle_live_event(f.reaction(&state_event_id, REACTION_KEY).sender(User::Bob)).await;
 
     let items = timeline.controller.items().await;
     let item = items.last().unwrap().as_event().unwrap();
@@ -256,7 +260,7 @@ async fn test_reaction_on_a_state_event() {
 
     let reactions = item.reactions().clone();
     let by_sender = reactions.get(&REACTION_KEY.to_owned()).unwrap();
-    assert!(by_sender.contains_key(*BOB));
+    assert!(by_sender.contains_key(&User::Bob));
 }
 
 /// Returns the unique item id, the event id, and position of the message.
@@ -264,7 +268,9 @@ async fn send_first_message(
     timeline: &TestTimeline,
     stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
 ) -> (TimelineEventItemId, OwnedEventId, usize) {
-    timeline.handle_live_event(timeline.factory.text_msg("I want you to react").sender(&BOB)).await;
+    timeline
+        .handle_live_event(timeline.factory.text_msg("I want you to react").sender(User::Bob))
+        .await;
 
     let item = assert_next_matches!(*stream, VectorDiff::PushBack { value } => value);
     let event_item = item.as_event().unwrap();
@@ -287,10 +293,10 @@ async fn test_reinserted_item_keeps_reactions() {
 
     // We receive an initial update with one event and a reaction to this event.
     let reaction_target = event_id!("$1");
-    let target_event = f.text_msg("hey").sender(&BOB).event_id(reaction_target).into_event();
+    let target_event = f.text_msg("hey").sender(User::Bob).event_id(reaction_target).into_event();
     let reaction_event = f
         .reaction(reaction_target, REACTION_KEY)
-        .sender(&ALICE)
+        .sender(User::Alice)
         .event_id(event_id!("$2"))
         .into_event();
 
@@ -433,6 +439,83 @@ async fn test_reaction_remote_echo_before_sent_leaves_no_pending_state() {
         .update_event_send_state(&txn_id, EventSendState::Sent { event_id: reaction_id })
         .await;
     assert_pending!(stream);
+}
+
+#[async_test]
+async fn test_a_hidden_local_reaction_failing_leaves_the_same_remote_one_alone() {
+    let timeline = TestTimeline::new().await;
+    let mut stream = timeline.subscribe_events().await;
+    let f = &timeline.factory;
+
+    let event_id = owned_event_id!("$1");
+    timeline.handle_live_event(f.text_msg("hello").sender(*ALICE).event_id(&event_id)).await;
+    assert_next_matches!(stream, VectorDiff::PushBack { .. });
+
+    let txn_id = timeline
+        .handle_local_event(
+            ReactionEventContent::new(Annotation::new(event_id.clone(), "👍".to_owned())).into(),
+        )
+        .await;
+    assert_next_matches!(stream, VectorDiff::Set { index: 0, .. });
+
+    // The same reaction, sent from another of our devices, hides the local one.
+    timeline
+        .handle_live_event(f.reaction(&event_id, "👍").sender(*ALICE).event_id(event_id!("$other")))
+        .await;
+    assert_next_matches!(stream, VectorDiff::Set { index: 0, .. });
+
+    // The hidden local one fails to be sent.
+    let error = Arc::new(matrix_sdk::Error::SendQueueWedgeError(Box::new(
+        QueueWedgeError::GenericApiError { msg: "nope".to_owned() },
+    )));
+    timeline
+        .controller
+        .update_event_send_state(
+            &txn_id,
+            EventSendState::SendingFailed { error, is_recoverable: true },
+        )
+        .await;
+
+    // The one from the other device isn't marked as failing.
+    let items = timeline.controller.items().await;
+    let item = items.iter().find_map(|item| item.as_event()).unwrap();
+    let info = item.reactions().get("👍").and_then(|by_user| by_user.get(*ALICE)).cloned();
+    assert!(info.unwrap().send_state.is_none());
+}
+
+#[async_test]
+async fn test_dropping_a_local_reaction_brings_back_the_same_remote_one() {
+    let timeline = TestTimeline::new().await;
+    let mut stream = timeline.subscribe_events().await;
+    let f = &timeline.factory;
+
+    let event_id = owned_event_id!("$1");
+    timeline.handle_live_event(f.text_msg("hello").sender(*ALICE).event_id(&event_id)).await;
+    assert_next_matches!(stream, VectorDiff::PushBack { .. });
+
+    // The reaction from another of our devices is already there (e.g. the
+    // timeline was rebuilt), then the queued local one is replayed on top.
+    timeline
+        .handle_live_event(f.reaction(&event_id, "👍").sender(*ALICE).event_id(event_id!("$other")))
+        .await;
+    assert_next_matches!(stream, VectorDiff::Set { index: 0, .. });
+    let txn_id = timeline
+        .handle_local_event(
+            ReactionEventContent::new(Annotation::new(event_id.clone(), "👍".to_owned())).into(),
+        )
+        .await;
+    assert_next_matches!(stream, VectorDiff::Set { index: 0, .. });
+
+    timeline
+        .handle_room_send_queue_update(RoomSendQueueUpdate::CancelledLocalEvent {
+            transaction_id: txn_id,
+        })
+        .await;
+
+    let items = timeline.controller.items().await;
+    let item = items.iter().find_map(|item| item.as_event()).unwrap();
+    let info = item.reactions().get("👍").and_then(|by_user| by_user.get(*ALICE)).cloned();
+    assert!(info.unwrap().send_state.is_none());
 }
 
 #[async_test]

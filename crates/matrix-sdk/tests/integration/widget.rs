@@ -35,7 +35,7 @@ use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_common::{
     deserialized_responses::EncryptionInfo, executor::spawn, locks::Mutex, timeout::timeout,
 };
-use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{BOB, JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use ruma::{
     OwnedRoomId, device_id, event_id,
     events::{
@@ -498,9 +498,9 @@ async fn test_receive_live_events() {
             sync_builder.add_joined_room(
                 JoinedRoomBuilder::new(&ROOM_ID)
                     // text message from alice - matches filter #2
-                    .add_timeline_event(f.text_msg("simple text message").sender(&ALICE))
+                    .add_timeline_event(f.text_msg("simple text message").sender(User::Alice))
                     // emote from alice - doesn't match
-                    .add_timeline_event(f.emote("emote message").sender(&ALICE))
+                    .add_timeline_event(f.emote("emote message").sender(User::Alice))
                     // pointless member event - matches filter #4
                     .add_timeline_event(
                         f.member(user_id!("@example:localhost"))
@@ -512,13 +512,13 @@ async fn test_receive_live_events() {
                     // sender
                     .add_timeline_event(
                         f.member(user_id!("@example:localhost"))
-                            .banned(&ALICE)
+                            .banned(User::Alice)
                             .previous(MembershipState::Join),
                     )
                     // set room topic - doesn't match
-                    .add_timeline_event(f.room_topic("new room topic").sender(&BOB))
+                    .add_timeline_event(f.room_topic("new room topic").sender(User::Bob))
                     // set room name - matches filter #3
-                    .add_timeline_event(f.room_name("New Room Name").sender(&BOB)),
+                    .add_timeline_event(f.room_name("New Room Name").sender(User::Bob)),
             );
             // to device message - doesn't match
             sync_builder.add_to_device_event(json!({
@@ -571,7 +571,7 @@ async fn test_receive_live_events() {
     assert_eq!(events[2]["api"], "toWidget");
     assert_eq!(events[2]["action"], "send_event");
     assert_eq!(events[2]["data"]["type"], "m.room.name");
-    assert_eq!(events[2]["data"]["sender"], BOB.as_str());
+    assert_eq!(events[2]["data"]["sender"], User::Bob);
     assert_eq!(events[2]["data"]["content"]["name"], "New Room Name");
 
     assert_eq!(to_device["api"], "toWidget");
@@ -839,7 +839,7 @@ async fn test_receive_state() {
     let (client, mock_server, driver_handle) = run_test_driver(false, false).await;
 
     let f = EventFactory::new().room(&ROOM_ID);
-    let name_event_1: Raw<AnySyncStateEvent> = f.room_name("room name").sender(&BOB).into();
+    let name_event_1: Raw<AnySyncStateEvent> = f.room_name("room name").sender(User::Bob).into();
 
     mock_server
         .mock_sync()
@@ -864,16 +864,17 @@ async fn test_receive_state() {
     assert_eq!(msg["data"]["state"].as_array().unwrap().len(), 1);
     assert_eq!(msg["data"]["state"][0]["type"], "m.room.name");
     assert_eq!(msg["data"]["state"][0]["room_id"], ROOM_ID.as_str());
-    assert_eq!(msg["data"]["state"][0]["sender"], BOB.as_str());
+    assert_eq!(msg["data"]["state"][0]["sender"], User::Bob);
     assert_eq!(msg["data"]["state"][0]["state_key"], "");
     assert_eq!(msg["data"]["state"][0]["content"]["name"], "room name");
     // No further messages from the driver yet
     assert_matches!(recv_message(&driver_handle).now_or_never(), None);
 
-    let topic_event: Raw<AnySyncStateEvent> = f.room_topic("new room topic").sender(&BOB).into();
-    let name_event_2 = f.room_name("new room name").sender(&BOB);
+    let topic_event: Raw<AnySyncStateEvent> =
+        f.room_topic("new room topic").sender(User::Bob).into();
+    let name_event_2 = f.room_name("new room name").sender(User::Bob);
     let name_event_3: Raw<AnySyncStateEvent> =
-        f.room_name("even newer room name").sender(&BOB).into();
+        f.room_name("even newer room name").sender(User::Bob).into();
 
     mock_server
         .mock_sync()
@@ -881,7 +882,7 @@ async fn test_receive_state() {
             sync_builder.add_joined_room(
                 JoinedRoomBuilder::new(&ROOM_ID)
                     // text message from alice - doesn't match
-                    .add_timeline_event(f.text_msg("simple text message").sender(&ALICE))
+                    .add_timeline_event(f.text_msg("simple text message").sender(User::Alice))
                     // set room topic - doesn't match
                     .add_timeline_event(topic_event.clone().cast())
                     .add_state_event(topic_event)
@@ -910,7 +911,7 @@ async fn test_receive_state() {
     assert_eq!(msg["data"]["state"].as_array().unwrap().len(), 1);
     assert_eq!(msg["data"]["state"][0]["type"], "m.room.name");
     assert_eq!(msg["data"]["state"][0]["room_id"], ROOM_ID.as_str());
-    assert_eq!(msg["data"]["state"][0]["sender"], BOB.as_str());
+    assert_eq!(msg["data"]["state"][0]["sender"], User::Bob);
     assert_eq!(msg["data"]["state"][0]["state_key"], "");
     assert_eq!(msg["data"]["state"][0]["content"]["name"], "even newer room name");
 
@@ -919,7 +920,7 @@ async fn test_receive_state() {
     assert_eq!(msg["action"], "send_event");
     assert_eq!(msg["data"]["type"], "m.room.name");
     assert_eq!(msg["data"]["room_id"], ROOM_ID.as_str());
-    assert_eq!(msg["data"]["sender"], BOB.as_str());
+    assert_eq!(msg["data"]["sender"], User::Bob);
     assert_eq!(msg["data"]["state_key"], "");
     assert_eq!(msg["data"]["content"]["name"], "new room name");
 
@@ -928,7 +929,7 @@ async fn test_receive_state() {
     assert_eq!(msg["action"], "send_event");
     assert_eq!(msg["data"]["type"], "m.room.name");
     assert_eq!(msg["data"]["room_id"], ROOM_ID.as_str());
-    assert_eq!(msg["data"]["sender"], BOB.as_str());
+    assert_eq!(msg["data"]["sender"], User::Bob);
     assert_eq!(msg["data"]["state_key"], "");
     assert_eq!(msg["data"]["content"]["name"], "even newer room name");
 }

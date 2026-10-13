@@ -9,7 +9,7 @@ use matrix_sdk::{
     test_utils::client::MockClientBuilder,
 };
 use matrix_sdk_base::event_cache::store::{DynEventCacheStore, IntoEventCacheStore, MemoryStore};
-use matrix_sdk_test::{ALICE, base64_sha256_hash, event_factory::EventFactory};
+use matrix_sdk_test::{User, base64_sha256_hash, event_factory::EventFactory};
 use ruma::{
     OwnedRoomId, RoomId,
     events::{relation::RelationType, room::message::RoomMessageEventContentWithoutRelation},
@@ -52,7 +52,7 @@ fn handle_room_updates(c: &mut Criterion) {
             } else {
                 OwnedRoomId::try_from(raw_room_id).unwrap()
             };
-            let event_factory = EventFactory::new().room(&room_id).sender(&ALICE);
+            let event_factory = EventFactory::new().room(&room_id).sender(User::Alice);
 
             let mut joined_room_update = JoinedRoomUpdate::default();
             for j in 0..NUM_EVENTS {
@@ -199,7 +199,7 @@ fn find_event_relations(c: &mut Criterion) {
         // Prefill the event cache store with one event and N related events.
         let mut room_updates = RoomUpdates::default();
 
-        let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
+        let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
 
         let mut joined_room_update = JoinedRoomUpdate::default();
 

@@ -116,13 +116,13 @@
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet},
-    pin::Pin,
+    pin::{Pin, pin},
     sync::Weak,
 };
 
 use as_variant::as_variant;
 use futures_core::Stream;
-use futures_util::{StreamExt, future::try_join_all, pin_mut};
+use futures_util::{StreamExt, future::try_join_all};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::deserialized_responses::UnableToDecryptReason;
 #[cfg(doc)]
@@ -1042,8 +1042,8 @@ impl Redecryptor {
             return false;
         };
 
-        pin_mut!(room_key_stream);
-        pin_mut!(withheld_stream);
+        let mut room_key_stream = pin!(room_key_stream);
+        let mut withheld_stream = pin!(withheld_stream);
 
         loop {
             tokio::select! {
@@ -1185,7 +1185,7 @@ impl Redecryptor {
                                 BackupState::Enabling |
                                 BackupState::Resuming |
                                 BackupState::Downloading |
-                                BackupState::Disabling =>{
+                                BackupState::Disabling => {
                                     // Those states aren't particularly
                                     // interesting to components listening to
                                     // R2D2 reports.
@@ -1224,9 +1224,9 @@ impl Redecryptor {
         // We pin the decryption request stream here since that one doesn't need
         // to be recreated and we don't want to miss messages coming from the
         // stream while recreating it unnecessarily.
-        pin_mut!(decryption_request_stream);
-        pin_mut!(events_stream);
-        pin_mut!(backup_state_stream);
+        let mut decryption_request_stream = pin!(decryption_request_stream);
+        let mut events_stream = pin!(events_stream);
+        let mut backup_state_stream = pin!(backup_state_stream);
 
         while Self::redecryption_loop(
             &cache,
@@ -1291,6 +1291,7 @@ mod tests {
 
     use async_trait::async_trait;
     use eyeball_im::VectorDiff;
+    use futures_util::future::join_all;
     use matrix_sdk_base::{
         cross_process_lock::CrossProcessLockGeneration,
         crypto::types::events::room::encrypted::EncryptedToDeviceEvent,
@@ -1308,8 +1309,10 @@ mod tests {
         sleep::sleep,
         store::StoreConfig,
     };
-    use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
-    use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
+    use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, executor::spawn};
+    use matrix_sdk_test::{
+        JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
+    };
     use ruma::{
         EventId, OwnedEventId, RoomId, RoomVersionId, UserId, device_id, event_id,
         events::{
@@ -1327,6 +1330,7 @@ mod tests {
     use strass::assert_let;
     use tokio::sync::oneshot::{self, Sender};
     use tracing::{Instrument, info};
+    use wiremock::{Request, Respond, ResponseTemplate};
 
     use crate::{
         Client, assert_let_timeout,
@@ -1871,19 +1875,111 @@ mod tests {
         let (_, mut subscriber) = room_cache.subscribe().await.unwrap();
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
-        // Let us forward the event to Bob.
-        sync_room(
-            &matrix_mock_server,
-            &bob,
-            JoinedRoomBuilder::new(room_id).add_timeline_event(event),
-        )
-        .await;
+        // Custom type to mock the `/sync` endpoints.
+        struct Responder<'a> {
+            sync_response_builder: Mutex<(usize, SyncResponseBuilder)>,
+            room_id: &'a RoomId,
+            event: Raw<AnySyncTimelineEvent>,
+            room_key: Raw<EncryptedToDeviceEvent>,
+        }
 
-        // Now we send the room key to Bob.
-        sync_room_keys(&matrix_mock_server, &bob, &[room_key]).await;
+        impl<'a> Responder<'a> {
+            fn new(
+                room_id: &'a RoomId,
+                event: Raw<AnySyncTimelineEvent>,
+                room_key: Raw<EncryptedToDeviceEvent>,
+            ) -> Self {
+                Self {
+                    sync_response_builder: Mutex::new((0, SyncResponseBuilder::new())),
+                    room_id,
+                    event,
+                    room_key,
+                }
+            }
+        }
 
-        info!("Stopping the delay");
-        delayed_store.stop_delaying().await;
+        impl<'a> Respond for Responder<'a> {
+            fn respond(&self, _request: &Request) -> ResponseTemplate {
+                let (nth_sync, sync_response_builder) = &mut *self.sync_response_builder.lock();
+
+                match nth_sync {
+                    // First request for `sync_room`.
+                    0 => {
+                        *nth_sync = 1;
+                        ResponseTemplate::new(200).set_body_json(
+                            sync_response_builder
+                                .add_joined_room(
+                                    JoinedRoomBuilder::new(self.room_id)
+                                        .add_timeline_event(self.event.clone()),
+                                )
+                                .build_json_sync_response(),
+                        )
+                    }
+
+                    // Second request for `sync_room_keys`.
+                    1 => {
+                        *nth_sync = 2;
+                        ResponseTemplate::new(200).set_body_json(
+                            sync_response_builder
+                                .add_to_device_event(self.room_key.deserialize_as().unwrap())
+                                .build_json_sync_response(),
+                        )
+                    }
+
+                    _ => panic!("`/sync` is called once too much"),
+                }
+            }
+        }
+
+        let mock = matrix_mock_server
+            .mock_sync()
+            .respond_with(Responder::new(room_id, event, room_key))
+            .mount_as_scoped()
+            .await;
+
+        let sync_room = spawn({
+            let bob = bob.clone();
+
+            // Let us forward the event to Bob, immediately. It will stop
+            // before persisting everything in the store.
+            async move {
+                let _ = bob.sync_once(Default::default()).await.unwrap();
+            }
+        });
+
+        let sync_room_keys = spawn({
+            let bob = bob.clone();
+
+            // Now we send the room key to Bob, let's say after a delay of
+            // 1sec, so that the Event Cache had time to start handling the
+            // event and being blocked when persisting it.
+            async move {
+                // Wait on `sync_room` to hang.
+                sleep(Duration::from_secs(1)).await;
+
+                let _ = bob.sync_once(Default::default()).await.unwrap();
+
+                // Allow the redecryptor some time to retry any UTDs.
+                sleep(Duration::from_millis(100)).await;
+            }
+        });
+
+        let delay = spawn({
+            // Unblock `sync_room` after 2 secs, so that `sync_room_keys` has
+            // finished before `sync_room` finishes.
+            async move {
+                sleep(Duration::from_secs(2)).await;
+                info!("Stopping the delay");
+                delayed_store.stop_delaying().await;
+            }
+        });
+
+        assert!(
+            join_all([sync_room, sync_room_keys, delay]).await.into_iter().all(|res| res.is_ok()),
+            "all tasks should succeed"
+        );
+
+        drop(mock);
 
         // The first decryption attempt has failed because the first sync (the
         // one with the event) did not contain the room key. The decryptor has

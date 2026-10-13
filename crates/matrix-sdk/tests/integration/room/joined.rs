@@ -1,11 +1,12 @@
 use std::{
     collections::BTreeSet,
+    pin::pin,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
 use assert_matches::assert_matches;
-use futures_util::{future::join_all, pin_mut};
+use futures_util::future::join_all;
 use matrix_sdk::{
     assert_next_with_timeout, assert_recv_with_timeout,
     config::SyncSettings,
@@ -999,7 +1000,7 @@ async fn test_is_direct_invite_by_3pid() {
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(JoinedRoomBuilder::default());
     sync_builder.add_global_account_data(
-        f.direct().add_user("invited@localhost.com".into(), *DEFAULT_TEST_ROOM_ID),
+        f.direct().add_user("invited@localhost.com", *DEFAULT_TEST_ROOM_ID),
     );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -1115,7 +1116,7 @@ async fn test_subscribe_to_knock_requests() {
     let room = server.sync_joined_room(&client, room_id).await;
     let (stream, handle) = room.subscribe_to_knock_requests().await.unwrap();
 
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     // We receive an initial knock request from Alice
     let initial = assert_next_with_timeout!(stream, 1000);
@@ -1189,7 +1190,7 @@ async fn test_subscribe_to_knock_requests_reloads_members_on_limited_sync() {
     let room = server.sync_joined_room(&client, room_id).await;
     let (stream, handle) = room.subscribe_to_knock_requests().await.unwrap();
 
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     // We receive an initial knock request from Alice
     let initial = assert_next_with_timeout!(stream, 500);
@@ -1322,7 +1323,7 @@ async fn test_subscribe_to_knock_requests_clears_seen_ids_on_member_reload() {
     let room = server.sync_joined_room(&client, room_id).await;
     let (stream, handle) = room.subscribe_to_knock_requests().await.unwrap();
 
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     // We receive an initial knock request from Alice
     let initial = assert_next_with_timeout!(stream, 100);

@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use imbl::vector;
 use matrix_sdk_base::store::QueueWedgeError;
-use matrix_sdk_test::{ALICE, BOB, async_test};
+use matrix_sdk_test::{ALICE, User, async_test};
 use ruma::{
     event_id,
     events::{
@@ -43,7 +43,7 @@ async fn test_redact_state_event() {
 
     let f = &timeline.factory;
 
-    timeline.handle_live_event(f.room_name("Fancy room name").sender(&ALICE)).await;
+    timeline.handle_live_event(f.room_name("Fancy room name").sender(User::Alice)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_let!(TimelineItemContent::OtherState(state) = item.content());
@@ -52,7 +52,7 @@ async fn test_redact_state_event() {
         AnyOtherStateEventContentChange::RoomName(StateEventContentChange::Original { .. })
     );
 
-    timeline.handle_live_event(f.redaction(item.event_id().unwrap()).sender(&ALICE)).await;
+    timeline.handle_live_event(f.redaction(item.event_id().unwrap()).sender(User::Alice)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert_let!(TimelineItemContent::OtherState(state) = item.content());
@@ -69,7 +69,7 @@ async fn test_redact_replied_to_event() {
 
     let f = &timeline.factory;
 
-    timeline.handle_live_event(f.text_msg("Hello, world!").sender(&ALICE)).await;
+    timeline.handle_live_event(f.text_msg("Hello, world!").sender(User::Alice)).await;
 
     let first_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(first_item.content().is_message());
@@ -77,7 +77,9 @@ async fn test_redact_replied_to_event() {
         first_item.original_json().unwrap().deserialize_as_unchecked().unwrap();
 
     timeline
-        .handle_live_event(f.text_msg("Hello, alice.").sender(&BOB).reply_to(&first_event.event_id))
+        .handle_live_event(
+            f.text_msg("Hello, alice.").sender(User::Bob).reply_to(&first_event.event_id),
+        )
         .await;
 
     let second_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -86,7 +88,8 @@ async fn test_redact_replied_to_event() {
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert!(replied_to_event.content.is_message());
 
-    timeline.handle_live_event(f.redaction(first_item.event_id().unwrap()).sender(&ALICE)).await;
+    // Someone else (a moderator) redacts Alice's message.
+    timeline.handle_live_event(f.redaction(first_item.event_id().unwrap()).sender(User::Bob)).await;
 
     let first_item_again =
         assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
@@ -99,6 +102,56 @@ async fn test_redact_replied_to_event() {
     let in_reply_to = msglike.in_reply_to.clone().unwrap();
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert!(replied_to_event.content.is_redacted());
+    // The placeholder keeps the redacted event's own sender and timestamp, not
+    // the redaction's.
+    assert_eq!(replied_to_event.sender, *ALICE);
+    assert_eq!(replied_to_event.timestamp, first_item.timestamp());
+}
+
+#[async_test]
+async fn test_redact_replied_to_event_not_in_timeline() {
+    let timeline = TestTimeline::new().await;
+    let mut stream = timeline.subscribe_events().await;
+
+    let f = &timeline.factory;
+
+    timeline.handle_live_event(f.text_msg("Hello, world!").sender(User::Alice)).await;
+
+    let first_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let first_event_id = first_item.event_id().unwrap().to_owned();
+
+    timeline
+        .handle_live_event(f.text_msg("Hello, alice.").sender(User::Bob).reply_to(&first_event_id))
+        .await;
+
+    let second_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let msglike = second_item.content().as_msglike().unwrap();
+    assert_let!(TimelineDetails::Ready(_) = &msglike.in_reply_to.as_ref().unwrap().event);
+
+    // The replied-to event leaves the timeline, but the reply keeps its
+    // details.
+    timeline
+        .controller
+        .handle_remote_events_with_diffs(
+            vec![VectorDiff::Remove { index: 0 }],
+            RemoteEventOrigin::Sync,
+        )
+        .await;
+    assert_next_matches!(stream, VectorDiff::Remove { index: 0 });
+
+    // Someone else (a moderator) redacts Alice's message.
+    timeline.handle_live_event(f.redaction(&first_event_id).sender(User::Bob)).await;
+
+    let second_item_again =
+        assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    let msglike = second_item_again.content().as_msglike().unwrap();
+    assert_let!(
+        TimelineDetails::Ready(replied_to_event) = &msglike.in_reply_to.as_ref().unwrap().event
+    );
+    assert!(replied_to_event.content.is_redacted());
+    // The placeholder takes the sender and timestamp from the reply's details.
+    assert_eq!(replied_to_event.sender, *ALICE);
+    assert_eq!(replied_to_event.timestamp, first_item.timestamp());
 }
 
 #[async_test]
@@ -111,20 +164,22 @@ async fn test_redaction_before_event() {
     let target_event_id = event_id!("$target");
 
     // We get a reaction to the event, first.
-    timeline.handle_live_event(f.reaction(target_event_id, "😀").sender(&ALICE)).await;
+    timeline.handle_live_event(f.reaction(target_event_id, "😀").sender(User::Alice)).await;
 
     // Then we see the redaction.
-    timeline.handle_live_event(f.redaction(target_event_id).sender(&ALICE)).await;
+    timeline.handle_live_event(f.redaction(target_event_id).sender(User::Alice)).await;
 
     // Then another reaction.
-    timeline.handle_live_event(f.reaction(target_event_id, "👍").sender(&ALICE)).await;
+    timeline.handle_live_event(f.reaction(target_event_id, "👍").sender(User::Alice)).await;
 
     // Nothing happens yet.
     assert_pending!(stream);
 
     // Then we see the original event.
     timeline
-        .handle_live_event(f.text_msg("Hello, world!").event_id(target_event_id).sender(&ALICE))
+        .handle_live_event(
+            f.text_msg("Hello, world!").event_id(target_event_id).sender(User::Alice),
+        )
         .await;
 
     // It is immediately redacted.
@@ -144,13 +199,13 @@ async fn test_reaction_redaction() {
 
     let f = &timeline.factory;
 
-    timeline.handle_live_event(f.text_msg("hi!").sender(&ALICE)).await;
+    timeline.handle_live_event(f.text_msg("hi!").sender(User::Alice)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_eq!(item.reactions().len(), 0);
 
     let msg_event_id = item.event_id().unwrap();
 
-    timeline.handle_live_event(f.reaction(msg_event_id, "+1").sender(&BOB)).await;
+    timeline.handle_live_event(f.reaction(msg_event_id, "+1").sender(User::Bob)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert_eq!(item.reactions().len(), 1);
 
@@ -158,7 +213,7 @@ async fn test_reaction_redaction() {
 
     let reaction_event_id = item.event_id().unwrap();
 
-    timeline.handle_live_event(f.redaction(reaction_event_id).sender(&BOB)).await;
+    timeline.handle_live_event(f.redaction(reaction_event_id).sender(User::Bob)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert_eq!(item.reactions().len(), 0);
 }
@@ -186,23 +241,23 @@ async fn test_reaction_redaction_timeline_filter() {
     assert_eq!(timeline.controller.items().await.len(), 0);
 
     // Adding a live redacted reaction does nothing.
-    timeline.handle_live_event(f.redacted(&ALICE, RedactedReactionEventContent::new())).await;
+    timeline.handle_live_event(f.redacted(User::Alice, RedactedReactionEventContent::new())).await;
     assert_eq!(timeline.controller.items().await.len(), 0);
 
     // Adding a room message
-    timeline.handle_live_event(f.text_msg("hi!").sender(&ALICE)).await;
+    timeline.handle_live_event(f.text_msg("hi!").sender(User::Alice)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     // Creates a date divider and the message.
     assert_eq!(timeline.controller.items().await.len(), 2);
 
     // Reaction is attached to the message and doesn't add a timeline item.
-    timeline.handle_live_event(f.reaction(item.event_id().unwrap(), "+1").sender(&BOB)).await;
+    timeline.handle_live_event(f.reaction(item.event_id().unwrap(), "+1").sender(User::Bob)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     let reaction_event_id = item.event_id().unwrap();
     assert_eq!(timeline.controller.items().await.len(), 2);
 
     // Redacting the reaction doesn't add a timeline item.
-    timeline.handle_live_event(f.redaction(reaction_event_id).sender(&BOB)).await;
+    timeline.handle_live_event(f.redaction(reaction_event_id).sender(User::Bob)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert_eq!(item.reactions().len(), 0);
     assert_eq!(timeline.controller.items().await.len(), 2);
@@ -218,19 +273,19 @@ async fn test_redact_thread_reply_keeps_thread_root() {
     let root_id = event_id!("$root");
     let reply_id = event_id!("$reply");
 
-    timeline.handle_live_event(f.text_msg("root").event_id(root_id).sender(&ALICE)).await;
+    timeline.handle_live_event(f.text_msg("root").event_id(root_id).sender(User::Alice)).await;
     let _ = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
 
     timeline
         .handle_live_event(
-            f.text_msg("reply").event_id(reply_id).sender(&BOB).in_thread(root_id, root_id),
+            f.text_msg("reply").event_id(reply_id).sender(User::Bob).in_thread(root_id, root_id),
         )
         .await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert_eq!(item.content().thread_root().as_deref(), Some(root_id));
 
     // The thread reply is redacted.
-    timeline.handle_live_event(f.redaction(reply_id).sender(&BOB)).await;
+    timeline.handle_live_event(f.redaction(reply_id).sender(User::Bob)).await;
 
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     assert!(item.content().is_redacted());
@@ -248,7 +303,7 @@ async fn test_local_and_remote_echo_of_redaction() {
     // Send a message.
     let event_id = owned_event_id!("$1");
     timeline
-        .handle_live_event(f.text_msg("Hello, world!").sender(&ALICE).event_id(&event_id))
+        .handle_live_event(f.text_msg("Hello, world!").sender(User::Alice).event_id(&event_id))
         .await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(!item.content().is_redacted());
@@ -272,7 +327,7 @@ async fn test_local_and_remote_echo_of_redaction() {
 
     // Then comes the remote echo of the redaction event. The timeline event
     // should now be redacted.
-    timeline.handle_live_event(f.redaction(&event_id).sender(&ALICE)).await;
+    timeline.handle_live_event(f.redaction(&event_id).sender(User::Alice)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().is_redacted());
     assert!(item.unredacted_item.is_none());
@@ -290,7 +345,7 @@ async fn test_local_redaction_send_state() {
 
     let event_id = owned_event_id!("$1");
     timeline
-        .handle_live_event(f.text_msg("Hello, world!").sender(&ALICE).event_id(&event_id))
+        .handle_live_event(f.text_msg("Hello, world!").sender(User::Alice).event_id(&event_id))
         .await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(item.redaction_send_state().is_none());
@@ -333,7 +388,9 @@ async fn test_local_redaction_send_state() {
     assert_matches!(item.redaction_send_state(), Some(EventSendState::Sent { .. }));
 
     // The remote echo clears the state.
-    timeline.handle_live_event(f.redaction(&event_id).sender(&ALICE).event_id(&redaction_id)).await;
+    timeline
+        .handle_live_event(f.redaction(&event_id).sender(User::Alice).event_id(&redaction_id))
+        .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().is_redacted());
     assert!(item.redaction_send_state().is_none());

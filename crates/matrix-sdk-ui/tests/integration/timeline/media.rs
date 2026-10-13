@@ -27,7 +27,7 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{
-    ALICE, JoinedRoomBuilder, TestResult, async_test, event_factory::EventFactory,
+    JoinedRoomBuilder, TestResult, User, async_test, event_factory::EventFactory,
 };
 use matrix_sdk_ui::timeline::{
     AttachmentConfig, AttachmentSource, EventSendState, EventTimelineItem, MediaUploadProgress,
@@ -91,7 +91,7 @@ async fn test_send_attachment_from_file() -> TestResult {
     mock.sync_room(
         &client,
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(event_id)),
+            .add_timeline_event(f.text_msg("hello").sender(User::Alice).event_id(event_id)),
     )
     .await;
 
@@ -241,7 +241,7 @@ async fn test_send_attachment_from_bytes() -> TestResult {
     let f = EventFactory::new();
     mock.sync_room(
         &client,
-        JoinedRoomBuilder::new(room_id).add_timeline_event(f.text_msg("hello").sender(&ALICE)),
+        JoinedRoomBuilder::new(room_id).add_timeline_event(f.text_msg("hello").sender(User::Alice)),
     )
     .await;
 
@@ -610,7 +610,7 @@ async fn test_send_gallery_from_bytes() -> TestResult {
                 "rickroll.gif".to_owned(),
                 owned_mxc_uri!("mxc://sdk.rs/rickroll"),
             )
-            .sender(&ALICE),
+            .sender(User::Alice),
         ),
     )
     .await;

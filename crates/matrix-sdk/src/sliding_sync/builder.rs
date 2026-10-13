@@ -5,7 +5,6 @@ use std::{
     time::Duration,
 };
 
-use cfg_if::cfg_if;
 use matrix_sdk_common::timer;
 use ruma::{OwnedRoomId, api::client::sync::sync_events::v5 as http};
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock, broadcast::channel};
@@ -297,19 +296,23 @@ impl SlidingSyncBuilder {
         }
 
         let (share_pos, pos) = {
-            cfg_if! {
-                if #[cfg(feature = "e2e-encryption")] {
+            cfg_select! {
+                feature = "e2e-encryption" => {
                     if self.share_pos {
                         // If the sliding sync instance is configured to share
                         // its current sync position, we will restore it from
                         // the cache.
-                        (true, super::cache::restore_sliding_sync_state(&client, &self.storage_key).await?.and_then(|fields| fields.pos))
+                        (
+                            true,
+                            super::cache::restore_sliding_sync_state(&client, &self.storage_key)
+                                .await?
+                                .and_then(|fields| fields.pos),
+                        )
                     } else {
                         (false, None)
                     }
-                } else {
-                    (false, None)
                 }
+                _ => (false, None),
             }
         };
 

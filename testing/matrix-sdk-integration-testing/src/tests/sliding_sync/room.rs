@@ -3,6 +3,7 @@
 
 use std::{
     collections::BTreeMap,
+    pin::pin,
     sync::{Arc, LazyLock, Mutex as StdMutex},
     time::Duration,
 };
@@ -10,7 +11,7 @@ use std::{
 use anyhow::Result;
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use futures_util::{StreamExt as _, pin_mut};
+use futures_util::StreamExt as _;
 use matrix_sdk::{
     Client, Room, RoomInfo, RoomMemberships, RoomState, SlidingSyncList, SlidingSyncMode,
     assert_let_timeout,
@@ -86,7 +87,7 @@ async fn test_left_room() -> Result<()> {
 
         async move {
             let stream = peter_sliding.sync();
-            pin_mut!(stream);
+            let mut stream = pin!(stream);
 
             while let Some(up) = stream.next().await {
                 let up = up.expect("sync should not fail");
@@ -179,7 +180,7 @@ async fn test_room_avatar_group_conversation() -> Result<()> {
 
         async move {
             let stream = alice_sliding.sync();
-            pin_mut!(stream);
+            let mut stream = pin!(stream);
 
             while let Some(up) = stream.next().await {
                 let up = up.expect("update must not fail");
@@ -324,7 +325,7 @@ async fn test_joined_user_can_create_push_context_with_room_list_service() -> Re
     let rls = room_list_service.clone();
     let alice_handle = spawn(async move {
         let sync = rls.sync();
-        pin_mut!(sync);
+        let mut sync = pin!(sync);
         while let Some(update) = sync.next().await {
             warn!("Update from the room list service: {update:?}");
         }
@@ -437,7 +438,7 @@ async fn test_room_notification_count() -> Result<()> {
 
         async move {
             let stream = alice_sync.sync();
-            pin_mut!(stream);
+            let mut stream = pin!(stream);
 
             while let Some(update) = stream.next().await {
                 warn!(?update, "Alice sliding sync received an update");
@@ -785,7 +786,7 @@ async fn test_delayed_invite_response_and_sent_message_decryption() {
     // Join the room from Bob's client.
     let bob_timeline = bob_room.timeline().await.unwrap();
     let (_, timeline_stream) = bob_timeline.subscribe().await;
-    pin_mut!(timeline_stream);
+    let mut timeline_stream = pin!(timeline_stream);
 
     info!("Bob joins the room.");
     bob_room.join().await.unwrap();
@@ -860,7 +861,7 @@ async fn test_room_info_notable_update_deduplication() -> Result<()> {
 
     alice_room_controller.set_filter(Box::new(new_filter_all(vec![])));
 
-    pin_mut!(alice_rooms);
+    let mut alice_rooms = pin!(alice_rooms);
 
     // First, we observe the initial reset.
     assert_let_timeout!(Duration::from_secs(3), Some(diffs) = alice_rooms.next());
@@ -983,7 +984,7 @@ async fn test_room_preview() -> Result<()> {
     // Wait for Alice's stream to stabilize (stop updating when we haven't
     // received successful updates for more than 2 seconds).
     let stream = sliding_alice.sync();
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     // Wait for updates coming in under than 15 seconds. After that, we consider
     // the sync as stable.

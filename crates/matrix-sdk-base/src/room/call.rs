@@ -82,7 +82,7 @@ mod tests {
     use std::{ops::Sub, sync::Arc, time::Duration};
 
     use assign::assign;
-    use matrix_sdk_test::{ALICE, BOB, CAROL, event_factory::EventFactory};
+    use matrix_sdk_test::{ALICE, BOB, CAROL, User, event_factory::EventFactory};
     use ruma::{
         DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId, device_id, event_id,
         events::{
@@ -316,15 +316,15 @@ mod tests {
         // front. user_b (Bob) is 1min old, c1 (CAROL) 10min old, c2 (CAROL)
         // 20min old
         assert_eq!(
-            vec![CAROL.to_owned(), CAROL.to_owned(), BOB.to_owned()],
-            room_legacy.active_room_call_participants()
+            room_legacy.active_room_call_participants(),
+            &[User::Carol, User::Carol, User::Bob],
         );
         assert!(room_legacy.has_active_room_call());
 
         let room_session = session_create_call_with_member_events_for_user(&ALICE, &BOB, &CAROL);
         assert_eq!(
-            vec![CAROL.to_owned(), CAROL.to_owned(), BOB.to_owned()],
-            room_session.active_room_call_participants()
+            room_session.active_room_call_participants(),
+            &[User::Carol, User::Carol, User::Bob],
         );
         assert!(room_session.has_active_room_call());
     }

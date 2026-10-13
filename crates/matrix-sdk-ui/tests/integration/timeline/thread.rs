@@ -23,7 +23,9 @@ use matrix_sdk::{
         MatrixMockServer, RoomContextResponseTemplate, RoomRelationsResponseTemplate,
     },
 };
-use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{
+    ALICE, BOB, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
+};
 use matrix_sdk_ui::timeline::{
     EventSendState, RoomExt as _, TimelineBuilder, TimelineDetails, TimelineEventFocusThreadMode,
     TimelineEventItemId, TimelineFocus, VirtualTimelineItem,
@@ -262,7 +264,7 @@ async fn test_extract_bundled_thread_summary() {
     let (initial_items, mut stream) = timeline.subscribe().await;
     assert!(initial_items.is_empty());
 
-    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let thread_event_id = event_id!("$thread_root");
     let latest_event_id = event_id!("$latest_event");
 
@@ -317,7 +319,7 @@ async fn test_redact_thread_root_keeps_thread_summary() {
     let timeline = room.timeline().await.unwrap();
     let (_, mut stream) = timeline.subscribe().await;
 
-    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let thread_event_id = event_id!("$thread_root");
     let latest_event_id = event_id!("$latest_event");
 
@@ -326,7 +328,7 @@ async fn test_redact_thread_root_keeps_thread_summary() {
     let reply_event = f
         .text_msg("the last reply")
         .event_id(latest_event_id)
-        .sender(&BOB)
+        .sender(User::Bob)
         .into_raw_sync()
         .cast_unchecked();
 
@@ -358,7 +360,7 @@ async fn test_redact_thread_root_keeps_thread_summary() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.redaction(thread_event_id).sender(&ALICE)),
+                .add_timeline_event(f.redaction(thread_event_id).sender(User::Alice)),
         )
         .await;
 
@@ -389,7 +391,7 @@ async fn test_already_redacted_thread_root_keeps_bundled_thread_summary() {
     let timeline = room.timeline().await.unwrap();
     let (_, mut stream) = timeline.subscribe().await;
 
-    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let thread_event_id = event_id!("$thread_root");
     let latest_event_id = event_id!("$latest_event");
 
@@ -398,7 +400,7 @@ async fn test_already_redacted_thread_root_keeps_bundled_thread_summary() {
     let reply_event = f
         .text_msg("the last reply")
         .event_id(latest_event_id)
-        .sender(&BOB)
+        .sender(User::Bob)
         .into_raw_sync()
         .cast_unchecked();
 
@@ -408,7 +410,7 @@ async fn test_already_redacted_thread_root_keeps_bundled_thread_summary() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
-                f.redacted(&ALICE, RedactedRoomMessageEventContent::new())
+                f.redacted(User::Alice, RedactedRoomMessageEventContent::new())
                     .event_id(thread_event_id)
                     .with_bundled_thread_summary(reply_event, 42, false),
             ),
@@ -447,7 +449,7 @@ async fn test_new_thread_reply_causes_thread_summary_update() {
     assert!(initial_items.is_empty());
 
     // Start with a simple message, with no bundled thread info.
-    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let thread_event_id = event_id!("$thread_root");
 
     let event = f.text_msg("thready thread mcthreadface").event_id(thread_event_id);
@@ -471,7 +473,7 @@ async fn test_new_thread_reply_causes_thread_summary_update() {
     let reply_event_id = event_id!("$thread_reply");
     let event = f
         .text_msg("thread reply")
-        .sender(&BOB)
+        .sender(User::Bob)
         .in_thread(thread_event_id, thread_event_id)
         .event_id(reply_event_id);
 
@@ -518,7 +520,7 @@ async fn test_new_thread_reply_causes_thread_summary_update() {
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
                 f.text_msg("another thread reply")
-                    .sender(&BOB)
+                    .sender(User::Bob)
                     .in_thread(thread_event_id, reply_event_id)
                     .event_id(another_reply_event_id),
             ),
@@ -582,7 +584,7 @@ async fn test_thread_msg_edit_reflects_in_summary() {
 
     // Start with a message (with no bundled thread info), and a threaded reply
     // to it.
-    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let thread_event_id = event_id!("$thread_root");
     let reply_event_id = event_id!("$thread_reply");
 
@@ -595,7 +597,7 @@ async fn test_thread_msg_edit_reflects_in_summary() {
                 )
                 .add_timeline_event(
                     f.text_msg("threaded reply")
-                        .sender(&BOB)
+                        .sender(User::Bob)
                         .in_thread(thread_event_id, thread_event_id)
                         .event_id(reply_event_id),
                 ),
@@ -663,7 +665,7 @@ async fn test_thread_msg_edit_reflects_in_summary() {
                         reply_event_id,
                         RoomMessageEventContentWithoutRelation::text_plain("edited threaded reply"),
                     )
-                    .sender(&BOB)
+                    .sender(User::Bob)
                     .event_id(edit_reply_event_id),
             ),
         )
@@ -716,7 +718,7 @@ async fn test_thread_poll_edit_reflects_in_summary() {
     assert!(initial_items.is_empty());
 
     // Have all the events, including the edit, arrive in the same sync.
-    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let thread_event_id = event_id!("$thread_root");
     let reply_event_id = event_id!("$thread_reply");
     let edit_reply_event_id = event_id!("$thread_reply_edit");
@@ -734,7 +736,7 @@ async fn test_thread_poll_edit_reflects_in_summary() {
                         "What's your favorite colour?",
                         vec!["Red", "Green", "Blue"],
                     )
-                    .sender(&BOB)
+                    .sender(User::Bob)
                     .in_thread(thread_event_id, thread_event_id)
                     .event_id(reply_event_id),
                 )
@@ -746,7 +748,7 @@ async fn test_thread_poll_edit_reflects_in_summary() {
                         "What's your favourite colour?",
                         vec!["Red", "Green", "Blue", "Yellow"],
                     )
-                    .sender(&BOB)
+                    .sender(User::Bob)
                     .event_id(edit_reply_event_id),
                 ),
         )
@@ -2111,7 +2113,7 @@ async fn test_permalink_doesnt_listen_to_thread_sync() {
     let room_id = room_id!("!a:b.c");
     let room = server.sync_joined_room(&client, room_id).await;
 
-    let f = EventFactory::new().sender(&ALICE).room(room_id);
+    let f = EventFactory::new().sender(User::Alice).room(room_id);
     let thread_root = event_id!("$thread_root");
     let event = f
         .text_msg("hey to you too")
@@ -2188,7 +2190,7 @@ async fn test_redacted_replied_to_is_updated() {
     let client = client_with_threading_support(&server).await;
 
     let room_id = room_id!("!a:b.c");
-    let f = EventFactory::new().sender(&ALICE).room(room_id);
+    let f = EventFactory::new().sender(User::Alice).room(room_id);
     let thread_root = event_id!("$thread_root");
     let first_reply = event_id!("$first_reply");
     let second_reply = event_id!("$second_reply");
@@ -2291,7 +2293,7 @@ async fn test_redaction_affects_thread_summary() {
     let client = client_with_threading_support(&server).await;
 
     let room_id = room_id!("!a:b.c");
-    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
 
     let thread_root = event_id!("$thread_root");
     let thread_reply = event_id!("$thread_reply");

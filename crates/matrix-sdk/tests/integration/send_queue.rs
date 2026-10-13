@@ -2070,6 +2070,50 @@ async fn test_unwedge_reaction() {
 }
 
 #[async_test]
+async fn test_duplicate_reaction_does_not_wedge_the_queue() {
+    let mock = MatrixMockServer::new().await;
+
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+    let (_, mut watch) = q.subscribe().await.unwrap();
+
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // The message goes out; the server already has this reaction from us (sent
+    // from another device while this one was offline), and says so.
+    mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
+    mock.mock_room_send()
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "errcode": "M_DUPLICATE_ANNOTATION",
+            "error": "Can't send same reaction twice",
+        })))
+        .mock_once()
+        .mount()
+        .await;
+    mock.mock_room_send().ok(event_id!("$2")).mock_once().mount().await;
+
+    let msg_handle = q.send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
+    msg_handle.react("👍".to_owned()).await.unwrap().expect("reaction was queued");
+
+    let (msg_txn, _) = assert_update!((global_watch, watch) => local echo { body = "1" });
+    let reaction_txn =
+        assert_update!((global_watch, watch) => local reaction { key = "👍", parent = msg_txn });
+    assert_update!((global_watch, watch) => sent { txn = msg_txn, event_id = event_id!("$1") });
+
+    // The reaction is already there: it's dropped, not wedged.
+    assert_update!((global_watch, watch) => cancelled { txn = reaction_txn });
+
+    // So the next message isn't stuck behind it.
+    q.send(RoomMessageEventContent::text_plain("2").into()).await.unwrap();
+    let (msg2_txn, _) = assert_update!((global_watch, watch) => local echo { body = "2" });
+    assert_update!((global_watch, watch) => sent { txn = msg2_txn, event_id = event_id!("$2") });
+}
+
+#[async_test]
 async fn test_unwedge_redaction() {
     let mock = MatrixMockServer::new().await;
 

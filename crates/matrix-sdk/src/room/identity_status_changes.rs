@@ -203,9 +203,9 @@ fn wrap_room_member_events(
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use std::time::Duration;
+    use std::{pin::pin, time::Duration};
 
-    use futures_util::{FutureExt as _, StreamExt as _, pin_mut};
+    use futures_util::{FutureExt as _, StreamExt as _};
     use matrix_sdk_base::crypto::IdentityState;
     use matrix_sdk_test::{async_test, test_json::keys_query_sets::IdentityChangeDataSet};
     use test_setup::TestSetup;
@@ -222,7 +222,7 @@ mod tests {
 
         // And we are listening for identity changes
         let stream = t.subscribe_to_identity_status_changes().await;
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // When Bob becomes unpinned
         t.unpin_bob().await;
@@ -244,7 +244,7 @@ mod tests {
 
         // And we are listening for identity changes
         let stream = t.subscribe_to_identity_status_changes().await;
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // When Bob's identity changes
         t.unpin_bob().await;
@@ -266,7 +266,7 @@ mod tests {
 
         // And we are listening for identity changes
         let stream = t.subscribe_to_identity_status_changes().await;
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // When Bob becomes pinned
         t.pin_bob().await;
@@ -291,7 +291,7 @@ mod tests {
 
         // And we are listening for identity changes
         let stream = t.subscribe_to_identity_status_changes().await;
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // When Bob becomes verified
         t.verify_bob().await;
@@ -322,7 +322,7 @@ mod tests {
 
         // And we are listening for identity changes
         let stream = t.subscribe_to_identity_status_changes().await;
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // When Bob becomes verified
         t.verify_bob().await;
@@ -356,7 +356,7 @@ mod tests {
 
         // And we are listening for identity changes
         let stream = t.subscribe_to_identity_status_changes().await;
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // When Bob becomes verified
         t.verify_bob().await;
@@ -384,7 +384,7 @@ mod tests {
 
         // And we are listening for identity changes
         let stream = t.subscribe_to_identity_status_changes().await;
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // When Bob joins the room
         t.bob_joins().await;
@@ -407,7 +407,7 @@ mod tests {
 
         // And we are listening for identity changes
         let stream = t.subscribe_to_identity_status_changes().await;
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // When Bob joins the room
         t.bob_joins().await;
@@ -429,7 +429,7 @@ mod tests {
 
         // And we are listening for identity changes
         let stream = t.subscribe_to_identity_status_changes().await;
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // When Bob joins the room
         t.bob_joins().await;
@@ -454,7 +454,7 @@ mod tests {
 
         // And we are listening for identity changes
         let stream = t.subscribe_to_identity_status_changes().await;
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // When Bob joins the room
         t.bob_joins().await;
@@ -475,7 +475,7 @@ mod tests {
 
         // And we are listening for identity changes
         let stream = t.subscribe_to_identity_status_changes().await;
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // When Bob leaves the room
         t.bob_leaves().await;
@@ -505,7 +505,7 @@ mod tests {
 
         // And we are listening for identity changes
         let stream = t.subscribe_to_identity_status_changes().await;
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // NOTE: below we pull the changes out of the subscription after each
         // action. This makes sure that the identity changes and membership
@@ -559,7 +559,7 @@ mod tests {
 
         // When we start listening for identity changes
         let stream = t.subscribe_to_identity_status_changes().await;
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // Then we were immediately notified about Bob being unpinned
         let change = assert_next_with_timeout!(stream);
@@ -576,7 +576,7 @@ mod tests {
 
         // When we start listening for identity changes
         let stream = t.subscribe_to_identity_status_changes().await;
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // (And we unpin so that something is available in the changes stream)
         t.unpin_bob().await;

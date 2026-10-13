@@ -56,11 +56,11 @@ mod room_list;
 pub mod sorters;
 mod state;
 
-use std::{sync::Arc, time::Duration};
+use std::{pin::pin, sync::Arc, time::Duration};
 
 use async_stream::stream;
 use eyeball::Subscriber;
-use futures_util::{Stream, StreamExt, pin_mut};
+use futures_util::{Stream, StreamExt};
 use matrix_sdk::{
     Client, Error as SlidingSyncError, Room, SlidingSync, SlidingSyncList, SlidingSyncMode,
     event_cache::EventCacheError, sliding_sync::PollTimeout, timeout::timeout,
@@ -304,7 +304,7 @@ impl RoomListService {
     pub fn sync(&self) -> impl Stream<Item = Result<(), Error>> + '_ {
         stream! {
             let sync = self.sliding_sync.sync();
-            pin_mut!(sync);
+            let mut sync = pin!(sync);
 
             // This is a state machine implementation. Things happen in this
             // order:
@@ -615,9 +615,9 @@ pub enum SyncIndicator {
 
 #[cfg(test)]
 mod tests {
-    use std::future::ready;
+    use std::{future::ready, pin::pin};
 
-    use futures_util::{StreamExt, pin_mut};
+    use futures_util::StreamExt;
     use matrix_sdk::{SlidingSyncMode, test_utils::mocks::MatrixMockServer};
     use matrix_sdk_test::{TestError, async_test};
     use ruma::{api::client::sync::sync_events::v5, assign, uint};
@@ -654,7 +654,7 @@ mod tests {
         let room_list = RoomListService::new(client).await?;
 
         let sync = room_list.sync();
-        pin_mut!(sync);
+        let mut sync = pin!(sync);
 
         // Run a first sync.
         {

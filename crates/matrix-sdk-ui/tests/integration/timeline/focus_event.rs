@@ -26,7 +26,9 @@ use matrix_sdk::{
         RoomRelationsResponseTemplate,
     },
 };
-use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{
+    ALICE, BOB, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
+};
 use matrix_sdk_ui::timeline::{
     EventSendState, TimelineBuilder, TimelineEventFocusThreadMode, TimelineFocus,
 };
@@ -244,7 +246,7 @@ async fn test_live_aggregations_are_reflected_on_focused_timelines() {
     assert_eq!(event_item.content().as_message().unwrap().body(), "yolo");
     let reactions = event_item.reactions().clone();
     assert_eq!(reactions.len(), 1);
-    let _ = reactions["👍"][*BOB];
+    let _ = reactions["👍"][&User::Bob];
 }
 
 #[async_test]

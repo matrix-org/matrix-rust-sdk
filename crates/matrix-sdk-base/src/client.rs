@@ -52,12 +52,11 @@ use ruma::{
     },
     profile::UserProfileUpdate,
     push::Ruleset,
-    time::Instant,
 };
 use tokio::sync::{Mutex, MutexGuard, broadcast};
 #[cfg(feature = "e2e-encryption")]
 use tokio::sync::{RwLock, RwLockReadGuard};
-use tracing::{Level, debug, enabled, info, instrument, warn};
+use tracing::{Level, debug, info, instrument, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
@@ -671,7 +670,7 @@ impl BaseClient {
             return Ok(SyncResponse::default());
         }
 
-        let now = if enabled!(Level::INFO) { Some(Instant::now()) } else { None };
+        let _time = timer!(Level::INFO, "Processing a sync response");
 
         // Acquire the state store lock and hold on to it while processing the
         // sync response below.
@@ -880,10 +879,6 @@ impl BaseClient {
 
         // Release the state store lock
         drop(state_store_guard);
-
-        if enabled!(Level::INFO) {
-            info!("Processed a sync response in {:?}", now.map(|now| now.elapsed()));
-        }
 
         let response = SyncResponse {
             rooms: room_updates,
@@ -1392,7 +1387,7 @@ mod tests {
     use futures_util::FutureExt as _;
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{
-        BOB, InvitedRoomBuilder, LeftRoomBuilder, SyncResponseBuilder, async_test,
+        InvitedRoomBuilder, LeftRoomBuilder, SyncResponseBuilder, User, async_test,
         event_factory::EventFactory, ruma_response_from_json,
     };
     #[cfg(feature = "unstable-msc4426")]
@@ -2058,16 +2053,16 @@ mod tests {
         let f = EventFactory::new();
         let mut sync_builder = SyncResponseBuilder::new();
         let response = sync_builder
-            .add_global_account_data(f.ignored_user_list([(*BOB).into()]))
+            .add_global_account_data(f.ignored_user_list([User::Bob.into()]))
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
 
         assert_let!(Some(ignored) = subscriber.next().await);
-        assert_eq!(ignored, [BOB.to_string()]);
+        assert_eq!(ignored, [User::Bob]);
 
         // Receive the same response.
         let response = sync_builder
-            .add_global_account_data(f.ignored_user_list([(*BOB).into()]))
+            .add_global_account_data(f.ignored_user_list([User::Bob.into()]))
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
 

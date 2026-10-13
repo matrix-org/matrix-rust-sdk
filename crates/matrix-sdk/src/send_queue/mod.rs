@@ -171,6 +171,7 @@ use ruma::events::sticky::StickyDurationMs;
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
     TransactionId,
+    api::error::ErrorKind,
     events::{
         AnyMessageLikeEventContent, Mentions, MessageLikeEventContent as _, TimelineEventType,
         reaction::ReactionEventContent,
@@ -1096,6 +1097,41 @@ impl RoomSendQueue {
 
                 Ok((None, _)) => {
                     debug!("Request has been aborted while running, continuing.");
+                }
+
+                // The server already has this exact reaction from us (sent from
+                // another device, or by an earlier attempt it no longer
+                // remembers), so there's nothing left to do. Wedging would
+                // block the room for good: every retry gets the same answer.
+                Err(err)
+                    if err.client_api_error_kind() == Some(&ErrorKind::DuplicateAnnotation) =>
+                {
+                    debug!(txn_id = %txn_id, "the server already has this reaction, dropping it");
+
+                    queue.mark_as_not_being_sent(&txn_id).await;
+
+                    match queue.cancel_event(&txn_id, None).await {
+                        Ok(true) => send_update(
+                            &global_update_sender,
+                            &update_sender,
+                            room_id,
+                            RoomSendQueueUpdate::CancelledLocalEvent { transaction_id: txn_id },
+                        ),
+
+                        // Removed meanwhile (aborted before we got here);
+                        // nothing to report.
+                        Ok(false) => {}
+
+                        Err(storage_error) => {
+                            // Still queued, so it would be sent again right
+                            // away, over and over: stop the queue instead.
+                            error!(
+                                txn_id = %txn_id,
+                                "couldn't drop the duplicate reaction, disabling the queue: {storage_error}"
+                            );
+                            locally_enabled.store(false, Ordering::SeqCst);
+                        }
+                    }
                 }
 
                 Err(err) => {

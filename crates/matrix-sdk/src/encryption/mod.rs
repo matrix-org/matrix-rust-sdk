@@ -70,7 +70,7 @@ use ruma::{
             to_device::send_event_to_device::v3::{
                 Request as RumaToDeviceRequest, Response as ToDeviceResponse,
             },
-            uiaa::{AuthData, AuthType, OAuthParams, UiaaInfo},
+            uiaa::{AuthData, AuthType, OAuth as OAuthData, OAuthParams, UiaaInfo},
         },
         error::{ErrorBody, StandardErrorBody},
     },
@@ -367,7 +367,7 @@ impl CrossSigningResetHandle {
     /// Continue the cross-signing reset by either waiting for the
     /// authentication to be done on the side of the OAuth 2.0 server or by
     /// providing additional [`AuthData`] the homeserver requires.
-    pub async fn auth(&self, auth: Option<AuthData>) -> Result<()> {
+    pub async fn auth(&self, auth: AuthData) -> Result<()> {
         // Poll to see whether the reset has been authorized twice per second.
         const RETRY_EVERY: Duration = Duration::from_millis(500);
 
@@ -377,7 +377,7 @@ impl CrossSigningResetHandle {
         timeout(
             async {
                 let mut upload_request = self.upload_request.clone();
-                upload_request.auth = auth;
+                upload_request.auth = Some(auth);
 
                 debug!(
                     "Repeatedly PUTting to keys/device_signing/upload until it works \
@@ -432,7 +432,7 @@ impl CrossSigningResetHandle {
 #[derive(Debug, Clone)]
 pub enum CrossSigningResetAuthType {
     /// The homeserver requires user-interactive authentication.
-    Uiaa(UiaaInfo),
+    Uiaa(UiaaCrossSigningResetInfo),
     /// OAuth 2.0 is used for authentication and the user needs to open a URL to
     /// approve the upload of cross-signing keys.
     OAuth(OAuthCrossSigningResetInfo),
@@ -444,11 +444,33 @@ impl CrossSigningResetAuthType {
             if let Ok(Some(auth_info)) = OAuthCrossSigningResetInfo::from_auth_info(auth_info) {
                 Ok(Some(CrossSigningResetAuthType::OAuth(auth_info)))
             } else {
-                Ok(Some(CrossSigningResetAuthType::Uiaa(auth_info.clone())))
+                Ok(Some(CrossSigningResetAuthType::Uiaa(
+                    UiaaCrossSigningResetInfo::from_auth_info(auth_info)?,
+                )))
             }
         } else {
             Ok(None)
         }
+    }
+}
+
+/// User-interactive authentication specific information about the required
+/// authentication for the upload of cross-signing keys.
+#[derive(Debug, Clone)]
+pub struct UiaaCrossSigningResetInfo {
+    /// Session key to use to complete the authentication.
+    pub session: String,
+}
+
+impl UiaaCrossSigningResetInfo {
+    fn from_auth_info(auth_info: &UiaaInfo) -> Result<Self> {
+        Ok(UiaaCrossSigningResetInfo {
+            session: auth_info
+                .session
+                .as_ref()
+                .ok_or_else(|| serde_json::Error::custom("UIAA info is missing a session token"))?
+                .to_owned(),
+        })
     }
 }
 
@@ -460,7 +482,7 @@ pub struct OAuthCrossSigningResetInfo {
     pub approval_url: Url,
 
     /// Session key to use to complete the authentication.
-    pub session: Option<String>,
+    pub session: String,
 }
 
 impl OAuthCrossSigningResetInfo {
@@ -471,8 +493,17 @@ impl OAuthCrossSigningResetInfo {
 
         Ok(Some(OAuthCrossSigningResetInfo {
             approval_url: parameters.url.as_str().try_into()?,
-            session: auth_info.session.clone(),
+            session: auth_info
+                .session
+                .as_ref()
+                .ok_or_else(|| serde_json::Error::custom("UIAA info is missing a session token"))?
+                .to_owned(),
         }))
+    }
+
+    /// Create UIAA [`AuthData`] to continue this reset session.
+    pub fn as_auth_data(&self) -> AuthData {
+        AuthData::OAuth(assign!(OAuthData::new(), { session: Some(self.session.clone()) }))
     }
 }
 
@@ -1418,14 +1449,15 @@ impl Encryption {
     /// ```no_run
     /// # use matrix_sdk::Client;
     /// # use ruma::{device_id, user_id};
-    /// # use futures_util::{pin_mut, StreamExt};
+    /// # use std::pin::pin;
+    /// # use futures_util::StreamExt;
     /// # let client: Client = unimplemented!();
     /// # async {
     /// let devices_stream = client.encryption().devices_stream().await?;
     /// let user_id = client
     ///     .user_id()
     ///     .expect("We should know our user id after we have logged in");
-    /// pin_mut!(devices_stream);
+    /// let mut devices_stream = pin!(devices_stream);
     ///
     /// for device_updates in devices_stream.next().await {
     ///     if let Some(user_devices) = device_updates.new.get(user_id) {
@@ -1460,12 +1492,13 @@ impl Encryption {
     /// ```no_run
     /// # use matrix_sdk::Client;
     /// # use ruma::{device_id, user_id};
-    /// # use futures_util::{pin_mut, StreamExt};
+    /// # use std::pin::pin;
+    /// # use futures_util::StreamExt;
     /// # let client: Client = unimplemented!();
     /// # async {
     /// let identities_stream =
     ///     client.encryption().user_identities_stream().await?;
-    /// pin_mut!(identities_stream);
+    /// let mut identities_stream = pin!(identities_stream);
     ///
     /// for identity_updates in identities_stream.next().await {
     ///     for (_, identity) in identity_updates.new {
@@ -1576,21 +1609,18 @@ impl Encryption {
     ///
     ///             let password = "1234".to_owned();
     ///             let mut password = uiaa::Password::new(user_id, password);
-    ///             password.session = uiaa.session;
+    ///             password.session = Some(uiaa.session.clone());
     ///
-    ///             handle.auth(Some(uiaa::AuthData::Password(password))).await?;
+    ///             handle.auth(uiaa::AuthData::Password(password)).await?;
     ///         }
-    ///         CrossSigningResetAuthType::OAuth(o) => {
+    ///         CrossSigningResetAuthType::OAuth(oauth) => {
     ///             println!(
     ///                 "To reset your end-to-end encryption cross-signing identity, \
     ///                 you first need to approve it at {}",
-    ///                 o.approval_url
+    ///                 oauth.approval_url
     ///             );
     ///
-    ///             let mut oauth = uiaa::OAuth::new();
-    ///             oauth.session = o.session;
-    ///
-    ///             handle.auth(Some(uiaa::AuthData::OAuth(oauth))).await?;
+    ///             handle.auth(oauth.as_auth_data()).await?;
     ///         }
     ///     }
     /// }

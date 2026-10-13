@@ -4,7 +4,7 @@ use futures_util::StreamExt as _;
 use matrix_sdk::{
     assert_let_timeout, room::edit::EditedContent, test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{ALICE, JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{
     Error, EventSendState, RoomExt as _, SendTarget, TimelineEventItemId,
 };
@@ -268,8 +268,9 @@ async fn test_abort_failed_redaction_restores_item() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(event_id!("$1"))),
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("hello").sender(User::Alice).event_id(event_id!("$1")),
+            ),
         )
         .await;
 
@@ -326,8 +327,9 @@ async fn test_retry_failed_redaction() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(event_id!("$1"))),
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("hello").sender(User::Alice).event_id(event_id!("$1")),
+            ),
         )
         .await;
 
@@ -400,8 +402,9 @@ async fn test_abort_and_retry_failed_reaction() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(event_id!("$1"))),
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("hello").sender(User::Alice).event_id(event_id!("$1")),
+            ),
         )
         .await;
 
@@ -554,8 +557,9 @@ async fn test_no_op_when_there_is_nothing_pending() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(event_id!("$1"))),
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("hello").sender(User::Alice).event_id(event_id!("$1")),
+            ),
         )
         .await;
 
@@ -819,7 +823,7 @@ async fn test_abort_reverts_a_poll_edit_but_keeps_its_votes() {
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
                 f.poll_response(vec!["0"], event_id!("$1"))
-                    .sender(&ALICE)
+                    .sender(User::Alice)
                     .event_id(event_id!("$vote")),
             ),
         )

@@ -29,7 +29,7 @@ use matrix_sdk::{
     event_cache::PaginationStatus,
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
-use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{ALICE, JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{AnyOtherStateEventContentChange, RoomExt, TimelineItemContent};
 use ruma::{
     EventId,
@@ -465,7 +465,7 @@ async fn test_wait_for_token() {
         .ok(|b| {
             b.add_joined_room(
                 JoinedRoomBuilder::new(room_id)
-                    .add_timeline_event(f.text_msg("live event!").sender(&ALICE))
+                    .add_timeline_event(f.text_msg("live event!").sender(User::Alice))
                     .set_timeline_prev_batch(from.to_owned())
                     .set_timeline_limited(),
             );
@@ -548,7 +548,8 @@ async fn test_timeline_reset_while_paginating() {
     let room = server.sync_joined_room(&client, room_id).await;
     let timeline = Arc::new(room.timeline().await.unwrap());
 
-    let alice_event = f.text_msg("live event!").sender(&ALICE).room(room_id).into_raw_timeline();
+    let alice_event =
+        f.text_msg("live event!").sender(User::Alice).room(room_id).into_raw_timeline();
     server
         .mock_sync()
         .ok(|b| {
@@ -571,7 +572,7 @@ async fn test_timeline_reset_while_paginating() {
         .ok(|b| {
             b.add_joined_room(
                 JoinedRoomBuilder::new(room_id)
-                    .add_timeline_event(f.text_msg("new live event.").sender(&BOB))
+                    .add_timeline_event(f.text_msg("new live event.").sender(User::Bob))
                     .set_timeline_prev_batch("pagination_2".to_owned())
                     .set_timeline_limited(),
             );
@@ -1033,7 +1034,7 @@ async fn test_back_pagination_aborted() {
 #[async_test]
 async fn test_lazy_back_pagination() {
     let room_id = room_id!("!foo:bar.baz");
-    let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
+    let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
 
     let mock_server = MatrixMockServer::new().await;
     let client = mock_server.client_builder().build().await;
@@ -1274,7 +1275,7 @@ async fn test_lazy_back_pagination() {
 #[async_test]
 async fn test_from_an_empty_timeline_paginate_zero_event_and_then_sync_some_events() {
     let room_id = room_id!("!foo:bar.baz");
-    let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
+    let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
 
     let mock_server = MatrixMockServer::new().await;
     let client = mock_server.client_builder().build().await;
