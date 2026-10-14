@@ -76,6 +76,8 @@ pub use client::{
     Client, ClientBuildError, ClientBuilder, LoopCtrl, ServerVendorInfo, SessionChange, StoreSizes,
     TileServerInfo, ToDeviceMessage, WeakClient, sanitize_server_name,
 };
+#[cfg(feature = "unstable-msc4560")]
+pub use client::{RoomStrippedState, RoomStrippedStateVia};
 pub use error::{
     BeaconError, Error, HttpError, HttpResult, NotificationSettingsError, RefreshTokenError,
     Result, RumaApiError,
