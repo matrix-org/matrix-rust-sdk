@@ -29,7 +29,7 @@ use serde::Serialize;
 ///
 /// It can also be converted to a borrowed string with `.as_str()` to use it
 /// with methods like `HashMap::get()` or `HashSet::contains()`.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum User {
     /// `@alice:server.name`
     Alice,
