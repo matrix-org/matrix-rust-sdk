@@ -11,9 +11,7 @@ use ruma::{
     mxc_uri,
     profile::{ProfileFieldName, ProfileFieldValue},
 };
-use serde_json::json;
 use strass::assert_let;
-use wiremock::ResponseTemplate;
 
 #[async_test]
 async fn test_account_deactivation() {
