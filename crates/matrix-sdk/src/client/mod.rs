@@ -769,7 +769,10 @@ impl Client {
     }
 
     /// The server name used by the client.
-    /// [spec] https://spec.matrix.org/v1.18/appendices/#server-name
+    ///
+    /// Check [the specification for more info][spec].
+    ///
+    /// [spec]: https://spec.matrix.org/v1.18/appendices/#server-name
     pub fn server_name(&self) -> Option<OwnedServerName> {
         self.server().and_then(|url| {
             ServerName::parse(format!("{}:{}", url.host_str()?, url.port_or_known_default()?)).ok()
