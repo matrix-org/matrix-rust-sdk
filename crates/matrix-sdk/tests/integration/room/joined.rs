@@ -18,7 +18,6 @@ use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
     DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, async_test,
     event_factory::EventFactory,
-    mocks::mock_encryption_state,
     test_json::{self, sync::CUSTOM_ROOM_POWER_LEVELS},
 };
 use ruma::{
@@ -30,7 +29,6 @@ use ruma::{
     assign, event_id,
     events::{
         RoomAccountDataEventType, TimelineEventType,
-        direct::DirectUserIdentifier,
         receipt::ReceiptThread,
         room::{
             member::MembershipState,
@@ -705,29 +703,20 @@ async fn test_room_state_event_send() {
 
 #[async_test]
 async fn test_room_message_send() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let event_id = event_id!("$h29iv0s8:example.com");
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
-        .mount(&server)
-        .await;
+    server.mock_room_send().ok(event_id).mount().await;
+    server.mock_room_state_encryption().plain().mount().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-    mock_encryption_state(&server, false).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let room = server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
 
     let content = RoomMessageEventContent::text_plain("Hello world");
     let txn_id = TransactionId::new();
     let response = room.send(content).with_transaction_id(txn_id).await.unwrap().response;
 
-    assert_eq!("$h29iv0s8:example.com", response.event_id)
+    assert_eq!(response.event_id, event_id);
 }
 
 #[async_test]
@@ -992,24 +981,23 @@ async fn test_reset_power_levels() {
 
 #[async_test]
 async fn test_is_direct_invite_by_3pid() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = *DEFAULT_TEST_ROOM_ID;
+    let third_party_id = "invited@localhost.com";
 
-    let f = EventFactory::new();
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::default());
-    sync_builder.add_global_account_data(
-        f.direct().add_user("invited@localhost.com", *DEFAULT_TEST_ROOM_ID),
-    );
+    server
+        .mock_sync()
+        .ok_and_run(&client, |sync_builder| {
+            sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id)).add_global_account_data(
+                EventFactory::new().direct().add_user(third_party_id, room_id),
+            );
+        })
+        .await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    mock_encryption_state(&server, false).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let room = client.get_room(room_id).unwrap();
     assert!(room.is_direct().await.unwrap());
-    assert!(room.direct_targets().contains(<&DirectUserIdentifier>::from("invited@localhost.com")));
+    assert!(room.direct_targets().contains(third_party_id));
 }
 
 #[async_test]
