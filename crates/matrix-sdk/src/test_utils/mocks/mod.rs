@@ -17,6 +17,8 @@
 
 #![allow(missing_debug_implementations)]
 
+#[cfg(feature = "unstable-msc4560")]
+use std::collections::BTreeSet;
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex, atomic::AtomicU32},
@@ -1107,6 +1109,14 @@ impl MatrixMockServer {
         let mock = Mock::given(method("GET"))
             .and(path_regex(r"^/_matrix/client/unstable/im.nheko.summary/rooms/.*/summary"));
         self.mock_endpoint(mock, RoomSummaryEndpoint)
+    }
+
+    /// Creates a prebuilt mock for the room summary endpoint [MSC3266](https://github.com/matrix-org/matrix-spec-proposals/pull/3266).
+    #[cfg(feature = "unstable-msc4560")]
+    pub fn mock_room_stripped_state(&self) -> MockEndpoint<'_, RoomStrippedStateEndpoint> {
+        let mock = Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/unstable/org.continuwuity.msc4560.stripped_state/.*?"));
+        self.mock_endpoint(mock, RoomStrippedStateEndpoint)
     }
 
     /// Creates a prebuilt mock for the endpoint used to set a room's pinned
@@ -3855,6 +3865,38 @@ impl<'a> MockEndpoint<'a, RoomSummaryEndpoint> {
             room_id,
             vec![("membership".to_owned(), membership.as_str().into())],
         )
+    }
+}
+
+/// A prebuilt mock for the room stripped state endpoint.
+#[cfg(feature = "unstable-msc4560")]
+pub struct RoomStrippedStateEndpoint;
+
+#[cfg(feature = "unstable-msc4560")]
+impl<'a> MockEndpoint<'a, RoomStrippedStateEndpoint> {
+    /// Returns a successful response with the given event types, and the number of joined members if set.
+    pub fn ok(self, event_types: &BTreeSet<StateEventType>, num_joined_members: bool) -> MatrixMock<'a> {
+        let mut body = as_variant!(
+            json!({
+                "state": event_types
+                    .iter()
+                    .map(|event_type| json!({
+                        "type": event_type,
+                        "content": {},
+                        "sender": "@user:localhost",
+                        "state_key": ""
+                    }))
+                    .collect::<Vec<_>>(),
+                "via": "localhost",
+            }),
+            Value::Object
+        ).unwrap();
+
+        if num_joined_members {
+            body.insert("num_joined_members".to_owned(), Value::Number(42.into()));
+        }
+
+        self.respond_with(ResponseTemplate::new(200).set_body_json(body))
     }
 }
 

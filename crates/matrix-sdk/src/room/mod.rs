@@ -71,9 +71,7 @@ use ruma::events::{
     AnySyncTimelineEvent, SyncMessageLikeEvent, room::encrypted::OriginalSyncRoomEncryptedEvent,
 };
 use ruma::{
-    EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
-    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
-    api::{
+    EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId, api::{
         client::{
             config::{set_global_account_data, set_room_account_data},
             context,
@@ -101,21 +99,8 @@ use ruma::{
             },
         },
         error::ErrorKind,
-    },
-    assign,
-    events::{
-        AnyRoomAccountDataEvent, AnyRoomAccountDataEventContent, AnyTimelineEvent, EmptyStateKey,
-        Mentions, MessageLikeEventContent, OriginalSyncStateEvent, RedactContent,
-        RedactedStateEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
-        RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
-        StaticStateEventContent, SyncStateEvent,
-        beacon::BeaconEventContent,
-        beacon_info::BeaconInfoEventContent,
-        direct::DirectEventContent,
-        marked_unread::MarkedUnreadEventContent,
-        receipt::{Receipt, ReceiptThread, ReceiptType},
-        relation::RelationType,
-        room::{
+    }, assign, events::{
+        AnyRoomAccountDataEvent, AnyRoomAccountDataEventContent, AnyTimelineEvent, EmptyStateKey, Mentions, MessageLikeEventContent, OriginalSyncStateEvent, RedactContent, RedactedStateEventContent, RoomAccountDataEvent, RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent, StaticStateEventContent, SyncStateEvent, beacon::BeaconEventContent, beacon_info::BeaconInfoEventContent, direct::DirectEventContent, marked_unread::MarkedUnreadEventContent, receipt::{Receipt, ReceiptThread, ReceiptType}, relation::RelationType, room::{
             ImageInfo, MediaSource, ThumbnailInfo,
             avatar::{self, RoomAvatarEventContent},
             encryption::PossiblyRedactedRoomEncryptionEventContent,
@@ -135,16 +120,8 @@ use ruma::{
             retention::RoomRetentionEventContent,
             server_acl::RoomServerAclEventContent,
             topic::RoomTopicEventContent,
-        },
-        space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
-        tag::{TagInfo, TagName},
-        typing::SyncTypingEvent,
-    },
-    int,
-    push::{Action, AnyPushRuleRef, PushConditionRoomCtx, Ruleset},
-    serde::Raw,
-    time::Instant,
-    uint,
+        }, space::{child::SpaceChildEventContent, parent::SpaceParentEventContent}, tag::{TagInfo, TagName}, typing::SyncTypingEvent,
+    }, int, push::{Action, AnyPushRuleRef, PushConditionRoomCtx, Ruleset}, serde::Raw, time::Instant, uint,
 };
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::{
