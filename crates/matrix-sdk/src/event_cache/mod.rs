@@ -264,7 +264,7 @@ impl EventCacheDropHandles {
             )
             .abort_on_drop();
 
-        if event_cache_inner.enable_automatic_back_pagination {
+        if event_cache_inner.enable_automatic_back_pagination && event_cache_inner.enabled {
             // Deferred initialization of the shared back-pagination queue.
             trace!("spawning the back-pagination queue");
             let max_concurrent = event_cache_config.max_concurrent_back_paginations;
@@ -331,6 +331,7 @@ impl EventCache {
         client: &Arc<ClientInner>,
         event_cache_store: EventCacheStoreLock,
         enable_automatic_back_pagination: bool,
+        enabled: bool,
     ) -> Self {
         let (generic_update_sender, _) = channel(128);
         let (linked_chunk_update_sender, _) = channel(128);
@@ -357,6 +358,7 @@ impl EventCache {
             #[cfg(feature = "e2e-encryption")]
             redecryption_channels,
             enable_automatic_back_pagination,
+            enabled,
             back_pagination_queue: OnceLock::new(),
             thread_subscriber_sender,
         });
@@ -396,6 +398,10 @@ impl EventCache {
     /// It returns an error if the `Client` has been dropped.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) fn initialise_redecryptor(&self) -> Result<()> {
+        if !self.inner.enabled {
+            return Ok(());
+        }
+
         let client = self.inner.client()?;
         let receiver =
             self.inner.redecryption_channels.decryption_request_receiver.lock().take().expect(
@@ -554,6 +560,14 @@ impl EventCache {
     pub fn back_pagination_queue(&self) -> Option<BackPaginationQueue> {
         self.inner.back_pagination_queue.get().cloned()
     }
+
+    /// Whether the [`EventCache`] is enabled, see
+    /// [`ClientBuilder::with_enable_event_cache`].
+    ///
+    /// [`ClientBuilder::with_enable_event_cache`]: crate::ClientBuilder::with_enable_event_cache
+    pub fn is_enabled(&self) -> bool {
+        self.inner.enabled
+    }
 }
 
 /// Global configuration for the [`EventCache`], applied to every single room.
@@ -655,6 +669,15 @@ struct EventCacheInner {
     /// [`ClientBuilder::with_enable_automatic_back_pagination`]: crate::ClientBuilder::with_enable_automatic_back_pagination
     enable_automatic_back_pagination: bool,
 
+    /// Whether the [`EventCache`] is enabled; set once, at construction, via
+    /// [`ClientBuilder::with_enable_event_cache`].
+    ///
+    /// When disabled, sync updates are ignored, and neither the redecryptor
+    /// nor the [`BackPaginationQueue`] are started.
+    ///
+    /// [`ClientBuilder::with_enable_event_cache`]: crate::ClientBuilder::with_enable_event_cache
+    enabled: bool,
+
     /// State for the automatic pagination mechanism.
     ///
     /// Deferred initialization: spawned at subscription time, if
@@ -721,6 +744,10 @@ impl EventCacheInner {
     /// Handles a single set of room updates at once.
     #[instrument(skip(self, updates))]
     async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
+        if !self.enabled {
+            return Ok(());
+        }
+
         // NOTE: We tried to make this concurrent at some point, but it turned
         // out to be a performance regression, even for large sync updates.
         // Lacking time to investigate, this code remains sequential for now.

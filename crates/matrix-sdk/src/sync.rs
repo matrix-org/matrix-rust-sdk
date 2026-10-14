@@ -375,6 +375,11 @@ pub(crate) async fn subscribe_to_room_latest_events<'a, R>(client: &'a Client, r
 where
     R: Iterator<Item = &'a OwnedRoomId>,
 {
+    // The latest events are computed from the event cache.
+    if !client.event_cache().is_enabled() {
+        return;
+    }
+
     let latest_events = client.latest_events().await;
 
     for room_id in room_ids {
