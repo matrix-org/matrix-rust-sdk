@@ -54,7 +54,10 @@ use zeroize::Zeroizing;
 
 use crate::{
     OpenStoreError, RuntimeConfig, Secret, SqliteStoreConfig,
-    connection::{self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections},
+    connection::{
+        self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections,
+        SqliteConnectionsInner,
+    },
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
@@ -72,7 +75,7 @@ pub struct SqliteCryptoStore {
 
     /// `Some` when active, `None` when closed. The outer `Mutex` serialises
     /// close/reopen with connection access.
-    connections: Arc<Mutex<Option<SqliteConnections>>>,
+    connections: Arc<SqliteConnections>,
 
     /// Retained so we can rebuild the pool on reopen.
     db_path: PathBuf,
@@ -127,10 +130,13 @@ impl SqliteCryptoStore {
 
         Ok(Self {
             store_cipher,
-            connections: Arc::new(Mutex::new(Some(SqliteConnections {
-                pool,
-                write_connection: Arc::new(Mutex::new(conn)),
-            }))),
+            connections: Arc::new(
+                SqliteConnections::new(SqliteConnectionsInner {
+                    pool,
+                    write_connection: Arc::new(Mutex::new(conn)),
+                })
+                .await,
+            ),
             db_path,
             pool_config,
             runtime_config,
