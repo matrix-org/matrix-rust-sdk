@@ -3916,7 +3916,7 @@ async fn test_cancel_upload_with_thumbnail_active() {
     // will be interrupted when aborting, so this will never have to complete.
     mock.mock_upload()
         .with_delay(Duration::from_secs(60))
-        .respond_with_template(ResponseTemplate::new(200))
+        .respond_with(ResponseTemplate::new(200))
         .expect(1)
         .mount()
         .await;
@@ -3987,7 +3987,7 @@ async fn test_cancel_upload_with_uploaded_thumbnail_and_file_active() {
     // be interrupted when aborting, so this will never have to complete.
     mock.mock_upload()
         .with_delay(Duration::from_secs(60))
-        .respond_with_template(ResponseTemplate::new(200))
+        .respond_with(ResponseTemplate::new(200))
         .expect(1)
         .named("file upload")
         .mount()
@@ -4054,7 +4054,7 @@ async fn test_cancel_upload_only_file_with_file_active() {
     // be interrupted when aborting, so this will never have to complete.
     mock.mock_upload()
         .with_delay(Duration::from_secs(60))
-        .respond_with_template(ResponseTemplate::new(200))
+        .respond_with(ResponseTemplate::new(200))
         .expect(1)
         .named("file upload")
         .mount()
