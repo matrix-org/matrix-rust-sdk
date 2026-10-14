@@ -30,7 +30,7 @@ async fn test_account_deactivation() {
         .mount()
         .await;
 
-    client.account().deactivate(Some("FirstIdentityServer"), None, false).await.unwrap();
+    client.account().deactivate(Some(id_server), None, false).await.unwrap();
 
     // Check with the erase parameter.
     server
