@@ -272,9 +272,8 @@ impl ClientBuilder {
     /// Tell the client that the system is memory constrained, like in a push
     /// notification process for example.
     ///
-    /// So far, at the time of writing (2025-04-07), it changes the defaults of
-    /// `matrix_sdk::SqliteStoreConfig` (if the `sqlite` feature is enabled).
-    /// Please check `matrix_sdk::SqliteStoreConfig::with_low_memory_config`.
+    /// It disables the event cache and the latest events, see
+    /// `matrix_sdk::ClientBuilder::with_enable_event_cache`.
     pub fn system_is_memory_constrained(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.system_is_memory_constrained = true;
@@ -615,6 +614,7 @@ impl ClientBuilder {
             .with_decryption_settings(builder.decryption_settings)
             .with_enable_share_history_on_invite(builder.enable_share_history_on_invite)
             .with_enable_automatic_back_pagination(builder.enable_automatic_back_pagination)
+            .with_enable_event_cache(!builder.system_is_memory_constrained)
             .disable_well_known_lookup(builder.disable_well_known_lookup);
 
         match builder.sliding_sync_version_builder {
