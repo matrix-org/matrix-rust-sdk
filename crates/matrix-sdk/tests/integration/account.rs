@@ -13,62 +13,35 @@ use ruma::{
 };
 use serde_json::json;
 use strass::assert_let;
-use wiremock::{
-    Mock, Request, ResponseTemplate,
-    matchers::{method, path},
-};
-
-use crate::logged_in_client_with_server;
+use wiremock::ResponseTemplate;
 
 #[async_test]
 async fn test_account_deactivation() {
-    #[derive(serde::Deserialize)]
-    struct Parameters {
-        pub id_server: Option<String>,
-        pub erase: Option<bool>,
-    }
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    let (client, server) = logged_in_client_with_server().await;
+    // Check with an identity server.
+    let id_server = "FirstIdentityServer";
+    server
+        .mock_deactivate_account(Some(id_server), false)
+        .ok_with_success()
+        .mock_once()
+        .named("deactivate account with ID server")
+        .mount()
+        .await;
 
-    {
-        let _scope = Mock::given(method("POST"))
-            .and(path("/_matrix/client/r0/account/deactivate"))
-            .respond_with(|req: &Request| {
-                let params: Parameters = req.body_json().unwrap();
-                assert_eq!(params.id_server, Some("FirstIdentityServer".to_owned()));
-                assert_eq!(params.erase, None);
+    client.account().deactivate(Some(id_server), None, false).await.unwrap();
 
-                ResponseTemplate::new(200).set_body_json(json!({
-                    "id_server_unbind_result": "success"
-                }))
-            })
-            .expect(1)
-            .mount_as_scoped(&server)
-            .await;
+    // Check with the erase parameter.
+    server
+        .mock_deactivate_account(None, true)
+        .ok_with_success()
+        .mock_once()
+        .named("deactivate account with erase")
+        .mount()
+        .await;
 
-        assert!(
-            client.account().deactivate(Some("FirstIdentityServer"), None, false).await.is_ok()
-        );
-    }
-
-    {
-        let _scope = Mock::given(method("POST"))
-            .and(path("/_matrix/client/r0/account/deactivate"))
-            .respond_with(|req: &Request| {
-                let params: Parameters = req.body_json().unwrap();
-                assert_eq!(params.id_server, None);
-                assert_eq!(params.erase, Some(true));
-
-                ResponseTemplate::new(200).set_body_json(json!({
-                    "id_server_unbind_result": "success"
-                }))
-            })
-            .expect(1)
-            .mount_as_scoped(&server)
-            .await;
-
-        assert!(client.account().deactivate(None, None, true).await.is_ok());
-    }
+    client.account().deactivate(None, None, true).await.unwrap();
 }
 
 #[async_test]
