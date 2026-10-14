@@ -464,6 +464,7 @@ impl ClientInner {
         well_known_lookup_disabled: bool,
         event_cache: OnceCell<EventCache>,
         enable_automatic_back_pagination: bool,
+        enable_event_cache: bool,
         send_queue: Arc<SendQueueData>,
         latest_events: OnceCell<LatestEvents>,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
@@ -534,6 +535,7 @@ impl ClientInner {
                 &client,
                 client.base_client.event_cache_store().clone(),
                 enable_automatic_back_pagination,
+                enable_event_cache,
             )
         });
 
@@ -3820,6 +3822,8 @@ impl Client {
                 self.well_known_lookup_disabled(),
                 self.inner.event_cache.clone(),
                 false,
+                // The event cache is shared with the parent client, so this is ignored.
+                true,
                 self.inner.send_queue_data.clone(),
                 self.inner.latest_events.clone(),
                 #[cfg(feature = "e2e-encryption")]
@@ -4374,6 +4378,48 @@ pub(crate) mod tests {
         assert_eq!(client.sync_presence(), PresenceState::Offline);
         assert_eq!(clone.sync_presence(), PresenceState::Offline);
         assert_eq!(notification_client.sync_presence(), PresenceState::Offline);
+    }
+
+    // Without the `e2e-encryption` feature, the notification client has no
+    // session and can't sync.
+    #[cfg(feature = "e2e-encryption")]
+    #[async_test]
+    async fn test_disabled_event_cache_is_inherited_by_notification_client() {
+        let room_id = room_id!("!r0");
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.with_enable_event_cache(false))
+            .build()
+            .await;
+        let notification_client =
+            client.notification_client(CrossProcessLockConfig::SingleProcess).await.unwrap();
+        assert!(!notification_client.event_cache().is_enabled());
+
+        let generic_updates = client.event_cache().subscribe_to_room_generic_updates();
+
+        let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+        let room = server
+            .sync_room(
+                &notification_client,
+                JoinedRoomBuilder::new(room_id).add_timeline_event(f.text_msg("hello")),
+            )
+            .await;
+
+        // Neither the event cache nor the latest events have been fed.
+        assert!(generic_updates.is_empty());
+        assert!(notification_client.inner.latest_events.get().is_none());
+
+        // Nothing holds onto the notification client nor its parent after a
+        // sync.
+        drop(room);
+        let weak_notification_client = WeakClient::from_client(&notification_client);
+        let weak_client = WeakClient::from_client(&client);
+        drop(notification_client);
+        drop(client);
+        sleep(Duration::from_millis(100)).await;
+        assert_eq!(weak_notification_client.strong_count(), 0);
+        assert_eq!(weak_client.strong_count(), 0);
     }
 
     #[async_test]
