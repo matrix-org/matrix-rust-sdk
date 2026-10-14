@@ -212,6 +212,7 @@ impl From<discover_homeserver::TileServerInfo> for TileServerInfo {
 #[cfg(feature = "unstable-msc4560")]
 #[derive(Debug, Clone)]
 pub struct RoomStrippedState {
+    pub room_id: OwnedRoomId,
     pub state: Vec<AnyStrippedStateEvent>,
     pub num_joined_members: Option<u64>,
     pub via: RoomStrippedStateVia,
@@ -1754,6 +1755,7 @@ impl Client {
             let num_joined_members = num_joined_members.then(|| room.joined_members_count());
 
             return Ok(RoomStrippedState {
+                room_id,
                 state,
                 num_joined_members,
                 via: RoomStrippedStateVia::Client,
@@ -1762,12 +1764,13 @@ impl Client {
 
         let response = self
             .send(assign!(
-                get_stripped_state::unstable::Request::new(room_id.into(), via),
+                get_stripped_state::unstable::Request::new(room_id.clone().into(), via),
                 { state: event_types, num_joined_members }
             ))
             .await?;
 
         Ok(RoomStrippedState {
+            room_id,
             state: response
                 .state
                 .into_iter()
