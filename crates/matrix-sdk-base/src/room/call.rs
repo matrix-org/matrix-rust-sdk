@@ -381,7 +381,7 @@ mod tests {
     #[test]
     fn test_consensus_intent() {
         let test_cases = vec![
-            // (alice_intent, bob_intent, carl_intent, expected_consensus, description)
+            // (alice_intent, bob_intent, carol_intent, expected_consensus, description)
             (None, None, None, CallIntentConsensus::None, "no intents"),
             (
                 Some(CallIntent::Audio),
@@ -470,7 +470,7 @@ mod tests {
     }
 
     #[test]
-    fn is_device_in_active_room_call_matches_own_device_only() {
+    fn test_is_device_in_active_room_call_matches_own_device_only() {
         let (_, room) = make_room_test_helper(RoomState::Joined);
 
         let alice_a = session_member_state_event(

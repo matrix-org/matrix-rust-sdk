@@ -29,7 +29,7 @@ async fn test_rtc_members_update() {
 
     let notification_event = f
         .rtc_notification(NotificationType::Ring)
-        .sender(*ALICE)
+        .sender(User::Alice)
         .call_intent(CallIntent::Audio)
         .event_id(event_id!("$notification_event"));
 
@@ -48,7 +48,7 @@ async fn test_rtc_members_update() {
     let notification_item = assert_next_matches!(stream, VectorDiff::Set { value, .. } => value);
     assert_rtc_notification_active_members(notification_item, &[User::Bob, User::Carol]);
 
-    // Simulate CAROL left
+    // Simulate Carol left
     set_active_call_members(&timeline, &[User::Bob]).await;
 
     let notification_item = assert_next_matches!(stream, VectorDiff::Set { value, .. } => value);
@@ -77,7 +77,7 @@ async fn test_rtc_members_update_last_only() {
     timeline
         .handle_live_event(
             f.rtc_notification(NotificationType::Ring)
-                .sender(*ALICE)
+                .sender(User::Alice)
                 .call_intent(CallIntent::Audio)
                 .event_id(event_id!("$notification_event_old"))
                 .server_ts(MilliSecondsSinceUnixEpoch::from_system_time(some_timestamp).unwrap()),
@@ -105,7 +105,7 @@ async fn test_rtc_members_update_last_only() {
     timeline
         .handle_live_event(
             f.rtc_notification(NotificationType::Ring)
-                .sender(*ALICE)
+                .sender(User::Alice)
                 .call_intent(CallIntent::Audio)
                 .event_id(event_id!("$notification_event_new"))
                 .server_ts(
@@ -178,7 +178,7 @@ async fn test_rtc_members_update_last_only() {
             vec![VectorDiff::PushFront {
                 value: f
                     .rtc_notification(NotificationType::Ring)
-                    .sender(*ALICE)
+                    .sender(User::Alice)
                     .call_intent(CallIntent::Audio)
                     .event_id(event_id!("$notification_event_old"))
                     .server_ts(
