@@ -16,7 +16,7 @@ use assert_matches::assert_matches;
 use chrono::{Datelike, TimeZone, Utc};
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt as _};
-use matrix_sdk_test::{ALICE, User, async_test};
+use matrix_sdk_test::{User, async_test};
 use ruma::{
     events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
     owned_event_id,
@@ -35,7 +35,9 @@ async fn test_date_divider() {
     let f = &timeline.factory;
 
     timeline
-        .handle_live_event(f.text_msg("This is a first message on the first day").sender(*ALICE))
+        .handle_live_event(
+            f.text_msg("This is a first message on the first day").sender(User::Alice),
+        )
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -49,7 +51,9 @@ async fn test_date_divider() {
     assert_eq!(date.day(), 1);
 
     timeline
-        .handle_live_event(f.text_msg("This is a second message on the first day").sender(*ALICE))
+        .handle_live_event(
+            f.text_msg("This is a second message on the first day").sender(User::Alice),
+        )
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -59,7 +63,9 @@ async fn test_date_divider() {
     f.set_next_ts(24 * 60 * 60 * 1000);
 
     timeline
-        .handle_live_event(f.text_msg("This is a first message on the next day").sender(*ALICE))
+        .handle_live_event(
+            f.text_msg("This is a first message on the next day").sender(User::Alice),
+        )
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);

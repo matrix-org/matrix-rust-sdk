@@ -1,6 +1,6 @@
 //! Matrix identifiers.
 
-use std::{hash::Hash, sync::LazyLock};
+use std::{fmt, hash::Hash, sync::LazyLock};
 
 use indexmap::Equivalent;
 use ruma::{
@@ -161,5 +161,11 @@ impl Serialize for User {
         S: serde::Serializer,
     {
         self.id().serialize(serializer)
+    }
+}
+
+impl fmt::Display for User {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.id().fmt(f)
     }
 }
