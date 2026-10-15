@@ -1877,7 +1877,7 @@ impl ReadReceiptBuilder<'_> {
     pub fn add(
         self,
         event_id: &EventId,
-        user_id: &UserId,
+        user_id: impl Into<OwnedUserId>,
         tyype: ReceiptType,
         thread: ReceiptThread,
     ) -> Self {
@@ -1889,7 +1889,7 @@ impl ReadReceiptBuilder<'_> {
     pub fn add_with_timestamp(
         mut self,
         event_id: &EventId,
-        user_id: &UserId,
+        user_id: impl Into<OwnedUserId>,
         tyype: ReceiptType,
         thread: ReceiptThread,
         ts: Option<MilliSecondsSinceUnixEpoch>,
@@ -1903,7 +1903,7 @@ impl ReadReceiptBuilder<'_> {
         }
         receipt.thread = thread;
 
-        by_type.insert(user_id.to_owned(), receipt);
+        by_type.insert(user_id.into(), receipt);
         self
     }
 
