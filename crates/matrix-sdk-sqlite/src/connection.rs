@@ -241,10 +241,7 @@ impl Drop for SqliteConnections {
 /// [`reopen_connections`] is called.
 ///
 /// Idempotent: if the store is already closed this is a no-op.
-pub(crate) async fn close_connections(
-    connections: &Mutex<Option<SqliteConnectionsInner>>,
-    label: &str,
-) {
+pub(crate) async fn close_connections(connections: &SqliteConnections, label: &str) {
     let mut guard = connections.lock().await;
     let Some(conns) = guard.take() else {
         // Already closed — idempotent.
@@ -301,7 +298,7 @@ pub(crate) async fn close_connections(
 ///
 /// Idempotent: if the store is already active this is a no-op.
 pub(crate) async fn reopen_connections(
-    connections: &Mutex<Option<SqliteConnectionsInner>>,
+    connections: &SqliteConnections,
     db_path: PathBuf,
     pool_config: PoolConfig,
     runtime_config: crate::RuntimeConfig,
