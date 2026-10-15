@@ -606,7 +606,7 @@ impl ClientBuilder {
     ///
     /// [`EventCache`]: crate::event_cache::EventCache
     /// [`LatestEvents`]: crate::latest_events::LatestEvents
-    pub fn with_enable_event_cache(mut self, enable: bool) -> Self {
+    pub fn with_event_cache(mut self, enable: bool) -> Self {
         self.enable_event_cache = enable;
         self
     }
