@@ -103,7 +103,6 @@ use ruma::{
         tag::{TagEventContent, TagInfo, TagName, Tags},
         typing::TypingEventContent,
     },
-    owned_device_id,
     presence::PresenceState,
     push::Ruleset,
     room::RoomType,
@@ -1497,19 +1496,20 @@ impl EventFactory {
     /// ```
     pub fn call_membership_state(
         &self,
-        user_id: OwnedUserId,
+        user_id: impl Into<OwnedUserId>,
         device_id: String,
     ) -> EventBuilder<CallMemberEventContent> {
+        let user_id = user_id.into();
         let event = self.event(CallMemberEventContent::new(
             Application::Call(CallApplicationContent::new("".to_owned(), CallScope::Room)),
-            owned_device_id!(device_id.clone()),
+            device_id.clone().into(),
             ActiveFocus::Livekit(ActiveLivekitFocus::new()),
             vec![],
             Some(MilliSecondsSinceUnixEpoch::now()),
             Some(Duration::from_secs(3600)),
         ));
         event
-            .sender(&user_id)
+            .sender(user_id.clone())
             .state_key(CallMemberStateKey::new(user_id, device_id.into(), true).as_ref())
     }
 
