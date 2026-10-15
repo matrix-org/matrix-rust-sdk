@@ -24,6 +24,8 @@ use super::Error;
 
 pub const ALL_ROOMS_LIST_NAME: &str = "all_rooms";
 
+pub const ENCRYPTED_ROOMS_LIST_NAME: &str = "encrypted_rooms";
+
 /// The state of the [`super::RoomList`].
 #[derive(Clone, Debug, PartialEq)]
 pub enum State {

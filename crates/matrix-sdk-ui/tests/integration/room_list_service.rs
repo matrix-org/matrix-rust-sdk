@@ -12,7 +12,8 @@ use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::{
     RoomListService,
     room_list_service::{
-        ALL_ROOMS_LIST_NAME as ALL_ROOMS, Error, RoomListLoadingState, State, SyncIndicator,
+        ALL_ROOMS_LIST_NAME as ALL_ROOMS, ENCRYPTED_ROOMS_LIST_NAME as ENCRYPTED_ROOMS, Error,
+        RoomListLoadingState, State, SyncIndicator,
         filters::{new_filter_fuzzy_match_room_name, new_filter_non_left, new_filter_none},
     },
     timeline::{LatestEventValue, RoomExt as _, TimelineItemKind, VirtualTimelineItem},
@@ -395,6 +396,19 @@ async fn test_sync_all_states() -> Result<(), Error> {
                     ],
                     "filters": {},
                     "timeline_limit": 1,
+                },
+                ENCRYPTED_ROOMS: {
+                    "ranges": [[0, 0]],
+                    "required_state": [
+                        ["m.room.encryption", ""],
+                        ["m.room.tombstone", ""],
+                    ],
+                    "filters": {
+                        "is_encrypted": true,
+                        "is_invite": false,
+                        "not_room_types": ["m.space"],
+                    },
+                    "timeline_limit": 0,
                 },
             },
             "extensions": expected_extensions(),
@@ -1197,8 +1211,13 @@ async fn test_sync_resumes_from_terminated() -> Result<(), Error> {
 /// request of the `RoomListService` is answered with the given `rooms`.
 ///
 /// It also checks that the method waits for this first response.
-async fn has_encrypted_rooms_after_first_sync(rooms: Value) -> Result<bool, Error> {
+async fn has_encrypted_rooms_after_first_sync(
+    rooms: Value,
+    number_of_encrypted_rooms: u32,
+) -> Result<bool, Error> {
     let (_client, server, room_list) = new_room_list_service().await?;
+
+    let number_of_rooms = rooms.as_object().map_or(0, |rooms| rooms.len());
 
     let sync = room_list.sync();
     let mut sync = pin!(sync);
@@ -1217,13 +1236,19 @@ async fn has_encrypted_rooms_after_first_sync(rooms: Value) -> Result<bool, Erro
                 ALL_ROOMS: {
                     "ranges": [[0, 19]],
                 },
+                ENCRYPTED_ROOMS: {
+                    "ranges": [[0, 0]],
+                },
             },
         },
         respond with = {
             "pos": "0",
             "lists": {
                 ALL_ROOMS: {
-                    "count": 1,
+                    "count": number_of_rooms,
+                },
+                ENCRYPTED_ROOMS: {
+                    "count": number_of_encrypted_rooms,
                 },
             },
             "rooms": rooms,
@@ -1249,25 +1274,28 @@ fn required_state_event(event_type: &str, content: Value) -> Value {
 
 #[async_test]
 async fn test_has_encrypted_rooms_with_an_encrypted_room() -> Result<(), Error> {
-    let has_encrypted_rooms = has_encrypted_rooms_after_first_sync(json!({
-        "!r0:bar.org": {
-            "initial": true,
-            "bump_stamp": 1,
-            "required_state": [
-                required_state_event("m.room.name", json!({ "name": "Not encrypted" })),
-            ],
-        },
-        "!r1:bar.org": {
-            "initial": true,
-            "bump_stamp": 2,
-            "required_state": [
-                required_state_event(
-                    "m.room.encryption",
-                    json!({ "algorithm": "m.megolm.v1.aes-sha2" }),
-                ),
-            ],
-        },
-    }))
+    let has_encrypted_rooms = has_encrypted_rooms_after_first_sync(
+        json!({
+            "!r0:bar.org": {
+                "initial": true,
+                "bump_stamp": 1,
+                "required_state": [
+                    required_state_event("m.room.name", json!({ "name": "Not encrypted" })),
+                ],
+            },
+            "!r1:bar.org": {
+                "initial": true,
+                "bump_stamp": 2,
+                "required_state": [
+                    required_state_event(
+                        "m.room.encryption",
+                        json!({ "algorithm": "m.megolm.v1.aes-sha2" }),
+                    ),
+                ],
+            },
+        }),
+        1,
+    )
     .await?;
 
     assert!(has_encrypted_rooms);
@@ -1277,22 +1305,25 @@ async fn test_has_encrypted_rooms_with_an_encrypted_room() -> Result<(), Error> 
 
 #[async_test]
 async fn test_has_encrypted_rooms_without_any_room() -> Result<(), Error> {
-    assert!(!has_encrypted_rooms_after_first_sync(json!({})).await?);
+    assert!(!has_encrypted_rooms_after_first_sync(json!({}), 0).await?);
 
     Ok(())
 }
 
 #[async_test]
 async fn test_has_encrypted_rooms_without_encrypted_rooms() -> Result<(), Error> {
-    let has_encrypted_rooms = has_encrypted_rooms_after_first_sync(json!({
-        "!r0:bar.org": {
-            "initial": true,
-            "bump_stamp": 1,
-            "required_state": [
-                required_state_event("m.room.name", json!({ "name": "Not encrypted" })),
-            ],
-        },
-    }))
+    let has_encrypted_rooms = has_encrypted_rooms_after_first_sync(
+        json!({
+            "!r0:bar.org": {
+                "initial": true,
+                "bump_stamp": 1,
+                "required_state": [
+                    required_state_event("m.room.name", json!({ "name": "Not encrypted" })),
+                ],
+            },
+        }),
+        0,
+    )
     .await?;
 
     assert!(!has_encrypted_rooms);
@@ -1304,8 +1335,8 @@ async fn test_has_encrypted_rooms_without_encrypted_rooms() -> Result<(), Error>
 async fn test_has_encrypted_rooms_counts_unknown_encryption_as_encrypted() -> Result<(), Error> {
     let (client, server, room_list) = new_room_list_service().await?;
 
-    // This room comes from a regular sync, which doesn't tell whether the room is
-    // encrypted or not, so its encryption state is unknown.
+    // This room comes from a regular sync, which doesn't tell whether the room
+    // is encrypted or not, so its encryption state is unknown.
     let room_id = room_id!("!unknown:bar.org");
     server.sync_joined_room(&client, room_id).await;
     assert!(client.get_room(room_id).unwrap().encryption_state().is_unknown());
@@ -1329,6 +1360,9 @@ async fn test_has_encrypted_rooms_counts_unknown_encryption_as_encrypted() -> Re
                 ALL_ROOMS: {
                     "count": 1,
                 },
+                ENCRYPTED_ROOMS: {
+                    "count": 0,
+                },
             },
             "rooms": {},
         },
@@ -1337,6 +1371,8 @@ async fn test_has_encrypted_rooms_counts_unknown_encryption_as_encrypted() -> Re
     // Wait on Tokio to run all the tasks. Necessary only when testing.
     yield_now().await;
 
+    // Since we are calling `has_encrypted_rooms` after the first sync, we
+    // should get a response immediately from the cache.
     assert!(room_list.has_encrypted_rooms().await?);
 
     Ok(())
@@ -1344,19 +1380,24 @@ async fn test_has_encrypted_rooms_counts_unknown_encryption_as_encrypted() -> Re
 
 #[async_test]
 async fn test_has_encrypted_rooms_ignores_spaces() -> Result<(), Error> {
-    let has_encrypted_rooms = has_encrypted_rooms_after_first_sync(json!({
-        "!space:bar.org": {
-            "initial": true,
-            "bump_stamp": 1,
-            "required_state": [
-                required_state_event("m.room.create", json!({ "type": "m.space" })),
-                required_state_event(
-                    "m.room.encryption",
-                    json!({ "algorithm": "m.megolm.v1.aes-sha2" }),
-                ),
-            ],
-        },
-    }))
+    // The encrypted space is excluded by the server-side filter, so the
+    // `encrypted_rooms` count is 0.
+    let has_encrypted_rooms = has_encrypted_rooms_after_first_sync(
+        json!({
+            "!space:bar.org": {
+                "initial": true,
+                "bump_stamp": 1,
+                "required_state": [
+                    required_state_event("m.room.create", json!({ "type": "m.space" })),
+                    required_state_event(
+                        "m.room.encryption",
+                        json!({ "algorithm": "m.megolm.v1.aes-sha2" }),
+                    ),
+                ],
+            },
+        }),
+        0,
+    )
     .await?;
 
     assert!(!has_encrypted_rooms);
@@ -2565,6 +2606,19 @@ async fn test_room_subscription() -> Result<(), Error> {
                     "filters": {},
                     "timeline_limit": 1,
                 },
+                ENCRYPTED_ROOMS: {
+                    "ranges": [[0, 0]],
+                    "required_state": [
+                        ["m.room.encryption", ""],
+                        ["m.room.tombstone", ""],
+                    ],
+                    "filters": {
+                        "is_encrypted": true,
+                        "is_invite": false,
+                        "not_room_types": ["m.space"],
+                    },
+                    "timeline_limit": 0,
+                },
             },
             "room_subscriptions": {
                 room_id_2: {
@@ -2635,6 +2689,19 @@ async fn test_room_subscription() -> Result<(), Error> {
                     ],
                     "filters": {},
                     "timeline_limit": 1,
+                },
+                ENCRYPTED_ROOMS: {
+                    "ranges": [[0, 0]],
+                    "required_state": [
+                        ["m.room.encryption", ""],
+                        ["m.room.tombstone", ""],
+                    ],
+                    "filters": {
+                        "is_encrypted": true,
+                        "is_invite": false,
+                        "not_room_types": ["m.space"],
+                    },
+                    "timeline_limit": 0,
                 },
             },
             "room_subscriptions": {
@@ -2791,6 +2858,19 @@ async fn test_remove_and_reset_room_subscriptions() -> Result<(), Error> {
                     "filters": {},
                     "timeline_limit": 1,
                 },
+                ENCRYPTED_ROOMS: {
+                    "ranges": [[0, 0]],
+                    "required_state": [
+                        ["m.room.encryption", ""],
+                        ["m.room.tombstone", ""],
+                    ],
+                    "filters": {
+                        "is_encrypted": true,
+                        "is_invite": false,
+                        "not_room_types": ["m.space"],
+                    },
+                    "timeline_limit": 0,
+                },
             },
             "room_subscriptions": {
                 room_id_1: {
@@ -2869,6 +2949,19 @@ async fn test_remove_and_reset_room_subscriptions() -> Result<(), Error> {
                     ],
                     "filters": {},
                     "timeline_limit": 1,
+                },
+                ENCRYPTED_ROOMS: {
+                    "ranges": [[0, 0]],
+                    "required_state": [
+                        ["m.room.encryption", ""],
+                        ["m.room.tombstone", ""],
+                    ],
+                    "filters": {
+                        "is_encrypted": true,
+                        "is_invite": false,
+                        "not_room_types": ["m.space"],
+                    },
+                    "timeline_limit": 0,
                 },
             },
             "room_subscriptions": {
@@ -3495,6 +3588,19 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
                         ],
                         "timeline_limit": 1,
                     },
+                    "encrypted_rooms": {
+                        "ranges": [[0, 0]],
+                        "required_state": [
+                            ["m.room.encryption", ""],
+                            ["m.room.tombstone", ""],
+                        ],
+                        "filters": {
+                            "is_encrypted": true,
+                            "is_invite": false,
+                            "not_room_types": ["m.space"],
+                        },
+                        "timeline_limit": 0,
+                    },
                 },
             },
             respond with = {
@@ -3580,6 +3686,19 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
                         ["org.matrix.msc1763.retention", ""],
                     ],
                     "timeline_limit": 1,
+                },
+                "encrypted_rooms": {
+                    "ranges": [[0, 0]],
+                    "required_state": [
+                        ["m.room.encryption", ""],
+                        ["m.room.tombstone", ""],
+                    ],
+                    "filters": {
+                        "is_encrypted": true,
+                        "is_invite": false,
+                        "not_room_types": ["m.space"],
+                    },
+                    "timeline_limit": 0,
                 },
             },
         },

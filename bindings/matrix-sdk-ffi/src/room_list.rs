@@ -63,6 +63,8 @@ pub enum RoomListError {
          observed {actual:?}"
     )]
     IncorrectRoomMembership { expected: Vec<Membership>, actual: Membership },
+    #[error("sliding sync stopped")]
+    SlidingSyncStopped,
 }
 
 impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
@@ -74,6 +76,7 @@ impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
             UnknownList(list_name) => Self::UnknownList { list_name },
             RoomNotFound(room_id) => Self::RoomNotFound { room_name: room_id.to_string() },
             EventCache(error) => Self::EventCache { error: error.to_string() },
+            SlidingSyncStopped => Self::SlidingSyncStopped,
         }
     }
 }
