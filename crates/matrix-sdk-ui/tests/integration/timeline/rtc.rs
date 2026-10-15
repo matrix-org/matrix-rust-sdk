@@ -1,8 +1,6 @@
 use eyeball_im::VectorDiff;
 use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
-use matrix_sdk_test::{
-    ALICE, BOB, CAROL, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
-};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{RoomExt, TimelineItemContent};
 use ruma::{
     MilliSecondsSinceUnixEpoch, event_id,
@@ -68,8 +66,7 @@ async fn test_decline_call() {
         TimelineItemContent::RtcNotification { call_intent, declined_by, .. } =
             event_item.content()
     );
-    assert_eq!(declined_by.len(), 1);
-    assert_eq!(declined_by[0], *BOB);
+    assert_eq!(declined_by, &[User::Bob]);
     assert_eq!(call_intent.clone().unwrap(), CallIntent::Audio);
 }
 
@@ -134,8 +131,7 @@ async fn test_multiple_decline_call() {
         TimelineItemContent::RtcNotification { call_intent: _, declined_by, .. } =
             event_item.content()
     );
-    assert_eq!(declined_by.len(), 1);
-    assert_eq!(declined_by[0], *BOB);
+    assert_eq!(declined_by, &[User::Bob]);
 
     // Ignore update 3 (implicit read receipt following the declination) Then
     // the second decline is taken into account.
@@ -146,9 +142,7 @@ async fn test_multiple_decline_call() {
         TimelineItemContent::RtcNotification { call_intent: _, declined_by, .. } =
             event_item.content()
     );
-    assert_eq!(declined_by.len(), 2);
-    assert_eq!(declined_by[0], *BOB);
-    assert_eq!(declined_by[1], *CAROL);
+    assert_eq!(declined_by, &[User::Bob, User::Carol]);
 }
 
 #[async_test]
@@ -182,12 +176,12 @@ async fn test_active_call_info() {
                         .event_id(notification_event_id),
                 )
                 .add_state_event(
-                    f.call_membership_state(BOB.to_owned(), "BOB_DEVICE".to_owned())
+                    f.call_membership_state(User::Bob, "BOB_DEVICE".to_owned())
                         .set_livekit_focus(room_id.into(), "https://livekit.localhow".to_owned())
                         .event_id(bob_membership),
                 )
                 .add_state_event(
-                    f.call_membership_state(CAROL.to_owned(), "CAROL_DEVICE".to_owned())
+                    f.call_membership_state(User::Carol, "CAROL_DEVICE".to_owned())
                         .set_livekit_focus(room_id.into(), "https://livekit.localhow".to_owned())
                         .event_id(carol_membership),
                 ),
@@ -212,8 +206,8 @@ async fn test_active_call_info() {
     );
     let active_members = &active_call_info.active_members;
     assert_eq!(active_members.len(), 2);
-    assert!(active_members.contains(&BOB.to_owned()));
-    assert!(active_members.contains(&CAROL.to_owned()));
+    assert!(active_members.contains(&User::Bob));
+    assert!(active_members.contains(&User::Carol));
     assert_eq!(active_call_info.call_started_ts_millis.unwrap(), notification_timestamp);
 
     let room_info = room.clone_info();
@@ -223,7 +217,7 @@ async fn test_active_call_info() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_state_event(
-                f.call_membership_state(ALICE.to_owned(), "ALICE_DEVICE".to_owned())
+                f.call_membership_state(User::Alice, "ALICE_DEVICE".to_owned())
                     .set_livekit_focus(room_id.into(), "https://livekit.localhow".to_owned())
                     .event_id(alice_membership),
             ),
@@ -240,9 +234,9 @@ async fn test_active_call_info() {
     );
     let active_members = &active_call_info.active_members;
     assert_eq!(active_members.len(), 3);
-    assert!(active_members.contains(&BOB.to_owned()));
-    assert!(active_members.contains(&CAROL.to_owned()));
-    assert!(active_members.contains(&ALICE.to_owned()));
+    assert!(active_members.contains(&User::Bob));
+    assert!(active_members.contains(&User::Carol));
+    assert!(active_members.contains(&User::Alice));
 
     // Per spec, if there is now a new call notification event, then the active
     // call info should now be attached to it and remove from the previous one
@@ -283,9 +277,9 @@ async fn test_active_call_info() {
     );
     let active_members = &active_call_info.active_members;
     assert_eq!(active_members.len(), 3);
-    assert!(active_members.contains(&BOB.to_owned()));
-    assert!(active_members.contains(&CAROL.to_owned()));
-    assert!(active_members.contains(&ALICE.to_owned()));
+    assert!(active_members.contains(&User::Bob));
+    assert!(active_members.contains(&User::Carol));
+    assert!(active_members.contains(&User::Alice));
 }
 
 // Leaving the room and coming back to it rebuilds a brand new `Timeline` out of
@@ -317,7 +311,7 @@ async fn test_active_call_info_is_restored_when_the_timeline_is_rebuilt() {
                 &client,
                 JoinedRoomBuilder::new(room_id)
                     .add_state_event(
-                        f.call_membership_state(BOB.to_owned(), "BOB_DEVICE".to_owned())
+                        f.call_membership_state(User::Bob, "BOB_DEVICE".to_owned())
                             .set_livekit_focus(
                                 room_id.into(),
                                 "https://livekit.example.org".to_owned(),
@@ -341,7 +335,7 @@ async fn test_active_call_info_is_restored_when_the_timeline_is_rebuilt() {
             TimelineItemContent::RtcNotification { active_call_info: Some(active_call_info), .. } =
                 notification.content()
         );
-        assert!(active_call_info.active_members.contains(&BOB.to_owned()));
+        assert!(active_call_info.active_members.contains(&User::Bob));
         assert_eq!(active_call_info.call_started_ts_millis.unwrap(), notification_timestamp);
 
         // the timeline is dropped here with closure.
@@ -359,7 +353,7 @@ async fn test_active_call_info_is_restored_when_the_timeline_is_rebuilt() {
         TimelineItemContent::RtcNotification { active_call_info: Some(active_call_info), .. } =
             notification.content()
     );
-    assert!(active_call_info.active_members.contains(&BOB.to_owned()));
+    assert!(active_call_info.active_members.contains(&User::Bob));
     assert_eq!(active_call_info.call_started_ts_millis.unwrap(), notification_timestamp);
 
     // Simulate call ending
@@ -367,7 +361,7 @@ async fn test_active_call_info_is_restored_when_the_timeline_is_rebuilt() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_state_event(
-                f.call_membership_state(BOB.to_owned(), "BOB_DEVICE".to_owned())
+                f.call_membership_state(User::Bob, "BOB_DEVICE".to_owned())
                     .leave()
                     .event_id(event_id!("$bob-left")),
             ),
@@ -422,7 +416,7 @@ async fn test_only_update_notification_after_it_has_been_marked_as_last() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_state_event(
-                f.call_membership_state(BOB.to_owned(), "BOB_DEVICE".to_owned())
+                f.call_membership_state(User::Bob, "BOB_DEVICE".to_owned())
                     .set_livekit_focus(room_id.into(), "https://livekit.localhow".to_owned())
                     .event_id(event_id!("$bob-joined")),
             ),
@@ -468,14 +462,14 @@ async fn test_only_update_notification_after_it_has_been_marked_as_last() {
         TimelineItemContent::RtcNotification { active_call_info: Some(active_call_info), .. } =
             notification.content()
     );
-    assert!(active_call_info.active_members.contains(&BOB.to_owned()));
+    assert!(active_call_info.active_members.contains(&User::Bob));
 
     // Simulate call ending A call is started, so first the membership is added
     server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_state_event(
-                f.call_membership_state(BOB.to_owned(), "BOB_DEVICE".to_owned())
+                f.call_membership_state(User::Bob, "BOB_DEVICE".to_owned())
                     .leave()
                     .event_id(event_id!("$bob-joined")),
             ),
@@ -499,7 +493,7 @@ async fn test_only_update_notification_after_it_has_been_marked_as_last() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_state_event(
-                f.call_membership_state(CAROL.to_owned(), "CAROL_DEVICE".to_owned())
+                f.call_membership_state(User::Carol, "CAROL_DEVICE".to_owned())
                     .set_livekit_focus(room_id.into(), "https://livekit.localhow".to_owned())
                     .event_id(event_id!("$carol-joined")),
             ),
