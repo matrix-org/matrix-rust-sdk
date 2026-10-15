@@ -8,7 +8,7 @@ use matrix_sdk::{
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
 use matrix_sdk_base::sync::UnreadNotificationsCount;
-use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::{
     RoomListService,
     room_list_service::{
@@ -3222,7 +3222,7 @@ async fn test_multiple_timeline_init() {
 
     server.mock_room_state_encryption().plain().mount().await;
 
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
 
     // Send back-pagination responses with a small delay.
     server

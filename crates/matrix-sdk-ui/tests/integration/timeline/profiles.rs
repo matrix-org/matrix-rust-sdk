@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    ALICE, BOB, DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, User, async_test,
+    DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, User, async_test,
     event_factory::{EventFactory, PreviousMembership},
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails};
@@ -88,7 +88,7 @@ async fn test_user_profile_after_being_banned() {
     let alice_event = timeline_items[4].as_event().unwrap();
     let alice_profile = alice_event.sender_profile();
     // Was this event sent by Alice?
-    assert_eq!(alice_event.sender(), *ALICE);
+    assert_eq!(alice_event.sender(), User::Alice);
     match alice_profile {
         TimelineDetails::Ready(profile) => {
             assert_eq!(profile.display_name, None);
@@ -154,7 +154,7 @@ async fn test_user_profile_after_leaving() {
     let alice_event = timeline_items[4].as_event().unwrap();
     let alice_profile = alice_event.sender_profile();
     // Was this event sent by Alice?
-    assert_eq!(alice_event.sender(), *ALICE);
+    assert_eq!(alice_event.sender(), User::Alice);
     match alice_profile {
         TimelineDetails::Ready(profile) => {
             assert_eq!(profile.display_name, Some("Alice".to_owned()));
@@ -167,7 +167,7 @@ async fn test_user_profile_after_leaving() {
     let bob_event = timeline_items[3].as_event().unwrap();
     let bob_profile = bob_event.sender_profile();
     // Was this event sent by Bob?
-    assert_eq!(bob_event.sender(), *BOB);
+    assert_eq!(bob_event.sender(), User::Bob);
     match bob_profile {
         TimelineDetails::Ready(profile) => {
             assert_eq!(profile.display_name, Some("Bob".to_owned()));

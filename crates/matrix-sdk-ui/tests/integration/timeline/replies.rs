@@ -5,9 +5,7 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_base::timeout::timeout;
-use matrix_sdk_test::{
-    ALICE, BOB, CAROL, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
-};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{
     Error as TimelineError, EventSendState, MsgLikeContent, MsgLikeKind, RoomExt, TimelineDetails,
     TimelineEventItemId, TimelineFocus, TimelineItemContent,
@@ -75,9 +73,11 @@ async fn test_in_reply_to_details() {
             &client,
             JoinedRoomBuilder::new(room_id)
                 .add_timeline_event(
-                    f.text_msg("hello").sender(*ALICE).event_id(eid1).server_ts(timestamp),
+                    f.text_msg("hello").sender(User::Alice).event_id(eid1).server_ts(timestamp),
                 )
-                .add_timeline_event(f.text_msg("hello to you too").reply_to(eid1).sender(*BOB)),
+                .add_timeline_event(
+                    f.text_msg("hello to you too").reply_to(eid1).sender(User::Bob),
+                ),
         )
         .await;
 
@@ -117,7 +117,7 @@ async fn test_in_reply_to_details() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
-                f.text_msg("you were right").reply_to(eid2).sender(*BOB).event_id(eid3),
+                f.text_msg("you were right").reply_to(eid2).sender(User::Bob).event_id(eid3),
             ),
         )
         .await;
@@ -195,7 +195,7 @@ async fn test_in_reply_to_details() {
         .match_event_id()
         .ok(f
             .text_msg("Alice is gonna arrive soon")
-            .sender(*CAROL)
+            .sender(User::Carol)
             .room(room_id)
             .event_id(eid2)
             .into())
@@ -277,7 +277,7 @@ async fn test_fetch_details_utd() {
         .match_event_id()
         .ok(f
             .event(RoomEncryptedEventContent::new(encrypted, None))
-            .sender(*ALICE)
+            .sender(User::Alice)
             .event_id(replied_to_event_id)
             .into_utd_sync_timeline_event())
         .mock_once()
@@ -290,7 +290,7 @@ async fn test_fetch_details_utd() {
             JoinedRoomBuilder::new(room_id).add_timeline_event(
                 f.text_msg("UTD, can you rageshake?")
                     .reply_to(replied_to_event_id)
-                    .sender(*BOB)
+                    .sender(User::Bob)
                     .event_id(response_event_id),
             ),
         )
@@ -350,7 +350,7 @@ async fn test_fetch_details_utd() {
         // The replied-to event is available, and is a UTD.
         let in_reply_to = in_reply_to.clone().unwrap();
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
-        assert_eq!(replied_to.sender, *ALICE);
+        assert_eq!(replied_to.sender, User::Alice);
         assert_matches!(
             replied_to.content,
             TimelineItemContent::MsgLike(MsgLikeContent {
@@ -389,7 +389,7 @@ async fn test_fetch_details_poll() {
                 "What is the best color?",
                 vec!["Red", "Blue", "Green"],
             )
-            .sender(*ALICE)
+            .sender(User::Alice)
             .event_id(replied_to_event_id)
             .into())
         .mock_once()
@@ -402,7 +402,7 @@ async fn test_fetch_details_poll() {
             JoinedRoomBuilder::new(room_id).add_timeline_event(
                 f.text_msg("wow, that's a tough one!")
                     .reply_to(replied_to_event_id)
-                    .sender(*BOB)
+                    .sender(User::Bob)
                     .event_id(response_event_id),
             ),
         )
@@ -462,7 +462,7 @@ async fn test_fetch_details_poll() {
         // The replied-to event is available, and is the poll.
         let in_reply_to = in_reply_to.clone().unwrap();
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
-        assert_eq!(replied_to.sender, *ALICE);
+        assert_eq!(replied_to.sender, User::Alice);
         assert_let!(Some(poll_state) = replied_to.content.as_poll());
         assert_eq!(
             poll_state.fallback_text().unwrap(),
@@ -499,7 +499,7 @@ async fn test_fetch_details_sticker() {
                 ImageInfo::new(),
                 media_src.clone(),
             ))
-            .sender(*ALICE)
+            .sender(User::Alice)
             .event_id(replied_to_event_id)
             .into())
         .mock_once()
@@ -513,7 +513,7 @@ async fn test_fetch_details_sticker() {
             JoinedRoomBuilder::new(room_id).add_timeline_event(
                 f.text_msg("gorgious")
                     .reply_to(replied_to_event_id)
-                    .sender(*BOB)
+                    .sender(User::Bob)
                     .event_id(response_event_id),
             ),
         )
@@ -573,7 +573,7 @@ async fn test_fetch_details_sticker() {
         // The replied-to event is available, and is a sticker.
         let in_reply_to = in_reply_to.clone().unwrap();
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
-        assert_eq!(replied_to.sender, *ALICE);
+        assert_eq!(replied_to.sender, User::Alice);
         assert_let!(Some(sticker) = replied_to.content.as_sticker());
         assert_eq!(sticker.content().body, "sticker!");
         assert_matches!(&sticker.content().source, StickerMediaSource::Plain(src) => {
@@ -696,7 +696,7 @@ async fn test_send_reply() {
             });
             assert_matches!(reply_event.mentions, Some(Mentions { user_ids, room: false, .. }) => {
                 assert_eq!(user_ids.len(), 1);
-                assert!(user_ids.contains(*BOB));
+                assert!(user_ids.contains(User::Bob.as_str()));
             });
 
             ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
@@ -941,7 +941,7 @@ async fn test_send_reply_to_threaded() {
     assert_eq!(in_reply_to.event_id, event_id_1);
 
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
-    assert_eq!(replied_to_event.sender, *BOB);
+    assert_eq!(replied_to_event.sender, User::Bob);
 
     // Wait for remote echo.
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
@@ -957,7 +957,7 @@ async fn test_send_reply_to_threaded() {
     assert_eq!(in_reply_to.event_id, event_id_1);
 
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
-    assert_eq!(replied_to_event.sender, *BOB);
+    assert_eq!(replied_to_event.sender, User::Bob);
 }
 
 #[async_test]
@@ -1009,7 +1009,7 @@ async fn test_send_reply_with_event_id() {
             });
             assert_matches!(reply_event.mentions, Some(Mentions { user_ids, room: false, .. }) => {
                 assert_eq!(user_ids.len(), 1);
-                assert!(user_ids.contains(*BOB));
+                assert!(user_ids.contains(User::Bob.as_str()));
             });
 
             ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
@@ -1195,7 +1195,7 @@ async fn test_send_reply_enforce_thread_is_reply() {
             });
             assert_matches!(reply_event.mentions, Some(Mentions { user_ids, room: false, .. }) => {
                 assert_eq!(user_ids.len(), 1);
-                assert!(user_ids.contains(*BOB));
+                assert!(user_ids.contains(User::Bob.as_str()));
             });
 
             ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
@@ -1296,7 +1296,7 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
             });
             assert_matches!(reply_event.mentions, Some(Mentions { user_ids, room: false, .. }) => {
                 assert_eq!(user_ids.len(), 1);
-                assert!(user_ids.contains(*BOB));
+                assert!(user_ids.contains(User::Bob.as_str()));
             });
 
             ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$reply_event" }))
