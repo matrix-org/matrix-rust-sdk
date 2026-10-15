@@ -1994,7 +1994,7 @@ impl TimelineController {
             refresh_info_session_ids: decrypted,
         };
 
-        self.room().client().event_cache().request_decryption(request);
+        self.state.read().await.meta.event_cache.request_decryption(request);
     }
 
     /// Combine the global (event cache) pagination status with the local state

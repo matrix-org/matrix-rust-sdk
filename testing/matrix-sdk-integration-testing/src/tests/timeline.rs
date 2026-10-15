@@ -655,7 +655,7 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
     for _ in 0..10 {
         {
             // Clear any previously received previous-batch token.
-            bob.event_cache().clear_all_rooms().await.unwrap();
+            bob.event_cache().unwrap().clear_all_rooms().await.unwrap();
         }
 
         timeline

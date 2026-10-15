@@ -496,17 +496,25 @@ async fn index_linked_chunk_updates(
             return;
         };
 
-        let maybe_room_cache = client.event_cache().room(&room_id).await;
+        let Some(event_cache) = client.event_cache() else {
+            error!("EventCache must be enabled since this task runs");
+            return;
+        };
+
+        let maybe_room_cache = event_cache.room(&room_id).await;
+
         let Ok((room_cache, _drop_handles)) = maybe_room_cache else {
             warn!(for_room = %room_id, "Failed to get RoomEventCache: {maybe_room_cache:?}");
             continue;
         };
 
         let maybe_room = client.get_room(&room_id);
+
         let Some(room) = maybe_room else {
             warn!(get_room = %room_id, "Failed to get room while indexing: {maybe_room:?}");
             continue;
         };
+
         let redaction_rules = room.clone_info().room_version_rules_or_default().redaction;
 
         if let Err(err) = client

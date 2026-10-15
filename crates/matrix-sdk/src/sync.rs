@@ -165,7 +165,9 @@ impl Client {
         self.encryption().backups().maybe_trigger_backup();
 
         // The Event Cache now receives the room updates.
-        Box::pin(self.event_cache().handle_room_updates(response.rooms.clone())).await?;
+        if let Some(event_cache) = self.event_cache() {
+            Box::pin(event_cache.handle_room_updates(response.rooms.clone())).await?;
+        }
 
         // Finally, let's call the sync response handler.
         self.call_sync_response_handlers(&response).await?;
@@ -366,7 +368,8 @@ impl Client {
     }
 }
 
-/// Call `LatestEvents::listen_to_room` for rooms in `response`.
+/// Call `LatestEvents::listen_to_room` for rooms in `response` if
+/// `LatestEvents` is enabled.
 ///
 /// That way, the latest event is computed and updated for all rooms receiving
 /// an update from the sync.
@@ -375,16 +378,11 @@ pub(crate) async fn subscribe_to_room_latest_events<'a, R>(client: &'a Client, r
 where
     R: Iterator<Item = &'a OwnedRoomId>,
 {
-    // The latest events are computed from the event cache.
-    if !client.event_cache().is_enabled() {
-        return;
-    }
-
-    let latest_events = client.latest_events().await;
-
-    for room_id in room_ids {
-        if let Err(error) = latest_events.listen_to_room(room_id).await {
-            error!(?error, ?room_id, "Failed to listen to the latest event for this room");
+    if let Some(latest_events) = client.latest_events().await {
+        for room_id in room_ids {
+            if let Err(error) = latest_events.listen_to_room(room_id).await {
+                error!(?error, ?room_id, "Failed to listen to the latest event for this room");
+            }
         }
     }
 }

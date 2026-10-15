@@ -724,9 +724,9 @@ mod tests {
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_2, RoomState::Joined);
 
-        let latest_events = client.latest_events().await;
+        let latest_events = client.latest_events().await.unwrap();
 
-        // Despites there are many rooms, zero `RoomLatestEvents` are created.
+        // Despite there are many rooms, zero `RoomLatestEvents` are created.
         assert!(latest_events.state.registered_rooms.rooms.read().await.is_empty());
 
         // Now let's listen to two rooms.
@@ -786,7 +786,7 @@ mod tests {
         client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
 
-        let latest_events = client.latest_events().await;
+        let latest_events = client.latest_events().await.unwrap();
 
         // Now let's fetch one room.
         assert!(latest_events.listen_to_room(room_id_0).await.unwrap());
@@ -824,7 +824,7 @@ mod tests {
         client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
 
-        let latest_events = client.latest_events().await;
+        let latest_events = client.latest_events().await.unwrap();
 
         // Now let's fetch one thread .
         assert!(latest_events.listen_to_thread(room_id_0, thread_id_0_0).await.unwrap());
@@ -867,7 +867,7 @@ mod tests {
         let weak_client = WeakClient::from_client(&client);
         let weak_room = WeakRoom::new(weak_client, room_id.clone());
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         let registered_rooms = RwLock::new(HashMap::new());
         let (room_event_cache_generic_update_sender, mut room_event_cache_generic_update_receiver) =
@@ -937,7 +937,7 @@ mod tests {
         let weak_client = WeakClient::from_client(&client);
         let weak_room = WeakRoom::new(weak_client, room_id.clone());
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         let registered_rooms = RwLock::new(HashMap::new());
 
@@ -1020,7 +1020,7 @@ mod tests {
         let weak_client = WeakClient::from_client(&client);
         let weak_room = WeakRoom::new(weak_client, room_id.clone());
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         let registered_rooms = RwLock::new(HashMap::new());
 
@@ -1097,7 +1097,7 @@ mod tests {
         let weak_client = WeakClient::from_client(&client);
         let weak_room = WeakRoom::new(weak_client, room_id.clone());
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         let registered_rooms = RwLock::new(HashMap::new());
 
@@ -1272,7 +1272,7 @@ mod tests {
         // Create the room.
         client.base_client().get_or_create_room(&room_id, RoomState::Joined);
 
-        let latest_events = client.latest_events().await;
+        let latest_events = client.latest_events().await.unwrap();
 
         // Subscribe to the latest event values for this room.
         let mut latest_event_stream =
@@ -1355,7 +1355,7 @@ mod tests {
         // Create the room.
         client.base_client().get_or_create_room(&room_id, RoomState::Joined);
 
-        let latest_events = client.latest_events().await;
+        let latest_events = client.latest_events().await.unwrap();
 
         let mut latest_event_stream =
             latest_events.listen_and_subscribe_to_room(&room_id).await.unwrap().unwrap();
@@ -1398,7 +1398,7 @@ mod tests {
 
         let weak_client = WeakClient::from_client(&client);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         let (latest_event_queue_sender, mut latest_event_queue_receiver) =
             mpsc::unbounded_channel();
@@ -1447,7 +1447,7 @@ mod tests {
         let own_user_id = client.user_id().unwrap();
         let other_user_id = user_id!("@other:servername");
 
-        let latest_events = client.latest_events().await;
+        let latest_events = client.latest_events().await.unwrap();
 
         // Subscribe to the latest event values for this room.
         let mut latest_event_stream =
@@ -1569,7 +1569,7 @@ mod tests {
 
         // Syncing initializes the `LatestEvents`, and thus spawns its tasks.
         let room = server.sync_joined_room(&client, room_id).await;
-        assert!(client.latest_events().await.is_listening_to_room(room_id).await);
+        assert!(client.latest_events().await.unwrap().is_listening_to_room(room_id).await);
 
         // A `Room` holds onto a `Client`.
         drop(room);

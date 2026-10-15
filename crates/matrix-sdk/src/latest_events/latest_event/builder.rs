@@ -1864,7 +1864,7 @@ mod builder_tests {
         // Create the room.
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
         let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         assert_remote_value_matches_room_message_with_body!(
@@ -1916,7 +1916,7 @@ mod builder_tests {
 
         let room = client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
         let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         // Check initial state.
@@ -1980,7 +1980,7 @@ mod builder_tests {
 
         let room = client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
         let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         // Check initial state.
@@ -2043,7 +2043,7 @@ mod builder_tests {
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
         let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         // Initial state.
@@ -2101,7 +2101,7 @@ mod builder_tests {
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
         let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         // Initial state.
@@ -2164,7 +2164,7 @@ mod builder_tests {
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
         let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         // Initial state.
@@ -2223,7 +2223,7 @@ mod builder_tests {
 
         let room = client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
         let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         // Check initial state.
@@ -2306,7 +2306,7 @@ mod builder_tests {
         // Create the room.
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
         let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         assert_remote_value_matches_room_message_with_body!(
@@ -2375,7 +2375,7 @@ mod builder_tests {
         // Create the room.
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
         let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         assert_remote_value_matches_room_message_with_body!(
@@ -2449,7 +2449,7 @@ mod builder_tests {
         // Create the room.
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
         let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         assert_remote_value_matches_room_message_with_body!(
@@ -2525,7 +2525,7 @@ mod builder_tests {
         // Create the room.
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
         let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         assert_remote_value_matches_room_message_with_body!(
@@ -2587,7 +2587,7 @@ mod builder_tests {
         // Create the room.
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
         let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         assert_remote_value_matches_room_message_with_body!(
@@ -2646,7 +2646,7 @@ mod builder_tests {
         // Create the room.
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
         let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         // We get no latest event value because no candidate event is known.
@@ -2698,7 +2698,7 @@ mod builder_tests {
         client.base_client().get_or_create_room(&room_id, RoomState::Joined);
         let room = client.get_room(&room_id).unwrap();
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
         let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
         let send_queue = client.send_queue();
@@ -3635,7 +3635,7 @@ mod builder_tests {
         // Create the room.
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
         let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         let mut buffer = BufferOfValuesForLocalEvents::new();
@@ -3705,7 +3705,7 @@ mod builder_tests {
         // Create the room.
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
         let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
         let send_queue = client.send_queue();
         let room = client.get_room(room_id).unwrap();
@@ -3800,7 +3800,7 @@ mod builder_tests {
         // Create the room.
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
         let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
         let send_queue = client.send_queue();
         let room = client.get_room(room_id).unwrap();

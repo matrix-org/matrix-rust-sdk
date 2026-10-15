@@ -162,7 +162,7 @@ impl TimelineBuilder {
         let Self { room, settings, unable_to_decrypt_hook, focus, internal_id_prefix } = self;
 
         let client = room.client();
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().ok_or(Error::EventCacheIsDisabled)?;
 
         let room_id = room.room_id();
         let (room_event_cache, event_cache_drop) = event_cache.room(room_id).await?;

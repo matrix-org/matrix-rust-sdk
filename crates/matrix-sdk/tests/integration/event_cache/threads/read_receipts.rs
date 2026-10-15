@@ -50,7 +50,7 @@ async fn test_unread_count_new_message_no_receipt() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
+    let event_cache = client.event_cache().unwrap();
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
@@ -92,7 +92,7 @@ async fn test_unread_count_new_message_with_known_receipt() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
+    let event_cache = client.event_cache().unwrap();
 
     let own_user_id = client.user_id().unwrap();
     let room_id = room_id!("!r");
@@ -149,7 +149,7 @@ async fn test_unread_count_implicit_receipt_own_message() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
+    let event_cache = client.event_cache().unwrap();
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
@@ -208,7 +208,7 @@ async fn test_unread_count_receipt_only_no_new_message() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
+    let event_cache = client.event_cache().unwrap();
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
@@ -280,7 +280,7 @@ async fn test_unread_count_pending_receipt() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
+    let event_cache = client.event_cache().unwrap();
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
@@ -371,7 +371,7 @@ async fn test_unread_count_accumulates_across_syncs() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
+    let event_cache = client.event_cache().unwrap();
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
@@ -434,7 +434,7 @@ async fn test_state_event_does_not_increment_unread() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
+    let event_cache = client.event_cache().unwrap();
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
@@ -466,7 +466,7 @@ async fn test_reaction_does_not_increment_unread() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
+    let event_cache = client.event_cache().unwrap();
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
@@ -507,7 +507,7 @@ async fn test_mentions_increments_unread_mentions() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
+    let event_cache = client.event_cache().unwrap();
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
@@ -559,7 +559,7 @@ async fn test_compute_unread_counts_considers_active_receipt() {
     let client = server.client_builder().build().await;
     let own_user_id = client.user_id().unwrap();
 
-    let event_cache = client.event_cache();
+    let event_cache = client.event_cache().unwrap();
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
@@ -646,7 +646,7 @@ async fn test_unread_counts_updated_after_duplicate_only_sync_response() {
     let client = server.client_builder().build().await;
     let own_user_id = client.user_id().unwrap();
 
-    let event_cache = client.event_cache();
+    let event_cache = client.event_cache().unwrap();
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
@@ -780,7 +780,7 @@ async fn test_read_receipt_from_store_used_as_latest_active() {
         .build()
         .await;
 
-    let event_cache = client.event_cache();
+    let event_cache = client.event_cache().unwrap();
 
     let (thread, _drop_handles) = event_cache.thread(room_id, thread_id).await.unwrap();
     let (_, mut thread_updates) = thread.subscribe().await.unwrap();

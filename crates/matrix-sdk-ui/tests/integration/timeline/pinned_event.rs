@@ -295,7 +295,7 @@ async fn test_max_events_to_load_is_honored() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    client.event_cache().config_mut().max_pinned_events_to_load = 1;
+    client.event_cache().unwrap().config_mut().max_pinned_events_to_load = 1;
 
     let f = EventFactory::new().room(room_id).sender(*BOB);
     let pinned_event = f
@@ -360,7 +360,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
         .await
         .expect("Sync failed");
 
-    let (room_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_cache, _drop_handles) = client.event_cache().unwrap().room(room_id).await.unwrap();
     let timeline =
         TimelineBuilder::new(&room).with_focus(TimelineFocus::PinnedEvents).build().await.unwrap();
 
@@ -524,7 +524,12 @@ async fn test_pinned_timeline_with_no_pinned_events_on_pagination_is_just_empty(
         .mount()
         .await;
 
-    let (event_cache, _) = room.event_cache().await.expect("Event cache should be accessible");
+    let (event_cache, _) = client
+        .event_cache()
+        .unwrap()
+        .room(room_id)
+        .await
+        .expect("Event cache should be accessible");
 
     // Paginate backwards once using the event cache to load the event
     event_cache
@@ -774,7 +779,7 @@ async fn test_ensure_max_concurrency_is_observed() {
     let max_concurrent_requests = 10;
 
     // Define the max concurrent requests allowed for the event cache.
-    client.event_cache().config_mut().max_pinned_events_concurrent_requests =
+    client.event_cache().unwrap().config_mut().max_pinned_events_concurrent_requests =
         max_concurrent_requests;
 
     let f = EventFactory::new().room(&room_id).sender(user_id!("@example:localhost"));
@@ -853,7 +858,7 @@ async fn test_pinned_events_listener_task_reloads_events_when_ids_change() {
         .mount()
         .await;
 
-    let event_cache = client.event_cache();
+    let event_cache = client.event_cache().unwrap();
 
     let (pinned_events_cache, _handle) =
         event_cache.pinned_events(&room_id).await.expect("Got pinned events cache");
@@ -969,7 +974,7 @@ async fn test_pinned_events_listener_task_does_not_reload_events_when_ids_are_un
         .mount()
         .await;
 
-    let event_cache = client.event_cache();
+    let event_cache = client.event_cache().unwrap();
 
     let (pinned_events_cache, _handle) =
         event_cache.pinned_events(&room_id).await.expect("Got pinned events cache");
@@ -1034,7 +1039,7 @@ async fn test_pinned_events_listener_task_does_not_reload_events_after_a_redacti
         .mount()
         .await;
 
-    let event_cache = client.event_cache();
+    let event_cache = client.event_cache().unwrap();
 
     let (pinned_events_cache, _handle) =
         event_cache.pinned_events(&room_id).await.expect("Got pinned events cache");

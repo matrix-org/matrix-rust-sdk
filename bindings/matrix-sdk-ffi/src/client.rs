@@ -2189,7 +2189,9 @@ impl Client {
             // `EventCacheStore::clear_all_events` here, because there might be
             // live observers of the linked chunks, and that would cause some
             // very bad state mismatch.
-            self.inner.event_cache().clear_all_rooms().await?;
+            if let Some(event_cache) = self.inner.event_cache() {
+                event_cache.clear_all_rooms().await?;
+            }
 
             // Delete the state store file, if it exists.
             #[cfg(feature = "sqlite")]
@@ -2437,13 +2439,16 @@ impl Client {
     /// front-loaded by recency (the last week for all rooms first, then the
     /// previous week, and so on), to populate the search index.
     ///
-    /// Requires `ClientBuilder::enable_automatic_back_pagination` to have been
-    /// enabled, otherwise this no-ops.
+    /// Requires `ClientBuilder::enable_automatic_back_pagination` and
+    /// `ClientBuilder::enable_event_cache` to have been enabled, otherwise
+    /// this no-ops.
     pub fn run_search_backfill(&self, strategy: SearchBackfillStrategy) -> Arc<TaskHandle> {
         let client = self.inner.clone();
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            client.event_cache().run_search_backfill(strategy).await;
+            if let Some(event_cache) = client.event_cache() {
+                event_cache.run_search_backfill(strategy).await;
+            }
         })))
     }
 

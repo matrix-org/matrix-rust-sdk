@@ -173,34 +173,32 @@ impl ThreadListService {
         let items: Arc<Mutex<ObservableVector<ThreadListItem>>> =
             Arc::new(Mutex::new(ObservableVector::new()));
 
-        let event_cache_task = room
-            .client()
+        let client = room.client();
+
+        let event_cache_task = client
             .task_monitor()
             .spawn_infinite_task("thread_list_service::event_cache_listener", {
                 let room = room.clone();
                 let items = items.clone();
+                let client = client.clone();
+
                 async move {
                     // Obtain the room event cache and a subscriber.
-                    let (_event_cache_drop, mut subscriber) = match async {
-                        let (room_event_cache, drop_handles) = room.event_cache().await?;
-                        let (_, subscriber) = room_event_cache.subscribe().await?;
-                        matrix_sdk::event_cache::Result::Ok((drop_handles, subscriber))
-                    }
-                    .await
+                    if let Some(event_cache) = client.event_cache()
+                        && let Ok((room_event_cache, _event_cache_drop_handles)) =
+                            event_cache.room(room.room_id()).await
+                        && let Ok((_initial_events, mut subscriber)) =
+                            room_event_cache.subscribe().await
                     {
-                        Ok(pair) => pair,
-                        Err(e) => {
-                            error!(
-                                "ThreadListService: failed to subscribe to room event cache, \
-                                 live updates will not work: {e}"
-                            );
-                            return;
-                        }
-                    };
+                        trace!("ThreadListService: event cache listener started");
 
-                    trace!("ThreadListService: event cache listener started");
-
-                    Self::event_cache_listener_loop(&room, &mut subscriber, items).await;
+                        Self::event_cache_listener_loop(&room, &mut subscriber, items).await;
+                    } else {
+                        error!(
+                            "ThreadListService: failed to subscribe to room event cache, \
+                                 live updates will not work"
+                        );
+                    }
                 }
             })
             .abort_on_drop();

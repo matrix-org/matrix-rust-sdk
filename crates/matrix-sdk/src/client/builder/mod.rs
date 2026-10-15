@@ -597,9 +597,10 @@ impl ClientBuilder {
     /// Whether to enable the [`EventCache`], and the [`LatestEvents`] which
     /// depend on it.
     ///
-    /// When disabled, the [`EventCache`] ignores sync updates and doesn't start
-    /// the redecryptor. This is useful for processes that only need to decrypt
-    /// and display notifications, e.g. a notification service extension.
+    /// When enabled, the [`EventCache`] handles all sync updates starts the
+    /// redecryptor, broadcasts updates to the `LatestEvents` or
+    /// `matrix-sdk-search` API, and so on. Not all Clients might be interested
+    /// by this feature, e.g. a notification service extensions.
     ///
     /// On by default.
     ///

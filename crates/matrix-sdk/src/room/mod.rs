@@ -176,7 +176,6 @@ use crate::{
     client::WeakClient,
     config::RequestConfig,
     error::{BeaconError, WrongRoomState},
-    event_cache::{self, EventCacheDropHandles, RoomEventCache},
     event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
     live_locations_observer::LiveLocationsObserver,
     media::{MediaFormat, MediaRequestParameters},
@@ -870,15 +869,17 @@ impl Room {
         event_id: &EventId,
         request_config: Option<RequestConfig>,
     ) -> Result<TimelineEvent> {
-        match self.event_cache().await {
-            Ok((event_cache, _drop_handles)) => {
-                if let Some(event) = event_cache.find_event(event_id).await? {
-                    return Ok(event);
+        if let Some(event_cache) = self.client.event_cache() {
+            match event_cache.room(self.room_id()).await {
+                Ok((room_event_cache, _drop_handles)) => {
+                    if let Some(event) = room_event_cache.find_event(event_id).await? {
+                        return Ok(event);
+                    }
+                    // Fallthrough: try with a request.
                 }
-                // Fallthrough: try with a request.
-            }
-            Err(err) => {
-                debug!("error when getting the event cache: {err}");
+                Err(err) => {
+                    debug!("error when getting the event cache: {err}");
+                }
             }
         }
 
@@ -981,29 +982,37 @@ impl Room {
 
         // First, try to load the event _and_ its relations from the event
         // cache, all at once.
-        let event_cache = match self.event_cache().await {
-            Ok((event_cache, drop_handles)) => {
-                if let Some((event, mut relations)) =
-                    event_cache.find_event_with_relations(event_id, filter.clone()).await?
-                {
-                    if relations.is_empty() {
-                        // The event cache doesn't have any relations for this
-                        // event, try to fetch them from the server instead.
-                        relations = fetch_relations().await;
+        let room_event_cache = match self.client.event_cache() {
+            Some(event_cache) => {
+                match event_cache.room(self.room_id()).await {
+                    Ok((event_cache, drop_handles)) => {
+                        if let Some((event, mut relations)) =
+                            event_cache.find_event_with_relations(event_id, filter.clone()).await?
+                        {
+                            if relations.is_empty() {
+                                // The event cache doesn't have any relations
+                                // for this
+                                // event, try to fetch them from the server
+                                // instead.
+                                relations = fetch_relations().await;
+                            }
+
+                            return Ok((event, relations));
+                        }
+
+                        // Otherwise, get the event from the server.
+                        Some((event_cache, drop_handles))
                     }
 
-                    return Ok((event, relations));
+                    Err(err) => {
+                        debug!("error when getting the event cache: {err}");
+                        // Fallthrough: try with a request.
+                        None
+                    }
                 }
-
-                // Otherwise, get the event from the server.
-                Some((event_cache, drop_handles))
             }
 
-            Err(err) => {
-                debug!("error when getting the event cache: {err}");
-                // Fallthrough: try with a request.
-                None
-            }
+            None => None,
         };
 
         // Fetch the event from the server. A failure here is fatal, as we must
@@ -1015,7 +1024,7 @@ impl Room {
         // To understand why, see the documentation in `load_or_fetch_event`.
 
         // Try to get the relations from the event cache (if we have one).
-        if let Some((event_cache, _drop_handles)) = event_cache
+        if let Some((event_cache, _drop_handles)) = room_event_cache
             && let Some(relations) =
                 event_cache.find_event_relations(event_id, filter.clone()).await.ok()
             && !relations.is_empty()
@@ -3860,7 +3869,10 @@ impl Room {
         }
 
         self.client.base_client().forget_room(room_id).await?;
-        self.client.event_cache().forget_room(room_id).await?;
+
+        if let Some(event_cache) = self.client.event_cache() {
+            event_cache.forget_room(room_id).await?;
+        }
 
         Ok(())
     }
@@ -4004,14 +4016,6 @@ impl Room {
 
         self.client.send(request).await?;
         Ok(())
-    }
-
-    /// Returns the [`RoomEventCache`] associated to this room, assuming the
-    /// global [`EventCache`] has been enabled for subscription.
-    pub async fn event_cache(
-        &self,
-    ) -> event_cache::Result<(RoomEventCache, Arc<EventCacheDropHandles>)> {
-        self.client.event_cache().room(self.room_id()).await
     }
 
     /// Get the beacon information event in the room for the `user_id`.

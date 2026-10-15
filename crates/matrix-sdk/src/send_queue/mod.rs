@@ -913,7 +913,9 @@ impl RoomSendQueue {
                             // Send Queue will continue as if everything
                             // happened successfully. This feature is not
                             // considered “crucial”.
-                            if let Ok((room_event_cache, _drop_handles)) = room.event_cache().await
+                            if let Some(event_cache) = room.client().event_cache()
+                                && let Ok((room_event_cache, _drop_handles)) =
+                                    event_cache.room(room.room_id()).await
                             {
                                 let timeline_event = match Raw::from_json_string(
                                     // Create a compact string: remove all useless spaces.
@@ -1018,7 +1020,9 @@ impl RoomSendQueue {
                             // cache the event now to avoid any inconsistencies
                             // until the server sends down the remote echo via
                             // the sync.
-                            if let Ok((room_event_cache, _drop_handles)) = room.event_cache().await
+                            if let Some(event_cache) = room.client().event_cache()
+                                && let Ok((room_event_cache, _drop_handles)) =
+                                    event_cache.room(room.room_id()).await
                             {
                                 let content_field_redacts = room.version().is_some_and(|id| {
                                     id.rules()

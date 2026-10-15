@@ -264,7 +264,7 @@ impl EventCacheDropHandles {
             )
             .abort_on_drop();
 
-        if event_cache_inner.enable_automatic_back_pagination && event_cache_inner.enabled {
+        if event_cache_inner.enable_automatic_back_pagination {
             // Deferred initialization of the shared back-pagination queue.
             trace!("spawning the back-pagination queue");
             let max_concurrent = event_cache_config.max_concurrent_back_paginations;
@@ -331,7 +331,6 @@ impl EventCache {
         client: &Arc<ClientInner>,
         event_cache_store: EventCacheStoreLock,
         enable_automatic_back_pagination: bool,
-        enabled: bool,
     ) -> Self {
         let (generic_update_sender, _) = channel(128);
         let (linked_chunk_update_sender, _) = channel(128);
@@ -358,7 +357,6 @@ impl EventCache {
             #[cfg(feature = "e2e-encryption")]
             redecryption_channels,
             enable_automatic_back_pagination,
-            enabled,
             back_pagination_queue: OnceLock::new(),
             thread_subscriber_sender,
         });
@@ -398,10 +396,6 @@ impl EventCache {
     /// It returns an error if the `Client` has been dropped.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) fn initialise_redecryptor(&self) -> Result<()> {
-        if !self.inner.enabled {
-            return Ok(());
-        }
-
         let client = self.inner.client()?;
         let receiver =
             self.inner.redecryption_channels.decryption_request_receiver.lock().take().expect(
@@ -560,14 +554,6 @@ impl EventCache {
     pub fn back_pagination_queue(&self) -> Option<BackPaginationQueue> {
         self.inner.back_pagination_queue.get().cloned()
     }
-
-    /// Whether the [`EventCache`] is enabled, see
-    /// [`ClientBuilder::with_enable_event_cache`].
-    ///
-    /// [`ClientBuilder::with_enable_event_cache`]: crate::ClientBuilder::with_enable_event_cache
-    pub fn is_enabled(&self) -> bool {
-        self.inner.enabled
-    }
 }
 
 /// Global configuration for the [`EventCache`], applied to every single room.
@@ -669,15 +655,6 @@ struct EventCacheInner {
     /// [`ClientBuilder::with_enable_automatic_back_pagination`]: crate::ClientBuilder::with_enable_automatic_back_pagination
     enable_automatic_back_pagination: bool,
 
-    /// Whether the [`EventCache`] is enabled; set once, at construction, via
-    /// [`ClientBuilder::with_enable_event_cache`].
-    ///
-    /// When disabled, sync updates are ignored, and neither the redecryptor
-    /// nor the [`BackPaginationQueue`] are started.
-    ///
-    /// [`ClientBuilder::with_enable_event_cache`]: crate::ClientBuilder::with_enable_event_cache
-    enabled: bool,
-
     /// State for the automatic pagination mechanism.
     ///
     /// Deferred initialization: spawned at subscription time, if
@@ -744,10 +721,6 @@ impl EventCacheInner {
     /// Handles a single set of room updates at once.
     #[instrument(skip(self, updates))]
     async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
-        if !self.enabled {
-            return Ok(());
-        }
-
         // NOTE: We tried to make this concurrent at some point, but it turned
         // out to be a performance regression, even for large sync updates.
         // Lacking time to investigate, this code remains sequential for now.
@@ -886,7 +859,7 @@ mod tests {
         client.base_client().get_or_create_room(room_id1, RoomState::Joined);
         client.base_client().get_or_create_room(room_id2, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         // Insert two rooms with a few events.
         let f = EventFactory::new().room(room_id1).sender(user_id!("@ben:saucisse.bzh"));
@@ -922,9 +895,7 @@ mod tests {
         event_cache.inner.handle_room_updates(updates).await.unwrap();
 
         // We can find the events in a single room.
-        let room1 = client.get_room(room_id1).unwrap();
-
-        let (room_event_cache, _drop_handles) = room1.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id1).await.unwrap();
 
         let found1 = room_event_cache.find_event(eid1).await.unwrap().unwrap();
         assert_event_matches_msg(&found1, "hey");
@@ -985,7 +956,7 @@ mod tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
@@ -1086,7 +1057,7 @@ mod tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
@@ -1135,7 +1106,7 @@ mod tests {
         let client = logged_in_client(None).await;
         let room_id = room_id!("!raclette:patate.ch");
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         // Room doesn't exist. It returns an error.
         assert_matches!(
@@ -1162,7 +1133,7 @@ mod tests {
         // Wait for the init tasks to die.
         sleep(Duration::from_secs(1)).await;
 
-        let event_cache_weak = Arc::downgrade(&client.event_cache().inner);
+        let event_cache_weak = Arc::downgrade(&client.event_cache().unwrap().inner);
         assert_eq!(event_cache_weak.strong_count(), 2);
 
         {
@@ -1175,7 +1146,7 @@ mod tests {
             client.inner.base_client.receive_sync_response(response).await.unwrap();
 
             let (_room_event_cache, _drop_handles) =
-                client.get_room(room_id).unwrap().event_cache().await.unwrap();
+                client.event_cache().unwrap().room(room_id).await.unwrap();
         }
 
         drop(client);

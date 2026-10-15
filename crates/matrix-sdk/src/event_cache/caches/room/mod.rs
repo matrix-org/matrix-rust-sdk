@@ -600,9 +600,9 @@ mod tests {
         let client = logged_in_client(None).await;
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
 
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) =
+            client.event_cache().unwrap().room(room_id).await.unwrap();
 
         {
             let mut state = room_event_cache.inner.state.write().await.unwrap();
@@ -670,9 +670,9 @@ mod tests {
         let client = logged_in_client(None).await;
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
 
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) =
+            client.event_cache().unwrap().room(room_id).await.unwrap();
 
         {
             let mut state = room_event_cache.inner.state.write().await.unwrap();
@@ -715,9 +715,9 @@ mod tests {
         let client = logged_in_client(None).await;
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
 
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) =
+            client.event_cache().unwrap().room(room_id).await.unwrap();
 
         let original_event_id = original_event.event_id().unwrap().to_owned();
         let related_id = related_event.event_id().unwrap().to_owned();
@@ -816,13 +816,12 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
 
         // Propagate an update for a message and a prev-batch token.
         let timeline = Timeline {
@@ -894,13 +893,12 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
 
         // Propagate an update for a message with bundled relations.
         let ev = f
@@ -1038,12 +1036,11 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
 
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
 
         let (items, mut stream) = room_event_cache.subscribe().await.unwrap();
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
@@ -1189,16 +1186,15 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         // Let's check whether the generic updates are received for the
         // initialisation.
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
 
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
 
         // The room event cache has been loaded. A generic update must have been
         // triggered.
@@ -1321,9 +1317,9 @@ mod timed_tests {
             .await;
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
+        let event_cache = client.event_cache().unwrap();
 
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
 
         let items = room_event_cache.events().await.unwrap();
 
@@ -1344,11 +1340,10 @@ mod timed_tests {
 
         let client = MockClientBuilder::new(None).build().await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         let f = EventFactory::new().room(room_id).sender(*ALICE);
@@ -1524,11 +1519,10 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
 
         // Sanity check: lazily loaded, so only includes one item at start.
         let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
@@ -1659,8 +1653,9 @@ mod timed_tests {
             .await;
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let event_cache = client.event_cache().unwrap();
+
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
 
         // Initially, the linked chunk only contains the last chunk, so only ev3
         // is loaded.
@@ -1817,11 +1812,10 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
 
         // Sanity check: lazily loaded, so only includes one item at start.
         let (events1, mut stream1) = room_event_cache.subscribe().await.unwrap();
@@ -1963,8 +1957,8 @@ mod timed_tests {
             .await;
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let event_cache = client.event_cache().unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
 
         // Look for an event from Bob: it must be `event_0`.
         assert_matches!(
@@ -2079,9 +2073,9 @@ mod timed_tests {
             client_p1.base_client().get_or_create_room(room_id, RoomState::Joined);
 
             let (room_event_cache_p0, _drop_handles) =
-                client_p0.get_room(room_id).unwrap().event_cache().await.unwrap();
+                client_p0.event_cache().unwrap().room(room_id).await.unwrap();
             let (room_event_cache_p1, _drop_handles) =
-                client_p1.get_room(room_id).unwrap().event_cache().await.unwrap();
+                client_p1.event_cache().unwrap().room(room_id).await.unwrap();
 
             (room_event_cache_p0, room_event_cache_p1)
         };
@@ -2535,9 +2529,9 @@ mod timed_tests {
             client_p1.base_client().get_or_create_room(room_id_1, RoomState::Joined);
 
             let (room_event_cache_0_p0, _drop_handles) =
-                client_p0.get_room(room_id_0).unwrap().event_cache().await.unwrap();
+                client_p0.event_cache().unwrap().room(room_id_0).await.unwrap();
             let (room_event_cache_0_p1, _drop_handles) =
-                client_p1.get_room(room_id_0).unwrap().event_cache().await.unwrap();
+                client_p1.event_cache().unwrap().room(room_id_0).await.unwrap();
 
             (room_event_cache_0_p0, room_event_cache_0_p1)
         };
@@ -2552,7 +2546,7 @@ mod timed_tests {
         // cross-process lock over the store MUST be dirty, which makes no
         // difference as a clean one: the state is just loaded, not reloaded.
         let (room_event_cache_1_p0, _) =
-            client_p0.get_room(room_id_1).unwrap().event_cache().await.unwrap();
+            client_p0.event_cache().unwrap().room(room_id_1).await.unwrap();
 
         // Check the lock isn't dirty because it's been cleared.
         {
@@ -2570,7 +2564,7 @@ mod timed_tests {
         let room_id = room_id!("!galette:saucisse.bzh");
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
         let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();

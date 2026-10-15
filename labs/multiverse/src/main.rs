@@ -394,7 +394,7 @@ impl App {
         for room in client.rooms_filtered(RoomStateFilter::JOINED.union(RoomStateFilter::LEFT)) {
             let room_id = room.room_id();
 
-            let maybe_room_cache = room.event_cache().await;
+            let maybe_room_cache = client.event_cache().unwrap().room(room_id).await;
             let Ok((room_cache, _drop_handles)) = maybe_room_cache else {
                 warn!("Failed to get RoomEventCache: {maybe_room_cache:?}");
                 continue;
@@ -450,10 +450,9 @@ impl App {
 
         while !rooms.is_empty() {
             let room = &rooms[idx];
-
             let room_id = room.room_id();
 
-            let maybe_room_cache = room.event_cache().await;
+            let maybe_room_cache = client.event_cache().unwrap().room(room_id).await;
             let Ok((room_cache, _drop_handles)) = maybe_room_cache else {
                 warn!("Failed to get RoomEventCache: {maybe_room_cache:?}");
                 idx = (idx + 1) % rooms.len();
