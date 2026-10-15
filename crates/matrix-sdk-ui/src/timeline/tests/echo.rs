@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{assert_next_matches_with_timeout, send_queue::RoomSendQueueUpdate};
 use matrix_sdk_base::store::QueueWedgeError;
-use matrix_sdk_test::{ALICE, User, async_test};
+use matrix_sdk_test::{User, async_test};
 use ruma::{
     MilliSecondsSinceUnixEpoch, event_id,
     events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
@@ -117,7 +117,7 @@ async fn test_remote_echo_full_trip() {
             timeline
                 .factory
                 .text_msg("echo")
-                .sender(*ALICE)
+                .sender(User::Alice)
                 .event_id(event_id)
                 .server_ts(timestamp),
         )
@@ -172,7 +172,7 @@ async fn test_remote_echo_new_position() {
     timeline
         .handle_live_event(
             f.text_msg("echo")
-                .sender(*ALICE)
+                .sender(User::Alice)
                 .event_id(event_id!("$eeG0HA0FAZ37wP8kXlNkxx3I"))
                 .server_ts(6)
                 .unsigned_transaction_id(&txn_id),

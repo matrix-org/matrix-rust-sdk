@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use imbl::vector;
 use matrix_sdk_base::store::QueueWedgeError;
-use matrix_sdk_test::{ALICE, User, async_test};
+use matrix_sdk_test::{User, async_test};
 use ruma::{
     event_id,
     events::{
@@ -104,7 +104,7 @@ async fn test_redact_replied_to_event() {
     assert!(replied_to_event.content.is_redacted());
     // The placeholder keeps the redacted event's own sender and timestamp, not
     // the redaction's.
-    assert_eq!(replied_to_event.sender, *ALICE);
+    assert_eq!(replied_to_event.sender, User::Alice);
     assert_eq!(replied_to_event.timestamp, first_item.timestamp());
 }
 
@@ -150,7 +150,7 @@ async fn test_redact_replied_to_event_not_in_timeline() {
     );
     assert!(replied_to_event.content.is_redacted());
     // The placeholder takes the sender and timestamp from the reply's details.
-    assert_eq!(replied_to_event.sender, *ALICE);
+    assert_eq!(replied_to_event.sender, User::Alice);
     assert_eq!(replied_to_event.timestamp, first_item.timestamp());
 }
 
@@ -231,7 +231,7 @@ async fn test_reaction_redaction_timeline_filter() {
         .handle_remote_events_with_diffs(
             vec![VectorDiff::Append {
                 values: vector![
-                    f.redacted(*ALICE, RedactedReactionEventContent::new()).into_event()
+                    f.redacted(User::Alice, RedactedReactionEventContent::new()).into_event()
                 ],
             }],
             RemoteEventOrigin::Sync,
