@@ -652,7 +652,6 @@ async fn test_select_best_receipt_considers_thread_config() {
 /// Test that a main-thread receipt on a thread root reaches the room, even
 /// when the same event also carries another user's threaded receipt.
 #[async_test]
-#[should_panic(expected = "the main receipt on the thread root was dropped")]
 async fn test_main_receipt_on_thread_root_next_to_threaded_receipt() {
     let server = MatrixMockServer::new().await;
 

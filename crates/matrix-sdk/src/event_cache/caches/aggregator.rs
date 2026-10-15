@@ -45,9 +45,7 @@ pub fn aggregate_timeline_and_read_receipts_for_room(
             ReceiptThread::Main | ReceiptThread::Unthreaded => Some(()),
             _ => None,
         })
-        .map(|(_receipt_thread, (event_id, event_receipts))| {
-            (event_id.clone(), event_receipts.clone())
-        })
+        .map(|(_receipt_thread, (event_id, event_receipts))| (event_id.clone(), event_receipts))
         .collect(),
     )
 }
@@ -198,7 +196,7 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
             .or_insert_with(default_entry)
             .1
             .get_or_insert_with(|| ReceiptEventContent(BTreeMap::new()))
-            .insert(read_receipt_event_id.clone(), read_receipt_event.clone());
+            .insert(read_receipt_event_id.clone(), read_receipt_event);
     }
 
     Ok(new_events_by_thread)
@@ -266,17 +264,22 @@ pub fn aggregate_timeline_for_pinned_events(
 /// second level. However, the `predicate` is applied on the fourth level,
 /// directly on the leaf of the read receipts.
 ///
-/// The predicate is used with [`Iterator::filter_map`], and thus can return a
-/// group key (it can be anything). This group key is associated to the tuple
-/// mentioned earlier, and should be used to “group” read receipts. This is
-/// useful when one wants to group read receipts by their `ReceiptThread` for
-/// example.
+/// The predicate will return a group key (it can be anything). This group key
+/// is associated to the tuple mentioned earlier, and should be used to “group”
+/// read receipts. This is useful when one wants to group read receipts by their
+/// `ReceiptThread` for example.
+///
+/// The same event can hold receipts for different threads (e.g. a thread root
+/// can have a `Main` receipt from one user and a `Thread` receipt from
+/// another), so one event can be returned once per group key, and each
+/// returned `Receipts` only contains the leaves matching that group key.
 fn filter_read_receipts_and_group_by<'e, F, G>(
     events: &'e [AnySyncEphemeralRoomEvent],
     predicate: F,
-) -> impl Iterator<Item = (G, (&'e OwnedEventId, &'e Receipts))>
+) -> impl Iterator<Item = (G, (&'e OwnedEventId, Receipts))>
 where
     F: Fn(&'e ReceiptThread) -> Option<G>,
+    G: Ord,
 {
     events
         .iter()
@@ -285,10 +288,22 @@ where
             _ => None,
         })
         .flat_map(|receipt_event| receipt_event.content.iter())
-        .filter_map(move |(event_id, event_receipts)| {
-            Some((
-                predicate(&event_receipts.first_key_value()?.1.first_key_value()?.1.thread)?,
-                (event_id, event_receipts),
-            ))
+        .flat_map(move |(event_id, event_receipts)| {
+            let mut groups = BTreeMap::<G, Receipts>::new();
+
+            for (receipt_type, user_receipts) in event_receipts {
+                for (user_id, receipt) in user_receipts {
+                    if let Some(group) = predicate(&receipt.thread) {
+                        groups
+                            .entry(group)
+                            .or_default()
+                            .entry(receipt_type.clone())
+                            .or_default()
+                            .insert(user_id.clone(), receipt.clone());
+                    }
+                }
+            }
+
+            groups.into_iter().map(move |(group, receipts)| (group, (event_id, receipts)))
         })
 }
