@@ -463,7 +463,7 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
@@ -555,7 +555,7 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
@@ -699,7 +699,7 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
@@ -875,7 +875,7 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
@@ -1005,7 +1005,7 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
@@ -1105,8 +1105,8 @@ mod timed_tests {
 
         // Subscribe the event caches, and create the room.
         let (thread_event_cache_p0, thread_event_cache_p1) = {
-            let event_cache_p0 = client_p0.event_cache();
-            let event_cache_p1 = client_p1.event_cache();
+            let event_cache_p0 = client_p0.event_cache().unwrap();
+            let event_cache_p1 = client_p1.event_cache().unwrap();
 
             client_p0.base_client().get_or_create_room(room_id, RoomState::Joined);
             client_p1.base_client().get_or_create_room(room_id, RoomState::Joined);
@@ -1367,7 +1367,7 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 

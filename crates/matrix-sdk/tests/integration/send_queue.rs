@@ -2437,7 +2437,8 @@ async fn test_redaction() {
 
     server.mock_room_state_encryption().plain().mount().await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
 
     let queue = room.send_queue();
@@ -4670,7 +4671,8 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
         .build()
         .await;
 
-    let mut thread_subscriber_updates = client.event_cache().subscribe_thread_subscriber_updates();
+    let mut thread_subscriber_updates =
+        client.event_cache().unwrap().subscribe_thread_subscriber_updates();
 
     let room_id = room_id!("!a:b.c");
     let room = server.sync_joined_room(&client, room_id).await;
@@ -4803,7 +4805,8 @@ async fn test_sending_event_still_saves_sync_gap() {
     // Give time to the Event Cache to handle the sync.
     sleep(Duration::from_secs(1)).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
 

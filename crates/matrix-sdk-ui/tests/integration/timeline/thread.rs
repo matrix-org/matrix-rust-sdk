@@ -2108,7 +2108,7 @@ async fn test_permalink_doesnt_listen_to_thread_sync() {
     let server = MatrixMockServer::new().await;
 
     let client = client_with_threading_support(&server).await;
-    let event_cache = client.event_cache();
+    let event_cache = client.event_cache().unwrap();
 
     let room_id = room_id!("!a:b.c");
     let room = server.sync_joined_room(&client, room_id).await;

@@ -60,6 +60,10 @@ pub enum Error {
     #[error(transparent)]
     Sdk(#[from] matrix_sdk::Error),
 
+    /// The Event Cache must be enabled.
+    #[error("The Event Cache must be enabled to use the Timeline.")]
+    EventCacheIsDisabled,
+
     /// Something went wrong with the room event cache.
     #[error(transparent)]
     EventCacheError(#[from] EventCacheError),

@@ -875,7 +875,7 @@ impl EventCache {
     /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let event_cache = client.event_cache();
+    /// let event_cache = client.event_cache().unwrap();
     /// let room_id = owned_room_id!("!my_room:localhost");
     ///
     /// let request = DecryptionRetryRequest {
@@ -917,7 +917,7 @@ impl EventCache {
     /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
-    /// let event_cache = client.event_cache();
+    /// let event_cache = client.event_cache().unwrap();
     ///
     /// let mut stream = event_cache.subscribe_to_decryption_reports();
     ///
@@ -946,7 +946,7 @@ impl EventCache {
     /// ```
     pub fn subscribe_to_decryption_reports(
         &self,
-    ) -> impl Stream<Item = Result<RedecryptorReport, BroadcastStreamRecvError>> {
+    ) -> impl Stream<Item = Result<RedecryptorReport, BroadcastStreamRecvError>> + use<> {
         BroadcastStream::new(self.inner.redecryption_channels.utd_reporter.subscribe())
     }
 }
@@ -1645,7 +1645,7 @@ mod tests {
 
         // Let's now see what Bob's event cache does.
 
-        let event_cache = bob.event_cache();
+        let event_cache = bob.event_cache().unwrap();
         let (room_cache, _) = event_cache
             .room(room_id)
             .await
@@ -1732,7 +1732,7 @@ mod tests {
 
         // Let's now see what Bob's event cache does.
 
-        let event_cache = bob.event_cache();
+        let event_cache = bob.event_cache().unwrap();
         let (room_cache, _) = event_cache
             .room(room_id)
             .instrument(bob_span.clone())
@@ -1814,7 +1814,7 @@ mod tests {
             .instrument(bob_span.clone())
             .await;
 
-        bob.event_cache().request_decryption(DecryptionRetryRequest {
+        bob.event_cache().unwrap().request_decryption(DecryptionRetryRequest {
             room_id: room_id.into(),
             utd_session_ids: BTreeSet::new(),
             refresh_info_session_ids: BTreeSet::from([session_id]),
@@ -1864,7 +1864,7 @@ mod tests {
         )
         .await;
 
-        let event_cache = bob.event_cache();
+        let event_cache = bob.event_cache().unwrap();
 
         // Let's now see what Bob's event cache does.
         let (room_cache, _) = event_cache

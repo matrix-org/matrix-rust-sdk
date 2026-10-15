@@ -162,7 +162,8 @@ async fn test_most_recent_event_in_stream() {
         );
     }
 
-    let mut event_cache_updates_stream = client.event_cache().subscribe_to_room_generic_updates();
+    let mut event_cache_updates_stream =
+        client.event_cache().unwrap().subscribe_to_room_generic_updates();
 
     server
         .sync_room(
@@ -598,7 +599,8 @@ async fn test_initial_load_contains_location_from_event_cache() {
         .server_ts(now)
         .into_raw_sync();
 
-    let mut event_cache_updates_stream = client.event_cache().subscribe_to_room_generic_updates();
+    let mut event_cache_updates_stream =
+        client.event_cache().unwrap().subscribe_to_room_generic_updates();
 
     server
         .sync_room(

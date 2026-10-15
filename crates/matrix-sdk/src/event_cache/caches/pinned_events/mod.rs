@@ -596,6 +596,13 @@ impl PinnedEventsCache {
     async fn pinned_event_listener_task(room: Room, inner: Arc<PinnedEventsCacheInner>) {
         debug!("pinned events listener task started");
 
+        let max_pinned_events_to_load = room
+            .client()
+            .event_cache()
+            .expect("Pinned-events are running inside the Event Cache")
+            .config()
+            .max_pinned_events_to_load;
+
         let reload_from_network = async |room: Room| {
             let events = match Self::reload_pinned_events(room).await {
                 Ok(Some(events)) => events,
@@ -631,8 +638,10 @@ impl PinnedEventsCache {
 
                 // Compare the initial list of pinned events to the one in the
                 // linked chunk.
-                let actual_pinned_events =
-                    pinned_event_ids_to_load(&room, room.pinned_event_ids().unwrap_or_default());
+                let actual_pinned_events = pinned_event_ids_to_load(
+                    max_pinned_events_to_load,
+                    room.pinned_event_ids().unwrap_or_default(),
+                );
 
                 if !guard.state.has_exactly_pinned_events(&actual_pinned_events) {
                     // Reload the list of pinned events from network.
@@ -662,7 +671,7 @@ impl PinnedEventsCache {
                 break;
             };
 
-            let new_list = pinned_event_ids_to_load(&room, new_list);
+            let new_list = pinned_event_ids_to_load(max_pinned_events_to_load, new_list);
 
             let guard = match inner.state.read().await {
                 Ok(guard) => guard,
@@ -696,11 +705,20 @@ impl PinnedEventsCache {
     /// previous time we loaded them. May return an error if there was an issue
     /// fetching the full events.
     async fn reload_pinned_events(room: Room) -> Result<Option<Vec<Event>>> {
-        let max_concurrent_requests =
-            room.client().event_cache().config().max_pinned_events_concurrent_requests;
+        let (max_concurrent_requests, max_pinned_events_to_load) = {
+            let client = room.client();
+            let config = client
+                .event_cache()
+                .expect("Pinned-events are running inside the Event Cache")
+                .config();
 
-        let pinned_event_ids =
-            pinned_event_ids_to_load(&room, room.pinned_event_ids().unwrap_or_default());
+            (config.max_pinned_events_concurrent_requests, config.max_pinned_events_to_load)
+        };
+
+        let pinned_event_ids = pinned_event_ids_to_load(
+            max_pinned_events_to_load,
+            room.pinned_event_ids().unwrap_or_default(),
+        );
 
         if pinned_event_ids.is_empty() {
             return Ok(Some(Vec::new()));
@@ -775,10 +793,13 @@ impl fmt::Debug for PinnedEventsCache {
 /// Returns the IDs of the pinned events that this cache loads
 /// from the given list of all the room's pinned events.
 ///
-/// This'll include only the most recently pinned ones, up to the limit of
+/// This will include only the most recently pinned ones, up to the limit of
 /// the chosen `max_pinned_events_to_load` cfg value.
-fn pinned_event_ids_to_load(room: &Room, pinned_event_ids: Vec<OwnedEventId>) -> Vec<OwnedEventId> {
-    let max_events_to_load = room.client().event_cache().config().max_pinned_events_to_load;
+#[inline]
+fn pinned_event_ids_to_load(
+    max_events_to_load: usize,
+    pinned_event_ids: Vec<OwnedEventId>,
+) -> Vec<OwnedEventId> {
     pinned_event_ids.into_iter().rev().take(max_events_to_load).rev().collect()
 }
 

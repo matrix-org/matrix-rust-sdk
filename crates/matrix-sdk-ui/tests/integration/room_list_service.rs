@@ -2966,7 +2966,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     // We could subscribe to the room —with `RoomList::set_room_subscriptions`—
     // to automatically listen to the latest event updates, but we will do it
     // manually here (so that we can ignore the subscription thingies).
-    let latest_events = client.latest_events().await;
+    let latest_events = client.latest_events().await.unwrap();
     latest_events.listen_to_room(room_id).await.unwrap();
 
     // The latest event does not exist.

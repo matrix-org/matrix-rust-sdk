@@ -142,10 +142,10 @@ fn handle_room_updates(c: &mut Criterion) {
                             let client = client.clone();
 
                             async move {
-                                client.event_cache().clear_all_rooms().await.unwrap();
+                                let event_cache = client.event_cache().unwrap();
 
-                                client
-                                    .event_cache()
+                                event_cache.clear_all_rooms().await.unwrap();
+                                event_cache
                                     .handle_room_updates(room_updates.clone())
                                     .await
                                     .unwrap();
@@ -282,10 +282,12 @@ fn find_event_relations(c: &mut Criterion) {
                     .build()
                     .await;
 
-                // Sync the updates before starting the benchmark.
-                let mut update_recv = client.event_cache().subscribe_to_room_generic_updates();
+                let event_cache = client.event_cache().unwrap();
 
-                client.event_cache().handle_room_updates(room_updates.clone()).await.unwrap();
+                // Sync the updates before starting the benchmark.
+                let mut update_recv = event_cache.subscribe_to_room_generic_updates();
+
+                event_cache.handle_room_updates(room_updates.clone()).await.unwrap();
 
                 // Wait for the event cache to notify us of the room updates.
                 let update = update_recv.recv().await.unwrap();
@@ -294,8 +296,7 @@ fn find_event_relations(c: &mut Criterion) {
                 let update = update_recv.recv().await.unwrap();
                 assert!(update.room_id == room_id || update.room_id == other_room_id);
 
-                let room = client.get_room(room_id).unwrap();
-                let room_event_cache = room.event_cache().await.unwrap();
+                let room_event_cache = event_cache.room(room_id).await.unwrap();
 
                 (client, room_event_cache.0, room_event_cache.1)
             });

@@ -526,7 +526,7 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
     assert!(room2.latest_encryption_state().await?.is_encrypted(), "The room should be encrypted");
 
     // Paginate events backwards.
-    let (event_cache, _drop_handles) = room2.event_cache().await.unwrap();
+    let (event_cache, _drop_handles) = alice2.event_cache().unwrap().room(&room_id).await.unwrap();
 
     let pagination_outcome = event_cache.pagination().run_backwards_until(100).await?;
     assert!(pagination_outcome.reached_start, "Pagination should have finished");
@@ -622,6 +622,7 @@ async fn test_latest_event_few_rooms() -> Result<()> {
     let mut room1_sub = bob
         .latest_events()
         .await
+        .unwrap()
         .listen_and_subscribe_to_room(room1.room_id())
         .await?
         .expect("room 1 exists");
@@ -629,6 +630,7 @@ async fn test_latest_event_few_rooms() -> Result<()> {
     let mut room2_sub = bob
         .latest_events()
         .await
+        .unwrap()
         .listen_and_subscribe_to_room(room2.room_id())
         .await?
         .expect("room 2 exists");
@@ -708,6 +710,7 @@ async fn test_latest_event_few_rooms() -> Result<()> {
     let mut room1_sub = bob2
         .latest_events()
         .await
+        .unwrap()
         .listen_and_subscribe_to_room(room1.room_id())
         .await?
         .expect("room 1 exists");
@@ -715,6 +718,7 @@ async fn test_latest_event_few_rooms() -> Result<()> {
     let mut room2_sub = bob2
         .latest_events()
         .await
+        .unwrap()
         .listen_and_subscribe_to_room(room2.room_id())
         .await?
         .expect("room 2 exists");
@@ -727,16 +731,14 @@ async fn test_latest_event_few_rooms() -> Result<()> {
 
     // Test passes if we uncomment this line, since more events will be fetched
     // from the server and there will be a latest event update.
-    room2.event_cache().await?.0.pagination().run_backwards_until(100).await?;
-
-    //warn!("Subscribing to rooms on second client…");
-    //bob2_sync_service
-    //.room_list_service()
-    //.set_room_subscriptions(&[room1.room_id(), room2.room_id()])
-    //.await;
-
-    //// Wait for a bit, for a sync response to be returned.
-    //sleep(Duration::from_secs(3)).await;
+    bob2.event_cache()
+        .unwrap()
+        .room(room2.room_id())
+        .await?
+        .0
+        .pagination()
+        .run_backwards_until(100)
+        .await?;
 
     warn!("Rendering timeline.");
     let timeline = TimelineBuilder::new(&room2).build().await?;

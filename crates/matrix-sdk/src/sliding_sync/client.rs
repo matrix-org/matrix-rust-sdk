@@ -151,7 +151,9 @@ impl Client {
         tracing::debug!("done processing on base_client");
 
         // The Event Cache now receives the room updates.
-        Box::pin(self.event_cache().handle_room_updates(response.rooms.clone())).await?;
+        if let Some(event_cache) = self.event_cache() {
+            Box::pin(event_cache.handle_room_updates(response.rooms.clone())).await?;
+        }
 
         // Finally, let's call the sync response handler.
         self.call_sync_response_handlers(&response).await?;
@@ -265,7 +267,9 @@ impl SlidingSyncResponseProcessor {
         response.to_device.extend(self.to_device_events);
 
         // The Event Cache now receives the room updates.
-        Box::pin(self.client.event_cache().handle_room_updates(response.rooms.clone())).await?;
+        if let Some(event_cache) = self.client.event_cache() {
+            Box::pin(event_cache.handle_room_updates(response.rooms.clone())).await?;
+        }
 
         // Finally, let's call the sync response handler.
         self.client.call_sync_response_handlers(&response).await?;
@@ -648,7 +652,7 @@ mod tests {
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
         // The latest event “listener” for this room has NOT been enabled.
-        assert!(client.latest_events().await.is_listening_to_room(room_id).await.not());
+        assert!(client.latest_events().await.unwrap().is_listening_to_room(room_id).await.not());
 
         // Create the sliding sync client.
         let sliding_sync = client
@@ -684,7 +688,7 @@ mod tests {
         assert!(client.get_room(room_id).is_some());
 
         // The latest event “listener” for this room has been enabled.
-        assert!(client.latest_events().await.is_listening_to_room(room_id).await);
+        assert!(client.latest_events().await.unwrap().is_listening_to_room(room_id).await);
 
         Ok(())
     }

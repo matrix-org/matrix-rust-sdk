@@ -28,7 +28,7 @@ use async_stream::stream;
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_core::Stream;
-use futures_util::{StreamExt, join};
+use futures_util::{StreamExt, future::OptionFuture, join};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{
     DecryptionSettings, store::LockableCryptoStore, store::types::RoomPendingKeyBundleDetails,
@@ -530,14 +530,15 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")]
         client.e2ee.initialize_tasks(&client);
 
-        let init_event_cache = client.event_cache.get_or_init(|| async {
-            EventCache::new(
-                &client,
-                client.base_client.event_cache_store().clone(),
-                enable_automatic_back_pagination,
-                enable_event_cache,
-            )
-        });
+        let init_event_cache = OptionFuture::from(enable_event_cache.then(|| {
+            client.event_cache.get_or_init(|| async {
+                EventCache::new(
+                    &client,
+                    client.base_client.event_cache_store().clone(),
+                    enable_automatic_back_pagination,
+                )
+            })
+        }));
 
         let init_thread_subscription_catchup = client
             .thread_subscription_catchup
@@ -618,7 +619,7 @@ impl Client {
 
         // Next, activate R2D2 since the `OlmMachine` is now setup.
         #[cfg(feature = "e2e-encryption")]
-        if let Some(event_cache) = self.inner.event_cache.get() {
+        if let Some(event_cache) = self.event_cache() {
             event_cache.initialise_redecryptor()?;
         }
 
@@ -3822,8 +3823,10 @@ impl Client {
                 self.well_known_lookup_disabled(),
                 self.inner.event_cache.clone(),
                 false,
-                // The event cache is shared with the parent client, so this is ignored.
-                true,
+                // If the `EventCache` was enabled for `Self`, it **must** have been initialised.
+                // Otherwise, it **must not** have been initialised already. So defining
+                // `enable_event_cache` with `OnceCell::initialized` is correct.
+                self.inner.event_cache.initialized(),
                 self.inner.send_queue_data.clone(),
                 self.inner.latest_events.clone(),
                 #[cfg(feature = "e2e-encryption")]
@@ -3843,24 +3846,30 @@ impl Client {
     }
 
     /// The [`EventCache`] instance for this [`Client`].
-    pub fn event_cache(&self) -> &EventCache {
-        // SAFETY: always initialized in the `Client` ctor.
-        self.inner.event_cache.get().unwrap()
+    pub fn event_cache(&self) -> Option<&EventCache> {
+        self.inner.event_cache.get()
     }
 
-    /// The [`LatestEvents`] instance for this [`Client`].
-    pub async fn latest_events(&self) -> &LatestEvents {
-        self.inner
-            .latest_events
-            .get_or_init(|| async {
-                LatestEvents::new(
-                    WeakClient::from_client(self),
-                    self.event_cache().clone(),
-                    SendQueue::new(self.clone()),
-                    self.room_info_notable_update_receiver(),
-                )
-            })
-            .await
+    /// The [`LatestEvents`] instance for this [`Client`], if the [`EventCache`]
+    /// is enabled.
+    pub async fn latest_events(&self) -> Option<&LatestEvents> {
+        if let Some(event_cache) = self.event_cache() {
+            Some(
+                self.inner
+                    .latest_events
+                    .get_or_init(|| async {
+                        LatestEvents::new(
+                            WeakClient::from_client(self),
+                            event_cache.clone(),
+                            SendQueue::new(self.clone()),
+                            self.room_info_notable_update_receiver(),
+                        )
+                    })
+                    .await,
+            )
+        } else {
+            None
+        }
     }
 
     /// Waits until an at least partially synced room is received, and returns
@@ -4385,7 +4394,6 @@ pub(crate) mod tests {
     #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_disabled_event_cache_is_inherited_by_notification_client() {
-        let room_id = room_id!("!r0");
         let server = MatrixMockServer::new().await;
         let client = server
             .client_builder()
@@ -4394,32 +4402,8 @@ pub(crate) mod tests {
             .await;
         let notification_client =
             client.notification_client(CrossProcessLockConfig::SingleProcess).await.unwrap();
-        assert!(!notification_client.event_cache().is_enabled());
-
-        let generic_updates = client.event_cache().subscribe_to_room_generic_updates();
-
-        let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
-        let room = server
-            .sync_room(
-                &notification_client,
-                JoinedRoomBuilder::new(room_id).add_timeline_event(f.text_msg("hello")),
-            )
-            .await;
-
-        // Neither the event cache nor the latest events have been fed.
-        assert!(generic_updates.is_empty());
-        assert!(notification_client.inner.latest_events.get().is_none());
-
-        // Nothing holds onto the notification client nor its parent after a
-        // sync.
-        drop(room);
-        let weak_notification_client = WeakClient::from_client(&notification_client);
-        let weak_client = WeakClient::from_client(&client);
-        drop(notification_client);
-        drop(client);
-        sleep(Duration::from_millis(100)).await;
-        assert_eq!(weak_notification_client.strong_count(), 0);
-        assert_eq!(weak_client.strong_count(), 0);
+        assert!(client.event_cache().is_none());
+        assert!(notification_client.event_cache().is_none());
     }
 
     #[async_test]
@@ -4881,7 +4865,7 @@ pub(crate) mod tests {
             client.inner.base_client.receive_sync_response(response).await.unwrap();
 
             let (_room_event_cache, _drop_handles) =
-                client.get_room(room_id).unwrap().event_cache().await.unwrap();
+                client.event_cache().unwrap().room(room_id).await.unwrap();
         }
 
         drop(client);

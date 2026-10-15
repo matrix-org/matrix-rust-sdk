@@ -272,8 +272,8 @@ impl ClientBuilder {
     /// Tell the client that the system is memory constrained, like in a push
     /// notification process for example.
     ///
-    /// It disables the event cache and the latest events, see
-    /// `matrix_sdk::ClientBuilder::with_enable_event_cache`.
+    /// It disables the Event Cache and the Latest Events, see
+    /// [`matrix_sdk::ClientBuilder::with_enable_event_cache`].
     pub fn system_is_memory_constrained(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.system_is_memory_constrained = true;
