@@ -207,11 +207,11 @@ impl TestTimeline {
 
     async fn handle_read_receipts(
         &self,
-        receipts: impl IntoIterator<Item = (OwnedEventId, ReceiptType, OwnedUserId, ReceiptThread)>,
+        receipts: impl IntoIterator<Item = (OwnedEventId, ReceiptType, User, ReceiptThread)>,
     ) {
         let mut read_receipt = self.factory.read_receipts();
-        for (event_id, tyype, user_id, thread) in receipts {
-            read_receipt = read_receipt.add(&event_id, &user_id, tyype, thread);
+        for (event_id, tyype, user, thread) in receipts {
+            read_receipt = read_receipt.add(&event_id, user, tyype, thread);
         }
         let ev_content = read_receipt.into_content();
         self.controller.handle_read_receipts(ev_content).await;
