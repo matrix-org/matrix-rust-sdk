@@ -1,0 +1,3 @@
+`SessionVerificationControllerDelegate::did_accept_verification_request` is now only
+called when the other side accepted a verification request we sent, not when we accept
+an incoming one.
