@@ -4397,7 +4397,7 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server
             .client_builder()
-            .on_builder(|builder| builder.with_enable_event_cache(false))
+            .on_builder(|builder| builder.with_event_cache(false))
             .build()
             .await;
         let notification_client =
