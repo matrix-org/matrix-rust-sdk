@@ -29,7 +29,7 @@ use matrix_sdk::{
     event_cache::PaginationStatus,
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
-use matrix_sdk_test::{ALICE, JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{AnyOtherStateEventContentChange, RoomExt, TimelineItemContent};
 use ruma::{
     EventId,
@@ -188,7 +188,7 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
 
     assert_eq!(initial_pagination_status, PaginationStatus::Idle { hit_timeline_start: false });
 
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     server
         .mock_room_messages()
         .ok(RoomMessagesResponseTemplate::default().events({
