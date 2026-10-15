@@ -101,6 +101,8 @@ unstable-msc4388 = []
 # Add support for user status profile fields (m.status, m.call).
 unstable-msc4426 = ["matrix-sdk-base/unstable-msc4426"]
 
+unstable-msc4560 = ["ruma/unstable-msc4560"]
+
 experimental-search = ["matrix-sdk-search"]
 
 experimental-element-recent-emojis = ["matrix-sdk-base/experimental-element-recent-emojis"]

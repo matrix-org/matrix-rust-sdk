@@ -73,9 +73,12 @@ pub use client::homeserver_capabilities::HomeserverCapabilities;
 #[cfg(feature = "experimental-search")]
 pub mod search_index;
 pub use client::{
-    Client, ClientBuildError, ClientBuilder, LoopCtrl, ServerVendorInfo, SessionChange, StoreSizes,
-    TileServerInfo, ToDeviceMessage, sanitize_server_name,
+    Client, ClientBuildError, ClientBuilder, LoopCtrl,
+    ServerVendorInfo, SessionChange, StoreSizes, TileServerInfo, ToDeviceMessage,
+    sanitize_server_name,
 };
+#[cfg(feature = "unstable-msc4560")]
+pub use client::{RoomStrippedState, RoomStrippedStateVia};
 pub use error::{
     BeaconError, Error, HttpError, HttpResult, NotificationSettingsError, RefreshTokenError,
     Result, RumaApiError,
