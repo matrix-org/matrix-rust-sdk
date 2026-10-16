@@ -227,6 +227,14 @@ impl ReadReceiptsState {
             // Remove the old receipt from the old event.
             if let Some(old_event_id) = old_event_id.cloned() {
                 self.remove_event_receipt_for_user(&old_event_id, new_receipt.user_id);
+
+                if old_item_event_id.is_none() && new_item_event_id.is_some() {
+                    // The old receipt has no item, but a stale one may show it.
+                    ReadReceiptTimelineUpdate::remove_receipt_from_any_item(
+                        timeline_items,
+                        new_receipt.user_id,
+                    );
+                }
             }
 
             // Add the new receipt to the new event.
@@ -369,8 +377,9 @@ impl ReadReceiptsState {
             }
         }
 
-        // Steal hidden receipts from the previous timeline item, if it carried
-        // them.
+        // Steal hidden receipts, and this event's own receipts, from the
+        // previous timeline item, which carried them while this event had no
+        // item.
         if let Some((prev_event_id, prev_item_index)) = prev_event_and_item_index {
             let prev_item = &timeline_items[prev_item_index];
             // Technically, we could unwrap the `as_event()`, because this is a
@@ -378,7 +387,8 @@ impl ReadReceiptsState {
             // check is cheap.
             if let Some(remote_prev_item) = prev_item.as_event() {
                 let prev_receipts = remote_prev_item.read_receipts().clone();
-                for (user_id, _) in &hidden {
+                for user_id in hidden.iter().map(|(user_id, _)| user_id).chain(all_receipts.keys())
+                {
                     if !prev_receipts.contains_key(user_id) {
                         continue;
                     }
@@ -425,6 +435,29 @@ struct ReadReceiptTimelineUpdate {
 }
 
 impl ReadReceiptTimelineUpdate {
+    /// Remove the user's receipt from any remote item showing it.
+    ///
+    /// This is a full scan, for when the expected item is unknown or wrong.
+    fn remove_receipt_from_any_item(items: &mut ObservableItemsTransaction<'_>, user_id: &UserId) {
+        let Some((item_pos, event_item_id, mut event_item)) =
+            items.iter_remotes_region().rev().find_map(|(nth, item)| {
+                let event_item = item.as_event()?;
+                event_item
+                    .read_receipts()
+                    .contains_key(user_id)
+                    .then(|| (nth, item.unique_id().to_owned(), event_item.clone()))
+            })
+        else {
+            return;
+        };
+
+        if let Some(remote_event_item) = event_item.as_remote_mut() {
+            remote_event_item.read_receipts.swap_remove(user_id);
+            trace!(%user_id, "removed stray read receipt from event item");
+            items.replace(item_pos, TimelineItem::new(event_item, event_item_id));
+        }
+    }
+
     /// Remove the old receipt from the corresponding timeline item.
     #[instrument(skip_all)]
     fn remove_old_receipt(&mut self, items: &mut ObservableItemsTransaction<'_>, user_id: &UserId) {
@@ -465,6 +498,8 @@ impl ReadReceiptTimelineUpdate {
                     "inconsistent state: old event item for user's read \
                      receipt doesn't have a receipt for the user"
                 );
+                Self::remove_receipt_from_any_item(items, user_id);
+                return;
             }
             trace!(%user_id, %event_id, "removed read receipt from event item");
             items.replace(item_pos, TimelineItem::new(event_item, event_item_id));

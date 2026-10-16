@@ -15,12 +15,13 @@
 use std::{assert_matches, sync::Arc};
 
 use eyeball_im::VectorDiff;
+use imbl::vector;
 use matrix_sdk::assert_next_with_timeout;
 use matrix_sdk_test::{
     ALICE, BOB, CAROL, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
 };
 use ruma::{
-    event_id,
+    OwnedEventId, UserId, event_id,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
@@ -36,7 +37,8 @@ use super::{ReadReceiptMap, TestRoomDataProvider};
 use crate::timeline::{
     MsgLikeContent, MsgLikeKind, RoomExt, TimelineFocus, TimelineReadReceiptTracking,
     controller::TimelineSettings,
-    tests::{TestTimelineBuilder, encryption::get_client},
+    event_item::RemoteEventOrigin,
+    tests::{TestTimeline, TestTimelineBuilder, encryption::get_client},
 };
 
 fn filter_notice(ev: &AnySyncTimelineEvent, _rules: &RoomVersionRules) -> bool {
@@ -949,4 +951,183 @@ async fn test_unthreaded_client_updates_threaded_read_receipts() {
     assert!(event_b.read_receipts().get(&User::Bob).is_some());
 
     assert_pending!(stream);
+}
+
+/// Returns the IDs of the events whose items show a read receipt of `user_id`.
+async fn items_with_receipt_of(timeline: &TestTimeline, user_id: &UserId) -> Vec<OwnedEventId> {
+    timeline
+        .controller
+        .items()
+        .await
+        .iter()
+        .filter_map(|item| item.as_event())
+        .filter(|event| event.read_receipts().contains_key(user_id))
+        .filter_map(|event| event.event_id().map(ToOwned::to_owned))
+        .collect()
+}
+
+/// Build a timeline with a visible `$a`, followed by a hidden notice `$h`
+/// holding Bob's receipt, so Bob's receipt is shown on `$a`.
+async fn timeline_with_receipt_on_hidden_event() -> TestTimeline {
+    let timeline = TestTimelineBuilder::new()
+        .settings(TimelineSettings {
+            track_read_receipts: TimelineReadReceiptTracking::AllEvents,
+            event_filter: Arc::new(filter_notice),
+            ..Default::default()
+        })
+        .build()
+        .await;
+    let f = &timeline.factory;
+
+    timeline
+        .handle_event_update(
+            vec![VectorDiff::Append {
+                values: vector![
+                    f.text_msg("A").sender(*ALICE).event_id(event_id!("$a")).into_event(),
+                    f.notice("H").sender(*CAROL).event_id(event_id!("$h")).into_event(),
+                ],
+            }],
+            RemoteEventOrigin::Sync,
+        )
+        .await;
+    timeline
+        .handle_read_receipts([(
+            owned_event_id!("$h"),
+            ReceiptType::Read,
+            BOB.to_owned(),
+            ReceiptThread::Unthreaded,
+        )])
+        .await;
+
+    assert_eq!(items_with_receipt_of(&timeline, *BOB).await, [owned_event_id!("$a")]);
+
+    timeline
+}
+
+#[async_test]
+async fn test_read_receipt_moves_when_hidden_event_becomes_visible() {
+    let timeline = timeline_with_receipt_on_hidden_event().await;
+    let f = &timeline.factory;
+
+    // `$h` is replaced by a visible version of itself, which now shows Bob's
+    // receipt.
+    timeline
+        .handle_event_update(
+            vec![
+                VectorDiff::Remove { index: 1 },
+                VectorDiff::Insert {
+                    index: 1,
+                    value: f.text_msg("H").sender(*CAROL).event_id(event_id!("$h")).into_event(),
+                },
+            ],
+            RemoteEventOrigin::Sync,
+        )
+        .await;
+
+    // The receipts must have left `$a`.
+    assert_eq!(items_with_receipt_of(&timeline, *BOB).await, [owned_event_id!("$h")]);
+    assert_eq!(items_with_receipt_of(&timeline, *CAROL).await, [owned_event_id!("$h")]);
+}
+
+#[async_test]
+async fn test_read_receipt_update_after_carrier_is_lost() {
+    let timeline = timeline_with_receipt_on_hidden_event().await;
+    let f = &timeline.factory;
+
+    // `$h` moves before `$a`: no visible event precedes it anymore, but `$a`
+    // still shows Bob's receipt.
+    timeline
+        .handle_event_update(
+            vec![
+                VectorDiff::Remove { index: 1 },
+                VectorDiff::Insert {
+                    index: 0,
+                    value: f.notice("H").sender(*CAROL).event_id(event_id!("$h")).into_event(),
+                },
+            ],
+            RemoteEventOrigin::Sync,
+        )
+        .await;
+
+    timeline.handle_live_event(f.text_msg("C").sender(*ALICE).event_id(event_id!("$c"))).await;
+    timeline
+        .handle_read_receipts([(
+            owned_event_id!("$c"),
+            ReceiptType::Read,
+            BOB.to_owned(),
+            ReceiptThread::Unthreaded,
+        )])
+        .await;
+
+    // The receipt must have left `$a`.
+    assert_eq!(items_with_receipt_of(&timeline, *BOB).await, [owned_event_id!("$c")]);
+}
+
+#[async_test]
+async fn test_read_receipt_update_after_receipt_event_is_removed() {
+    let timeline = timeline_with_receipt_on_hidden_event().await;
+    let f = &timeline.factory;
+
+    // `$h` leaves the timeline, but `$a` still shows Bob's receipt.
+    timeline
+        .handle_event_update(vec![VectorDiff::Remove { index: 1 }], RemoteEventOrigin::Sync)
+        .await;
+
+    timeline.handle_live_event(f.text_msg("C").sender(*ALICE).event_id(event_id!("$c"))).await;
+    timeline
+        .handle_read_receipts([(
+            owned_event_id!("$c"),
+            ReceiptType::Read,
+            BOB.to_owned(),
+            ReceiptThread::Unthreaded,
+        )])
+        .await;
+
+    // The receipt must have left `$a`.
+    assert_eq!(items_with_receipt_of(&timeline, *BOB).await, [owned_event_id!("$c")]);
+}
+
+#[async_test]
+async fn test_read_receipt_update_after_carrier_is_stale() {
+    let timeline = timeline_with_receipt_on_hidden_event().await;
+    let f = &timeline.factory;
+
+    // `$x` comes before `$a`.
+    timeline
+        .handle_event_update(
+            vec![VectorDiff::Insert {
+                index: 0,
+                value: f.text_msg("X").sender(*ALICE).event_id(event_id!("$x")).into_event(),
+            }],
+            RemoteEventOrigin::Sync,
+        )
+        .await;
+
+    // `$h` moves between `$x` and `$a`: its receipt should be shown on `$x`,
+    // but `$a` still shows it.
+    timeline
+        .handle_event_update(
+            vec![
+                VectorDiff::Remove { index: 2 },
+                VectorDiff::Insert {
+                    index: 1,
+                    value: f.notice("H").sender(*CAROL).event_id(event_id!("$h")).into_event(),
+                },
+            ],
+            RemoteEventOrigin::Sync,
+        )
+        .await;
+
+    timeline.handle_live_event(f.text_msg("C").sender(*ALICE).event_id(event_id!("$c"))).await;
+    timeline
+        .handle_read_receipts([(
+            owned_event_id!("$c"),
+            ReceiptType::Read,
+            BOB.to_owned(),
+            ReceiptThread::Unthreaded,
+        )])
+        .await;
+
+    // The receipt must have left `$a`.
+    assert_eq!(items_with_receipt_of(&timeline, *BOB).await, [owned_event_id!("$c")]);
 }
