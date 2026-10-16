@@ -7,14 +7,15 @@ use matrix_sdk_test::async_test;
 use oauth2::{ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope};
 use ruma::{
     DeviceId, ServerName, api::client::discovery::get_authorization_server_metadata::v1::Prompt,
-    device_id, owned_device_id, user_id,
+    device_id, owned_device_id, serde::Raw, user_id,
 };
 use tokio::sync::broadcast::error::TryRecvError;
 use url::Url;
 
 use super::{
-    AuthorizationCode, AuthorizationError, AuthorizationResponse, OAuth, OAuthAuthorizationData,
-    OAuthError, RedirectUriQueryParseError,
+    AuthorizationCode, AuthorizationError, AuthorizationResponse, DeviceCodeLoginError, OAuth,
+    OAuthAuthorizationData, OAuthError, RedirectUriQueryParseError,
+    registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
 };
 use crate::{
     Client, Error, SessionChange,
@@ -830,4 +831,245 @@ async fn test_client_registration_data() {
 
     oauth.use_registration_data(&server_metadata, Some(&client_metadata.into())).await.unwrap();
     assert_eq!(oauth.client_id().map(|id| id.as_str()), Some("test_client_id"));
+}
+
+/// Find the value of the given key in the URL-encoded form body of the given
+/// request.
+fn form_value(request: &wiremock::Request, key: &str) -> Option<String> {
+    url::form_urlencoded::parse(&request.body).find_map(|(k, v)| (k == key).then(|| v.into_owned()))
+}
+
+#[async_test]
+async fn test_login_with_device_code() -> anyhow::Result<()> {
+    // Ensure that logging in with a device code works as intended when no error
+    // happens: the client is registered with the device code grant type, the
+    // codes to show to the user are returned, and finishing the login polls the
+    // token endpoint until the user approves the login, then loads the session.
+    let server = MatrixMockServer::new().await;
+    let oauth_server = server.oauth();
+
+    oauth_server.mock_server_metadata().ok().expect(1).named("server_metadata").mount().await;
+    oauth_server.mock_registration().ok().expect(1).named("registration").mount().await;
+    oauth_server
+        .mock_device_authorization()
+        .ok_with_interval(0)
+        .expect(1)
+        .named("device_authorization")
+        .mount()
+        .await;
+    server.mock_who_am_i().ok().expect(1).named("whoami").mount().await;
+
+    // Polling the token endpoint is pending once, then the user approves the
+    // login.
+    oauth_server
+        .mock_token()
+        .authorization_pending()
+        .mock_once()
+        .named("token_pending")
+        .mount()
+        .await;
+    oauth_server.mock_token().ok().expect(1).named("token").mount().await;
+
+    let client = server.client_builder().unlogged().build().await;
+    let oauth = client.oauth();
+
+    // Use client metadata that doesn't declare the device code grant type, it
+    // should be added automatically.
+    let client_metadata = Raw::new(&ClientMetadata::new(
+        ApplicationType::Native,
+        vec![OAuthGrantType::AuthorizationCode { redirect_uris: vec![mock_redirect_uri()] }],
+        Localized::new(Url::parse("https://github.com/matrix-org/matrix-rust-sdk")?, None),
+    ))?;
+
+    let device_id = owned_device_id!("D3V1C31D");
+    let additional_scope = Scope::new("urn:matrix:client:com.example.msc9999.foo".to_owned());
+
+    let login = oauth
+        .login_with_device_code(
+            Some(device_id.clone()),
+            Some(client_metadata.into()),
+            Some(vec![additional_scope.clone()]),
+        )
+        .await?;
+
+    // The codes to show to the user are available.
+    assert_eq!(login.device_id(), device_id);
+    assert_eq!(login.verification_uri().path(), "/link");
+    assert_eq!(login.verification_uri_complete().and_then(|uri| uri.query()), Some("code=N32YVC"));
+    assert_eq!(login.user_code(), "N32YVC");
+    assert_eq!(login.expires_in(), Duration::from_secs(1200));
+
+    // The token endpoint is only polled when finishing the login.
+    let requests = server.server().received_requests().await.context("missing requests")?;
+    assert!(!requests.iter().any(|request| request.url.path() == "/oauth2/token"));
+    assert!(client.session_meta().is_none());
+
+    login.finish().await?;
+
+    // The client is logged in with the right session.
+    assert_eq!(oauth.client_id().map(|id| id.as_str()), Some("test_client_id"));
+    let session_meta = client.session_meta().context("missing session meta")?;
+    assert_eq!(session_meta.user_id, user_id!("@joe:example.org"));
+    assert_eq!(session_meta.device_id, device_id);
+    let session_tokens = client.session_tokens().context("missing session tokens")?;
+    assert_eq!(session_tokens.access_token, "1234");
+    assert_eq!(session_tokens.refresh_token.as_deref(), Some("ZYXWV"));
+
+    let requests = server.server().received_requests().await.context("missing requests")?;
+
+    // The device code grant type was added to the registration metadata.
+    let registration_request = requests
+        .iter()
+        .find(|request| request.url.path() == "/oauth2/registration")
+        .context("missing registration request")?;
+    let registration_body: serde_json::Value = registration_request.body_json()?;
+    let grant_types = registration_body["grant_types"].as_array().context("missing grant_types")?;
+    assert!(grant_types.contains(&"authorization_code".into()));
+    assert!(grant_types.contains(&"urn:ietf:params:oauth:grant-type:device_code".into()));
+
+    // The requested scopes contain the device ID and the additional scope.
+    let device_authorization_request = requests
+        .iter()
+        .find(|request| request.url.path() == "/oauth2/device")
+        .context("missing device authorization request")?;
+    let scopes = form_value(device_authorization_request, "scope").context("missing scope")?;
+    let scopes = scopes.split(' ').collect::<Vec<_>>();
+    assert!(scopes.contains(&"urn:matrix:client:api:*"));
+    assert!(scopes.contains(&format!("urn:matrix:client:device:{device_id}").as_str()));
+    assert!(scopes.contains(&additional_scope.as_str()));
+
+    // The token endpoint was polled with the device code.
+    let token_requests =
+        requests.iter().filter(|request| request.url.path() == "/oauth2/token").collect::<Vec<_>>();
+    assert_eq!(token_requests.len(), 2);
+    for request in token_requests {
+        assert_eq!(
+            form_value(request, "grant_type").as_deref(),
+            Some("urn:ietf:params:oauth:grant-type:device_code")
+        );
+        assert_eq!(
+            form_value(request, "device_code").as_deref(),
+            Some("N8NAYD9fOhMulpm37mSthx0xSw2p7vdR")
+        );
+    }
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_login_with_device_code_generated_device_id() -> anyhow::Result<()> {
+    // Ensure that a device ID is generated when none is provided, and that it
+    // is the one used in the requested scopes and in the session.
+    let server = MatrixMockServer::new().await;
+    let oauth_server = server.oauth();
+
+    oauth_server.mock_server_metadata().ok().expect(1).mount().await;
+    oauth_server.mock_device_authorization().ok_with_interval(0).expect(1).mount().await;
+    oauth_server.mock_token().ok().expect(1).mount().await;
+    server.mock_who_am_i().ok().expect(1).mount().await;
+
+    // The client is already registered, so no registration data is necessary.
+    let client = server.client_builder().registered_with_oauth().build().await;
+    let oauth = client.oauth();
+
+    let login = oauth.login_with_device_code(None, None, None).await?;
+    let device_id = login.device_id().to_owned();
+
+    login.finish().await?;
+
+    // The generated device ID is the one used in the session and in the scope.
+    let session_meta = client.session_meta().context("missing session meta")?;
+    assert_eq!(session_meta.device_id, device_id);
+
+    let requests = server.server().received_requests().await.context("missing requests")?;
+    let device_authorization_request = requests
+        .iter()
+        .find(|request| request.url.path() == "/oauth2/device")
+        .context("missing device authorization request")?;
+    let scopes = form_value(device_authorization_request, "scope").context("missing scope")?;
+    assert!(
+        scopes.split(' ').any(|scope| scope == format!("urn:matrix:client:device:{device_id}"))
+    );
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_login_with_device_code_access_denied() {
+    // Ensure that the login fails and no session is set up when the user denies
+    // the authorization.
+    let server = MatrixMockServer::new().await;
+    let oauth_server = server.oauth();
+
+    oauth_server.mock_server_metadata().ok().expect(1).mount().await;
+    oauth_server.mock_device_authorization().ok_with_interval(0).expect(1).mount().await;
+    oauth_server.mock_token().access_denied().expect(1).mount().await;
+
+    let client = server.client_builder().registered_with_oauth().build().await;
+
+    let login = client.oauth().login_with_device_code(None, None, None).await.unwrap();
+    let res = login.finish().await;
+
+    assert_matches!(res, Err(DeviceCodeLoginError::AccessDenied));
+    assert!(client.session_meta().is_none());
+    assert!(client.session_tokens().is_none());
+}
+
+#[async_test]
+async fn test_login_with_device_code_expired_token() {
+    // Ensure that the login fails and no session is set up when the device code
+    // expires before the user grants the authorization.
+    let server = MatrixMockServer::new().await;
+    let oauth_server = server.oauth();
+
+    oauth_server.mock_server_metadata().ok().expect(1).mount().await;
+    oauth_server.mock_device_authorization().ok_with_interval(0).expect(1).mount().await;
+    oauth_server.mock_token().authorization_pending().mock_once().mount().await;
+    oauth_server.mock_token().expired_token().expect(1).mount().await;
+
+    let client = server.client_builder().registered_with_oauth().build().await;
+
+    let login = client.oauth().login_with_device_code(None, None, None).await.unwrap();
+    let res = login.finish().await;
+
+    assert_matches!(res, Err(DeviceCodeLoginError::ExpiredToken));
+    assert!(client.session_meta().is_none());
+    assert!(client.session_tokens().is_none());
+}
+
+#[async_test]
+async fn test_login_with_device_code_no_device_authorization_endpoint() {
+    // Ensure that the login fails early, before registering the client, when
+    // the server doesn't support the device authorization grant.
+    let server = MatrixMockServer::new().await;
+    let oauth_server = server.oauth();
+
+    oauth_server.mock_server_metadata().ok_without_device_authorization().expect(1).mount().await;
+
+    let client = server.client_builder().unlogged().build().await;
+    let oauth = client.oauth();
+
+    let res = oauth.login_with_device_code(None, Some(mock_client_metadata().into()), None).await;
+
+    assert_matches!(res, Err(DeviceCodeLoginError::NoDeviceAuthorizationEndpoint));
+    // The login failed before trying to register the client.
+    assert!(oauth.client_id().is_none());
+    assert!(client.session_meta().is_none());
+}
+
+#[async_test]
+async fn test_login_with_device_code_not_registered() {
+    // Ensure that the login fails when the client is not registered and no
+    // registration data is provided.
+    let server = MatrixMockServer::new().await;
+    let oauth_server = server.oauth();
+
+    oauth_server.mock_server_metadata().ok().expect(1).mount().await;
+
+    let client = server.client_builder().unlogged().build().await;
+
+    let res = client.oauth().login_with_device_code(None, None, None).await;
+
+    assert_matches!(res, Err(DeviceCodeLoginError::NotRegistered));
+    assert!(client.session_meta().is_none());
 }
