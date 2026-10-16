@@ -63,6 +63,10 @@ pub enum RoomListError {
          observed {actual:?}"
     )]
     IncorrectRoomMembership { expected: Vec<Membership>, actual: Membership },
+    #[error("sliding sync stopped")]
+    SlidingSyncStopped,
+    #[error("the operation timed out")]
+    Timeout,
 }
 
 impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
@@ -74,6 +78,8 @@ impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
             UnknownList(list_name) => Self::UnknownList { list_name },
             RoomNotFound(room_id) => Self::RoomNotFound { room_name: room_id.to_string() },
             EventCache(error) => Self::EventCache { error: error.to_string() },
+            SlidingSyncStopped => Self::SlidingSyncStopped,
+            Timeout => Self::Timeout,
         }
     }
 }
@@ -115,6 +121,21 @@ impl RoomListService {
             room_list_service: self.clone(),
             inner: Arc::new(self.inner.all_rooms().await.map_err(RoomListError::from)?),
         }))
+    }
+
+    /// Whether the user has joined at least one encrypted room, spaces
+    /// excluded.
+    ///
+    /// This waits for the first sync of the room list, so the sync of the
+    /// service needs to be running. If no response has arrived once
+    /// `timeout_ms` milliseconds have elapsed, this fails with
+    /// [`RoomListError::Timeout`]. A timeout means the encryption state is
+    /// unknown: treat it as “maybe encrypted”, not as “not encrypted”.
+    async fn has_encrypted_rooms(&self, timeout_ms: u32) -> Result<bool, RoomListError> {
+        self.inner
+            .has_encrypted_rooms(Duration::from_millis(timeout_ms.into()))
+            .await
+            .map_err(RoomListError::from)
     }
 
     fn sync_indicator(

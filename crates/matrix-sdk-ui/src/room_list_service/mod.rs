@@ -60,7 +60,7 @@ use std::{pin::pin, sync::Arc, time::Duration};
 
 use async_stream::stream;
 use eyeball::Subscriber;
-use futures_util::{Stream, StreamExt};
+use futures_util::{Stream, StreamExt, future::ready};
 use matrix_sdk::{
     Client, Error as SlidingSyncError, Room, SlidingSync, SlidingSyncList, SlidingSyncMode,
     event_cache::EventCacheError, sliding_sync::PollTimeout, timeout::timeout,
@@ -68,7 +68,7 @@ use matrix_sdk::{
 pub use room_list::*;
 use ruma::{
     OwnedRoomId, RoomId, UInt, api::client::sync::sync_events::v5 as http, assign,
-    events::StateEventType,
+    directory::RoomTypeFilter, events::StateEventType,
 };
 pub use state::*;
 use thiserror::Error;
@@ -276,6 +276,22 @@ impl RoomListService {
             )
             .await
             .map_err(Error::SlidingSync)?
+            // Required for server-authoritative `has_encrypted_rooms` to work. See
+            // `RoomListService::has_encrypted_rooms`.
+            .add_cached_list(
+                SlidingSyncList::builder(ENCRYPTED_ROOMS_LIST_NAME)
+                    // Only fetch the first room ...
+                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=0))
+                    // ... and don't bother fetching any events.
+                    .timeline_limit(0)
+                    .filters(Some(assign!(http::request::ListFilters::default(), {
+                        is_encrypted: Some(true),
+                        is_invite: Some(false),
+                        not_room_types: vec![RoomTypeFilter::Space]
+                    }))),
+            )
+            .await
+            .map_err(Error::SlidingSync)?
             .build()
             .await
             .map(Arc::new)
@@ -476,6 +492,79 @@ impl RoomListService {
         self.list_for(ALL_ROOMS_LIST_NAME).await
     }
 
+    /// Whether the user has joined at least one encrypted room.
+    ///
+    /// Spaces, as well as invited, knocked and left rooms, aren't taken into
+    /// account.
+    ///
+    /// The encryption state of the rooms is only reliably known once the
+    /// sliding sync has returned the first rooms. So this waits until the
+    /// [`RoomList`] of all the rooms is [`RoomListLoadingState::Loaded`]
+    /// before looking at them. This means that the sync of the
+    /// [`RoomListService`] needs to be running, see [`RoomListService::sync`].
+    /// If no response has arrived once `wait` has elapsed, this fails with
+    /// [`Error::Timeout`].
+    ///
+    /// A joined room whose encryption state is still unknown is considered to
+    /// be encrypted. It's better for the caller to be cautious about the user
+    /// losing access to messages than to wrongly reassure them.
+    pub async fn has_encrypted_rooms(&self, wait: Duration) -> Result<bool, Error> {
+        // Ask the cache first to avoid waiting for the SS response on
+        // subsequent calls.
+        if self.client.joined_rooms().iter().any(|room| {
+            if room.is_space() {
+                return false;
+            }
+            let state = room.encryption_state();
+            state.is_encrypted() || state.is_unknown()
+        }) {
+            return Ok(true);
+        }
+
+        // Subscribe to updates on the encrypted rooms list.
+        let (snapshot, stream) = self
+            .sliding_sync
+            .on_list(ENCRYPTED_ROOMS_LIST_NAME, |list| {
+                ready((list.maximum_number_of_rooms(), list.maximum_number_of_rooms_stream()))
+            })
+            .await
+            // Safety: All constructors of `RoomListService` add `ENCRYPTED_ROOMS_LIST_NAME` to the
+            // sliding sync instance.
+            .unwrap();
+
+        // Check the latest count snapshot, since the SS response could have
+        // arrived after we checked the cache but before we subscribed.
+        if let Some(count) = snapshot {
+            return Ok(count > 0);
+        }
+
+        // Subscribe to state updates so we can bail out below.
+        let mut cancelled_stream = self
+            .state()
+            .filter(|s| ready(matches!(s, State::Error { .. } | State::Terminated { .. })));
+
+        // Check if we should bail out now.
+        if matches!(self.state_machine.get(), State::Error { .. } | State::Terminated { .. }) {
+            return Err(Error::SlidingSyncStopped);
+        }
+
+        // Filter for valid counts, since the bail out stream will handle that
+        // for us.
+        let mut count_stream = stream.filter_map(ready);
+
+        timeout(
+            async {
+                tokio::select! {
+                    count = count_stream.next() => count.map(|count| count > 0).ok_or(Error::SlidingSyncStopped),
+                    _ = cancelled_stream.next() => Err(Error::SlidingSyncStopped),
+                }
+            },
+            wait,
+        )
+        .await
+        .map_err(|_| Error::Timeout)?
+    }
+
     /// Get a [`Room`] if it exists.
     pub fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
         self.client.get_room(room_id).ok_or_else(|| Error::RoomNotFound(room_id.to_owned()))
@@ -578,6 +667,14 @@ pub enum Error {
     /// Error from [`matrix_sdk::SlidingSync`].
     #[error(transparent)]
     SlidingSync(SlidingSyncError),
+
+    /// The sliding sync instance was stopped while an operation was in flight.
+    #[error("Sliding Sync instance was stopped while an operation was in flight")]
+    SlidingSyncStopped,
+
+    /// An operation timed out before the sliding sync could provide an answer.
+    #[error("The operation timed out")]
+    Timeout,
 
     /// An operation has been requested on an unknown list.
     #[error("Unknown list `{0}`")]
