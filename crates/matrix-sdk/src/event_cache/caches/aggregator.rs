@@ -22,7 +22,7 @@ use ruma::{
     OwnedEventId,
     events::{
         AnySyncEphemeralRoomEvent,
-        receipt::{ReceiptEventContent, ReceiptThread, Receipts},
+        receipt::{ReceiptThread, Receipts},
         relation::RelationType,
     },
     room_version_rules::RedactionRules,
@@ -195,8 +195,7 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
             .entry(thread_root.to_owned())
             .or_insert_with(default_entry)
             .1
-            .get_or_insert_with(|| ReceiptEventContent(BTreeMap::new()))
-            .insert(read_receipt_event_id.clone(), read_receipt_event);
+            .add(read_receipt_event_id.clone(), read_receipt_event);
     }
 
     Ok(new_events_by_thread)

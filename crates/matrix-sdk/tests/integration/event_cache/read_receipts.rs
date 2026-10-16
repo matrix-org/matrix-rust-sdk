@@ -701,20 +701,28 @@ async fn test_main_receipt_on_thread_root_next_to_threaded_receipt() {
 
     // Then, Alice reads the thread, and we read the room. Both receipts target
     // the thread root, and Alice's is the first one in the receipt content.
+    // Bob's unthreaded receipt on the thread root comes in a separate receipt
+    // event, and must not overwrite ours.
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id).add_receipt(
-                f.read_receipts()
-                    .add(
-                        thread_root,
-                        *ALICE,
-                        ReceiptType::Read,
-                        ReceiptThread::Thread(thread_root.to_owned()),
-                    )
-                    .add(thread_root, own_user_id, ReceiptType::Read, ReceiptThread::Main)
-                    .into_event(),
-            ),
+            JoinedRoomBuilder::new(room_id)
+                .add_receipt(
+                    f.read_receipts()
+                        .add(
+                            thread_root,
+                            *ALICE,
+                            ReceiptType::Read,
+                            ReceiptThread::Thread(thread_root.to_owned()),
+                        )
+                        .add(thread_root, own_user_id, ReceiptType::Read, ReceiptThread::Main)
+                        .into_event(),
+                )
+                .add_receipt(
+                    f.read_receipts()
+                        .add(thread_root, *BOB, ReceiptType::Read, ReceiptThread::Unthreaded)
+                        .into_event(),
+                ),
         )
         .await;
 
