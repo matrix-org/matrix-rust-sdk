@@ -39,7 +39,8 @@ use super::{
     EventCacheStore, EventCacheStoreError, MemoryStore, Result,
 };
 
-/// A [`MemoryStore`] whose linked chunk writes can be blocked.
+/// A [`MemoryStore`] whose linked chunk writes can be blocked, or made to
+/// fail.
 ///
 /// This is meant for tests that need to control when, or whether, the event
 /// cache persists its data: for instance to check what the rest of the SDK
@@ -51,12 +52,13 @@ use super::{
 pub struct ControlledMemoryStore {
     inner: MemoryStore,
     writes_blocked: Arc<AtomicBool>,
+    writes_failing: Arc<AtomicBool>,
     write_started: Arc<Notify>,
     write_finished: Arc<Notify>,
 }
 
 impl ControlledMemoryStore {
-    /// Create a new store, which doesn't block writes.
+    /// Create a new store, which neither blocks nor fails writes.
     pub fn new() -> Self {
         Self::default()
     }
@@ -74,6 +76,19 @@ impl ControlledMemoryStore {
         self.writes_blocked.store(false, Ordering::SeqCst);
     }
 
+    /// Make linked chunk writes fail with an [`EventCacheStoreError::Backend`]
+    /// error until [`Self::stop_failing_writes`] is called.
+    ///
+    /// A failing write doesn't touch the inner [`MemoryStore`].
+    pub fn fail_writes(&self) {
+        self.writes_failing.store(true, Ordering::SeqCst);
+    }
+
+    /// Make linked chunk writes succeed again.
+    pub fn stop_failing_writes(&self) {
+        self.writes_failing.store(false, Ordering::SeqCst);
+    }
+
     /// Wait until a linked chunk write starts.
     ///
     /// Returns at once if a write has started since the last call.
@@ -81,7 +96,7 @@ impl ControlledMemoryStore {
         self.write_started.notified().await;
     }
 
-    /// Wait until a linked chunk write finishes.
+    /// Wait until a linked chunk write finishes, with or without an error.
     ///
     /// Returns at once if a write has finished since the last call.
     pub async fn wait_for_write_to_finish(&self) {
@@ -106,7 +121,13 @@ impl EventCacheStore for ControlledMemoryStore {
             sleep(Duration::from_millis(10)).await;
         }
 
-        let result = self.inner.handle_linked_chunk_updates(linked_chunk_id, updates).await;
+        let result = if self.writes_failing.load(Ordering::SeqCst) {
+            Err(EventCacheStoreError::backend(std::io::Error::other(
+                "the event cache store is failing on purpose",
+            )))
+        } else {
+            self.inner.handle_linked_chunk_updates(linked_chunk_id, updates).await
+        };
 
         self.write_finished.notify_one();
 
