@@ -501,13 +501,14 @@ impl RoomListService {
     /// sliding sync has returned the first rooms. So this waits until the
     /// [`RoomList`] of all the rooms is [`RoomListLoadingState::Loaded`]
     /// before looking at them. This means that the sync of the
-    /// [`RoomListService`] needs to be running, see [`RoomListService::sync`],
-    /// otherwise this will wait indefinitely.
+    /// [`RoomListService`] needs to be running, see [`RoomListService::sync`].
+    /// If no response has arrived once `wait` has elapsed, this fails with
+    /// [`Error::Timeout`].
     ///
     /// A joined room whose encryption state is still unknown is considered to
     /// be encrypted. It's better for the caller to be cautious about the user
     /// losing access to messages than to wrongly reassure them.
-    pub async fn has_encrypted_rooms(&self) -> Result<bool, Error> {
+    pub async fn has_encrypted_rooms(&self, wait: Duration) -> Result<bool, Error> {
         // Ask the cache first to avoid waiting for the SS response on
         // subsequent calls.
         if self.client.joined_rooms().iter().any(|room| {
@@ -551,10 +552,17 @@ impl RoomListService {
         // for us.
         let mut count_stream = stream.filter_map(ready);
 
-        tokio::select! {
-            count = count_stream.next() => count.map(|count| count > 0).ok_or(Error::SlidingSyncStopped),
-            _ = cancelled_stream.next() => Err(Error::SlidingSyncStopped),
-        }
+        timeout(
+            async {
+                tokio::select! {
+                    count = count_stream.next() => count.map(|count| count > 0).ok_or(Error::SlidingSyncStopped),
+                    _ = cancelled_stream.next() => Err(Error::SlidingSyncStopped),
+                }
+            },
+            wait,
+        )
+        .await
+        .map_err(|_| Error::Timeout)?
     }
 
     /// Get a [`Room`] if it exists.
@@ -663,6 +671,10 @@ pub enum Error {
     /// The sliding sync instance was stopped while an operation was in flight.
     #[error("Sliding Sync instance was stopped while an operation was in flight")]
     SlidingSyncStopped,
+
+    /// An operation timed out before the sliding sync could provide an answer.
+    #[error("The operation timed out")]
+    Timeout,
 
     /// An operation has been requested on an unknown list.
     #[error("Unknown list `{0}`")]

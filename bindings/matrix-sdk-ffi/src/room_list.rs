@@ -65,6 +65,8 @@ pub enum RoomListError {
     IncorrectRoomMembership { expected: Vec<Membership>, actual: Membership },
     #[error("sliding sync stopped")]
     SlidingSyncStopped,
+    #[error("the operation timed out")]
+    Timeout,
 }
 
 impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
@@ -77,6 +79,7 @@ impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
             RoomNotFound(room_id) => Self::RoomNotFound { room_name: room_id.to_string() },
             EventCache(error) => Self::EventCache { error: error.to_string() },
             SlidingSyncStopped => Self::SlidingSyncStopped,
+            Timeout => Self::Timeout,
         }
     }
 }
@@ -124,9 +127,15 @@ impl RoomListService {
     /// excluded.
     ///
     /// This waits for the first sync of the room list, so the sync of the
-    /// service needs to be running.
-    async fn has_encrypted_rooms(&self) -> Result<bool, RoomListError> {
-        self.inner.has_encrypted_rooms().await.map_err(RoomListError::from)
+    /// service needs to be running. If no response has arrived once
+    /// `timeout_ms` milliseconds have elapsed, this fails with
+    /// [`RoomListError::Timeout`]. A timeout means the encryption state is
+    /// unknown: treat it as “maybe encrypted”, not as “not encrypted”.
+    async fn has_encrypted_rooms(&self, timeout_ms: u32) -> Result<bool, RoomListError> {
+        self.inner
+            .has_encrypted_rooms(Duration::from_millis(timeout_ms.into()))
+            .await
+            .map_err(RoomListError::from)
     }
 
     fn sync_indicator(

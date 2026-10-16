@@ -1222,7 +1222,7 @@ async fn has_encrypted_rooms_after_first_sync(
     let sync = room_list.sync();
     let mut sync = pin!(sync);
 
-    let has_encrypted_rooms = room_list.has_encrypted_rooms();
+    let has_encrypted_rooms = room_list.has_encrypted_rooms(Duration::from_secs(10));
     let mut has_encrypted_rooms = pin!(has_encrypted_rooms);
 
     // Nothing is known about the rooms before the first sync.
@@ -1373,7 +1373,7 @@ async fn test_has_encrypted_rooms_counts_unknown_encryption_as_encrypted() -> Re
 
     // Since we are calling `has_encrypted_rooms` after the first sync, we
     // should get a response immediately from the cache.
-    assert!(room_list.has_encrypted_rooms().await?);
+    assert!(room_list.has_encrypted_rooms(Duration::from_secs(10)).await?);
 
     Ok(())
 }
@@ -1401,6 +1401,19 @@ async fn test_has_encrypted_rooms_ignores_spaces() -> Result<(), Error> {
     .await?;
 
     assert!(!has_encrypted_rooms);
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_has_encrypted_rooms_times_out_if_no_sync_response_arrives() -> Result<(), Error> {
+    let (_client, _server, room_list) = new_room_list_service().await?;
+
+    // The sync is not running, so no sliding sync response will ever arrive:
+    // `has_encrypted_rooms` must give up once the given duration has elapsed.
+    let result = room_list.has_encrypted_rooms(Duration::from_millis(100)).await;
+
+    assert_matches!(result, Err(Error::Timeout));
 
     Ok(())
 }
