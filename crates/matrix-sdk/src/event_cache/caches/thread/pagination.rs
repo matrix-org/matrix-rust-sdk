@@ -40,31 +40,14 @@ use super::{
 };
 use crate::room::{IncludeRelations, RelationsOptions};
 
-/// Intermediate type because the `ThreadEventCache` state doesn't provide all
-/// the feature for the moment.
-// TODO: Remove this intermediate type.
-#[derive(Clone)]
-struct ThreadEventCacheWrapper {
-    cache: Arc<ThreadEventCacheInner>,
-
-    // Threads do not support pagination status for the moment but we need one,
-    // so let's use a dummy one for now.
-    dummy_pagination_status: SharedObservable<SharedPaginationStatus>,
-}
-
 /// An API object to run pagination queries on a `ThreadEventCache`.
 #[allow(missing_debug_implementations)]
-pub struct ThreadPagination(Pagination<ThreadEventCacheWrapper>);
+pub struct ThreadPagination(Pagination<Arc<ThreadEventCacheInner>>);
 
 impl ThreadPagination {
     /// Construct a new [`ThreadPagination`].
     pub(super) fn new(cache: Arc<ThreadEventCacheInner>) -> Self {
-        Self(Pagination::new(ThreadEventCacheWrapper {
-            cache,
-            dummy_pagination_status: SharedObservable::new(SharedPaginationStatus::Idle {
-                hit_timeline_start: false,
-            }),
-        }))
+        Self(Pagination::new(cache))
     }
 
     /// Starts a back-pagination for the requested number of events.
@@ -94,13 +77,13 @@ impl ThreadPagination {
     }
 }
 
-impl PaginatedCache for ThreadEventCacheWrapper {
+impl PaginatedCache for Arc<ThreadEventCacheInner> {
     fn status(&self) -> &SharedObservable<SharedPaginationStatus> {
-        &self.dummy_pagination_status
+        &self.shared_pagination_status
     }
 
     async fn load_more_events_backwards(&self) -> Result<LoadMoreEventsBackwardsOutcome> {
-        let mut state = self.cache.state.write().await?;
+        let mut state = self.state.write().await?;
 
         // If any in-memory chunk is a gap, don't load more events, and let the
         // caller resolve the gap.
@@ -110,6 +93,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             return Ok(LoadMoreEventsBackwardsOutcome::Gap {
                 prev_token: Some(prev_token),
                 waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
+                generation: state.thread_linked_chunk().generation(),
             });
         }
 
@@ -135,7 +119,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
                 // If the first in-memory event is the thread root, it's all
                 // good, we have effectively reached the start of the thread.
                 if let Some((_pos, first_event)) = state.thread_linked_chunk().events().next()
-                    && self.cache.thread_id
+                    && self.thread_id
                         == first_event.event_id().expect("Stored events all have an ID")
                 {
                     trace!("thread chunk is fully loaded and non-empty: reached_start=true");
@@ -147,6 +131,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
                 return Ok(LoadMoreEventsBackwardsOutcome::Gap {
                     prev_token: None,
                     waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
+                    generation: state.thread_linked_chunk().generation(),
                 });
             }
 
@@ -204,6 +189,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
                 LoadMoreEventsBackwardsOutcome::Gap {
                     prev_token: Some(gap.token),
                     waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
+                    generation: state.thread_linked_chunk().generation(),
                 }
             }
 
@@ -220,13 +206,13 @@ impl PaginatedCache for ThreadEventCacheWrapper {
     }
 
     async fn mark_has_waited_for_initial_prev_token(&self) -> Result<()> {
-        *self.cache.state.write().await?.waited_for_initial_prev_token_mut() = true;
+        *self.state.write().await?.waited_for_initial_prev_token_mut() = true;
 
         Ok(())
     }
 
     async fn wait_for_prev_token(&self) {
-        self.cache.pagination_batch_token_notifier.notified().await
+        self.pagination_batch_token_notifier.notified().await
     }
 
     async fn paginate_backwards_with_network(
@@ -234,7 +220,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         batch_size: u16,
         prev_token: &Option<String>,
     ) -> Result<Option<(Vec<Event>, Option<String>)>> {
-        let Some(room) = self.cache.weak_room.get() else {
+        let Some(room) = self.weak_room.get() else {
             // The client is shutting down.
             return Ok(None);
         };
@@ -248,7 +234,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         };
 
         let response = room
-            .relations(self.cache.thread_id.clone(), options)
+            .relations(self.thread_id.clone(), options)
             .await
             .map_err(|err| EventCacheError::PaginationError(Arc::new(err)))?;
 
@@ -262,12 +248,12 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         reached_start: bool,
     ) -> BackPaginationOutcome {
         if !timeline_event_diffs.is_empty() {
-            self.cache.update_sender.send(
+            self.update_sender.send(
                 ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
                     diffs: timeline_event_diffs,
                     origin: EventsOrigin::Cache,
                 }),
-                Some(RoomEventCacheGenericUpdate { room_id: self.cache.room_id.clone() }),
+                Some(RoomEventCacheGenericUpdate { room_id: self.room_id.clone() }),
             );
         }
 
@@ -284,8 +270,9 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         mut events: Vec<Event>,
         prev_token: Option<String>,
         mut new_token: Option<String>,
+        generation: u64,
     ) -> Result<Option<BackPaginationOutcome>> {
-        let Some(room) = self.cache.weak_room.get() else {
+        let Some(room) = self.weak_room.get() else {
             // The client is shutting down.
             return Ok(None);
         };
@@ -302,13 +289,19 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         // `Room::load_or_fetch_event` is hitting the state lock too.
         if new_token.is_none() {
             events.push(
-                room.load_or_fetch_event(&self.cache.thread_id, None)
+                room.load_or_fetch_event(&self.thread_id, None)
                     .await
                     .map_err(|err| EventCacheError::PaginationError(Arc::new(err)))?,
             );
         }
 
-        let mut state = self.cache.state.write().await?;
+        let mut state = self.state.write().await?;
+
+        // The linked chunk has been cleared or replaced while the request was
+        // running: the response no longer fits in it, so restart.
+        if state.thread_linked_chunk().generation() != generation {
+            return Ok(None);
+        }
 
         // Check that the previous token still exists; otherwise it's a sign
         // that the thread's timeline has been cleared.
