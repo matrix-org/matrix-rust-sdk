@@ -90,6 +90,7 @@ impl From<SdkCancelInfo> for SessionVerificationCancelInfo {
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait SessionVerificationControllerDelegate: SyncOutsideWasm + SendOutsideWasm {
     fn did_receive_verification_request(&self, details: SessionVerificationRequestDetails);
+    /// The other side accepted a verification request we sent.
     fn did_accept_verification_request(&self);
     fn did_start_sas_verification(&self);
     fn did_receive_verification_data(&self, data: SessionVerificationData);
@@ -189,6 +190,14 @@ impl SessionVerificationController {
         let Some(verification_request) = verification_request else {
             return Err(ClientError::from_str("Verification request missing.", None));
         };
+
+        // Either side may send the `m.key.verification.start`. If the other
+        // side already did, the flow is handled by
+        // `listen_to_verification_request_changes` and starting our own
+        // would replace the SAS we already accepted.
+        if matches!(verification_request.state(), VerificationRequestState::Transitioned { .. }) {
+            return Ok(());
+        }
 
         match verification_request.start_sas().await {
             Ok(Some(verification)) => {
@@ -411,7 +420,10 @@ impl SessionVerificationController {
                         current_delegate.did_fail()
                     }
                 }
-                VerificationRequestState::Ready { .. } => {
+                // Only notify when the other side accepted our request. When we are the
+                // ones accepting, the state changes before our `m.key.verification.ready`
+                // is sent, so callers must rely on `accept_verification_request` returning.
+                VerificationRequestState::Ready { .. } if verification_request.we_started() => {
                     if let Some(current_delegate) = Self::current_delegate(&delegate) {
                         current_delegate.did_accept_verification_request()
                     }
