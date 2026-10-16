@@ -22,6 +22,8 @@
 use std::{fmt, ops::Deref, str::Utf8Error, sync::Arc};
 
 #[cfg(any(test, feature = "testing"))]
+mod controlled_memory_store;
+#[cfg(any(test, feature = "testing"))]
 #[macro_use]
 pub mod integration_tests;
 mod memory_store;
@@ -36,7 +38,10 @@ use ruma::{OwnedEventId, events::AnySyncTimelineEvent, serde::Raw};
 use tracing::trace;
 
 #[cfg(any(test, feature = "testing"))]
-pub use self::integration_tests::EventCacheStoreIntegrationTests;
+pub use self::{
+    controlled_memory_store::ControlledMemoryStore,
+    integration_tests::EventCacheStoreIntegrationTests,
+};
 pub use self::{
     memory_store::MemoryStore,
     traits::{DEFAULT_CHUNK_CAPACITY, DynEventCacheStore, EventCacheStore, IntoEventCacheStore},

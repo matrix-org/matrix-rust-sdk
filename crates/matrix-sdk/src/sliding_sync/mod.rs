@@ -3323,37 +3323,18 @@ mod tests {
     /// in the crypto store (see `store_sliding_sync_state`).
     #[cfg(feature = "e2e-encryption")]
     mod pos_and_event_cache {
-        use std::{
-            sync::{
-                Arc,
-                atomic::{AtomicBool, Ordering},
-            },
-            time::Duration,
-        };
+        use std::time::Duration;
 
-        use async_trait::async_trait;
         use matrix_sdk_base::{
-            cross_process_lock::CrossProcessLockGeneration,
-            event_cache::{
-                Event, Gap,
-                store::{EventCacheStore, EventCacheStoreError, MemoryStore},
-                thread::ThreadInfo,
-            },
-            linked_chunk::{
-                ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, Position,
-                RawChunk, Update,
-            },
+            event_cache::store::{ControlledMemoryStore, EventCacheStore},
             store::StoreConfig,
         };
         use matrix_sdk_common::{
             cross_process_lock::CrossProcessLockConfig, executor::spawn, sleep::sleep,
         };
         use matrix_sdk_test::{async_test, event_factory::EventFactory};
-        use ruma::{
-            EventId, OwnedEventId, RoomId, event_id, events::relation::RelationType, room_id,
-        };
+        use ruma::{event_id, room_id};
         use serde_json::json;
-        use tokio::sync::Notify;
         use wiremock::{Mock, ResponseTemplate};
 
         use super::{SlidingSyncMatcher, restore_sliding_sync_state};
@@ -3362,176 +3343,11 @@ mod tests {
             test_utils::mocks::MatrixMockServer,
         };
 
-        /// A wrapper around the memory store for the event cache, which can
-        /// make writing linked chunk updates fail, or block until released.
-        #[derive(Debug, Clone)]
-        struct ControlledStore {
-            memory_store: MemoryStore,
-            failing: Arc<AtomicBool>,
-            blocking: Arc<AtomicBool>,
-            write_started: Arc<Notify>,
-        }
-
-        impl ControlledStore {
-            fn new() -> Self {
-                Self {
-                    memory_store: MemoryStore::new(),
-                    failing: Arc::new(AtomicBool::new(false)),
-                    blocking: Arc::new(AtomicBool::new(false)),
-                    write_started: Arc::new(Notify::new()),
-                }
-            }
-        }
-
-        #[async_trait]
-        impl EventCacheStore for ControlledStore {
-            type Error = EventCacheStoreError;
-
-            async fn close(&self) -> Result<(), Self::Error> {
-                self.memory_store.close().await
-            }
-
-            async fn reopen(&self) -> Result<(), Self::Error> {
-                self.memory_store.reopen().await
-            }
-
-            async fn try_take_leased_lock(
-                &self,
-                lease_duration_ms: u32,
-                key: &str,
-                holder: &str,
-            ) -> Result<Option<CrossProcessLockGeneration>, Self::Error> {
-                self.memory_store.try_take_leased_lock(lease_duration_ms, key, holder).await
-            }
-
-            async fn handle_linked_chunk_updates(
-                &self,
-                linked_chunk_id: LinkedChunkId<'_>,
-                updates: Vec<Update<Event, Gap>>,
-            ) -> Result<(), Self::Error> {
-                self.write_started.notify_one();
-
-                while self.blocking.load(Ordering::SeqCst) {
-                    sleep(Duration::from_millis(10)).await;
-                }
-
-                if self.failing.load(Ordering::SeqCst) {
-                    return Err(EventCacheStoreError::Backend(Arc::new(std::io::Error::other(
-                        "the event cache store is failing on purpose",
-                    ))));
-                }
-
-                self.memory_store.handle_linked_chunk_updates(linked_chunk_id, updates).await
-            }
-
-            async fn load_all_chunks(
-                &self,
-                linked_chunk_id: LinkedChunkId<'_>,
-            ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error> {
-                self.memory_store.load_all_chunks(linked_chunk_id).await
-            }
-
-            async fn load_all_chunks_metadata(
-                &self,
-                linked_chunk_id: LinkedChunkId<'_>,
-            ) -> Result<Vec<ChunkMetadata>, Self::Error> {
-                self.memory_store.load_all_chunks_metadata(linked_chunk_id).await
-            }
-
-            async fn load_last_chunk(
-                &self,
-                linked_chunk_id: LinkedChunkId<'_>,
-            ) -> Result<(Option<RawChunk<Event, Gap>>, ChunkIdentifierGenerator), Self::Error>
-            {
-                self.memory_store.load_last_chunk(linked_chunk_id).await
-            }
-
-            async fn load_previous_chunk(
-                &self,
-                linked_chunk_id: LinkedChunkId<'_>,
-                before_chunk_identifier: ChunkIdentifier,
-            ) -> Result<Option<RawChunk<Event, Gap>>, Self::Error> {
-                self.memory_store
-                    .load_previous_chunk(linked_chunk_id, before_chunk_identifier)
-                    .await
-            }
-
-            async fn load_thread_info(
-                &self,
-                room_id: &RoomId,
-                thread_id: &EventId,
-                insert_default_if_missing: bool,
-            ) -> Result<Option<ThreadInfo>, Self::Error> {
-                self.memory_store
-                    .load_thread_info(room_id, thread_id, insert_default_if_missing)
-                    .await
-            }
-
-            async fn update_thread_info(
-                &self,
-                room_id: &RoomId,
-                thread_id: &EventId,
-                thread_info: &ThreadInfo,
-            ) -> Result<(), Self::Error> {
-                self.memory_store.update_thread_info(room_id, thread_id, thread_info).await
-            }
-
-            async fn clear_all_events(&self, room_id: Option<&RoomId>) -> Result<(), Self::Error> {
-                self.memory_store.clear_all_events(room_id).await
-            }
-
-            async fn filter_duplicated_events(
-                &self,
-                linked_chunk_id: LinkedChunkId<'_>,
-                events: Vec<OwnedEventId>,
-            ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error> {
-                self.memory_store.filter_duplicated_events(linked_chunk_id, events).await
-            }
-
-            async fn find_event(
-                &self,
-                room_id: &RoomId,
-                event_id: &EventId,
-            ) -> Result<Option<Event>, Self::Error> {
-                self.memory_store.find_event(room_id, event_id).await
-            }
-
-            async fn find_event_relations(
-                &self,
-                room_id: &RoomId,
-                event_id: &EventId,
-                filters: Option<&[RelationType]>,
-            ) -> Result<Vec<(Event, Option<Position>)>, Self::Error> {
-                self.memory_store.find_event_relations(room_id, event_id, filters).await
-            }
-
-            async fn get_room_events(
-                &self,
-                room_id: &RoomId,
-                event_type: Option<&str>,
-                session_id: Option<&str>,
-            ) -> Result<Vec<Event>, Self::Error> {
-                self.memory_store.get_room_events(room_id, event_type, session_id).await
-            }
-
-            async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
-                self.memory_store.save_event(room_id, event).await
-            }
-
-            async fn optimize(&self) -> Result<(), Self::Error> {
-                self.memory_store.optimize().await
-            }
-
-            async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
-                self.memory_store.get_size().await
-            }
-        }
-
         /// Create a client using the given event cache store, and a sliding
         /// sync whose next response carries a timeline event for a room.
         async fn set_up(
             server: &MatrixMockServer,
-            store: &ControlledStore,
+            store: &ControlledMemoryStore,
         ) -> Result<(Client, SlidingSync)> {
             let store_config = StoreConfig::new(CrossProcessLockConfig::SingleProcess)
                 .event_cache_store(store.clone());
@@ -3579,8 +3395,8 @@ mod tests {
         #[async_test]
         async fn test_pos_is_persisted_after_the_event_cache() -> Result<()> {
             let server = MatrixMockServer::new().await;
-            let store = ControlledStore::new();
-            store.blocking.store(true, Ordering::SeqCst);
+            let store = ControlledMemoryStore::new();
+            store.block_writes();
 
             let (client, sliding_sync) = set_up(&server, &store).await?;
 
@@ -3590,7 +3406,7 @@ mod tests {
             });
 
             // The event cache has started to write the events of the response…
-            tokio::time::timeout(Duration::from_secs(5), store.write_started.notified())
+            tokio::time::timeout(Duration::from_secs(5), store.wait_for_write_to_start())
                 .await
                 .expect("the event cache never wrote to its store");
 
@@ -3602,15 +3418,11 @@ mod tests {
             assert_eq!(persisted_pos(&client, &sliding_sync).await, None);
 
             // Once the events are stored, the `pos` can be persisted.
-            store.blocking.store(false, Ordering::SeqCst);
+            store.unblock_writes();
             sync.await.unwrap()?;
 
             assert!(
-                store
-                    .memory_store
-                    .find_event(room_id!("!r0:example.org"), event_id!("$ev0"))
-                    .await?
-                    .is_some()
+                store.find_event(room_id!("!r0:example.org"), event_id!("$ev0")).await?.is_some()
             );
             assert_eq!(persisted_pos(&client, &sliding_sync).await.as_deref(), Some("0"));
 
