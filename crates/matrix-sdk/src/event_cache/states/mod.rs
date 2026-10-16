@@ -530,9 +530,11 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                     }),
                     Some(room::RoomEventCacheGenericUpdate { room_id: room_id.clone() }),
                 );
-                thread_state
-                    .update_sender
-                    .send(thread::ThreadEventCacheUpdate::UpdateSummary(thread_summary), None);
+                if let Some(thread_summary) = thread_summary {
+                    thread_state
+                        .update_sender
+                        .send(thread::ThreadEventCacheUpdate::UpdateSummary(thread_summary), None);
+                }
             }
 
             // Pinned events.
