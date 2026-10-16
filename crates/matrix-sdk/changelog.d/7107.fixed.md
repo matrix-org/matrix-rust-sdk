@@ -1,0 +1,1 @@
+With threading support enabled, an unthreaded read receipt pointing at an in-thread event is now matched, so the room's unread counts start from it instead of counting from an older receipt or from the start of the cached events.
