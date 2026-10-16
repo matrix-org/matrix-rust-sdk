@@ -192,6 +192,7 @@ use crate::{
 pub mod edit;
 pub mod futures;
 pub mod identity_status_changes;
+pub mod image_packs;
 /// Contains code related to requests to join a room.
 pub mod knock_requests;
 mod member;

@@ -103,6 +103,7 @@ use ruma::{
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
         ignored_user_list::IgnoredUserListEventContent,
+        image_pack::rooms::ImagePackRoomsEventContent,
         key::verification::request::ToDeviceKeyVerificationRequestEvent,
         marked_unread::{MarkedUnreadEventContent, UnstableMarkedUnreadEventContent},
         push_rules::PushRulesEventContent,
@@ -140,6 +141,7 @@ use crate::{
     client,
     content_scanner::ContentScanner,
     encryption::{Encryption, EventEncryptionInfo},
+    image_pack::{ImagePackRoomsListener, image_pack_rooms_to_map},
     live_locations_observer::BeaconInfoUpdate,
     notification::{
         NotificationClient, NotificationClientTimeouts, NotificationEvent, NotificationItem,
@@ -999,6 +1001,9 @@ impl Client {
             }
             AccountDataEventType::IgnoredUserList => {
                 observe!(IgnoredUserListEventContent)
+            }
+            AccountDataEventType::ImagePackRooms => {
+                observe!(ImagePackRoomsEventContent)
             }
             AccountDataEventType::PushRules => {
                 observe!(PushRulesEventContent, |event: RumaGlobalAccountDataEvent<
@@ -2332,6 +2337,60 @@ impl Client {
                 listener.on_change(Some(media_preview_config.into()));
             }
         }))))
+    }
+
+    /// Get the image packs that the user enabled globally, from storage.
+    ///
+    /// Returns a map of room ID to the state keys of the enabled packs in that
+    /// room.
+    pub async fn image_pack_rooms(&self) -> Result<HashMap<String, Vec<String>>, ClientError> {
+        Ok(image_pack_rooms_to_map(self.inner.account().image_pack_rooms().await?))
+    }
+
+    /// Subscribe to changes of the image packs that the user enabled globally.
+    ///
+    /// The listener is called immediately with the current value, then with
+    /// every new value.
+    pub async fn subscribe_to_image_pack_rooms(
+        &self,
+        listener: Box<dyn ImagePackRoomsListener>,
+    ) -> Result<Arc<TaskHandle>, ClientError> {
+        let (initial_value, stream) = self.inner.account().observe_image_pack_rooms().await?;
+
+        // Send the initial value to the listener.
+        listener.on_change(initial_value.map(image_pack_rooms_to_map).unwrap_or_default());
+
+        Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            // Listen for changes and notify the listener.
+            let mut stream = pin!(stream);
+            while let Some(content) = stream.next().await {
+                listener.on_change(image_pack_rooms_to_map(content));
+            }
+        }))))
+    }
+
+    /// Enable the image pack with the given state key in the given room
+    /// globally. The pack then becomes available in all rooms.
+    pub async fn enable_image_pack_globally(
+        &self,
+        room_id: String,
+        state_key: String,
+    ) -> Result<(), ClientError> {
+        let room_id = RoomId::parse(room_id)?;
+        self.inner.account().enable_image_pack_globally(&room_id, &state_key).await?;
+        Ok(())
+    }
+
+    /// Disable the image pack with the given state key in the given room
+    /// globally.
+    pub async fn disable_image_pack_globally(
+        &self,
+        room_id: String,
+        state_key: String,
+    ) -> Result<(), ClientError> {
+        let room_id = RoomId::parse(room_id)?;
+        self.inner.account().disable_image_pack_globally(&room_id, &state_key).await?;
+        Ok(())
     }
 
     /// Set the media previews timeline display policy
