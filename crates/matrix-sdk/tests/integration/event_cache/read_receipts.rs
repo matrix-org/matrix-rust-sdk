@@ -35,12 +35,12 @@ use matrix_sdk::{
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
 use matrix_sdk_base::event_cache::store::{EventCacheStore, MemoryStore};
-use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
     event_id,
     events::{
         Mentions,
-        receipt::{ReceiptThread, ReceiptType},
+        receipt::{ReceiptThread, ReceiptType, Receipts, UserReceipts},
         room::{member::MembershipState, message::RedactedRoomMessageEventContent},
     },
     room_id,
@@ -647,6 +647,102 @@ async fn test_select_best_receipt_considers_thread_config() {
     // The message counts include all messages from the main timeline, because
     // the implicit receipt sent in a thread isn't taken into account.
     assert_eq!(room.num_unread_messages(), 2);
+}
+
+/// Test that a main-thread receipt on a thread root reaches the room, even
+/// when the same event also carries another user's threaded receipt.
+#[async_test]
+async fn test_main_receipt_on_thread_root_next_to_threaded_receipt() {
+    let server = MatrixMockServer::new().await;
+
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: false })
+        })
+        .build()
+        .await;
+    let own_user_id = client.user_id().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(*BOB);
+
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
+    let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+    assert!(room_cache_updates.is_empty());
+
+    // Starting with a message of ours, then a thread started by Bob.
+    let thread_root = event_id!("$1");
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("hello!").sender(own_user_id).event_id(event_id!("$0")),
+                )
+                .add_timeline_event(f.text_msg("thread root").event_id(thread_root))
+                .add_timeline_event(
+                    f.text_msg("in thread")
+                        .in_thread(thread_root, thread_root)
+                        .event_id(event_id!("$2")),
+                ),
+        )
+        .await;
+
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(..)) = room_cache_updates.recv()
+    );
+
+    // The thread root is unread.
+    assert_eq!(room.num_unread_messages(), 1);
+
+    // Then, Alice reads the thread, and we read the room. Both receipts target
+    // the thread root, and Alice's is the first one in the receipt content.
+    // Bob's unthreaded receipt on the thread root comes in a separate receipt
+    // event, and must not overwrite ours.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_receipt(
+                    f.read_receipts()
+                        .add(
+                            thread_root,
+                            *ALICE,
+                            ReceiptType::Read,
+                            ReceiptThread::Thread(thread_root.to_owned()),
+                        )
+                        .add(thread_root, own_user_id, ReceiptType::Read, ReceiptThread::Main)
+                        .into_event(),
+                )
+                .add_receipt(
+                    f.read_receipts()
+                        .add(thread_root, *BOB, ReceiptType::Read, ReceiptThread::Unthreaded)
+                        .into_event(),
+                ),
+        )
+        .await;
+
+    // First we receive an event cache update for updating a thread summary.
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateThreadSummary { .. }) = room_cache_updates.recv()
+    );
+    // Check we receipt an event cache update for adding read receipts and this
+    // includes the thread root.
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::AddReadReceiptEvent { event }) = room_cache_updates.recv()
+    );
+    let receipts_for_thread_root: &Receipts = &event[thread_root];
+    let receipts_per_user: &UserReceipts = &receipts_for_thread_root[&ReceiptType::Read];
+    let own_receipts = &receipts_per_user[own_user_id];
+    // We received the receipt for the Main timeline.
+    assert_eq!(own_receipts.thread, ReceiptThread::Main);
+
+    // And it has been taken into account, marking the room as read.
+    assert_eq!(room.num_unread_messages(), 0, "the main receipt on the thread root was dropped");
 }
 
 /// Test that the unread count gets updated when the sync update only contains
