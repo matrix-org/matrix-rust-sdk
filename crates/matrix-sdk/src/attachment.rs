@@ -57,6 +57,10 @@ pub struct BaseVideoInfo {
     pub size: Option<UInt>,
     /// The [BlurHash](https://blurha.sh/) for this video.
     pub blurhash: Option<String>,
+    /// Whether this video should be displayed as a circle video.
+    ///
+    /// Defaults to `false`.
+    pub circle: bool,
 }
 
 /// Base metadata about an audio clip.
