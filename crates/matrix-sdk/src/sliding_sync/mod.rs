@@ -3313,4 +3313,145 @@ mod tests {
 
         Ok(())
     }
+
+    /// `pos` must never be persisted ahead of the event cache: if the process
+    /// dies after `pos` is saved but before the events of the same response
+    /// are in the event cache store, or if the store fails to write them, the
+    /// server won't send these events again, and they're lost for good. See
+    /// #5500.
+    ///
+    /// `pos` is only persisted with the `e2e-encryption` feature, as it lives
+    /// in the crypto store (see `store_sliding_sync_state`).
+    #[cfg(feature = "e2e-encryption")]
+    mod pos_and_event_cache {
+        use std::time::Duration;
+
+        use matrix_sdk_base::{
+            event_cache::store::{ControlledMemoryStore, EventCacheStore},
+            store::StoreConfig,
+        };
+        use matrix_sdk_common::{
+            cross_process_lock::CrossProcessLockConfig, executor::spawn, sleep::sleep,
+        };
+        use matrix_sdk_test::{async_test, event_factory::EventFactory};
+        use ruma::{event_id, room_id};
+        use serde_json::json;
+        use wiremock::{Mock, ResponseTemplate};
+
+        use super::{SlidingSyncMatcher, restore_sliding_sync_state};
+        use crate::{
+            Client, Result, SlidingSyncList, sliding_sync::SlidingSync,
+            test_utils::mocks::MatrixMockServer,
+        };
+
+        /// Create a client using the given event cache store, and a sliding
+        /// sync whose next response carries a timeline event for a room.
+        async fn set_up(
+            server: &MatrixMockServer,
+            store: &ControlledMemoryStore,
+        ) -> Result<(Client, SlidingSync)> {
+            let store_config = StoreConfig::new(CrossProcessLockConfig::SingleProcess)
+                .event_cache_store(store.clone());
+            let client = server
+                .client_builder()
+                .on_builder(|builder| builder.store_config(store_config))
+                .build()
+                .await;
+
+            let room_id = room_id!("!r0:example.org");
+            let f = EventFactory::new().room(room_id).sender(ruma::user_id!("@alice:example.org"));
+
+            Mock::given(SlidingSyncMatcher)
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "pos": "0",
+                    "lists": {},
+                    "rooms": {
+                        room_id: {
+                            "initial": true,
+                            "timeline": [
+                                f.text_msg("hello").event_id(event_id!("$ev0")).into_raw_sync(),
+                            ],
+                        },
+                    },
+                })))
+                .mount(server.server())
+                .await;
+
+            let sliding_sync = client
+                .sliding_sync("pos-test")?
+                .add_list(SlidingSyncList::builder("all"))
+                .build()
+                .await?;
+
+            Ok((client, sliding_sync))
+        }
+
+        async fn persisted_pos(client: &Client, sliding_sync: &SlidingSync) -> Option<String> {
+            restore_sliding_sync_state(client, &sliding_sync.inner.storage_key)
+                .await
+                .unwrap()
+                .and_then(|fields| fields.pos)
+        }
+
+        #[async_test]
+        async fn test_pos_is_persisted_after_the_event_cache() -> Result<()> {
+            let server = MatrixMockServer::new().await;
+            let store = ControlledMemoryStore::new();
+            store.block_writes();
+
+            let (client, sliding_sync) = set_up(&server, &store).await?;
+
+            let sync = spawn({
+                let sliding_sync = sliding_sync.clone();
+                async move { sliding_sync.sync_once().await }
+            });
+
+            // The event cache has started to write the events of the response…
+            tokio::time::timeout(Duration::from_secs(5), store.wait_for_write_to_start())
+                .await
+                .expect("the event cache never wrote to its store");
+
+            // … but hasn't finished. If the process was killed now, the `pos`
+            // must still be the previous one. Leave some time to the sync to
+            // (wrongly) persist it.
+            sleep(Duration::from_millis(200)).await;
+            assert!(!sync.is_finished(), "the sync must wait for the event cache store");
+            assert_eq!(persisted_pos(&client, &sliding_sync).await, None);
+
+            // Once the events are stored, the `pos` can be persisted.
+            store.unblock_writes();
+            sync.await.unwrap()?;
+
+            assert!(
+                store.find_event(room_id!("!r0:example.org"), event_id!("$ev0")).await?.is_some()
+            );
+            assert_eq!(persisted_pos(&client, &sliding_sync).await.as_deref(), Some("0"));
+
+            Ok(())
+        }
+
+        /// The event cache logs the errors of its store and carries on, so the
+        /// sync succeeds and `pos` is persisted although the events were never
+        /// written. This test fails until that is fixed.
+        #[async_test]
+        #[ignore = "the event cache swallows store errors, so `pos` advances anyway; see #7300"]
+        async fn test_pos_is_not_persisted_if_the_event_cache_fails() -> Result<()> {
+            let server = MatrixMockServer::new().await;
+            let store = ControlledMemoryStore::new();
+            store.fail_writes();
+
+            let (client, sliding_sync) = set_up(&server, &store).await?;
+
+            // The event cache can't store the events of the response, so the
+            // sync must fail…
+            assert!(sliding_sync.sync_once().await.is_err());
+
+            // … and the `pos` must not move forward, so that the server sends
+            // the events again.
+            assert_eq!(persisted_pos(&client, &sliding_sync).await, None);
+            assert_eq!(sliding_sync.inner.position.lock().await.pos, None);
+
+            Ok(())
+        }
+    }
 }
