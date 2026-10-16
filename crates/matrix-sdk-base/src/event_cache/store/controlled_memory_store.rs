@@ -48,11 +48,16 @@ use super::{
 ///
 /// Only [`EventCacheStore::handle_linked_chunk_updates`] is affected. All the
 /// other methods are forwarded to the inner [`MemoryStore`] as is.
+///
+/// Like the SQLite store, a closed store (see [`EventCacheStore::close`])
+/// rejects new linked chunk writes until it is reopened, while a write that
+/// was already in progress completes.
 #[derive(Debug, Clone, Default)]
 pub struct ControlledMemoryStore {
     inner: MemoryStore,
     writes_blocked: Arc<AtomicBool>,
     writes_failing: Arc<AtomicBool>,
+    closed: Arc<AtomicBool>,
     write_started: Arc<Notify>,
     write_finished: Arc<Notify>,
 }
@@ -116,6 +121,14 @@ impl EventCacheStore for ControlledMemoryStore {
     ) -> Result<(), Self::Error> {
         self.write_started.notify_one();
 
+        if self.closed.load(Ordering::SeqCst) {
+            self.write_finished.notify_one();
+
+            return Err(EventCacheStoreError::backend(std::io::Error::other(
+                "the event cache store is closed",
+            )));
+        }
+
         // Polling is good enough for tests, and simpler than a proper wake up.
         while self.writes_blocked.load(Ordering::SeqCst) {
             sleep(Duration::from_millis(10)).await;
@@ -135,10 +148,12 @@ impl EventCacheStore for ControlledMemoryStore {
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
+        self.closed.store(true, Ordering::SeqCst);
         self.inner.close().await
     }
 
     async fn reopen(&self) -> Result<(), Self::Error> {
+        self.closed.store(false, Ordering::SeqCst);
         self.inner.reopen().await
     }
 
