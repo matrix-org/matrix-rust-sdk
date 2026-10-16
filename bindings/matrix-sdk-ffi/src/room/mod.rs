@@ -83,7 +83,7 @@ mod message_like_events;
 mod power_levels;
 pub mod room_info;
 #[cfg(feature = "unstable-msc4354")]
-mod sticky_events;
+pub mod sticky_events;
 
 #[derive(Debug, Clone, uniffi::Enum)]
 pub enum Membership {
@@ -836,7 +836,8 @@ impl Room {
     /// [`Timeline`] they belong to, e.g. marking a thread as read from its root
     /// and latest event ids. Note that this won't check whether sending the
     /// receipt is necessary or valid (i.e. it can move a receipt backwards);
-    /// prefer [`Timeline::send_single_receipt`] when a timeline is available.
+    /// prefer [`crate::Timeline::send_read_receipt`] when a timeline is
+    /// available.
     pub async fn send_single_receipt(
         &self,
         receipt_type: ReceiptType,

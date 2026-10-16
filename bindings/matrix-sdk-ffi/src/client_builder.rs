@@ -338,7 +338,7 @@ impl ClientBuilder {
     ///
     /// When building a client for restoration, prefer to use
     /// [`Self::homeserver_url`] as the restoration will pick up the user ID
-    /// from the [`Session`], and using this will result in a needless request
+    /// from the session, and using this will result in a needless request
     /// to re-discover the homeserver.
     ///
     /// The following methods are mutually exclusive: [`Self::homeserver_url`],

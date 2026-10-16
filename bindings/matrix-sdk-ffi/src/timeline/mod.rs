@@ -1476,7 +1476,7 @@ pub enum VirtualTimelineItem {
     TimelineStart,
 }
 
-/// A [`TimelineItem`](super::TimelineItem) that doesn't correspond to an event.
+/// A [`TimelineItem`] that doesn't correspond to an event.
 #[derive(uniffi::Enum)]
 pub enum ReceiptType {
     Read,
