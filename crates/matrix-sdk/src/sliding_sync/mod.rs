@@ -3316,8 +3316,9 @@ mod tests {
 
     /// `pos` must never be persisted ahead of the event cache: if the process
     /// dies after `pos` is saved but before the events of the same response
-    /// are in the event cache store, the server won't send these events again,
-    /// and they're lost for good. See #5500.
+    /// are in the event cache store, or if the store fails to write them, the
+    /// server won't send these events again, and they're lost for good. See
+    /// #5500.
     ///
     /// `pos` is only persisted with the `e2e-encryption` feature, as it lives
     /// in the crypto store (see `store_sliding_sync_state`).
@@ -3429,6 +3430,29 @@ mod tests {
                 store.find_event(room_id!("!r0:example.org"), event_id!("$ev0")).await?.is_some()
             );
             assert_eq!(persisted_pos(&client, &sliding_sync).await.as_deref(), Some("0"));
+
+            Ok(())
+        }
+
+        /// If the event cache fails to write the events of a response, the
+        /// sync must fail and `pos` must not be persisted, otherwise the
+        /// events are lost for good. See #7300.
+        #[async_test]
+        async fn test_pos_is_not_persisted_if_the_event_cache_fails() -> Result<()> {
+            let server = MatrixMockServer::new().await;
+            let store = ControlledMemoryStore::new();
+            store.fail_writes();
+
+            let (client, sliding_sync) = set_up(&server, &store).await?;
+
+            // The event cache can't store the events of the response, so the
+            // sync must fail…
+            assert!(sliding_sync.sync_once().await.is_err());
+
+            // … and the `pos` must not move forward, so that the server sends
+            // the events again.
+            assert_eq!(persisted_pos(&client, &sliding_sync).await, None);
+            assert_eq!(sliding_sync.inner.position.lock().await.pos, None);
 
             Ok(())
         }
