@@ -92,9 +92,9 @@ impl ImpersonatableDevices {
         Self { store, cache: Default::default(), membership_check: Default::default() }
     }
 
-    /// Replace the known impersonatable devices of a user. A key query
-    /// response always lists all of a user's devices, so an empty list means
-    /// the user has none any more.
+    /// Replace the known impersonatable devices of a user. Passing an empty
+    /// list will remove all existing devices, akin to how a standard `/keys/query`
+    /// response is handled.
     pub(crate) async fn replace_for_user(
         &self,
         user_id: &UserId,
