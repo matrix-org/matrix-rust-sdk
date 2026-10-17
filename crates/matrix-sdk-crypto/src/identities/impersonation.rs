@@ -145,7 +145,7 @@ impl ImpersonatableDevices {
 }
 
 /// Check that `ghost_device` is a well-formed impersonatable device, signed by
-/// `impersonator`, which is a device we already know and validated.
+/// the already known and validated `impersonator` device.
 ///
 /// This checks that:
 /// * `algorithms` and `keys` are empty, as MSC4350 requires,
