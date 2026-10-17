@@ -2062,9 +2062,10 @@ impl OlmMachine {
         // appropriate `DeviceLinkProblem` for `VerificationLevel::None`.
         let (verification_state, device_id) = match sender_data.user_id() {
             Some(i) if i != sender => {
-                // The session belongs to someone else than the claimed sender. That's only
-                // legitimate if the sender has an MSC4350 impersonatable device owned by the
-                // session owner (e.g. a bridge bot sending for its ghost users).
+                // The session belongs to someone else than the claimed
+                // sender. That's only legitimate if the sender has an
+                // MSC4350 impersonatable device owned by the session
+                // owner (e.g. a bridge bot sending for its ghost users).
                 match self.verify_impersonation(session, &sender_data, sender).await? {
                     Some(result) => result,
                     None => {
@@ -2086,8 +2087,8 @@ impl OlmMachine {
     /// is in the room can be enforced.
     ///
     /// The crypto crate doesn't track room membership itself. Until a check is
-    /// set, the requirement isn't enforced and a message sent by an
-    /// impersonator is accepted even if the impersonator isn't in the room.
+    /// set, no impersonation is accepted, because the membership of the
+    /// impersonator can't be proven.
     #[cfg(feature = "experimental-msc4350")]
     pub fn set_impersonator_membership_check(&self, check: Option<MembershipCheck>) {
         self.inner.identity_manager.impersonatable_devices().set_membership_check(check);
@@ -2104,8 +2105,9 @@ impl OlmMachine {
     ///
     /// * `sender` has an impersonatable device validly signed by the session
     ///   owner's device (see [`is_validly_impersonated_by`]),
-    /// * the session owner is a member of the room, if a membership check has
-    ///   been set with [`OlmMachine::set_impersonator_membership_check`],
+    /// * a membership check has been set with
+    ///   [`OlmMachine::set_impersonator_membership_check`], and it says that
+    ///   the session owner is a member of the room,
     /// * the session owner's device is cross-signed by its owner, and
     /// * if `sender` has cross-signing keys, the impersonatable device is
     ///   signed by their self-signing key.
@@ -2117,7 +2119,7 @@ impl OlmMachine {
         sender: &UserId,
     ) -> MegolmResult<Option<(VerificationState, Option<OwnedDeviceId>)>> {
         let impersonatable = self.inner.identity_manager.impersonatable_devices();
-        let candidates = impersonatable.for_user(sender).await?;
+        let candidates = impersonatable.get_user_devices(sender).await?;
         if candidates.is_empty() {
             return Ok(None);
         }
@@ -2151,9 +2153,11 @@ impl OlmMachine {
             return Ok(None);
         };
 
-        if let Some(is_member) = impersonatable.membership_check()
-            && !is_member(session.room_id(), &impersonator_user)
-        {
+        let Some(is_member) = impersonatable.membership_check() else {
+            warn!("MSC4350: no impersonator membership check is set, rejecting the impersonation");
+            return Ok(None);
+        };
+        if !is_member(session.room_id().to_owned(), impersonator_user.clone()).await {
             debug!(?sender, ?impersonator_user, "MSC4350: the impersonator isn't in the room");
             return Ok(None);
         }

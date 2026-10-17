@@ -846,6 +846,10 @@ mod impersonation {
                 .await
                 .unwrap();
             let content = serde_json::to_value(&encrypted.content).unwrap();
+            // Impersonation is only accepted if the membership of the
+            // impersonator can be checked, so by default everyone
+            // is in the room.
+            bob.set_impersonator_membership_check(Some(Arc::new(|_, _| Box::pin(async { true }))));
             Self { bot, bob, content, settings }
         }
 
@@ -1013,7 +1017,8 @@ mod impersonation {
 
     #[async_test]
     async fn test_impersonator_with_other_keys_is_rejected() {
-        // Correctly signed, but the embedded keys aren't the bot device's real keys.
+        // Correctly signed, but the embedded keys aren't the bot device's real
+        // keys.
         let f = Fixture::new().await;
         f.cross_sign_bot().await;
         let device_id = f.bot.device_id().to_string();
@@ -1090,8 +1095,8 @@ mod impersonation {
         let f = Fixture::new().await;
         f.cross_sign_bot().await;
 
-        // The ghost has cross-signing keys, but its self-signing key hasn't signed the
-        // impersonatable device.
+        // The ghost has cross-signing keys, but its self-signing key hasn't
+        // signed the impersonatable device.
         let unsigned = f.ghost_device(ghost_id()).await;
         let ghost = f.receive_device_and_identity(unsigned.clone()).await;
         assert_eq!(MISMATCHED, f.state(ghost_id()).await);
@@ -1108,22 +1113,24 @@ mod impersonation {
         let f = Fixture::new().await;
         f.cross_sign_bot().await;
         f.receive_devices(vec![(ghost_id(), f.ghost_device(ghost_id()).await)]).await;
-
-        // Without a check, the membership isn't enforced.
         assert_eq!(TRUSTED_UNVERIFIED, f.state(ghost_id()).await);
 
         let bot_id = f.bot.user_id().to_owned();
         let expected_room = Fixture::ROOM_ID.to_owned();
         f.bob.set_impersonator_membership_check(Some(Arc::new(move |room_id, user_id| {
-            // Only the bot, and only in the room of the message, counts as a member.
-            user_id == bot_id && room_id.as_str() == expected_room
+            // Only the bot, and only in the room of the message, counts as a
+            // member.
+            let is_member = user_id == bot_id && room_id.as_str() == expected_room;
+            Box::pin(async move { is_member })
         })));
         assert_eq!(TRUSTED_UNVERIFIED, f.state(ghost_id()).await);
 
-        f.bob.set_impersonator_membership_check(Some(Arc::new(|_, _| false)));
+        f.bob.set_impersonator_membership_check(Some(Arc::new(|_, _| Box::pin(async { false }))));
         assert_eq!(MISMATCHED, f.state(ghost_id()).await);
 
+        // Without a check, the membership can't be proven, so the impersonation
+        // is rejected.
         f.bob.set_impersonator_membership_check(None);
-        assert_eq!(TRUSTED_UNVERIFIED, f.state(ghost_id()).await);
+        assert_eq!(MISMATCHED, f.state(ghost_id()).await);
     }
 }

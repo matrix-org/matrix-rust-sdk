@@ -416,7 +416,7 @@ impl IdentityManager {
         let results = join_all(tasks).await;
 
         #[cfg(feature = "experimental-msc4350")]
-        impersonatable.replace_for_user(&user_id, impersonatable_devices).await?;
+        impersonatable.update_user_devices(&user_id, impersonatable_devices).await?;
 
         for device in results {
             let device = device.expect("Creating or updating a device panicked")?;
@@ -2252,7 +2252,10 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        assert_eq!(manager.impersonatable_devices().for_user(ghost).await.unwrap().len(), 1);
+        assert_eq!(
+            manager.impersonatable_devices().get_user_devices(ghost).await.unwrap().len(),
+            1
+        );
     }
 
     #[cfg(feature = "experimental-msc4350")]
@@ -2265,18 +2268,51 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        // A manager created later on the same store, as after a restart, still knows
-        // the device.
+        // A manager created later on the same store, as after a restart, still
+        // knows the device.
         let restarted = crate::identities::manager::IdentityManager::new(manager.store.clone());
-        assert_eq!(restarted.impersonatable_devices().for_user(ghost).await.unwrap().len(), 1);
+        assert_eq!(
+            restarted.impersonatable_devices().get_user_devices(ghost).await.unwrap().len(),
+            1
+        );
 
-        // A key query that lists no devices for the user removes it, from the store as
-        // well.
+        // A key query that lists no devices for the user removes it, from the
+        // store as well.
         let response = ruma_response_from_json(&json!({ "device_keys": { ghost: {} } }));
         manager.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
-        assert!(manager.impersonatable_devices().for_user(ghost).await.unwrap().is_empty());
+        assert!(manager.impersonatable_devices().get_user_devices(ghost).await.unwrap().is_empty());
         let restarted = crate::identities::manager::IdentityManager::new(manager.store.clone());
-        assert!(restarted.impersonatable_devices().for_user(ghost).await.unwrap().is_empty());
+        assert!(
+            restarted.impersonatable_devices().get_user_devices(ghost).await.unwrap().is_empty()
+        );
+    }
+
+    /// The cache of impersonatable devices can be behind the store, for example
+    /// when another manager wrote to it. An empty update must still leave
+    /// neither of them with devices.
+    #[cfg(feature = "experimental-msc4350")]
+    #[async_test]
+    async fn test_empty_impersonatable_update_clears_a_stale_cache() {
+        let manager = manager_test_helper(user_id(), device_id()).await;
+        let ghost = ruma::user_id!("@fake_erin:test.local");
+        manager
+            .receive_keys_query_response(&TransactionId::new(), &synapse_ghost_key_query_response())
+            .await
+            .unwrap();
+
+        // The second manager caches the device, then the first one removes it
+        // from the store.
+        let second = crate::identities::manager::IdentityManager::new(manager.store.clone());
+        assert_eq!(second.impersonatable_devices().get_user_devices(ghost).await.unwrap().len(), 1);
+        manager.impersonatable_devices().update_user_devices(ghost, Vec::new()).await.unwrap();
+
+        // The second manager's cache is behind, and an empty update fixes it.
+        second.impersonatable_devices().update_user_devices(ghost, Vec::new()).await.unwrap();
+        assert!(second.impersonatable_devices().get_user_devices(ghost).await.unwrap().is_empty());
+        let restarted = crate::identities::manager::IdentityManager::new(manager.store.clone());
+        assert!(
+            restarted.impersonatable_devices().get_user_devices(ghost).await.unwrap().is_empty()
+        );
     }
 
     /// A device with an impersonator has no keys of its own, so it must not end

@@ -29,8 +29,9 @@ use std::{
     sync::{Arc, RwLock as StdRwLock},
 };
 
-use ruma::{DeviceKeyAlgorithm, DeviceKeyId, OwnedUserId, RoomId, UserId};
-use serde_json::Value;
+use matrix_sdk_common::BoxFuture;
+use ruma::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, OwnedRoomId, OwnedUserId, UserId};
+use serde_json::{Map, Value};
 
 use super::DeviceData;
 use crate::{
@@ -46,12 +47,13 @@ pub(crate) const IMPERSONATOR_FIELD: &str = "fi.mau.msc4350.impersonator";
 ///
 /// MSC4350 only allows a message to be sent on behalf of a ghost user if the
 /// impersonating user (the bridge bot) is a member of the room. The crypto
-/// crate doesn't track room membership, so an embedding SDK that does can
+/// crate doesn't track room membership, so an embedding SDK that does has to
 /// provide this check with [`OlmMachine::set_impersonator_membership_check`].
-/// Without one, the membership requirement isn't enforced.
+/// Without one, no impersonation is accepted.
 ///
 /// [`OlmMachine::set_impersonator_membership_check`]: crate::OlmMachine::set_impersonator_membership_check
-pub type MembershipCheck = Arc<dyn Fn(&RoomId, &UserId) -> bool + Send + Sync>;
+pub type MembershipCheck =
+    Arc<dyn Fn(OwnedRoomId, OwnedUserId) -> BoxFuture<'static, bool> + Send + Sync>;
 
 /// Does the given device keys object declare an impersonator?
 pub(crate) fn is_impersonatable(device_keys: &DeviceKeys) -> bool {
@@ -93,31 +95,33 @@ impl ImpersonatableDevices {
     }
 
     /// Replace the known impersonatable devices of a user. Passing an empty
-    /// list will remove all existing devices, akin to how a standard `/keys/query`
-    /// response is handled.
-    pub(crate) async fn replace_for_user(
+    /// list will remove all existing devices, akin to how a standard
+    /// `/keys/query` response is handled.
+    pub(crate) async fn update_user_devices(
         &self,
         user_id: &UserId,
         devices: Vec<DeviceKeys>,
     ) -> StoreResult<()> {
         let key = store_key(user_id);
         if devices.is_empty() {
-            if self.cache.write().unwrap().remove(user_id).is_some()
-                || self.store.get_custom_value(&key).await?.is_some()
-            {
+            // Always check the store, since the cache could be behind.
+            if self.store.get_custom_value(&key).await?.is_some() {
                 self.store.remove_custom_value(&key).await?;
             }
         } else {
-            let serialized = serde_json::to_vec(&devices)?;
-            self.store.set_custom_value(&key, serialized).await?;
-            self.cache.write().unwrap().insert(user_id.to_owned(), Arc::new(devices));
+            self.store.set_custom_value(&key, serde_json::to_vec(&devices)?).await?;
         }
+        // Cache empty entries too.
+        self.cache.write().unwrap().insert(user_id.to_owned(), Arc::new(devices));
         Ok(())
     }
 
     /// The impersonatable devices we know of for the given user, loading them
     /// from the store the first time they are needed.
-    pub(crate) async fn for_user(&self, user_id: &UserId) -> StoreResult<Arc<Vec<DeviceKeys>>> {
+    pub(crate) async fn get_user_devices(
+        &self,
+        user_id: &UserId,
+    ) -> StoreResult<Arc<Vec<DeviceKeys>>> {
         if let Some(devices) = self.cache.read().unwrap().get(user_id) {
             return Ok(devices.clone());
         }
@@ -128,11 +132,16 @@ impl ImpersonatableDevices {
                 Some(bytes) => serde_json::from_slice(&bytes).unwrap_or_default(),
                 None => Vec::new(),
             };
-        let devices = Arc::new(devices);
-        if !devices.is_empty() {
-            self.cache.write().unwrap().insert(user_id.to_owned(), devices.clone());
-        }
-        Ok(devices)
+        // Someone may have written to the store (and hence the cache) since we
+        // read it. Use what the cache holds now, or insert the result
+        // we read from the store.
+        Ok(self
+            .cache
+            .write()
+            .unwrap()
+            .entry(user_id.to_owned())
+            .or_insert_with(|| Arc::new(devices))
+            .clone())
     }
 
     pub(crate) fn set_membership_check(&self, check: Option<MembershipCheck>) {
@@ -180,18 +189,27 @@ pub(crate) fn is_validly_impersonated_by(
     let Some(Value::Object(embedded_keys)) = embedded.get("keys") else {
         return false;
     };
-    let embedded_key = |algorithm: DeviceKeyAlgorithm| {
-        embedded_keys
-            .get(DeviceKeyId::from_parts(algorithm, device_id).as_str())
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned)
-    };
-    if embedded_key(DeviceKeyAlgorithm::Ed25519) != Some(ed25519.to_base64())
-        || embedded_key(DeviceKeyAlgorithm::Curve25519) != Some(curve25519.to_base64())
+    if embedded_key(embedded_keys, DeviceKeyAlgorithm::Ed25519, device_id)
+        != Some(ed25519.to_base64())
+        || embedded_key(embedded_keys, DeviceKeyAlgorithm::Curve25519, device_id)
+            != Some(curve25519.to_base64())
     {
         return false;
     }
 
     let key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, device_id);
     ed25519.verify_json(impersonator.user_id(), &key_id, ghost_device).is_ok()
+}
+
+/// Get the key of the given algorithm for `device_id` out of the `keys` of the
+/// impersonator object embedded in an impersonatable device.
+fn embedded_key(
+    embedded_keys: &Map<String, Value>,
+    algorithm: DeviceKeyAlgorithm,
+    device_id: &DeviceId,
+) -> Option<String> {
+    embedded_keys
+        .get(DeviceKeyId::from_parts(algorithm, device_id).as_str())
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
 }
