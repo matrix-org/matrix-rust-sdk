@@ -71,9 +71,6 @@ macro_rules! stripped_state_event {
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
-pub mod mocks;
-
 pub mod event_factory;
 mod identifiers;
 pub mod notification_settings;

@@ -859,7 +859,7 @@ mod tests {
         client.base_client().get_or_create_room(room_id1, RoomState::Joined);
         client.base_client().get_or_create_room(room_id2, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         // Insert two rooms with a few events.
         let f = EventFactory::new().room(room_id1).sender(user_id!("@ben:saucisse.bzh"));
@@ -895,9 +895,7 @@ mod tests {
         event_cache.inner.handle_room_updates(updates).await.unwrap();
 
         // We can find the events in a single room.
-        let room1 = client.get_room(room_id1).unwrap();
-
-        let (room_event_cache, _drop_handles) = room1.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id1).await.unwrap();
 
         let found1 = room_event_cache.find_event(eid1).await.unwrap().unwrap();
         assert_event_matches_msg(&found1, "hey");
@@ -958,7 +956,7 @@ mod tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
@@ -1059,7 +1057,7 @@ mod tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
@@ -1108,7 +1106,7 @@ mod tests {
         let client = logged_in_client(None).await;
         let room_id = room_id!("!raclette:patate.ch");
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         // Room doesn't exist. It returns an error.
         assert_matches!(
@@ -1135,7 +1133,7 @@ mod tests {
         // Wait for the init tasks to die.
         sleep(Duration::from_secs(1)).await;
 
-        let event_cache_weak = Arc::downgrade(&client.event_cache().inner);
+        let event_cache_weak = Arc::downgrade(&client.event_cache().unwrap().inner);
         assert_eq!(event_cache_weak.strong_count(), 2);
 
         {
@@ -1148,7 +1146,7 @@ mod tests {
             client.inner.base_client.receive_sync_response(response).await.unwrap();
 
             let (_room_event_cache, _drop_handles) =
-                client.get_room(room_id).unwrap().event_cache().await.unwrap();
+                client.event_cache().unwrap().room(room_id).await.unwrap();
         }
 
         drop(client);

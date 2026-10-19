@@ -2966,7 +2966,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     // We could subscribe to the room —with `RoomList::set_room_subscriptions`—
     // to automatically listen to the latest event updates, but we will do it
     // manually here (so that we can ignore the subscription thingies).
-    let latest_events = client.latest_events().await;
+    let latest_events = client.latest_events().await.unwrap();
     latest_events.listen_to_room(room_id).await.unwrap();
 
     // The latest event does not exist.
@@ -3227,9 +3227,9 @@ async fn test_multiple_timeline_init() {
     // Send back-pagination responses with a small delay.
     server
         .mock_room_messages()
+        .with_delay(Duration::from_millis(500))
         .ok(RoomMessagesResponseTemplate::default()
-            .events(vec![f.text_msg("hello").into_raw_timeline()])
-            .with_delay(Duration::from_millis(500)))
+            .events(vec![f.text_msg("hello").into_raw_timeline()]))
         .mount()
         .await;
 

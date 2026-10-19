@@ -54,10 +54,12 @@ async fn test_event_cache_receives_events() {
 
     // If I sync and get informed I've joined The Room, but with no events,
     let room_id = room_id!("!omelette:fromage.fr");
-    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.sync_joined_room(&client, room_id).await;
 
     // If I create a room event subscriber,
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
 
     // Then at first it's empty, and the subscriber doesn't yield anything.
@@ -128,8 +130,8 @@ async fn test_ignored_unignored() {
         .await;
 
     // And subscribe to the room,
-    let room = client.get_room(room_id).unwrap();
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
     // Then at first it contains the two initial events.
@@ -181,8 +183,8 @@ async fn test_ignored_unignored() {
 
     // The other room has been cleared too.
     {
-        let room = client.get_room(other_room_id).unwrap();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) =
+            client.event_cache().unwrap().room(other_room_id).await.unwrap();
         let events = room_event_cache.events().await.unwrap();
         assert!(events.is_empty());
     }
@@ -220,7 +222,7 @@ async fn test_backpaginate_once() {
 
     // If I sync and get informed I've joined The Room, and get a previous batch
     // token,
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -232,7 +234,8 @@ async fn test_backpaginate_once() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -306,7 +309,7 @@ async fn test_backpaginate_many_times_with_many_iterations() {
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -318,7 +321,8 @@ async fn test_backpaginate_many_times_with_many_iterations() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -425,7 +429,7 @@ async fn test_backpaginate_many_times_with_one_iteration() {
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -437,7 +441,8 @@ async fn test_backpaginate_many_times_with_one_iteration() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -554,7 +559,7 @@ async fn test_reset_while_backpaginating() {
         .await;
 
     let (room_event_cache, _drop_handles) =
-        client.get_room(room_id).unwrap().event_cache().await.unwrap();
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -579,9 +584,9 @@ async fn test_reset_while_backpaginating() {
     server
         .mock_room_messages()
         .match_from("first_backpagination")
+        .with_delay(Duration::from_millis(500))
         .ok(RoomMessagesResponseTemplate::default()
-            .events(vec![f.text_msg("lalala").into_raw_timeline()])
-            .with_delay(Duration::from_millis(500)))
+            .events(vec![f.text_msg("lalala").into_raw_timeline()]))
         .mock_once()
         .mount()
         .await;
@@ -667,8 +672,9 @@ async fn test_backpaginating_without_token() {
     let room_id = room_id!("!omelette:fromage.fr");
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
-    let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -719,9 +725,10 @@ async fn test_limited_timeline_resets_pagination() {
     // token,
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
-    let room = server.sync_joined_room(&client, room_id).await;
+    server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -801,9 +808,10 @@ async fn test_limited_timeline_with_storage() {
     let client = server.client_builder().build().await;
 
     let room_id = room_id!("!galette:saucisse.bzh");
-    let room = server.sync_joined_room(&client, room_id).await;
+    server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
 
@@ -868,10 +876,11 @@ async fn test_backpaginate_with_no_initial_events() {
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
-    // Start with a room with an event, but no prev-batch token.
-    let room = server.sync_joined_room(&client, room_id).await;
+    // Start with an empty room.
+    server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     // The first back-pagination will return these two events.
     //
@@ -899,13 +908,11 @@ async fn test_backpaginate_with_no_initial_events() {
     let wait_time = Duration::from_millis(500);
     server
         .mock_room_messages()
-        .ok(RoomMessagesResponseTemplate::default()
-            .end_token("prev_batch")
-            .events(vec![
-                f.text_msg("world").event_id(event_id!("$3")).into_raw_timeline(),
-                f.text_msg("hello").event_id(event_id!("$2")).into_raw_timeline(),
-            ])
-            .with_delay(2 * wait_time))
+        .with_delay(2 * wait_time)
+        .ok(RoomMessagesResponseTemplate::default().end_token("prev_batch").events(vec![
+            f.text_msg("world").event_id(event_id!("$3")).into_raw_timeline(),
+            f.text_msg("hello").event_id(event_id!("$2")).into_raw_timeline(),
+        ]))
         .mock_once()
         .mount()
         .await;
@@ -964,7 +971,7 @@ async fn test_backpaginate_replace_empty_gap() {
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
     // Start with a room with an event, limited timeline and prev-batch token.
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -974,7 +981,8 @@ async fn test_backpaginate_replace_empty_gap() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
     wait_for_initial_events(events, &mut stream).await;
@@ -1030,7 +1038,7 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
 
     // Start with a room with a few events, limited timeline and prev-batch
     // token.
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -1040,7 +1048,8 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -1126,7 +1135,7 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
 
     // Start with a room with a single event, limited timeline and prev-batch
     // token.
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -1136,7 +1145,8 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -1250,7 +1260,7 @@ async fn test_dont_delete_gap_that_wasnt_inserted() {
 
     // Start with a room with a single event, limited timeline and prev-batch
     // token.
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -1260,7 +1270,8 @@ async fn test_dont_delete_gap_that_wasnt_inserted() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
     if events.is_empty() {
@@ -1322,7 +1333,7 @@ async fn test_apply_redaction_when_redaction_comes_later() {
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
     // Start with a room with one event.
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
@@ -1331,7 +1342,8 @@ async fn test_apply_redaction_when_redaction_comes_later() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     // Wait for the event.
     let (events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
@@ -1392,8 +1404,7 @@ async fn test_apply_redaction_when_redaction_comes_later() {
         .on_builder(|builder| builder.store_config(store_config))
         .build()
         .await;
-    let room = client.get_room(room_id).unwrap();
-    let (cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (cache, _drop_handles) = client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let events = cache.events().await.unwrap();
 
@@ -1468,8 +1479,9 @@ async fn test_apply_redaction_on_an_in_store_event() {
         .build()
         .await;
 
-    let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _room_event_cache_drop_handle) = room.event_cache().await.unwrap();
+    server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _room_event_cache_drop_handle) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (initial_updates, mut updates_stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -1555,8 +1567,9 @@ async fn test_apply_redaction_when_redacted_and_redaction_are_in_same_sync() {
     let client = server.client_builder().build().await;
 
     let room_id = room_id!("!omelette:fromage.fr");
-    let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
@@ -1707,8 +1720,9 @@ async fn test_lazy_loading() {
         .build()
         .await;
 
-    let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _room_event_cache_drop_handle) = room.event_cache().await.unwrap();
+    server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _room_event_cache_drop_handle) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (initial_updates, mut updates_stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -2051,8 +2065,9 @@ async fn test_deduplication() {
         .build()
         .await;
 
-    let room = mock_server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _room_event_cache_drop_handle) = room.event_cache().await.unwrap();
+    mock_server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _room_event_cache_drop_handle) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (initial_updates, mut updates_stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -2164,7 +2179,7 @@ async fn test_timeline_then_empty_timeline_then_deduplication_with_storage() {
     let client = server.client_builder().build().await;
 
     let room_id = room_id!("!galette:saucisse.bzh");
-    let room = server.sync_joined_room(&client, room_id).await;
+    server.sync_joined_room(&client, room_id).await;
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
 
@@ -2183,7 +2198,8 @@ async fn test_timeline_then_empty_timeline_then_deduplication_with_storage() {
         f.text_msg("latest1").event_id(event_id!("$latest1")).into_raw_timeline(),
     ];
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (initial_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
     assert!(initial_events.is_empty());
 
@@ -2274,7 +2290,7 @@ async fn test_dont_remove_only_gap() {
     let client = server.client_builder().build().await;
 
     let room_id = room_id!("!galette:saucisse.bzh");
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -2283,7 +2299,8 @@ async fn test_dont_remove_only_gap() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     server
         .mock_room_messages()
@@ -2337,7 +2354,7 @@ async fn test_clear_all_rooms() {
     // Another room gets a live event: it's loaded in the event cache now, while
     // sleeping_room_id is not.
     let room_id = room_id!("!galette:saucisse.bzh");
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
@@ -2346,7 +2363,8 @@ async fn test_clear_all_rooms() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (initial, mut room_updates) = room_event_cache.subscribe().await.unwrap();
 
     let mut initial = Vector::from(initial);
@@ -2365,7 +2383,7 @@ async fn test_clear_all_rooms() {
     assert_event_id!(initial[0], "$ev1");
 
     // Now, clear all the rooms.
-    client.event_cache().clear_all_rooms().await.unwrap();
+    client.event_cache().unwrap().clear_all_rooms().await.unwrap();
 
     // We should get an update for the live room.
     assert_let_timeout!(
@@ -2426,9 +2444,9 @@ async fn test_sync_while_back_paginate() {
         .on_builder(|builder| builder.store_config(store_config))
         .build()
         .await;
-    let room = client.get_room(room_id).unwrap();
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (initial_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
     assert!(initial_events.is_empty());
 
@@ -2536,9 +2554,10 @@ async fn test_relations_ordering() {
         .build()
         .await;
 
-    let room = server.sync_joined_room(&client, room_id).await;
+    server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (initial_events, mut listener) = room_event_cache.subscribe().await.unwrap();
     assert_eq!(initial_events.len(), 1);
@@ -2642,7 +2661,7 @@ async fn test_concurrent_backpagination() {
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
     // Limited sync with a room that has a prev_batch token.
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -2652,7 +2671,8 @@ async fn test_concurrent_backpagination() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
     wait_for_initial_events(events, &mut room_stream).await;
@@ -2662,12 +2682,11 @@ async fn test_concurrent_backpagination() {
     server
         .mock_room_messages()
         .match_from("prev_batch")
-        .ok(RoomMessagesResponseTemplate::default()
-            .events(vec![
-                f.text_msg("older2").event_id(event_id!("$2")),
-                f.text_msg("older1").event_id(event_id!("$3")),
-            ])
-            .with_delay(Duration::from_millis(200)))
+        .with_delay(Duration::from_millis(200))
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            f.text_msg("older2").event_id(event_id!("$2")),
+            f.text_msg("older1").event_id(event_id!("$3")),
+        ]))
         .mock_once() // Important: only mock once to ensure both calls share the same request
         .mount()
         .await;
@@ -2730,7 +2749,7 @@ async fn test_sequential_backpagination_after_concurrent() {
     let room_id = room_id!("!sequential:test.com");
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -2740,7 +2759,8 @@ async fn test_sequential_backpagination_after_concurrent() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
     wait_for_initial_events(events, &mut room_stream).await;
@@ -2749,10 +2769,10 @@ async fn test_sequential_backpagination_after_concurrent() {
     server
         .mock_room_messages()
         .match_from("first_batch")
+        .with_delay(Duration::from_millis(100))
         .ok(RoomMessagesResponseTemplate::default()
             .events(vec![f.text_msg("batch1").event_id(event_id!("$2"))])
-            .end_token("second_batch")
-            .with_delay(Duration::from_millis(100)))
+            .end_token("second_batch"))
         .mock_once()
         .mount()
         .await;
@@ -2818,7 +2838,8 @@ async fn test_send_queue_does_insert_event_in_the_event_cache() {
     // Give time to the Event Cache to handle the sync.
     sleep(Duration::from_secs(1)).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
     assert_eq!(events.len(), 1);
@@ -2857,7 +2878,8 @@ async fn test_send_queue_does_not_insert_event_in_the_event_cache_if_room_is_emp
 
     let room = server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (events, room_stream) = room_event_cache.subscribe().await.unwrap();
 
     assert!(events.is_empty());
@@ -2887,7 +2909,8 @@ async fn test_backpaginate_on_a_single_event_inserted_via_send_queue_from_an_emp
 
     let room = server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (events, room_stream) = room_event_cache.subscribe().await.unwrap();
 
     assert!(events.is_empty());
@@ -2977,14 +3000,15 @@ async fn test_order_tracker_is_reset_when_cross_process_is_dirty() {
     // - process B syncs a gap + 1 event again: it is not dirty, no problem.
     // - process A is syncs 3 events: it is dirty, it will reload, but if the
     //   `OrderTracker` is not reset correctly, it will panic.
-    let room_a = server
+    server
         .sync_room(
             &client_a,
             JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![event_0, event_1]),
         )
         .await;
 
-    let (room_event_cache_a, _drop_handles_a) = room_a.event_cache().await.unwrap();
+    let (room_event_cache_a, _drop_handles_a) =
+        client_a.event_cache().unwrap().room(room_id).await.unwrap();
 
     server
         .sync_room(

@@ -847,9 +847,9 @@ mod tests {
         let event_id = event_id!("$1");
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
+        let event_cache = client.event_cache().unwrap();
 
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
         room_event_cache
             .inner
             .state

@@ -1239,8 +1239,8 @@ async fn test_avatar_url_changes() {
     let changes = assert_next_matches!(updates, Ok(RoomUpdate::Joined { updates, .. }) => updates.avatar_changes);
     assert!(changes.is_none());
 
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("room");
-    let (room_cache, _handle) = room.event_cache().await.expect("room cache");
+    let (room_cache, _handle) =
+        client.event_cache().unwrap().room(&DEFAULT_TEST_ROOM_ID).await.expect("room cache");
     let (_, mut subscriber) = room_cache.subscribe().await.expect("subscription");
 
     // Now we sync a room member with an avatar URL.

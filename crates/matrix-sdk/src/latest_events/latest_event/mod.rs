@@ -366,7 +366,6 @@ mod tests_latest_event {
 
     use super::{super::local_room_message, LatestEvent, LatestEventValue, With};
     use crate::{
-        client::WeakClient,
         room::WeakRoom,
         send_queue::{LocalEcho, LocalEchoContent, RoomSendQueue, RoomSendQueueUpdate, SendHandle},
         test_utils::{client::MockClientBuilder, mocks::MatrixMockServer},
@@ -397,7 +396,7 @@ mod tests_latest_event {
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
 
         // Create the room.
         let room = client.base_client().get_or_create_room(room_id, RoomState::Joined);
@@ -440,7 +439,7 @@ mod tests_latest_event {
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
 
         // Create the room.
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
@@ -471,7 +470,7 @@ mod tests_latest_event {
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
 
         // Create the room.
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
@@ -516,7 +515,7 @@ mod tests_latest_event {
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let weak_room = WeakRoom::new(weak_client, room_id.to_owned());
@@ -551,7 +550,7 @@ mod tests_latest_event {
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
         let weak_room = WeakRoom::new(weak_client, room_id.to_owned());
@@ -587,7 +586,7 @@ mod tests_latest_event {
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
 
         // Create the room.
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
@@ -665,9 +664,9 @@ mod tests_latest_event {
         client.base_client().get_or_create_room(&room_id, RoomState::Joined);
 
         let room = client.get_room(&room_id).unwrap();
-        let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.clone());
+        let weak_room = WeakRoom::new(client.downgrade(), room_id.clone());
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
         let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
         let send_queue = client.send_queue();
@@ -789,9 +788,9 @@ mod tests_latest_event {
         client.base_client().get_or_create_room(&room_id, RoomState::Joined);
 
         let _room = client.get_room(&room_id).unwrap();
-        let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.clone());
+        let weak_room = WeakRoom::new(client.downgrade(), room_id.clone());
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
         let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
         let mut latest_event = LatestEvent::new(&weak_room, None);
@@ -875,9 +874,9 @@ mod tests_latest_event {
                 .await;
             let mut room_info_notable_update_receiver = client.room_info_notable_update_receiver();
             let room = client.base_client().get_or_create_room(&room_id, RoomState::Joined);
-            let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.clone());
+            let weak_room = WeakRoom::new(client.downgrade(), room_id.clone());
 
-            let event_cache = client.event_cache();
+            let event_cache = client.event_cache().unwrap();
             let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
             // Check there is no `LatestEventValue` for the moment.

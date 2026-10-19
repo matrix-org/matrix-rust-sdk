@@ -54,7 +54,10 @@ use tracing::{debug, error, instrument, trace};
 
 use crate::{
     OpenStoreError, RuntimeConfig, Secret, SqliteStoreConfig,
-    connection::{self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections},
+    connection::{
+        self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections,
+        SqliteConnectionsInner,
+    },
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
@@ -163,7 +166,7 @@ pub struct SqliteEventCacheStore {
     encryption: Arc<Encryption>,
 
     /// `Some` when active, `None` when closed.
-    connections: Arc<Mutex<Option<SqliteConnections>>>,
+    connections: Arc<SqliteConnections>,
 
     /// Retained so we can rebuild the pool on reopen.
     db_path: PathBuf,
@@ -248,7 +251,7 @@ impl SqliteEventCacheStore {
             None => None,
         };
 
-        let connections = SqliteConnections {
+        let connections = SqliteConnectionsInner {
             pool,
             // Use `conn` as our selected write connection.
             write_connection: Arc::new(Mutex::new(conn)),
@@ -256,7 +259,7 @@ impl SqliteEventCacheStore {
 
         Ok(Self {
             encryption: Arc::new(Encryption { cipher }),
-            connections: Arc::new(Mutex::new(Some(connections))),
+            connections: Arc::new(SqliteConnections::new(connections).await),
             db_path,
             pool_config,
             runtime_config,

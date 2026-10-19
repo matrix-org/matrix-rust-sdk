@@ -197,7 +197,12 @@ impl RoomLatestEventsWriteGuard {
                 .await,
             NeedMoreEvents::Yes
         ) {
-            Self::back_paginate_for_candidate(&room, own_user_id, power_levels.as_ref());
+            Self::back_paginate_for_candidate(
+                &room,
+                &inner.event_cache,
+                own_user_id,
+                power_levels.as_ref(),
+            );
         }
 
         for latest_event in per_thread.values_mut() {
@@ -294,10 +299,11 @@ impl RoomLatestEventsWriteGuard {
     #[instrument(skip_all, fields(room_id = %room.room_id()))]
     fn back_paginate_for_candidate(
         room: &Room,
+        event_cache: &EventCache,
         own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
     ) {
-        let Some(queue) = room.client().event_cache().back_pagination_queue() else {
+        let Some(queue) = event_cache.back_pagination_queue() else {
             return;
         };
 
@@ -353,7 +359,6 @@ mod tests {
     use super::RoomLatestEvents;
     use crate::{
         assert_let_timeout,
-        client::WeakClient,
         latest_events::LatestEventValue,
         room::WeakRoom,
         test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
@@ -400,7 +405,7 @@ mod tests {
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         // A displayable message lives behind the gap.
         let f = EventFactory::new().room(room_id).sender(sender);
@@ -413,7 +418,7 @@ mod tests {
             .mount()
             .await;
 
-        let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.to_owned());
+        let weak_room = WeakRoom::new(client.downgrade(), room_id.to_owned());
         let room_latest_events = RoomLatestEvents::new(weak_room, event_cache);
 
         // No candidate in memory yet.

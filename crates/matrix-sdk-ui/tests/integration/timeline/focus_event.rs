@@ -861,7 +861,6 @@ async fn test_focused_timeline_filters_out_threaded_events() {
             start: "prev_token_1".to_owned(),
             end: Some("prev_token_2".to_owned()),
             state: Vec::new(),
-            delay: None,
         })
         .mock_once()
         .mount()
@@ -894,7 +893,6 @@ async fn test_focused_timeline_filters_out_threaded_events() {
             start: "next_token_1".to_owned(),
             end: Some("next_token_2".to_owned()),
             state: Vec::new(),
-            delay: None,
         })
         .mock_once()
         .mount()

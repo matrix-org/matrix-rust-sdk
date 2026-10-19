@@ -28,7 +28,7 @@ use async_stream::stream;
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_core::Stream;
-use futures_util::{StreamExt, join};
+use futures_util::{StreamExt, future::OptionFuture, join};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{
     DecryptionSettings, store::LockableCryptoStore, store::types::RoomPendingKeyBundleDetails,
@@ -464,6 +464,7 @@ impl ClientInner {
         well_known_lookup_disabled: bool,
         event_cache: OnceCell<EventCache>,
         enable_automatic_back_pagination: bool,
+        enable_event_cache: bool,
         send_queue: Arc<SendQueueData>,
         latest_events: OnceCell<LatestEvents>,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
@@ -529,13 +530,15 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")]
         client.e2ee.initialize_tasks(&client);
 
-        let init_event_cache = client.event_cache.get_or_init(|| async {
-            EventCache::new(
-                &client,
-                client.base_client.event_cache_store().clone(),
-                enable_automatic_back_pagination,
-            )
-        });
+        let init_event_cache = OptionFuture::from(enable_event_cache.then(|| {
+            client.event_cache.get_or_init(|| async {
+                EventCache::new(
+                    &client,
+                    client.base_client.event_cache_store().clone(),
+                    enable_automatic_back_pagination,
+                )
+            })
+        }));
 
         let init_thread_subscription_catchup = client
             .thread_subscription_catchup
@@ -616,11 +619,19 @@ impl Client {
 
         // Next, activate R2D2 since the `OlmMachine` is now setup.
         #[cfg(feature = "e2e-encryption")]
-        if let Some(event_cache) = self.inner.event_cache.get() {
+        if let Some(event_cache) = self.event_cache() {
             event_cache.initialise_redecryptor()?;
         }
 
         Ok(())
+    }
+
+    /// Create a [`WeakClient`], i.e. a weak reference to the [`Client`], for
+    /// use in background tasks.
+    ///
+    /// See doc comment of [`WeakClient`].
+    pub fn downgrade(&self) -> WeakClient {
+        WeakClient::from_inner(&self.inner)
     }
 
     /// Returns a subscriber that publishes an event every time the ignore user
@@ -3820,6 +3831,10 @@ impl Client {
                 self.well_known_lookup_disabled(),
                 self.inner.event_cache.clone(),
                 false,
+                // If the `EventCache` was enabled for `Self`, it **must** have been initialised.
+                // Otherwise, it **must not** have been initialised already. So defining
+                // `enable_event_cache` with `OnceCell::initialized` is correct.
+                self.inner.event_cache.initialized(),
                 self.inner.send_queue_data.clone(),
                 self.inner.latest_events.clone(),
                 #[cfg(feature = "e2e-encryption")]
@@ -3839,24 +3854,30 @@ impl Client {
     }
 
     /// The [`EventCache`] instance for this [`Client`].
-    pub fn event_cache(&self) -> &EventCache {
-        // SAFETY: always initialized in the `Client` ctor.
-        self.inner.event_cache.get().unwrap()
+    pub fn event_cache(&self) -> Option<&EventCache> {
+        self.inner.event_cache.get()
     }
 
-    /// The [`LatestEvents`] instance for this [`Client`].
-    pub async fn latest_events(&self) -> &LatestEvents {
-        self.inner
-            .latest_events
-            .get_or_init(|| async {
-                LatestEvents::new(
-                    WeakClient::from_client(self),
-                    self.event_cache().clone(),
-                    SendQueue::new(self.clone()),
-                    self.room_info_notable_update_receiver(),
-                )
-            })
-            .await
+    /// The [`LatestEvents`] instance for this [`Client`], if the [`EventCache`]
+    /// is enabled.
+    pub async fn latest_events(&self) -> Option<&LatestEvents> {
+        if let Some(event_cache) = self.event_cache() {
+            Some(
+                self.inner
+                    .latest_events
+                    .get_or_init(|| async {
+                        LatestEvents::new(
+                            self.downgrade(),
+                            event_cache.clone(),
+                            SendQueue::new(self.clone()),
+                            self.room_info_notable_update_receiver(),
+                        )
+                    })
+                    .await,
+            )
+        } else {
+            None
+        }
     }
 
     /// Waits until an at least partially synced room is received, and returns
@@ -4245,10 +4266,15 @@ impl Client {
     }
 }
 
-/// A weak reference to the inner client, useful when trying to get a handle on
-/// the owning client.
+/// A weak reference to the inner [`Client`], useful when trying to get a handle
+/// on the owning client.
+///
+/// This is intended for use in background tasks that require a [`Client`], as
+/// otherwise killing all the [`Client`] instances wouldn't be sufficient to
+/// drop the underlying inner client, and resume in a memory leak at best, and
+/// confusing background syncs for a supposedly dead client at worst.
 #[derive(Clone, Debug)]
-pub(crate) struct WeakClient {
+pub struct WeakClient {
     client: Weak<ClientInner>,
 }
 
@@ -4258,11 +4284,6 @@ impl WeakClient {
         Self { client: Arc::downgrade(client) }
     }
 
-    /// Construct a [`WeakClient`] from a [`Client`].
-    pub fn from_client(client: &Client) -> Self {
-        Self::from_inner(&client.inner)
-    }
-
     /// Attempts to get a [`Client`] from this [`WeakClient`].
     pub fn get(&self) -> Option<Client> {
         self.client.upgrade().map(|inner| Client { inner })
@@ -4270,7 +4291,6 @@ impl WeakClient {
 
     /// Gets the number of strong (`Arc`) pointers still pointing to this
     /// client.
-    #[allow(dead_code)]
     pub fn strong_count(&self) -> usize {
         self.client.strong_count()
     }
@@ -4339,7 +4359,7 @@ pub(crate) mod tests {
     use super::Client;
     use crate::{
         Error, Result, TransmissionProgress,
-        client::{WeakClient, caches::CachedValue, futures::SendMediaUploadRequest},
+        client::{caches::CachedValue, futures::SendMediaUploadRequest},
         config::{RequestConfig, SyncSettings},
         futures::SendRequest,
         media::MediaError,
@@ -4374,6 +4394,23 @@ pub(crate) mod tests {
         assert_eq!(client.sync_presence(), PresenceState::Offline);
         assert_eq!(clone.sync_presence(), PresenceState::Offline);
         assert_eq!(notification_client.sync_presence(), PresenceState::Offline);
+    }
+
+    // Without the `e2e-encryption` feature, the notification client has no
+    // session and can't sync.
+    #[cfg(feature = "e2e-encryption")]
+    #[async_test]
+    async fn test_disabled_event_cache_is_inherited_by_notification_client() {
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.with_event_cache(false))
+            .build()
+            .await;
+        let notification_client =
+            client.notification_client(CrossProcessLockConfig::SingleProcess).await.unwrap();
+        assert!(client.event_cache().is_none());
+        assert!(notification_client.event_cache().is_none());
     }
 
     #[async_test]
@@ -4822,7 +4859,7 @@ pub(crate) mod tests {
         // Wait for the init tasks to die.
         sleep(Duration::from_secs(1)).await;
 
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
         assert_eq!(weak_client.strong_count(), 1);
 
         {
@@ -4835,7 +4872,7 @@ pub(crate) mod tests {
             client.inner.base_client.receive_sync_response(response).await.unwrap();
 
             let (_room_event_cache, _drop_handles) =
-                client.get_room(room_id).unwrap().event_cache().await.unwrap();
+                client.event_cache().unwrap().room(room_id).await.unwrap();
         }
 
         drop(client);

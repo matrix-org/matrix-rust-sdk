@@ -346,13 +346,14 @@ mod tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         let room_id = room_id!("!omelette:fromage.fr");
         let f = EventFactory::new().room(room_id).sender(*BOB);
 
-        let room = server.sync_joined_room(&client, room_id).await;
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        server.sync_joined_room(&client, room_id).await;
+
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
         let (room_events, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
         assert!(room_events.is_empty());
 
@@ -443,12 +444,12 @@ mod tests {
         save("comté", event_id!("$1")).await;
         assert_eq!(search("comté").await, 0);
 
-        client.event_cache().run_search_backfill(SearchBackfillStrategy::Background).await;
+        client.event_cache().unwrap().run_search_backfill(SearchBackfillStrategy::Background).await;
         assert_eq!(search("comté").await, 1);
 
         // The reindex ran already: it doesn't run again.
         save("beaufort", event_id!("$2")).await;
-        client.event_cache().run_search_backfill(SearchBackfillStrategy::Background).await;
+        client.event_cache().unwrap().run_search_backfill(SearchBackfillStrategy::Background).await;
         assert_eq!(search("beaufort").await, 0);
     }
 }

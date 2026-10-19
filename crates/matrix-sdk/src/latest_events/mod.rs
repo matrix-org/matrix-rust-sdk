@@ -112,10 +112,16 @@ impl LatestEvents {
 
         // The task listening to the event cache, the send queue, and the room
         // infos updates.
+        //
+        // Note: we spawn the send queue observer here, instead of holding onto
+        // the `SendQueue` in the `listen_to_updates_task`, which would
+        // lead to a `Client` leak (since it's a field of
+        // the `SendQueue`).
+        let send_queue_generic_updates_subscriber = send_queue.subscribe();
         let listen_task_handle = spawn(listen_to_updates_task(
             registered_rooms.clone(),
             event_cache,
-            send_queue,
+            send_queue_generic_updates_subscriber,
             room_info_updates,
             latest_event_queue_sender,
         ))
@@ -466,13 +472,12 @@ enum LatestEventQueueUpdate {
 async fn listen_to_updates_task(
     registered_rooms: Arc<RegisteredRooms>,
     event_cache: EventCache,
-    send_queue: SendQueue,
+    mut send_queue_generic_updates_subscriber: broadcast::Receiver<SendQueueUpdate>,
     room_info_updates: broadcast::Receiver<RoomInfoNotableUpdate>,
     latest_event_queue_sender: mpsc::UnboundedSender<LatestEventQueueUpdate>,
 ) {
     let mut event_cache_generic_updates_subscriber =
         event_cache.subscribe_to_room_generic_updates();
-    let mut send_queue_generic_updates_subscriber = send_queue.subscribe();
     let mut room_info_updates_subscriber = room_info_updates.resubscribe();
 
     loop {
@@ -689,12 +694,15 @@ mod tests {
         owned_event_id, owned_room_id, room_id, user_id,
     };
     use stream_assert::assert_pending;
-    use tokio::{task::yield_now, time::timeout};
+    use tokio::{
+        task::yield_now,
+        time::{sleep, timeout},
+    };
 
     use super::{
         LatestEventValue, RegisteredRooms, RemoteLatestEventValue, RoomEventCacheGenericUpdate,
         RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomLatestEvents, RoomSendQueueUpdate,
-        RwLock, SendQueueUpdate, WeakClient, WeakRoom, With, broadcast, listen_to_updates, mpsc,
+        RwLock, SendQueueUpdate, WeakRoom, With, broadcast, listen_to_updates, mpsc,
     };
     use crate::{
         latest_events::{LatestEventQueueUpdate, local_room_message},
@@ -716,9 +724,9 @@ mod tests {
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_2, RoomState::Joined);
 
-        let latest_events = client.latest_events().await;
+        let latest_events = client.latest_events().await.unwrap();
 
-        // Despites there are many rooms, zero `RoomLatestEvents` are created.
+        // Despite there are many rooms, zero `RoomLatestEvents` are created.
         assert!(latest_events.state.registered_rooms.rooms.read().await.is_empty());
 
         // Now let's listen to two rooms.
@@ -778,7 +786,7 @@ mod tests {
         client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
 
-        let latest_events = client.latest_events().await;
+        let latest_events = client.latest_events().await.unwrap();
 
         // Now let's fetch one room.
         assert!(latest_events.listen_to_room(room_id_0).await.unwrap());
@@ -816,7 +824,7 @@ mod tests {
         client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
 
-        let latest_events = client.latest_events().await;
+        let latest_events = client.latest_events().await.unwrap();
 
         // Now let's fetch one thread .
         assert!(latest_events.listen_to_thread(room_id_0, thread_id_0_0).await.unwrap());
@@ -856,10 +864,10 @@ mod tests {
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
         let weak_room = WeakRoom::new(weak_client, room_id.clone());
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         let registered_rooms = RwLock::new(HashMap::new());
         let (room_event_cache_generic_update_sender, mut room_event_cache_generic_update_receiver) =
@@ -926,10 +934,10 @@ mod tests {
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
         let weak_room = WeakRoom::new(weak_client, room_id.clone());
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         let registered_rooms = RwLock::new(HashMap::new());
 
@@ -1009,10 +1017,10 @@ mod tests {
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
         let weak_room = WeakRoom::new(weak_client, room_id.clone());
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         let registered_rooms = RwLock::new(HashMap::new());
 
@@ -1086,10 +1094,10 @@ mod tests {
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
         let weak_room = WeakRoom::new(weak_client, room_id.clone());
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         let registered_rooms = RwLock::new(HashMap::new());
 
@@ -1264,7 +1272,7 @@ mod tests {
         // Create the room.
         client.base_client().get_or_create_room(&room_id, RoomState::Joined);
 
-        let latest_events = client.latest_events().await;
+        let latest_events = client.latest_events().await.unwrap();
 
         // Subscribe to the latest event values for this room.
         let mut latest_event_stream =
@@ -1347,7 +1355,7 @@ mod tests {
         // Create the room.
         client.base_client().get_or_create_room(&room_id, RoomState::Joined);
 
-        let latest_events = client.latest_events().await;
+        let latest_events = client.latest_events().await.unwrap();
 
         let mut latest_event_stream =
             latest_events.listen_and_subscribe_to_room(&room_id).await.unwrap().unwrap();
@@ -1388,9 +1396,9 @@ mod tests {
         room_info_1.set_latest_event(LatestEventValue::LocalIsSending(local_room_message("foo")));
         room_1.update_room_info(|_| (room_info_1, Default::default())).await;
 
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         let (latest_event_queue_sender, mut latest_event_queue_receiver) =
             mpsc::unbounded_channel();
@@ -1439,7 +1447,7 @@ mod tests {
         let own_user_id = client.user_id().unwrap();
         let other_user_id = user_id!("@other:servername");
 
-        let latest_events = client.latest_events().await;
+        let latest_events = client.latest_events().await.unwrap();
 
         // Subscribe to the latest event values for this room.
         let mut latest_event_stream =
@@ -1548,5 +1556,37 @@ mod tests {
 
             assert_pending!(latest_event_stream);
         }
+    }
+
+    /// Test that the `LatestEvents` tasks don't hold onto a `Client`, which
+    /// would prevent it from being dropped.
+    #[async_test]
+    async fn test_client_can_drop_latest_events_tasks() {
+        let room_id = room_id!("!r0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // Syncing initializes the `LatestEvents`, and thus spawns its tasks.
+        let room = server.sync_joined_room(&client, room_id).await;
+        assert!(client.latest_events().await.unwrap().is_listening_to_room(room_id).await);
+
+        // A `Room` holds onto a `Client`.
+        drop(room);
+
+        // Wait for anything to start up.
+        yield_now().await;
+
+        // Get a weak reference to the client.
+        let weak_client = client.downgrade();
+
+        // Dropping the client will drop the tasks.
+        drop(client);
+
+        // Wait for anything to shutdown.
+        sleep(Duration::from_secs(2)).await;
+
+        // The client has been dropped correctly.
+        assert_eq!(weak_client.strong_count(), 0);
     }
 }

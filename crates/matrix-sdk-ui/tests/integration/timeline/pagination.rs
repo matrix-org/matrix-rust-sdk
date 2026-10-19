@@ -43,7 +43,6 @@ use tokio::{
     spawn,
     time::{sleep, timeout},
 };
-use wiremock::ResponseTemplate;
 
 use crate::timeline::sliding_sync::assert_timeline_stream;
 
@@ -61,7 +60,7 @@ async fn test_back_pagination() {
     {
         let _mock = server
             .mock_room_messages()
-            .respond_with(ResponseTemplate::new(200).set_body_json(&*ROOM_MESSAGES_BATCH_1))
+            .ok_json(&*ROOM_MESSAGES_BATCH_1)
             .mock_once()
             .named("messages_batch_1")
             .mount_as_scoped()
@@ -126,13 +125,13 @@ async fn test_back_pagination() {
     {
         let _mock = server
             .mock_room_messages()
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            .ok_json(json!({
                 // Usually there would be a few events here, but we just want to
                 // test that the timeline start item is added when there is no
                 // end token
                 "chunk": [],
                 "start": "t47409-4357353_219380_26003_2269"
-            })))
+            }))
             .mock_once()
             .named("messages_end")
             .mount_as_scoped()
@@ -402,7 +401,7 @@ async fn test_back_pagination_highlighted() {
     {
         let _mock = server
             .mock_room_messages()
-            .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
+            .ok_json(response_json)
             .mock_once()
             .named("messages_batch_1")
             .mount_as_scoped()
@@ -454,7 +453,7 @@ async fn test_wait_for_token() {
     server
         .mock_room_messages()
         .match_from(from)
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*ROOM_MESSAGES_BATCH_1))
+        .ok_json(&*ROOM_MESSAGES_BATCH_1)
         .expect(1)
         .named("messages_batch_1")
         .mount()
@@ -510,13 +509,10 @@ async fn test_dedup_pagination() {
 
     server
         .mock_room_messages()
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(&*ROOM_MESSAGES_BATCH_1)
-                // Set a small delay to make sure the response doesn't arrive
-                // before both paginate_backwards function calls have happened.
-                .set_delay(Duration::from_millis(100)),
-        )
+        // Set a small delay to make sure the response doesn't arrive
+        // before both paginate_backwards function calls have happened.
+        .with_delay(Duration::from_millis(100))
+        .ok_json(&*ROOM_MESSAGES_BATCH_1)
         .expect(1) // endpoint should only be called once
         .named("messages_batch_1")
         .mount()
@@ -590,16 +586,13 @@ async fn test_timeline_reset_while_paginating() {
     server
         .mock_room_messages()
         .match_from("pagination_1")
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({
-                    "chunk": [],
-                    "start": "pagination_1",
-                    "end": "pagination_3",
-                }))
-                // Make sure the concurrent sync request returns first
-                .set_delay(Duration::from_millis(200)),
-        )
+        // Make sure the concurrent sync request returns first
+        .with_delay(Duration::from_millis(200))
+        .ok_json(json!({
+            "chunk": [],
+            "start": "pagination_1",
+            "end": "pagination_3",
+        }))
         .expect(2)
         .named("pagination_1")
         .mount()
@@ -611,10 +604,10 @@ async fn test_timeline_reset_while_paginating() {
     server
         .mock_room_messages()
         .match_from("pagination_2")
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        .ok_json(json!({
             "chunk": [alice_event],
             "start": "pagination_2",
-        })))
+        }))
         .expect(1)
         .named("pagination_2")
         .mount()
@@ -624,10 +617,10 @@ async fn test_timeline_reset_while_paginating() {
     server
         .mock_room_messages()
         .match_from("pagination_3")
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        .ok_json(json!({
             "chunk": [],
             "start": "pagination_3",
-        })))
+        }))
         .expect(1)
         .named("pagination_3")
         .mount()
@@ -783,11 +776,11 @@ async fn test_empty_chunk() {
     // It should try to do another request after the empty chunk.
     server
         .mock_room_messages()
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        .ok_json(json!({
             "chunk": [],
             "start": "t112-4357353_219380_26003_2269",
             "end": "t392-516_47314_0_7_1_1_1_11444_1",
-        })))
+        }))
         .mock_once()
         .named("messages_empty_chunk")
         .mount()
@@ -796,7 +789,7 @@ async fn test_empty_chunk() {
     server
         .mock_room_messages()
         .match_from("t392-516_47314_0_7_1_1_1_11444_1")
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*ROOM_MESSAGES_BATCH_1))
+        .ok_json(&*ROOM_MESSAGES_BATCH_1)
         .expect(1)
         .named("messages_batch_1")
         .mount()
@@ -873,7 +866,7 @@ async fn test_until_num_items_with_empty_chunk() {
 
     server
         .mock_room_messages()
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*ROOM_MESSAGES_BATCH_1))
+        .ok_json(&*ROOM_MESSAGES_BATCH_1)
         .mock_once()
         .named("messages_batch_1")
         .mount()
@@ -882,11 +875,11 @@ async fn test_until_num_items_with_empty_chunk() {
     server
         .mock_room_messages()
         .match_from("t47409-4357353_219380_26003_2269")
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        .ok_json(json!({
             "chunk": [],
             "start": "t47409-4357353_219380_26003_2269",
             "end": "t54392-516_47314_0_7_1_1_1_11444_1",
-        })))
+        }))
         .mock_once()
         .named("messages_empty_chunk")
         .mount()
@@ -895,7 +888,7 @@ async fn test_until_num_items_with_empty_chunk() {
     server
         .mock_room_messages()
         .match_from("t54392-516_47314_0_7_1_1_1_11444_1")
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*ROOM_MESSAGES_BATCH_2))
+        .ok_json(&*ROOM_MESSAGES_BATCH_2)
         .expect(1)
         .named("messages_batch_2")
         .mount()
@@ -996,11 +989,8 @@ async fn test_back_pagination_aborted() {
     // Delay the server response, so we have time to abort the request.
     server
         .mock_room_messages()
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(&*ROOM_MESSAGES_BATCH_1)
-                .set_delay(Duration::from_secs(1)),
-        )
+        .with_delay(Duration::from_secs(1))
+        .ok_json(&*ROOM_MESSAGES_BATCH_1)
         .mount()
         .await;
 

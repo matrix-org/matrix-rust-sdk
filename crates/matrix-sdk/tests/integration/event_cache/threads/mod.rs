@@ -76,7 +76,7 @@ async fn test_thread_contains_its_root_event() {
 
     let room_id = room_id!("!galette:saucisse.bzh");
 
-    let event_cache = client.event_cache();
+    let event_cache = client.event_cache().unwrap();
 
     let thread_root_id = event_id!("$thread_root");
     let thread_resp_id = event_id!("$thread_resp");
@@ -142,7 +142,7 @@ async fn test_ignored_user_empties_threads() {
     let server = MatrixMockServer::new().await;
     let client = client_with_threading_support(&server).await;
 
-    let event_cache = client.event_cache();
+    let event_cache = client.event_cache().unwrap();
 
     let room_id = room_id!("!omelette:fromage.fr");
 
@@ -255,7 +255,7 @@ async fn test_deduplication() {
     let server = MatrixMockServer::new().await;
     let client = client_with_threading_support(&server).await;
 
-    let event_cache = client.event_cache();
+    let event_cache = client.event_cache().unwrap();
 
     let room_id = room_id!("!omelette:fromage.fr");
 
@@ -375,9 +375,11 @@ async fn thread_subscription_test_setup() -> ThreadSubscriptionTestSetup {
         .await;
 
     let room_id = room_id!("!omelette:fromage.fr");
-    let room = server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    server.sync_joined_room(&client, room_id).await;
+
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (initial_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
     assert!(initial_events.is_empty());
@@ -456,7 +458,7 @@ async fn test_auto_subscribe_thread_via_sync() {
         .await;
 
     let mut thread_subscriber_updates =
-        s.client.event_cache().subscribe_thread_subscriber_updates();
+        s.client.event_cache().unwrap().subscribe_thread_subscriber_updates();
 
     // When I receive 3 events (1 non mention, 1 mention, then 1 non mention
     // again), from sync, I'll get subscribed to the thread because of the
@@ -516,7 +518,7 @@ async fn test_auto_subscribe_on_thread_paginate() {
 
     let s = thread_subscription_test_setup().await;
 
-    let event_cache = s.client.event_cache();
+    let event_cache = s.client.event_cache().unwrap();
 
     let mut thread_subscriber_updates = event_cache.subscribe_thread_subscriber_updates();
 
@@ -597,7 +599,7 @@ async fn test_auto_subscribe_on_thread_paginate_root_event() {
 
     let s = thread_subscription_test_setup().await;
 
-    let event_cache = s.client.event_cache();
+    let event_cache = s.client.event_cache().unwrap();
 
     let mut thread_subscriber_updates = event_cache.subscribe_thread_subscriber_updates();
 
@@ -684,7 +686,7 @@ async fn test_redact_touches_threads() {
     let s = thread_subscription_test_setup().await;
     let f = s.factory;
 
-    let event_cache = s.client.event_cache();
+    let event_cache = s.client.event_cache().unwrap();
 
     let thread_root_id = s.thread_root;
     let thread_resp1 = s.events[0].get_field::<OwnedEventId>("event_id").unwrap().unwrap();
@@ -946,7 +948,7 @@ async fn test_edits_touches_threads() {
     let s = thread_subscription_test_setup().await;
     let f = s.factory;
 
-    let event_cache = s.client.event_cache();
+    let event_cache = s.client.event_cache().unwrap();
 
     let thread_root_id = s.thread_root;
 

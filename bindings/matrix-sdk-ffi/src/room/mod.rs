@@ -1106,13 +1106,6 @@ impl Room {
         Ok(handle)
     }
 
-    /// Return a debug representation for the internal room events data
-    /// structure, one line per entry in the resulting vector.
-    pub async fn room_events_debug_string(&self) -> Result<Vec<String>, ClientError> {
-        let (cache, _drop_guards) = self.inner.event_cache().await?;
-        Ok(cache.debug_string().await)
-    }
-
     /// Update the canonical alias of the room.
     ///
     /// Note that publishing the alias in the room directory is done separately.

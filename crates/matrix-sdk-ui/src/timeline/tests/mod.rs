@@ -125,7 +125,7 @@ impl TestTimelineBuilder {
         let controller = TimelineController::new(
             room_data_provider,
             &self.focus.unwrap_or(TimelineFocus::Live { hide_threaded_events: false }),
-            client.event_cache(),
+            client.event_cache().expect("The `EventCache` must be enabled to use the `Timeline`"),
             self.internal_id_prefix,
             self.utd_hook,
             self.is_room_encrypted,
