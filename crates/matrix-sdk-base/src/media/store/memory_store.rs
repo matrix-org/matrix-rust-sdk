@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     num::NonZeroUsize,
     sync::{Arc, RwLock as StdRwLock},
 };
@@ -220,6 +220,22 @@ impl MediaStore for MemoryMediaStore {
 
     async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
         Ok(None)
+    }
+
+    async fn media_sizes(
+        &self,
+        uris: &[OwnedMxcUri],
+    ) -> Result<BTreeMap<OwnedMxcUri, u64>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+        let mut sizes = BTreeMap::new();
+
+        for media in inner.media.iter() {
+            if uris.contains(&media.uri) {
+                *sizes.entry(media.uri.clone()).or_default() += media.data.len() as u64;
+            }
+        }
+
+        Ok(sizes)
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
