@@ -18,11 +18,13 @@
 
 use std::{
     collections::hash_map::HashMap,
+    num::NonZeroUsize,
     path::{Path, PathBuf},
     sync::Arc,
+    thread::available_parallelism,
 };
 
-use futures_util::future::join_all;
+use futures_util::{StreamExt as _, future::join_all, stream};
 use matrix_sdk_base::{
     check_validity_of_replacement_events, deserialized_responses::TimelineEvent,
 };
@@ -48,7 +50,10 @@ use ruma::{
     },
     room_version_rules::RedactionRules,
 };
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::{
+    sync::{Mutex, MutexGuard},
+    task::spawn_blocking,
+};
 use tracing::{debug, warn};
 
 use crate::event_cache::RoomEventCache;
@@ -119,6 +124,44 @@ impl SearchIndex {
         }
     }
 
+    /// Open the indexes of the given rooms that exist on disk but aren't open
+    /// yet, concurrently and without holding the lock, instead of one by one
+    /// when they are first searched.
+    pub(crate) async fn open_indexes(&self, room_ids: impl Iterator<Item = OwnedRoomId>) {
+        let to_open: Vec<_> = {
+            let guard = self.lock().await;
+            room_ids
+                .filter(|room_id| {
+                    !guard.index_map.contains_key(room_id) && guard.has_index(room_id)
+                })
+                .collect()
+        };
+
+        let concurrency = available_parallelism().map_or(1, NonZeroUsize::get);
+
+        let mut opened = stream::iter(to_open)
+            .map(|room_id| {
+                let store_kind = self.search_index_store_kind.clone();
+                spawn_blocking(move || {
+                    let index = create_index(&store_kind, &room_id)
+                        .and_then(|index| index.warm_up().map(|()| index));
+                    (room_id, index)
+                })
+            })
+            .buffer_unordered(concurrency);
+
+        while let Some(task) = opened.next().await {
+            match task.expect("Task join error") {
+                // Keep the index opened meanwhile by the indexer, if any.
+                (room_id, Ok(index)) => {
+                    self.room_indexes.lock().await.entry(room_id).or_insert(index);
+                }
+                // The search will try again and report the error.
+                (room_id, Err(err)) => warn!(%room_id, "Failed to open the search index: {err}"),
+            }
+        }
+    }
+
     /// Same as [`SearchIndexGuard::bulk_handle_timeline_event`], but only
     /// locks the index once the events are parsed: parsing waits on the event
     /// cache, and searches need the lock meanwhile.
@@ -147,20 +190,23 @@ pub struct SearchIndexGuard<'a> {
     search_index_store_kind: &'a SearchIndexStoreKind,
 }
 
-impl SearchIndexGuard<'_> {
-    fn create_index(&self, room_id: &RoomId) -> Result<RoomIndex, IndexError> {
-        let index = match self.search_index_store_kind {
-            SearchIndexStoreKind::UnencryptedDirectory(path) => {
-                RoomIndexBuilder::new_on_disk(path.to_path_buf(), room_id).unencrypted().build()?
-            }
-            SearchIndexStoreKind::EncryptedDirectory(path, key) => {
-                RoomIndexBuilder::new_on_disk(path.to_path_buf(), room_id).encrypted(key).build()?
-            }
-            SearchIndexStoreKind::InMemory => RoomIndexBuilder::new_in_memory(room_id).build(),
-        };
-        Ok(index)
-    }
+fn create_index(
+    search_index_store_kind: &SearchIndexStoreKind,
+    room_id: &RoomId,
+) -> Result<RoomIndex, IndexError> {
+    let index = match search_index_store_kind {
+        SearchIndexStoreKind::UnencryptedDirectory(path) => {
+            RoomIndexBuilder::new_on_disk(path.to_path_buf(), room_id).unencrypted().build()?
+        }
+        SearchIndexStoreKind::EncryptedDirectory(path, key) => {
+            RoomIndexBuilder::new_on_disk(path.to_path_buf(), room_id).encrypted(key).build()?
+        }
+        SearchIndexStoreKind::InMemory => RoomIndexBuilder::new_in_memory(room_id).build(),
+    };
+    Ok(index)
+}
 
+impl SearchIndexGuard<'_> {
     /// Handle a [`RoomIndexOperation`] in the [`RoomIndex`] of a given
     /// [`RoomId`]
     ///
@@ -174,7 +220,7 @@ impl SearchIndexGuard<'_> {
         room_id: &RoomId,
     ) -> Result<(), IndexError> {
         if !self.index_map.contains_key(room_id) {
-            let index = self.create_index(room_id)?;
+            let index = create_index(self.search_index_store_kind, room_id)?;
             self.index_map.insert(room_id.to_owned(), index);
         }
 
@@ -211,7 +257,7 @@ impl SearchIndexGuard<'_> {
         }
 
         if !self.index_map.contains_key(room_id) {
-            let index = self.create_index(room_id)?;
+            let index = create_index(self.search_index_store_kind, room_id)?;
             self.index_map.insert(room_id.to_owned(), index);
         }
 
@@ -236,7 +282,7 @@ impl SearchIndexGuard<'_> {
         }
 
         if !self.index_map.contains_key(room_id) {
-            let index = self.create_index(room_id)?;
+            let index = create_index(self.search_index_store_kind, room_id)?;
             self.index_map.insert(room_id.to_owned(), index);
         }
 
