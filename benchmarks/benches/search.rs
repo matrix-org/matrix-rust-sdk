@@ -14,6 +14,7 @@ use tempfile::TempDir;
 use tokio::runtime::{Builder, Runtime};
 
 const NUMBER_OF_ROOMS: usize = 1000;
+const NUMBER_OF_SYNCS: u64 = 10;
 const KEY: &str = "key";
 
 fn room_ids(prefix: &str) -> Vec<OwnedRoomId> {
@@ -74,12 +75,12 @@ async fn first_page(client: &Client) {
     assert!(!page.is_empty());
 }
 
-/// Wait until the indexing task has indexed the matching message of every
-/// room.
-async fn wait_for_indexing(client: &Client) {
+/// Wait until the indexing task has indexed the message matching `query` in
+/// every room.
+async fn wait_for_indexing(client: &Client, query: &str) {
     loop {
         let mut count = 0;
-        let mut stream = Box::pin(client.search_messages("morning".to_owned()).build());
+        let mut stream = Box::pin(client.search_messages(query.to_owned()).build());
         while let Some(page) = stream.next().await {
             count += page.unwrap().len();
         }
@@ -94,12 +95,37 @@ async fn wait_for_indexing(client: &Client) {
 
 /// Populate an on-disk search index for every room, then drop the client so
 /// later clients open the indexes from disk.
+///
+/// After the initial messages, every room receives one message per extra sync,
+/// like real rooms do over time; each sync commits a new segment to the room
+/// index.
 fn populate(runtime: &Runtime, server: &MatrixMockServer, rooms: &[OwnedRoomId]) -> TempDir {
     let dir = TempDir::new().unwrap();
 
     runtime.block_on(async {
         let client = client(server, dir.path(), rooms, true).await;
-        wait_for_indexing(&client).await;
+        wait_for_indexing(&client, "morning").await;
+
+        let sender = owned_user_id!("@alice:example.com");
+
+        for nth in 0..NUMBER_OF_SYNCS {
+            server
+                .mock_sync()
+                .ok_and_run(&client, |builder| {
+                    for room_id in rooms {
+                        let f = EventFactory::new().room(room_id).sender(&sender);
+                        builder.add_joined_room(
+                            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                                f.text_msg(format!("round{nth}")).server_ts(10_000 + nth),
+                            ),
+                        );
+                    }
+                })
+                .await;
+
+            // One commit per sync: don't let the indexer batch syncs together.
+            wait_for_indexing(&client, &format!("round{nth}")).await;
+        }
     });
 
     dir
