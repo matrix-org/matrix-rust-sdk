@@ -28,6 +28,7 @@ use tantivy::{
     DateTime, Index, IndexReader, Order, ReloadPolicy, TantivyDocument,
     collector::{Count, MultiCollector, TopDocs},
     directory::error::OpenDirectoryError,
+    merge_policy::LogMergePolicy,
     query::QueryParser,
     schema::Value,
 };
@@ -184,8 +185,18 @@ impl RoomIndex {
     }
 
     /// Get a [`SearchIndexWriter`] for this index.
+    ///
+    /// Every commit creates a segment, and opening an index opens every file of
+    /// every segment, which dominates the cost of opening many room indexes.
+    /// Merge as soon as there are two segments of the same layer, so a room
+    /// index usually stays at a single segment.
     fn writer(&self) -> Result<SearchIndexWriter, IndexError> {
         let writer = self.index.writer(TANTIVY_INDEX_MEMORY_BUDGET)?;
+
+        let mut merge_policy = LogMergePolicy::default();
+        merge_policy.set_min_num_segments(2);
+        writer.set_merge_policy(Box::new(merge_policy));
+
         Ok(SearchIndexWriter::new(writer, self.schema.clone()))
     }
 
@@ -590,6 +601,31 @@ mod tests {
             .build()
             .unwrap();
         assert!(index.search("body", 10, None).unwrap().events.is_empty());
+    }
+
+    #[test]
+    fn test_commits_are_merged_into_a_single_segment() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let mut index = RoomIndexBuilder::new_on_disk(tmpdir.path().to_path_buf(), room_id!("!r"))
+            .unencrypted()
+            .build()
+            .unwrap();
+
+        for nth in 0..10 {
+            let event_id = EventId::parse(format!("$ev{nth}")).unwrap();
+            index
+                .bulk_execute(vec![RoomIndexOperation::Add(IndexableEvent::new(
+                    event_id.clone(),
+                    event_id,
+                    user_id!("@mnt_io:matrix.org").to_owned(),
+                    None,
+                    "body".to_owned(),
+                ))])
+                .unwrap();
+        }
+
+        assert_eq!(index.index.searchable_segment_ids().unwrap().len(), 1);
+        assert_eq!(index.search("body", 100, None).unwrap().events.len(), 10);
     }
 
     #[test]
