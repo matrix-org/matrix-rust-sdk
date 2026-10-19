@@ -15,7 +15,7 @@
 //! Matrix driver implementation that exposes Matrix functionality
 //! that is relevant for the widget API.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Duration};
 
 use async_stream::stream;
 use futures_core::Stream;
@@ -26,12 +26,18 @@ use matrix_sdk_base::{
 };
 use ruma::{
     EventId, OwnedDeviceId, OwnedMxcUri, OwnedUserId, RoomId, TransactionId,
-    api::client::{
-        account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
-        delayed_events::{self, update_delayed_event::UpdateAction},
-        filter::RoomEventFilter,
-        rtc::livekit::{delegate_delayed_leave, get_token},
-        to_device::send_event_to_device::v3::Request as RumaToDeviceRequest,
+    api::{
+        FeatureFlag,
+        client::{
+            account::request_openid_token::v3::{
+                Request as OpenIdRequest, Response as OpenIdResponse,
+            },
+            delayed_events::{self, update_delayed_event::UpdateAction},
+            filter::RoomEventFilter,
+            rtc::livekit::{delegate_delayed_leave, get_token},
+            to_device::send_event_to_device::v3::Request as RumaToDeviceRequest,
+        },
+        error::ErrorKind,
     },
     assign,
     events::{
@@ -49,7 +55,7 @@ use tokio::sync::{
     broadcast::{Receiver, error::RecvError},
     mpsc::{UnboundedReceiver, unbounded_channel},
 };
-use tracing::{error, trace, warn};
+use tracing::{error, info, trace, warn};
 
 use super::{
     StateKeySelector,
@@ -249,7 +255,7 @@ impl MatrixDriver {
         event_type: TimelineEventType,
         state_key: Option<String>,
         content: Box<RawJsonValue>,
-        delayed_event_parameters: Option<delayed_events::DelayParameters>,
+        delay: Option<Duration>,
     ) -> Result<SendEventResponse> {
         let type_str = event_type.to_string();
 
@@ -262,7 +268,7 @@ impl MatrixDriver {
             ));
         }
 
-        Ok(match (state_key, delayed_event_parameters) {
+        Ok(match (state_key, delay) {
             (None, None) => SendEventResponse::from_event_id(
                 self.room.send_raw(&type_str, content).await?.response.event_id,
             ),
@@ -271,28 +277,75 @@ impl MatrixDriver {
                 self.room.send_state_event_raw(&type_str, &key, content).await?.event_id,
             ),
 
-            (None, Some(delayed_event_parameters)) => {
+            (None, Some(delay)) => {
+                match self.room.send_raw(&type_str, content.clone()).with_delay(delay).await {
+                    Ok(response) => return Ok(response.into()),
+                    Err(error) => {
+                        if !self.can_fall_back_to_legacy_endpoint(&error).await? {
+                            return Err(error);
+                        }
+                    }
+                }
+
                 let r = delayed_events::delayed_message_event::unstable::Request::new_raw(
                     self.room.room_id().to_owned(),
                     TransactionId::new(),
                     MessageLikeEventType::from(type_str),
-                    delayed_event_parameters,
+                    delayed_events::DelayParameters::Timeout { timeout: delay },
                     Raw::<AnyMessageLikeEventContent>::from_json(content),
                 );
                 self.room.client.send(r).await.map(|r| r.into())?
             }
 
-            (Some(key), Some(delayed_event_parameters)) => {
+            (Some(key), Some(delay)) => {
+                match self
+                    .room
+                    .send_delayed_state_event_raw(&type_str, &key, content.clone(), delay)
+                    .await
+                {
+                    Ok(response) => return Ok(response.into()),
+                    Err(error) => {
+                        if !self.can_fall_back_to_legacy_endpoint(&error).await? {
+                            return Err(error);
+                        }
+                    }
+                }
+
                 let r = delayed_events::delayed_state_event::unstable::Request::new_raw(
                     self.room.room_id().to_owned(),
                     key,
                     StateEventType::from(type_str),
-                    delayed_event_parameters,
+                    delayed_events::DelayParameters::Timeout { timeout: delay },
                     Raw::<AnyStateEventContent>::from_json(content),
                 );
                 self.room.client.send(r).await.map(|r| r.into())?
             }
         })
+    }
+
+    /// Whether a request to a dedicated delayed event endpoint ([MSC4140])
+    /// that failed with `error` can be retried with the legacy endpoint.
+    ///
+    /// That's only the case if the homeserver advertises support for delayed
+    /// events: one which doesn't ignores the legacy `org.matrix.msc4140.delay`
+    /// query parameter and sends the event right away.
+    ///
+    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+    async fn can_fall_back_to_legacy_endpoint(&self, error: &Error) -> Result<bool> {
+        if !is_unknown_endpoint(error) {
+            return Ok(false);
+        }
+
+        if !self.room.client.unstable_features().await?.contains(&FeatureFlag::Msc4140) {
+            return Ok(false);
+        }
+
+        info!(
+            "The homeserver doesn't support the dedicated delayed event endpoint, \
+             falling back to the legacy one"
+        );
+
+        Ok(true)
     }
 
     /// Send a request to the `/delayed_events`` endpoint
@@ -305,6 +358,15 @@ impl MatrixDriver {
         delay_id: String,
         action: UpdateAction,
     ) -> Result<delayed_events::update_delayed_event::unstable_v1::Response> {
+        match self.room.update_delayed_event(delay_id.clone(), action.clone()).await {
+            // Both versions of the endpoint have an empty response.
+            Ok(_) => return Ok(delayed_events::update_delayed_event::unstable_v1::Response::new()),
+            // Unlike for scheduling, falling back is always safe here: the
+            // legacy endpoint can't send anything by mistake.
+            Err(error) if is_unknown_endpoint(&error) => {}
+            Err(error) => return Err(error),
+        }
+
         let r = delayed_events::update_delayed_event::unstable_v1::Request::new(delay_id, action);
         self.room.client.send(r).await.map_err(|error| Error::Http(Box::new(error)))
     }
@@ -552,6 +614,19 @@ fn attach_room_id(raw_ev: &Raw<AnySyncTimelineEvent>, room_id: &RoomId) -> Raw<A
 
 fn attach_room_id_state(raw_ev: &Raw<AnySyncStateEvent>, room_id: &RoomId) -> Raw<AnyStateEvent> {
     attach_room_id(raw_ev.cast_ref(), room_id).cast_unchecked()
+}
+
+/// Whether `error` means that the homeserver doesn't know the endpoint of the
+/// request: either an `M_UNRECOGNIZED` error, or a 404 without a Matrix error
+/// body, like a reverse proxy would return.
+fn is_unknown_endpoint(error: &Error) -> bool {
+    match error.as_client_api_error() {
+        Some(api_error) => match api_error.error_kind() {
+            Some(kind) => *kind == ErrorKind::Unrecognized,
+            None => api_error.status_code == http::StatusCode::NOT_FOUND,
+        },
+        None => false,
+    }
 }
 
 #[cfg(test)]
