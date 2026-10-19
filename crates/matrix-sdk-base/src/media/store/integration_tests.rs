@@ -1080,6 +1080,9 @@ pub trait MediaStoreIntegrationTests {
 
     /// Test replacing a MXID.
     async fn test_replace_media_key(&self);
+
+    /// Test media sizes.
+    async fn test_media_sizes(&self);
 }
 
 impl<Store> MediaStoreIntegrationTests for Store
@@ -1241,6 +1244,73 @@ where
         // Finding with the new request does work.
         assert_eq!(self.get_media_content(&new_req).await.unwrap().unwrap(), b"hello");
     }
+
+    async fn test_media_sizes(&self) {
+        let uri = mxc_uri!("mxc://localhost/media");
+        let other_uri = mxc_uri!("mxc://localhost/media-other");
+        let missing_uri = mxc_uri!("mxc://localhost/media-missing");
+
+        let request_file = MediaRequestParameters {
+            source: MediaSource::Plain(uri.to_owned()),
+            format: MediaFormat::File,
+        };
+        let request_thumbnail = MediaRequestParameters {
+            source: MediaSource::Plain(uri.to_owned()),
+            format: MediaFormat::Thumbnail(MediaThumbnailSettings::with_method(
+                Method::Crop,
+                uint!(100),
+                uint!(100),
+            )),
+        };
+        let request_other_file = MediaRequestParameters {
+            source: MediaSource::Plain(other_uri.to_owned()),
+            format: MediaFormat::File,
+        };
+
+        // Nothing is stored yet.
+        assert!(self.media_sizes(&[]).await.unwrap().is_empty());
+        assert!(self.media_sizes(&[uri.to_owned()]).await.unwrap().is_empty());
+
+        self.add_media_content(&request_file, b"hello".to_vec(), IgnoreMediaRetentionPolicy::No)
+            .await
+            .expect("adding media failed");
+        self.add_media_content(
+            &request_thumbnail,
+            b"world!".to_vec(),
+            IgnoreMediaRetentionPolicy::No,
+        )
+        .await
+        .expect("adding media failed");
+        self.add_media_content(
+            &request_other_file,
+            b"foo".to_vec(),
+            IgnoreMediaRetentionPolicy::No,
+        )
+        .await
+        .expect("adding media failed");
+
+        // The sizes of all the representations of a media are summed, media
+        // that isn't stored is omitted, and a media requested multiple times is
+        // returned only once. The stored size can exceed the size of the media
+        // contents when the store encrypts them.
+        let sizes = self
+            .media_sizes(&[
+                uri.to_owned(),
+                other_uri.to_owned(),
+                missing_uri.to_owned(),
+                uri.to_owned(),
+            ])
+            .await
+            .unwrap();
+        assert_eq!(sizes.len(), 2);
+
+        let size_of = |target: &ruma::MxcUri| {
+            sizes.iter().find(|(uri, _)| uri == target).map(|(_, size)| *size)
+        };
+        assert!(size_of(uri).unwrap() >= 11);
+        assert!(size_of(other_uri).unwrap() >= 3);
+        assert!(size_of(uri).unwrap() > size_of(other_uri).unwrap());
+    }
 }
 
 /// Macro building to allow your [`MediaStore`] implementation to run the entire
@@ -1291,6 +1361,12 @@ macro_rules! media_store_integration_tests {
             async fn test_replace_media_key() {
                 let media_store = get_media_store().await.unwrap();
                 media_store.test_replace_media_key().await;
+            }
+
+            #[async_test]
+            async fn test_media_sizes() {
+                let media_store = get_media_store().await.unwrap();
+                media_store.test_media_sizes().await;
             }
         }
     };
