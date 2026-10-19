@@ -62,6 +62,7 @@ use ruma::{
     push::RuleKind,
     serde::{JsonObject, Raw},
     time::Duration,
+    user_id,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, from_value, json};
@@ -3932,15 +3933,27 @@ impl<'a> MockEndpoint<'a, SetRoomPinnedEventsEndpoint> {
 pub struct WhoAmIEndpoint;
 
 impl<'a> MockEndpoint<'a, WhoAmIEndpoint> {
-    /// Returns a successful response with the default device ID.
+    /// Returns a successful response with the default user ID and device ID.
     pub fn ok(self) -> MatrixMock<'a> {
-        self.ok_with_device_id(device_id!("D3V1C31D"))
+        self.ok_with_ids(user_id!("@joe:example.org"), device_id!("D3V1C31D"))
     }
 
-    /// Returns a successful response with the given device ID.
+    /// Returns a successful response with the given user ID, and the default
+    /// device ID.
+    pub fn ok_with_user_id(self, user_id: &UserId) -> MatrixMock<'a> {
+        self.ok_with_ids(user_id, device_id!("D3V1C31D"))
+    }
+
+    /// Returns a successful response with the given device ID, and the default
+    /// user ID.
     pub fn ok_with_device_id(self, device_id: &DeviceId) -> MatrixMock<'a> {
+        self.ok_with_ids(user_id!("@joe:example.org"), device_id)
+    }
+
+    /// Returns a successful response with the given user ID and device ID.
+    fn ok_with_ids(self, user_id: &UserId, device_id: &DeviceId) -> MatrixMock<'a> {
         self.ok_json(json!({
-            "user_id": "@joe:example.org",
+            "user_id": user_id,
             "device_id": device_id,
         }))
     }
