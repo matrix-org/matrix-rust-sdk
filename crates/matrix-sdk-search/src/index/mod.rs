@@ -213,6 +213,12 @@ impl RoomIndex {
         })
     }
 
+    /// Do the costly part of opening this index ahead of the first search, i.e.
+    /// opening all its segments.
+    pub fn warm_up(&self) -> Result<(), IndexError> {
+        self.reader().map(|_| ())
+    }
+
     /// Commit added events to [`RoomIndex`]. The changes are not reflected in
     /// the search results until the serchers are reloaded.
     ///

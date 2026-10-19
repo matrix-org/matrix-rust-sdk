@@ -258,10 +258,16 @@ impl GlobalSearchBuilder {
     ) -> impl Stream<
         Item = Result<Vec<(OwnedRoomId, MilliSecondsSinceUnixEpoch, OwnedEventId)>, IndexError>,
     > {
+        let client = self.client;
         let query = self.query;
         let rooms = self.room_set;
 
         try_stream! {
+            client
+                .search_index()
+                .open_indexes(rooms.iter().map(|room| room.room_id().to_owned()))
+                .await;
+
             // One newest-first result stream per room, each primed with its
             // next result so we can merge across rooms by timestamp.
             let mut cursors: Vec<RoomStreamCursor> = Vec::with_capacity(rooms.len());
