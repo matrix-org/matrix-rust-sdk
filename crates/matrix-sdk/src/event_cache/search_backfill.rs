@@ -160,7 +160,13 @@ impl EventCache {
                         ?reason,
                         "finished search backpagination request"
                     );
-                    if reason == BackPaginationStopReason::ReachedTimelineStart {
+                    // Skipped rooms won't change on the next week, so don't
+                    // retry them.
+                    if matches!(
+                        reason,
+                        BackPaginationStopReason::ReachedTimelineStart
+                            | BackPaginationStopReason::Skipped
+                    ) {
                         drained.insert(room_id);
                     }
                 }
