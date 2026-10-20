@@ -633,26 +633,7 @@ impl ClientBuilder {
         }
 
         if let Some(config) = builder.request_config {
-            let mut updated_config = matrix_sdk::config::RequestConfig::default();
-            if let Some(retry_limit) = config.retry_limit {
-                updated_config =
-                    updated_config.retry_limit(retry_limit.try_into().unwrap_or(usize::MAX));
-            }
-            if let Some(timeout) = config.timeout {
-                updated_config = updated_config.timeout(Duration::from_millis(timeout));
-            }
-            updated_config = updated_config.read_timeout(DEFAULT_READ_TIMEOUT);
-            if let Some(max_concurrent_requests) = config.max_concurrent_requests
-                && max_concurrent_requests > 0
-            {
-                updated_config = updated_config
-                    .max_concurrent_requests(NonZeroUsize::new(max_concurrent_requests as usize));
-            }
-            if let Some(max_retry_time) = config.max_retry_time {
-                updated_config =
-                    updated_config.max_retry_time(Duration::from_millis(max_retry_time));
-            }
-            inner_builder = inner_builder.request_config(updated_config);
+            inner_builder = inner_builder.request_config(config.into());
         }
 
         inner_builder = inner_builder
@@ -848,10 +829,11 @@ impl ClientBuilder {
     }
 }
 
-/// The config to use for HTTP requests by default in this client.
+/// The config to use for HTTP requests, either by default in this client or
+/// for a single request.
 #[derive(Clone, uniffi::Record)]
 pub struct RequestConfig {
-    /// Max number of retries.
+    /// Max number of retries. `0` disables retries.
     retry_limit: Option<u64>,
     /// Timeout for a request in milliseconds.
     timeout: Option<u64>,
@@ -859,6 +841,30 @@ pub struct RequestConfig {
     max_concurrent_requests: Option<u64>,
     /// Base delay between retries.
     max_retry_time: Option<u64>,
+}
+
+impl From<RequestConfig> for matrix_sdk::config::RequestConfig {
+    fn from(config: RequestConfig) -> Self {
+        let mut updated_config = matrix_sdk::config::RequestConfig::default();
+        if let Some(retry_limit) = config.retry_limit {
+            updated_config =
+                updated_config.retry_limit(retry_limit.try_into().unwrap_or(usize::MAX));
+        }
+        if let Some(timeout) = config.timeout {
+            updated_config = updated_config.timeout(Duration::from_millis(timeout));
+        }
+        updated_config = updated_config.read_timeout(DEFAULT_READ_TIMEOUT);
+        if let Some(max_concurrent_requests) = config.max_concurrent_requests
+            && max_concurrent_requests > 0
+        {
+            updated_config = updated_config
+                .max_concurrent_requests(NonZeroUsize::new(max_concurrent_requests as usize));
+        }
+        if let Some(max_retry_time) = config.max_retry_time {
+            updated_config = updated_config.max_retry_time(Duration::from_millis(max_retry_time));
+        }
+        updated_config
+    }
 }
 
 #[derive(Clone, uniffi::Enum)]

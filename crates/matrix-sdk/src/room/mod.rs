@@ -3383,16 +3383,48 @@ impl Room {
         state_key: &str,
         content: impl IntoRawStateEventContent,
     ) -> Result<send_state_event::v3::Response> {
-        self.ensure_room_joined()?;
+        self.send_state_event_raw_with_config(event_type, state_key, content, None).await
+    }
 
-        let request = send_state_event::v3::Request::new_raw(
-            self.room_id().to_owned(),
-            event_type.into(),
-            state_key.to_owned(),
-            content.into_raw_state_event_content(),
-        );
+    /// Send a raw room state event to the homeserver, using the given
+    /// [`RequestConfig`] for this request.
+    ///
+    /// This is the same as [`Room::send_state_event_raw`], except that the
+    /// request is sent with `request_config` instead of the client's default
+    /// config, e.g. to disable automatic retries. `None` uses the client's
+    /// default config.
+    ///
+    /// Returns the parsed response from the server.
+    #[instrument(skip_all)]
+    pub async fn send_state_event_raw_with_config(
+        &self,
+        event_type: &str,
+        state_key: &str,
+        content: impl IntoRawStateEventContent,
+        request_config: Option<RequestConfig>,
+    ) -> Result<send_state_event::v3::Response> {
+        #[cfg(feature = "experimental-encrypted-state-events")]
+        {
+            let mut request = self.send_state_event_raw(event_type, state_key, content);
+            if let Some(request_config) = request_config {
+                request = request.with_request_config(request_config);
+            }
+            request.await
+        }
 
-        Ok(self.client.send(request).await?)
+        #[cfg(not(feature = "experimental-encrypted-state-events"))]
+        {
+            self.ensure_room_joined()?;
+
+            let request = send_state_event::v3::Request::new_raw(
+                self.room_id().to_owned(),
+                event_type.into(),
+                state_key.to_owned(),
+                content.into_raw_state_event_content(),
+            );
+
+            Ok(self.client.send(request).with_request_config(request_config).await?)
+        }
     }
 
     /// Send a raw room state event to the homeserver.
@@ -5908,5 +5940,28 @@ mod tests {
             assert_eq!(result.max_lifetime(), case.expected_max, "{}", case.description);
             assert_eq!(result.min_lifetime(), case.expected_min, "{}", case.description);
         }
+    }
+
+    #[async_test]
+    async fn test_send_state_event_raw_with_request_config() {
+        let server = MatrixMockServer::new().await;
+        // The client retries by default, the request below must override that.
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.request_config(RequestConfig::new().retry_limit(3)))
+            .build()
+            .await;
+        let room = server.sync_joined_room(&client, room_id!("!a:b.c")).await;
+
+        server.mock_room_send_state().error500().expect(1).mount().await;
+
+        room.send_state_event_raw_with_config(
+            "org.example.custom",
+            "",
+            serde_json::json!({}),
+            Some(RequestConfig::new().disable_retry()),
+        )
+        .await
+        .unwrap_err();
     }
 }

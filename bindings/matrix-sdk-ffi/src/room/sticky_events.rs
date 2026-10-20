@@ -23,7 +23,8 @@ use tokio::sync::broadcast::error::RecvError;
 
 use super::Room;
 use crate::{
-    TaskHandle, encryption::EventEncryptionInfo, error::ClientError, runtime::get_runtime_handle,
+    TaskHandle, client_builder::RequestConfig, encryption::EventEncryptionInfo, error::ClientError,
+    runtime::get_runtime_handle,
 };
 
 /// The key under which a sticky event is tracked in a room.
@@ -185,26 +186,35 @@ impl Room {
     /// - `content` - The content of the event to send encoded as JSON string.
     /// - `duration_ms` - How long the event stays sticky for, in milliseconds,
     ///   clamped to one hour.
+    /// - `request_config` - The config to use for this request instead of the
+    ///   client's default one. It replaces the default config entirely, so any
+    ///   field left unset falls back to the SDK default rather than the value
+    ///   the client was built with.
     ///
     /// # Returns
     ///
     /// The event ID of the newly sent event.
     ///
     /// [`Client::is_sticky_events_supported`]: crate::client::Client::is_sticky_events_supported
+    #[uniffi::method(default(request_config = None))]
     pub async fn send_sticky_raw(
         &self,
         event_type: String,
         content: String,
         duration_ms: u64,
+        request_config: Option<RequestConfig>,
     ) -> Result<String, ClientError> {
         let content_json: serde_json::Value =
             serde_json::from_str(&content).map_err(|e| matrix_sdk::Error::SerdeJson(e))?;
 
-        let response = self
+        let mut request = self
             .inner
             .send_raw(&event_type, content_json)
-            .with_sticky_duration(Duration::from_millis(duration_ms))
-            .await?;
+            .with_sticky_duration(Duration::from_millis(duration_ms));
+        if let Some(request_config) = request_config {
+            request = request.with_request_config(request_config.into());
+        }
+        let response = request.await?;
 
         Ok(response.response.event_id.to_string())
     }

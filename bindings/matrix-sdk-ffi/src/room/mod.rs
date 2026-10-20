@@ -57,6 +57,7 @@ use crate::{
     TaskHandle,
     chunk_iterator::ChunkIterator,
     client::{JoinRule, RoomVisibility},
+    client_builder::RequestConfig,
     error::{
         ClientError, LiveLocationError, MediaInfoError, NotYetImplemented, QueueWedgeError,
         RoomError,
@@ -462,11 +463,18 @@ impl Room {
     ///
     /// * `content` - The content of the event to send encoded as JSON string.
     ///
+    /// * `request_config` - The config to use for this request instead of the
+    ///   client's default one. It replaces the default config entirely, so any
+    ///   field left unset falls back to the SDK default rather than the value
+    ///   the client was built with.
+    ///
     /// Returns the event ID of the newly sent event.
+    #[uniffi::method(default(request_config = None))]
     pub async fn send_raw(
         &self,
         event_type: String,
         content: String,
+        request_config: Option<RequestConfig>,
     ) -> Result<String, ClientError> {
         let content_json: serde_json::Value =
             serde_json::from_str(&content).map_err(|e| ClientError::Generic {
@@ -474,7 +482,11 @@ impl Room {
                 details: Some(format!("{e:?}")),
             })?;
 
-        let response = self.inner.send_raw(&event_type, content_json).await?;
+        let mut request = self.inner.send_raw(&event_type, content_json);
+        if let Some(request_config) = request_config {
+            request = request.with_request_config(request_config.into());
+        }
+        let response = request.await?;
 
         Ok(response.response.event_id.to_string())
     }
@@ -491,12 +503,19 @@ impl Room {
     ///
     /// - `content` - The content of the state event encoded as a JSON string.
     ///
+    /// - `request_config` - The config to use for this request instead of the
+    ///   client's default one. It replaces the default config entirely, so any
+    ///   field left unset falls back to the SDK default rather than the value
+    ///   the client was built with.
+    ///
     /// Returns the event ID of the newly created state event.
+    #[uniffi::method(default(request_config = None))]
     pub async fn send_state_event_raw(
         &self,
         event_type: String,
         state_key: String,
         content: String,
+        request_config: Option<RequestConfig>,
     ) -> Result<String, ClientError> {
         let content_json: serde_json::Value =
             serde_json::from_str(&content).map_err(|e| ClientError::Generic {
@@ -504,8 +523,15 @@ impl Room {
                 details: Some(format!("{e:?}")),
             })?;
 
-        let response =
-            self.inner.send_state_event_raw(&event_type, &state_key, content_json).await?;
+        let response = self
+            .inner
+            .send_state_event_raw_with_config(
+                &event_type,
+                &state_key,
+                content_json,
+                request_config.map(Into::into),
+            )
+            .await?;
 
         Ok(response.event_id.to_string())
     }
