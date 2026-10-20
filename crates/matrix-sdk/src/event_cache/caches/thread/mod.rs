@@ -108,11 +108,16 @@ impl ThreadEventCache {
     ) -> Result<Self> {
         let update_sender = ThreadEventCacheUpdateSender::new(generic_update_sender.clone());
 
+        // Computed while building the state: nothing may await once the state
+        // is inserted, or a cancellation or error would leave it
+        // inserted without its cache, making every later attempt fail.
+        let mut timeline_is_not_empty = false;
+
         let cache_state = state
             .try_insert_once_with(
                 ThreadStateSelector::new(room_id.clone(), thread_id.clone()),
-                |store_guard| {
-                    ThreadEventCacheState::new(
+                async |store_guard| {
+                    let cache_state = ThreadEventCacheState::new(
                         room_id.clone(),
                         thread_id.clone(),
                         weak_room.clone(),
@@ -122,12 +127,15 @@ impl ThreadEventCache {
                         update_sender.clone(),
                         linked_chunk_update_sender,
                     )
+                    .await?;
+
+                    timeline_is_not_empty =
+                        cache_state.thread_linked_chunk.revents().next().is_some();
+
+                    Ok(cache_state)
                 },
             )
             .await?;
-
-        let timeline_is_not_empty =
-            cache_state.read().await?.thread_linked_chunk().revents().next().is_some();
 
         let cache = Self {
             inner: Arc::new(ThreadEventCacheInner {

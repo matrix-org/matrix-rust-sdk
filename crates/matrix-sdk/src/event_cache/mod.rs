@@ -1162,4 +1162,42 @@ mod tests {
             event_cache_weak.strong_count()
         );
     }
+
+    /// Dropping the future creating a room's caches must not leave the room
+    /// state half-created, which would make every later attempt fail.
+    #[async_test]
+    async fn test_cancelled_caches_creation_can_be_retried() {
+        let client = logged_in_client(None).await;
+        let room_id_a = room_id!("!a:saucisse.bzh");
+        let room_id_b = room_id!("!b:saucisse.bzh");
+
+        client.base_client().get_or_create_room(room_id_a, RoomState::Joined);
+        client.base_client().get_or_create_room(room_id_b, RoomState::Joined);
+
+        let event_cache = client.event_cache().unwrap();
+
+        let (room_a, _drop_handles) = event_cache.room(room_id_a).await.unwrap();
+
+        // Hold the state write lock so that creating room B's caches waits on
+        // it.
+        let guard = room_a.state().write().await.unwrap();
+
+        let mut create_b = Box::pin(event_cache.room(room_id_b));
+        assert!(create_b.as_mut().now_or_never().is_none());
+
+        // Queue another writer behind room B's creation.
+        let mut other_writer = Box::pin(room_a.state().write());
+        assert!(other_writer.as_mut().now_or_never().is_none());
+
+        // Room B's creation gets the lock and inserts its state. If anything
+        // still has to wait after that (behind the other writer), cancel it
+        // there.
+        drop(guard);
+        let _ = create_b.as_mut().now_or_never();
+        drop(create_b);
+        drop(other_writer);
+
+        // Creating room B's caches again works.
+        event_cache.room(room_id_b).await.unwrap();
+    }
 }
