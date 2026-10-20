@@ -342,6 +342,8 @@ impl RoomLatestEventsWriteGuard {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
+    use std::time::Duration;
+
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
         RoomState,
@@ -354,23 +356,21 @@ mod tests {
         store::StoreConfig,
     };
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
-    use ruma::{event_id, room_id, user_id};
+    use ruma::{RoomId, event_id, room_id, user_id};
+    use tokio::time::timeout;
 
     use super::RoomLatestEvents;
     use crate::{
-        assert_let_timeout,
+        Client, assert_let_timeout,
         latest_events::LatestEventValue,
         room::WeakRoom,
         test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
     };
 
-    /// When no latest-event candidate is present in memory, but one exists
-    /// behind a gap, `update_with_event_cache` back-paginates to surface it.
-    #[async_test]
-    async fn test_update_with_event_cache_backfills_for_a_candidate() {
-        let room_id = room_id!("!r0");
-        let sender = user_id!("@bob:example.org");
-
+    /// A client with automatic back-pagination whose `room_id` has a single
+    /// gap: no events in memory (so no candidate), but a token to paginate
+    /// from.
+    async fn client_with_a_gap(server: &MatrixMockServer, room_id: &RoomId) -> Client {
         let event_cache_store = MemoryStore::new();
 
         // A linked chunk with a single gap: no events in memory (so no
@@ -389,8 +389,7 @@ mod tests {
             .await
             .unwrap();
 
-        let server = MatrixMockServer::new().await;
-        let client = server
+        server
             .client_builder()
             .on_builder(|builder| {
                 builder.with_enable_automatic_back_pagination(true).store_config(
@@ -401,7 +400,18 @@ mod tests {
                 )
             })
             .build()
-            .await;
+            .await
+    }
+
+    /// When no latest-event candidate is present in memory, but one exists
+    /// behind a gap, `update_with_event_cache` back-paginates to surface it.
+    #[async_test]
+    async fn test_update_with_event_cache_backfills_for_a_candidate() {
+        let room_id = room_id!("!r0");
+        let sender = user_id!("@bob:example.org");
+
+        let server = MatrixMockServer::new().await;
+        let client = client_with_a_gap(&server, room_id).await;
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
@@ -442,5 +452,33 @@ mod tests {
             room_latest_events.read().await.for_room().get().await,
             LatestEventValue::Remote(_)
         );
+    }
+
+    /// A left room isn't back-paginated for a latest-event candidate.
+    #[async_test]
+    async fn test_update_with_event_cache_skips_backfill_for_left_room() {
+        let room_id = room_id!("!r0");
+
+        let server = MatrixMockServer::new().await;
+        let client = client_with_a_gap(&server, room_id).await;
+
+        client.base_client().get_or_create_room(room_id, RoomState::Left);
+
+        server
+            .mock_room_messages()
+            .ok(RoomMessagesResponseTemplate::default())
+            .never()
+            .mount()
+            .await;
+
+        let weak_room = WeakRoom::new(client.downgrade(), room_id.to_owned());
+        let room_latest_events = RoomLatestEvents::new(weak_room, client.event_cache().unwrap());
+
+        let mut updates = client.event_cache().unwrap().subscribe_to_room_generic_updates();
+
+        room_latest_events.write().await.update_with_event_cache().await;
+
+        // Nothing is enqueued, so no events get loaded.
+        assert!(timeout(Duration::from_millis(100), updates.recv()).await.is_err());
     }
 }

@@ -44,7 +44,7 @@ use std::{
     sync::{Arc, Weak},
 };
 
-use matrix_sdk_base::{locks::Mutex, task_monitor::TaskMonitor};
+use matrix_sdk_base::{RoomState, locks::Mutex, task_monitor::TaskMonitor};
 use matrix_sdk_common::executor::{AbortOnDrop, JoinHandleExt as _, spawn};
 use ruma::OwnedRoomId;
 use tokio::sync::{mpsc, oneshot};
@@ -124,6 +124,9 @@ pub(crate) enum BackPaginationStopReason {
     Failed,
     /// The request was cancelled.
     Cancelled,
+    /// The room isn't worth back-paginating: it's a space, which has no
+    /// messages to load, or the user isn't joined to it.
+    Skipped,
 }
 
 /// The result of running a single [`BackPaginationRequest`] to completion.
@@ -546,6 +549,13 @@ async fn run_request(
         let Some(inner) = event_cache.upgrade() else {
             return BackPaginationRunResult { reason: BackPaginationStopReason::Cancelled };
         };
+        if let Ok(client) = inner.client()
+            && let Some(room) = client.get_room(&request.room_id)
+            && (room.is_space() || room.state() != RoomState::Joined)
+        {
+            debug!("skipping back-pagination for a space or a non-joined room");
+            return BackPaginationRunResult { reason: BackPaginationStopReason::Skipped };
+        }
         match inner.all_caches_for_room(&request.room_id).await {
             Ok(caches) => caches.room().pagination(),
             Err(err) => {
