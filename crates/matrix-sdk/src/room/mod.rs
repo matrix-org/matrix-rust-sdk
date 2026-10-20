@@ -156,7 +156,9 @@ use thiserror::Error;
 use tokio::{join, sync::broadcast};
 use tracing::{debug, error, info, instrument, trace, warn};
 
-use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
+use self::futures::{
+    SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent, SendRawStateEvent,
+};
 pub use self::{
     member::{RoomMember, RoomMemberRole},
     messages::{
@@ -169,7 +171,7 @@ use crate::encryption::backups::BackupState;
 #[cfg(doc)]
 use crate::event_cache::EventCache;
 #[cfg(feature = "experimental-encrypted-state-events")]
-use crate::room::futures::{SendRawStateEvent, SendStateEvent};
+use crate::room::futures::SendStateEvent;
 use crate::{
     BaseRoom, Client, Error, HttpResult, Result, RoomState, TransmissionProgress,
     attachment::{AttachmentConfig, AttachmentInfo},
@@ -3345,90 +3347,6 @@ impl Room {
 
     /// Send a raw room state event to the homeserver.
     ///
-    /// Returns the parsed response from the server.
-    ///
-    /// # Arguments
-    ///
-    /// - `event_type` - The type of the event that we're sending out.
-    /// - `state_key` - A unique key which defines the overwriting semantics for
-    /// this piece of room state. This value is often a zero-length string.
-    /// - `content` - The content of the event as a raw JSON value. The argument
-    ///   type can be `serde_json::Value`, but also other raw JSON types; for
-    ///   the full list check the documentation of [`IntoRawStateEventContent`].
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use serde_json::json;
-    ///
-    /// # async {
-    /// # let homeserver = url::Url::parse("http://localhost:8080")?;
-    /// # let mut client = matrix_sdk::Client::new(homeserver).await?;
-    /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
-    ///
-    /// if let Some(room) = client.get_room(&room_id) {
-    ///     room.send_state_event_raw("m.room.member", "", json!({
-    ///         "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
-    ///         "displayname": "Alice Margatroid",
-    ///         "membership": "join",
-    ///     })).await?;
-    /// }
-    /// # anyhow::Ok(()) };
-    /// ```
-    #[cfg(not(feature = "experimental-encrypted-state-events"))]
-    #[instrument(skip_all)]
-    pub async fn send_state_event_raw(
-        &self,
-        event_type: &str,
-        state_key: &str,
-        content: impl IntoRawStateEventContent,
-    ) -> Result<send_state_event::v3::Response> {
-        self.send_state_event_raw_with_config(event_type, state_key, content, None).await
-    }
-
-    /// Send a raw room state event to the homeserver, using the given
-    /// [`RequestConfig`] for this request.
-    ///
-    /// This is the same as [`Room::send_state_event_raw`], except that the
-    /// request is sent with `request_config` instead of the client's default
-    /// config, e.g. to disable automatic retries. `None` uses the client's
-    /// default config.
-    ///
-    /// Returns the parsed response from the server.
-    #[instrument(skip_all)]
-    pub async fn send_state_event_raw_with_config(
-        &self,
-        event_type: &str,
-        state_key: &str,
-        content: impl IntoRawStateEventContent,
-        request_config: Option<RequestConfig>,
-    ) -> Result<send_state_event::v3::Response> {
-        #[cfg(feature = "experimental-encrypted-state-events")]
-        {
-            let mut request = self.send_state_event_raw(event_type, state_key, content);
-            if let Some(request_config) = request_config {
-                request = request.with_request_config(request_config);
-            }
-            request.await
-        }
-
-        #[cfg(not(feature = "experimental-encrypted-state-events"))]
-        {
-            self.ensure_room_joined()?;
-
-            let request = send_state_event::v3::Request::new_raw(
-                self.room_id().to_owned(),
-                event_type.into(),
-                state_key.to_owned(),
-                content.into_raw_state_event_content(),
-            );
-
-            Ok(self.client.send(request).with_request_config(request_config).await?)
-        }
-    }
-
-    /// Send a raw room state event to the homeserver.
-    ///
     /// If the experimental state event encryption feature is enabled, this
     /// method will transparently encrypt the event if this room is encrypted
     /// (except if the event type is considered critical for the room to
@@ -3466,7 +3384,6 @@ impl Room {
     /// ```
     ///
     /// [msc4362]: https://github.com/matrix-org/matrix-spec-proposals/pull/4362
-    #[cfg(feature = "experimental-encrypted-state-events")]
     #[instrument(skip_all)]
     pub fn send_state_event_raw<'a>(
         &'a self,
@@ -5955,13 +5872,9 @@ mod tests {
 
         server.mock_room_send_state().error500().expect(1).mount().await;
 
-        room.send_state_event_raw_with_config(
-            "org.example.custom",
-            "",
-            serde_json::json!({}),
-            Some(RequestConfig::new().disable_retry()),
-        )
-        .await
-        .unwrap_err();
+        room.send_state_event_raw("org.example.custom", "", serde_json::json!({}))
+            .with_request_config(RequestConfig::new().disable_retry())
+            .await
+            .unwrap_err();
     }
 }

@@ -523,15 +523,11 @@ impl Room {
                 details: Some(format!("{e:?}")),
             })?;
 
-        let response = self
-            .inner
-            .send_state_event_raw_with_config(
-                &event_type,
-                &state_key,
-                content_json,
-                request_config.map(Into::into),
-            )
-            .await?;
+        let mut request = self.inner.send_state_event_raw(&event_type, &state_key, content_json);
+        if let Some(request_config) = request_config {
+            request = request.with_request_config(request_config.into());
+        }
+        let response = request.await?;
 
         Ok(response.event_id.to_string())
     }
