@@ -79,6 +79,7 @@ use crate::{
     utils::{AsyncRuntimeDropped, u64_to_uint},
 };
 
+mod delayed_events;
 mod message_like_events;
 mod power_levels;
 pub mod room_info;
