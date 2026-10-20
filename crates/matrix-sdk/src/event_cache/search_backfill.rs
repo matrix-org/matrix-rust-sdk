@@ -21,7 +21,7 @@
 use std::{collections::HashSet, ops::ControlFlow, time::Duration};
 
 use matrix_sdk_base::sleep::sleep;
-use ruma::{MilliSecondsSinceUnixEpoch, OwnedRoomId, time::Instant};
+use ruma::{MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId, time::Instant};
 use tracing::{debug, info, trace, warn};
 
 use super::{
@@ -160,6 +160,9 @@ impl EventCache {
                         ?reason,
                         "finished search backpagination request"
                     );
+
+                    self.shrink_if_no_subscribers(&room_id).await;
+
                     if reason == BackPaginationStopReason::ReachedTimelineStart {
                         drained.insert(room_id);
                     }
@@ -174,6 +177,37 @@ impl EventCache {
             elapsed = ?started.elapsed(),
             "search backfill finished"
         );
+    }
+
+    /// Shrink a room's in-memory linked chunk back to its last chunk, if nobody
+    /// is subscribed to it.
+    ///
+    /// Back-paginating loads the room history in memory, and the auto-shrink
+    /// only runs when the last subscriber goes away: with no subscriber,
+    /// nothing would shrink it, and the next subscriber (e.g. a timeline) would
+    /// receive the whole history at once.
+    async fn shrink_if_no_subscribers(&self, room_id: &RoomId) {
+        // Only look the room up: a room without caches has nothing in memory to
+        // shrink, and creating its caches here is pointless.
+        let Some(room_cache) =
+            self.inner.by_room.read().await.get(room_id).map(|caches| caches.room().clone())
+        else {
+            return;
+        };
+
+        let mut state = match room_cache.state().write().await {
+            Ok(state) => state,
+            Err(err) => {
+                warn!(%room_id, ?err, "couldn't lock the room's state to shrink it");
+                return;
+            }
+        };
+
+        // No subscriber means no one to send the diffs to, as in
+        // `auto_shrink_linked_chunk_task`.
+        if let Err(err) = state.auto_shrink_if_no_subscribers().await {
+            warn!(%room_id, "couldn't shrink the room after a search backfill: {err}");
+        }
     }
 }
 
@@ -406,7 +440,6 @@ mod tests {
     /// nobody is subscribed to is shrunk back to its last chunk, so the next
     /// subscriber (e.g. a timeline) doesn't receive the whole history at once.
     #[async_test]
-    #[should_panic(expected = "the backfilled history stayed in memory")]
     async fn test_search_backfill_shrinks_rooms_without_subscribers() {
         let server = MatrixMockServer::new().await;
         let client = server
