@@ -1123,6 +1123,26 @@ mod tests {
         assert!(event_cache.room(room_id).await.is_ok());
     }
 
+    #[async_test]
+    #[should_panic(expected = "the room's caches can't be loaded again")]
+    async fn test_for_room_after_forgetting_it() {
+        let client = logged_in_client(None).await;
+        let room_id = room_id!("!raclette:patate.ch");
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+        let event_cache = client.event_cache().unwrap();
+
+        // Load the room's caches, then forget them, e.g. the room is forgotten and
+        // joined again later.
+        drop(event_cache.room(room_id).await.unwrap());
+        event_cache.forget_room(room_id).await.unwrap();
+
+        // The room's caches can be loaded again.
+        let result = event_cache.room(room_id).await;
+        assert!(result.is_ok(), "the room's caches can't be loaded again: {:?}", result.err());
+    }
+
     /// Test that the event cache does not create reference cycles or tasks that
     /// retain its reference indefinitely, preventing it from being deallocated.
     #[cfg(not(target_family = "wasm"))]
