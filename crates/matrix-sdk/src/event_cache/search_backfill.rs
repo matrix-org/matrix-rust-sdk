@@ -308,6 +308,7 @@ mod tests {
     use eyeball_im::VectorDiff;
     use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{MilliSecondsSinceUnixEpoch, event_id, room_id, time::SystemTime};
+    use tokio::task::yield_now;
 
     use super::{SearchBackfillStrategy, WEEK, stop_when_older_than};
     use crate::{
@@ -457,5 +458,122 @@ mod tests {
         save("beaufort", event_id!("$2")).await;
         client.event_cache().unwrap().run_search_backfill(SearchBackfillStrategy::Background).await;
         assert_eq!(search("beaufort").await, 0);
+    }
+
+    /// A search backfill doesn't leave the history it loaded in memory: a room
+    /// nobody is subscribed to is shrunk back to its last chunk, so the next
+    /// subscriber (e.g. a timeline) doesn't receive the whole history at once.
+    #[async_test]
+    async fn test_search_backfill_shrinks_rooms_without_subscribers() {
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.with_enable_automatic_back_pagination(true))
+            .build()
+            .await;
+
+        let event_cache = client.event_cache().unwrap();
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        let f = EventFactory::new().room(room_id).sender(*BOB);
+
+        // Receive a single event as the first chunk
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id)
+                    .add_timeline_event(f.text_msg("emmental").event_id(event_id!("$3")))
+                    .set_timeline_limited()
+                    .set_timeline_prev_batch("prev_batch"),
+            )
+            .await;
+
+        // Back paginate and load a couple more events in a different chunk
+        server
+            .mock_room_messages()
+            .match_from("prev_batch")
+            .ok(RoomMessagesResponseTemplate::default().events(vec![
+                f.text_msg("comté").event_id(event_id!("$2")),
+                f.text_msg("beaufort").event_id(event_id!("$1")),
+            ]))
+            .mock_once()
+            .mount()
+            .await;
+
+        event_cache.run_search_backfill(SearchBackfillStrategy::Background).await;
+
+        // Give some time for the auto-shrinking to run after the back
+        // pagination
+        yield_now().await;
+
+        // Check the cache only contains a single chunk, so it was properly
+        // shrunk
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+        let (room_events, _room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+        assert_eq!(room_events.len(), 1, "the backfilled history stayed in memory");
+        assert_eq!(room_events[0].event_id().unwrap(), event_id!("$3"));
+    }
+
+    /// A search backfill running while a room is open, and while the user
+    /// back-paginates it, doesn't shrink that room's timeline.
+    #[async_test]
+    async fn test_search_backfill_doesnt_shrink_rooms_with_subscribers() {
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.with_enable_automatic_back_pagination(true))
+            .build()
+            .await;
+
+        let event_cache = client.event_cache().unwrap();
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        let f = EventFactory::new().room(room_id).sender(*BOB);
+
+        // Back paginating loads a couple more events in a different chunk.
+        // Mounted before the sync, as the sync already starts a read-receipt
+        // back-pagination.
+        server
+            .mock_room_messages()
+            .match_from("prev_batch")
+            .ok(RoomMessagesResponseTemplate::default().events(vec![
+                f.text_msg("comté").event_id(event_id!("$2")),
+                f.text_msg("beaufort").event_id(event_id!("$1")),
+            ]))
+            .mock_once()
+            .mount()
+            .await;
+
+        // Receive a single event as the first chunk
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id)
+                    .add_timeline_event(f.text_msg("emmental").event_id(event_id!("$3")))
+                    .set_timeline_limited()
+                    .set_timeline_prev_batch("prev_batch"),
+            )
+            .await;
+
+        // The user opens the room
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+        let (room_events, _room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+        assert_eq!(room_events.len(), 1);
+
+        // The user back-paginates while the search backfill runs
+        let pagination = room_event_cache.pagination();
+        let (outcome, ()) = futures_util::future::join(
+            pagination.run_backwards_once(20),
+            event_cache.run_search_backfill(SearchBackfillStrategy::Background),
+        )
+        .await;
+        outcome.unwrap();
+
+        // Give some time for a (wrong) auto-shrinking to run
+        yield_now().await;
+
+        // The open room kept everything it loaded
+        let room_events = room_event_cache.events().await.unwrap();
+        assert_eq!(room_events.len(), 3, "the open room was shrunk");
     }
 }
