@@ -633,7 +633,9 @@ impl ClientBuilder {
         }
 
         if let Some(config) = builder.request_config {
-            inner_builder = inner_builder.request_config(config.into());
+            let base_config =
+                matrix_sdk::config::RequestConfig::default().read_timeout(DEFAULT_READ_TIMEOUT);
+            inner_builder = inner_builder.request_config(config.apply_to(base_config));
         }
 
         inner_builder = inner_builder
@@ -843,27 +845,29 @@ pub struct RequestConfig {
     max_retry_time: Option<u64>,
 }
 
-impl From<RequestConfig> for matrix_sdk::config::RequestConfig {
-    fn from(config: RequestConfig) -> Self {
-        let mut updated_config = matrix_sdk::config::RequestConfig::default();
-        if let Some(retry_limit) = config.retry_limit {
-            updated_config =
-                updated_config.retry_limit(retry_limit.try_into().unwrap_or(usize::MAX));
+impl RequestConfig {
+    /// Override the fields of `config` that are set in this config, keeping
+    /// the others as they are.
+    pub(crate) fn apply_to(
+        self,
+        mut config: matrix_sdk::config::RequestConfig,
+    ) -> matrix_sdk::config::RequestConfig {
+        if let Some(retry_limit) = self.retry_limit {
+            config = config.retry_limit(retry_limit.try_into().unwrap_or(usize::MAX));
         }
-        if let Some(timeout) = config.timeout {
-            updated_config = updated_config.timeout(Duration::from_millis(timeout));
+        if let Some(timeout) = self.timeout {
+            config = config.timeout(Duration::from_millis(timeout));
         }
-        updated_config = updated_config.read_timeout(DEFAULT_READ_TIMEOUT);
-        if let Some(max_concurrent_requests) = config.max_concurrent_requests
+        if let Some(max_concurrent_requests) = self.max_concurrent_requests
             && max_concurrent_requests > 0
         {
-            updated_config = updated_config
-                .max_concurrent_requests(NonZeroUsize::new(max_concurrent_requests as usize));
+            config =
+                config.max_concurrent_requests(NonZeroUsize::new(max_concurrent_requests as usize));
         }
-        if let Some(max_retry_time) = config.max_retry_time {
-            updated_config = updated_config.max_retry_time(Duration::from_millis(max_retry_time));
+        if let Some(max_retry_time) = self.max_retry_time {
+            config = config.max_retry_time(Duration::from_millis(max_retry_time));
         }
-        updated_config
+        config
     }
 }
 

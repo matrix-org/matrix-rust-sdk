@@ -464,9 +464,8 @@ impl Room {
     /// * `content` - The content of the event to send encoded as JSON string.
     ///
     /// * `request_config` - The config to use for this request instead of the
-    ///   client's default one. It replaces the default config entirely, so any
-    ///   field left unset falls back to the SDK default rather than the value
-    ///   the client was built with.
+    ///   client's default one. Only the fields that are set override the
+    ///   client's config, the others keep the client's values.
     ///
     /// Returns the event ID of the newly sent event.
     #[uniffi::method(default(request_config = None))]
@@ -484,7 +483,8 @@ impl Room {
 
         let mut request = self.inner.send_raw(&event_type, content_json);
         if let Some(request_config) = request_config {
-            request = request.with_request_config(request_config.into());
+            request = request
+                .with_request_config(request_config.apply_to(self.inner.client().request_config()));
         }
         let response = request.await?;
 
@@ -504,9 +504,8 @@ impl Room {
     /// - `content` - The content of the state event encoded as a JSON string.
     ///
     /// - `request_config` - The config to use for this request instead of the
-    ///   client's default one. It replaces the default config entirely, so any
-    ///   field left unset falls back to the SDK default rather than the value
-    ///   the client was built with.
+    ///   client's default one. Only the fields that are set override the
+    ///   client's config, the others keep the client's values.
     ///
     /// Returns the event ID of the newly created state event.
     #[uniffi::method(default(request_config = None))]
@@ -525,7 +524,8 @@ impl Room {
 
         let mut request = self.inner.send_state_event_raw(&event_type, &state_key, content_json);
         if let Some(request_config) = request_config {
-            request = request.with_request_config(request_config.into());
+            request = request
+                .with_request_config(request_config.apply_to(self.inner.client().request_config()));
         }
         let response = request.await?;
 

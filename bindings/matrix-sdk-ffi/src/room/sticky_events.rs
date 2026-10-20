@@ -187,9 +187,8 @@ impl Room {
     /// - `duration_ms` - How long the event stays sticky for, in milliseconds,
     ///   clamped to one hour.
     /// - `request_config` - The config to use for this request instead of the
-    ///   client's default one. It replaces the default config entirely, so any
-    ///   field left unset falls back to the SDK default rather than the value
-    ///   the client was built with.
+    ///   client's default one. Only the fields that are set override the
+    ///   client's config, the others keep the client's values.
     ///
     /// # Returns
     ///
@@ -212,7 +211,8 @@ impl Room {
             .send_raw(&event_type, content_json)
             .with_sticky_duration(Duration::from_millis(duration_ms));
         if let Some(request_config) = request_config {
-            request = request.with_request_config(request_config.into());
+            request = request
+                .with_request_config(request_config.apply_to(self.inner.client().request_config()));
         }
         let response = request.await?;
 
