@@ -20,7 +20,7 @@ mod updates;
 
 use std::{fmt, sync::Arc};
 
-use eyeball::AsyncLock;
+use eyeball::{AsyncLock, SharedObservable};
 use matrix_sdk_base::{
     deserialized_responses::ThreadSummary,
     event_cache::{Event, thread::ThreadInfo},
@@ -45,6 +45,7 @@ use super::{
         states::{CacheStateLock, StateLock, selectors::ThreadStateSelector},
     },
     EventsOrigin, TimelineVectorDiffs,
+    pagination::SharedPaginationStatus,
     read_receipts::MaybeReceiptEventContent,
     room::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate},
     subscriber::{AutoShrinkMessage, Subscriber},
@@ -75,6 +76,10 @@ struct ThreadEventCacheInner {
 
     /// A notifier that we received a new pagination token.
     pagination_batch_token_notifier: Notify,
+
+    /// The status of the back-pagination, shared by all the
+    /// [`ThreadPagination`]s of this thread.
+    shared_pagination_status: SharedObservable<SharedPaginationStatus>,
 
     /// Sender to the auto-shrink channel.
     ///
@@ -108,6 +113,9 @@ impl ThreadEventCache {
     ) -> Result<Self> {
         let update_sender = ThreadEventCacheUpdateSender::new(generic_update_sender.clone());
 
+        let pagination_status =
+            SharedObservable::new(SharedPaginationStatus::Idle { hit_timeline_start: false });
+
         let cache_state = state
             .try_insert_once_with(
                 ThreadStateSelector::new(room_id.clone(), thread_id.clone()),
@@ -121,6 +129,7 @@ impl ThreadEventCache {
                         store_guard,
                         update_sender.clone(),
                         linked_chunk_update_sender,
+                        pagination_status.clone(),
                     )
                 },
             )
@@ -136,6 +145,7 @@ impl ThreadEventCache {
                 weak_room,
                 state: cache_state,
                 pagination_batch_token_notifier: Notify::new(),
+                shared_pagination_status: pagination_status,
                 auto_shrink_sender,
                 update_sender,
             }),
