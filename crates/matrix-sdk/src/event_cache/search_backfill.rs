@@ -402,6 +402,53 @@ mod tests {
         assert_eq!(room_events[1].event_id().unwrap(), event_id!("$2"));
     }
 
+    /// A search backfill doesn't leave the history it loaded in memory: a room
+    /// nobody is subscribed to is shrunk back to its last chunk, so the next
+    /// subscriber (e.g. a timeline) doesn't receive the whole history at once.
+    #[async_test]
+    #[should_panic(expected = "the backfilled history stayed in memory")]
+    async fn test_search_backfill_shrinks_rooms_without_subscribers() {
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.with_enable_automatic_back_pagination(true))
+            .build()
+            .await;
+
+        let event_cache = client.event_cache().unwrap();
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        let f = EventFactory::new().room(room_id).sender(*BOB);
+
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id)
+                    .add_timeline_event(f.text_msg("emmental").event_id(event_id!("$3")))
+                    .set_timeline_limited()
+                    .set_timeline_prev_batch("prev_batch"),
+            )
+            .await;
+
+        server
+            .mock_room_messages()
+            .match_from("prev_batch")
+            .ok(RoomMessagesResponseTemplate::default().events(vec![
+                f.text_msg("comté").event_id(event_id!("$2")),
+                f.text_msg("beaufort").event_id(event_id!("$1")),
+            ]))
+            .mock_once()
+            .mount()
+            .await;
+
+        event_cache.run_search_backfill(SearchBackfillStrategy::Background).await;
+
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+        let (room_events, _room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+        assert_eq!(room_events.len(), 1, "the backfilled history stayed in memory");
+        assert_eq!(room_events[0].event_id().unwrap(), event_id!("$3"));
+    }
+
     /// A search backfill first indexes the events saved in the store, once.
     #[cfg(feature = "experimental-search")]
     #[async_test]
