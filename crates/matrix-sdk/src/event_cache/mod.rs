@@ -1124,7 +1124,6 @@ mod tests {
     }
 
     #[async_test]
-    #[should_panic(expected = "the room's caches can't be loaded again")]
     async fn test_for_room_after_forgetting_it() {
         let client = logged_in_client(None).await;
         let room_id = room_id!("!raclette:patate.ch");

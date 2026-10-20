@@ -497,19 +497,16 @@ impl PinnedEventsCache {
         let room_id = room.room_id().to_owned();
 
         let cache_state = state
-            .try_insert_once_with(
-                PinnedEventsStateSelector::new(room_id.clone()),
-                |_store_guard| async {
-                    Ok(PinnedEventsCacheState {
-                        room_id: room_id.clone(),
-                        own_user_id,
-                        room_version_rules,
-                        chunk: EventLinkedChunk::new(),
-                        update_sender: PinnedEventsCacheUpdateSender::new(),
-                        linked_chunk_update_sender,
-                    })
-                },
-            )
+            .insert_with(PinnedEventsStateSelector::new(room_id.clone()), |_store_guard| async {
+                Ok(PinnedEventsCacheState {
+                    room_id: room_id.clone(),
+                    own_user_id,
+                    room_version_rules,
+                    chunk: EventLinkedChunk::new(),
+                    update_sender: PinnedEventsCacheUpdateSender::new(),
+                    linked_chunk_update_sender,
+                })
+            })
             .await?;
 
         let inner = Arc::new(PinnedEventsCacheInner { room_id, state: cache_state });

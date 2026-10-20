@@ -582,7 +582,7 @@ impl EventFocusedCache {
         let room_id = room.room_id().to_owned();
 
         let cache_state = state
-            .try_insert_once_with(
+            .insert_with(
                 EventFocusedStateSelector::new(room_id.clone(), key.clone()),
                 |_store_guard| async {
                     Ok(EventFocusedCacheState {

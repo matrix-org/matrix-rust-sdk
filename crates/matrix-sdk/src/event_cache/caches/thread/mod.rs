@@ -109,7 +109,7 @@ impl ThreadEventCache {
         let update_sender = ThreadEventCacheUpdateSender::new(generic_update_sender.clone());
 
         let cache_state = state
-            .try_insert_once_with(
+            .insert_with(
                 ThreadStateSelector::new(room_id.clone(), thread_id.clone()),
                 |store_guard| {
                     ThreadEventCacheState::new(

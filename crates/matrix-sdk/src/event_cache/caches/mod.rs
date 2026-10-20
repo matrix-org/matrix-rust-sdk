@@ -116,7 +116,7 @@ impl Caches {
             client.user_id().expect("the user must be logged in, at this point").to_owned();
 
         let room_state = state
-            .try_insert_once_with(
+            .insert_with(
                 states::selectors::RoomStateSelector::new(room_id.to_owned()),
                 |store_guard| {
                     room::RoomEventCacheState::new(

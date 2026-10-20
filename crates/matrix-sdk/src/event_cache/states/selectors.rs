@@ -15,8 +15,6 @@
 //! This module contains the [`CacheState`] trait to select a specific cache
 //! state in the full [`State`].
 
-use std::collections::hash_map::Entry;
-
 use ruma::{OwnedEventId, OwnedRoomId};
 
 use super::{
@@ -35,11 +33,10 @@ pub trait CacheState {
     /// Mutably select a specific state of a cache inside a [`State`].
     fn select_mut<'state>(&self, state: &'state mut State) -> Option<&'state mut Self::Item>;
 
-    /// Insert a new [`Self::Item`] in [`State`].
+    /// Insert a new [`Self::Item`] in [`State`], replacing any existing one.
     ///
-    /// It returns `true` if it's been inserted, `false` otherwise, i.e. if the
-    /// place is occupied.
-    fn insert_once(&self, state: &mut State, cache_state: Self::Item) -> bool;
+    /// It returns the replaced [`Self::Item`], if any.
+    fn insert(&self, state: &mut State, cache_state: Self::Item) -> Option<Self::Item>;
 }
 
 /// Select all states ([`RoomEventCacheState`], [`ThreadEventCacheState`],
@@ -65,8 +62,8 @@ impl CacheState for AllStatesSelector {
         state.by_room.get_mut(&self.0)
     }
 
-    fn insert_once(&self, _state: &mut State, _cache_state: Self::Item) -> bool {
-        false
+    fn insert(&self, state: &mut State, cache_state: Self::Item) -> Option<Self::Item> {
+        state.by_room.insert(self.0.clone(), cache_state)
     }
 }
 
@@ -97,17 +94,8 @@ impl CacheState for RoomStateSelector {
         state.by_room.get_mut(&self.0).and_then(|state_for_room| state_for_room.room.as_mut())
     }
 
-    fn insert_once(&self, state: &mut State, cache_state: Self::Item) -> bool {
-        let room = &mut state.by_room.entry(self.0.clone()).or_default().room;
-
-        match room {
-            Some(_) => false,
-            None => {
-                room.replace(cache_state);
-
-                true
-            }
-        }
+    fn insert(&self, state: &mut State, cache_state: Self::Item) -> Option<Self::Item> {
+        state.by_room.entry(self.0.clone()).or_default().room.replace(cache_state)
     }
 }
 
@@ -141,17 +129,8 @@ impl CacheState for ThreadStateSelector {
             .and_then(|state_for_room| state_for_room.threads.get_mut(&self.1))
     }
 
-    fn insert_once(&self, state: &mut State, cache_state: Self::Item) -> bool {
-        let threads = &mut state.by_room.entry(self.0.clone()).or_default().threads;
-
-        match threads.entry(self.1.clone()) {
-            Entry::Occupied(_) => false,
-            Entry::Vacant(entry) => {
-                entry.insert(cache_state);
-
-                true
-            }
-        }
+    fn insert(&self, state: &mut State, cache_state: Self::Item) -> Option<Self::Item> {
+        state.by_room.entry(self.0.clone()).or_default().threads.insert(self.1.clone(), cache_state)
     }
 }
 
@@ -185,17 +164,8 @@ impl CacheState for PinnedEventsStateSelector {
             .and_then(|state_for_room| state_for_room.pinned_events.as_mut())
     }
 
-    fn insert_once(&self, state: &mut State, cache_state: Self::Item) -> bool {
-        let pinned_events = &mut state.by_room.entry(self.0.clone()).or_default().pinned_events;
-
-        match pinned_events {
-            Some(_) => false,
-            None => {
-                pinned_events.replace(cache_state);
-
-                true
-            }
-        }
+    fn insert(&self, state: &mut State, cache_state: Self::Item) -> Option<Self::Item> {
+        state.by_room.entry(self.0.clone()).or_default().pinned_events.replace(cache_state)
     }
 }
 
@@ -232,17 +202,13 @@ impl CacheState for EventFocusedStateSelector {
             .and_then(|state_for_room| state_for_room.event_focused.get_mut(&self.1))
     }
 
-    fn insert_once(&self, state: &mut State, cache_state: Self::Item) -> bool {
-        let event_focused = &mut state.by_room.entry(self.0.clone()).or_default().event_focused;
-
-        match event_focused.entry(self.1.clone()) {
-            Entry::Occupied(_) => false,
-            Entry::Vacant(entry) => {
-                entry.insert(cache_state);
-
-                true
-            }
-        }
+    fn insert(&self, state: &mut State, cache_state: Self::Item) -> Option<Self::Item> {
+        state
+            .by_room
+            .entry(self.0.clone())
+            .or_default()
+            .event_focused
+            .insert(self.1.clone(), cache_state)
     }
 }
 

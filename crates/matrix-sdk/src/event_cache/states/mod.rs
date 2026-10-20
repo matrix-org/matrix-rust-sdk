@@ -28,7 +28,7 @@ use matrix_sdk_base::{
 };
 use ruma::{OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::{Mutex, RwLock, RwLockMappedWriteGuard, RwLockReadGuard, RwLockWriteGuard};
-use tracing::{instrument, trace};
+use tracing::{instrument, trace, warn};
 
 use super::{
     CachesByRoom, EventCacheError, EventsOrigin, Result,
@@ -282,28 +282,33 @@ impl StateLock {
         Ok(())
     }
 
-    /// Insert a new cache state at location `cache_state_selector` if none
-    /// exists.
+    /// Insert a new cache state at location `cache_state_selector`.
+    ///
+    /// Callers only create a cache after checking they don't know it already.
+    /// A cache state found at this location is then one left behind, e.g. by
+    /// an earlier creation that failed after inserting it, or by a forgotten
+    /// room: it is replaced, rather than making every next creation fail.
     ///
     /// This method calls [`Self::write`] to acquire an exclusive access to the
     /// [`State`] in order to insert the cache.
     #[instrument(skip_all)]
-    pub(super) async fn try_insert_once_with<Selector, Constructor>(
+    pub(super) async fn insert_with<Selector, Constructor>(
         &self,
         cache_state_selector: Selector,
         cache_constructor: Constructor,
     ) -> Result<CacheStateLock<Selector>>
     where
-        Selector: selectors::CacheState,
+        Selector: selectors::CacheState + fmt::Debug,
         Constructor: AsyncFnOnce(EventCacheStoreLockGuard) -> Result<Selector::Item>,
     {
         let mut state = self.write().await?;
         let cache_state = cache_constructor(state.store).await?;
 
-        cache_state_selector
-            .insert_once(&mut state.state, cache_state)
-            .then(|| CacheStateLock::new(cache_state_selector, self.clone()))
-            .ok_or_else(|| EventCacheError::CacheStateAlreadyExists)
+        if cache_state_selector.insert(&mut state.state, cache_state).is_some() {
+            warn!(?cache_state_selector, "replaced a cache state left behind");
+        }
+
+        Ok(CacheStateLock::new(cache_state_selector, self.clone()))
     }
 }
 
