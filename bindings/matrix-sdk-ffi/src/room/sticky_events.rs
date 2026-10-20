@@ -21,10 +21,9 @@ use matrix_sdk_base::sticky::{
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use tokio::sync::broadcast::error::RecvError;
 
-use super::Room;
+use super::{RequestConfigOverride, Room};
 use crate::{
-    TaskHandle, client_builder::RequestConfig, encryption::EventEncryptionInfo, error::ClientError,
-    runtime::get_runtime_handle,
+    TaskHandle, encryption::EventEncryptionInfo, error::ClientError, runtime::get_runtime_handle,
 };
 
 /// The key under which a sticky event is tracked in a room.
@@ -186,33 +185,33 @@ impl Room {
     /// - `content` - The content of the event to send encoded as JSON string.
     /// - `duration_ms` - How long the event stays sticky for, in milliseconds,
     ///   clamped to one hour.
-    /// - `request_config` - The config to use for this request instead of the
-    ///   client's default one. Only the fields that are set override the
-    ///   client's config, the others keep the client's values.
+    /// - `request_config_override` - Overrides the client's request config for
+    ///   this request. Fields that are not set keep the client's values.
     ///
     /// # Returns
     ///
     /// The event ID of the newly sent event.
     ///
     /// [`Client::is_sticky_events_supported`]: crate::client::Client::is_sticky_events_supported
-    #[uniffi::method(default(request_config = None))]
+    #[uniffi::method(default(request_config_override = None))]
     pub async fn send_sticky_raw(
         &self,
         event_type: String,
         content: String,
         duration_ms: u64,
-        request_config: Option<RequestConfig>,
+        request_config_override: Option<RequestConfigOverride>,
     ) -> Result<String, ClientError> {
         let content_json: serde_json::Value =
-            serde_json::from_str(&content).map_err(|e| matrix_sdk::Error::SerdeJson(e))?;
+            serde_json::from_str(&content).map_err(matrix_sdk::Error::SerdeJson)?;
 
         let mut request = self
             .inner
             .send_raw(&event_type, content_json)
             .with_sticky_duration(Duration::from_millis(duration_ms));
-        if let Some(request_config) = request_config {
-            request = request
-                .with_request_config(request_config.apply_to(self.inner.client().request_config()));
+        if let Some(request_config_override) = request_config_override {
+            request = request.with_request_config(
+                request_config_override.apply_to(self.inner.client().request_config()),
+            );
         }
         let response = request.await?;
 
