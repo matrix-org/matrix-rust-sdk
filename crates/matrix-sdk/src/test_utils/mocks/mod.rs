@@ -1096,6 +1096,27 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, BanUserEndpoint)
     }
 
+    /// Creates a prebuilt mock for unbanning a user from a room.
+    pub fn mock_unban_user(&self) -> MockEndpoint<'_, UnbanUserEndpoint> {
+        let mock =
+            Mock::given(method("POST")).and(path_regex(r"^/_matrix/client/v3/rooms/.*/unban$"));
+        self.mock_endpoint(mock, UnbanUserEndpoint)
+    }
+
+    /// Creates a prebuilt mock for updating the typing notice in a room.
+    pub fn mock_update_typing(&self) -> MockEndpoint<'_, UpdateTypingEndpoint> {
+        let mock =
+            Mock::given(method("PUT")).and(path_regex(r"^/_matrix/client/v3/rooms/.*/typing/.*"));
+        self.mock_endpoint(mock, UpdateTypingEndpoint)
+    }
+
+    /// Creates a prebuilt mock for reporting an event in a room.
+    pub fn mock_report_room_event(&self) -> MockEndpoint<'_, ReportRoomEventEndpoint> {
+        let mock =
+            Mock::given(method("POST")).and(path_regex(r"^/_matrix/client/v3/rooms/.*/report/.*"));
+        self.mock_endpoint(mock, ReportRoomEventEndpoint)
+    }
+
     /// Creates a prebuilt mock for the `/_matrix/client/versions` endpoint.
     pub fn mock_versions(&self) -> MockEndpoint<'_, VersionsEndpoint> {
         let mock = Mock::given(method("GET")).and(path_regex(r"^/_matrix/client/versions"));
@@ -3730,6 +3751,39 @@ pub struct BanUserEndpoint;
 
 impl<'a> MockEndpoint<'a, BanUserEndpoint> {
     /// Returns a successful ban user request.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
+    }
+}
+
+/// A prebuilt mock for a `POST /_matrix/client/v3/rooms/{roomId}/unban`
+/// request.
+pub struct UnbanUserEndpoint;
+
+impl<'a> MockEndpoint<'a, UnbanUserEndpoint> {
+    /// Returns a successful unban user request.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
+    }
+}
+
+/// A prebuilt mock for a `PUT
+/// /_matrix/client/v3/rooms/{roomId}/typing/{userId}` request.
+pub struct UpdateTypingEndpoint;
+
+impl<'a> MockEndpoint<'a, UpdateTypingEndpoint> {
+    /// Returns a successful typing update request.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
+    }
+}
+
+/// A prebuilt mock for a `POST
+/// /_matrix/client/v3/rooms/{roomId}/report/{eventId} ` request.
+pub struct ReportRoomEventEndpoint;
+
+impl<'a> MockEndpoint<'a, ReportRoomEventEndpoint> {
+    /// Returns a successful typing update request.
     pub fn ok(self) -> MatrixMock<'a> {
         self.ok_empty_json()
     }
