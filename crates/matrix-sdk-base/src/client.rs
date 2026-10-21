@@ -65,6 +65,7 @@ use crate::{
     deserialized_responses::DisplayName,
     error::{Error, Result},
     event_cache::store::EventCacheStoreLock,
+    global_profile_fetches::{GlobalProfileFetchTicket, GlobalProfileFetches},
     media::store::MediaStoreLock,
     response_processors::{self as processors, Context},
     room::{
@@ -129,6 +130,9 @@ pub struct BaseClient {
     /// Broadcasts the user IDs whose global profile changed during a sync.
     /// Requires the Profiles sliding sync extension to be enabled.
     pub(crate) global_profile_updates_sender: broadcast::Sender<BTreeSet<OwnedUserId>>,
+
+    /// The global profile fetches in flight, made outside of a sync.
+    global_profile_fetches: GlobalProfileFetches,
 
     /// The strategy to use for picking recipient devices, when sending an
     /// encrypted message.
@@ -226,6 +230,7 @@ impl BaseClient {
             olm_machine: Default::default(),
             ignore_user_list_changes: Default::default(),
             global_profile_updates_sender: broadcast::Sender::new(16),
+            global_profile_fetches: Default::default(),
             #[cfg(feature = "e2e-encryption")]
             room_key_recipient_strategy: Default::default(),
             #[cfg(feature = "e2e-encryption")]
@@ -272,6 +277,7 @@ impl BaseClient {
             olm_machine: self.olm_machine.clone(),
             ignore_user_list_changes: Default::default(),
             global_profile_updates_sender: broadcast::Sender::new(16),
+            global_profile_fetches: Default::default(),
             room_key_recipient_strategy: self.room_key_recipient_strategy.clone(),
             decryption_settings: self.decryption_settings.clone(),
             handle_verification_events,
@@ -1200,7 +1206,7 @@ impl BaseClient {
     /// observable before the next sync reflects it.
     ///
     /// **Note:** This method should only be called when global profile syncing
-    /// is enabled
+    /// is enabled.
     pub async fn own_profile_updated(&self, update: UserProfileUpdate) -> Result<()> {
         let own_user_id = self.session_meta().ok_or(Error::InsufficientData)?.user_id.clone();
         let state_store_guard = self.state_store_lock().lock().await;
@@ -1212,6 +1218,45 @@ impl BaseClient {
         self.notify_global_profile_updates(BTreeSet::from([own_user_id]), &state_store_guard)
     }
 
+    /// Start fetching global profiles outside of a sync, e.g. via MSC4536.
+    ///
+    /// Add the users to fetch with [`GlobalProfileFetchTicket::track`]. Any
+    /// update to their global profiles from then on, e.g. through a sync,
+    /// invalidates the fetched profiles.
+    ///
+    /// **Note:** This method should only be called when global profile syncing
+    /// is enabled.
+    pub fn begin_global_profile_fetch(&self) -> GlobalProfileFetchTicket {
+        self.global_profile_fetches.begin()
+    }
+
+    /// Finish a fetch started with [`BaseClient::begin_global_profile_fetch`],
+    /// saving the fetched profiles except those invalidated in the meantime.
+    ///
+    /// Updates the internal and cached state accordingly, and notifies any
+    /// subscribers of the changed user IDs.
+    pub async fn finish_global_profile_fetch(
+        &self,
+        ticket: GlobalProfileFetchTicket,
+        mut profiles: BTreeMap<OwnedUserId, UserProfileUpdate>,
+    ) -> Result<()> {
+        let state_store_guard = self.state_store_lock().lock().await;
+
+        let invalidated_users = ticket.finish(&state_store_guard);
+        profiles.retain(|user_id, _| !invalidated_users.contains(user_id));
+
+        if profiles.is_empty() {
+            return Ok(());
+        }
+
+        let user_ids = profiles.keys().cloned().collect();
+
+        let changes = StateChanges { global_profiles: profiles, ..Default::default() };
+        self.state_store.save_changes_with_guard(&state_store_guard, &changes).await?;
+
+        self.notify_global_profile_updates(user_ids, &state_store_guard)
+    }
+
     /// Notify the rest of the SDK that the global profiles of the given users
     /// changed in the store.
     ///
@@ -1220,12 +1265,15 @@ impl BaseClient {
     pub(crate) fn notify_global_profile_updates(
         &self,
         user_ids: BTreeSet<OwnedUserId>,
-        #[cfg_attr(not(feature = "unstable-msc4426"), allow(unused_variables))]
         state_store_guard: &MutexGuard<'_, ()>,
     ) -> Result<()> {
         if user_ids.is_empty() {
             return Ok(());
         }
+
+        // Make sure profiles being fetched don't overwrite these more recent
+        // ones.
+        self.global_profile_fetches.invalidate_users(&user_ids, state_store_guard);
 
         // Nudge `RoomInfo` so hero status/call fields are re-read.
         #[cfg(feature = "unstable-msc4426")]

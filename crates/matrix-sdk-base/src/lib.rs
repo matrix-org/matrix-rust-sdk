@@ -37,6 +37,7 @@ pub mod debug;
 pub mod deserialized_responses;
 mod error;
 pub mod event_cache;
+mod global_profile_fetches;
 pub mod latest_event;
 pub mod media;
 pub mod notification_settings;
@@ -64,6 +65,7 @@ pub mod recent_emojis;
 uniffi::setup_scaffolding!();
 
 pub use client::{BaseClient, ThreadingSupport};
+pub use global_profile_fetches::GlobalProfileFetchTicket;
 #[cfg(any(test, feature = "testing"))]
 pub use http;
 #[cfg(feature = "e2e-encryption")]
