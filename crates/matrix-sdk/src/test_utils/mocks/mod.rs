@@ -1811,6 +1811,14 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, GetProfileEndpoint)
     }
 
+    /// Create a prebuilt mock for the endpoint used to query the profiles of
+    /// multiple users (MSC4536).
+    pub fn mock_query_profiles(&self) -> MockEndpoint<'_, QueryProfilesEndpoint> {
+        let mock = Mock::given(method("POST"))
+            .and(path("/_matrix/client/unstable/org.matrix.msc4536/profile/query"));
+        self.mock_endpoint(mock, QueryProfilesEndpoint).expect_default_access_token()
+    }
+
     /// Create a prebuilt mock for the endpoint used to get the capabilities of
     /// the homeserver.
     pub fn mock_get_homeserver_capabilities(
@@ -3891,6 +3899,12 @@ impl<'a> MockEndpoint<'a, VersionsEndpoint> {
         self.with_feature("org.matrix.msc4262", true)
     }
 
+    /// Indicate that querying multiple profiles (MSC4536) is supported by this
+    /// homeserver.
+    pub fn with_query_profiles(self) -> Self {
+        self.with_feature("org.matrix.msc4536", true)
+    }
+
     /// Indicate that sticky events (MSC4354) are supported by this homeserver.
     pub fn with_sticky_events(self) -> Self {
         self.with_feature("org.matrix.msc4354", true)
@@ -5559,6 +5573,35 @@ impl<'a> MockEndpoint<'a, GetProfileEndpoint> {
             .map(|field| (field.field_name(), field.value()))
             .collect::<BTreeMap<_, _>>();
         self.ok_json(profile)
+    }
+}
+
+/// A prebuilt mock for `POST /_matrix/client/*/profile/query` (MSC4536).
+pub struct QueryProfilesEndpoint;
+
+impl<'a> MockEndpoint<'a, QueryProfilesEndpoint> {
+    /// Expect the request to query exactly the given users, in that order.
+    pub fn expect_users(mut self, users: &[OwnedUserId]) -> Self {
+        self.mock = self.mock.and(body_json(json!({ "users": users })));
+        self
+    }
+
+    /// Returns a successful response containing the given profiles.
+    pub fn ok_with_profiles(
+        self,
+        profiles: Vec<(OwnedUserId, Vec<ProfileFieldValue>)>,
+    ) -> MatrixMock<'a> {
+        let profiles = profiles
+            .into_iter()
+            .map(|(user_id, fields)| {
+                let profile = fields
+                    .iter()
+                    .map(|field| (field.field_name(), field.value()))
+                    .collect::<BTreeMap<_, _>>();
+                (user_id, json!(profile))
+            })
+            .collect::<BTreeMap<_, _>>();
+        self.ok_json(profiles)
     }
 }
 
