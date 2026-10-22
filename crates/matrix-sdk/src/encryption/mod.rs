@@ -1157,27 +1157,20 @@ impl Encryption {
         Some(machine.cross_signing_status().await)
     }
 
-    /// Does the user have other devices that the current device can verify
-    /// against?
+    /// Does the user have devices, other than the current one, that the
+    /// current device can verify against?
     ///
-    /// The device must be signed by the user's cross-signing key, must have an
-    /// identity, and must not be a dehydrated device.
+    /// The device must be signed by the user's cross-signing key, must support
+    /// Olm (have a Curve25519 key), and must not be a dehydrated device.
     pub async fn has_devices_to_verify_against(&self) -> Result<bool> {
         let olm_machine = self.client.olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
-        let user_id = olm_machine.user_id();
 
         self.ensure_initial_key_query().await?;
 
-        let devices = self.get_user_devices(user_id).await?;
+        let devices = olm_machine.get_user_devices(olm_machine.user_id(), None).await?;
 
-        let ret = devices.devices().any(|device| {
-            device.is_cross_signed_by_owner()
-                && device.curve25519_key().is_some()
-                && !device.is_dehydrated()
-        });
-
-        Ok(ret)
+        Ok(devices.has_other_devices_to_verify_against())
     }
 
     /// Get all the tracked users we know about
