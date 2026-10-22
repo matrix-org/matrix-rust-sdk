@@ -4645,7 +4645,7 @@ pub(crate) mod tests {
                         .add_state_event(
                             f.member(user_id!("@example:localhost")).display_name("example"),
                         )
-                        .add_state_event(f.default_power_levels()),
+                        .add_state_event(f.power_levels()),
                 );
             })
             .await;

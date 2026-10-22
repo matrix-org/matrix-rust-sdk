@@ -15,7 +15,7 @@
 #![allow(missing_docs)]
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     sync::atomic::{AtomicU64, Ordering::SeqCst},
     time::Duration,
 };
@@ -1327,21 +1327,11 @@ impl EventFactory {
         event
     }
 
-    /// Create a new `m.room.power_levels` event.
-    pub fn power_levels(
-        &self,
-        map: &mut BTreeMap<OwnedUserId, Int>,
-    ) -> EventBuilder<RoomPowerLevelsEventContent> {
-        let mut content = RoomPowerLevelsEventContent::new(&AuthorizationRules::V1);
-        content.users.append(map);
-        let mut event = self.event(content);
+    /// Create a new `m.room.power_levels` event with default values.
+    pub fn power_levels(&self) -> EventBuilder<RoomPowerLevelsEventContent> {
+        let mut event = self.event(RoomPowerLevelsEventContent::new(&AuthorizationRules::V1));
         event.state_key = Some("".to_owned());
         event
-    }
-
-    /// Create a new `m.room.power_levels` event with default values.
-    pub fn default_power_levels(&self) -> EventBuilder<RoomPowerLevelsEventContent> {
-        self.power_levels(&mut BTreeMap::new())
     }
 
     /// Create a new `m.room.server_acl` event.
@@ -1834,6 +1824,19 @@ impl EventBuilder<RtcNotificationEventContent> {
 
     pub fn lifetime(mut self, time_in_seconds: u64) -> Self {
         self.content.lifetime = Duration::from_secs(time_in_seconds);
+        self
+    }
+}
+
+impl EventBuilder<RoomPowerLevelsEventContent> {
+    /// Set the custom power levels of users.
+    pub fn set_users<I, U, P>(mut self, users: I) -> Self
+    where
+        I: IntoIterator<Item = (U, P)>,
+        U: Into<OwnedUserId>,
+        P: Into<Int>,
+    {
+        self.content.users = users.into_iter().map(|(user, pl)| (user.into(), pl.into())).collect();
         self
     }
 }
