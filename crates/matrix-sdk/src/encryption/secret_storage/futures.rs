@@ -24,16 +24,16 @@ use super::{Result, SecretStorage, SecretStore};
 #[derive(Debug)]
 pub struct CreateStore<'a> {
     pub(super) secret_storage: &'a SecretStorage,
-    pub(super) passphrase: Option<&'a str>,
+    pub(super) key: Option<&'a SecretStorageKey>,
 }
 
 impl<'a> CreateStore<'a> {
-    /// Set the passphrase for the new [`SecretStore`].
+    /// Set the key for the new [`SecretStore`].
     ///
     /// See the documentation for the [`SecretStorage::create_secret_store()`]
     /// method for more info.
-    pub fn with_passphrase(mut self, passphrase: &'a str) -> Self {
-        self.passphrase = Some(passphrase);
+    pub fn with_key(mut self, key: &'a SecretStorageKey) -> Self {
+        self.key = Some(key);
 
         self
     }
@@ -47,7 +47,7 @@ impl<'a> IntoFuture for CreateStore<'a> {
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self { secret_storage, passphrase } = self;
+        let Self { secret_storage, key } = self;
 
         Box::pin(async move {
             // Prevent multiple simultaneous calls to this method.
@@ -57,11 +57,7 @@ impl<'a> IntoFuture for CreateStore<'a> {
             let client_copy = secret_storage.client.to_owned();
             let _guard = client_copy.locks().open_secret_store_lock.lock().await;
 
-            let new_key = if let Some(passphrase) = passphrase {
-                SecretStorageKey::new_from_passphrase(passphrase)
-            } else {
-                SecretStorageKey::new()
-            };
+            let new_key = if let Some(key) = key { key.clone() } else { SecretStorageKey::new() };
 
             let content = new_key.event_content().to_owned();
 
