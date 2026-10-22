@@ -17,9 +17,7 @@ use matrix_sdk_base::{EncryptionState, RoomMembersUpdate, RoomState};
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
     DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, User,
-    async_test,
-    event_factory::EventFactory,
-    test_json::{self, sync::CUSTOM_ROOM_POWER_LEVELS},
+    async_test, event_factory::EventFactory, test_json,
 };
 use ruma::{
     OwnedUserId, RoomVersionId, TransactionId,
@@ -29,7 +27,7 @@ use ruma::{
     },
     assign, event_id,
     events::{
-        RoomAccountDataEventType, TimelineEventType,
+        RoomAccountDataEventType, StateEventType, TimelineEventType,
         receipt::ReceiptThread,
         room::{
             member::MembershipState,
@@ -777,100 +775,122 @@ async fn test_subscribe_to_typing_notifications() {
 
 #[async_test]
 async fn test_get_suggested_user_role() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let creator = User::Alice;
+    let f = EventFactory::new().sender(creator);
 
-    mock_sync(&server, &*test_json::DEFAULT_SYNC_SUMMARY, None).await;
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default().add_state_bulk([
+                f.create(creator, RoomVersionId::V10).into(),
+                f.power_levels().set_users([(creator, 100)]).into(),
+            ]),
+        )
+        .await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let _response = client.sync_once(sync_settings).await.unwrap();
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-
-    let role_admin = room.get_suggested_user_role(user_id!("@example:localhost")).await.unwrap();
+    let role_admin = room.get_suggested_user_role(creator.into()).await.unwrap();
     assert_eq!(role_admin, RoomMemberRole::Administrator);
 
     // This user either does not exist in the room or has no special role
-    let role_unknown =
-        room.get_suggested_user_role(user_id!("@non-existing:localhost")).await.unwrap();
+    let role_unknown = room.get_suggested_user_role(User::Carol.into()).await.unwrap();
     assert_eq!(role_unknown, RoomMemberRole::User);
 }
 
 #[async_test]
 async fn test_get_power_level_for_user() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let creator = User::Alice;
+    let f = EventFactory::new().sender(creator);
 
-    mock_sync(&server, &*test_json::DEFAULT_SYNC_SUMMARY, None).await;
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default().add_state_bulk([
+                f.create(creator, RoomVersionId::V10).into(),
+                f.power_levels().set_users([(creator, 100)]).into(),
+            ]),
+        )
+        .await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let _response = client.sync_once(sync_settings).await.unwrap();
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-
-    let power_level_admin =
-        room.get_user_power_level(user_id!("@example:localhost")).await.unwrap();
+    let power_level_admin = room.get_user_power_level(creator.into()).await.unwrap();
     assert_eq!(power_level_admin, int!(100));
 
     // This user either does not exist in the room or has no special power level
-    let power_level_unknown =
-        room.get_user_power_level(user_id!("@non-existing:localhost")).await.unwrap();
+    let power_level_unknown = room.get_user_power_level(User::Carol.into()).await.unwrap();
     assert_eq!(power_level_unknown, int!(0));
 }
 
 #[async_test]
 async fn test_get_users_with_power_levels() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let creator = User::Alice;
+    let moderator = User::Bob;
+    let f = EventFactory::new().sender(creator);
 
-    mock_sync(&server, &*test_json::sync::SYNC_ADMIN_AND_MOD, None).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let _response = client.sync_once(sync_settings).await.unwrap();
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default().add_state_bulk([
+                f.create(creator, RoomVersionId::V10).into(),
+                f.power_levels().set_users([(creator, 100), (moderator, 50)]).into(),
+            ]),
+        )
+        .await;
 
     let users_with_power_levels = room.users_with_power_levels().await;
     assert_eq!(users_with_power_levels.len(), 2);
-    assert_eq!(users_with_power_levels["@admin:localhost"], 100);
-    assert_eq!(users_with_power_levels["@mod:localhost"], 50);
+    assert_eq!(users_with_power_levels[creator.as_str()], 100);
+    assert_eq!(users_with_power_levels[moderator.as_str()], 50);
 }
 
 #[async_test]
 async fn test_get_users_with_power_levels_is_empty_if_power_level_info_is_not_available() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    mock_sync(&server, &*test_json::INVITE_SYNC, None).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let _response = client.sync_once(sync_settings).await.unwrap();
     // The room doesn't have any power level info
-    let room = client.get_room(room_id!("!696r7674:example.com")).unwrap();
+    let room = server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
 
     assert!(room.users_with_power_levels().await.is_empty());
 }
 
 #[async_test]
 async fn test_reset_power_levels() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let creator = User::Alice;
+    let f = EventFactory::new().sender(creator);
 
-    mock_sync(&server, &*CUSTOM_ROOM_POWER_LEVELS, None).await;
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default().add_state_bulk([
+                f.create(creator, RoomVersionId::V10).into(),
+                f.power_levels()
+                    .set_users([(creator, 100)])
+                    .set_events([(TimelineEventType::RoomAvatar, 100)])
+                    .into(),
+            ]),
+        )
+        .await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let _response = client.sync_once(sync_settings).await.unwrap();
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.room.power_levels/$"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(body_partial_json(json!({
+    server
+        .mock_room_send_state()
+        .for_type(StateEventType::RoomPowerLevels)
+        .for_key(String::new())
+        .body_matches_partial_json(json!({
             "events": {
-                // 'm.room.avatar' is 100 here, if we receive a value '50', the reset worked
+                // 'm.room.avatar' was 100 initially, if we receive a value '50', the reset worked
                 "m.room.avatar": 50,
-                "m.room.canonical_alias": 50,
-                "m.room.history_visibility": 100,
-                "m.room.name": 50,
-                "m.room.power_levels": 100,
-                "m.room.topic": 50
             },
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
+        }))
+        .ok(event_id!("$newpowerlevels"))
         .expect(1)
-        .mount(&server)
+        .mount()
         .await;
 
     let initial_power_levels = room.power_levels().await.unwrap();
