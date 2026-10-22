@@ -37,6 +37,7 @@ use ruma::{
         RedactContent, RedactedMessageLikeEventContent, RedactedStateEventContent,
         RoomAccountDataEventContent, StateEvent, StateEventContent, StaticEventContent,
         StaticStateEventContent, StrippedStateEvent, SyncMessageLikeEvent, SyncStateEvent,
+        TimelineEventType,
         beacon::BeaconEventContent,
         beacon_info::BeaconInfoEventContent,
         call::{
@@ -1310,16 +1311,17 @@ impl EventFactory {
     /// Create a new `m.room.create` event.
     pub fn create(
         &self,
-        creator_user_id: &UserId,
+        creator: impl Into<OwnedUserId>,
         room_version: RoomVersionId,
     ) -> EventBuilder<RoomCreateEventContent> {
-        let mut event = self.event(RoomCreateEventContent::new_v1(creator_user_id.to_owned()));
+        let creator = creator.into();
+        let mut event = self.event(RoomCreateEventContent::new_v1(creator.clone()));
         event.content.room_version = room_version;
 
         if self.sender.is_some() {
             event.sender = self.sender.clone();
         } else {
-            event.sender = Some(creator_user_id.to_owned());
+            event.sender = Some(creator);
         }
 
         event.state_key = Some("".to_owned());
@@ -1837,6 +1839,17 @@ impl EventBuilder<RoomPowerLevelsEventContent> {
         P: Into<Int>,
     {
         self.content.users = users.into_iter().map(|(user, pl)| (user.into(), pl.into())).collect();
+        self
+    }
+
+    /// Set the custom power levels of event types.
+    pub fn set_events<I, P>(mut self, events: I) -> Self
+    where
+        I: IntoIterator<Item = (TimelineEventType, P)>,
+        P: Into<Int>,
+    {
+        self.content.events =
+            events.into_iter().map(|(event_type, pl)| (event_type, pl.into())).collect();
         self
     }
 }
