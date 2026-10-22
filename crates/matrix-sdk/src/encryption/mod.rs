@@ -2265,6 +2265,11 @@ impl Encryption {
 
                     if is_verified {
                         self.client.inner.verification_state.set(VerificationState::Verified);
+                    } else if matches!(self.get_user_identity(device.user_id()).await, Ok(None)) {
+                        // We don't know our own identity yet, so we can't tell
+                        // whether we're verified; it'll be updated after the
+                        // next keys query.
+                        self.client.inner.verification_state.set(VerificationState::Unknown);
                     } else {
                         self.client.inner.verification_state.set(VerificationState::Unverified);
                     }
@@ -2727,9 +2732,9 @@ mod tests {
         set_client_session(&client).await;
 
         // Then we can get an updated value without waiting for any network
-        // requests
+        // requests, which stays unknown as we don't know our own identity yet
         assert!(keys_requested.load(Ordering::SeqCst).not());
-        assert_next_matches_with_timeout!(verification_state, VerificationState::Unverified);
+        assert_next_matches_with_timeout!(verification_state, VerificationState::Unknown);
     }
 
     #[test]
