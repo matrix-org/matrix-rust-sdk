@@ -1878,6 +1878,19 @@ impl Client {
         Arc::new(Encryption { inner: self.inner.encryption(), _client: self.clone() })
     }
 
+    /// Whether the user has joined at least one encrypted room, spaces
+    /// excluded.
+    ///
+    /// The local cache is consulted first, falling back to asking the
+    /// homeserver directly if no encrypted room is known. If the server
+    /// does not answer in `timeout_ms` milliseconds, this returns an error.
+    ///
+    /// Clients should treat errors as "maybe encrypted", not as "not
+    /// encrypted".
+    pub async fn has_encrypted_rooms(&self, timeout: Duration) -> Result<bool, ClientError> {
+        Ok(self.inner.has_encrypted_rooms(timeout).await?)
+    }
+
     // Ignored users
 
     pub async fn ignored_users(&self) -> Result<Vec<String>, ClientError> {
