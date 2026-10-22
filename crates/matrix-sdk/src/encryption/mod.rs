@@ -1522,6 +1522,10 @@ impl Encryption {
 
     /// Create and upload a new cross signing identity.
     ///
+    /// Our own keys are queried again once the identity is uploaded, so
+    /// [`Encryption::verification_state()`] already reflects the new signature
+    /// of this device when this method returns, unless that query failed.
+    ///
     /// # Arguments
     ///
     /// - `auth_data` - This request requires user interactive auth, the first
@@ -1585,6 +1589,13 @@ impl Encryption {
         }
         self.client.send(upload_signing_keys_req).await?;
         self.client.send(upload_signatures_req).await?;
+
+        // Our own device only counts as cross-signed once a keys query returns the
+        // new signature, so query our keys now rather than waiting for a sync.
+        let (request_id, request) = olm.query_keys_for_users([olm.user_id()]);
+        if let Err(error) = self.client.keys_query(&request_id, request.device_keys).await {
+            warn!("Couldn't query our own keys after bootstrapping cross-signing: {error:?}");
+        }
 
         Ok(())
     }
