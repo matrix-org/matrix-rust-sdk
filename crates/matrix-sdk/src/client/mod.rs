@@ -3666,7 +3666,7 @@ impl Client {
         Ok(())
     }
 
-    //// Repeatedly synchronize the client state with the server.
+    /// Repeatedly synchronize the client state with the server.
     /// This method will internally call [`Client::sync_once`] in a loop and is
     /// equivalent to the [`Client::sync`] method but the responses are provided
     /// as an async stream.
@@ -3737,7 +3737,9 @@ impl Client {
                     .instrument(parent_span.clone())
                     .await;
 
-                Client::delay_sync(&mut last_sync_time).await
+                if sync_settings.throttle_sync_loop {
+                    Client::delay_sync(&mut last_sync_time).await
+                }
             }
         })
     }
