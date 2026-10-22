@@ -23,7 +23,7 @@ async fn bootstrap(client: Client, user_id: OwnedUserId, password: String) -> Re
     if let Some(handle) = client.encryption().reset_cross_signing().await? {
         match handle.auth_type() {
             CrossSigningResetAuthType::Uiaa(uiaa) => {
-                handle.auth(uiaa.as_auth_data(user_id.into(), password)).await?;
+                handle.auth(uiaa.as_password_auth_data(user_id.into(), password)).await?;
             }
             CrossSigningResetAuthType::OAuth(oauth) => {
                 println!(

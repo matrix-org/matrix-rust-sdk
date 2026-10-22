@@ -461,24 +461,27 @@ impl CrossSigningResetAuthType {
 /// authentication for the upload of cross-signing keys.
 #[derive(Debug, Clone)]
 pub struct UiaaCrossSigningResetInfo {
-    /// Session key to use to complete the authentication.
-    pub session: String,
-
-    /// The full UIAA info, containing the flows the homeserver supports, their
-    /// parameters and the stages that were already completed.
-    pub auth_info: UiaaInfo,
+    auth_info: UiaaInfo,
 }
 
 impl UiaaCrossSigningResetInfo {
     fn from_auth_info(auth_info: &UiaaInfo) -> Result<Self> {
-        Ok(UiaaCrossSigningResetInfo {
-            session: auth_info
-                .session
-                .as_ref()
-                .ok_or_else(|| serde_json::Error::custom("UIAA info is missing a session token"))?
-                .to_owned(),
-            auth_info: auth_info.clone(),
-        })
+        if auth_info.session.is_none() {
+            return Err(serde_json::Error::custom("UIAA info is missing a session token").into());
+        }
+
+        Ok(UiaaCrossSigningResetInfo { auth_info: auth_info.clone() })
+    }
+
+    /// Session key to use to complete the authentication.
+    pub fn session(&self) -> &str {
+        self.auth_info.session.as_deref().expect("The session is checked in from_auth_info")
+    }
+
+    /// The full UIAA info, containing the flows the homeserver supports, their
+    /// parameters and the stages that were already completed.
+    pub fn auth_info(&self) -> &UiaaInfo {
+        &self.auth_info
     }
 
     /// Create `m.login.password` UIAA [`AuthData`] to continue this reset
@@ -486,9 +489,9 @@ impl UiaaCrossSigningResetInfo {
     ///
     /// Only use this if the homeserver offers the `m.login.password` stage,
     /// see [`UiaaCrossSigningResetInfo::auth_info`] for the available flows.
-    pub fn as_auth_data(&self, identifier: UserIdentifier, password: String) -> AuthData {
+    pub fn as_password_auth_data(&self, identifier: UserIdentifier, password: String) -> AuthData {
         AuthData::Password(assign!(Password::new(identifier, password), {
-            session: Some(self.session.clone()),
+            session: Some(self.session().to_owned()),
         }))
     }
 }
@@ -1626,7 +1629,7 @@ impl Encryption {
     ///         CrossSigningResetAuthType::Uiaa(uiaa) => {
     ///             let password = "1234".to_owned();
     ///
-    ///             handle.auth(uiaa.as_auth_data(user_id, password)).await?;
+    ///             handle.auth(uiaa.as_password_auth_data(user_id, password)).await?;
     ///         }
     ///         CrossSigningResetAuthType::OAuth(oauth) => {
     ///             println!(

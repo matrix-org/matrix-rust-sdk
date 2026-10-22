@@ -1012,7 +1012,7 @@ async fn test_reset_identity() {
     assert_let!(CrossSigningResetAuthType::Uiaa(uiaa_info) = reset_handle.auth_type());
 
     reset_handle
-        .reset(uiaa_info.as_auth_data(user_id.to_owned().into(), "1234".to_owned()))
+        .reset(uiaa_info.as_password_auth_data(user_id.to_owned().into(), "1234".to_owned()))
         .await
         .expect("Failed retrieving identity reset handle");
 

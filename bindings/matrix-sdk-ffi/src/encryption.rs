@@ -1160,7 +1160,7 @@ pub struct UiaaCrossSigningResetInfo {
 
 impl From<&matrix_sdk::encryption::UiaaCrossSigningResetInfo> for UiaaCrossSigningResetInfo {
     fn from(value: &matrix_sdk::encryption::UiaaCrossSigningResetInfo) -> Self {
-        Self { session: value.session.clone() }
+        Self { session: value.session().to_owned() }
     }
 }
 
