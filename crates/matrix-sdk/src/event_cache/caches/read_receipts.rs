@@ -101,7 +101,7 @@
 
 use std::{
     borrow::Borrow,
-    collections::{BTreeMap, HashSet},
+    collections::HashSet,
     hash::Hash,
     ops::{ControlFlow, Deref, DerefMut, Not},
 };
@@ -733,8 +733,7 @@ fn is_redacted(event: &Raw<AnySyncTimelineEvent>) -> bool {
 ///
 /// It is useful because it implements [`FromIterator`], similarly to
 /// [`ReceiptEventContent`], except it produces `None` if source iterator is
-/// empty instead of an empty `BTreeMap`, and it merges receipts targeting the
-/// same event instead of overwriting them.
+/// empty instead of an empty `BTreeMap`.
 pub struct MaybeReceiptEventContent(Option<ReceiptEventContent>);
 
 impl MaybeReceiptEventContent {
@@ -744,20 +743,6 @@ impl MaybeReceiptEventContent {
 
     pub fn into_inner(self) -> Option<ReceiptEventContent> {
         self.0
-    }
-
-    /// Add `receipts` for `event_id`, merging them with existing receipts for
-    /// the same event.
-    pub fn add(&mut self, event_id: OwnedEventId, receipts: Receipts) {
-        let event_receipts = self
-            .0
-            .get_or_insert_with(|| ReceiptEventContent(BTreeMap::new()))
-            .entry(event_id)
-            .or_default();
-
-        for (receipt_type, user_receipts) in receipts {
-            event_receipts.entry(receipt_type).or_default().extend(user_receipts);
-        }
     }
 }
 
@@ -780,13 +765,9 @@ impl FromIterator<(OwnedEventId, Receipts)> for MaybeReceiptEventContent {
     where
         T: IntoIterator<Item = (OwnedEventId, Receipts)>,
     {
-        let mut this = Self::none();
+        let mut iterator = iterator.into_iter().peekable();
 
-        for (event_id, receipts) in iterator {
-            this.add(event_id, receipts);
-        }
-
-        this
+        Self(if iterator.peek().is_some() { Some(iterator.collect()) } else { None })
     }
 }
 
