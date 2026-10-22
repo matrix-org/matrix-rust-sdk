@@ -19,7 +19,7 @@ use matrix_sdk_base::{
     sync::Timeline,
 };
 use ruma::{
-    OwnedEventId,
+    OwnedEventId, UserId,
     events::{
         AnySyncEphemeralRoomEvent,
         receipt::{ReceiptThread, Receipts},
@@ -36,14 +36,17 @@ use super::{
 };
 
 pub fn aggregate_timeline_and_read_receipts_for_room(
+    own_user_id: &UserId,
     timeline: &Timeline,
     ephemeral: &[AnySyncEphemeralRoomEvent],
 ) -> (Timeline, MaybeReceiptEventContent) {
     (
         timeline.clone(),
-        filter_read_receipts_and_group_by(ephemeral, |receipt_thread| match receipt_thread {
-            ReceiptThread::Main | ReceiptThread::Unthreaded => Some(()),
-            _ => None,
+        filter_read_receipts_and_group_by(own_user_id, ephemeral, |receipt_thread| {
+            match receipt_thread {
+                ReceiptThread::Main | ReceiptThread::Unthreaded => Some(()),
+                _ => None,
+            }
         })
         .map(|(_receipt_thread, (event_id, event_receipts))| (event_id.clone(), event_receipts))
         .collect(),
@@ -51,6 +54,7 @@ pub fn aggregate_timeline_and_read_receipts_for_room(
 }
 
 pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
+    own_user_id: &'sync UserId,
     timeline: &'sync Timeline,
     ephemeral: &'sync [AnySyncEphemeralRoomEvent],
     existing_threads: StateLockReadGuard<'state, HashMap<OwnedEventId, ThreadEventCacheState>>,
@@ -182,9 +186,11 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
     }
 
     for (thread_root, (read_receipt_event_id, read_receipt_event)) in
-        filter_read_receipts_and_group_by(ephemeral, |receipt_thread| match receipt_thread {
-            ReceiptThread::Thread(thread_id) => Some(thread_id),
-            _ => None,
+        filter_read_receipts_and_group_by(own_user_id, ephemeral, |receipt_thread| {
+            match receipt_thread {
+                ReceiptThread::Thread(thread_id) => Some(thread_id),
+                _ => None,
+            }
         })
     {
         // 1. Create an empty `Timeline` if it doesn't exist so that it triggers
@@ -256,7 +262,7 @@ pub fn aggregate_timeline_for_pinned_events(
 }
 
 /// Filter (deserialised) ephemeral events to only keep the read receipts
-/// matching a particular predicate.
+/// matching a particular predicate and user id.
 ///
 /// Read receipts have a deep structure (an entanglement of `BTreeMap`). The
 /// returned iterator returns the tuple `(OwnedEventId, Receipts)`, which is the
@@ -273,6 +279,7 @@ pub fn aggregate_timeline_for_pinned_events(
 /// another), so one event can be returned once per group key, and each
 /// returned `Receipts` only contains the leaves matching that group key.
 fn filter_read_receipts_and_group_by<'e, F, G>(
+    user_id: &'e UserId,
     events: &'e [AnySyncEphemeralRoomEvent],
     predicate: F,
 ) -> impl Iterator<Item = (G, (&'e OwnedEventId, Receipts))>
@@ -291,15 +298,16 @@ where
             let mut groups = BTreeMap::<G, Receipts>::new();
 
             for (receipt_type, user_receipts) in event_receipts {
-                for (user_id, receipt) in user_receipts {
-                    if let Some(group) = predicate(&receipt.thread) {
-                        groups
-                            .entry(group)
-                            .or_default()
-                            .entry(receipt_type.clone())
-                            .or_default()
-                            .insert(user_id.clone(), receipt.clone());
-                    }
+                // Only process receipts for the matching user id
+                let Some(receipt) = user_receipts.get(user_id) else { continue };
+                
+                if let Some(group) = predicate(&receipt.thread) {
+                    groups
+                        .entry(group)
+                        .or_default()
+                        .entry(receipt_type.clone())
+                        .or_default()
+                        .insert(user_id.to_owned(), receipt.clone());
                 }
             }
 

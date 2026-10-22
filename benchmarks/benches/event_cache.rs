@@ -2,17 +2,21 @@ use std::{pin::Pin, sync::Arc};
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use matrix_sdk::{
-    RoomInfo, RoomState, SqliteEventCacheStore, StateStore,
+    RoomInfo, RoomState, SqliteEventCacheStore, StateStore, ThreadingSupport,
     cross_process_lock::CrossProcessLockConfig,
     store::StoreConfig,
     sync::{JoinedRoomUpdate, RoomUpdates},
     test_utils::client::MockClientBuilder,
 };
 use matrix_sdk_base::event_cache::store::{DynEventCacheStore, IntoEventCacheStore, MemoryStore};
-use matrix_sdk_test::{User, base64_sha256_hash, event_factory::EventFactory};
+use matrix_sdk_test::{ALICE, User, base64_sha256_hash, event_factory::EventFactory};
 use ruma::{
-    OwnedRoomId, RoomId,
-    events::{relation::RelationType, room::message::RoomMessageEventContentWithoutRelation},
+    EventId, OwnedEventId, OwnedRoomId, RoomId, UserId,
+    events::{
+        receipt::{ReceiptThread, ReceiptType},
+        relation::RelationType,
+        room::message::RoomMessageEventContentWithoutRelation,
+    },
     room_id,
 };
 use tempfile::tempdir;
@@ -350,10 +354,208 @@ fn find_event_relations(c: &mut Criterion) {
     group.finish()
 }
 
+/// Build a sync update for `room_id` containing a single receipt event, with
+/// one `m.read` receipt from `user_id` per thread in `threads`.
+fn thread_receipts_update(
+    event_factory: &EventFactory,
+    room_id: &RoomId,
+    user_id: &UserId,
+    threads: &[(OwnedEventId, OwnedEventId)],
+) -> RoomUpdates {
+    let mut receipts = event_factory.read_receipts();
+
+    for (thread_root, latest_reply) in threads {
+        receipts = receipts.add(
+            latest_reply,
+            user_id,
+            ReceiptType::Read,
+            ReceiptThread::Thread(thread_root.clone()),
+        );
+    }
+
+    let mut joined_room_update = JoinedRoomUpdate::default();
+    joined_room_update.ephemeral.push(receipts.into_event().into_raw());
+
+    let mut room_updates = RoomUpdates::default();
+    room_updates.joined.insert(room_id.to_owned(), joined_room_update);
+    room_updates
+}
+
+fn handle_thread_read_receipts(c: &mut Criterion) {
+    // Create a new asynchronous runtime.
+    let runtime = Builder::new_multi_thread()
+        .enable_time()
+        .enable_io()
+        .build()
+        .expect("Failed to create an asynchronous runtime");
+
+    let mut group = c.benchmark_group("Event cache thread read receipts");
+    group.sample_size(10);
+
+    const NUM_REPLIES_PER_THREAD: usize = 50;
+
+    let room_id = room_id!("!threadedroom:ben.ch");
+
+    for num_threads in [10, 100] {
+        // Fill the room with `num_threads` threads started by Bob, each with
+        // `NUM_REPLIES_PER_THREAD` replies.
+        let event_factory = EventFactory::new().room(room_id).sender(User::Bob);
+        let mut initial_update = JoinedRoomUpdate::default();
+        let mut threads = Vec::with_capacity(num_threads);
+
+        for i in 0..num_threads {
+            let thread_root = event_factory.text_msg(format!("thread root {i}")).into_event();
+            let thread_root_id = thread_root.event_id().unwrap().to_owned();
+            initial_update.timeline.events.push(thread_root);
+
+            let mut latest_reply_id = thread_root_id.clone();
+
+            for j in 0..NUM_REPLIES_PER_THREAD {
+                let reply = event_factory
+                    .text_msg(format!("reply {j} in thread {i}"))
+                    .in_thread(&thread_root_id, &latest_reply_id)
+                    .into_event();
+                latest_reply_id = reply.event_id().unwrap().to_owned();
+                initial_update.timeline.events.push(reply);
+            }
+
+            threads.push((thread_root_id, latest_reply_id));
+        }
+
+        let mut initial_room_updates = RoomUpdates::default();
+        initial_room_updates.joined.insert(room_id.to_owned(), initial_update);
+
+        let temp_dir = Arc::new(tempdir().unwrap());
+
+        let memory_store = MemoryStore::default().into_event_cache_store();
+        let sqlite_store = runtime.block_on(async {
+            SqliteEventCacheStore::open(temp_dir.path().join("bench"), None)
+                .await
+                .unwrap()
+                .into_event_cache_store()
+        });
+        let stores = [("memory", memory_store), ("SQLite", sqlite_store)];
+        for (store_name, event_cache_store) in stores {
+            let client = runtime.block_on(async {
+                let state_store = matrix_sdk::MemoryStore::new();
+                let mut changes = matrix_sdk::StateChanges::default();
+                changes.add_room(RoomInfo::new(room_id, RoomState::Joined));
+                state_store.save_changes(&changes).await.unwrap();
+
+                let client = MockClientBuilder::new(None)
+                    .on_builder(|builder| {
+                        builder
+                            .with_threading_support(ThreadingSupport::Enabled {
+                                with_subscriptions: false,
+                            })
+                            .store_config(
+                                StoreConfig::new(CrossProcessLockConfig::multi_process(
+                                    "cross-process-store-locks-holder-name",
+                                ))
+                                .state_store(state_store)
+                                .event_cache_store(event_cache_store),
+                            )
+                    })
+                    .build()
+                    .await;
+
+                // Sync the threads before starting the benchmark, so that all
+                // thread caches exist.
+                client
+                    .event_cache()
+                    .unwrap()
+                    .handle_room_updates(initial_room_updates.clone())
+                    .await
+                    .unwrap();
+
+                client
+            });
+
+            let own_user_id = client.user_id().unwrap().to_owned();
+            let other_user_id = *ALICE;
+
+            group.throughput(Throughput::Elements(num_threads as u64));
+
+            // Receipts from our own user, for threads with a cache: they may
+            // change the unread counts.
+            let own_receipts =
+                thread_receipts_update(&event_factory, room_id, &own_user_id, &threads);
+
+            // Receipts from another user, for threads with a cache: they can't
+            // change the unread counts.
+            let other_receipts =
+                thread_receipts_update(&event_factory, room_id, other_user_id, &threads);
+
+            for (name, room_updates) in
+                [("own receipts", own_receipts), ("other receipts", other_receipts)]
+            {
+                group.bench_function(
+                    BenchmarkId::new(
+                        format!("Known threads, {name}[{store_name}]"),
+                        format!("{num_threads} threads"),
+                    ),
+                    |bencher| {
+                        bencher.to_async(&runtime).iter(|| {
+                            let room_updates = room_updates.clone();
+                            let client = client.clone();
+
+                            async move {
+                                client
+                                    .event_cache()
+                                    .unwrap()
+                                    .handle_room_updates(room_updates)
+                                    .await
+                                    .unwrap();
+                            }
+                        })
+                    },
+                );
+            }
+
+            let all_room_updates = {
+                let threads = (0..num_threads)
+                    .map(|num_unknown_threads| {
+                        let thread_root =
+                            EventId::parse(format!("$unknown-root-{num_unknown_threads}")).unwrap();
+                        let reply = EventId::parse(format!("$unknown-reply-{num_unknown_threads}"))
+                            .unwrap();
+                        (thread_root, reply)
+                    })
+                    .collect::<Vec<_>>();
+
+                thread_receipts_update(&event_factory, room_id, other_user_id, &threads)
+            };
+
+            group.bench_function(
+                BenchmarkId::new(
+                    format!("Unknown threads, other receipts[{store_name}]"),
+                    format!("{num_threads} threads"),
+                ),
+                |bencher| {
+                    bencher.to_async(&runtime).iter(|| async {
+                        let all_room_updates = all_room_updates.clone();
+                        let client = client.clone();
+
+                        let event_cache = client.event_cache().unwrap();
+                        event_cache.handle_room_updates(all_room_updates).await.unwrap();
+                    })
+                },
+            );
+
+            {
+                let _guard = runtime.enter();
+                drop(client);
+            }
+        }
+    }
+
+    group.finish()
+}
+
 criterion_group! {
     name = event_cache;
     config = Criterion::default();
-    targets = handle_room_updates, find_event_relations,
+    targets = handle_room_updates, find_event_relations, handle_thread_read_receipts,
 }
 
 criterion_main!(event_cache);

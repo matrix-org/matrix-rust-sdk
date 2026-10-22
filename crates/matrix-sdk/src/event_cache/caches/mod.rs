@@ -332,6 +332,7 @@ impl Caches {
         {
             let (timeline, read_receipts) =
                 aggregator::aggregate_timeline_and_read_receipts_for_room(
+                    room.own_user_id(),
                     &original_timeline,
                     &original_ephemeral,
                 );
@@ -360,6 +361,7 @@ impl Caches {
                 let all_states = all_states_lock.read().await?;
 
                 aggregator::aggregate_timeline_and_read_receipts_for_threads(
+                    room.own_user_id(),
                     &original_timeline,
                     &original_ephemeral,
                     all_states.threads(),
@@ -429,7 +431,11 @@ impl Caches {
         // Room.
         {
             let (timeline, _read_receipts) =
-                aggregator::aggregate_timeline_and_read_receipts_for_room(&original_timeline, &[]);
+                aggregator::aggregate_timeline_and_read_receipts_for_room(
+                    room.own_user_id(),
+                    &original_timeline,
+                    &[],
+                );
 
             room.handle_left_room_update(timeline, ambiguity_changes).await?;
         }
@@ -448,6 +454,7 @@ impl Caches {
                 let all_caches_states = all_caches_states_lock.read().await?;
 
                 aggregator::aggregate_timeline_and_read_receipts_for_threads(
+                    room.own_user_id(),
                     &original_timeline,
                     &[],
                     all_caches_states.threads(),
