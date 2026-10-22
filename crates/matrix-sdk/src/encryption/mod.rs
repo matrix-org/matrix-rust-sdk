@@ -70,7 +70,10 @@ use ruma::{
             to_device::send_event_to_device::v3::{
                 Request as RumaToDeviceRequest, Response as ToDeviceResponse,
             },
-            uiaa::{AuthData, AuthType, OAuth as OAuthData, OAuthParams, UiaaInfo},
+            uiaa::{
+                AuthData, AuthType, OAuth as OAuthData, OAuthParams, Password, UiaaInfo,
+                UserIdentifier,
+            },
         },
         error::{ErrorBody, StandardErrorBody},
     },
@@ -460,6 +463,10 @@ impl CrossSigningResetAuthType {
 pub struct UiaaCrossSigningResetInfo {
     /// Session key to use to complete the authentication.
     pub session: String,
+
+    /// The full UIAA info, containing the flows the homeserver supports, their
+    /// parameters and the stages that were already completed.
+    pub auth_info: UiaaInfo,
 }
 
 impl UiaaCrossSigningResetInfo {
@@ -470,7 +477,19 @@ impl UiaaCrossSigningResetInfo {
                 .as_ref()
                 .ok_or_else(|| serde_json::Error::custom("UIAA info is missing a session token"))?
                 .to_owned(),
+            auth_info: auth_info.clone(),
         })
+    }
+
+    /// Create `m.login.password` UIAA [`AuthData`] to continue this reset
+    /// session.
+    ///
+    /// Only use this if the homeserver offers the `m.login.password` stage,
+    /// see [`UiaaCrossSigningResetInfo::auth_info`] for the available flows.
+    pub fn as_auth_data(&self, identifier: UserIdentifier, password: String) -> AuthData {
+        AuthData::Password(assign!(Password::new(identifier, password), {
+            session: Some(self.session.clone()),
+        }))
     }
 }
 
@@ -1594,7 +1613,7 @@ impl Encryption {
     /// # Example
     ///
     /// ```no_run
-    /// use matrix_sdk::{ruma::api::client::uiaa, encryption::CrossSigningResetAuthType};
+    /// use matrix_sdk::encryption::CrossSigningResetAuthType;
     ///
     /// # async {
     /// # let homeserver = url::Url::parse("http://example.com")?;
@@ -1605,13 +1624,9 @@ impl Encryption {
     /// if let Some(handle) = encryption.reset_cross_signing().await? {
     ///     match handle.auth_type() {
     ///         CrossSigningResetAuthType::Uiaa(uiaa) => {
-    ///             use matrix_sdk::ruma::api::client::uiaa;
-    ///
     ///             let password = "1234".to_owned();
-    ///             let mut password = uiaa::Password::new(user_id, password);
-    ///             password.session = Some(uiaa.session.clone());
     ///
-    ///             handle.auth(uiaa::AuthData::Password(password)).await?;
+    ///             handle.auth(uiaa.as_auth_data(user_id, password)).await?;
     ///         }
     ///         CrossSigningResetAuthType::OAuth(oauth) => {
     ///             println!(
