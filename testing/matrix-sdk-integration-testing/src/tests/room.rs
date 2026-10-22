@@ -599,7 +599,6 @@ async fn test_latest_event_few_rooms() -> Result<()> {
 
     // Spawn sync for bob.
     let bob_sync_service = SyncService::builder(bob.clone()).build().await?;
-    bob_sync_service.start().await;
 
     // Bob creates two rooms.
     let room1 = bob
@@ -613,6 +612,16 @@ async fn test_latest_event_few_rooms() -> Result<()> {
                 preset: Some(RoomPreset::PrivateChat)
         }))
         .await?;
+
+    // A normal sync will only load 1 event for the room unless we subscribe to
+    // it, so unless the rooms are subscribed to, the case where a room receives
+    // a message and a reaction to it could fail intermittently.
+    bob_sync_service
+        .room_list_service()
+        .set_room_subscriptions(&[room1.room_id(), room2.room_id()])
+        .await;
+
+    bob_sync_service.start().await;
 
     while bob.rooms().len() < 2 {
         sleep(Duration::from_millis(100)).await;
