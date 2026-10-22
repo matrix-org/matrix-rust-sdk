@@ -31,7 +31,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::async_test;
-use ruma::{UserId, api::client::uiaa, owned_device_id, user_id};
+use ruma::{UserId, owned_device_id, user_id};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use strass::assert_let;
@@ -1011,10 +1011,8 @@ async fn test_reset_identity() {
 
     assert_let!(CrossSigningResetAuthType::Uiaa(uiaa_info) = reset_handle.auth_type());
 
-    let mut password = uiaa::Password::new(user_id.to_owned().into(), "1234".to_owned());
-    password.session = Some(uiaa_info.session.clone());
     reset_handle
-        .reset(uiaa::AuthData::Password(password))
+        .reset(uiaa_info.as_password_auth_data(user_id.to_owned().into(), "1234".to_owned()))
         .await
         .expect("Failed retrieving identity reset handle");
 
