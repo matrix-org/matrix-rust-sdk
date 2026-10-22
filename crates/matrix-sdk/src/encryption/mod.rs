@@ -421,7 +421,13 @@ impl CrossSigningResetHandle {
         .unwrap_or_else(|_| {
             warn!("Timed out waiting for keys/device_signing/upload to succeed.");
             Err(Error::Timeout)
-        })
+        })?;
+
+        if let Some(olm) = self.client.olm_machine().await.as_ref() {
+            self.client.encryption().query_own_keys(olm).await;
+        }
+
+        Ok(())
     }
 
     /// Cancel the ongoing identity reset process
@@ -1600,6 +1606,7 @@ impl Encryption {
         }
         self.client.send(upload_signing_keys_req).await?;
         self.client.send(upload_signatures_req).await?;
+        self.query_own_keys(olm).await;
 
         Ok(())
     }
@@ -1673,8 +1680,23 @@ impl Encryption {
             }
         } else {
             self.client.send(upload_signatures_req).await?;
+            self.query_own_keys(olm).await;
 
             Ok(None)
+        }
+    }
+
+    /// Query the user's own device keys, so that the signatures we just
+    /// uploaded for our own device are reflected locally.
+    ///
+    /// This is best-effort: the signatures are already uploaded, so if this
+    /// fails a later sync will pick them up.
+    async fn query_own_keys(&self, olm: &OlmMachine) {
+        let (request_id, request) = olm.query_keys_for_users([olm.user_id()]);
+        if let Err(error) = self.client.keys_query(&request_id, request.device_keys).await {
+            warn!(
+                "Couldn't query our own keys after uploading cross-signing signatures: {error:?}"
+            );
         }
     }
 
