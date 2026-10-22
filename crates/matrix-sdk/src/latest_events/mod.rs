@@ -58,6 +58,9 @@ use std::{
 
 pub use error::LatestEventsError;
 use eyeball::{AsyncLock, Subscriber};
+#[cfg(feature = "testing")]
+#[doc(hidden)]
+pub use latest_event::bench_new_remote;
 pub(crate) use latest_event::filter_timeline_event;
 use latest_event::{LatestEvent, With};
 pub use latest_event::{LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue};
