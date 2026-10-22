@@ -184,7 +184,8 @@ pub(super) async fn send_updates_to_store(
     //
     // As a result, we choose to strip bundled relations from events when we
     // forward them to the store, and consumers have to explicitly ask for
-    // relations.
+    // relations. The thread summary is the only exception, see
+    // `strip_relations_if_present`.
     for update in updates.iter_mut() {
         match update {
             Update::PushItems { items, .. } => strip_relations_from_events(items),
@@ -257,6 +258,9 @@ fn strip_relations_from_event(ev: &mut Event) {
 
 /// Removes the bundled relations from an event, if they were present.
 ///
+/// We keep the thread summary so a thread root reloaded from the store still
+/// has it, but only the ID of its latest event, since that's saved on its own.
+///
 /// Only replaces the present if it contained bundled relations.
 fn strip_relations_if_present<T>(event: &mut Raw<T>) {
     // We're going to get rid of the `unsigned`/`m.relations` field, if it's
@@ -266,9 +270,15 @@ fn strip_relations_if_present<T>(event: &mut Raw<T>) {
         let mut val: serde_json::Value = event.deserialize_as().ok()?;
         let unsigned = val.get_mut("unsigned")?;
         let unsigned_obj = unsigned.as_object_mut()?;
-        if unsigned_obj.remove("m.relations").is_some() {
-            *event = Raw::new(&val).ok()?.cast_unchecked();
+        let mut relations = unsigned_obj.remove("m.relations")?;
+        if let Some(thread) = relations.get_mut("m.thread")
+            && let Some(latest_event) = thread.get_mut("latest_event")
+        {
+            *latest_event = serde_json::json!({ "event_id": latest_event.get("event_id") });
+            unsigned_obj
+                .insert("m.relations".to_owned(), serde_json::json!({ "m.thread": thread.take() }));
         }
+        *event = Raw::new(&val).ok()?.cast_unchecked();
         None
     };
     let _ = closure();

@@ -813,10 +813,18 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             if let Ok(Some(thread_info)) =
                 self.meta.event_cache.thread_info(self.focus.room_id(), event_id).await
             {
-                Some(SdkThreadSummary {
-                    latest_reply: thread_info.latest_event.clone(),
-                    num_replies: thread_info.number_of_replies,
-                })
+                match thread_info.number_of_replies {
+                    Some(num_replies) => Some(SdkThreadSummary {
+                        latest_reply: thread_info.latest_event,
+                        num_replies,
+                    }),
+                    // The replies haven't been counted yet, so the summary
+                    // bundled with the event knows more, if there's one.
+                    None => event.thread_summary().or(Some(SdkThreadSummary {
+                        latest_reply: thread_info.latest_event,
+                        num_replies: 0,
+                    })),
+                }
             }
             // Ah, the thread summary data don't exist in a `ThreadInfo` in the Event Cache.
             // Theoretically, the Event Cache **MUST HAVE** populated the `ThreadInfo`, but, in case
