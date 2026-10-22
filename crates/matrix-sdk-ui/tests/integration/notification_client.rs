@@ -366,8 +366,7 @@ async fn test_notification_client_sliding_sync() {
         .membership(MembershipState::Join)
         .into_raw_sync();
 
-    let power_levels_event =
-        event_factory.power_levels(&mut BTreeMap::new()).sender(sender).into_raw_sync();
+    let power_levels_event = event_factory.power_levels().sender(sender).into_raw_sync();
 
     let room_avatar_event =
         event_factory.room_avatar().sender(sender).url(room_avatar_url).into_raw_sync();
@@ -569,8 +568,7 @@ async fn test_notification_client_sliding_sync_invites() {
         .event_id(invite_event_id)
         .into_raw_sync();
 
-    let power_levels_event =
-        event_factory1.power_levels(&mut BTreeMap::new()).sender(sender).into_raw_sync();
+    let power_levels_event = event_factory1.power_levels().sender(sender).into_raw_sync();
 
     let event_json =
         event_factory1.text_msg("Hello world!").event_id(event_id).sender(sender).into_raw_sync();
@@ -716,8 +714,7 @@ async fn test_notification_client_sliding_sync_invites_with_event_id() {
         .event_id(invite_event_id)
         .into_raw_sync();
 
-    let power_levels_event =
-        event_factory1.power_levels(&mut BTreeMap::new()).sender(sender).into_raw_sync();
+    let power_levels_event = event_factory1.power_levels().sender(sender).into_raw_sync();
 
     let event_json =
         event_factory1.text_msg("Hello world!").event_id(event_id).sender(sender).into_raw_sync();
@@ -847,8 +844,7 @@ async fn test_notification_client_mixed() {
         .membership(MembershipState::Join)
         .into_raw_sync_state();
 
-    let power_levels_event =
-        event_factory.power_levels(&mut BTreeMap::new()).sender(sender).into_raw_sync();
+    let power_levels_event = event_factory.power_levels().sender(sender).into_raw_sync();
 
     let event_json =
         event_factory.text_msg("Hello world!").event_id(event_id).sender(sender).into_raw_sync();
@@ -1041,8 +1037,7 @@ async fn test_notification_client_sliding_sync_filters_out_events_from_ignored_u
         .membership(MembershipState::Join)
         .into_raw_sync();
 
-    let power_levels_event =
-        event_factory.sender(sender).power_levels(&mut BTreeMap::new()).into_raw_sync();
+    let power_levels_event = event_factory.sender(sender).power_levels().into_raw_sync();
 
     let pos = Mutex::new(0);
     Mock::given(SlidingSyncMatcher)

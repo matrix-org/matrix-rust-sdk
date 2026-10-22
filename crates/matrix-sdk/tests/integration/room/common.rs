@@ -1,4 +1,4 @@
-use std::{assert_matches, collections::BTreeMap, iter, ops::Not, time::Duration};
+use std::{assert_matches, iter, ops::Not, time::Duration};
 
 use js_int::uint;
 use matrix_sdk::{
@@ -349,14 +349,13 @@ async fn test_room_route() {
     assert_eq!(route[2], "mymatrix");
 
     // With power levels
-    let mut user_map = BTreeMap::from([(user_id!("@user_0:localhost").into(), 50.into())]);
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id).add_timeline_event(
-            f.power_levels(&mut user_map)
+            f.power_levels()
+                .set_users([(user_id!("@user_0:localhost"), 50)])
                 .event_id(event_id!("$15139375512JaHAW"))
                 .server_ts(151393755)
                 .sender(user_id!("@creator:127.0.0.1"))
-                .state_key("")
                 .into_raw_sync(),
         ),
     );
@@ -371,17 +370,16 @@ async fn test_room_route() {
     assert_eq!(route[2], "yourmatrix");
 
     // With higher power levels
-    let mut user_map = BTreeMap::from([
-        (user_id!("@user_0:localhost").into(), 50.into()),
-        (user_id!("@user_2:mymatrix").into(), 70.into()),
-    ]);
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id).add_timeline_event(
-            f.power_levels(&mut user_map)
+            f.power_levels()
+                .set_users([
+                    (user_id!("@user_0:localhost"), 50),
+                    (user_id!("@user_2:mymatrix"), 70),
+                ])
                 .event_id(event_id!("$15139375512JaHAW"))
                 .server_ts(151393755)
                 .sender(user_id!("@creator:127.0.0.1"))
-                .state_key("")
                 .into_raw_sync(),
         ),
     );
@@ -583,7 +581,7 @@ async fn test_event() {
             // rules processor works.
             JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
                 .add_state_event(f.member(user_id!("@example:localhost")).display_name("example"))
-                .add_state_event(f.default_power_levels()),
+                .add_state_event(f.power_levels()),
         )
         .await;
 
@@ -634,7 +632,7 @@ async fn test_event_with_context() {
         .add_joined_room(
             JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
                 .add_state_event(f.member(user_id!("@example:localhost")).display_name("example"))
-                .add_state_event(f.default_power_levels()),
+                .add_state_event(f.power_levels()),
         );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;

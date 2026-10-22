@@ -30,7 +30,7 @@ use matrix_sdk_test::{
     },
 };
 use ruma::{
-    EventId, Int, MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, RoomVersionId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, RoomVersionId,
     api::client::{
         directory::{
             get_public_rooms,
@@ -1882,12 +1882,12 @@ async fn test_room_sync_state_after() {
                 .use_state_after()
                 .add_state_bulk([
                     f.create(user_id!("@example:localhost"), RoomVersionId::V1).into(),
-                    {
-                        let mut users = BTreeMap::new();
-                        users.insert(owned_user_id!("@example:localhost"), Int::new(100).unwrap());
-                        users.insert(owned_user_id!("@bob:localhost"), Int::new(0).unwrap());
-                        f.power_levels(&mut users).into()
-                    },
+                    f.power_levels()
+                        .set_users([
+                            (owned_user_id!("@example:localhost"), 100),
+                            (owned_user_id!("@bob:localhost"), 0),
+                        ])
+                        .into(),
                     f.room_history_visibility(HistoryVisibility::WorldReadable).into(),
                     f.room_join_rules(JoinRule::Public).into(),
                     f.member(user_id!("@invited:localhost"))
