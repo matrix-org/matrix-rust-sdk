@@ -94,7 +94,7 @@ pub use identities::{
 };
 pub use machine::{
     BootstrapCrossSigningError, CrossSigningBootstrapRequests, EncryptionSyncChanges, OlmMachine,
-    OlmMachineBuilder,
+    OlmMachineBuilder, UncommittedCrossSigningReset,
 };
 use matrix_sdk_common::deserialized_responses::{DecryptedRoomEvent, UnableToDecryptInfo};
 #[cfg(feature = "qrcode")]
