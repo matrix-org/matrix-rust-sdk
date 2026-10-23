@@ -20,8 +20,10 @@ use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use eyeball::SharedObservable;
 use matrix_sdk_base::{
+    cross_process_lock::MappedCrossProcessLockState,
     deserialized_responses::{AmbiguityChange, ThreadSummary},
     event_cache::Event,
+    linked_chunk::{ChunkContent, LinkedChunkId},
     sync::Timeline,
 };
 use ruma::{
@@ -181,15 +183,56 @@ impl RoomEventCache {
     ///
     /// Contrary to [`Self::rfind_map_event_in_memory_by`], it also reads the
     /// stored chunks preceding the in-memory ones, without loading them in
-    /// memory.
+    /// memory, so this doesn't depend on what a shrink unloaded.
     pub(crate) async fn rfind_map_event_until_gap_by<O, P>(
         &self,
-        predicate: P,
+        mut predicate: P,
     ) -> Result<RFindMapOutcome<O>>
     where
         P: FnMut(&Event) -> Option<O>,
     {
-        self.inner.state.read().await?.rfind_map_event_until_gap_by(predicate).await
+        let mut before = {
+            let state = self.inner.state.read().await?;
+
+            if let Some(found) = state.rfind_map_event_in_memory_by(&mut predicate) {
+                return Ok(RFindMapOutcome::Found(found));
+            }
+
+            // Events behind an in-memory gap are unknown, so they may be newer
+            // than anything stored before it.
+            if state.room_linked_chunk().rgap().is_some() {
+                return Ok(RFindMapOutcome::ReachedGap);
+            }
+
+            state.room_linked_chunk().first_chunk().identifier()
+        };
+
+        // The stored chunks are read without holding the state lock, so that
+        // the whole event cache isn't blocked meanwhile. The store is
+        // the source of truth, it doesn't matter whether it is dirty.
+        let Some(room) = self.inner.weak_room.get() else {
+            return Ok(RFindMapOutcome::ReachedStart);
+        };
+        let store = match room.client().event_cache_store().lock().await? {
+            MappedCrossProcessLockState::Clean(store)
+            | MappedCrossProcessLockState::Dirty(store) => store,
+        };
+        let linked_chunk_id = LinkedChunkId::Room(&self.inner.room_id);
+
+        while let Some(chunk) = store.load_previous_chunk(linked_chunk_id, before).await? {
+            match chunk.content {
+                ChunkContent::Gap(_) => return Ok(RFindMapOutcome::ReachedGap),
+                ChunkContent::Items(events) => {
+                    if let Some(found) = events.iter().rev().find_map(&mut predicate) {
+                        return Ok(RFindMapOutcome::Found(found));
+                    }
+                }
+            }
+
+            before = chunk.identifier;
+        }
+
+        Ok(RFindMapOutcome::ReachedStart)
     }
 
     /// Try to find an event by ID in this room.
