@@ -25,9 +25,7 @@ use matrix_sdk::{
     test_utils::mocks::{MatrixMockServer, RoomContextResponseTemplate},
 };
 use matrix_sdk_base::event_cache::store::{EventCacheStore, MemoryStore};
-use matrix_sdk_test::{
-    ALICE, BOB, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
-};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{
     AnyOtherStateEventContentChange, Error, EventSendState, MsgLikeKind, OtherMessageLike,
     RedactError, RoomExt, TimelineBuilder, TimelineEventFocusThreadMode, TimelineEventItemId,
@@ -400,7 +398,8 @@ async fn test_redacted_message() {
             &client,
             JoinedRoomBuilder::new(room_id)
                 .add_timeline_event(
-                    f.redacted(*ALICE, RedactedRoomMessageEventContent::new()).event_id(event_id),
+                    f.redacted(User::Alice, RedactedRoomMessageEventContent::new())
+                        .event_id(event_id),
                 )
                 .add_timeline_event(f.redaction(event_id).sender(User::Alice)),
         )
@@ -819,7 +818,7 @@ async fn test_timeline_without_encryption_info() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("A message").sender(*BOB)),
+                .add_timeline_event(f.text_msg("A message").sender(User::Bob)),
         )
         .await;
 
@@ -841,7 +840,7 @@ async fn test_timeline_without_encryption_can_update() {
 
     let room_id = room_id!("!jEsUZKDJdhlrceRyVU:example.org");
 
-    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
     let room = server
         .sync_room(
             &client,

@@ -1,7 +1,7 @@
 use fakes::poll_a2;
-use matrix_sdk_test::{ALICE, BOB, User, async_test};
+use matrix_sdk_test::{User, async_test};
 use ruma::{
-    EventId, OwnedEventId, UserId, event_id,
+    EventId, OwnedEventId, event_id,
     events::poll::unstable_start::{
         NewUnstablePollStartEventContent, ReplacementUnstablePollStartEventContent,
         UnstablePollStartContentBlock, UnstablePollStartEventContent,
@@ -16,7 +16,7 @@ use crate::timeline::{EventTimelineItem, event_item::PollState, tests::TestTimel
 async fn test_poll_is_displayed() {
     let timeline = TestTimeline::new().await;
 
-    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+    timeline.send_poll_start(User::Alice, fakes::poll_a()).await;
     let poll_state = timeline.poll_state().await;
 
     assert_poll_start_eq(&poll_state.poll_start, &fakes::poll_a());
@@ -27,10 +27,10 @@ async fn test_poll_is_displayed() {
 async fn test_edited_poll_is_displayed() {
     let timeline = TestTimeline::new().await;
 
-    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+    timeline.send_poll_start(User::Alice, fakes::poll_a()).await;
     let event = timeline.poll_event().await;
     let event_id = event.event_id().unwrap();
-    timeline.send_poll_edit(&ALICE, event_id, fakes::poll_b()).await;
+    timeline.send_poll_edit(User::Alice, event_id, fakes::poll_b()).await;
     let poll_state = event.content().as_poll().unwrap();
     let edited_poll_state = timeline.poll_state().await;
 
@@ -43,25 +43,25 @@ async fn test_edited_poll_is_displayed() {
 #[async_test]
 async fn test_voting_adds_the_vote_to_the_results() {
     let timeline = TestTimeline::new().await;
-    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+    timeline.send_poll_start(User::Alice, fakes::poll_a()).await;
     let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
 
     // Alice votes
-    timeline.send_poll_response(&ALICE, vec!["id_up"], &poll_id).await;
+    timeline.send_poll_response(User::Alice, vec!["id_up"], &poll_id).await;
     let results = timeline.poll_state().await.results();
 
-    assert_eq!(results.votes["id_up"], vec![ALICE.to_string()]);
+    assert_eq!(results.votes["id_up"], &[User::Alice]);
     assert!(results.end_time.is_none());
 }
 
 #[async_test]
 async fn test_ending_a_poll_sets_end_time_to_results() {
     let timeline = TestTimeline::new().await;
-    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+    timeline.send_poll_start(User::Alice, fakes::poll_a()).await;
     let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
 
     // Poll finishes
-    timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
+    timeline.send_poll_end(User::Alice, "ENDED", &poll_id).await;
     let results = timeline.poll_state().await.results();
 
     assert!(results.end_time.is_some());
@@ -70,31 +70,31 @@ async fn test_ending_a_poll_sets_end_time_to_results() {
 #[async_test]
 async fn test_only_the_last_vote_from_a_user_is_counted() {
     let timeline = TestTimeline::new().await;
-    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+    timeline.send_poll_start(User::Alice, fakes::poll_a()).await;
     let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
 
     // Alice votes
-    timeline.send_poll_response(&ALICE, vec!["id_up"], &poll_id).await;
+    timeline.send_poll_response(User::Alice, vec!["id_up"], &poll_id).await;
     let results = timeline.poll_state().await.results();
-    assert_eq!(results.votes["id_up"], vec![ALICE.to_string()]);
+    assert_eq!(results.votes["id_up"], &[User::Alice]);
 
     // Alice changes her mind and votes again
-    timeline.send_poll_response(&ALICE, vec!["id_down"], &poll_id).await;
+    timeline.send_poll_response(User::Alice, vec!["id_down"], &poll_id).await;
     let results = timeline.poll_state().await.results();
-    assert_eq!(results.votes["id_down"], vec![ALICE.to_string()]);
+    assert_eq!(results.votes["id_down"], &[User::Alice]);
 }
 
 #[async_test]
 async fn test_votes_after_end_are_discarded() {
     let timeline = TestTimeline::new().await;
-    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+    timeline.send_poll_start(User::Alice, fakes::poll_a()).await;
     let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
 
     // Poll finishes
-    timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
+    timeline.send_poll_end(User::Alice, "ENDED", &poll_id).await;
 
     // Alice votes but it's too late, her vote won't count
-    timeline.send_poll_response(&ALICE, vec!["id_up"], &poll_id).await;
+    timeline.send_poll_response(User::Alice, vec!["id_up"], &poll_id).await;
     let results = timeline.poll_state().await.results();
     for votes in results.votes.values() {
         assert!(votes.is_empty());
@@ -104,11 +104,11 @@ async fn test_votes_after_end_are_discarded() {
 #[async_test]
 async fn test_multiple_end_events_are_discarded() {
     let timeline = TestTimeline::new().await;
-    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+    timeline.send_poll_start(User::Alice, fakes::poll_a()).await;
     let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
 
     // Poll finishes
-    timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
+    timeline.send_poll_end(User::Alice, "ENDED", &poll_id).await;
     let results = timeline.poll_state().await.results();
     assert!(results.end_time.is_some());
 
@@ -116,7 +116,7 @@ async fn test_multiple_end_events_are_discarded() {
 
     // Another poll end event arrives, but it should be discarded and therefore
     // the poll's end time should not change
-    timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
+    timeline.send_poll_end(User::Alice, "ENDED", &poll_id).await;
     let results = timeline.poll_state().await.results();
     assert_eq!(results.end_time.unwrap(), first_end_time);
 }
@@ -124,30 +124,30 @@ async fn test_multiple_end_events_are_discarded() {
 #[async_test]
 async fn test_a_somewhat_complex_voting_session_yields_the_expected_outcome() {
     let timeline = TestTimeline::new().await;
-    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+    timeline.send_poll_start(User::Alice, fakes::poll_a()).await;
     let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
 
     // Alice votes
-    timeline.send_poll_response(&ALICE, vec!["id_up"], &poll_id).await;
+    timeline.send_poll_response(User::Alice, vec!["id_up"], &poll_id).await;
     let results = timeline.poll_state().await.results();
     assert_eq!(results.votes["id_up"], &[User::Alice]);
 
     // Now Bob also votes
-    timeline.send_poll_response(&BOB, vec!["id_up"], &poll_id).await;
+    timeline.send_poll_response(User::Bob, vec!["id_up"], &poll_id).await;
     let results = timeline.poll_state().await.results();
     assert_eq!(results.votes["id_up"], &[User::Alice, User::Bob]);
 
     // Alice changes her mind and votes again
-    timeline.send_poll_response(&ALICE, vec!["id_down"], &poll_id).await;
+    timeline.send_poll_response(User::Alice, vec!["id_down"], &poll_id).await;
     let results = timeline.poll_state().await.results();
     assert_eq!(results.votes["id_up"], &[User::Bob]);
     assert_eq!(results.votes["id_down"], &[User::Alice]);
 
     // Poll finishes
-    timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
+    timeline.send_poll_end(User::Alice, "ENDED", &poll_id).await;
 
     // Now Bob also changes his mind but it's too late, his vote won't count
-    timeline.send_poll_response(&BOB, vec!["id_down"], &poll_id).await;
+    timeline.send_poll_response(User::Bob, vec!["id_down"], &poll_id).await;
     let results = timeline.poll_state().await.results();
     assert_eq!(results.votes["id_up"], &[User::Bob]);
     assert_eq!(results.votes["id_down"], &[User::Alice]);
@@ -159,23 +159,23 @@ async fn test_events_received_before_start_are_not_lost() {
     let poll_id: OwnedEventId = EventId::new_v1(server_name!("dummy.server"));
 
     // Alice votes
-    timeline.send_poll_response(&ALICE, vec!["0"], &poll_id).await;
+    timeline.send_poll_response(User::Alice, vec!["0"], &poll_id).await;
 
     // Now Bob also votes
-    timeline.send_poll_response(&BOB, vec!["0"], &poll_id).await;
+    timeline.send_poll_response(User::Bob, vec!["0"], &poll_id).await;
 
     // Alice changes her mind and votes again
-    timeline.send_poll_response(&ALICE, vec!["1"], &poll_id).await;
+    timeline.send_poll_response(User::Alice, vec!["1"], &poll_id).await;
 
     // Poll finishes
-    timeline.send_poll_end(&ALICE, "ENDED", &poll_id).await;
+    timeline.send_poll_end(User::Alice, "ENDED", &poll_id).await;
 
     // Now the start event arrives
     let start_ev = poll_a2(&timeline.factory).sender(User::Alice).event_id(&poll_id);
     timeline.handle_live_event(start_ev).await;
 
     // Now Bob votes again but his vote won't count
-    timeline.send_poll_response(&BOB, vec!["1"], &poll_id).await;
+    timeline.send_poll_response(User::Bob, vec!["1"], &poll_id).await;
 
     let results = timeline.poll_state().await.results();
     assert_eq!(results.votes["0"], &[User::Bob]);
@@ -187,17 +187,17 @@ async fn test_adding_response_doesnt_clear_latest_json_edit() {
     let timeline = TestTimeline::new().await;
 
     // Alice sends the poll.
-    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+    timeline.send_poll_start(User::Alice, fakes::poll_a()).await;
 
     // Alice edits the poll.
     let poll_item = timeline.poll_event().await;
     let poll_id = poll_item.event_id().unwrap();
-    timeline.send_poll_edit(&ALICE, poll_id, fakes::poll_b()).await;
+    timeline.send_poll_edit(User::Alice, poll_id, fakes::poll_b()).await;
     // Sanity check: the poll has a latest edit JSON.
     assert!(timeline.event_items().await[0].latest_edit_json().is_some());
 
     // Now Bob also votes
-    timeline.send_poll_response(&BOB, vec!["0"], poll_id).await;
+    timeline.send_poll_response(User::Bob, vec!["0"], poll_id).await;
 
     // The poll still has a latest edit JSON.
     assert!(timeline.event_items().await[0].latest_edit_json().is_some());
@@ -208,18 +208,18 @@ async fn test_ending_poll_doesnt_clear_latest_json_edit() {
     let timeline = TestTimeline::new().await;
 
     // Alice sends the poll.
-    timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
+    timeline.send_poll_start(User::Alice, fakes::poll_a()).await;
 
     let poll_item = timeline.poll_event().await;
     let poll_id = poll_item.event_id().unwrap();
 
     // Alice edits the poll.
-    timeline.send_poll_edit(&ALICE, poll_id, fakes::poll_b()).await;
+    timeline.send_poll_edit(User::Alice, poll_id, fakes::poll_b()).await;
     // Sanity check: the poll has a latest edit JSON.
     assert!(timeline.event_items().await[0].latest_edit_json().is_some());
 
     // Now the poll is ended.
-    timeline.send_poll_end(&ALICE, "ended", poll_id).await;
+    timeline.send_poll_end(User::Alice, "ended", poll_id).await;
 
     // The poll still has a latest edit JSON.
     assert!(timeline.event_items().await[0].latest_edit_json().is_some());
@@ -260,23 +260,23 @@ impl TestTimeline {
         self.event_items().await[0].content().as_poll().unwrap().clone()
     }
 
-    async fn send_poll_start(&self, sender: &UserId, content: UnstablePollStartContentBlock) {
+    async fn send_poll_start(&self, sender: User, content: UnstablePollStartContentBlock) {
         let event_content =
             UnstablePollStartEventContent::from(NewUnstablePollStartEventContent::new(content));
         self.handle_live_event(self.factory.event(event_content).sender(sender)).await;
     }
 
-    async fn send_poll_response(&self, sender: &UserId, answers: Vec<&str>, poll_id: &EventId) {
+    async fn send_poll_response(&self, sender: User, answers: Vec<&str>, poll_id: &EventId) {
         self.handle_live_event(self.factory.poll_response(answers, poll_id).sender(sender)).await
     }
 
-    async fn send_poll_end(&self, sender: &UserId, text: &str, poll_id: &EventId) {
+    async fn send_poll_end(&self, sender: User, text: &str, poll_id: &EventId) {
         self.handle_live_event(self.factory.poll_end(text, poll_id).sender(sender)).await
     }
 
     async fn send_poll_edit(
         &self,
-        sender: &UserId,
+        sender: User,
         original_id: &EventId,
         content: UnstablePollStartContentBlock,
     ) {

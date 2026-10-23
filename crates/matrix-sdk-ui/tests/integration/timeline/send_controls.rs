@@ -4,7 +4,7 @@ use futures_util::StreamExt as _;
 use matrix_sdk::{
     assert_let_timeout, room::edit::EditedContent, test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_test::{ALICE, JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{
     Error, EventSendState, RoomExt as _, SendTarget, TimelineEventItemId,
 };
@@ -832,7 +832,7 @@ async fn test_abort_reverts_a_poll_edit_but_keeps_its_votes() {
     assert_let_timeout!(Some(_) = stream.next());
     let items = timeline.items().await;
     let results = items[1].as_event().unwrap().content().as_poll().unwrap().results();
-    assert_eq!(results.votes["0"], vec![ALICE.to_string()]);
+    assert_eq!(results.votes["0"], &[User::Alice]);
 
     assert!(timeline.abort_send(&item_id, SendTarget::Edit).await.unwrap());
 
@@ -844,7 +844,7 @@ async fn test_abort_reverts_a_poll_edit_but_keeps_its_votes() {
     let results = item.content().as_poll().unwrap().results();
     assert_eq!(results.question, "original question");
     assert!(!results.has_been_edited);
-    assert_eq!(results.votes["0"], vec![ALICE.to_string()]);
+    assert_eq!(results.votes["0"], &[User::Alice]);
     assert_matches!(item.edit_send_state(), None);
     assert_pending!(stream);
 }
