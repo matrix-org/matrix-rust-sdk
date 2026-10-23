@@ -155,7 +155,10 @@ impl Builder {
             Ok(RFindMapOutcome::ReachedStart | RFindMapOutcome::ReachedLimit) => NeedMoreEvents::No,
             Err(err) => {
                 error!("Failed to look for a latest event candidate: {err}");
-                NeedMoreEvents::No
+
+                // A failed lookup says nothing about the room: keep the current
+                // value.
+                return (None, NeedMoreEvents::No);
             }
         };
 
