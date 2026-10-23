@@ -17,7 +17,7 @@ mod builder;
 use std::ops::{Deref, DerefMut, Not};
 
 pub use builder::filter_timeline_event;
-use builder::{BufferOfValuesForLocalEvents, Builder};
+use builder::{BufferOfValuesForLocalEvents, Builder, MAX_STORED_CHUNKS_TO_SCAN};
 use eyeball::{AsyncLock, ObservableWriteGuard, SharedObservable, Subscriber};
 pub use matrix_sdk_base::latest_event::{
     LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue,
@@ -115,8 +115,14 @@ impl LatestEvent {
         }
 
         let current_event = self.current_value.get().await;
-        let (new_value, need_more_events) =
-            Builder::new_remote(room_event_cache, current_event, own_user_id, power_levels).await;
+        let (new_value, need_more_events) = Builder::new_remote(
+            room_event_cache,
+            current_event,
+            own_user_id,
+            power_levels,
+            MAX_STORED_CHUNKS_TO_SCAN,
+        )
+        .await;
 
         trace!(value = ?new_value, ?need_more_events, "Computed a remote `LatestEventValue`");
 
@@ -347,7 +353,15 @@ pub async fn bench_new_remote(
     room_event_cache: &RoomEventCache,
     own_user_id: &UserId,
 ) -> Option<LatestEventValue> {
-    Builder::new_remote(room_event_cache, LatestEventValue::None, own_user_id, None).await.0
+    Builder::new_remote(
+        room_event_cache,
+        LatestEventValue::None,
+        own_user_id,
+        None,
+        MAX_STORED_CHUNKS_TO_SCAN,
+    )
+    .await
+    .0
 }
 
 #[cfg(all(not(target_family = "wasm"), test))]

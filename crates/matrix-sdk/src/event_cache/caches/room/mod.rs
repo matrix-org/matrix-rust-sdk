@@ -64,6 +64,9 @@ pub(crate) enum RFindMapOutcome<O> {
 
     /// No event matched, all the way to the start of the room.
     ReachedStart,
+
+    /// No event matched within the maximum number of stored chunks to read.
+    ReachedLimit,
 }
 
 /// A subset of an event cache, for a room.
@@ -179,16 +182,22 @@ impl RoomEventCache {
     /// event, and carrying on in the storage until a gap or the start of the
     /// room.
     ///
-    /// Contrary to [`Self::rfind_map_event_in_memory_by`], it also reads the
-    /// stored chunks preceding the in-memory ones.
+    /// Contrary to [`Self::rfind_map_event_in_memory_by`], it also reads up to
+    /// `max_stored_chunkds` stored chunks preceding the in-memory ones.
     pub(crate) async fn rfind_map_event_until_gap_by<O, P>(
         &self,
+        max_stored_chunks: usize,
         predicate: P,
     ) -> Result<RFindMapOutcome<O>>
     where
         P: FnMut(&Event) -> Option<O>,
     {
-        self.inner.state.read().await?.rfind_map_event_until_gap_by(predicate).await
+        self.inner
+            .state
+            .read()
+            .await?
+            .rfind_map_event_until_gap_by(max_stored_chunks, predicate)
+            .await
     }
 
     /// Try to find an event by ID in this room.
