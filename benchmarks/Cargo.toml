@@ -66,5 +66,10 @@ name = "search"
 harness = false
 required-features = ["search"]
 
+[[bench]]
+name = "search_memory"
+harness = false
+required-features = ["search"]
+
 [lints]
 workspace = true
