@@ -46,7 +46,7 @@ pub(super) struct LatestEvent {
     weak_room: WeakRoom,
 
     /// The thread (if any) owning this latest event.
-    _thread_id: Option<OwnedEventId>,
+    thread_id: Option<OwnedEventId>,
 
     /// A buffer of the current [`LatestEventValue`]s computed for local events
     /// seen by the send queue. See [`BufferOfValuesForLocalEvents`] to learn
@@ -71,7 +71,7 @@ impl LatestEvent {
         With {
             result: Self {
                 weak_room: weak_room.clone(),
-                _thread_id: thread_id.map(ToOwned::to_owned),
+                thread_id: thread_id.map(ToOwned::to_owned),
                 buffer_of_values_for_local_events: BufferOfValuesForLocalEvents::new(),
                 current_value: SharedObservable::new_async(latest_event_value),
             },
@@ -114,13 +114,18 @@ impl LatestEvent {
             return NeedMoreEvents::No;
         }
 
+        // Threads only look in memory, otherwise each one would repeat the
+        // room's scan of the stored chunks.
+        let max_stored_chunks =
+            if self.thread_id.is_some() { 0 } else { MAX_STORED_CHUNKS_TO_SCAN };
+
         let current_event = self.current_value.get().await;
         let (new_value, need_more_events) = Builder::new_remote(
             room_event_cache,
             current_event,
             own_user_id,
             power_levels,
-            MAX_STORED_CHUNKS_TO_SCAN,
+            max_stored_chunks,
         )
         .await;
 
