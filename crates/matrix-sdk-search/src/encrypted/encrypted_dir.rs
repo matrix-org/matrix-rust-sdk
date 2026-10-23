@@ -199,14 +199,6 @@ impl FileHandle for DecryptingFileHandle {
 /// The [`Directory`] trait implementation for our [`EncryptedMmapDirectory`].
 impl Directory for EncryptedMmapDirectory {
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
-        self.mmap_dir.get_file_handle(path)
-    }
-
-    fn sync_directory(&self) -> std::io::Result<()> {
-        self.mmap_dir.sync_directory()
-    }
-
-    fn open_read(&self, path: &Path) -> Result<FileSlice, OpenReadError> {
         let source = self.mmap_dir.open_read(path)?;
 
         // The file is mapped in memory, not read in.
@@ -225,10 +217,15 @@ impl Directory for EncryptedMmapDirectory {
         )
         .map_err(|err| <IoError as IntoTvError<OpenReadError>>::into_tv_err(err, path))?;
 
-        Ok(FileSlice::new(Arc::new(DecryptingFileHandle {
-            file,
-            encryption_key: self.encryption_key.clone(),
-        })))
+        Ok(Arc::new(DecryptingFileHandle { file, encryption_key: self.encryption_key.clone() }))
+    }
+
+    fn sync_directory(&self) -> std::io::Result<()> {
+        self.mmap_dir.sync_directory()
+    }
+
+    fn open_read(&self, path: &Path) -> Result<FileSlice, OpenReadError> {
+        Ok(FileSlice::new(self.get_file_handle(path)?))
     }
 
     fn delete(&self, path: &Path) -> Result<(), DeleteError> {
