@@ -15,6 +15,7 @@
 //! An SQLite-based backend for the [`MediaStore`].
 
 use std::{
+    collections::HashMap,
     fmt,
     path::{Path, PathBuf},
     sync::Arc,
@@ -34,7 +35,7 @@ use matrix_sdk_base::{
     timer,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{MilliSecondsSinceUnixEpoch, MxcUri, time::SystemTime};
+use ruma::{MilliSecondsSinceUnixEpoch, MxcUri, OwnedMxcUri, time::SystemTime};
 use rusqlite::{OptionalExtension, params_from_iter};
 use tokio::{
     fs,
@@ -466,6 +467,47 @@ impl MediaStore for SqliteMediaStore {
 
     async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
         self.get_db_size().await
+    }
+
+    #[instrument(skip_all)]
+    async fn media_sizes(
+        &self,
+        uris: &[OwnedMxcUri],
+    ) -> Result<Vec<(OwnedMxcUri, u64)>, Self::Error> {
+        let _timer = timer!("method");
+
+        if uris.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut lookup = HashMap::with_capacity(uris.len());
+        let mut keys = Vec::with_capacity(uris.len());
+        for uri in uris {
+            let key = self.encode_key(keys::MEDIA, uri.as_str());
+            lookup.insert(key.to_vec(), uri.clone());
+            keys.push(key);
+        }
+
+        self.read()
+            .await?
+            .chunk_large_query_over(keys, None, move |txn, chunk| {
+                let sql = format!(
+                    "SELECT uri, sum(length(data)) FROM media WHERE uri IN ({}) GROUP BY uri",
+                    chunk.host_parameters()
+                );
+                let mut stmt = txn.prepare(&sql)?;
+                let mut sizes = Vec::new();
+                let rows = stmt.query(params_from_iter(chunk.iter()))?;
+                for row in rows.mapped(|row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, u64>(1)?)))
+                {
+                    let (key, size) = row?;
+                    if let Some(uri) = lookup.get(&key) {
+                        sizes.push((uri.clone(), size));
+                    }
+                }
+                Ok(sizes)
+            })
+            .await
     }
 }
 

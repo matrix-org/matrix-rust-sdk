@@ -222,6 +222,22 @@ impl MediaStore for MemoryMediaStore {
         Ok(None)
     }
 
+    async fn media_sizes(
+        &self,
+        uris: &[OwnedMxcUri],
+    ) -> Result<Vec<(OwnedMxcUri, u64)>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+        let mut sizes = HashMap::with_capacity(uris.len());
+
+        for media in inner.media.iter() {
+            if uris.contains(&media.uri) {
+                *sizes.entry(media.uri.clone()).or_default() += media.data.len() as u64;
+            }
+        }
+
+        Ok(sizes.into_iter().collect())
+    }
+
     async fn close(&self) -> Result<(), Self::Error> {
         Ok(())
     }
