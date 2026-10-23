@@ -263,8 +263,12 @@ impl<'a> StateLockReadGuard<'a, RoomEventCacheState> {
     /// until a gap or the start of the room.
     ///
     /// The `predicate` receives the current event as its single argument.
+    ///
+    /// The `max_stored_chunks` dictates up to how many paginations we can do in
+    /// the store if no suitable latest event is found in memory.
     pub async fn rfind_map_event_until_gap_by<O, P>(
         &self,
+        max_stored_chunks: usize,
         mut predicate: P,
     ) -> Result<RFindMapOutcome<O>, EventCacheError>
     where
@@ -272,6 +276,10 @@ impl<'a> StateLockReadGuard<'a, RoomEventCacheState> {
     {
         if let Some(found) = self.rfind_map_event_in_memory_by(&mut predicate) {
             return Ok(RFindMapOutcome::Found(found));
+        }
+
+        if max_stored_chunks == 0 {
+            return Ok(RFindMapOutcome::ReachedLimit);
         }
 
         // Events behind an in-memory gap are unknown, so they may be newer than
@@ -284,9 +292,12 @@ impl<'a> StateLockReadGuard<'a, RoomEventCacheState> {
         let first_chunk_id = self.state.room_linked_chunk.first_chunk().identifier();
         let mut prev_chunk_id = first_chunk_id;
 
-        while let Some(chunk) =
-            self.store.load_previous_chunk(linked_chunk_id, prev_chunk_id).await?
-        {
+        for _ in 0..max_stored_chunks {
+            let Some(chunk) =
+                self.store.load_previous_chunk(linked_chunk_id, prev_chunk_id).await?
+            else {
+                return Ok(RFindMapOutcome::ReachedStart);
+            };
             match chunk.content {
                 ChunkContent::Gap(_) => return Ok(RFindMapOutcome::ReachedGap),
                 ChunkContent::Items(events) => {
@@ -299,7 +310,7 @@ impl<'a> StateLockReadGuard<'a, RoomEventCacheState> {
             prev_chunk_id = chunk.identifier;
         }
 
-        Ok(RFindMapOutcome::ReachedStart)
+        Ok(RFindMapOutcome::ReachedLimit)
     }
 
     #[cfg(test)]
