@@ -74,7 +74,7 @@ use crate::session_manager::split_devices_for_share_strategy;
 use crate::x509::{RawX509Signer, RawX509Verifier, X509Signer, X509Verifier};
 use crate::{
     CollectStrategy, CryptoStoreError, DecryptionSettings, DeviceData, LocalTrust,
-    RoomEventDecryptionResult, SignatureError, TrustRequirement,
+    OwnUserIdentityData, RoomEventDecryptionResult, SignatureError, TrustRequirement,
     backups::{BackupMachine, MegolmV1BackupKey},
     dehydrated_devices::{DehydratedDevices, DehydrationError},
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult, SetRoomSettingsError},
@@ -800,36 +800,8 @@ impl OlmMachine {
         // `upload_device_keys()` which locks private identity again.
         let identity = self.inner.user_identity.lock().await.clone();
 
-        let (upload_signing_keys_req, upload_signatures_req) = if reset || identity.is_empty().await
-        {
-            info!("Creating new cross signing identity");
-
-            let (identity, upload_signing_keys_req, upload_signatures_req) = {
-                let cache = self.inner.store.cache().await?;
-                let account = cache.account().await?;
-                account
-                    .bootstrap_cross_signing(
-                        #[cfg(feature = "experimental-x509-identity-verification")]
-                        self.inner.store.x509_signer().map(|s| s.raw()),
-                    )
-                    .await?
-            };
-
-            let public = identity.to_public_identity().await.expect(
-                "Couldn't create a public version of the identity from a new private identity",
-            );
-
-            *self.inner.user_identity.lock().await = identity.clone();
-
-            self.store()
-                .save_changes(Changes {
-                    identities: IdentityChanges { new: vec![public.into()], ..Default::default() },
-                    private_identity: Some(identity),
-                    ..Default::default()
-                })
-                .await?;
-
-            (upload_signing_keys_req, upload_signatures_req)
+        let mut requests = if reset || identity.is_empty().await {
+            self.reset_cross_signing().await?.commit().await?
         } else {
             info!("Trying to upload the existing cross signing identity");
             let upload_signing_keys_req = identity.as_upload_request().await;
@@ -840,19 +812,57 @@ impl OlmMachine {
                 .await
                 .expect("Can't sign device keys");
 
-            (upload_signing_keys_req, upload_signatures_req)
+            CrossSigningBootstrapRequests {
+                upload_signing_keys_req,
+                upload_keys_req: None,
+                upload_signatures_req,
+            }
         };
 
-        // If there are any _device_ keys to upload (i.e. the account isn't
-        // shared), upload them before we upload the signatures, since the
-        // signatures may reference keys to be uploaded.
-        let upload_keys_req =
-            self.upload_device_keys().await?.map(|(_, request)| OutgoingRequest::from(request));
+        // If we have no existing upload request, and there are any _device_
+        // keys to upload (i.e. the account isn't shared), reupload them
+        // before we upload the signatures, since the signatures may
+        // reference keys to be uploaded.
+        if requests.upload_keys_req.is_none() {
+            requests.upload_keys_req =
+                self.upload_device_keys().await?.map(|(_, request)| OutgoingRequest::from(request));
+        }
 
-        Ok(CrossSigningBootstrapRequests {
+        Ok(requests)
+    }
+
+    /// Generate a new cross signing identity and return a handle that can be
+    /// used to commit it to the store once the new keys have been uploaded
+    /// to the server.
+    ///
+    /// See [`UncommittedCrossSigningReset`] for more information.
+    pub async fn reset_cross_signing(
+        &self,
+    ) -> Result<UncommittedCrossSigningReset, BootstrapCrossSigningError> {
+        info!("Creating new cross signing identity");
+
+        let (identity, upload_signing_keys_req, upload_signatures_req) = {
+            let cache = self.inner.store.cache().await?;
+            let account = cache.account().await?;
+            account
+                .bootstrap_cross_signing(
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    self.inner.store.x509_signer().map(|s| s.raw()),
+                )
+                .await?
+        };
+
+        let public = identity
+            .to_public_identity()
+            .await
+            .expect("Couldn't create a public version of the identity from a new private identity");
+
+        Ok(UncommittedCrossSigningReset {
+            identity,
+            public,
             upload_signing_keys_req,
-            upload_keys_req,
             upload_signatures_req,
+            olm_machine: self.clone(),
         })
     }
 
@@ -3325,6 +3335,68 @@ pub struct CrossSigningBootstrapRequests {
     ///
     /// Should be sent last.
     pub upload_signatures_req: UploadSignaturesRequest,
+}
+
+/// A handle to a cross-signing reset that has not yet been committed.
+#[derive(Debug)]
+pub struct UncommittedCrossSigningReset {
+    /// A reference to the OlmMachine that created this handle.
+    olm_machine: OlmMachine,
+    /// The new private cross-signing identity.
+    identity: PrivateCrossSigningIdentity,
+    /// The public counterpart of the new cross-signing identity.
+    public: OwnUserIdentityData,
+    /// Request to upload the new cross-signing keys.
+    ///
+    /// See [`CrossSigningBootstrapRequests::upload_signing_keys_req`] for more
+    /// information.
+    upload_signing_keys_req: UploadSigningKeysRequest,
+    /// Request to upload the signatures for the new cross-signing keys.
+    ///
+    /// See [`CrossSigningBootstrapRequests::upload_signatures_req`] for more
+    /// information.
+    upload_signatures_req: UploadSignaturesRequest,
+}
+
+impl UncommittedCrossSigningReset {
+    /// Get a reference to the request to upload the new cross-signing keys.
+    pub fn upload_signing_keys_req(&self) -> &UploadSigningKeysRequest {
+        &self.upload_signing_keys_req
+    }
+
+    /// Commit the cross-signing reset.
+    ///
+    /// This will store the new cross-signing identity in the crypto store,
+    /// overwriting any previous identity. This method is idempotent.
+    pub async fn commit(&self) -> Result<CrossSigningBootstrapRequests, CryptoStoreError> {
+        let Self { olm_machine, identity, public, upload_signing_keys_req, upload_signatures_req } =
+            self;
+
+        *olm_machine.inner.user_identity.lock().await = identity.clone();
+
+        olm_machine
+            .store()
+            .save_changes(Changes {
+                identities: IdentityChanges {
+                    new: vec![public.clone().into()],
+                    ..Default::default()
+                },
+                private_identity: Some(identity.clone()),
+                ..Default::default()
+            })
+            .await?;
+
+        let upload_keys_req = olm_machine
+            .upload_device_keys()
+            .await?
+            .map(|(_, request)| OutgoingRequest::from(request));
+
+        Ok(CrossSigningBootstrapRequests {
+            upload_keys_req,
+            upload_signing_keys_req: upload_signing_keys_req.clone(),
+            upload_signatures_req: upload_signatures_req.clone(),
+        })
+    }
 }
 
 /// An error that can occur during [`OlmMachine::bootstrap_cross_signing`]:
