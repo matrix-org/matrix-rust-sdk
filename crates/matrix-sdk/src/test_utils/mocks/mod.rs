@@ -1335,6 +1335,20 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, UpdateRecentEmojisEndpoint::new()).expect_default_access_token()
     }
 
+    /// Create a prebuilt mock for the endpoint that fetches the
+    /// `m.image_pack.rooms` global account data.
+    pub fn mock_get_image_pack_rooms(&self) -> MockEndpoint<'_, GetImagePackRoomsEndpoint> {
+        let mock = Mock::given(method("GET"));
+        self.mock_endpoint(mock, GetImagePackRoomsEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint that updates the
+    /// `m.image_pack.rooms` global account data.
+    pub fn mock_set_image_pack_rooms(&self) -> MockEndpoint<'_, SetImagePackRoomsEndpoint> {
+        let mock = Mock::given(method("PUT"));
+        self.mock_endpoint(mock, SetImagePackRoomsEndpoint).expect_default_access_token()
+    }
+
     /// Create a prebuilt mock for the endpoint used to get the default secret
     /// storage key.
     ///
@@ -4439,6 +4453,67 @@ impl<'a> MockEndpoint<'a, UpdateRecentEmojisEndpoint> {
         self.mock =
             global_account_data_mock_builder(self.mock, user_id, "io.element.recent_emoji".into());
         self.respond_with(ResponseTemplate::new(200).set_body_json(()))
+    }
+}
+
+/// A prebuilt mock for a
+/// `GET /_matrix/client/v3/user/{userId}/account_data/m.image_pack.rooms`
+/// request, which fetches the globally enabled image packs.
+pub struct GetImagePackRoomsEndpoint;
+
+impl<'a> MockEndpoint<'a, GetImagePackRoomsEndpoint> {
+    /// Returns a mock for a successful fetch of the `m.image_pack.rooms`
+    /// account data, with the given content.
+    ///
+    /// The content can be any serializable value, to test malformed contents.
+    pub fn ok(self, user_id: &UserId, content: &impl Serialize) -> MatrixMock<'a> {
+        let mock = global_account_data_mock_builder(
+            self.mock,
+            user_id,
+            GlobalAccountDataEventType::ImagePackRooms,
+        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(content));
+        MatrixMock { server: self.server, mock }
+    }
+
+    /// Returns a 404 response with `M_NOT_FOUND`. This response means that the
+    /// user does not have an `m.image_pack.rooms` account data event.
+    pub fn not_found(self, user_id: &UserId) -> MatrixMock<'a> {
+        let mock = global_account_data_mock_builder(
+            self.mock,
+            user_id,
+            GlobalAccountDataEventType::ImagePackRooms,
+        )
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "errcode": "M_NOT_FOUND",
+            "error": "Account data not found",
+        })));
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for a
+/// `PUT /_matrix/client/v3/user/{userId}/account_data/m.image_pack.rooms`
+/// request, which updates the globally enabled image packs.
+pub struct SetImagePackRoomsEndpoint;
+
+impl<'a> MockEndpoint<'a, SetImagePackRoomsEndpoint> {
+    /// Returns a mock that will check that the body of the request matches the
+    /// given content.
+    pub fn match_content(self, content: &impl Serialize) -> Self {
+        Self::new(self.server, self.mock.and(body_json(json!(content))), self.endpoint)
+    }
+
+    /// Returns a mock for a successful update of the `m.image_pack.rooms`
+    /// account data.
+    pub fn ok(self, user_id: &UserId) -> MatrixMock<'a> {
+        let mock = global_account_data_mock_builder(
+            self.mock,
+            user_id,
+            GlobalAccountDataEventType::ImagePackRooms,
+        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})));
+        MatrixMock { server: self.server, mock }
     }
 }
 

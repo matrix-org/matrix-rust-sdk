@@ -447,6 +447,11 @@ pub enum Error {
     /// We timed out attempting to complete an operation.
     #[error("timed out")]
     Timeout,
+
+    /// An image pack contains an image with a shortcode that does not match the
+    /// grammar defined in the spec.
+    #[error("invalid image pack shortcode: `{0}`")]
+    InvalidImagePackShortcode(String),
 }
 
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines

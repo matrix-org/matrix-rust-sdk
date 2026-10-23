@@ -31,6 +31,7 @@ use ruma::{
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
         ignored_user_list::{IgnoredUser as RumaIgnoredUser, IgnoredUserListEventContent},
+        image_pack::rooms::ImagePackRoomsEventContent,
         location::AssetType as RumaAssetType,
         marked_unread::{MarkedUnreadEventContent, UnstableMarkedUnreadEventContent},
         media_preview_config::{
@@ -91,6 +92,7 @@ use tracing::info;
 use crate::{
     error::{ClientError, MediaInfoError},
     helpers::unwrap_or_clone_arc,
+    image_pack::image_pack_rooms_to_map,
     notification_settings::{Action, PushCondition},
     timeline::MessageContent,
     utils::u64_to_uint,
@@ -1233,6 +1235,8 @@ pub enum AccountDataEventType {
     IdentityServer,
     /// m.ignored_user_list
     IgnoredUserList,
+    /// m.image_pack.rooms
+    ImagePackRooms,
     /// m.push_rules
     PushRules,
     /// m.secret_storage.default_key
@@ -1249,6 +1253,7 @@ impl TryFrom<RumaGlobalAccountDataEventType> for AccountDataEventType {
             RumaGlobalAccountDataEventType::Direct => Ok(Self::Direct),
             RumaGlobalAccountDataEventType::IdentityServer => Ok(Self::IdentityServer),
             RumaGlobalAccountDataEventType::IgnoredUserList => Ok(Self::IgnoredUserList),
+            RumaGlobalAccountDataEventType::ImagePackRooms => Ok(Self::ImagePackRooms),
             RumaGlobalAccountDataEventType::PushRules => Ok(Self::PushRules),
             RumaGlobalAccountDataEventType::SecretStorageDefaultKey => {
                 Ok(Self::SecretStorageDefaultKey)
@@ -1280,6 +1285,12 @@ pub enum AccountDataEvent {
         /// The map of users to ignore. This is a mapping of user ID to empty
         /// object.
         ignored_users: HashMap<String, IgnoredUser>,
+    },
+    /// m.image_pack.rooms
+    ImagePackRooms {
+        /// The image packs enabled globally, as a map of room ID to the state
+        /// keys of the enabled packs in that room.
+        rooms: HashMap<String, Vec<String>>,
     },
     /// m.push_rules
     PushRules {
@@ -1724,6 +1735,12 @@ impl From<RumaGlobalAccountDataEvent<IgnoredUserListEventContent>> for AccountDa
                 })
                 .collect(),
         }
+    }
+}
+
+impl From<RumaGlobalAccountDataEvent<ImagePackRoomsEventContent>> for AccountDataEvent {
+    fn from(value: RumaGlobalAccountDataEvent<ImagePackRoomsEventContent>) -> Self {
+        Self::ImagePackRooms { rooms: image_pack_rooms_to_map(value.content) }
     }
 }
 

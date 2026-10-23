@@ -3,6 +3,7 @@ mod beacon;
 mod beacon_info;
 mod calls;
 mod common;
+mod image_packs;
 mod joined;
 mod left;
 mod notification_mode;
