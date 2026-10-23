@@ -583,7 +583,7 @@ impl UserDevices {
         })
     }
 
-    /// Returns true if there is at least one devices of this user that is
+    /// Returns true if there is at least one device of this user that is
     /// considered to be verified, false otherwise.
     ///
     /// This won't consider your own device as verified, as your own device is
