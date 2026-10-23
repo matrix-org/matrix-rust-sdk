@@ -55,8 +55,8 @@ insta = { version = "1.48.0", features = ["json", "redactions"] }
 itertools = { version = "0.15.0", default-features = false, features = ["use_std"] }
 js-sys = { version = "0.3.105", default-features = false, features = ["std"] }
 mime = { version = "0.3.17", default-features = false }
-oauth2 = { version = "5.0.0", default-features = false, features = ["timing-resistant-secret-traits"] }
-oauth2-reqwest = { version = "0.1.0-alpha.3", default-features = false }
+oauth2 = { git = "https://github.com/Ludea/oauth2-rs", branch = "rand", default-features = false, features = ["timing-resistant-secret-traits"] }
+oauth2-reqwest = { git = "https://github.com/Ludea/oauth2-rs", branch = "rand", default-features = false }
 once_cell = { version = "1.21.4", default-features = false, features = ["std"] }
 pbkdf2 = { version = "0.13.0", default-features = false }
 pin-project-lite = { version = "0.2.17", default-features = false }
