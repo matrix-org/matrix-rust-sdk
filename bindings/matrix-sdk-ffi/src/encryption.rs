@@ -33,6 +33,42 @@ use crate::{
 };
 
 #[derive(uniffi::Object)]
+pub struct SecretStorageKey {
+    inner: matrix_sdk_base::crypto::secret_storage::SecretStorageKey,
+}
+
+/// A secret storage key.
+#[uniffi::export]
+impl SecretStorageKey {
+    /// Create a new random secret storage key.
+    #[uniffi::constructor]
+    pub fn new() -> Arc<Self> {
+        Self { inner: matrix_sdk_base::crypto::secret_storage::SecretStorageKey::new() }.into()
+    }
+
+    /// Create a new secret storage key from a passphrase.
+    #[uniffi::constructor]
+    pub fn new_from_passphrase(mut passphrase: String) -> Arc<Self> {
+        let key = Self {
+            inner: matrix_sdk_base::crypto::secret_storage::SecretStorageKey::new_from_passphrase(
+                &passphrase,
+            ),
+        };
+        passphrase.zeroize();
+        key.into()
+    }
+
+    /// The base-58 representation of the key to present to the user.
+    ///
+    /// _Note_: This returns a copy of the private key material of the
+    /// [`SecretStorageKey`] as a string. The caller needs to ensure that this
+    /// string is zeroized.
+    pub fn to_base58(&self) -> String {
+        self.inner.to_base58()
+    }
+}
+
+#[derive(uniffi::Object)]
 pub struct Encryption {
     pub(crate) inner: matrix_sdk::encryption::Encryption,
 
@@ -741,10 +777,23 @@ impl Encryption {
         Ok(result?)
     }
 
+    /// Enable recovery on the account.
+    ///
+    /// # Arguments
+    ///
+    /// - `wait_for_backups_to_upload` - Should the enabling of the recovery
+    ///   also wait for _all_ room keys to be uploaded to the server-side key
+    ///   backup?
+    /// - `key` - The key to use to encrypt secret storage.  If `None`, a new
+    ///   key will be randomly generated
+    /// - `progress_listener` - A listener to track the progress of enabling
+    ///   recovery.
+    ///
+    /// Returns the base58-representation of the secret storage key.
     pub async fn enable_recovery(
         &self,
         wait_for_backups_to_upload: bool,
-        mut passphrase: Option<String>,
+        key: Option<Arc<SecretStorageKey>>,
         progress_listener: Box<dyn EnableRecoveryProgressListener>,
     ) -> Result<String> {
         let recovery = self.inner.recovery();
@@ -755,11 +804,7 @@ impl Encryption {
             recovery.enable()
         };
 
-        let enable = if let Some(passphrase) = &passphrase {
-            enable.with_passphrase(passphrase)
-        } else {
-            enable
-        };
+        let enable = if let Some(key) = &key { enable.with_key(&key.inner) } else { enable };
 
         let mut progress_stream = enable.subscribe_to_progress();
 
@@ -773,7 +818,6 @@ impl Encryption {
         let ret = enable.await?;
 
         task.abort();
-        passphrase.zeroize();
 
         Ok(ret)
     }

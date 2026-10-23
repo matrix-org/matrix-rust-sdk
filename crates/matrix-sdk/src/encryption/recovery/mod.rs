@@ -55,6 +55,7 @@
 //!
 //! ```no_run
 //! # use matrix_sdk::{Client, encryption::recovery::EnableProgress};
+//! # use matrix_sdk_base::crypto::secret_storage::SecretStorageKey;
 //! # use url::Url;
 //! # async {
 //! # let homeserver = Url::parse("http://example.com")?;
@@ -63,10 +64,11 @@
 //!
 //! // Create a new recovery key, you can use the provided passphrase, or the returned recovery key
 //! // to recover.
+//! let key = SecretStorageKey::new_from_passphrase("my passphrase");
 //! let recovery_key = recovery
 //!     .enable()
 //!     .wait_for_backups_to_upload()
-//!     .with_passphrase("my passphrase")
+//!     .with_key(&key)
 //!     .await;
 //! # anyhow::Ok(()) };
 //! ```
@@ -189,6 +191,7 @@ impl Recovery {
     ///
     /// ```no_run
     /// # use matrix_sdk::{Client, encryption::recovery::EnableProgress};
+    /// # use matrix_sdk_base::crypto::secret_storage::SecretStorageKey;
     /// # use url::Url;
     /// # async {
     /// # let homeserver = Url::parse("http://example.com")?;
@@ -197,10 +200,8 @@ impl Recovery {
     ///
     /// let recovery = client.encryption().recovery();
     ///
-    /// let enable = recovery
-    ///     .enable()
-    ///     .wait_for_backups_to_upload()
-    ///     .with_passphrase("my passphrase");
+    /// let key = SecretStorageKey::new_from_passphrase("my passphrase");
+    /// let enable = recovery.enable().wait_for_backups_to_upload().with_key(&key);
     ///
     /// let mut progress_stream = enable.subscribe_to_progress();
     ///
@@ -344,14 +345,15 @@ impl Recovery {
     ///
     /// ```no_run
     /// # use matrix_sdk::{Client, encryption::recovery::RecoveryState};
+    /// # use matrix_sdk_base::crypto::secret_storage::SecretStorageKey;
     /// # use url::Url;
     /// # async {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// let recovery = client.encryption().recovery();
     ///
-    /// let new_recovery_key =
-    ///     recovery.reset_key().with_passphrase("my passphrase").await;
+    /// let key = SecretStorageKey::new_from_passphrase("my passphrase");
+    /// let new_recovery_key = recovery.reset_key().with_key(&key).await;
     /// # anyhow::Ok(()) };
     /// ```
     #[instrument(skip_all)]
@@ -369,15 +371,17 @@ impl Recovery {
     ///
     /// ```no_run
     /// # use matrix_sdk::{Client, encryption::recovery::RecoveryState};
+    /// # use matrix_sdk_base::crypto::secret_storage::SecretStorageKey;
     /// # use url::Url;
     /// # async {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// # let client = Client::new(homeserver).await?;
     /// let recovery = client.encryption().recovery();
     ///
+    /// let key = SecretStorageKey::new_from_passphrase("my new passphrase");
     /// let new_recovery_key = recovery
     ///     .recover_and_reset("my old passphrase or key")
-    ///     .with_passphrase("my new passphrase")
+    ///     .with_key(&key)
     ///     .await?;
     /// # anyhow::Ok(()) };
     /// ```
