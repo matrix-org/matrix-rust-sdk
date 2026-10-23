@@ -13,15 +13,17 @@
 // limitations under the License.
 
 use std::{
+    fmt,
     fs::create_dir_all,
     io::{BufWriter, Cursor, Error as IoError, Read, Write},
+    ops::Range,
     path::Path,
     sync::Arc,
 };
 
 use aes::{
     Aes256,
-    cipher::{KeyInit, KeyIvInit, StreamCipher},
+    cipher::{KeyInit, KeyIvInit, StreamCipher, StreamCipherSeek},
 };
 use hkdf::Hkdf;
 use hmac::{HmacReset, Mac};
@@ -29,10 +31,13 @@ use sha2::{
     Sha256, Sha512,
     digest::{FixedOutputReset, Update},
 };
-use tantivy::directory::{
-    AntiCallToken, Directory, DirectoryLock, FileHandle, FileSlice, Lock, TerminatingWrite,
-    WatchCallback, WatchHandle, WritePtr,
-    error::{DeleteError, LockError, OpenDirectoryError, OpenReadError, OpenWriteError},
+use tantivy::{
+    HasLen,
+    directory::{
+        AntiCallToken, Directory, DirectoryLock, FileHandle, FileSlice, Lock, OwnedBytes,
+        TerminatingWrite, WatchCallback, WatchHandle, WritePtr,
+        error::{DeleteError, LockError, OpenDirectoryError, OpenReadError, OpenWriteError},
+    },
 };
 use zeroize::Zeroizing;
 
@@ -148,6 +153,49 @@ impl EncryptedMmapDirectory {
     }
 }
 
+/// An encrypted file, mapped in memory, whose bytes are decrypted when they're
+/// read.
+///
+/// Only the bytes Tantivy asks for get decrypted, instead of the whole file
+/// being kept decrypted in memory for as long as the index is open. AES-CTR
+/// lets a read start anywhere in the file, by seeking the keystream.
+///
+/// The file's MAC is checked once, when it's opened: reads don't check it
+/// again.
+struct DecryptingFileHandle {
+    /// The whole encrypted file: `iv || ciphertext || mac`.
+    file: OwnedBytes,
+    encryption_key: KeyBuffer,
+}
+
+impl fmt::Debug for DecryptingFileHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DecryptingFileHandle").field("len", &self.len()).finish_non_exhaustive()
+    }
+}
+
+impl HasLen for DecryptingFileHandle {
+    fn len(&self) -> usize {
+        self.file.len() - IV_SIZE - MAC_LENGTH
+    }
+}
+
+impl FileHandle for DecryptingFileHandle {
+    fn read_bytes(&self, range: Range<usize>) -> std::io::Result<OwnedBytes> {
+        let (iv, ciphertext) = self.file.as_slice().split_at(IV_SIZE);
+        let mut bytes = ciphertext[range.clone()].to_vec();
+
+        let mut cipher = Aes256Ctr::new_from_slices(&self.encryption_key, iv)
+            .map_err(|err| IoError::other(format!("couldn't initialize cipher: {err:?}")))?;
+        cipher
+            .try_seek(range.start as u64)
+            .map_err(|err| IoError::other(format!("couldn't seek the keystream: {err:?}")))?;
+        cipher.apply_keystream(&mut bytes);
+
+        Ok(OwnedBytes::new(bytes))
+    }
+}
+
 /// The [`Directory`] trait implementation for our [`EncryptedMmapDirectory`].
 impl Directory for EncryptedMmapDirectory {
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
@@ -161,12 +209,15 @@ impl Directory for EncryptedMmapDirectory {
     fn open_read(&self, path: &Path) -> Result<FileSlice, OpenReadError> {
         let source = self.mmap_dir.open_read(path)?;
 
-        let bytes = source
+        // The file is mapped in memory, not read in.
+        let file = source
             .read_bytes()
             .map_err(|err| <IoError as IntoTvError<OpenReadError>>::into_tv_err(err, path))?;
 
-        let mut reader = AesReader::<Aes256Ctr, _>::new::<HmacReset<Sha256>>(
-            Cursor::new(bytes.as_slice()),
+        // Creating the reader checks the MAC by streaming through the file, and
+        // fails if the file is too short to hold an IV and a MAC.
+        AesReader::<Aes256Ctr, _>::new::<HmacReset<Sha256>>(
+            Cursor::new(file.as_slice()),
             &self.encryption_key,
             &self.mac_key,
             IV_SIZE,
@@ -174,12 +225,10 @@ impl Directory for EncryptedMmapDirectory {
         )
         .map_err(|err| <IoError as IntoTvError<OpenReadError>>::into_tv_err(err, path))?;
 
-        let mut decrypted = Vec::new();
-        reader
-            .read_to_end(&mut decrypted)
-            .map_err(|err| <IoError as IntoTvError<OpenReadError>>::into_tv_err(err, path))?;
-
-        Ok(FileSlice::from(decrypted))
+        Ok(FileSlice::new(Arc::new(DecryptingFileHandle {
+            file,
+            encryption_key: self.encryption_key.clone(),
+        })))
     }
 
     fn delete(&self, path: &Path) -> Result<(), DeleteError> {
@@ -272,7 +321,7 @@ impl<
 mod tests {
     use std::path::Path;
 
-    use tantivy::directory::Directory;
+    use tantivy::{HasLen, directory::Directory};
     use tempfile::tempdir;
 
     use crate::encrypted::encrypted_dir::EncryptedMmapDirectory;
@@ -294,6 +343,53 @@ mod tests {
 
         let dir = EncryptedMmapDirectory::open_or_create(tmpdir.path(), "another key").unwrap();
         assert!(dir.atomic_read(file).is_err(), "Read a file with the wrong key");
+    }
+
+    #[test]
+    fn open_read_decrypts_any_range() {
+        let tmpdir = tempdir().unwrap();
+        let file = Path::new("file");
+        let data = (0..100_000).map(|i| (i * 7 % 251) as u8).collect::<Vec<_>>();
+
+        let dir = EncryptedMmapDirectory::open_or_create(tmpdir.path(), "key").unwrap();
+        dir.atomic_write(file, &data).unwrap();
+
+        let slice = dir.open_read(file).unwrap();
+        assert_eq!(slice.len(), data.len());
+        assert_eq!(slice.read_bytes().unwrap().as_slice(), &data[..]);
+
+        // Ranges starting and ending inside and across 16 bytes AES blocks.
+        for range in [0..0, 0..1, 3..17, 15..16, 16..48, 17..4_097, 50_001..99_999, 99_990..100_000]
+        {
+            assert_eq!(
+                slice.read_bytes_slice(range.clone()).unwrap().as_slice(),
+                &data[range.clone()],
+                "range {range:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn open_read_checks_the_mac() {
+        let tmpdir = tempdir().unwrap();
+        let file = Path::new("file");
+
+        let dir = EncryptedMmapDirectory::open_or_create(tmpdir.path(), "key").unwrap();
+        dir.atomic_write(file, b"some data to tamper with").unwrap();
+
+        // A wrong key fails the MAC check.
+        let other_dir =
+            EncryptedMmapDirectory::open_or_create(tmpdir.path(), "another key").unwrap();
+        assert!(other_dir.open_read(file).is_err(), "Read a file with the wrong key");
+
+        // So does a modified file.
+        let path = tmpdir.path().join(file);
+        let mut encrypted = std::fs::read(&path).unwrap();
+        encrypted[20] ^= 1;
+        std::fs::write(&path, encrypted).unwrap();
+
+        let dir = EncryptedMmapDirectory::open_or_create(tmpdir.path(), "key").unwrap();
+        assert!(dir.open_read(file).is_err(), "Read a modified file");
     }
 
     #[test]
