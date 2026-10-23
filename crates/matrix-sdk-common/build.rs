@@ -5,7 +5,9 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
     let is_wasm = env::var_os("CARGO_CFG_TARGET_ARCH").is_some_and(|arch| arch == "wasm32");
-    if is_wasm && env::var_os("CARGO_FEATURE_JS").is_none() {
+    let is_wasi = env::var_os("CARGO_CFG_TARGET_OS").is_some_and(|os| os == "wasi");
+
+    if is_wasm && !is_wasi && env::var_os("CARGO_FEATURE_JS").is_none() {        
         eprintln!(
             "\n\
             ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n\
