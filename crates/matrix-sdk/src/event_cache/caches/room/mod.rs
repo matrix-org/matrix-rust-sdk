@@ -66,6 +66,9 @@ pub(crate) enum RFindMapOutcome<O> {
 
     /// No event matched, all the way to the start of the room.
     ReachedStart,
+
+    /// No event matched within the maximum number of stored chunks to read.
+    ReachedLimit,
 }
 
 /// A subset of an event cache, for a room.
@@ -181,11 +184,13 @@ impl RoomEventCache {
     /// event, and carrying on in the storage until a gap or the start of the
     /// room.
     ///
-    /// Contrary to [`Self::rfind_map_event_in_memory_by`], it also reads the
-    /// stored chunks preceding the in-memory ones, without loading them in
-    /// memory, so this doesn't depend on what a shrink unloaded.
+    /// Contrary to [`Self::rfind_map_event_in_memory_by`], it also reads up to
+    /// `max_stored_chunks` stored chunks preceding the in-memory ones, without
+    /// loading them in memory, so this doesn't depend on what a shrink
+    /// unloaded.
     pub(crate) async fn rfind_map_event_until_gap_by<O, P>(
         &self,
+        max_stored_chunks: usize,
         mut predicate: P,
     ) -> Result<RFindMapOutcome<O>>
     where
@@ -207,6 +212,10 @@ impl RoomEventCache {
             state.room_linked_chunk().first_chunk().identifier()
         };
 
+        if max_stored_chunks == 0 {
+            return Ok(RFindMapOutcome::ReachedLimit);
+        }
+
         // The stored chunks are read without holding the state lock, so that
         // the whole event cache isn't blocked meanwhile. The store is
         // the source of truth, it doesn't matter whether it is dirty.
@@ -219,7 +228,11 @@ impl RoomEventCache {
         };
         let linked_chunk_id = LinkedChunkId::Room(&self.inner.room_id);
 
-        while let Some(chunk) = store.load_previous_chunk(linked_chunk_id, before).await? {
+        for _ in 0..max_stored_chunks {
+            let Some(chunk) = store.load_previous_chunk(linked_chunk_id, before).await? else {
+                return Ok(RFindMapOutcome::ReachedStart);
+            };
+
             match chunk.content {
                 ChunkContent::Gap(_) => return Ok(RFindMapOutcome::ReachedGap),
                 ChunkContent::Items(events) => {
@@ -232,7 +245,7 @@ impl RoomEventCache {
             before = chunk.identifier;
         }
 
-        Ok(RFindMapOutcome::ReachedStart)
+        Ok(RFindMapOutcome::ReachedLimit)
     }
 
     /// Try to find an event by ID in this room.
