@@ -703,11 +703,11 @@ impl Encryption {
         Ok(self.inner.recovery().is_last_device().await?)
     }
 
-    /// Does the user have other devices that the current device can verify
-    /// against?
+    /// Does the user have devices, other than the current one, that the
+    /// current device can verify against?
     ///
-    /// The device must be signed by the user's cross-signing key, must have an
-    /// identity, and must not be a dehydrated device.
+    /// The device must be signed by the user's cross-signing key, must support
+    /// Olm (have a Curve25519 key), and must not be a dehydrated device.
     pub async fn has_devices_to_verify_against(&self) -> Result<bool, ClientError> {
         Ok(self.inner.has_devices_to_verify_against().await?)
     }
