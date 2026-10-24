@@ -25,11 +25,19 @@ use std::{
     task::{Context, Poll},
 };
 
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+#[cfg(not(any(all(target_family = "wasm", target_os = "unknown"), target_os = "wasi")))]
+ mod sys {
+     pub use tokio::{
+         runtime::{Handle, Runtime},
+         task::{AbortHandle, JoinError, JoinHandle, spawn},
+     };
+ }
+ 
+#[cfg(target_os = "wasi")]
 mod sys {
     pub use tokio::{
         runtime::{Handle, Runtime},
-        task::{AbortHandle, JoinError, JoinHandle, spawn},
+        task::{AbortHandle, JoinError, JoinHandle, spawn_local as spawn},
     };
 }
 
