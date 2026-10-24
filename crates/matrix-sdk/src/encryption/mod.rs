@@ -413,6 +413,10 @@ impl CrossSigningResetHandle {
 
                 self.client.send(self.signatures_request.clone()).await?;
 
+                if let Some(olm) = self.client.olm_machine().await.as_ref() {
+                    self.client.encryption().query_own_keys(olm).await;
+                }
+
                 Ok(())
             },
             TIMEOUT,
@@ -1607,6 +1611,7 @@ impl Encryption {
         }
         self.client.send(upload_signing_keys_req).await?;
         self.client.send(upload_signatures_req).await?;
+        self.query_own_keys(olm).await;
 
         Ok(())
     }
@@ -1680,8 +1685,23 @@ impl Encryption {
             }
         } else {
             self.client.send(upload_signatures_req).await?;
+            self.query_own_keys(olm).await;
 
             Ok(None)
+        }
+    }
+
+    /// Query the user's own device keys, so that the signatures we just
+    /// uploaded for our own device are reflected locally.
+    ///
+    /// This is best-effort: the signatures are already uploaded, so if this
+    /// fails a later sync will pick them up.
+    async fn query_own_keys(&self, olm: &OlmMachine) {
+        let (request_id, request) = olm.query_keys_for_users([olm.user_id()]);
+        if let Err(error) = self.client.keys_query(&request_id, request.device_keys).await {
+            warn!(
+                "Couldn't query our own keys after uploading cross-signing signatures: {error:?}"
+            );
         }
     }
 
@@ -2283,6 +2303,11 @@ impl Encryption {
 
                     if is_verified {
                         self.client.inner.verification_state.set(VerificationState::Verified);
+                    } else if matches!(self.get_user_identity(device.user_id()).await, Ok(None)) {
+                        // We don't know our own identity yet, so we can't tell
+                        // whether we're verified; it'll be updated after the
+                        // next keys query.
+                        self.client.inner.verification_state.set(VerificationState::Unknown);
                     } else {
                         self.client.inner.verification_state.set(VerificationState::Unverified);
                     }
@@ -2745,9 +2770,9 @@ mod tests {
         set_client_session(&client).await;
 
         // Then we can get an updated value without waiting for any network
-        // requests
+        // requests, which stays unknown as we don't know our own identity yet
         assert!(keys_requested.load(Ordering::SeqCst).not());
-        assert_next_matches_with_timeout!(verification_state, VerificationState::Unverified);
+        assert_next_matches_with_timeout!(verification_state, VerificationState::Unknown);
     }
 
     #[test]
