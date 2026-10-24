@@ -226,9 +226,8 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
         // x`, 'y', 'z'] at position `Position(ChunkIdentifier(0),
         // 1)`, i.e. at the position of `b`, here is what happens:
         //
-        // 1. `LinkedChunk` will split off `['a', 'b', 'c']` at index 1, the
-        //    chunk becomes `['a']` and `b` and `c` are _detached_, thus we
-        //    have:
+        // 1. `LinkedChunk` will split off `['a', 'b', 'c']` at index 1, the chunk
+        //    becomes `['a']` and `b` and `c` are _detached_, thus we have:
         //
         //    ['a'] ['d']
         //
@@ -291,9 +290,8 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
         //
         // - `Update::DetachLastItems` must not emit `VectorDiff::Remove`,
         // - `Update::PushItems` must not emit `VectorDiff::Insert`s or
-        //   `VectorDiff::Append`s if it happens after `StartReattachItems` and
-        //   before `EndReattachItems`. However, `Self::chunks` must always be
-        //   updated.
+        //   `VectorDiff::Append`s if it happens after `StartReattachItems` and before
+        //   `EndReattachItems`. However, `Self::chunks` must always be updated.
         //
         // From the `VectorDiff` “point of view”, this optimisation aims at
         // avoiding removing items to push them again later.

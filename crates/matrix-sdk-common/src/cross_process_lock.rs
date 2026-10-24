@@ -89,10 +89,10 @@ pub type AcquireCrossProcessLockResult<E> =
 
 /// Trait used to try to take a lock. Foundation of [`CrossProcessLock`].
 pub trait TryLock {
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     type LockError: Error + Send + Sync;
 
-    #[cfg(target_family = "wasm")]
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     type LockError: Error;
 
     /// Try to take a leased lock.
@@ -443,8 +443,8 @@ where
         // Cancel the previous task, if any. That's safe to do, because:
         //
         // - either the task was done,
-        // - or it was still running, but taking a lock in the database has to
-        //   be an atomic operation running in a transaction.
+        // - or it was still running, but taking a lock in the database has to be an
+        //   atomic operation running in a transaction.
         drop(renew_task.take());
 
         // Restart a new one.
@@ -471,9 +471,8 @@ where
                             //
                             // This is not racy, because:
                             //
-                            // - the `locking_attempt` mutex makes sure we don't
-                            //   have unexpected interactions with the
-                            //   non-atomic sequence above in `try_lock_once`,
+                            // - the `locking_attempt` mutex makes sure we don't have unexpected
+                            //   interactions with the non-atomic sequence above in `try_lock_once`,
                             // - other holders will only decrease over time.
 
                             let _guard = locking_attempt.lock().await;
@@ -698,11 +697,11 @@ pub enum CrossProcessLockError {
     Unobtained(#[from] CrossProcessLockUnobtained),
 
     #[error(transparent)]
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     TryLock(#[from] Arc<dyn Error + Send + Sync>),
 
     #[error(transparent)]
-    #[cfg(target_family = "wasm")]
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     TryLock(#[from] Arc<dyn Error>),
 }
 

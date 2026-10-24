@@ -29,7 +29,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use tracing::warn;
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
 use wasm_bindgen::prelude::*;
 
 use crate::{
@@ -275,7 +275,7 @@ pub enum ShieldState {
 /// A machine-readable representation of the authenticity for a `ShieldState`.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-#[cfg_attr(target_family = "wasm", wasm_bindgen)]
+#[cfg_attr(all(target_family = "wasm", target_os = "unknown"), wasm_bindgen)]
 pub enum ShieldStateCode {
     /// Not enough information available to check the authenticity.
     AuthenticityNotGuaranteed,

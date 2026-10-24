@@ -481,11 +481,11 @@ impl BackgroundTaskHandle {
     /// non-wasm; on wasm, returns whether the task has been aborted only (due
     /// to lack of better APIs).
     pub fn is_finished(&self) -> bool {
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
         {
             self.abort_handle.is_finished()
         }
-        #[cfg(target_family = "wasm")]
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
             self.abort_handle.is_aborted()
         }

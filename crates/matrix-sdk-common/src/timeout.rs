@@ -15,11 +15,11 @@
 use std::{error::Error, fmt, time::Duration};
 
 use futures_core::Future;
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
 use futures_util::future::{Either, select};
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
 use gloo_timers::future::TimeoutFuture;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use tokio::time::timeout as tokio_timeout;
 
 /// Error type notifying that a timeout has elapsed.
@@ -42,10 +42,10 @@ pub async fn timeout<F, T>(future: F, duration: Duration) -> Result<T, ElapsedEr
 where
     F: Future<Output = T>,
 {
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     return tokio_timeout(duration, future).await.map_err(|_| ElapsedError());
 
-    #[cfg(target_family = "wasm")]
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     {
         let timeout_future =
             TimeoutFuture::new(u32::try_from(duration.as_millis()).expect("Overlong duration"));

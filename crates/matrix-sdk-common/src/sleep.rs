@@ -19,10 +19,10 @@ use std::time::Duration;
 /// This is a cross-platform sleep implementation that works on both wasm32 and
 /// non-wasm32 targets.
 pub async fn sleep(duration: Duration) {
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     tokio::time::sleep(duration).await;
 
-    #[cfg(target_family = "wasm")]
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     gloo_timers::future::TimeoutFuture::new(u32::try_from(duration.as_millis()).unwrap_or_else(
         |_| {
             tracing::error!("Sleep duration too long, sleeping for u32::MAX ms");

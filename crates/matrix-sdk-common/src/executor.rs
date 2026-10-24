@@ -25,7 +25,7 @@ use std::{
     task::{Context, Poll},
 };
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 mod sys {
     pub use tokio::{
         runtime::{Handle, Runtime},
@@ -33,7 +33,7 @@ mod sys {
     };
 }
 
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
 mod sys {
     use std::{
         future::Future,

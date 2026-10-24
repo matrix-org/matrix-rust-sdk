@@ -38,11 +38,11 @@ thiserror.workspace = true
 tracing.workspace = true
 uniffi = { workspace = true, optional = true }
 
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
 # Enable the test macro.
 tokio = { workspace = true, features = ["rt", "time", "macros"] }
 
-[target.'cfg(target_family = "wasm")'.dependencies]
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 futures-executor.workspace = true
 futures-util = { workspace = true, features = ["channel"] }
 gloo-timers = { workspace = true, features = ["futures"] }

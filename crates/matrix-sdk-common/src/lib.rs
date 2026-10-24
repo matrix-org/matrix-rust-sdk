@@ -45,8 +45,8 @@ pub mod ttl;
 
 // We cannot currently measure test coverage in the WASM environment, so
 // js_tracing is incorrectly flagged as untested. Disable coverage checking for
+#[cfg(all(target_family = "wasm", target_os = "unknown", not(tarpaulin_include)))]
 // it.
-#[cfg(all(target_family = "wasm", not(tarpaulin_include)))]
 pub mod js_tracing;
 
 pub use cross_process_lock::LEASE_DURATION_MS;
@@ -54,30 +54,30 @@ pub use edit_validation::*;
 
 /// Alias for `Send` on non-wasm, empty trait (implemented by everything) on
 /// wasm.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub trait SendOutsideWasm: Send {}
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 impl<T: Send> SendOutsideWasm for T {}
 
 /// Alias for `Send` on non-wasm, empty trait (implemented by everything) on
 /// wasm.
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
 pub trait SendOutsideWasm {}
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
 impl<T> SendOutsideWasm for T {}
 
 /// Alias for `Sync` on non-wasm, empty trait (implemented by everything) on
 /// wasm.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub trait SyncOutsideWasm: Sync {}
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 impl<T: Sync> SyncOutsideWasm for T {}
 
 /// Alias for `Sync` on non-wasm, empty trait (implemented by everything) on
 /// wasm.
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
 pub trait SyncOutsideWasm {}
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
 impl<T> SyncOutsideWasm for T {}
 
 /// Super trait that is used for our store traits, this trait will differ if
