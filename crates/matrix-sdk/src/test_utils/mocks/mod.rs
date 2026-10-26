@@ -1133,7 +1133,7 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, RoomSummaryEndpoint)
     }
 
-    /// Creates a prebuilt mock for the room summary endpoint [MSC3266](https://github.com/matrix-org/matrix-spec-proposals/pull/3266).
+    /// Creates a prebuilt mock for the stripped state endpoint [MSC4560](https://github.com/matrix-org/matrix-spec-proposals/pull/4560).
     #[cfg(feature = "unstable-msc4560")]
     pub fn mock_room_stripped_state(&self) -> MockEndpoint<'_, RoomStrippedStateEndpoint> {
         let mock = Mock::given(method("POST")).and(path_regex(
