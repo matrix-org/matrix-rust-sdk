@@ -338,18 +338,6 @@ impl<T, W> DerefMut for With<T, W> {
 
 pub(super) type IsLatestEventValueNone = bool;
 
-/// Compute a remote [`LatestEventValue`] for a room, from scratch.
-///
-/// Only meant to benchmark [`Builder::new_remote`].
-#[cfg(feature = "testing")]
-#[doc(hidden)]
-pub async fn bench_new_remote(
-    room_event_cache: &RoomEventCache,
-    own_user_id: &UserId,
-) -> Option<LatestEventValue> {
-    Builder::new_remote(room_event_cache, LatestEventValue::None, own_user_id, None).await.0
-}
-
 #[cfg(all(not(target_family = "wasm"), test))]
 mod tests_latest_event {
     use std::ops::Not;
