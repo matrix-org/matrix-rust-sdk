@@ -2578,6 +2578,38 @@ impl Client {
             }
         })))
     }
+
+    /// Subscribe to the total unread notification count of this [`Client`].
+    ///
+    /// The listener is called at most once every `min_interval` when new
+    /// [`RoomInfoNotableUpdate`] are received. This interval mode is to avoid
+    /// calculating hundreds of new values in a very small amount of time.
+    ///
+    /// An initial value will be reported as soon as the subscription starts.
+    ///
+    /// Use the returned [`TaskHandle`] to cancel the subscription.
+    pub fn observe_total_unread_notifications(
+        &self,
+        listener: Box<dyn TotalUnreadNotificationsListener>,
+        min_interval: Duration,
+    ) -> Arc<TaskHandle> {
+        let stream = self.inner.observe_total_unread_notifications(min_interval);
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            let mut stream = pin!(stream);
+
+            while let Some(total_count) = stream.next().await {
+                listener.on_update(total_count);
+            }
+        })))
+    }
+}
+
+/// A callback interface for receiving updates of the total unread notification
+/// count.
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait TotalUnreadNotificationsListener: SyncOutsideWasm + SendOutsideWasm {
+    fn on_update(&self, count: u64);
 }
 
 #[cfg(feature = "unstable-msc4354")]
