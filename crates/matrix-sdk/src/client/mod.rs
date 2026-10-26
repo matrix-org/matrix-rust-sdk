@@ -45,7 +45,7 @@ use matrix_sdk_base::{
     sync::{Notification, RoomUpdates},
     task_monitor::TaskMonitor,
 };
-use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, ttl::TtlValue};
+use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, sleep::sleep, ttl::TtlValue};
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{InitialStateEvent, room::encryption::RoomEncryptionEventContent};
 use ruma::{
@@ -1645,6 +1645,53 @@ impl Client {
             .sum()
     }
 
+    /// Returns a [`Stream`] containing the total unread notification count
+    /// updates, which will be computed at most once every `min_interval` when
+    /// new [`RoomInfoNotableUpdate`] items are received, to avoid computing
+    /// this value dozens or hundreds of times in a short amount of time.
+    pub fn observe_total_unread_notifications(
+        &self,
+        min_interval: Duration,
+    ) -> impl Stream<Item = u64> + use<> {
+        let mut update_receiver = self.room_info_notable_update_receiver();
+        let this = self.clone();
+
+        stream! {
+            // Initial value.
+            let mut current = this.total_unread_notifications();
+
+            // Yield the current total.
+            yield current;
+
+            // TODO ideally we'd filter `RoomInfoNotableUpdateReasons` here, but several
+            //  reasons can cause the unread notifications to change and it's not always
+            //  clear when this can happen. So let's not filter them *yet*.
+            loop {
+                // Drain all updates.
+                while update_receiver.try_recv().is_ok() {}
+
+                // Wait `min_interval`.
+                sleep(min_interval).await;
+
+                // Wait for an update.
+                // Either it arrived while sleeping (the `Recv` future will resolve immediately),
+                // or it will arrive in the future.
+                if update_receiver.recv().await.is_err() {
+                    break;
+                }
+
+                // When we got an update, re-compute the total.
+                let next = this.total_unread_notifications();
+
+                if next != current {
+                    current = next;
+
+                    // Yield the current total.
+                    yield current;
+                }
+            }
+        }
+    }
     /// Get a room with the given room id.
     ///
     /// # Arguments
@@ -4322,7 +4369,8 @@ pub(crate) mod tests {
     use futures_util::{FutureExt, StreamExt};
     use js_int::{UInt, uint};
     use matrix_sdk_base::{
-        RoomState,
+        RoomInfoNotableUpdateReasons, RoomState,
+        read_receipts::ReadReceipts,
         store::{MemoryStore, StoreConfig},
         ttl::TtlValue,
     };
@@ -4360,7 +4408,7 @@ pub(crate) mod tests {
 
     use super::Client;
     use crate::{
-        Error, Result, TransmissionProgress,
+        Error, Result, TransmissionProgress, assert_next_eq_with_timeout,
         client::{caches::CachedValue, futures::SendMediaUploadRequest},
         config::{RequestConfig, SyncSettings},
         futures::SendRequest,
@@ -6193,5 +6241,56 @@ pub(crate) mod tests {
             .await
             .expect("no timeout")
             .expect("task didn't panick");
+    }
+
+    #[async_test]
+    async fn test_observe_total_unread_notifications() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let f = EventFactory::new();
+
+        let set_num_notifications = async |room: &crate::Room, num: u64| {
+            room.update_room_info(|mut room_info| {
+                room_info.set_read_receipts(ReadReceipts {
+                    num_notifications: num,
+                    ..Default::default()
+                });
+                (room_info, RoomInfoNotableUpdateReasons::READ_RECEIPT)
+            })
+            .await;
+        };
+
+        let room = server.sync_joined_room(&client, room_id!("!a:b.c")).await;
+        set_num_notifications(&room, 1).await;
+
+        let min_interval = Duration::from_millis(100);
+        let mut stream = pin!(client.observe_total_unread_notifications(min_interval));
+
+        // The current value is emitted right away when subscribing.
+        assert_next_eq_with_timeout!(stream, 1);
+        assert_pending!(stream);
+
+        // Several updates in a short amount of time are coalesced, and only the
+        // latest value is emitted, once the interval is over.
+        set_num_notifications(&room, 3).await;
+        set_num_notifications(&room, 5).await;
+
+        assert_next_eq_with_timeout!(stream, 5, 300 ms);
+        assert_pending!(stream);
+
+        // An update that doesn't change the total doesn't emit a new value.
+        set_num_notifications(&room, 5).await;
+        assert!(timeout(min_interval * 3, stream.next()).await.is_err());
+
+        // Marking another room as unread adds one to the total.
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id!("!d:b.c")).add_account_data(f.marked_unread(true)),
+            )
+            .await;
+
+        assert_next_eq_with_timeout!(stream, 6, 300 ms);
+        assert_pending!(stream);
     }
 }
