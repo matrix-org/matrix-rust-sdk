@@ -1764,7 +1764,7 @@ impl Client {
 
         let response = self
             .send(assign!(
-                get_stripped_state::unstable::Request::new(room_id.clone().into(), via),
+                get_stripped_state::unstable::Request::new(room_or_alias_id.to_owned(), via),
                 { state: event_types, num_joined_members }
             ))
             .await?;
