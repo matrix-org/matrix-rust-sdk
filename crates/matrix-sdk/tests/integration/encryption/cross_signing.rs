@@ -73,7 +73,7 @@ async fn test_reset_legacy_auth_invalid_password() {
         "Initially we shouldn't have any cross-signin keys",
     );
 
-    server.mock_upload_keys().ok().mock_once().mount().await;
+    server.mock_upload_keys().ok().expect(0).mount().await;
 
     let reset_handle = {
         let _guard =
