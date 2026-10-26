@@ -35,41 +35,57 @@ use super::{
     thread::ThreadEventCacheState,
 };
 
+/// Result of the `aggregate_*` functions in this module.
+pub struct Aggregation {
+    pub timeline: Timeline,
+    pub read_receipts: MaybeReceiptEventContent,
+}
+
+/// Aggregate the events and the read receipts for the “main” timeline, i.e. the
+/// room.
 pub fn aggregate_timeline_and_read_receipts_for_room(
     timeline: &Timeline,
     ephemeral: &[AnySyncEphemeralRoomEvent],
-) -> (Timeline, MaybeReceiptEventContent) {
-    (
-        timeline.clone(),
-        filter_read_receipts_and_group_by(ephemeral, |receipt_thread| match receipt_thread {
-            ReceiptThread::Main | ReceiptThread::Unthreaded => Some(()),
+) -> Aggregation {
+    Aggregation {
+        // The room cache contains all events.
+        timeline: timeline.clone(),
+        read_receipts: filter_read_receipts_and_group_by(ephemeral, |receipt_thread| {
+            match receipt_thread {
+            // `Main` designates a read receipt for the “main” timeline, i.e.
+            // the room.
+            ReceiptThread::Main |
+            // `Unthreaded` designates a read receipt for “all timelines”, i.e.
+            // it includes the “main” timeline.
+            ReceiptThread::Unthreaded => Some(()),
             _ => None,
+        }
         })
         .map(|(_receipt_thread, (event_id, event_receipts))| {
             (event_id.clone(), event_receipts.clone())
         })
         .collect(),
-    )
+    }
 }
 
+/// Aggregate the events and the read receipts per “thread” timeline, i.e. the
+/// threads.
 pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
     timeline: &'sync Timeline,
     ephemeral: &'sync [AnySyncEphemeralRoomEvent],
     existing_threads: StateLockReadGuard<'state, HashMap<OwnedEventId, ThreadEventCacheState>>,
     maybe_room: Option<StateLockReadGuard<'state, RoomEventCacheState>>,
     redaction_rules: &'sync RedactionRules,
-) -> Result<HashMap<OwnedEventId, (Timeline, MaybeReceiptEventContent)>> {
+) -> Result<HashMap<OwnedEventId, Aggregation>> {
     let mut new_events_by_thread = HashMap::new();
 
-    let default_entry = || {
-        (
-            Timeline {
-                limited: timeline.limited,
-                prev_batch: timeline.prev_batch.clone(),
-                events: Vec::new(),
-            },
-            MaybeReceiptEventContent::none(),
-        )
+    let default_entry = || Aggregation {
+        timeline: Timeline {
+            limited: timeline.limited,
+            prev_batch: timeline.prev_batch.clone(),
+            events: Vec::new(),
+        },
+        read_receipts: MaybeReceiptEventContent::none(),
     };
 
     // Look for in-thread events, i.e. events that are part of threads.
@@ -82,7 +98,7 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
                     new_events_by_thread
                         .entry(related_event_id)
                         .or_insert_with(default_entry)
-                        .0
+                        .timeline
                         .events
                         .push(event.clone());
                 }
@@ -120,14 +136,15 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
                         new_events_by_thread
                             .entry(thread_root)
                             .or_insert_with(default_entry)
-                            .0
+                            .timeline
                             .events
                             .push(event.clone());
                     }
                 }
             },
 
-            // No explicit relation, okay, but it can still be related to a thread!
+            // No explicit relation, okay, but it can still be related to a
+            // thread!
             None => {
                 // We previously found events that are part of a thread, but we
                 // didn't see the thread root yet. And guess what? This might be
@@ -138,7 +155,7 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
                     new_events_by_thread
                         .entry(event_id.to_owned())
                         .or_insert_with(default_entry)
-                        .0
+                        .timeline
                         .events
                         .push(event.clone());
                 }
@@ -174,10 +191,18 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
                         new_events_by_thread
                             .entry(thread_root)
                             .or_insert_with(default_entry)
-                            .0
+                            .timeline
                             .events
                             .push(event.clone());
                     }
+
+                    // We haven't found the thread. We see a redaction for an
+                    // event we know about, but it doesn't seem to be part of a
+                    // thread.
+                    //
+                    // TODO/FIXME: actually, it can still be in a thread
+                    // that **IS NOT** loaded in-memory (it might not be in
+                    // `existing_threads`, but it can exist in the store).
                 }
             }
         }
@@ -185,6 +210,7 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
 
     for (thread_root, (read_receipt_event_id, read_receipt_event)) in
         filter_read_receipts_and_group_by(ephemeral, |receipt_thread| match receipt_thread {
+            // `Thread` designates a read receipt for a “thread” timeline.
             ReceiptThread::Thread(thread_id) => Some(thread_id),
             _ => None,
         })
@@ -196,7 +222,7 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
         new_events_by_thread
             .entry(thread_root.to_owned())
             .or_insert_with(default_entry)
-            .1
+            .read_receipts
             .get_or_insert_with(|| ReceiptEventContent(BTreeMap::new()))
             .insert(read_receipt_event_id.clone(), read_receipt_event.clone());
     }
@@ -243,7 +269,8 @@ pub fn aggregate_timeline_for_pinned_events(
                 }
             },
 
-            // No explicit relation, but it can be a redaction of a pinned-event!
+            // No explicit relation, but it can be a redaction of a
+            // pinned-event!
             None => {
                 if let Some(redaction_target) =
                     extract_redaction_target(event.raw(), redaction_rules)
@@ -263,8 +290,10 @@ pub fn aggregate_timeline_for_pinned_events(
 ///
 /// Read receipts have a deep structure (an entanglement of `BTreeMap`). The
 /// returned iterator returns the tuple `(OwnedEventId, Receipts)`, which is the
-/// second level. However, the `predicate` is applied on the fourth level,
-/// directly on the leaf of the read receipts.
+/// second level (note that the `OwnedEventId` is the ID of the event being
+/// acknowledged, and **not** the ID of the receipt itself). However, the
+/// `predicate` is applied on the fourth level, directly on the leaf of the read
+/// receipts.
 ///
 /// The predicate is used with [`Iterator::filter_map`], and thus can return a
 /// group key (it can be anything). This group key is associated to the tuple
