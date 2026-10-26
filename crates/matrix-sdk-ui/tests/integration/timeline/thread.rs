@@ -23,9 +23,7 @@ use matrix_sdk::{
         MatrixMockServer, RoomContextResponseTemplate, RoomRelationsResponseTemplate,
     },
 };
-use matrix_sdk_test::{
-    ALICE, BOB, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
-};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{
     EventSendState, RoomExt as _, TimelineBuilder, TimelineDetails, TimelineEventFocusThreadMode,
     TimelineEventItemId, TimelineFocus, VirtualTimelineItem,
@@ -293,7 +291,7 @@ async fn test_extract_bundled_thread_summary() {
     assert!(summary.latest_event.is_ready());
     assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
     assert_eq!(latest_event.content.as_message().unwrap().body(), "the last one!");
-    assert_eq!(latest_event.sender, *ALICE);
+    assert_eq!(latest_event.sender, User::Alice);
     assert!(latest_event.sender_profile.is_unavailable());
 
     // We get the count from the bundled thread summary.
@@ -505,7 +503,7 @@ async fn test_new_thread_reply_causes_thread_summary_update() {
     assert!(summary.latest_event.is_ready());
     assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
     assert_eq!(latest_event.content.as_message().unwrap().body(), "thread reply");
-    assert_eq!(latest_event.sender, *BOB);
+    assert_eq!(latest_event.sender, User::Bob);
     assert!(latest_event.sender_profile.is_unavailable());
 
     // The thread summary contains the number of replies.
@@ -553,7 +551,7 @@ async fn test_new_thread_reply_causes_thread_summary_update() {
     assert!(summary.latest_event.is_ready());
     assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
     assert_eq!(latest_event.content.as_message().unwrap().body(), "another thread reply");
-    assert_eq!(latest_event.sender, *BOB);
+    assert_eq!(latest_event.sender, User::Bob);
     assert!(latest_event.sender_profile.is_unavailable());
 
     // The number of replies has been updated.
@@ -1118,7 +1116,7 @@ async fn test_thread_timeline_gets_local_echoes() {
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
                 f.text_msg("hello world")
-                    .sender(*ALICE)
+                    .sender(User::Alice)
                     .event_id(threaded_event_id)
                     .in_thread(&thread_root_event_id, threaded_event_id)
                     .server_ts(MilliSecondsSinceUnixEpoch::now()),
@@ -1136,7 +1134,7 @@ async fn test_thread_timeline_gets_local_echoes() {
     server.mock_room_state_encryption().plain().mount().await;
 
     let (event_receiver, mock_builder) =
-        server.mock_room_send().ok_with_capture(sent_event_id, *ALICE);
+        server.mock_room_send().ok_with_capture(sent_event_id, User::Alice);
     mock_builder.mock_once().mount().await;
 
     timeline.send(RoomMessageEventContent::text_plain("hello to you too!").into()).await.unwrap();
@@ -1255,7 +1253,7 @@ async fn test_thread_timeline_can_send_edit() {
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
                 f.text_msg("hello world")
-                    .sender(*ALICE)
+                    .sender(User::Alice)
                     .event_id(threaded_event_id)
                     .in_thread(&thread_root_event_id, threaded_event_id)
                     .server_ts(MilliSecondsSinceUnixEpoch::now()),
@@ -1339,7 +1337,7 @@ async fn test_send_sticker_thread() {
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
                 f.text_msg("hello world")
-                    .sender(*ALICE)
+                    .sender(User::Alice)
                     .event_id(threaded_event_id)
                     .in_thread(&thread_root_event_id, threaded_event_id)
                     .server_ts(MilliSecondsSinceUnixEpoch::now()),
@@ -1417,7 +1415,7 @@ async fn test_send_poll_thread() {
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
                 f.text_msg("hello world")
-                    .sender(*ALICE)
+                    .sender(User::Alice)
                     .event_id(threaded_event_id)
                     .in_thread(&thread_root_event_id, threaded_event_id)
                     .server_ts(MilliSecondsSinceUnixEpoch::now()),
@@ -1541,19 +1539,19 @@ async fn test_read_receipts() {
             JoinedRoomBuilder::new(room_id)
                 .add_timeline_event(
                     f.text_msg("hey to you too!")
-                        .sender(*ALICE)
+                        .sender(User::Alice)
                         .in_thread(&thread_root, &thread_root)
                         .event_id(event_id!("$1")),
                 )
                 .add_timeline_event(
                     f.text_msg("how's it going?")
-                        .sender(*ALICE)
+                        .sender(User::Alice)
                         .in_thread(&thread_root, event_id!("$1"))
                         .event_id(event_id!("$2")),
                 )
                 .add_timeline_event(
                     f.text_msg("good, u?")
-                        .sender(*BOB)
+                        .sender(User::Bob)
                         .in_thread(&thread_root, event_id!("$2"))
                         .event_id(event_id!("$3")),
                 ),
@@ -1574,7 +1572,7 @@ async fn test_read_receipts() {
         assert_eq!(ev0.event_id(), Some(event_id!("$1")));
         let rr = ev0.read_receipts();
         assert_eq!(rr.len(), 1);
-        assert_eq!(rr[*ALICE].thread, receipt_thread);
+        assert_eq!(rr[&User::Alice].thread, receipt_thread);
 
         // But then, as we're about to push another event from Alice, its read
         // receipt disappears from the first event. XXX wouldn't it be nice that
@@ -1590,7 +1588,7 @@ async fn test_read_receipts() {
         assert_eq!(ev1.event_id(), Some(event_id!("$2")));
         let rr = ev1.read_receipts();
         assert_eq!(rr.len(), 1);
-        assert_eq!(rr[*ALICE].thread, receipt_thread);
+        assert_eq!(rr[&User::Alice].thread, receipt_thread);
 
         // Third event has Bob's implicit read receipt.
         assert_let!(VectorDiff::PushBack { value } = &timeline_updates[3]);
@@ -1598,7 +1596,7 @@ async fn test_read_receipts() {
         assert_eq!(ev2.event_id(), Some(event_id!("$3")));
         let rr = ev2.read_receipts();
         assert_eq!(rr.len(), 1);
-        assert_eq!(rr[*BOB].thread, receipt_thread);
+        assert_eq!(rr[&User::Bob].thread, receipt_thread);
 
         assert_let!(VectorDiff::PushFront { value } = &timeline_updates[4]);
         assert!(value.is_date_divider());
@@ -1615,8 +1613,8 @@ async fn test_read_receipts() {
             &client,
             JoinedRoomBuilder::new(room_id).add_receipt(
                 f.read_receipts()
-                    .add(event_id!("$3"), *ALICE, ReceiptType::Read, receipt_thread.clone())
-                    .add(event_id!("$3"), *BOB, ReceiptType::Read, receipt_thread.clone())
+                    .add(event_id!("$3"), User::Alice, ReceiptType::Read, receipt_thread.clone())
+                    .add(event_id!("$3"), User::Bob, ReceiptType::Read, receipt_thread.clone())
                     .into_event(),
             ),
         )
@@ -1640,8 +1638,8 @@ async fn test_read_receipts() {
         assert_eq!(event_item.event_id(), Some(event_id!("$3")));
         let rr = event_item.read_receipts();
         assert_eq!(rr.len(), 2);
-        assert_eq!(rr[*ALICE].thread, receipt_thread);
-        assert_eq!(rr[*BOB].thread, receipt_thread);
+        assert_eq!(rr[&User::Alice].thread, receipt_thread);
+        assert_eq!(rr[&User::Bob].thread, receipt_thread);
     }
 }
 
@@ -1668,13 +1666,13 @@ async fn test_initial_read_receipts_are_correctly_populated() {
             JoinedRoomBuilder::new(room_id)
                 .add_timeline_event(
                     f.text_msg("hey to you too!")
-                        .sender(*ALICE)
+                        .sender(User::Alice)
                         .in_thread(&thread_root, &thread_root)
                         .event_id(event_id!("$1")),
                 )
                 .add_receipt(
                     f.read_receipts()
-                        .add(event_id!("$1"), *BOB, ReceiptType::Read, receipt_thread.clone())
+                        .add(event_id!("$1"), User::Bob, ReceiptType::Read, receipt_thread.clone())
                         .into_event(),
                 ),
         )
@@ -1704,8 +1702,8 @@ async fn test_initial_read_receipts_are_correctly_populated() {
     assert_eq!(ev.event_id(), Some(event_id!("$1")));
     let rr = ev.read_receipts();
     assert_eq!(rr.len(), 2);
-    assert_eq!(rr[*ALICE].thread, receipt_thread);
-    assert_eq!(rr[*BOB].thread, receipt_thread);
+    assert_eq!(rr[&User::Alice].thread, receipt_thread);
+    assert_eq!(rr[&User::Bob].thread, receipt_thread);
 }
 
 #[async_test]
@@ -1729,16 +1727,23 @@ async fn test_initial_read_receipts_compatibility_mode() {
             &client,
             JoinedRoomBuilder::new(room_id)
                 .add_timeline_event(
-                    f.text_msg("hello in main timeline").sender(*BOB).event_id(event_id!("$0")),
+                    f.text_msg("hello in main timeline")
+                        .sender(User::Bob)
+                        .event_id(event_id!("$0")),
                 )
                 .add_timeline_event(
                     f.text_msg("hello back in main timeline")
-                        .sender(*ALICE)
+                        .sender(User::Alice)
                         .event_id(event_id!("$1")),
                 )
                 .add_receipt(
                     f.read_receipts()
-                        .add(event_id!("$1"), *BOB, ReceiptType::Read, ReceiptThread::Unthreaded)
+                        .add(
+                            event_id!("$1"),
+                            User::Bob,
+                            ReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
                         .into_event(),
                 ),
         )
@@ -1780,8 +1785,8 @@ async fn test_initial_read_receipts_compatibility_mode() {
         assert_eq!(ev.event_id(), Some(event_id!("$1")));
         let rr = ev.read_receipts();
         assert_eq!(rr.len(), 2);
-        assert!(rr.get(*ALICE).is_some());
-        assert!(rr.get(*BOB).is_some());
+        assert!(rr.get(&User::Alice).is_some());
+        assert!(rr.get(&User::Bob).is_some());
     }
 }
 
@@ -1807,7 +1812,7 @@ async fn test_send_read_receipts() {
             JoinedRoomBuilder::new(room_id)
                 .add_timeline_event(
                     f.text_msg("hey to you too!")
-                        .sender(*ALICE)
+                        .sender(User::Alice)
                         .in_thread(&thread_root, &thread_root)
                         .event_id(event_id!("$1")),
                 )
@@ -1819,13 +1824,13 @@ async fn test_send_read_receipts() {
                 )
                 .add_timeline_event(
                     f.text_msg("good and you?")
-                        .sender(*BOB)
+                        .sender(User::Bob)
                         .in_thread(&thread_root, event_id!("$2"))
                         .event_id(event_id!("$3")),
                 )
                 .add_timeline_event(
                     f.text_msg("u there?")
-                        .sender(*BOB)
+                        .sender(User::Bob)
                         .in_thread(&thread_root, event_id!("$3"))
                         .event_id(event_id!("$4")),
                 )
@@ -1863,7 +1868,7 @@ async fn test_send_read_receipts() {
     assert_eq!(ev.event_id(), Some(event_id!("$1")));
     let rr = ev.read_receipts();
     assert_eq!(rr.len(), 1);
-    assert_eq!(rr[*ALICE].thread, receipt_thread);
+    assert_eq!(rr[&User::Alice].thread, receipt_thread);
 
     // The timeline doesn't include the read receipt for the current user, but
     // this is where it would be, if it did.
@@ -1884,7 +1889,7 @@ async fn test_send_read_receipts() {
     assert_eq!(ev.event_id(), Some(event_id!("$4")));
     let rr = ev.read_receipts();
     assert_eq!(rr.len(), 1);
-    assert_eq!(rr[*BOB].thread, receipt_thread);
+    assert_eq!(rr[&User::Bob].thread, receipt_thread);
 
     // `$1` is already covered by the user's real read receipt, so sending one
     // there is a no-op.
@@ -1993,13 +1998,13 @@ async fn test_send_read_receipt_moves_real_receipt_forward() {
             JoinedRoomBuilder::new(room_id)
                 .add_timeline_event(
                     f.text_msg("first")
-                        .sender(*ALICE)
+                        .sender(User::Alice)
                         .in_thread(&thread_root, &thread_root)
                         .event_id(event_id!("$0")),
                 )
                 .add_timeline_event(
                     f.text_msg("second")
-                        .sender(*ALICE)
+                        .sender(User::Alice)
                         .in_thread(&thread_root, event_id!("$0"))
                         .event_id(event_id!("$1")),
                 )

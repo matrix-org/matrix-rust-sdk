@@ -62,6 +62,7 @@ use ruma::{
     push::RuleKind,
     serde::{JsonObject, Raw},
     time::Duration,
+    user_id,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, from_value, json};
@@ -1094,6 +1095,27 @@ impl MatrixMockServer {
     pub fn mock_ban_user(&self) -> MockEndpoint<'_, BanUserEndpoint> {
         let mock = Mock::given(method("POST")).and(path_regex(r"^/_matrix/client/v3/rooms/.*/ban"));
         self.mock_endpoint(mock, BanUserEndpoint)
+    }
+
+    /// Creates a prebuilt mock for unbanning a user from a room.
+    pub fn mock_unban_user(&self) -> MockEndpoint<'_, UnbanUserEndpoint> {
+        let mock =
+            Mock::given(method("POST")).and(path_regex(r"^/_matrix/client/v3/rooms/.*/unban$"));
+        self.mock_endpoint(mock, UnbanUserEndpoint)
+    }
+
+    /// Creates a prebuilt mock for updating the typing notice in a room.
+    pub fn mock_update_typing(&self) -> MockEndpoint<'_, UpdateTypingEndpoint> {
+        let mock =
+            Mock::given(method("PUT")).and(path_regex(r"^/_matrix/client/v3/rooms/.*/typing/.*"));
+        self.mock_endpoint(mock, UpdateTypingEndpoint)
+    }
+
+    /// Creates a prebuilt mock for reporting an event in a room.
+    pub fn mock_report_room_event(&self) -> MockEndpoint<'_, ReportRoomEventEndpoint> {
+        let mock =
+            Mock::given(method("POST")).and(path_regex(r"^/_matrix/client/v3/rooms/.*/report/.*"));
+        self.mock_endpoint(mock, ReportRoomEventEndpoint)
     }
 
     /// Creates a prebuilt mock for the `/_matrix/client/versions` endpoint.
@@ -3735,6 +3757,39 @@ impl<'a> MockEndpoint<'a, BanUserEndpoint> {
     }
 }
 
+/// A prebuilt mock for a `POST /_matrix/client/v3/rooms/{roomId}/unban`
+/// request.
+pub struct UnbanUserEndpoint;
+
+impl<'a> MockEndpoint<'a, UnbanUserEndpoint> {
+    /// Returns a successful unban user request.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
+    }
+}
+
+/// A prebuilt mock for a `PUT
+/// /_matrix/client/v3/rooms/{roomId}/typing/{userId}` request.
+pub struct UpdateTypingEndpoint;
+
+impl<'a> MockEndpoint<'a, UpdateTypingEndpoint> {
+    /// Returns a successful typing update request.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
+    }
+}
+
+/// A prebuilt mock for a `POST
+/// /_matrix/client/v3/rooms/{roomId}/report/{eventId} ` request.
+pub struct ReportRoomEventEndpoint;
+
+impl<'a> MockEndpoint<'a, ReportRoomEventEndpoint> {
+    /// Returns a successful typing update request.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
+    }
+}
+
 /// A prebuilt mock for `GET /versions` request.
 pub struct VersionsEndpoint {
     versions: Vec<&'static str>,
@@ -3878,15 +3933,27 @@ impl<'a> MockEndpoint<'a, SetRoomPinnedEventsEndpoint> {
 pub struct WhoAmIEndpoint;
 
 impl<'a> MockEndpoint<'a, WhoAmIEndpoint> {
-    /// Returns a successful response with the default device ID.
+    /// Returns a successful response with the default user ID and device ID.
     pub fn ok(self) -> MatrixMock<'a> {
-        self.ok_with_device_id(device_id!("D3V1C31D"))
+        self.ok_with_ids(user_id!("@joe:example.org"), device_id!("D3V1C31D"))
     }
 
-    /// Returns a successful response with the given device ID.
+    /// Returns a successful response with the given user ID, and the default
+    /// device ID.
+    pub fn ok_with_user_id(self, user_id: &UserId) -> MatrixMock<'a> {
+        self.ok_with_ids(user_id, device_id!("D3V1C31D"))
+    }
+
+    /// Returns a successful response with the given device ID, and the default
+    /// user ID.
     pub fn ok_with_device_id(self, device_id: &DeviceId) -> MatrixMock<'a> {
+        self.ok_with_ids(user_id!("@joe:example.org"), device_id)
+    }
+
+    /// Returns a successful response with the given user ID and device ID.
+    fn ok_with_ids(self, user_id: &UserId, device_id: &DeviceId) -> MatrixMock<'a> {
         self.ok_json(json!({
-            "user_id": "@joe:example.org",
+            "user_id": user_id,
             "device_id": device_id,
         }))
     }

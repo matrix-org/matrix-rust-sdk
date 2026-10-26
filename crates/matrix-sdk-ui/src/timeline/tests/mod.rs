@@ -35,7 +35,7 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::{RoomInfo, RoomState, crypto::types::events::CryptoContextInfo};
-use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, event_factory::EventFactory};
+use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, User, event_factory::EventFactory};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId,
     OwnedUserId, RoomId, TransactionId, UInt, UserId,
@@ -207,11 +207,11 @@ impl TestTimeline {
 
     async fn handle_read_receipts(
         &self,
-        receipts: impl IntoIterator<Item = (OwnedEventId, ReceiptType, OwnedUserId, ReceiptThread)>,
+        receipts: impl IntoIterator<Item = (OwnedEventId, ReceiptType, User, ReceiptThread)>,
     ) {
         let mut read_receipt = self.factory.read_receipts();
-        for (event_id, tyype, user_id, thread) in receipts {
-            read_receipt = read_receipt.add(&event_id, &user_id, tyype, thread);
+        for (event_id, tyype, user, thread) in receipts {
+            read_receipt = read_receipt.add(&event_id, user, tyype, thread);
         }
         let ev_content = read_receipt.into_content();
         self.controller.handle_read_receipts(ev_content).await;
@@ -342,7 +342,7 @@ impl RoomDataProvider for TestRoomDataProvider {
     }
 
     fn own_user_id(&self) -> &UserId {
-        self.own_user_id.as_deref().unwrap_or(&ALICE)
+        self.own_user_id.as_deref().unwrap_or_else(|| User::Alice.into())
     }
 
     fn room_version_rules(&self) -> RoomVersionRules {

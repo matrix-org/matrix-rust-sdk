@@ -1073,3 +1073,26 @@ async fn test_login_with_device_code_not_registered() {
     assert_matches!(res, Err(DeviceCodeLoginError::NotRegistered));
     assert!(client.session_meta().is_none());
 }
+
+#[test]
+fn test_oauth_session_serialization() {
+    let session = mock_session(mock_session_tokens_with_refresh());
+
+    // The user session is flattened, like in `MatrixSession`.
+    let json = serde_json::to_value(&session).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "client_id": "test_client_id",
+            "user_id": "@example:localhost",
+            "device_id": "DEVICEID",
+            "access_token": "1234",
+            "refresh_token": "ZYXWV",
+        })
+    );
+
+    let deserialized: super::OAuthSession = serde_json::from_value(json).unwrap();
+    assert_eq!(deserialized.client_id, session.client_id);
+    assert_eq!(deserialized.user.meta, session.user.meta);
+    assert_eq!(deserialized.user.tokens, session.user.tokens);
+}

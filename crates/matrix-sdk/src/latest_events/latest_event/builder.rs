@@ -38,19 +38,33 @@ use ruma::{
 };
 use tracing::{debug, error};
 
-use crate::{Room, event_cache::RoomEventCache, room::Invite, send_queue::RoomSendQueueUpdate};
+use super::NeedMoreEvents;
+use crate::{
+    Room,
+    event_cache::{RFindMapOutcome, RoomEventCache},
+    room::Invite,
+    send_queue::RoomSendQueueUpdate,
+};
+
+/// The maximum number of stored chunks [`Builder::new_remote`] reads, past the
+/// in-memory ones, to find a candidate.
+pub(super) const MAX_STORED_CHUNKS_TO_SCAN: usize = 10;
 
 /// A builder of [`LatestEventValue`]s.
 pub(super) struct Builder;
 
 impl Builder {
     /// Create a new [`LatestEventValue::Remote`].
+    ///
+    /// It reads up to `max_stored_chunks` stored chunks past the in-memory
+    /// ones.
     pub async fn new_remote(
         room_event_cache: &RoomEventCache,
         current_event: LatestEventValue,
         own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
-    ) -> Option<LatestEventValue> {
+        max_stored_chunks: usize,
+    ) -> (Option<LatestEventValue>, NeedMoreEvents) {
         // If we are computing a value from the Event Cache, it's because we
         // have received an update from the Event Cache. This update falls in
         // two categories: either an event has been added or updated, or the
@@ -66,8 +80,8 @@ impl Builder {
         // Track the most recent edit for each event.
         let mut latest_edit_for_event: HashMap<OwnedEventId, TimelineEvent> = HashMap::new();
 
-        if let Ok(Some(event)) = room_event_cache
-            .rfind_map_event_in_memory_by(|event| {
+        let outcome = room_event_cache
+            .rfind_map_event_until_gap_by(max_stored_chunks, |event| {
                 // At least one event lives in-memory: we consider the room is not empty.
                 room_has_been_emptied = false;
 
@@ -129,17 +143,26 @@ impl Builder {
                     }
                 }
             })
-            .await
-        {
-            Some(LatestEventValue::Remote(event))
-        } else {
-            // When the room has been emptied, we must erase any previous value.
-            if room_has_been_emptied {
-                current_value_must_be_erased = true;
-            }
+            .await;
 
-            current_value_must_be_erased.then(LatestEventValue::default)
+        let need_more_events = match outcome {
+            Ok(RFindMapOutcome::Found(event)) => {
+                return (Some(LatestEventValue::Remote(event)), NeedMoreEvents::No);
+            }
+            Ok(RFindMapOutcome::ReachedGap) => NeedMoreEvents::Yes,
+            Ok(RFindMapOutcome::ReachedStart | RFindMapOutcome::ReachedLimit) => NeedMoreEvents::No,
+            Err(err) => {
+                error!("Failed to look for a latest event candidate: {err}");
+                NeedMoreEvents::No
+            }
+        };
+
+        // When the room has been emptied, we must erase any previous value.
+        if room_has_been_emptied {
+            current_value_must_be_erased = true;
         }
+
+        (current_value_must_be_erased.then(LatestEventValue::default), need_more_events)
     }
 
     pub async fn new_remote_for_invite(room: &Room) -> LatestEventValue {
@@ -305,11 +328,12 @@ impl Builder {
                         // first. The remote echo might already have been
                         // processed before we get here.
                         if let Ok(Some(_)) = room_event_cache.find_event(event_id).await
-                            && let Some(latest_event_value) = Self::new_remote(
+                            && let (Some(latest_event_value), _) = Self::new_remote(
                                 room_event_cache,
                                 current_event,
                                 own_user_id,
                                 power_levels,
+                                MAX_STORED_CHUNKS_TO_SCAN,
                             )
                             .await
                         {
@@ -454,7 +478,15 @@ impl Builder {
         if let Some((_, value)) = buffer_of_values_for_local_events.last() {
             Some(value.clone())
         } else {
-            Self::new_remote(room_event_cache, current_event, own_user_id, power_levels).await
+            Self::new_remote(
+                room_event_cache,
+                current_event,
+                own_user_id,
+                power_levels,
+                MAX_STORED_CHUNKS_TO_SCAN,
+            )
+            .await
+            .0
         }
     }
 }
@@ -1719,7 +1751,7 @@ mod builder_tests {
 
     use super::{
         super::RemoteLatestEventValue, BufferOfValuesForLocalEvents, Builder, LatestEventValue,
-        RoomEventCache, RoomSendQueueUpdate,
+        MAX_STORED_CHUNKS_TO_SCAN, RoomEventCache, RoomSendQueueUpdate,
     };
     use crate::{
         Client, Error,
@@ -1871,7 +1903,7 @@ mod builder_tests {
             // We get `event_id_1` because `event_id_2` isn't a candidate, and
             // `event_id_0` hasn't been read yet (because events are read
             // backwards).
-            Builder::new_remote(&room_event_cache, LatestEventValue::None, user_id, None).await => with body = "world"
+            Builder::new_remote(&room_event_cache, LatestEventValue::None, user_id, None, MAX_STORED_CHUNKS_TO_SCAN).await.0 => with body = "world"
         );
     }
 
@@ -1932,7 +1964,15 @@ mod builder_tests {
         //
         // No candidate is found, so it's just `None` here.
         assert_matches!(
-            Builder::new_remote(&room_event_cache, current_value, user_id, None,).await,
+            Builder::new_remote(
+                &room_event_cache,
+                current_value,
+                user_id,
+                None,
+                MAX_STORED_CHUNKS_TO_SCAN
+            )
+            .await
+            .0,
             None
         );
     }
@@ -1998,7 +2038,7 @@ mod builder_tests {
         // A candidate is found, so it's a `Some(LatestEventValue::Remote)` that
         // is returned! Let's check the event.
         assert_remote_value_matches_room_message_with_body!(
-            Builder::new_remote(&room_event_cache, current_value, user_id, None).await => with body = "hello"
+            Builder::new_remote(&room_event_cache, current_value, user_id, None, MAX_STORED_CHUNKS_TO_SCAN).await.0 => with body = "hello"
         );
     }
 
@@ -2054,7 +2094,15 @@ mod builder_tests {
         //
         // No candidate is found, so it's just a `None` here.
         assert_matches!(
-            Builder::new_remote(&room_event_cache, current_value, user_id, None).await,
+            Builder::new_remote(
+                &room_event_cache,
+                current_value,
+                user_id,
+                None,
+                MAX_STORED_CHUNKS_TO_SCAN
+            )
+            .await
+            .0,
             None
         );
     }
@@ -2114,7 +2162,15 @@ mod builder_tests {
         // `m.room.redaction` targeting our `current_value`, it MUST BE a
         // `Some(LatestEventValue::None)` to erase it.
         assert_matches!(
-            Builder::new_remote(&room_event_cache, current_value, user_id, None).await,
+            Builder::new_remote(
+                &room_event_cache,
+                current_value,
+                user_id,
+                None,
+                MAX_STORED_CHUNKS_TO_SCAN
+            )
+            .await
+            .0,
             Some(LatestEventValue::None)
         );
     }
@@ -2176,7 +2232,7 @@ mod builder_tests {
         // A candidate is found, so it MUST BE a
         // `Some(LatestEventValue::Remote(_))`, whatever the `current_value` is.
         assert_remote_value_matches_room_message_with_body!(
-            Builder::new_remote(&room_event_cache, current_value, user_id, None).await => with body = "world"
+            Builder::new_remote(&room_event_cache, current_value, user_id, None, MAX_STORED_CHUNKS_TO_SCAN).await.0 => with body = "world"
         );
     }
 
@@ -2238,7 +2294,7 @@ mod builder_tests {
         // Compute a new remote value: will be able to find a relevant
         // candidate.
         let current_value = assert_remote_value_matches_room_message_with_body!(
-            Builder::new_remote(&room_event_cache, current_value, user_id, None).await => with body = "hello"
+            Builder::new_remote(&room_event_cache, current_value, user_id, None, MAX_STORED_CHUNKS_TO_SCAN).await.0 => with body = "hello"
         );
 
         // Now, let's clear all rooms.
@@ -2246,7 +2302,15 @@ mod builder_tests {
 
         // The latest event has been erased!
         assert_matches!(
-            Builder::new_remote(&room_event_cache, current_value, user_id, None).await,
+            Builder::new_remote(
+                &room_event_cache,
+                current_value,
+                user_id,
+                None,
+                MAX_STORED_CHUNKS_TO_SCAN
+            )
+            .await
+            .0,
             Some(LatestEventValue::None)
         );
     }
@@ -2311,7 +2375,7 @@ mod builder_tests {
 
         assert_remote_value_matches_room_message_with_body!(
             // We get `event_id_1` because it edits `event_id_0` which is a candidate.
-            Builder::new_remote(&room_event_cache, LatestEventValue::None, user_id, None).await => with body = "* goodbye"
+            Builder::new_remote(&room_event_cache, LatestEventValue::None, user_id, None, MAX_STORED_CHUNKS_TO_SCAN).await.0 => with body = "* goodbye"
         );
     }
 
@@ -2380,7 +2444,7 @@ mod builder_tests {
 
         assert_remote_value_matches_room_message_with_body!(
             // We get `event_id_0` because the edit `event_id_1` is invalid.
-            Builder::new_remote(&room_event_cache, LatestEventValue::None, user_id, None).await => with body = "hello"
+            Builder::new_remote(&room_event_cache, LatestEventValue::None, user_id, None, MAX_STORED_CHUNKS_TO_SCAN).await.0 => with body = "hello"
         );
     }
 
@@ -2456,7 +2520,7 @@ mod builder_tests {
             // We get `event_id_1` because `event_id_2` isn't a candidate, and
             // `event_id_0` hasn't been read yet (because events are read
             // backwards).
-            Builder::new_remote(&room_event_cache, LatestEventValue::None, user_id, None).await => with body = "* err, hello"
+            Builder::new_remote(&room_event_cache, LatestEventValue::None, user_id, None, MAX_STORED_CHUNKS_TO_SCAN).await.0 => with body = "* err, hello"
         );
     }
 
@@ -2530,7 +2594,7 @@ mod builder_tests {
 
         assert_remote_value_matches_room_message_with_body!(
             // We get `event_id_3` because `event_id_4` edits an older event.
-            Builder::new_remote(&room_event_cache, LatestEventValue::None, user_id, None).await => with body = "* D"
+            Builder::new_remote(&room_event_cache, LatestEventValue::None, user_id, None, MAX_STORED_CHUNKS_TO_SCAN).await.0 => with body = "* D"
         );
     }
 
@@ -2592,7 +2656,7 @@ mod builder_tests {
 
         assert_remote_value_matches_room_message_with_body!(
             // We get `event_id_0` because `event_id_1` edits an event that is unknown.
-            Builder::new_remote(&room_event_cache, LatestEventValue::None, user_id, None).await => with body = "A"
+            Builder::new_remote(&room_event_cache, LatestEventValue::None, user_id, None, MAX_STORED_CHUNKS_TO_SCAN).await.0 => with body = "A"
         );
     }
 
@@ -2651,9 +2715,16 @@ mod builder_tests {
 
         // We get no latest event value because no candidate event is known.
         assert!(
-            Builder::new_remote(&room_event_cache, LatestEventValue::None, user_id, None)
-                .await
-                .is_none()
+            Builder::new_remote(
+                &room_event_cache,
+                LatestEventValue::None,
+                user_id,
+                None,
+                MAX_STORED_CHUNKS_TO_SCAN
+            )
+            .await
+            .0
+            .is_none()
         );
     }
 

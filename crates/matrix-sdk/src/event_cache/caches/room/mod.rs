@@ -53,6 +53,22 @@ use super::{
 };
 use crate::room::WeakRoom;
 
+/// The outcome of [`RoomEventCache::rfind_map_event_until_gap_by`].
+#[derive(Debug)]
+pub(crate) enum RFindMapOutcome<O> {
+    /// An event matched the predicate.
+    Found(O),
+
+    /// No event matched before a gap: there may be more events to fetch.
+    ReachedGap,
+
+    /// No event matched, all the way to the start of the room.
+    ReachedStart,
+
+    /// No event matched within the maximum number of stored chunks to read.
+    ReachedLimit,
+}
+
 /// A subset of an event cache, for a room.
 ///
 /// Cloning is shallow, and thus is cheap to do.
@@ -160,6 +176,28 @@ impl RoomEventCache {
         P: FnMut(&Event) -> Option<O>,
     {
         Ok(self.inner.state.read().await?.rfind_map_event_in_memory_by(predicate))
+    }
+
+    /// Try to find a single event in this room, starting from the most recent
+    /// event, and carrying on in the storage until a gap or the start of the
+    /// room.
+    ///
+    /// Contrary to [`Self::rfind_map_event_in_memory_by`], it also reads up to
+    /// `max_stored_chunkds` stored chunks preceding the in-memory ones.
+    pub(crate) async fn rfind_map_event_until_gap_by<O, P>(
+        &self,
+        max_stored_chunks: usize,
+        predicate: P,
+    ) -> Result<RFindMapOutcome<O>>
+    where
+        P: FnMut(&Event) -> Option<O>,
+    {
+        self.inner
+            .state
+            .read()
+            .await?
+            .rfind_map_event_until_gap_by(max_stored_chunks, predicate)
+            .await
     }
 
     /// Try to find an event by ID in this room.

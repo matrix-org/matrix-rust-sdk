@@ -1301,9 +1301,9 @@ dependencies = [
 
 [[package]]
 name = "ctutils"
-version = "0.4.2"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d5515a3834141de9eafb9717ad39eea8247b5674e6066c404e8c4b365d2a29e"
+checksum = "38d28fb6aa7dd680b3ffd1a3e64e115c177bdba63c0ae7f9cd48129ff05c4fa0"
 dependencies = [
  "cmov",
 ]
@@ -1674,7 +1674,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1781,7 +1781,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3111,7 +3111,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4360,7 +4360,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5062,7 +5062,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5499,8 +5499,8 @@ dependencies = [
 
 [[package]]
 name = "ruma"
-version = "0.17.0"
-source = "git+https://github.com/ruma/ruma?rev=caf1ac05a9fd347158b60505ef8546a2ff18ae7c#caf1ac05a9fd347158b60505ef8546a2ff18ae7c"
+version = "0.17.2"
+source = "git+https://github.com/ruma/ruma?rev=f99fc5c53a7ee3057a9203f76a0ad12839d67be6#f99fc5c53a7ee3057a9203f76a0ad12839d67be6"
 dependencies = [
  "assign",
  "js_int",
@@ -5517,8 +5517,8 @@ dependencies = [
 
 [[package]]
 name = "ruma-client-api"
-version = "0.25.0"
-source = "git+https://github.com/ruma/ruma?rev=caf1ac05a9fd347158b60505ef8546a2ff18ae7c#caf1ac05a9fd347158b60505ef8546a2ff18ae7c"
+version = "0.25.2"
+source = "git+https://github.com/ruma/ruma?rev=f99fc5c53a7ee3057a9203f76a0ad12839d67be6#f99fc5c53a7ee3057a9203f76a0ad12839d67be6"
 dependencies = [
  "as_variant",
  "assign",
@@ -5539,8 +5539,8 @@ dependencies = [
 
 [[package]]
 name = "ruma-common"
-version = "0.20.0"
-source = "git+https://github.com/ruma/ruma?rev=caf1ac05a9fd347158b60505ef8546a2ff18ae7c#caf1ac05a9fd347158b60505ef8546a2ff18ae7c"
+version = "0.20.2"
+source = "git+https://github.com/ruma/ruma?rev=f99fc5c53a7ee3057a9203f76a0ad12839d67be6#f99fc5c53a7ee3057a9203f76a0ad12839d67be6"
 dependencies = [
  "as_variant",
  "base64 0.23.1",
@@ -5572,8 +5572,8 @@ dependencies = [
 
 [[package]]
 name = "ruma-events"
-version = "0.35.0"
-source = "git+https://github.com/ruma/ruma?rev=caf1ac05a9fd347158b60505ef8546a2ff18ae7c#caf1ac05a9fd347158b60505ef8546a2ff18ae7c"
+version = "0.35.2"
+source = "git+https://github.com/ruma/ruma?rev=f99fc5c53a7ee3057a9203f76a0ad12839d67be6#f99fc5c53a7ee3057a9203f76a0ad12839d67be6"
 dependencies = [
  "as_variant",
  "indexmap",
@@ -5596,8 +5596,8 @@ dependencies = [
 
 [[package]]
 name = "ruma-federation-api"
-version = "0.16.0"
-source = "git+https://github.com/ruma/ruma?rev=caf1ac05a9fd347158b60505ef8546a2ff18ae7c#caf1ac05a9fd347158b60505ef8546a2ff18ae7c"
+version = "0.16.1"
+source = "git+https://github.com/ruma/ruma?rev=f99fc5c53a7ee3057a9203f76a0ad12839d67be6#f99fc5c53a7ee3057a9203f76a0ad12839d67be6"
 dependencies = [
  "http",
  "http-auth",
@@ -5617,7 +5617,7 @@ dependencies = [
 [[package]]
 name = "ruma-html"
 version = "0.9.0"
-source = "git+https://github.com/ruma/ruma?rev=caf1ac05a9fd347158b60505ef8546a2ff18ae7c#caf1ac05a9fd347158b60505ef8546a2ff18ae7c"
+source = "git+https://github.com/ruma/ruma?rev=f99fc5c53a7ee3057a9203f76a0ad12839d67be6#f99fc5c53a7ee3057a9203f76a0ad12839d67be6"
 dependencies = [
  "as_variant",
  "html5ever",
@@ -5627,8 +5627,8 @@ dependencies = [
 
 [[package]]
 name = "ruma-identifiers-validation"
-version = "0.12.1"
-source = "git+https://github.com/ruma/ruma?rev=caf1ac05a9fd347158b60505ef8546a2ff18ae7c#caf1ac05a9fd347158b60505ef8546a2ff18ae7c"
+version = "0.14.0"
+source = "git+https://github.com/ruma/ruma?rev=f99fc5c53a7ee3057a9203f76a0ad12839d67be6#f99fc5c53a7ee3057a9203f76a0ad12839d67be6"
 dependencies = [
  "js_int",
  "thiserror 2.0.20",
@@ -5636,8 +5636,8 @@ dependencies = [
 
 [[package]]
 name = "ruma-macros"
-version = "0.20.0"
-source = "git+https://github.com/ruma/ruma?rev=caf1ac05a9fd347158b60505ef8546a2ff18ae7c#caf1ac05a9fd347158b60505ef8546a2ff18ae7c"
+version = "0.20.2"
+source = "git+https://github.com/ruma/ruma?rev=f99fc5c53a7ee3057a9203f76a0ad12839d67be6#f99fc5c53a7ee3057a9203f76a0ad12839d67be6"
 dependencies = [
  "as_variant",
  "cfg-if",
@@ -5652,8 +5652,8 @@ dependencies = [
 
 [[package]]
 name = "ruma-signatures"
-version = "0.22.0"
-source = "git+https://github.com/ruma/ruma?rev=caf1ac05a9fd347158b60505ef8546a2ff18ae7c#caf1ac05a9fd347158b60505ef8546a2ff18ae7c"
+version = "0.22.1"
+source = "git+https://github.com/ruma/ruma?rev=f99fc5c53a7ee3057a9203f76a0ad12839d67be6#f99fc5c53a7ee3057a9203f76a0ad12839d67be6"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -5730,7 +5730,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5788,7 +5788,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5799,9 +5799,9 @@ checksum = "eec689c0bc40ff2458a5977b6619cb718087084a18e02a131c599b62d05e1a5f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "aws-lc-rs",
  "ring",
@@ -6669,10 +6669,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6911,9 +6911,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.53.1"
+version = "1.54.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed"
+checksum = "b52fd3255258d26fac7264ab5a76b53c13367136dc011d3d6ad4f8ed070396a3"
 dependencies = [
  "bytes",
  "libc",
@@ -7827,9 +7827,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.2"
+version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e4ffd8df1c57e87c325000a3d6ef93db75279dc3a231125aac571650f22b12a"
+checksum = "e49d0e65abc00c142e8f9428da991da9f1a250c39be97459901eb12b9b49f62a"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -7953,7 +7953,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
