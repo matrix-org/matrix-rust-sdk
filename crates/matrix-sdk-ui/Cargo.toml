@@ -13,7 +13,7 @@ rustdoc-args = ["--generate-link-to-definition"]
 [features]
 default = ["rustls-aws-lc-rs"]
 js = ["matrix-sdk/js"]
-uniffi = ["dep:uniffi", "matrix-sdk/uniffi", "matrix-sdk-base/uniffi"]
+uniffi = ["dep:uniffi", "matrix-sdk/uniffi", "matrix-sdk-base/uniffi", "ruma/unstable-uniffi"]
 
 rustls-aws-lc-rs = ["matrix-sdk/rustls-aws-lc-rs"]
 

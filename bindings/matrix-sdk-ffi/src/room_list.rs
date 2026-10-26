@@ -14,10 +14,10 @@
 
 #![allow(deprecated)]
 
-use std::{fmt::Debug, mem::MaybeUninit, ptr::addr_of_mut, sync::Arc, time::Duration};
+use std::{fmt::Debug, mem::MaybeUninit, pin::pin, ptr::addr_of_mut, sync::Arc, time::Duration};
 
 use eyeball_im::VectorDiff;
-use futures_util::{StreamExt, pin_mut};
+use futures_util::StreamExt;
 use matrix_sdk::{
     Room as SdkRoom,
     ruma::{
@@ -129,7 +129,7 @@ impl RoomListService {
         );
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(sync_indicator_stream);
+            let mut sync_indicator_stream = pin!(sync_indicator_stream);
 
             while let Some(sync_indicator) = sync_indicator_stream.next().await {
                 listener.on_update(sync_indicator.into());
@@ -195,7 +195,7 @@ impl RoomList {
         Ok(RoomListLoadingStateResult {
             state: loading_state.get().into(),
             state_stream: Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-                pin_mut!(loading_state);
+                let mut loading_state = pin!(loading_state);
 
                 while let Some(loading_state) = loading_state.next().await {
                     listener.on_update(loading_state.into());
@@ -266,7 +266,7 @@ impl RoomList {
 
         let utd_hook = this.room_list_service.utd_hook.clone();
         let entries_stream = Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(entries_stream);
+            let mut entries_stream = pin!(entries_stream);
 
             while let Some(diffs) = entries_stream.next().await {
                 listener.on_update(

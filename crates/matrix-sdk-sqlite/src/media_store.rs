@@ -44,7 +44,10 @@ use tracing::{debug, instrument};
 
 use crate::{
     OpenStoreError, RuntimeConfig, Secret, SqliteStoreConfig,
-    connection::{self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections},
+    connection::{
+        self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections,
+        SqliteConnectionsInner,
+    },
     error::{Error, Result},
     utils::{
         EncryptableStore, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
@@ -70,7 +73,7 @@ pub struct SqliteMediaStore {
     store_cipher: Option<Arc<StoreCipher>>,
 
     /// `Some` when active, `None` when closed.
-    connections: Arc<Mutex<Option<SqliteConnections>>>,
+    connections: Arc<SqliteConnections>,
 
     /// Retained so we can rebuild the pool on reopen.
     db_path: PathBuf,
@@ -167,7 +170,7 @@ impl SqliteMediaStore {
         let last_media_cleanup_time = conn.get_serialized_kv(keys::LAST_MEDIA_CLEANUP_TIME).await?;
         media_service.restore(media_retention_policy, last_media_cleanup_time);
 
-        let connections = SqliteConnections {
+        let connections = SqliteConnectionsInner {
             pool,
             // Use `conn` as our selected write connection.
             write_connection: Arc::new(Mutex::new(conn)),
@@ -175,7 +178,7 @@ impl SqliteMediaStore {
 
         Ok(Self {
             store_cipher,
-            connections: Arc::new(Mutex::new(Some(connections))),
+            connections: Arc::new(SqliteConnections::new(connections).await),
             db_path,
             pool_config,
             runtime_config,

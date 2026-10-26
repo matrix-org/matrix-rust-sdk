@@ -802,7 +802,6 @@ impl MatrixAuth {
             .expect("Client authentication data was already set");
         self.client.auth_ctx().set_session_tokens(session.tokens);
         self.client
-            .base_client()
             .activate(
                 session.meta,
                 room_load_settings,

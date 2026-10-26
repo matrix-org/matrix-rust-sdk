@@ -513,7 +513,7 @@ impl BackupMachine {
 
     async fn backup_helper(&self) -> Result<Option<PendingBackup>, CryptoStoreError> {
         let Some(backup_key) = &*self.backup_key.read().await else {
-            warn!("Trying to backup room keys but no backup key was found");
+            debug!("Trying to backup room keys but no backup key was found");
             return Ok(None);
         };
 

@@ -247,8 +247,8 @@ impl<E: StaticEventContent<IsPrefix = False>> EventBuilder<E> {
         self
     }
 
-    pub fn sender(mut self, sender: &UserId) -> Self {
-        self.sender = Some(sender.to_owned());
+    pub fn sender(mut self, sender: impl Into<OwnedUserId>) -> Self {
+        self.sender = Some(sender.into());
         self
     }
 
@@ -888,8 +888,8 @@ impl EventFactory {
         self
     }
 
-    pub fn sender(mut self, sender: &UserId) -> Self {
-        self.sender = Some(sender.to_owned());
+    pub fn sender(mut self, sender: impl Into<OwnedUserId>) -> Self {
+        self.sender = Some(sender.into());
         self
     }
 
@@ -985,16 +985,17 @@ impl EventFactory {
     ///     .display_name("Alice")
     ///     .into_raw();
     /// ```
-    pub fn member(&self, member: &UserId) -> EventBuilder<RoomMemberEventContent> {
+    pub fn member(&self, member: impl Into<OwnedUserId>) -> EventBuilder<RoomMemberEventContent> {
+        let member = member.into();
         let mut event = self.event(RoomMemberEventContent::new(MembershipState::Join));
 
         if self.sender.is_some() {
             event.sender = self.sender.clone();
         } else {
-            event.sender = Some(member.to_owned());
+            event.sender = Some(member.clone());
         }
 
-        event.state_key = Some(member.to_string());
+        event.state_key = Some(member.into());
 
         event
     }
@@ -1158,7 +1159,7 @@ impl EventFactory {
     /// about the redaction itself.
     pub fn redacted<T: StaticEventContent<IsPrefix = False> + RedactedMessageLikeEventContent>(
         &self,
-        redacter: &UserId,
+        redacter: impl Into<OwnedUserId>,
         content: T,
     ) -> EventBuilder<T> {
         let mut builder = self.event(content);
@@ -1166,7 +1167,7 @@ impl EventFactory {
         let redacted_because = RedactedBecause {
             content: RoomRedactionEventContent::default(),
             event_id: EventId::new_v1(server_name!("dummy.server")),
-            sender: redacter.to_owned(),
+            sender: redacter.into(),
             origin_server_ts: self.next_server_ts(),
         };
         builder.unsigned.get_or_insert_with(Default::default).redacted_because =
@@ -1179,7 +1180,7 @@ impl EventFactory {
     /// section about the redaction itself.
     pub fn redacted_state<T: StaticEventContent<IsPrefix = False> + RedactedStateEventContent>(
         &self,
-        redacter: &UserId,
+        redacter: impl Into<OwnedUserId>,
         state_key: impl Into<String>,
         content: T,
     ) -> EventBuilder<T> {
@@ -1188,7 +1189,7 @@ impl EventFactory {
         let redacted_because = RedactedBecause {
             content: RoomRedactionEventContent::default(),
             event_id: EventId::new_v1(server_name!("dummy.server")),
-            sender: redacter.to_owned(),
+            sender: redacter.into(),
             origin_server_ts: self.next_server_ts(),
         };
         builder.unsigned.get_or_insert_with(Default::default).redacted_because =
@@ -1681,8 +1682,12 @@ impl From<PresenceBuilder> for Raw<PresenceEvent> {
 
 impl EventBuilder<DirectEventContent> {
     /// Add a user/room pair to the `m.direct` event.
-    pub fn add_user(mut self, user_id: OwnedDirectUserIdentifier, room_id: &RoomId) -> Self {
-        self.content.0.entry(user_id).or_default().push(room_id.to_owned());
+    pub fn add_user(
+        mut self,
+        user_id: impl Into<OwnedDirectUserIdentifier>,
+        room_id: &RoomId,
+    ) -> Self {
+        self.content.0.entry(user_id.into()).or_default().push(room_id.to_owned());
         self
     }
 }
@@ -1699,14 +1704,15 @@ impl EventBuilder<RoomMemberEventContent> {
 
     /// Set that the sender of this event invited the user passed as a parameter
     /// here.
-    pub fn invited(mut self, invited_user: &UserId) -> Self {
+    pub fn invited(mut self, invited_user: impl Into<OwnedUserId> + Into<String>) -> Self {
+        let invited_user: String = invited_user.into();
         assert_ne!(
             self.sender.as_deref().unwrap(),
-            invited_user,
+            invited_user.as_str(),
             "invited user and sender can't be the same person"
         );
         self.content.membership = MembershipState::Invite;
-        self.state_key = Some(invited_user.to_string());
+        self.state_key = Some(invited_user);
         self
     }
 
@@ -1721,27 +1727,29 @@ impl EventBuilder<RoomMemberEventContent> {
 
     /// Set that the sender of this event kicked the user passed as a parameter
     /// here.
-    pub fn kicked(mut self, kicked_user: &UserId) -> Self {
+    pub fn kicked(mut self, kicked_user: impl Into<OwnedUserId> + Into<String>) -> Self {
+        let kicked_user: String = kicked_user.into();
         assert_ne!(
             self.sender.as_deref().unwrap(),
-            kicked_user,
+            kicked_user.as_str(),
             "kicked user and sender can't be the same person, otherwise it's just a Leave"
         );
         self.content.membership = MembershipState::Leave;
-        self.state_key = Some(kicked_user.to_string());
+        self.state_key = Some(kicked_user);
         self
     }
 
     /// Set that the sender of this event banned the user passed as a parameter
     /// here.
-    pub fn banned(mut self, banned_user: &UserId) -> Self {
+    pub fn banned(mut self, banned_user: impl Into<OwnedUserId> + Into<String>) -> Self {
+        let banned_user: String = banned_user.into();
         assert_ne!(
             self.sender.as_deref().unwrap(),
-            banned_user,
+            banned_user.as_str(),
             "a user can't ban itself" // hopefully
         );
         self.content.membership = MembershipState::Ban;
-        self.state_key = Some(banned_user.to_string());
+        self.state_key = Some(banned_user);
         self
     }
 
@@ -1869,7 +1877,7 @@ impl ReadReceiptBuilder<'_> {
     pub fn add(
         self,
         event_id: &EventId,
-        user_id: &UserId,
+        user_id: impl Into<OwnedUserId>,
         tyype: ReceiptType,
         thread: ReceiptThread,
     ) -> Self {
@@ -1881,7 +1889,7 @@ impl ReadReceiptBuilder<'_> {
     pub fn add_with_timestamp(
         mut self,
         event_id: &EventId,
-        user_id: &UserId,
+        user_id: impl Into<OwnedUserId>,
         tyype: ReceiptType,
         thread: ReceiptThread,
         ts: Option<MilliSecondsSinceUnixEpoch>,
@@ -1895,7 +1903,7 @@ impl ReadReceiptBuilder<'_> {
         }
         receipt.thread = thread;
 
-        by_type.insert(user_id.to_owned(), receipt);
+        by_type.insert(user_id.into(), receipt);
         self
     }
 

@@ -1,3 +1,5 @@
+use std::{fs, io::Read};
+
 use matrix_sdk::{
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     test_utils::mocks::MatrixMockServer,
@@ -9,6 +11,7 @@ use ruma::{
     events::room::{ImageInfo, MediaSource, message::ImageMessageEventContent},
     owned_mxc_uri, uint,
 };
+use tempfile::tempdir;
 
 #[async_test]
 async fn test_get_media_content_no_auth() {
@@ -86,6 +89,42 @@ async fn test_get_media_content_no_auth() {
             expected_content
         );
     }
+}
+
+#[async_test]
+async fn test_get_media_file() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().no_server_versions().build().await;
+
+    server.mock_versions().with_versions(vec!["v1.1"]).ok().named("versions").mount().await;
+    server.mock_media_download().ok_plain_text().named("get_file").expect(1).mount().await;
+
+    let request = MediaRequestParameters {
+        source: MediaSource::Plain(owned_mxc_uri!("mxc://localhost/textfile")),
+        format: MediaFormat::File,
+    };
+    let temp_dir = tempdir().unwrap();
+
+    let handle = client
+        .media()
+        .get_media_file(
+            &request,
+            Some("hello.txt".to_owned()),
+            &mime::TEXT_PLAIN,
+            false,
+            Some(temp_dir.path().to_str().unwrap().to_owned()),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(handle.path().file_name().unwrap(), "hello.txt");
+    assert_eq!(fs::read(handle.path()).unwrap(), b"Hello, World!");
+
+    // The persisted file can be read without seeking back to its start first.
+    let mut file = handle.persist(&temp_dir.path().join("persisted.txt")).unwrap();
+    let mut content = String::new();
+    file.read_to_string(&mut content).unwrap();
+    assert_eq!(content, "Hello, World!");
 }
 
 #[async_test]

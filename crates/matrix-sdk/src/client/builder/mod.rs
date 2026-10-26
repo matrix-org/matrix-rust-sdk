@@ -136,6 +136,7 @@ pub struct ClientBuilder {
     #[cfg(feature = "e2e-encryption")]
     enable_share_history_on_invite: bool,
     enable_automatic_back_pagination: bool,
+    enable_event_cache: bool,
     cross_process_lock_config: CrossProcessLockConfig,
     threading_support: ThreadingSupport,
     #[cfg(feature = "experimental-search")]
@@ -178,6 +179,7 @@ impl ClientBuilder {
             #[cfg(feature = "e2e-encryption")]
             enable_share_history_on_invite: true,
             enable_automatic_back_pagination: false,
+            enable_event_cache: true,
             cross_process_lock_config: CrossProcessLockConfig::MultiProcess {
                 holder_name: Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME.to_owned(),
             },
@@ -592,6 +594,23 @@ impl ClientBuilder {
         self
     }
 
+    /// Whether to enable the [`EventCache`], and the [`LatestEvents`] which
+    /// depend on it.
+    ///
+    /// When enabled, the [`EventCache`] handles all sync updates starts the
+    /// redecryptor, broadcasts updates to the `LatestEvents` or
+    /// `matrix-sdk-search` API, and so on. Not all Clients might be interested
+    /// by this feature, e.g. a notification service extensions.
+    ///
+    /// On by default.
+    ///
+    /// [`EventCache`]: crate::event_cache::EventCache
+    /// [`LatestEvents`]: crate::latest_events::LatestEvents
+    pub fn with_event_cache(mut self, enable: bool) -> Self {
+        self.enable_event_cache = enable;
+        self
+    }
+
     /// Set the cross-process store locks holder name.
     ///
     /// The SDK provides cross-process store locks (see
@@ -758,6 +777,7 @@ impl ClientBuilder {
             self.well_known_lookup_disabled,
             event_cache,
             self.enable_automatic_back_pagination,
+            self.enable_event_cache,
             send_queue,
             latest_events,
             #[cfg(feature = "e2e-encryption")]

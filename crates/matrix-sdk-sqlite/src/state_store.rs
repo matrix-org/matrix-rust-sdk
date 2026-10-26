@@ -47,7 +47,10 @@ use tracing::{debug, instrument, warn};
 
 use crate::{
     OpenStoreError, RuntimeConfig, Secret, SqliteStoreConfig,
-    connection::{self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections},
+    connection::{
+        self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections,
+        SqliteConnectionsInner,
+    },
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
@@ -81,7 +84,7 @@ pub struct SqliteStateStore {
     store_cipher: Option<Arc<StoreCipher>>,
 
     /// `Some` when active, `None` when closed.
-    connections: Arc<Mutex<Option<SqliteConnections>>>,
+    connections: Arc<SqliteConnections>,
 
     /// Retained so we can rebuild the pool on reopen.
     db_path: PathBuf,
@@ -158,10 +161,13 @@ impl SqliteStateStore {
         };
         let this = Self {
             store_cipher,
-            connections: Arc::new(Mutex::new(Some(SqliteConnections {
-                pool,
-                write_connection: Arc::new(Mutex::new(conn)),
-            }))),
+            connections: Arc::new(
+                SqliteConnections::new(SqliteConnectionsInner {
+                    pool,
+                    write_connection: Arc::new(Mutex::new(conn)),
+                })
+                .await,
+            ),
             db_path,
             pool_config,
             runtime_config,
@@ -2890,10 +2896,13 @@ mod migration_tests {
         ));
         let this = SqliteStateStore {
             store_cipher,
-            connections: Arc::new(Mutex::new(Some(connection::SqliteConnections {
-                pool,
-                write_connection: Arc::new(Mutex::new(conn)),
-            }))),
+            connections: Arc::new(
+                connection::SqliteConnections::new(connection::SqliteConnectionsInner {
+                    pool,
+                    write_connection: Arc::new(Mutex::new(conn)),
+                })
+                .await,
+            ),
             db_path,
             pool_config: deadpool::managed::PoolConfig::default(),
             runtime_config: crate::RuntimeConfig::default(),

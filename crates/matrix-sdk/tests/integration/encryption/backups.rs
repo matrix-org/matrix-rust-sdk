@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fs::File, io::Write, sync::Arc, time::Duration};
+use std::{fs::File, io::Write, pin::pin, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use assert_matches::assert_matches;
-use futures_util::{FutureExt, StreamExt, pin_mut};
+use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
     Client, SessionMeta,
     authentication::matrix::MatrixSession,
@@ -209,7 +209,7 @@ async fn test_creation_failure() -> TestResult {
     let states = client.encryption().backups().state_stream();
 
     let task = spawn(async move {
-        pin_mut!(states);
+        let mut states = pin!(states);
 
         let mut counter = 0;
         let mut unknown_counter = 0;
@@ -300,7 +300,7 @@ async fn test_disabling() -> TestResult {
     client.encryption().backups().disable().await.expect("We should be able to disable our backup");
 
     let task = spawn(async move {
-        pin_mut!(states);
+        let mut states = pin!(states);
 
         let mut counter = 0;
 
@@ -775,7 +775,7 @@ async fn test_incremental_upload_of_keys_sliding_sync() -> TestResult {
 
     let sync_task = spawn(async move {
         let stream = sliding.sync();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
         while let Some(up) = stream.next().await {
             tracing::warn!("received update: {up:?}");
         }
@@ -1002,7 +1002,7 @@ async fn test_enable_from_secret_storage() -> TestResult {
         .await;
 
     let room_key_stream = client.encryption().backups().room_keys_for_room_stream(room_id);
-    pin_mut!(room_key_stream);
+    let mut room_key_stream = pin!(room_key_stream);
 
     store
         .import_secrets()
@@ -1263,7 +1263,7 @@ async fn test_enable_from_secret_storage_and_manual_download() -> TestResult {
         .await;
 
     let room_key_stream = client.encryption().backups().room_keys_for_room_stream(room_id);
-    pin_mut!(room_key_stream);
+    let mut room_key_stream = pin!(room_key_stream);
 
     client
         .encryption()
@@ -1306,7 +1306,7 @@ async fn test_enable_from_secret_storage_and_manual_download() -> TestResult {
         .await;
 
     let room_key_stream = client.encryption().backups().room_keys_for_room_stream(room_id);
-    pin_mut!(room_key_stream);
+    let mut room_key_stream = pin!(room_key_stream);
 
     client
         .encryption()
@@ -1398,7 +1398,7 @@ async fn test_enable_from_secret_storage_and_download_after_utd() -> TestResult 
         .await;
 
     let room_key_stream = client.encryption().backups().room_keys_for_room_stream(room_id);
-    pin_mut!(room_key_stream);
+    let mut room_key_stream = pin!(room_key_stream);
 
     let room = client.get_room(room_id).expect("We should have access to the room after the sync");
     let event =
@@ -1522,7 +1522,7 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
 
     // Listen out for key downloads
     let room_key_stream = client.encryption().backups().room_keys_for_room_stream(room_id);
-    pin_mut!(room_key_stream);
+    let mut room_key_stream = pin!(room_key_stream);
 
     // Finally, make a request for the event. That should kick off an attempt to
     // fetch from backup.

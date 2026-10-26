@@ -15,7 +15,7 @@ features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [features]
-default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "rustls-aws-lc-rs"]
+default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "rustls-aws-lc-rs", "unstable-msc4388"]
 testing = [
     "matrix-sdk-sqlite?/testing",
     "matrix-sdk-indexeddb?/testing",
@@ -23,6 +23,7 @@ testing = [
     "wiremock",
     "matrix-sdk-test",
     "strass",
+    "dep:regex",
 ]
 
 e2e-encryption = [
@@ -94,6 +95,9 @@ unstable-msc4274 = ["ruma/unstable-msc4274", "matrix-sdk-base/unstable-msc4274"]
 # MSC4480 extension.
 unstable-msc4354 = ["matrix-sdk-base/unstable-msc4354"]
 
+# Support for the MSC4388 variant of the QR code login.
+unstable-msc4388 = []
+
 # Add support for user status profile fields (m.status, m.call).
 unstable-msc4426 = ["matrix-sdk-base/unstable-msc4426"]
 
@@ -105,14 +109,13 @@ experimental-x509-identity-verification = ["e2e-encryption", "matrix-sdk-base/ex
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
-anymap2 = { version = "0.13.0", default-features = false }
+anymap3 = { version = "1.1.0", default-features = false, features = ["std"] }
 as_variant.workspace = true
 async-stream.workspace = true
 async-trait.workspace = true
 axum = { version = "0.8.9", optional = true }
 bytes = { version = "1.12.1", default-features = false, features = ["std"] }
 bytesize = { version = "2.7.0", default-features = false, features = ["std"] }
-cfg-if.workspace = true
 event-listener = "5.4.2"
 eyeball.workspace = true
 eyeball-im.workspace = true
@@ -140,6 +143,7 @@ oauth2-reqwest.workspace = true
 percent-encoding = "2.3.2"
 pin-project-lite.workspace = true
 rand = { workspace = true, optional = true }
+regex = { workspace = true, optional = true }
 ruma = { workspace = true, features = [
     "rand",
     "unstable-msc2448",
@@ -157,7 +161,7 @@ strass = { workspace = true, optional = true }
 tempfile.workspace = true
 thiserror.workspace = true
 tokio-stream = { workspace = true, features = ["sync"] }
-tokio-util = "0.7.19"
+tokio-util.workspace = true
 tower = { version = "0.5.3", features = ["util"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 uniffi = { workspace = true, optional = true }
@@ -191,6 +195,7 @@ matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
 rand.workspace = true
+regex.workspace = true
 reqwest = { workspace = true, features = ["rustls"] }
 serde_urlencoded = "0.7.1"
 similar-asserts.workspace = true

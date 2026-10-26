@@ -209,7 +209,8 @@ sure to look at both for all subscribed objects.
 In full, this typically looks like this:
 
 ```rust,no_run
-# use futures_util::{pin_mut, StreamExt};
+# use std::pin::pin;
+# use futures_util::StreamExt;
 # use matrix_sdk::Client;
 # use tracing::{error, info};
 # use url::Url;
@@ -225,7 +226,7 @@ let sliding_sync = client
 let stream = sliding_sync.sync();
 
 // continuously poll for updates
-pin_mut!(stream);
+let mut stream = pin!(stream);
 
 loop {
     let update = match stream.next().await {
@@ -322,9 +323,9 @@ whenever a new set of timeline items is received by the server.
 use matrix_sdk::{Client, sliding_sync::{SlidingSyncList, SlidingSyncMode, Version}};
 use ruma::{api::client::sync::sync_events::v5 as http, assign, events::StateEventType};
 use tracing::{warn, error, info, debug};
-use futures_util::{pin_mut, StreamExt};
+use futures_util::StreamExt;
 use url::Url;
-use std::future::ready;
+use std::{future::ready, pin::pin};
 # async {
 # let homeserver = Url::parse("http://example.com")?;
 # let client = Client::new(homeserver).await?;
@@ -368,7 +369,7 @@ tokio::spawn(async move {
     let (_rooms, rooms_stream) = client.rooms_stream();
     // do something with `_rooms`
 
-    pin_mut!(rooms_stream);
+    let mut rooms_stream = pin!(rooms_stream);
     while let Some(_room) = rooms_stream.next().await {
         info!("a room has been updated");
     }
@@ -377,7 +378,7 @@ tokio::spawn(async move {
 let stream = sliding_sync.sync();
 
 // continuously poll for updates
-pin_mut!(stream);
+let mut stream = pin!(stream);
 loop {
     let update = match stream.next().await {
         Some(Ok(u)) => {

@@ -440,13 +440,13 @@ impl<Item, Gap> Drop for UpdatesSubscriber<Item, Gap> {
 #[cfg(test)]
 mod tests {
     use std::{
+        pin::pin,
         sync::{Arc, Mutex},
         task::{Context, Poll, Wake},
     };
 
     use assert_matches::assert_matches;
     use futures_core::Stream;
-    use futures_util::pin_mut;
 
     use super::{super::LinkedChunk, ChunkIdentifier, Position, UpdatesInner};
     use crate::linked_chunk::Update;
@@ -716,7 +716,7 @@ mod tests {
         let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
 
         let updates_subscriber = linked_chunk.updates().unwrap().subscribe();
-        pin_mut!(updates_subscriber);
+        let mut updates_subscriber = pin!(updates_subscriber);
 
         // No initial update, stream is pending.
         assert_matches!(updates_subscriber.as_mut().poll_next(&mut context), Poll::Pending);
@@ -799,12 +799,12 @@ mod tests {
         let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
 
         let updates_subscriber1 = linked_chunk.updates().unwrap().subscribe();
-        pin_mut!(updates_subscriber1);
+        let mut updates_subscriber1 = pin!(updates_subscriber1);
 
         // Scope for `updates_subscriber2`.
         let updates_subscriber2_token = {
             let updates_subscriber2 = linked_chunk.updates().unwrap().subscribe();
-            pin_mut!(updates_subscriber2);
+            let mut updates_subscriber2 = pin!(updates_subscriber2);
 
             // No initial updates, streams are pending.
             assert_matches!(updates_subscriber1.as_mut().poll_next(&mut context1), Poll::Pending);

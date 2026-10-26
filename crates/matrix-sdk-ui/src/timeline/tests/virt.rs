@@ -16,7 +16,7 @@ use assert_matches::assert_matches;
 use chrono::{Datelike, TimeZone, Utc};
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt as _};
-use matrix_sdk_test::{ALICE, BOB, async_test};
+use matrix_sdk_test::{User, async_test};
 use ruma::{
     events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
     owned_event_id,
@@ -35,7 +35,9 @@ async fn test_date_divider() {
     let f = &timeline.factory;
 
     timeline
-        .handle_live_event(f.text_msg("This is a first message on the first day").sender(*ALICE))
+        .handle_live_event(
+            f.text_msg("This is a first message on the first day").sender(User::Alice),
+        )
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -49,7 +51,9 @@ async fn test_date_divider() {
     assert_eq!(date.day(), 1);
 
     timeline
-        .handle_live_event(f.text_msg("This is a second message on the first day").sender(*ALICE))
+        .handle_live_event(
+            f.text_msg("This is a second message on the first day").sender(User::Alice),
+        )
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -59,7 +63,9 @@ async fn test_date_divider() {
     f.set_next_ts(24 * 60 * 60 * 1000);
 
     timeline
-        .handle_live_event(f.text_msg("This is a first message on the next day").sender(*ALICE))
+        .handle_live_event(
+            f.text_msg("This is a first message on the next day").sender(User::Alice),
+        )
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -115,7 +121,7 @@ async fn test_update_read_marker() {
     assert!(stream.next().now_or_never().is_none());
 
     // Timeline: [date-divider, A, B].
-    timeline.handle_live_event(f.text_msg("B").sender(&BOB)).await;
+    timeline.handle_live_event(f.text_msg("B").sender(User::Bob)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_id2 = item.as_event().unwrap().event_id().unwrap().to_owned();
 
@@ -135,7 +141,7 @@ async fn test_update_read_marker() {
 
     // Timeline: [date-divider, A, B, C].
     //                            ^-- fully read
-    timeline.handle_live_event(f.text_msg("C").sender(&BOB)).await;
+    timeline.handle_live_event(f.text_msg("C").sender(User::Bob)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_id3 = item.as_event().unwrap().event_id().unwrap().to_owned();
 
@@ -161,7 +167,7 @@ async fn test_update_read_marker() {
 
     // Timeline: [date-divider, A, B, read-marker, C, D].
     //                            ^-- fully read
-    timeline.handle_live_event(f.text_msg("D").sender(&BOB)).await;
+    timeline.handle_live_event(f.text_msg("D").sender(User::Bob)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_id4 = item.as_event().unwrap().event_id().unwrap().to_owned();
 
@@ -216,7 +222,7 @@ async fn test_update_read_marker() {
     //
     // Timeline: [date-divider, A, B, C, D, E, F, G, H].
     //                     fully read --^
-    timeline.handle_live_event(f.text_msg("H").sender(&BOB)).await;
+    timeline.handle_live_event(f.text_msg("H").sender(User::Bob)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     item.as_event().unwrap();
 

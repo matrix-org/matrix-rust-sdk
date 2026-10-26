@@ -596,7 +596,7 @@ impl GroupSessionManager {
             let txn_id = TransactionId::new();
 
             let request = ToDeviceRequest {
-                event_type: ToDeviceEventType::from("m.room_key.withheld"),
+                event_type: ToDeviceEventType::RoomKeyWithheld,
                 txn_id,
                 messages,
             };
@@ -1096,7 +1096,10 @@ mod tests {
             to_device::send_event_to_device::v3::Response as ToDeviceResponse,
         },
         device_id,
-        events::room::{EncryptedFile, V2EncryptedFileInfo, history_visibility::HistoryVisibility},
+        events::{
+            ToDeviceEventType,
+            room::{EncryptedFile, V2EncryptedFileInfo, history_visibility::HistoryVisibility},
+        },
         owned_device_id, owned_room_id, room_id,
         to_device::DeviceIdOrAllDevices,
         user_id,
@@ -1279,7 +1282,7 @@ mod tests {
 
         let withheld_count: usize = requests
             .iter()
-            .filter(|r| r.event_type == "m.room_key.withheld".into())
+            .filter(|r| r.event_type == ToDeviceEventType::RoomKeyWithheld)
             .map(|r| r.message_count())
             .sum();
         assert_eq!(withheld_count, 2);
@@ -1288,7 +1291,7 @@ mod tests {
     fn count_withheld_from(requests: &[Arc<ToDeviceRequest>], code: WithheldCode) -> usize {
         requests
             .iter()
-            .filter(|r| r.event_type == "m.room_key.withheld".into())
+            .filter(|r| r.event_type == ToDeviceEventType::RoomKeyWithheld)
             .map(|r| {
                 let mut count = 0;
                 // count targets
@@ -1565,13 +1568,13 @@ mod tests {
         assert_eq!(1, room_key_count);
 
         let withheld_count =
-            requests.iter().filter(|r| r.event_type == "m.room_key.withheld".into()).count();
+            requests.iter().filter(|r| r.event_type == ToDeviceEventType::RoomKeyWithheld).count();
         // Can be send in one batch
         assert_eq!(1, withheld_count);
 
         let event_count: usize = requests
             .iter()
-            .filter(|r| r.event_type == "m.room_key.withheld".into())
+            .filter(|r| r.event_type == ToDeviceEventType::RoomKeyWithheld)
             .map(|r| r.message_count())
             .sum();
 
@@ -1580,8 +1583,10 @@ mod tests {
         assert_eq!(event_count, 149);
 
         // One should be blacklisted
-        let has_blacklist =
-            requests.iter().filter(|r| r.event_type == "m.room_key.withheld".into()).any(|r| {
+        let has_blacklist = requests
+            .iter()
+            .filter(|r| r.event_type == ToDeviceEventType::RoomKeyWithheld)
+            .any(|r| {
                 let device_key = DeviceIdOrAllDevices::from(owned_device_id!("MWVTUXDNNM"));
                 let content = &r.messages[user_id][&device_key];
                 let withheld: RoomKeyWithheldContent =
@@ -1620,7 +1625,7 @@ mod tests {
 
         // One withheld request should be sent.
         let withheld_count =
-            requests.iter().filter(|r| r.event_type == "m.room_key.withheld".into()).count();
+            requests.iter().filter(|r| r.event_type == ToDeviceEventType::RoomKeyWithheld).count();
 
         assert_eq!(withheld_count, 1);
         assert_eq!(requests.len(), 1);
@@ -1630,8 +1635,10 @@ mod tests {
         let second_requests =
             machine.share_room_key(second_room, users.into_iter(), settings).await.unwrap();
 
-        let withheld_count =
-            second_requests.iter().filter(|r| r.event_type == "m.room_key.withheld".into()).count();
+        let withheld_count = second_requests
+            .iter()
+            .filter(|r| r.event_type == ToDeviceEventType::RoomKeyWithheld)
+            .count();
 
         assert_eq!(withheld_count, 0);
         assert_eq!(second_requests.len(), 0);

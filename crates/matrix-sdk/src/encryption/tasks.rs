@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, pin::pin, sync::Arc, time::Duration};
 
 use futures_core::Stream;
-use futures_util::{StreamExt, pin_mut};
+use futures_util::StreamExt;
 use matrix_sdk_base::crypto::store::types::{RoomKeyBundleInfo, RoomPendingKeyBundleDetails};
 #[cfg(feature = "experimental-encrypted-state-events")]
 use matrix_sdk_base::crypto::types::events::room::encrypted::{
@@ -443,7 +443,7 @@ pub(crate) struct BundleReceiverTask {
 impl BundleReceiverTask {
     pub async fn new(client: &Client) -> Self {
         let stream = client.encryption().historic_room_key_stream().await.expect("E2EE tasks should only be initialized once we have logged in and have access to an OlmMachine");
-        let weak_client = WeakClient::from_client(client);
+        let weak_client = client.downgrade();
         Self {
             _listen_handle: spawn(Self::listen_task(weak_client.clone(), stream)),
             _startup_handle: spawn(Self::startup_task(weak_client)),
@@ -451,7 +451,7 @@ impl BundleReceiverTask {
     }
 
     async fn listen_task(client: WeakClient, stream: impl Stream<Item = RoomKeyBundleInfo>) {
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // TODO: Listening to this stream is not enough for iOS due to the NSE
         // killing our OlmMachine and thus also this stream. We need to add an
@@ -620,7 +620,7 @@ mod test {
 
         let server = MockServer::start().await;
         let client = logged_in_client(Some(server.uri())).await;
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
 
         let event_content = json!({
             "event_id": event_id,

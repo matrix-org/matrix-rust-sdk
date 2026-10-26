@@ -328,6 +328,9 @@ pub struct IndexedEvent {
     /// An indexed key on the object store, which represents the position of the
     /// event, if it is in a chunk.
     pub position: Option<IndexedEventPositionKey>,
+    /// An indexed key on the object store, which is present only if the event
+    /// is stored out-of-band - i.e., it does not have a position.
+    pub out_of_band: Option<IndexedEventOutOfBandKey>,
     /// An indexed key on the object store, which represents the relationship
     /// between this event and another event, if one exists.
     pub relation: Option<IndexedEventRelationKey>,
@@ -359,6 +362,13 @@ impl Indexed for Event {
         let position = self.position().map(|position| {
             IndexedEventPositionKey::encode((self.linked_chunk_id(), position), serializer)
         });
+        let out_of_band = match self.position() {
+            Some(_) => None,
+            None => Some(IndexedEventOutOfBandKey::encode(
+                (self.linked_chunk_id(), event_id),
+                serializer,
+            )),
+        };
         let relation = self.relation().map(|(related_event, relation_type)| {
             IndexedEventRelationKey::encode(
                 (self.room_id(), &related_event, &RelationType::from(relation_type)),
@@ -370,6 +380,7 @@ impl Indexed for Event {
             event_id: IndexedEventEventIdKey::encode(event_id, serializer),
             room,
             position,
+            out_of_band,
             relation,
             content: serializer.maybe_encrypt_value(self)?,
         })
@@ -390,7 +401,7 @@ impl Indexed for Event {
 /// - The (possibly) hashed Event ID.
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexedEventIdKey(IndexedLinkedChunkId, IndexedEventId);
 
 impl IndexedKey<Event> for IndexedEventIdKey {
@@ -543,6 +554,32 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Event, (LinkedChunkId<'a>, ChunkIde
             linked_chunk_id,
             Position { chunk_identifier: chunk_id.index(), index: INDEXED_KEY_UPPER_EVENT_INDEX },
         )
+    }
+}
+
+/// The value associated with the [`out_of_band`](IndexedEvent::out_of_band)
+/// index of the [`EVENTS`][1] object store, which is constructed from:
+///
+/// - The (possibly) hashed Linked Chunk ID
+/// - The (possibly) hashed Event ID.
+///
+/// [1]: crate::event_cache_store::migrations::v8::add_out_of_band_index_to_events_object_store
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexedEventOutOfBandKey(IndexedLinkedChunkId, IndexedEventId);
+
+impl IndexedKey<Event> for IndexedEventOutOfBandKey {
+    const INDEX: Option<&'static str> = Some(keys::EVENTS_OUT_OF_BAND);
+
+    type KeyComponents<'a> = (LinkedChunkId<'a>, &'a EventId);
+
+    fn encode(
+        (linked_chunk_id, event_id): Self::KeyComponents<'_>,
+        serializer: &SafeEncodeSerializer,
+    ) -> Self {
+        let linked_chunk_id =
+            serializer.hash_key(keys::LINKED_CHUNK_IDS, linked_chunk_id.storage_key());
+        let event_id = serializer.encode_key_as_string(keys::EVENTS, event_id);
+        Self(linked_chunk_id, event_id)
     }
 }
 

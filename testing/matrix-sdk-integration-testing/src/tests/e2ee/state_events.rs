@@ -1,8 +1,8 @@
-use std::{ops::Deref, time::Duration};
+use std::{ops::Deref, pin::pin, time::Duration};
 
 use anyhow::Result;
 use assign::assign;
-use futures::{FutureExt, StreamExt, pin_mut};
+use futures::{FutureExt, StreamExt};
 use matrix_sdk::{
     assert_let_decrypted_state_event_content,
     encryption::EncryptionSettings,
@@ -103,7 +103,7 @@ async fn test_e2ee_state_events() -> Result<()> {
 
     bob.get_room(alice_room.room_id()).expect("Bob should have received the invite");
 
-    pin_mut!(bundle_stream);
+    let mut bundle_stream = pin!(bundle_stream);
 
     let info = bundle_stream
         .next()
