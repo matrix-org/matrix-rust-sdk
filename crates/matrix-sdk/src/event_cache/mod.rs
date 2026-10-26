@@ -454,6 +454,10 @@ impl EventCache {
     }
 
     /// Return a thread-specific view over the [`EventCache`].
+    ///
+    /// Note: it is impossible to know if `thread_id` represents a valid thread
+    /// identifier. It means it's possible to create a [`ThreadEventCache`] for
+    /// an event that is not a thread root.
     pub async fn thread(
         &self,
         room_id: &RoomId,
