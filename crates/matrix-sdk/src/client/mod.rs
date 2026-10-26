@@ -212,9 +212,14 @@ impl From<discover_homeserver::TileServerInfo> for TileServerInfo {
 #[cfg(feature = "unstable-msc4560")]
 #[derive(Debug, Clone)]
 pub struct RoomStrippedState {
+    /// The ID of the room the state belongs to.
     pub room_id: OwnedRoomId,
+    /// The stripped state events requested from the room.
     pub state: Vec<AnyStrippedStateEvent>,
+    /// The number of members joined to the room.
+    /// Will be absent if it was not asked for in the request.
     pub num_joined_members: Option<u64>,
+    /// The source that provided the stripped state.
     pub via: RoomStrippedStateVia,
 }
 
