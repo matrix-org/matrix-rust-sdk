@@ -206,16 +206,17 @@ const INVALID_ROOM_ALIAS_NAME_CHARS: &str = "#,:{}\\";
 /// Verifies the passed `String` matches the expected room alias format:
 ///
 /// This means it's lowercase, with no whitespace chars, has a single leading
-/// `#` char and a single `:` separator between the local and domain parts, and
-/// the local part only contains characters that can't be percent encoded.
+/// `#` char and a `:` separator between the local part and a valid server
+/// name, and the local part only contains characters that can't be percent
+/// encoded.
 pub fn is_room_alias_format_valid(alias: String) -> bool {
-    let alias_parts: Vec<&str> = alias.split(':').collect();
-    if alias_parts.len() != 2 {
+    // Checks both the local part and the server name, which can contain `:` if
+    // it has a port or is an IPv6 literal.
+    let Ok(room_alias) = RoomAliasId::parse(&alias) else {
         return false;
-    }
+    };
 
-    let local_part = alias_parts[0];
-    let has_valid_format = local_part.chars().skip(1).all(|c| {
+    let has_valid_format = room_alias.alias().chars().all(|c| {
         c.is_ascii()
             && !c.is_whitespace()
             && !c.is_control()
@@ -224,8 +225,7 @@ pub fn is_room_alias_format_valid(alias: String) -> bool {
 
     let is_lowercase = alias.to_lowercase() == alias;
 
-    // Checks both the local part and the domain part
-    has_valid_format && is_lowercase && RoomAliasId::parse(alias).is_ok()
+    has_valid_format && is_lowercase
 }
 
 /// Given a pair of optional `body` and `formatted_body` parameters, returns a
@@ -318,7 +318,7 @@ mod test {
     }
 
     #[test]
-    fn test_is_room_alias_format_valid_when_it_has_several_colon_chars_is_not_valid() {
+    fn test_is_room_alias_format_valid_when_server_part_has_invalid_port_is_not_valid() {
         assert!(!is_room_alias_format_valid("#alias:something:domain.org".to_owned()))
     }
 
@@ -360,6 +360,17 @@ mod test {
     #[test]
     fn test_is_room_alias_format_valid_when_has_valid_format() {
         assert!(is_room_alias_format_valid("#alias.test:domain.org".to_owned()))
+    }
+
+    #[test]
+    fn test_is_room_alias_format_valid_when_server_part_has_port() {
+        assert!(is_room_alias_format_valid("#alias:domain.org:8448".to_owned()))
+    }
+
+    #[test]
+    fn test_is_room_alias_format_valid_when_server_part_is_ipv6() {
+        assert!(is_room_alias_format_valid("#alias:[::1]".to_owned()));
+        assert!(is_room_alias_format_valid("#alias:[2001:db8::1]:8448".to_owned()));
     }
 
     #[test]

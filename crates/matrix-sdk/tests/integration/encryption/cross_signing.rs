@@ -51,10 +51,8 @@ async fn test_reset_legacy_auth() {
 
     assert_let!(CrossSigningResetAuthType::Uiaa(uiaa_info) = reset_handle.auth_type());
 
-    let mut password = uiaa::Password::new(user_id.to_owned().into(), "1234".to_owned());
-    password.session = uiaa_info.session.clone();
     reset_handle
-        .auth(Some(uiaa::AuthData::Password(password)))
+        .auth(uiaa_info.as_password_auth_data(user_id.to_owned().into(), "1234".to_owned()))
         .await
         .expect("We should be able to reset the cross-signing keys using the reset handle");
 
@@ -93,10 +91,10 @@ async fn test_reset_legacy_auth_invalid_password() {
 
     assert_let!(CrossSigningResetAuthType::Uiaa(uiaa_info) = reset_handle.auth_type());
 
-    let mut password = uiaa::Password::new(user_id.to_owned().into(), "wrong-password".to_owned());
-    password.session = uiaa_info.session.clone();
     reset_handle
-        .auth(Some(uiaa::AuthData::Password(password)))
+        .auth(
+            uiaa_info.as_password_auth_data(user_id.to_owned().into(), "wrong-password".to_owned()),
+        )
         .await
         .expect_err("Resetting with the wrong password should return the error");
 }
@@ -156,7 +154,7 @@ async fn test_reset_unstable_oauth() {
     );
 
     // Then it retries until it succeeds.
-    reset_handle.auth(None).await.expect("We should be able to reset the cross-signing keys after some attempts, waiting for the auth issue to allow us to upload");
+    reset_handle.auth(oauth_info.as_auth_data()).await.expect("We should be able to reset the cross-signing keys after some attempts, waiting for the auth issue to allow us to upload");
 
     assert!(
         client.encryption().cross_signing_status().await.unwrap().is_complete(),
@@ -239,9 +237,7 @@ async fn test_reset_stable_oauth() {
     );
 
     // Then it retries until it succeeds.
-    let mut oauth = uiaa::OAuth::new();
-    oauth.session = oauth_info.session.clone();
-    reset_handle.auth(Some(uiaa::AuthData::OAuth(oauth))).await.expect("We should be able to reset the cross-signing keys after some attempts, waiting for the auth issue to allow us to upload");
+    reset_handle.auth(oauth_info.as_auth_data()).await.expect("We should be able to reset the cross-signing keys after some attempts, waiting for the auth issue to allow us to upload");
 
     assert!(
         client.encryption().cross_signing_status().await.unwrap().is_complete(),

@@ -70,7 +70,10 @@ use ruma::{
             to_device::send_event_to_device::v3::{
                 Request as RumaToDeviceRequest, Response as ToDeviceResponse,
             },
-            uiaa::{AuthData, AuthType, OAuthParams, UiaaInfo},
+            uiaa::{
+                AuthData, AuthType, OAuth as OAuthData, OAuthParams, Password, UiaaInfo,
+                UserIdentifier,
+            },
         },
         error::{ErrorBody, StandardErrorBody},
     },
@@ -367,7 +370,7 @@ impl CrossSigningResetHandle {
     /// Continue the cross-signing reset by either waiting for the
     /// authentication to be done on the side of the OAuth 2.0 server or by
     /// providing additional [`AuthData`] the homeserver requires.
-    pub async fn auth(&self, auth: Option<AuthData>) -> Result<()> {
+    pub async fn auth(&self, auth: AuthData) -> Result<()> {
         // Poll to see whether the reset has been authorized twice per second.
         const RETRY_EVERY: Duration = Duration::from_millis(500);
 
@@ -377,7 +380,7 @@ impl CrossSigningResetHandle {
         timeout(
             async {
                 let mut upload_request = self.upload_request.clone();
-                upload_request.auth = auth;
+                upload_request.auth = Some(auth);
 
                 debug!(
                     "Repeatedly PUTting to keys/device_signing/upload until it works \
@@ -432,7 +435,7 @@ impl CrossSigningResetHandle {
 #[derive(Debug, Clone)]
 pub enum CrossSigningResetAuthType {
     /// The homeserver requires user-interactive authentication.
-    Uiaa(UiaaInfo),
+    Uiaa(UiaaCrossSigningResetInfo),
     /// OAuth 2.0 is used for authentication and the user needs to open a URL to
     /// approve the upload of cross-signing keys.
     OAuth(OAuthCrossSigningResetInfo),
@@ -444,11 +447,52 @@ impl CrossSigningResetAuthType {
             if let Ok(Some(auth_info)) = OAuthCrossSigningResetInfo::from_auth_info(auth_info) {
                 Ok(Some(CrossSigningResetAuthType::OAuth(auth_info)))
             } else {
-                Ok(Some(CrossSigningResetAuthType::Uiaa(auth_info.clone())))
+                Ok(Some(CrossSigningResetAuthType::Uiaa(
+                    UiaaCrossSigningResetInfo::from_auth_info(auth_info)?,
+                )))
             }
         } else {
             Ok(None)
         }
+    }
+}
+
+/// User-interactive authentication specific information about the required
+/// authentication for the upload of cross-signing keys.
+#[derive(Debug, Clone)]
+pub struct UiaaCrossSigningResetInfo {
+    auth_info: UiaaInfo,
+}
+
+impl UiaaCrossSigningResetInfo {
+    fn from_auth_info(auth_info: &UiaaInfo) -> Result<Self> {
+        if auth_info.session.is_none() {
+            return Err(serde_json::Error::custom("UIAA info is missing a session token").into());
+        }
+
+        Ok(UiaaCrossSigningResetInfo { auth_info: auth_info.clone() })
+    }
+
+    /// Session key to use to complete the authentication.
+    pub fn session(&self) -> &str {
+        self.auth_info.session.as_deref().expect("The session is checked in from_auth_info")
+    }
+
+    /// The full UIAA info, containing the flows the homeserver supports, their
+    /// parameters and the stages that were already completed.
+    pub fn auth_info(&self) -> &UiaaInfo {
+        &self.auth_info
+    }
+
+    /// Create `m.login.password` UIAA [`AuthData`] to continue this reset
+    /// session.
+    ///
+    /// Only use this if the homeserver offers the `m.login.password` stage,
+    /// see [`UiaaCrossSigningResetInfo::auth_info`] for the available flows.
+    pub fn as_password_auth_data(&self, identifier: UserIdentifier, password: String) -> AuthData {
+        AuthData::Password(assign!(Password::new(identifier, password), {
+            session: Some(self.session().to_owned()),
+        }))
     }
 }
 
@@ -460,7 +504,7 @@ pub struct OAuthCrossSigningResetInfo {
     pub approval_url: Url,
 
     /// Session key to use to complete the authentication.
-    pub session: Option<String>,
+    pub session: String,
 }
 
 impl OAuthCrossSigningResetInfo {
@@ -471,8 +515,17 @@ impl OAuthCrossSigningResetInfo {
 
         Ok(Some(OAuthCrossSigningResetInfo {
             approval_url: parameters.url.as_str().try_into()?,
-            session: auth_info.session.clone(),
+            session: auth_info
+                .session
+                .as_ref()
+                .ok_or_else(|| serde_json::Error::custom("UIAA info is missing a session token"))?
+                .to_owned(),
         }))
+    }
+
+    /// Create UIAA [`AuthData`] to continue this reset session.
+    pub fn as_auth_data(&self) -> AuthData {
+        AuthData::OAuth(assign!(OAuthData::new(), { session: Some(self.session.clone()) }))
     }
 }
 
@@ -1418,14 +1471,15 @@ impl Encryption {
     /// ```no_run
     /// # use matrix_sdk::Client;
     /// # use ruma::{device_id, user_id};
-    /// # use futures_util::{pin_mut, StreamExt};
+    /// # use std::pin::pin;
+    /// # use futures_util::StreamExt;
     /// # let client: Client = unimplemented!();
     /// # async {
     /// let devices_stream = client.encryption().devices_stream().await?;
     /// let user_id = client
     ///     .user_id()
     ///     .expect("We should know our user id after we have logged in");
-    /// pin_mut!(devices_stream);
+    /// let mut devices_stream = pin!(devices_stream);
     ///
     /// for device_updates in devices_stream.next().await {
     ///     if let Some(user_devices) = device_updates.new.get(user_id) {
@@ -1460,12 +1514,13 @@ impl Encryption {
     /// ```no_run
     /// # use matrix_sdk::Client;
     /// # use ruma::{device_id, user_id};
-    /// # use futures_util::{pin_mut, StreamExt};
+    /// # use std::pin::pin;
+    /// # use futures_util::StreamExt;
     /// # let client: Client = unimplemented!();
     /// # async {
     /// let identities_stream =
     ///     client.encryption().user_identities_stream().await?;
-    /// pin_mut!(identities_stream);
+    /// let mut identities_stream = pin!(identities_stream);
     ///
     /// for identity_updates in identities_stream.next().await {
     ///     for (_, identity) in identity_updates.new {
@@ -1561,7 +1616,7 @@ impl Encryption {
     /// # Example
     ///
     /// ```no_run
-    /// use matrix_sdk::{ruma::api::client::uiaa, encryption::CrossSigningResetAuthType};
+    /// use matrix_sdk::encryption::CrossSigningResetAuthType;
     ///
     /// # async {
     /// # let homeserver = url::Url::parse("http://example.com")?;
@@ -1572,25 +1627,18 @@ impl Encryption {
     /// if let Some(handle) = encryption.reset_cross_signing().await? {
     ///     match handle.auth_type() {
     ///         CrossSigningResetAuthType::Uiaa(uiaa) => {
-    ///             use matrix_sdk::ruma::api::client::uiaa;
-    ///
     ///             let password = "1234".to_owned();
-    ///             let mut password = uiaa::Password::new(user_id, password);
-    ///             password.session = uiaa.session;
     ///
-    ///             handle.auth(Some(uiaa::AuthData::Password(password))).await?;
+    ///             handle.auth(uiaa.as_password_auth_data(user_id, password)).await?;
     ///         }
-    ///         CrossSigningResetAuthType::OAuth(o) => {
+    ///         CrossSigningResetAuthType::OAuth(oauth) => {
     ///             println!(
     ///                 "To reset your end-to-end encryption cross-signing identity, \
     ///                 you first need to approve it at {}",
-    ///                 o.approval_url
+    ///                 oauth.approval_url
     ///             );
     ///
-    ///             let mut oauth = uiaa::OAuth::new();
-    ///             oauth.session = o.session;
-    ///
-    ///             handle.auth(Some(uiaa::AuthData::OAuth(oauth))).await?;
+    ///             handle.auth(oauth.as_auth_data()).await?;
     ///         }
     ///     }
     /// }
@@ -2270,7 +2318,7 @@ impl Encryption {
     ///
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
     fn setup_room_membership_session_discard_handler(&self) {
-        let client = WeakClient::from_client(&self.client);
+        let client = self.client.downgrade();
         self.client.add_event_handler(|ev: OriginalSyncRoomMemberEvent, room: Room| async move {
             let Some(client) = client.get() else {
                 // The main client has been dropped.

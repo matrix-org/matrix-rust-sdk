@@ -169,7 +169,8 @@ use mime::Mime;
 use ruma::events::sticky::StickyDurationMs;
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
-    TransactionId, UInt, UserId,
+    TransactionId,
+    api::error::ErrorKind,
     events::{
         AnyMessageLikeEventContent, Mentions, MessageLikeEventContent as _, TimelineEventType,
         reaction::ReactionEventContent,
@@ -303,7 +304,7 @@ impl SendQueue {
         let data = self.data();
 
         data.session_change_task.get_or_init(|| {
-            let client = WeakClient::from_client(&self.client);
+            let client = self.client.downgrade();
             self.client
                 .task_monitor()
                 .spawn_infinite_task("send_queue_session_change", Self::session_change_task(client))
@@ -542,10 +543,10 @@ impl RoomSendQueue {
     ) -> Self {
         let (update_sender, _) = broadcast::channel(32);
 
-        let queue = QueueStorage::new(WeakClient::from_client(client), room_id.clone());
+        let queue = QueueStorage::new(client.downgrade(), room_id.clone());
         let notifier = Arc::new(Notify::new());
 
-        let weak_room = WeakRoom::new(WeakClient::from_client(client), room_id);
+        let weak_room = WeakRoom::new(client.downgrade(), room_id);
         let locally_enabled = Arc::new(AtomicBool::new(globally_enabled));
 
         let task = client.task_monitor().spawn_infinite_task(
@@ -911,7 +912,9 @@ impl RoomSendQueue {
                             // Send Queue will continue as if everything
                             // happened successfully. This feature is not
                             // considered “crucial”.
-                            if let Ok((room_event_cache, _drop_handles)) = room.event_cache().await
+                            if let Some(event_cache) = room.client().event_cache()
+                                && let Ok((room_event_cache, _drop_handles)) =
+                                    event_cache.room(room.room_id()).await
                             {
                                 let event = build_timeline_event(
                                     &event_id,
@@ -1010,7 +1013,9 @@ impl RoomSendQueue {
                             // cache the event now to avoid any inconsistencies
                             // until the server sends down the remote echo via
                             // the sync.
-                            if let Ok((room_event_cache, _drop_handles)) = room.event_cache().await
+                            if let Some(event_cache) = room.client().event_cache()
+                                && let Ok((room_event_cache, _drop_handles)) =
+                                    event_cache.room(room.room_id()).await
                             {
                                 let content_field_redacts = room.version().is_some_and(|id| {
                                     id.rules()
@@ -1068,6 +1073,41 @@ impl RoomSendQueue {
 
                 Ok((None, _)) => {
                     debug!("Request has been aborted while running, continuing.");
+                }
+
+                // The server already has this exact reaction from us (sent from
+                // another device, or by an earlier attempt it no longer
+                // remembers), so there's nothing left to do. Wedging would
+                // block the room for good: every retry gets the same answer.
+                Err(err)
+                    if err.client_api_error_kind() == Some(&ErrorKind::DuplicateAnnotation) =>
+                {
+                    debug!(txn_id = %txn_id, "the server already has this reaction, dropping it");
+
+                    queue.mark_as_not_being_sent(&txn_id).await;
+
+                    match queue.cancel_event(&txn_id, None).await {
+                        Ok(true) => send_update(
+                            &global_update_sender,
+                            &update_sender,
+                            room_id,
+                            RoomSendQueueUpdate::CancelledLocalEvent { transaction_id: txn_id },
+                        ),
+
+                        // Removed meanwhile (aborted before we got here);
+                        // nothing to report.
+                        Ok(false) => {}
+
+                        Err(storage_error) => {
+                            // Still queued, so it would be sent again right
+                            // away, over and over: stop the queue instead.
+                            error!(
+                                txn_id = %txn_id,
+                                "couldn't drop the duplicate reaction, disabling the queue: {storage_error}"
+                            );
+                            locally_enabled.store(false, Ordering::SeqCst);
+                        }
+                    }
                 }
 
                 Err(err) => {
@@ -2444,9 +2484,15 @@ impl QueueStorage {
                     // Check the event is one we know how to edit with an edit
                     // event.
 
+                    // Fields the typed content doesn't know about, like an
+                    // attachment's extra content, to put back in the edit.
+                    let mut unknown_fields = None;
+
                     // It must be deserializable…
                     let edited_content = match new_content.deserialize() {
                         Ok(AnyMessageLikeEventContent::RoomMessage(c)) => {
+                            unknown_fields = upload::unknown_fields(&new_content, &c);
+
                             // Assume no relationships.
                             EditedContent::RoomMessage(c.into())
                         }
@@ -2478,10 +2524,26 @@ impl QueueStorage {
                         }
                     };
 
+                    let mut edit_json = serde_json::to_value(&edit_event)
+                        .map_err(RoomSendQueueStorageError::JsonSerialization)?;
+
+                    // Only in the new content: the top level is what push rules
+                    // see, and an edit mustn't notify again.
+                    if let Some(serde_json::Value::Object(mut unknown)) = unknown_fields
+                        && let Some(edited) = edit_json.get_mut("m.new_content")
+                    {
+                        // The edit has its own relation and new content.
+                        unknown.remove("m.relates_to");
+                        unknown.remove("m.new_content");
+                        upload::restore_unknown_fields(edited, unknown.into());
+                    }
+
                     // Queue the edit event in the send queue 🧠.
                     let serializable = SerializableEventContent::from_raw(
-                        Raw::new(&edit_event)
-                            .map_err(RoomSendQueueStorageError::JsonSerialization)?,
+                        Raw::from_json(
+                            serde_json::value::to_raw_value(&edit_json)
+                                .map_err(RoomSendQueueStorageError::JsonSerialization)?,
+                        ),
                         edit_event.event_type().to_string(),
                     );
 
@@ -3305,9 +3367,6 @@ impl SendHandle {
             // Wake up the queue, in case the room was asleep before the edit.
             self.room.inner.notifier.notify_one();
 
-            let new_content = SerializableEventContent::new(&new_content)
-                .map_err(RoomSendQueueStorageError::JsonSerialization)?;
-
             // Propagate a replaced update too.
             self.room.send_update(RoomSendQueueUpdate::ReplacedLocalEvent {
                 transaction_id: self.transaction_id.clone(),
@@ -3538,7 +3597,6 @@ mod tests {
     };
     use crate::{
         SessionChange,
-        client::WeakClient,
         test_utils::{logged_in_client, mocks::MatrixMockServer},
     };
 
@@ -3578,7 +3636,7 @@ mod tests {
     async fn test_client_no_cycle_with_send_queue() {
         for enabled in [true, false] {
             let client = logged_in_client(None).await;
-            let weak_client = WeakClient::from_client(&client);
+            let weak_client = client.downgrade();
 
             {
                 let mut sync_response_builder = SyncResponseBuilder::new();

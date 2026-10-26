@@ -411,7 +411,7 @@ impl OAuth {
         &'a self,
         registration_data: Option<&'a ClientRegistrationData>,
     ) -> LoginWithQrCodeBuilder<'a> {
-        LoginWithQrCodeBuilder { client: &self.client, registration_data }
+        LoginWithQrCodeBuilder::new(&self.client, registration_data)
     }
 
     /// Grant login to a new device using a QR code.
@@ -753,7 +753,6 @@ impl OAuth {
 
         self.client.auth_ctx().set_session_tokens(tokens.clone());
         self.client
-            .base_client()
             .activate(
                 meta,
                 room_load_settings,
@@ -849,10 +848,9 @@ impl OAuth {
         additional_scopes: Option<Vec<Scope>>,
     ) -> (Vec<Scope>, OwnedDeviceId) {
         /// Scope to grand full access to the client-server API.
-        const SCOPE_MATRIX_CLIENT_SERVER_API_FULL_ACCESS: &str =
-            "urn:matrix:org.matrix.msc2967.client:api:*";
+        const SCOPE_MATRIX_CLIENT_SERVER_API_FULL_ACCESS: &str = "urn:matrix:client:api:*";
         /// Prefix of the scope to bind a device ID to an access token.
-        const SCOPE_MATRIX_DEVICE_ID_PREFIX: &str = "urn:matrix:org.matrix.msc2967.client:device:";
+        const SCOPE_MATRIX_DEVICE_ID_PREFIX: &str = "urn:matrix:client:device:";
 
         // Generate the device ID if it is not provided.
         let device_id = device_id.unwrap_or_else(DeviceId::new);
@@ -1007,7 +1005,6 @@ impl OAuth {
             }
         } else {
             self.client
-                .base_client()
                 .activate(
                     new_session,
                     RoomLoadSettings::default(),
@@ -1421,6 +1418,11 @@ pub struct LoginWithQrCodeBuilder<'a> {
 
 #[cfg(feature = "e2e-encryption")]
 impl<'a> LoginWithQrCodeBuilder<'a> {
+    /// Create a new builder.
+    fn new(client: &'a Client, registration_data: Option<&'a ClientRegistrationData>) -> Self {
+        Self { client, registration_data }
+    }
+
     /// This method allows you to log in with a scanned QR code.
     ///
     /// The existing device needs to display the QR code which this device can
@@ -1503,7 +1505,7 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     /// println!("Successfully logged in: {:?} {:?}", client.user_id(), client.device_id());
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn scan(self, data: &'a QrCodeData) -> LoginWithQrCode<'a> {
+    pub fn scan(self, data: &QrCodeData) -> LoginWithQrCode {
         LoginWithQrCode::new(self.client, data, self.registration_data)
     }
 
@@ -1584,7 +1586,7 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     /// println!("Successfully logged in: {:?} {:?}", client.user_id(), client.device_id());
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn generate(self) -> LoginWithGeneratedQrCode<'a> {
+    pub fn generate(self) -> LoginWithGeneratedQrCode {
         LoginWithGeneratedQrCode::new(self.client, self.registration_data)
     }
 }
@@ -1697,7 +1699,7 @@ impl<'a> GrantLoginWithQrCodeBuilder<'a> {
     /// println!("Successfully granted login");
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn scan(self, data: &'a QrCodeData) -> GrantLoginWithScannedQrCode<'a> {
+    pub fn scan(self, data: &QrCodeData) -> GrantLoginWithScannedQrCode {
         GrantLoginWithScannedQrCode::new(self.client, data, self.device_creation_timeout)
     }
 
@@ -1778,7 +1780,7 @@ impl<'a> GrantLoginWithQrCodeBuilder<'a> {
     /// println!("Successfully granted login");
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn generate(self) -> GrantLoginWithGeneratedQrCode<'a> {
+    pub fn generate(self) -> GrantLoginWithGeneratedQrCode {
         GrantLoginWithGeneratedQrCode::new(self.client, self.device_creation_timeout)
     }
 }

@@ -1,11 +1,12 @@
 use std::{
     collections::BTreeSet,
+    pin::pin,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
 use assert_matches::assert_matches;
-use futures_util::{future::join_all, pin_mut};
+use futures_util::future::join_all;
 use matrix_sdk::{
     assert_next_with_timeout, assert_recv_with_timeout,
     config::SyncSettings,
@@ -15,9 +16,9 @@ use matrix_sdk::{
 use matrix_sdk_base::{EncryptionState, RoomMembersUpdate, RoomState};
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, async_test,
+    DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, User,
+    async_test,
     event_factory::EventFactory,
-    mocks::mock_encryption_state,
     test_json::{self, sync::CUSTOM_ROOM_POWER_LEVELS},
 };
 use ruma::{
@@ -29,7 +30,6 @@ use ruma::{
     assign, event_id,
     events::{
         RoomAccountDataEventType, TimelineEventType,
-        direct::DirectUserIdentifier,
         receipt::ReceiptThread,
         room::{
             member::MembershipState,
@@ -48,47 +48,27 @@ use wiremock::{
 };
 
 use crate::{logged_in_client_with_server, mock_sync};
+
 #[async_test]
 async fn test_invite_user_by_id() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/invite$"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .mount(&server)
-        .await;
+    server.mock_invite_user_by_id().ok().expect(1).mount().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
+    let room = server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let user = user_id!("@example:localhost");
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-
-    room.invite_user_by_id(user).await.unwrap();
+    room.invite_user_by_id(User::Carol.into()).await.unwrap();
 }
 
 #[async_test]
 async fn test_invite_user_by_3pid() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/invite$"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .mount(&server)
-        .await;
+    server.mock_invite_user_by_id().ok().expect(1).mount().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let room = server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
 
     room.invite_user_by_3pid(
         Invite3pidInit {
@@ -105,25 +85,15 @@ async fn test_invite_user_by_3pid() {
 
 #[async_test]
 async fn test_leave_room() -> Result<(), anyhow::Error> {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = *DEFAULT_TEST_ROOM_ID;
 
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/leave$"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .mount(&server)
-        .await;
+    server.mock_room_leave().ok(room_id).expect(1).mount().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await?;
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let room = server.sync_joined_room(&client, room_id).await;
 
     room.leave().await?;
-
     assert_eq!(room.state(), RoomState::Left);
 
     Ok(())
@@ -402,9 +372,7 @@ async fn test_leave_room_fails_with_error() -> Result<(), anyhow::Error> {
 
     server
         .mock_room_leave()
-        .respond_with(
-            ResponseTemplate::new(429).set_body_json(json!({"errcode": "M_LIMIT_EXCEEDED"})),
-        )
+        .respond_with_code_and_json(429, json!({"errcode": "M_LIMIT_EXCEEDED"}))
         .mount()
         .await;
 
@@ -444,48 +412,26 @@ async fn test_leave_invited_room_with_no_permissions() -> Result<(), anyhow::Err
 
 #[async_test]
 async fn test_ban_user() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/ban$"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .mount(&server)
-        .await;
+    server.mock_ban_user().ok().expect(1).mount().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
+    let room = server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let user = user_id!("@example:localhost");
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-
-    room.ban_user(user, None).await.unwrap();
+    room.ban_user(User::Bob.into(), None).await.unwrap();
 }
 
 #[async_test]
 async fn test_unban_user() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/unban$"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .mount(&server)
-        .await;
+    server.mock_unban_user().ok().expect(1).mount().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
+    let room = server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let user = user_id!("@example:localhost");
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-
-    room.unban_user(user, None).await.unwrap();
+    room.unban_user(User::Bob.into(), None).await.unwrap();
 }
 
 #[async_test]
@@ -536,25 +482,14 @@ async fn test_mark_as_unread() {
 
 #[async_test]
 async fn test_kick_user() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/kick$"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .mount(&server)
-        .await;
+    server.mock_kick_user().ok().expect(1).mount().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
+    let room = server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let user = user_id!("@example:localhost");
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-
-    room.kick_user(user, None).await.unwrap();
+    room.kick_user(User::Bob.into(), None).await.unwrap();
 }
 
 #[async_test]
@@ -654,22 +589,12 @@ async fn test_send_multiple_receipts_with_unread_flag() {
 
 #[async_test]
 async fn test_typing_notice() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/typing"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .mount(&server)
-        .await;
+    server.mock_update_typing().ok().expect(1).mount().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let room = server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
 
     room.typing_notice(true).await.unwrap();
 }
@@ -678,57 +603,38 @@ async fn test_typing_notice() {
 async fn test_room_state_event_send() {
     use ruma::events::room::member::{MembershipState, RoomMemberEventContent};
 
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let event_id = owned_event_id!("$h29iv0s8:example.com");
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
-        .mount(&server)
-        .await;
+    server.mock_room_send_state().ok(event_id.clone()).expect(1).mount().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let room = server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
 
     let avatar_url = mxc_uri!("mxc://example.org/avA7ar");
     let member_event = assign!(RoomMemberEventContent::new(MembershipState::Join), {
         avatar_url: Some(avatar_url.to_owned())
     });
-    let response =
-        room.send_state_event_for_key(user_id!("@foo:bar.com"), member_event).await.unwrap();
-    assert_eq!("$h29iv0s8:example.com", response.event_id);
+    let response = room.send_state_event_for_key(User::Alice.as_str(), member_event).await.unwrap();
+    assert_eq!(response.event_id, event_id);
 }
 
 #[async_test]
 async fn test_room_message_send() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let event_id = event_id!("$h29iv0s8:example.com");
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
-        .mount(&server)
-        .await;
+    server.mock_room_send().ok(event_id).mount().await;
+    server.mock_room_state_encryption().plain().mount().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-    mock_encryption_state(&server, false).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let room = server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
 
     let content = RoomMessageEventContent::text_plain("Hello world");
     let txn_id = TransactionId::new();
     let response = room.send(content).with_transaction_id(txn_id).await.unwrap().response;
 
-    assert_eq!("$h29iv0s8:example.com", response.event_id)
+    assert_eq!(response.event_id, event_id);
 }
 
 #[async_test]
@@ -804,32 +710,14 @@ async fn test_set_name() {
 
 #[async_test]
 async fn test_report_content() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    let reason = "I am offended";
-
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/report/\$offensive_event"))
-        .and(body_json(json!({
-            "reason": reason,
-        })))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    mock_sync(&server, &*test_json::SYNC, None).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    server.mock_report_room_event().ok().expect(1).mount().await;
+    let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
 
     let event_id = owned_event_id!("$offensive_event");
-    let reason = "I am offended".to_owned();
-
-    room.report_content(event_id, Some(reason.to_owned())).await.unwrap();
+    room.report_content(event_id, Some("I am offended".to_owned())).await.unwrap();
 }
 
 #[async_test]
@@ -993,24 +881,23 @@ async fn test_reset_power_levels() {
 
 #[async_test]
 async fn test_is_direct_invite_by_3pid() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = *DEFAULT_TEST_ROOM_ID;
+    let third_party_id = "invited@localhost.com";
 
-    let f = EventFactory::new();
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::default());
-    sync_builder.add_global_account_data(
-        f.direct().add_user("invited@localhost.com".into(), *DEFAULT_TEST_ROOM_ID),
-    );
+    server
+        .mock_sync()
+        .ok_and_run(&client, |sync_builder| {
+            sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id)).add_global_account_data(
+                EventFactory::new().direct().add_user(third_party_id, room_id),
+            );
+        })
+        .await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    mock_encryption_state(&server, false).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let room = client.get_room(room_id).unwrap();
     assert!(room.is_direct().await.unwrap());
-    assert!(room.direct_targets().contains(<&DirectUserIdentifier>::from("invited@localhost.com")));
+    assert!(room.direct_targets().contains(third_party_id));
 }
 
 #[async_test]
@@ -1115,7 +1002,7 @@ async fn test_subscribe_to_knock_requests() {
     let room = server.sync_joined_room(&client, room_id).await;
     let (stream, handle) = room.subscribe_to_knock_requests().await.unwrap();
 
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     // We receive an initial knock request from Alice
     let initial = assert_next_with_timeout!(stream, 1000);
@@ -1189,7 +1076,7 @@ async fn test_subscribe_to_knock_requests_reloads_members_on_limited_sync() {
     let room = server.sync_joined_room(&client, room_id).await;
     let (stream, handle) = room.subscribe_to_knock_requests().await.unwrap();
 
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     // We receive an initial knock request from Alice
     let initial = assert_next_with_timeout!(stream, 500);
@@ -1322,7 +1209,7 @@ async fn test_subscribe_to_knock_requests_clears_seen_ids_on_member_reload() {
     let room = server.sync_joined_room(&client, room_id).await;
     let (stream, handle) = room.subscribe_to_knock_requests().await.unwrap();
 
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     // We receive an initial knock request from Alice
     let initial = assert_next_with_timeout!(stream, 100);

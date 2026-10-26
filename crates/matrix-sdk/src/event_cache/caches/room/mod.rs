@@ -53,6 +53,22 @@ use super::{
 };
 use crate::room::WeakRoom;
 
+/// The outcome of [`RoomEventCache::rfind_map_event_until_gap_by`].
+#[derive(Debug)]
+pub(crate) enum RFindMapOutcome<O> {
+    /// An event matched the predicate.
+    Found(O),
+
+    /// No event matched before a gap: there may be more events to fetch.
+    ReachedGap,
+
+    /// No event matched, all the way to the start of the room.
+    ReachedStart,
+
+    /// No event matched within the maximum number of stored chunks to read.
+    ReachedLimit,
+}
+
 /// A subset of an event cache, for a room.
 ///
 /// Cloning is shallow, and thus is cheap to do.
@@ -160,6 +176,28 @@ impl RoomEventCache {
         P: FnMut(&Event) -> Option<O>,
     {
         Ok(self.inner.state.read().await?.rfind_map_event_in_memory_by(predicate))
+    }
+
+    /// Try to find a single event in this room, starting from the most recent
+    /// event, and carrying on in the storage until a gap or the start of the
+    /// room.
+    ///
+    /// Contrary to [`Self::rfind_map_event_in_memory_by`], it also reads up to
+    /// `max_stored_chunkds` stored chunks preceding the in-memory ones.
+    pub(crate) async fn rfind_map_event_until_gap_by<O, P>(
+        &self,
+        max_stored_chunks: usize,
+        predicate: P,
+    ) -> Result<RFindMapOutcome<O>>
+    where
+        P: FnMut(&Event) -> Option<O>,
+    {
+        self.inner
+            .state
+            .read()
+            .await?
+            .rfind_map_event_until_gap_by(max_stored_chunks, predicate)
+            .await
     }
 
     /// Try to find an event by ID in this room.
@@ -599,13 +637,10 @@ mod tests {
 
         let client = logged_in_client(None).await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
 
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) =
+            client.event_cache().unwrap().room(room_id).await.unwrap();
 
         {
             let mut state = room_event_cache.inner.state.write().await.unwrap();
@@ -672,13 +707,10 @@ mod tests {
 
         let client = logged_in_client(None).await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
 
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) =
+            client.event_cache().unwrap().room(room_id).await.unwrap();
 
         {
             let mut state = room_event_cache.inner.state.write().await.unwrap();
@@ -720,13 +752,10 @@ mod tests {
     ) {
         let client = logged_in_client(None).await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
 
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) =
+            client.event_cache().unwrap().room(room_id).await.unwrap();
 
         let original_event_id = original_event.event_id().unwrap().to_owned();
         let related_id = related_event.event_id().unwrap().to_owned();
@@ -788,7 +817,7 @@ mod timed_tests {
         sync::Timeline,
     };
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
-    use matrix_sdk_test::{ALICE, BOB, async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{ALICE, BOB, User, async_test, event_factory::EventFactory};
     use ruma::{
         EventId, event_id,
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
@@ -825,16 +854,12 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
-
-        // Don't forget to subscribe and like.
-        event_cache.subscribe().unwrap();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
 
         // Propagate an update for a message and a prev-batch token.
         let timeline = Timeline {
@@ -906,16 +931,12 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
-
-        // Don't forget to subscribe and like.
-        event_cache.subscribe().unwrap();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
 
         // Propagate an update for a message with bundled relations.
         let ev = f
@@ -992,8 +1013,6 @@ mod timed_tests {
         let room_id = room_id!("!galette:saucisse.bzh");
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
 
-        let event_cache_store = Arc::new(MemoryStore::new());
-
         let event_id1 = event_id!("$1");
         let event_id2 = event_id!("$2");
 
@@ -1001,6 +1020,7 @@ mod timed_tests {
         let ev2 = f.text_msg("how's it going").event_id(event_id2).into_event();
 
         // Prefill the store with some data.
+        let event_cache_store = Arc::new(MemoryStore::new());
         event_cache_store
             .handle_linked_chunk_updates(
                 LinkedChunkId::Room(room_id),
@@ -1054,15 +1074,11 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
-
-        // Don't forget to subscribe and like.
-        event_cache.subscribe().unwrap();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
 
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
 
         let (items, mut stream) = room_event_cache.subscribe().await.unwrap();
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
@@ -1147,8 +1163,6 @@ mod timed_tests {
         let room_id = room_id!("!galette:saucisse.bzh");
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
 
-        let event_cache_store = Arc::new(MemoryStore::new());
-
         let event_id1 = event_id!("$1");
         let event_id2 = event_id!("$2");
 
@@ -1156,6 +1170,7 @@ mod timed_tests {
         let ev2 = f.text_msg("how's it going").sender(*BOB).event_id(event_id2).into_event();
 
         // Prefill the store with some data.
+        let event_cache_store = Arc::new(MemoryStore::new());
         event_cache_store
             .handle_linked_chunk_updates(
                 LinkedChunkId::Room(room_id),
@@ -1209,19 +1224,15 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
-
-        // Don't forget to subscribe and like.
-        event_cache.subscribe().unwrap();
+        let event_cache = client.event_cache().unwrap();
 
         // Let's check whether the generic updates are received for the
         // initialisation.
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
 
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
 
         // The room event cache has been loaded. A generic update must have been
         // triggered.
@@ -1300,7 +1311,6 @@ mod timed_tests {
     #[async_test]
     async fn test_load_from_storage_resilient_to_failure() {
         let room_id = room_id!("!fondue:patate.ch");
-        let event_cache_store = Arc::new(MemoryStore::new());
 
         let event = EventFactory::new()
             .room(room_id)
@@ -1310,6 +1320,7 @@ mod timed_tests {
             .into_event();
 
         // Prefill the store with invalid data: two chunks that form a cycle.
+        let event_cache_store = Arc::new(MemoryStore::new());
         event_cache_store
             .handle_linked_chunk_updates(
                 LinkedChunkId::Room(room_id),
@@ -1343,15 +1354,10 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
-
-        // Don't forget to subscribe and like.
-        event_cache.subscribe().unwrap();
-
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
+        let event_cache = client.event_cache().unwrap();
 
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
 
         let items = room_event_cache.events().await.unwrap();
 
@@ -1372,12 +1378,10 @@ mod timed_tests {
 
         let client = MockClientBuilder::new(None).build().await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         let f = EventFactory::new().room(room_id).sender(*ALICE);
@@ -1503,8 +1507,6 @@ mod timed_tests {
     async fn test_shrink_to_last_chunk() {
         let room_id = room_id!("!galette:saucisse.bzh");
 
-        let client = MockClientBuilder::new(None).build().await;
-
         let f = EventFactory::new().room(room_id);
 
         let evid1 = event_id!("$1");
@@ -1515,47 +1517,50 @@ mod timed_tests {
 
         // Fill the event cache store with an initial linked chunk with 2 events
         // chunks.
-        {
-            client
-                .event_cache_store()
-                .lock()
-                .await
-                .expect("Could not acquire the event cache lock")
-                .as_clean()
-                .expect("Could not acquire a clean event cache lock")
-                .handle_linked_chunk_updates(
-                    LinkedChunkId::Room(room_id),
-                    vec![
-                        Update::NewItemsChunk {
-                            previous: None,
-                            new: ChunkIdentifier::new(0),
-                            next: None,
-                        },
-                        Update::PushItems {
-                            at: Position::new(ChunkIdentifier::new(0), 0),
-                            items: vec![ev1],
-                        },
-                        Update::NewItemsChunk {
-                            previous: Some(ChunkIdentifier::new(0)),
-                            new: ChunkIdentifier::new(1),
-                            next: None,
-                        },
-                        Update::PushItems {
-                            at: Position::new(ChunkIdentifier::new(1), 0),
-                            items: vec![ev2],
-                        },
-                    ],
-                )
-                .await
-                .unwrap();
-        }
+        let event_cache_store = MemoryStore::new();
+        event_cache_store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![ev1],
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![ev2],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
+        let client = MockClientBuilder::new(None)
+            .on_builder(move |builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                        holder_name: "foo".to_owned(),
+                    })
+                    .event_cache_store(event_cache_store),
+                )
+            })
+            .build()
+            .await;
+
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
 
         // Sanity check: lazily loaded, so only includes one item at start.
         let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
@@ -1633,8 +1638,6 @@ mod timed_tests {
     async fn test_room_ordering() {
         let room_id = room_id!("!galette:saucisse.bzh");
 
-        let client = MockClientBuilder::new(None).build().await;
-
         let f = EventFactory::new().room(room_id).sender(*ALICE);
 
         let evid1 = event_id!("$1");
@@ -1647,47 +1650,50 @@ mod timed_tests {
 
         // Fill the event cache store with an initial linked chunk with 2 events
         // chunks.
-        {
-            client
-                .event_cache_store()
-                .lock()
-                .await
-                .expect("Could not acquire the event cache lock")
-                .as_clean()
-                .expect("Could not acquire a clean event cache lock")
-                .handle_linked_chunk_updates(
-                    LinkedChunkId::Room(room_id),
-                    vec![
-                        Update::NewItemsChunk {
-                            previous: None,
-                            new: ChunkIdentifier::new(0),
-                            next: None,
-                        },
-                        Update::PushItems {
-                            at: Position::new(ChunkIdentifier::new(0), 0),
-                            items: vec![ev1, ev2],
-                        },
-                        Update::NewItemsChunk {
-                            previous: Some(ChunkIdentifier::new(0)),
-                            new: ChunkIdentifier::new(1),
-                            next: None,
-                        },
-                        Update::PushItems {
-                            at: Position::new(ChunkIdentifier::new(1), 0),
-                            items: vec![ev3.clone()],
-                        },
-                    ],
-                )
-                .await
-                .unwrap();
-        }
+        let event_cache_store = MemoryStore::new();
+        event_cache_store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![ev1, ev2],
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![ev3.clone()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
+        let client = MockClientBuilder::new(None)
+            .on_builder(move |builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                        holder_name: "foo".to_owned(),
+                    })
+                    .event_cache_store(event_cache_store),
+                )
+            })
+            .build()
+            .await;
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let event_cache = client.event_cache().unwrap();
+
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
 
         // Initially, the linked chunk only contains the last chunk, so only ev3
         // is loaded.
@@ -1794,8 +1800,6 @@ mod timed_tests {
     async fn test_auto_shrink_after_all_subscribers_are_gone() {
         let room_id = room_id!("!galette:saucisse.bzh");
 
-        let client = MockClientBuilder::new(None).build().await;
-
         let f = EventFactory::new().room(room_id);
 
         let evid1 = event_id!("$1");
@@ -1806,47 +1810,50 @@ mod timed_tests {
 
         // Fill the event cache store with an initial linked chunk with 2 events
         // chunks.
-        {
-            client
-                .event_cache_store()
-                .lock()
-                .await
-                .expect("Could not acquire the event cache lock")
-                .as_clean()
-                .expect("Could not acquire a clean event cache lock")
-                .handle_linked_chunk_updates(
-                    LinkedChunkId::Room(room_id),
-                    vec![
-                        Update::NewItemsChunk {
-                            previous: None,
-                            new: ChunkIdentifier::new(0),
-                            next: None,
-                        },
-                        Update::PushItems {
-                            at: Position::new(ChunkIdentifier::new(0), 0),
-                            items: vec![ev1],
-                        },
-                        Update::NewItemsChunk {
-                            previous: Some(ChunkIdentifier::new(0)),
-                            new: ChunkIdentifier::new(1),
-                            next: None,
-                        },
-                        Update::PushItems {
-                            at: Position::new(ChunkIdentifier::new(1), 0),
-                            items: vec![ev2],
-                        },
-                    ],
-                )
-                .await
-                .unwrap();
-        }
+        let event_cache_store = MemoryStore::new();
+        event_cache_store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![ev1],
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![ev2],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
+        let client = MockClientBuilder::new(None)
+            .on_builder(move |builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                        holder_name: "foo".to_owned(),
+                    })
+                    .event_cache_store(event_cache_store),
+                )
+            })
+            .build()
+            .await;
+
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
 
         // Sanity check: lazily loaded, so only includes one item at start.
         let (events1, mut stream1) = room_event_cache.subscribe().await.unwrap();
@@ -1929,7 +1936,6 @@ mod timed_tests {
     async fn test_rfind_map_event_in_memory_by() {
         let user_id = user_id!("@mnt_io:matrix.org");
         let room_id = room_id!("!raclette:patate.ch");
-        let client = MockClientBuilder::new(None).build().await;
 
         let event_factory = EventFactory::new().room(room_id);
 
@@ -1948,53 +1954,55 @@ mod timed_tests {
 
         // Fill the event cache store with an initial linked chunk of 2 chunks,
         // and 4 events.
-        {
-            client
-                .event_cache_store()
-                .lock()
-                .await
-                .expect("Could not acquire the event cache lock")
-                .as_clean()
-                .expect("Could not acquire a clean event cache lock")
-                .handle_linked_chunk_updates(
-                    LinkedChunkId::Room(room_id),
-                    vec![
-                        Update::NewItemsChunk {
-                            previous: None,
-                            new: ChunkIdentifier::new(0),
-                            next: None,
-                        },
-                        Update::PushItems {
-                            at: Position::new(ChunkIdentifier::new(0), 0),
-                            items: vec![event_3],
-                        },
-                        Update::NewItemsChunk {
-                            previous: Some(ChunkIdentifier::new(0)),
-                            new: ChunkIdentifier::new(1),
-                            next: None,
-                        },
-                        Update::PushItems {
-                            at: Position::new(ChunkIdentifier::new(1), 0),
-                            items: vec![event_0, event_1, event_2],
-                        },
-                    ],
-                )
-                .await
-                .unwrap();
-        }
+        let event_cache_store = MemoryStore::new();
+        event_cache_store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![event_3],
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![event_0, event_1, event_2],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
+        let client = MockClientBuilder::new(None)
+            .on_builder(move |builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                        holder_name: "foo".to_owned(),
+                    })
+                    .event_cache_store(event_cache_store),
+                )
+            })
+            .build()
+            .await;
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let event_cache = client.event_cache().unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
 
-        // Look for an event from `BOB`: it must be `event_0`.
+        // Look for an event from Bob: it must be `event_0`.
         assert_matches!(
             room_event_cache
                 .rfind_map_event_in_memory_by(|event| {
-                    (event.sender().as_deref() == Some(*BOB)).then(|| event.event_id().map(ToOwned::to_owned))
+                    (event.sender().is_some_and(|sender| sender == User::Bob)).then(|| event.event_id().map(ToOwned::to_owned))
                 })
                 .await,
             Ok(Some(event_id)) => {
@@ -2038,31 +2046,6 @@ mod timed_tests {
         let user_id = user_id!("@mnt_io:matrix.org");
         let room_id = room_id!("!raclette:patate.ch");
 
-        // The storage shared by the two clients.
-        let event_cache_store = MemoryStore::new();
-
-        // Client for the process 0.
-        let client_p0 = MockClientBuilder::new(None)
-            .on_builder(|builder| {
-                builder.store_config(
-                    StoreConfig::new(CrossProcessLockConfig::multi_process("process #0"))
-                        .event_cache_store(event_cache_store.clone()),
-                )
-            })
-            .build()
-            .await;
-
-        // Client for the process 1.
-        let client_p1 = MockClientBuilder::new(None)
-            .on_builder(|builder| {
-                builder.store_config(
-                    StoreConfig::new(CrossProcessLockConfig::multi_process("process #1"))
-                        .event_cache_store(event_cache_store),
-                )
-            })
-            .build()
-            .await;
-
         let event_factory = EventFactory::new().room(room_id).sender(user_id);
 
         let ev_id_0 = event_id!("$ev_0");
@@ -2072,13 +2055,8 @@ mod timed_tests {
         let ev_1 = event_factory.text_msg("morbier").event_id(ev_id_1).into_event();
 
         // Add events to the storage (shared by the two clients!).
-        client_p0
-            .event_cache_store()
-            .lock()
-            .await
-            .expect("[p0] Could not acquire the event cache lock")
-            .as_clean()
-            .expect("[p0] Could not acquire a clean event cache lock")
+        let event_cache_store = MemoryStore::new();
+        event_cache_store
             .handle_linked_chunk_updates(
                 LinkedChunkId::Room(room_id),
                 vec![
@@ -2105,21 +2083,37 @@ mod timed_tests {
             .await
             .unwrap();
 
+        // Client for the process 0.
+        let client_p0 = MockClientBuilder::new(None)
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::multi_process("process #0"))
+                        .event_cache_store(event_cache_store.clone()),
+                )
+            })
+            .build()
+            .await;
+
+        // Client for the process 1.
+        let client_p1 = MockClientBuilder::new(None)
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::multi_process("process #1"))
+                        .event_cache_store(event_cache_store),
+                )
+            })
+            .build()
+            .await;
+
         // Subscribe the event caches, and create the room.
         let (room_event_cache_p0, room_event_cache_p1) = {
-            let event_cache_p0 = client_p0.event_cache();
-            event_cache_p0.subscribe().unwrap();
-
-            let event_cache_p1 = client_p1.event_cache();
-            event_cache_p1.subscribe().unwrap();
-
             client_p0.base_client().get_or_create_room(room_id, RoomState::Joined);
             client_p1.base_client().get_or_create_room(room_id, RoomState::Joined);
 
             let (room_event_cache_p0, _drop_handles) =
-                client_p0.get_room(room_id).unwrap().event_cache().await.unwrap();
+                client_p0.event_cache().unwrap().room(room_id).await.unwrap();
             let (room_event_cache_p1, _drop_handles) =
-                client_p1.get_room(room_id).unwrap().event_cache().await.unwrap();
+                client_p1.event_cache().unwrap().room(room_id).await.unwrap();
 
             (room_event_cache_p0, room_event_cache_p1)
         };
@@ -2566,12 +2560,6 @@ mod timed_tests {
 
         // Subscribe the event caches, and create the room.
         let (room_event_cache_0_p0, room_event_cache_0_p1) = {
-            let event_cache_p0 = client_p0.event_cache();
-            event_cache_p0.subscribe().unwrap();
-
-            let event_cache_p1 = client_p1.event_cache();
-            event_cache_p1.subscribe().unwrap();
-
             client_p0.base_client().get_or_create_room(room_id_0, RoomState::Joined);
             client_p0.base_client().get_or_create_room(room_id_1, RoomState::Joined);
 
@@ -2579,9 +2567,9 @@ mod timed_tests {
             client_p1.base_client().get_or_create_room(room_id_1, RoomState::Joined);
 
             let (room_event_cache_0_p0, _drop_handles) =
-                client_p0.get_room(room_id_0).unwrap().event_cache().await.unwrap();
+                client_p0.event_cache().unwrap().room(room_id_0).await.unwrap();
             let (room_event_cache_0_p1, _drop_handles) =
-                client_p1.get_room(room_id_0).unwrap().event_cache().await.unwrap();
+                client_p1.event_cache().unwrap().room(room_id_0).await.unwrap();
 
             (room_event_cache_0_p0, room_event_cache_0_p1)
         };
@@ -2596,7 +2584,7 @@ mod timed_tests {
         // cross-process lock over the store MUST be dirty, which makes no
         // difference as a clean one: the state is just loaded, not reloaded.
         let (room_event_cache_1_p0, _) =
-            client_p0.get_room(room_id_1).unwrap().event_cache().await.unwrap();
+            client_p0.event_cache().unwrap().room(room_id_1).await.unwrap();
 
         // Check the lock isn't dirty because it's been cleared.
         {
@@ -2614,9 +2602,7 @@ mod timed_tests {
         let room_id = room_id!("!galette:saucisse.bzh");
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-        let event_cache = client.event_cache();
-
-        event_cache.subscribe().unwrap();
+        let event_cache = client.event_cache().unwrap();
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
         let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();

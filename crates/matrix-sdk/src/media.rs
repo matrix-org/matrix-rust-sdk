@@ -41,7 +41,10 @@ use serde_json::value::RawValue as RawJsonValue;
 #[cfg(not(target_family = "wasm"))]
 use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
 #[cfg(not(target_family = "wasm"))]
-use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
+use tokio::{
+    fs::File as TokioFile,
+    io::{AsyncSeekExt, AsyncWriteExt},
+};
 
 use crate::{
     Client, Error, Result, TransmissionProgress, attachment::Thumbnail,
@@ -418,10 +421,15 @@ impl Media {
                 _ => (TempFileBuilder::new().tempfile()?, None),
             };
 
-        let mut file = TokioFile::from_std(temp_file.reopen()?);
+        // Reuse the same temp file reference by cloning it instead of reopening
+        // it.
+        let mut file = TokioFile::from_std(temp_file.as_file().try_clone()?);
         file.write_all(&data).await?;
         // Make sure the file metadata is flushed to disk.
         file.sync_all().await?;
+        // Both handles share the same cursor, rewind it so the file returned by
+        // `MediaFileHandle::persist()` is read from the start.
+        file.rewind().await?;
 
         Ok(MediaFileHandle { file: temp_file, _directory: temp_dir })
     }

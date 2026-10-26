@@ -1,7 +1,7 @@
 use eyeball_im::VectorDiff;
 use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{
-    ALICE, BOB, CAROL, JoinedRoomBuilder, async_test, event_factory::EventFactory,
+    ALICE, BOB, CAROL, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineItemContent};
 use ruma::{
@@ -36,12 +36,12 @@ async fn test_decline_call() {
                 .add_timeline_event(
                     f.rtc_notification(NotificationType::Ring)
                         .call_intent(CallIntent::Audio)
-                        .sender(&ALICE)
+                        .sender(User::Alice)
                         .event_id(notification_event_id),
                 )
                 .add_timeline_event(
                     f.call_decline(notification_event_id)
-                        .sender(&BOB)
+                        .sender(User::Bob)
                         .event_id(declination_event_id),
                 ),
         )
@@ -97,17 +97,17 @@ async fn test_multiple_decline_call() {
             JoinedRoomBuilder::new(room_id)
                 .add_timeline_event(
                     f.rtc_notification(NotificationType::Ring)
-                        .sender(&ALICE)
+                        .sender(User::Alice)
                         .event_id(notification_event_id),
                 )
                 .add_timeline_event(
                     f.call_decline(notification_event_id)
-                        .sender(&BOB)
+                        .sender(User::Bob)
                         .event_id(declination_event_id_bob),
                 )
                 .add_timeline_event(
                     f.call_decline(notification_event_id)
-                        .sender(&CAROL)
+                        .sender(User::Carol)
                         .event_id(declination_event_id_carol),
                 ),
         )
@@ -177,7 +177,7 @@ async fn test_active_call_info() {
             JoinedRoomBuilder::new(room_id)
                 .add_timeline_event(
                     f.rtc_notification(NotificationType::Ring)
-                        .sender(&ALICE)
+                        .sender(User::Alice)
                         .server_ts(notification_timestamp)
                         .event_id(notification_event_id),
                 )
@@ -252,7 +252,7 @@ async fn test_active_call_info() {
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
                 f.rtc_notification(NotificationType::Ring)
-                    .sender(&ALICE)
+                    .sender(User::Alice)
                     .event_id(new_notification_event_id),
             ),
         )
@@ -326,7 +326,7 @@ async fn test_active_call_info_is_restored_when_the_timeline_is_rebuilt() {
                     )
                     .add_timeline_event(
                         f.rtc_notification(NotificationType::Ring)
-                            .sender(&BOB)
+                            .sender(User::Bob)
                             .server_ts(notification_timestamp)
                             .event_id(notification_event_id),
                     ),
@@ -411,7 +411,7 @@ async fn test_only_update_notification_after_it_has_been_marked_as_last() {
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
                 f.rtc_notification(NotificationType::Ring)
-                    .sender(&ALICE)
+                    .sender(User::Alice)
                     .event_id(event_id!("$pre-existing-notification")),
             ),
         )
@@ -450,7 +450,7 @@ async fn test_only_update_notification_after_it_has_been_marked_as_last() {
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
                 f.rtc_notification(NotificationType::Ring)
-                    .sender(&ALICE)
+                    .sender(User::Alice)
                     .event_id(event_id!("$call-notification")),
             ),
         )

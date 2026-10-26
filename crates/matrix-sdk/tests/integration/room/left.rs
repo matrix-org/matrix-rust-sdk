@@ -26,9 +26,6 @@ async fn test_forget_non_direct_room() {
     let (client, server) = logged_in_client_with_server().await;
     let user_id = client.user_id().unwrap();
 
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
-
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/forget$"))
         .and(header("authorization", "Bearer 1234"))
@@ -97,9 +94,6 @@ async fn test_forget_non_direct_room() {
 async fn test_forget_banned_room() {
     let (client, server) = logged_in_client_with_server().await;
     let user_id = client.user_id().unwrap();
-
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
 
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/forget$"))
@@ -183,9 +177,8 @@ async fn test_forget_direct_room() {
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_left_room(LeftRoomBuilder::default());
 
-    sync_builder.add_global_account_data(
-        f.direct().add_user(invited_user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
-    );
+    sync_builder
+        .add_global_account_data(f.direct().add_user(invited_user_id, *DEFAULT_TEST_ROOM_ID));
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
 

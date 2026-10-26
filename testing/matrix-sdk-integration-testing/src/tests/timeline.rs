@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{ops::Not as _, sync::Arc, time::Duration};
+use std::{ops::Not as _, pin::pin, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use assert_matches::assert_matches;
 use assign::assign;
 use eyeball_im::{Vector, VectorDiff};
-use futures::pin_mut;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
     Client, Room, RoomState, ThreadingSupport, assert_let_timeout, assert_next_with_timeout,
@@ -35,7 +34,7 @@ use matrix_sdk::{
         MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId, UserId,
         api::client::room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
         events::{
-            InitialStateEvent,
+            InitialStateEvent, TimelineEventType,
             room::{
                 encryption::RoomEncryptionEventContent,
                 message::{
@@ -145,9 +144,16 @@ async fn test_toggling_reaction() -> Result<()> {
         unreachable!();
     });
 
-    // Create a timeline for this room.
-    debug!("Creating timeline…");
-    let timeline = Arc::new(room.timeline().await.unwrap());
+    // Create a timeline for this room, with a timeline filter for messages to
+    // ignore other events that might interfere with the checks.
+    debug!("Creating timeline for messages…");
+    let timeline = Arc::new(
+        room.timeline_builder()
+            .event_filter(|event, _| event.event_type() == TimelineEventType::RoomMessage)
+            .build()
+            .await
+            .unwrap(),
+    );
 
     // Send message.
     debug!("Sending initial message…");
@@ -193,7 +199,7 @@ async fn test_toggling_reaction() -> Result<()> {
         // Add the reaction.
         timeline.toggle_reaction(&item_id, &reaction_key).await.expect("toggling reaction");
 
-        sleep(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(2)).await;
 
         assert_let_timeout!(Some(timeline_updates) = stream.next());
         assert_eq!(timeline_updates.len(), 3);
@@ -486,7 +492,7 @@ async fn test_enabling_backups_retries_decryption() {
         .await;
 
     let room_key_stream = bob.encryption().backups().room_keys_for_room_stream(room.room_id());
-    pin_mut!(room_key_stream);
+    let mut room_key_stream = pin!(room_key_stream);
 
     // Wait for the room key to arrive before continuing.
     let wait_for_room_key = async {
@@ -612,7 +618,7 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
 
     // Now we need to wait for Bob's device to turn up.
     let wait_for_bob_device = async {
-        pin_mut!(devices_stream);
+        let mut devices_stream = pin!(devices_stream);
 
         while let Some(devices) = devices_stream.next().await {
             if devices.new.contains_key(bob.user_id().unwrap()) {
@@ -649,7 +655,7 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
     for _ in 0..10 {
         {
             // Clear any previously received previous-batch token.
-            bob.event_cache().clear_all_rooms().await.unwrap();
+            bob.event_cache().unwrap().clear_all_rooms().await.unwrap();
         }
 
         timeline
@@ -932,9 +938,6 @@ async fn test_thread_focused_timeline() -> TestResult {
     // Set up sync for another user Bob.
     let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
-    // Enable Bob's event cache, to speed up creating the in-thread reply event.
-    bob.event_cache().subscribe().unwrap();
-
     let bob_clone = bob.clone();
     let bob_sync = spawn(async move {
         bob_clone.sync(Default::default()).await.expect("sync failed for bob!");
@@ -1017,7 +1020,6 @@ async fn test_thread_focused_timeline() -> TestResult {
 async fn test_local_echo_to_send_event_has_encryption_info() -> TestResult {
     // Set up sync for user Alice, and create a room.
     let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
-    alice.event_cache().subscribe()?;
 
     debug!("Creating room…");
     let initial_state = vec![
@@ -1173,7 +1175,6 @@ async fn test_pinned_events_are_decrypted_after_recovering_with_event_count(
 
     // No rooms as of yet, we have not synced with the server as of yet.
     assert!(another_alice.rooms().is_empty());
-    another_alice.event_cache().subscribe()?;
 
     let sync_service = SyncService::builder(another_alice.clone()).build().await?;
     // We need to subscribe to the room, otherwise we won't request the
@@ -1314,7 +1315,6 @@ async fn test_permalink_timelines_redecrypt() -> TestResult {
 
     // No rooms as of yet, we have not synced with the server as of yet.
     assert!(another_alice.rooms().is_empty());
-    another_alice.event_cache().subscribe()?;
 
     let sync_service = SyncService::builder(another_alice.clone()).build().await?;
     // We need to subscribe to the room, otherwise we won't request the
@@ -1449,7 +1449,6 @@ async fn test_latest_thread_event_is_redecrypted_and_updated() -> TestResult {
 
     // No rooms as of yet, we have not synced with the server as of yet.
     assert!(alice2.rooms().is_empty());
-    alice2.event_cache().subscribe()?;
 
     let sync_service2 = SyncService::builder(alice2.clone()).build().await?;
 

@@ -82,9 +82,9 @@ mod tests {
     use std::{ops::Sub, sync::Arc, time::Duration};
 
     use assign::assign;
-    use matrix_sdk_test::{ALICE, BOB, CAROL, event_factory::EventFactory};
+    use matrix_sdk_test::{User, event_factory::EventFactory};
     use ruma::{
-        DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId, device_id, event_id,
+        DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, device_id, event_id,
         events::{
             AnySyncStateEvent,
             call::member::{
@@ -97,7 +97,6 @@ mod tests {
         room_id,
         serde::Raw,
         time::SystemTime,
-        user_id,
     };
     use similar_asserts::assert_eq;
 
@@ -112,13 +111,18 @@ mod tests {
 
     fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
         let store = Arc::new(MemoryStore::new());
-        let user_id = user_id!("@me:example.org");
         let room_id = room_id!("!test:localhost");
         let (sender, _receiver) = tokio::sync::broadcast::channel(1);
 
         (
             store.clone(),
-            Room::new(user_id, SaveLockedStateStore::new(store), room_id, room_type, sender),
+            Room::new(
+                User::Alice.into(),
+                SaveLockedStateStore::new(store),
+                room_id,
+                room_type,
+                sender,
+            ),
         )
     }
 
@@ -150,13 +154,13 @@ mod tests {
     fn legacy_member_state_event(
         memberships: Vec<LegacyMembershipData>,
         ev_id: &EventId,
-        user_id: &UserId,
+        user: User,
     ) -> Raw<AnySyncStateEvent> {
         let content = CallMemberEventContent::new_legacy(memberships);
         EventFactory::new()
-            .sender(user_id)
+            .sender(user)
             .event(content)
-            .state_key(CallMemberStateKey::new(user_id.to_owned(), None, false).as_ref())
+            .state_key(CallMemberStateKey::new(user.into(), None, false).as_ref())
             .event_id(ev_id)
             // we can simply use now here since this will be dropped when using
             // a MinimalStateEvent in the roomInfo
@@ -171,15 +175,15 @@ mod tests {
 
     fn session_member_state_event(
         ev_id: &EventId,
-        user_id: &UserId,
+        user: User,
         init_data: Option<InitData<'_>>,
     ) -> Raw<AnySyncStateEvent> {
-        session_member_state_event_with_intent(ev_id, user_id, init_data, None)
+        session_member_state_event_with_intent(ev_id, user, init_data, None)
     }
 
     fn session_member_state_event_with_intent(
         ev_id: &EventId,
-        user_id: &UserId,
+        user: User,
         init_data: Option<InitData<'_>>,
         call_intent: Option<CallIntent>,
     ) -> Raw<AnySyncStateEvent> {
@@ -208,18 +212,18 @@ mod tests {
                         Some(timestamp(minutes_ago)),
                         None,
                     ),
-                    CallMemberStateKey::new(user_id.to_owned(), Some(member_id), false),
+                    CallMemberStateKey::new(user.into(), Some(member_id), false),
                 )
             }
 
             None => (
                 CallMemberEventContent::new_empty(None),
-                CallMemberStateKey::new(user_id.to_owned(), None, false),
+                CallMemberStateKey::new(user.into(), None, false),
             ),
         };
 
         EventFactory::new()
-            .sender(user_id)
+            .sender(user)
             .event(content)
             .state_key(state_key.as_ref())
             .event_id(ev_id)
@@ -257,7 +261,7 @@ mod tests {
 
     /// `user_a`: empty memberships `user_b`: one membership `user_c`: two
     /// memberships (two devices)
-    fn legacy_create_call_with_member_events_for_user(a: &UserId, b: &UserId, c: &UserId) -> Room {
+    fn legacy_create_call_with_member_events_for_user(a: User, b: User, c: User) -> Room {
         let (_, room) = make_room_test_helper(RoomState::Joined);
 
         let a_empty = legacy_member_state_event(Vec::new(), event_id!("$1234"), a);
@@ -280,7 +284,7 @@ mod tests {
 
     /// `user_a`: empty memberships `user_b`: one membership `user_c`: two
     /// memberships (two devices)
-    fn session_create_call_with_member_events_for_user(a: &UserId, b: &UserId, c: &UserId) -> Room {
+    fn session_create_call_with_member_events_for_user(a: User, b: User, c: User) -> Room {
         let (_, room) = make_room_test_helper(RoomState::Joined);
 
         let a_empty = session_member_state_event(event_id!("$1234"), a, None);
@@ -310,32 +314,36 @@ mod tests {
 
     #[test]
     fn test_show_correct_active_call_state() {
-        let room_legacy = legacy_create_call_with_member_events_for_user(&ALICE, &BOB, &CAROL);
+        let room_legacy =
+            legacy_create_call_with_member_events_for_user(User::Alice, User::Bob, User::Carol);
 
         // This check also tests the ordering. We want older events to be in the
         // front. user_b (Bob) is 1min old, c1 (CAROL) 10min old, c2 (CAROL)
         // 20min old
         assert_eq!(
-            vec![CAROL.to_owned(), CAROL.to_owned(), BOB.to_owned()],
-            room_legacy.active_room_call_participants()
+            room_legacy.active_room_call_participants(),
+            &[User::Carol, User::Carol, User::Bob],
         );
         assert!(room_legacy.has_active_room_call());
 
-        let room_session = session_create_call_with_member_events_for_user(&ALICE, &BOB, &CAROL);
+        let room_session =
+            session_create_call_with_member_events_for_user(User::Alice, User::Bob, User::Carol);
         assert_eq!(
-            vec![CAROL.to_owned(), CAROL.to_owned(), BOB.to_owned()],
-            room_session.active_room_call_participants()
+            room_session.active_room_call_participants(),
+            &[User::Carol, User::Carol, User::Bob],
         );
         assert!(room_session.has_active_room_call());
     }
 
     #[test]
     fn test_active_call_is_false_when_everyone_left() {
-        let room = legacy_create_call_with_member_events_for_user(&ALICE, &BOB, &CAROL);
+        let room =
+            legacy_create_call_with_member_events_for_user(User::Alice, User::Bob, User::Carol);
 
-        let b_empty_membership = legacy_member_state_event(Vec::new(), event_id!("$1234_1"), &BOB);
+        let b_empty_membership =
+            legacy_member_state_event(Vec::new(), event_id!("$1234_1"), User::Bob);
         let c_empty_membership =
-            legacy_member_state_event(Vec::new(), event_id!("$12345_1"), &CAROL);
+            legacy_member_state_event(Vec::new(), event_id!("$12345_1"), User::Carol);
 
         receive_state_events(&room, vec![b_empty_membership, c_empty_membership]);
 
@@ -347,33 +355,33 @@ mod tests {
     fn consensus_setup(
         alice_intent: Option<CallIntent>,
         bob_intent: Option<CallIntent>,
-        call_intent: Option<CallIntent>,
+        carol_intent: Option<CallIntent>,
     ) -> Vec<Raw<AnySyncStateEvent>> {
         let alice_membership = session_member_state_event_with_intent(
             event_id!("$1"),
-            user_id!("@alice:server.name"),
+            User::Alice,
             InitData { device_id: device_id!("AAA0"), minutes_ago: 1 }.into(),
             alice_intent,
         );
         let bob_membership = session_member_state_event_with_intent(
             event_id!("$1"),
-            user_id!("@bob:server.name"),
+            User::Bob,
             InitData { device_id: device_id!("BAA0"), minutes_ago: 1 }.into(),
             bob_intent,
         );
-        let carl_membership = session_member_state_event_with_intent(
+        let carol_membership = session_member_state_event_with_intent(
             event_id!("$2"),
-            user_id!("@carl:server.name"),
+            User::Carol,
             InitData { device_id: device_id!("CAA0"), minutes_ago: 1 }.into(),
-            call_intent,
+            carol_intent,
         );
-        vec![alice_membership, bob_membership, carl_membership]
+        vec![alice_membership, bob_membership, carol_membership]
     }
 
     #[test]
     fn test_consensus_intent() {
         let test_cases = vec![
-            // (alice_intent, bob_intent, carl_intent, expected_consensus, description)
+            // (alice_intent, bob_intent, carol_intent, expected_consensus, description)
             (None, None, None, CallIntentConsensus::None, "no intents"),
             (
                 Some(CallIntent::Audio),
@@ -453,40 +461,40 @@ mod tests {
             ),
         ];
 
-        for (alice, bob, carl, expected, description) in test_cases {
+        for (alice, bob, carol, expected, description) in test_cases {
             let (_, room) = make_room_test_helper(RoomState::Joined);
-            receive_state_events(&room, consensus_setup(alice, bob, carl));
+            receive_state_events(&room, consensus_setup(alice, bob, carol));
             let consensus_intent = room.active_room_call_consensus_intent();
             assert_eq!(expected, consensus_intent, "Failed case: {}", description);
         }
     }
 
     #[test]
-    fn is_device_in_active_room_call_matches_own_device_only() {
+    fn test_is_device_in_active_room_call_matches_own_device_only() {
         let (_, room) = make_room_test_helper(RoomState::Joined);
 
         let alice_a = session_member_state_event(
             event_id!("$alice_a"),
-            &ALICE,
+            User::Alice,
             Some(InitData { device_id: device_id!("DEVICE_A"), minutes_ago: 1 }),
         );
         let alice_b = session_member_state_event(
             event_id!("$alice_b"),
-            &ALICE,
+            User::Alice,
             Some(InitData { device_id: device_id!("DEVICE_B"), minutes_ago: 1 }),
         );
         let bob_a = session_member_state_event(
             event_id!("$bob_a"),
-            &BOB,
+            User::Bob,
             Some(InitData { device_id: device_id!("DEVICE_A"), minutes_ago: 1 }),
         );
 
         receive_state_events(&room, vec![alice_a, alice_b, bob_a]);
 
-        assert!(room.is_device_in_active_room_call(&ALICE, device_id!("DEVICE_A")));
-        assert!(room.is_device_in_active_room_call(&ALICE, device_id!("DEVICE_B")));
-        assert!(!room.is_device_in_active_room_call(&ALICE, device_id!("DEVICE_C")));
-        assert!(room.is_device_in_active_room_call(&BOB, device_id!("DEVICE_A")));
-        assert!(!room.is_device_in_active_room_call(&BOB, device_id!("DEVICE_B")));
+        assert!(room.is_device_in_active_room_call(User::Alice.into(), device_id!("DEVICE_A")));
+        assert!(room.is_device_in_active_room_call(User::Alice.into(), device_id!("DEVICE_B")));
+        assert!(!room.is_device_in_active_room_call(User::Alice.into(), device_id!("DEVICE_C")));
+        assert!(room.is_device_in_active_room_call(User::Bob.into(), device_id!("DEVICE_A")));
+        assert!(!room.is_device_in_active_room_call(User::Bob.into(), device_id!("DEVICE_B")));
     }
 }

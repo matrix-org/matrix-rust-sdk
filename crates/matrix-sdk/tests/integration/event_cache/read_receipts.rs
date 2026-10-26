@@ -24,14 +24,17 @@
 //! This avoids potential race conditions where a sync could be done, but the
 //! processing by the event cache isn't, at the time we check the unread counts.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use matrix_sdk::{
-    ThreadingSupport, assert_let_timeout,
+    MemoryStore as MemoryStateStore, ThreadingSupport, assert_let_timeout,
+    cross_process_lock::CrossProcessLockConfig,
     event_cache::RoomEventCacheUpdate,
     linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
+    store::StoreConfig,
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
+use matrix_sdk_base::event_cache::store::{EventCacheStore, MemoryStore};
 use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
     event_id,
@@ -50,13 +53,12 @@ async fn test_unread_count_new_message_no_receipt() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -82,14 +84,13 @@ async fn test_unread_count_new_message_with_known_receipt() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    client.event_cache().subscribe().unwrap();
-
     let own_user_id = client.user_id().unwrap();
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -127,14 +128,13 @@ async fn test_unread_count_implicit_receipt_own_message() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
     let own_user_id = client.user_id().unwrap();
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -166,14 +166,13 @@ async fn test_unread_count_receipt_only_no_new_message() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
     let own_user_id = client.user_id().unwrap();
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -217,14 +216,13 @@ async fn test_unread_count_pending_receipt() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
     let own_user_id = client.user_id().unwrap();
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -288,13 +286,12 @@ async fn test_unread_count_accumulates_across_syncs() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -334,13 +331,12 @@ async fn test_state_event_does_not_increment_unread() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id);
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -367,13 +363,12 @@ async fn test_reaction_does_not_increment_unread() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -399,13 +394,12 @@ async fn test_redaction_does_not_increment_unread() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -435,13 +429,12 @@ async fn test_gappy_sync_keeps_then_next_sync_resets_unread_count() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -503,13 +496,12 @@ async fn test_mentions_increments_unread_mentions() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -548,14 +540,13 @@ async fn test_compute_unread_counts_considers_active_receipt() {
     let client = server.client_builder().build().await;
     let own_user_id = client.user_id().unwrap();
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     let room = server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -623,14 +614,13 @@ async fn test_select_best_receipt_considers_thread_config() {
         .await;
     let own_user_id = client.user_id().unwrap();
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     let room = server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -667,14 +657,13 @@ async fn test_unread_counts_updated_after_duplicate_only_sync_response() {
     let client = server.client_builder().build().await;
     let own_user_id = client.user_id().unwrap();
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     let room = server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -735,14 +724,13 @@ async fn test_compute_unread_counts_triggers_backpaginations() {
         .await;
     let own_user_id = client.user_id().unwrap();
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     let room = server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -751,12 +739,11 @@ async fn test_compute_unread_counts_triggers_backpaginations() {
     server
         .mock_room_messages()
         .match_from("prev_batch")
-        .ok(RoomMessagesResponseTemplate::default()
-            .events(vec![
-                f.text_msg("hello 2").event_id(event_id!("$2")),
-                f.text_msg("hello 1").event_id(event_id!("$1")),
-            ])
-            .with_delay(Duration::from_millis(100)))
+        .with_delay(Duration::from_millis(100))
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            f.text_msg("hello 2").event_id(event_id!("$2")),
+            f.text_msg("hello 1").event_id(event_id!("$1")),
+        ]))
         .mock_once()
         .mount()
         .await;
@@ -804,31 +791,68 @@ async fn test_compute_unread_counts_triggers_backpaginations() {
 /// is selected for unread count computation.
 #[async_test]
 async fn test_read_receipt_from_store_used_as_latest_active() {
+    let state_store = Arc::new(MemoryStateStore::new());
+    let event_cache_store = MemoryStore::new();
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
 
-    let own_user_id = client.user_id().unwrap();
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     // Important test note: the read receipt must be in the state store _before_
     // the event cache is subscribed to, so that it's not marked as active at
     // start.
-    let room = server
-        .sync_room(
-            &client,
-            JoinedRoomBuilder::new(room_id).add_receipt(
-                f.read_receipts()
-                    .add(event_id!("$2"), own_user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
-                    .into_event(),
-            ),
-        )
+    {
+        let client = server
+            .client_builder()
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                        holder_name: "foo".to_owned(),
+                    })
+                    .state_store(state_store.clone())
+                    .event_cache_store(event_cache_store.clone()),
+                )
+            })
+            .build()
+            .await;
+
+        let own_user_id = client.user_id().unwrap();
+
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id).add_receipt(
+                    f.read_receipts()
+                        .add(
+                            event_id!("$2"),
+                            own_user_id,
+                            ReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .into_event(),
+                ),
+            )
+            .await;
+    }
+
+    // Now, let's rebuilt a client with the same event cache store.
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                    holder_name: "foo".to_owned(),
+                })
+                .state_store(state_store)
+                .event_cache_store(event_cache_store),
+            )
+        })
+        .build()
         .await;
 
-    // Then, subscribe the event cache.
-    client.event_cache().subscribe().unwrap();
-
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let room = client.get_room(room_id).unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -852,37 +876,74 @@ async fn test_read_receipt_from_store_used_as_latest_active() {
 /// active may be selected for the unread count computation.
 #[async_test]
 async fn test_all_read_receipts_from_store_used_as_latest_active() {
+    let state_store = Arc::new(MemoryStateStore::new());
+    let event_cache_store = MemoryStore::new();
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
 
-    let own_user_id = client.user_id().unwrap();
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     // Important test note: the read receipt must be in the state store _before_
     // the event cache is subscribed to, so that it's not marked as active at
     // start.
-    let room = server
-        .sync_room(
-            &client,
-            JoinedRoomBuilder::new(room_id).add_receipt(
-                f.read_receipts()
-                    .add(event_id!("$2"), own_user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
-                    .add(
-                        event_id!("$3"),
-                        own_user_id,
-                        ReceiptType::ReadPrivate,
-                        ReceiptThread::Main,
-                    )
-                    .into_event(),
-            ),
-        )
+    {
+        let client = server
+            .client_builder()
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                        holder_name: "foo".to_owned(),
+                    })
+                    .state_store(state_store.clone())
+                    .event_cache_store(event_cache_store.clone()),
+                )
+            })
+            .build()
+            .await;
+
+        let own_user_id = client.user_id().unwrap();
+
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id).add_receipt(
+                    f.read_receipts()
+                        .add(
+                            event_id!("$2"),
+                            own_user_id,
+                            ReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .add(
+                            event_id!("$3"),
+                            own_user_id,
+                            ReceiptType::ReadPrivate,
+                            ReceiptThread::Main,
+                        )
+                        .into_event(),
+                ),
+            )
+            .await;
+    }
+
+    // Now, let's rebuilt a client with the same event cache store.
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                    holder_name: "foo".to_owned(),
+                })
+                .state_store(state_store)
+                .event_cache_store(event_cache_store.clone()),
+            )
+        })
+        .build()
         .await;
 
-    // Then, subscribe the event cache.
-    client.event_cache().subscribe().unwrap();
-
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let room = client.get_room(room_id).unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -907,64 +968,61 @@ async fn test_all_read_receipts_from_store_used_as_latest_active() {
 /// network.
 #[async_test]
 async fn test_compute_unread_counts_after_backfill_from_disk() {
-    let server = MatrixMockServer::new().await;
-    let client = server
-        .client_builder()
-        .on_builder(|builder| builder.with_enable_automatic_back_pagination(true))
-        .build()
-        .await;
-    let own_user_id = client.user_id().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     // Set up the event cache store with two item chunks, and no gap: only the
     // last one will be loaded in memory, the first one has to be paginated in
     // from the store.
-    {
-        let event_cache_store = client.event_cache_store().lock().await.unwrap();
+    let event_cache_store = MemoryStore::new();
+    event_cache_store
+        .handle_linked_chunk_updates(
+            LinkedChunkId::Room(room_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(0), 0),
+                    items: vec![
+                        f.text_msg("hello 1").event_id(event_id!("$1")).into_event(),
+                        f.text_msg("hello 2").event_id(event_id!("$2")).into_event(),
+                        f.text_msg("hello 3").event_id(event_id!("$3")).into_event(),
+                    ],
+                },
+                Update::NewItemsChunk {
+                    previous: Some(ChunkIdentifier::new(0)),
+                    new: ChunkIdentifier::new(1),
+                    next: None,
+                },
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(1), 0),
+                    items: vec![
+                        f.text_msg("hello 4").event_id(event_id!("$4")).into_event(),
+                        f.text_msg("hello 5").event_id(event_id!("$5")).into_event(),
+                    ],
+                },
+            ],
+        )
+        .await
+        .unwrap();
 
-        event_cache_store
-            .as_clean()
-            .unwrap()
-            .handle_linked_chunk_updates(
-                LinkedChunkId::Room(room_id),
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(0),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(0), 0),
-                        items: vec![
-                            f.text_msg("hello 1").event_id(event_id!("$1")).into_event(),
-                            f.text_msg("hello 2").event_id(event_id!("$2")).into_event(),
-                            f.text_msg("hello 3").event_id(event_id!("$3")).into_event(),
-                        ],
-                    },
-                    Update::NewItemsChunk {
-                        previous: Some(ChunkIdentifier::new(0)),
-                        new: ChunkIdentifier::new(1),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(1), 0),
-                        items: vec![
-                            f.text_msg("hello 4").event_id(event_id!("$4")).into_event(),
-                            f.text_msg("hello 5").event_id(event_id!("$5")).into_event(),
-                        ],
-                    },
-                ],
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.with_enable_automatic_back_pagination(true).store_config(
+                StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                    holder_name: "foo".to_owned(),
+                })
+                .event_cache_store(event_cache_store),
             )
-            .await
-            .unwrap();
-    }
-
-    client.event_cache().subscribe().unwrap();
+        })
+        .build()
+        .await;
+    let own_user_id = client.user_id().unwrap();
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (initial_events, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
 
     // Only the last chunk is loaded: $4 and $5. $1, $2 and $3 are in the store.

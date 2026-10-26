@@ -26,7 +26,9 @@ use matrix_sdk::{
         RoomRelationsResponseTemplate,
     },
 };
-use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{
+    ALICE, BOB, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
+};
 use matrix_sdk_ui::timeline::{
     EventSendState, TimelineBuilder, TimelineEventFocusThreadMode, TimelineFocus,
 };
@@ -244,7 +246,7 @@ async fn test_live_aggregations_are_reflected_on_focused_timelines() {
     assert_eq!(event_item.content().as_message().unwrap().body(), "yolo");
     let reactions = event_item.reactions().clone();
     assert_eq!(reactions.len(), 1);
-    let _ = reactions["👍"][*BOB];
+    let _ = reactions["👍"][&User::Bob];
 }
 
 #[async_test]
@@ -859,7 +861,6 @@ async fn test_focused_timeline_filters_out_threaded_events() {
             start: "prev_token_1".to_owned(),
             end: Some("prev_token_2".to_owned()),
             state: Vec::new(),
-            delay: None,
         })
         .mock_once()
         .mount()
@@ -892,7 +893,6 @@ async fn test_focused_timeline_filters_out_threaded_events() {
             start: "next_token_1".to_owned(),
             end: Some("next_token_2".to_owned()),
             state: Vec::new(),
-            delay: None,
         })
         .mock_once()
         .mount()

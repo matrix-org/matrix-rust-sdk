@@ -26,11 +26,14 @@
 //!
 //! [NSE]: https://developer.apple.com/documentation/usernotifications/unnotificationserviceextension
 
-use std::{pin::Pin, time::Duration};
+use std::{
+    pin::{Pin, pin},
+    time::Duration,
+};
 
 use async_stream::stream;
 use futures_core::stream::Stream;
-use futures_util::{StreamExt, pin_mut};
+use futures_util::StreamExt;
 use matrix_sdk::{Client, LEASE_DURATION_MS, SlidingSync, sleep::sleep};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use ruma::{api::client::sync::sync_events::v5 as http, assign};
@@ -181,7 +184,7 @@ impl EncryptionSyncService {
 
             let sync = self.sliding_sync.sync();
 
-            pin_mut!(sync);
+            let mut sync = pin!(sync);
 
             loop {
                 match sync.next().await {
@@ -235,7 +238,7 @@ impl EncryptionSyncService {
 
             let sync = self.sliding_sync.sync();
 
-            pin_mut!(sync);
+            let mut sync = pin!(sync);
 
             loop {
                 match self.next_sync_with_lock(&mut sync).await? {

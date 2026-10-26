@@ -32,7 +32,7 @@ use matrix_sdk_base::{
     crypto::{decrypt_room_key_export, types::events::UtdCause},
     deserialized_responses::{TimelineEvent, UnableToDecryptReason},
 };
-use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use ruma::{
     RoomId, UserId, assign, event_id,
     events::room::encrypted::{
@@ -82,7 +82,6 @@ pub(super) async fn get_client(
     } else {
         server.client_builder().logged_in_with_oauth().build().await
     };
-    client.event_cache().subscribe().unwrap();
 
     let event_factory = EventFactory::new().room(room_id);
     let member_event = event_factory.member(client.user_id().unwrap()).display_name("Alice");
@@ -143,7 +142,7 @@ async fn test_retry_message_decryption() {
             ),
             None,
         ))
-        .sender(&BOB);
+        .sender(User::Bob);
 
     server
         .mock_sync()
@@ -255,7 +254,7 @@ async fn test_false_positive_late_decryption_regression() {
             ),
             None,
         ))
-        .sender(&BOB);
+        .sender(User::Bob);
 
     server
         .mock_sync()
@@ -340,7 +339,8 @@ async fn test_retry_edit_decryption() {
         }
         .into(),
     );
-    let event = event_factory.event(RoomEncryptedEventContent::new(encrypted, None)).sender(&BOB);
+    let event =
+        event_factory.event(RoomEncryptedEventContent::new(encrypted, None)).sender(User::Bob);
 
     server
         .mock_sync()
@@ -377,7 +377,7 @@ async fn test_retry_edit_decryption() {
             encrypted,
             Some(Relation::Replacement(Replacement::new(event_id))),
         ))
-        .sender(&BOB);
+        .sender(User::Bob);
 
     server
         .mock_sync()
@@ -475,7 +475,7 @@ async fn test_retry_edit_and_more() {
                  mBZdKIaqDTUBFvcvbn2gQaWtUipQdJQRKyv2h0AWveVkv75lp5hRb7jolCi08oMX8cM+V3Zzyi7\
                  mlPAzZjDz0PaRbQwfbMTTHkcL7TZybBi4vLX4f5ZR2Iiysc7gw",
         ))
-        .sender(&BOB)
+        .sender(User::Bob)
         .event_id(event_id!("$event1:termina.org.uk"));
 
     server
@@ -501,7 +501,7 @@ async fn test_retry_edit_and_more() {
 
     let event = event_factory
         .event(assign!(msg2, {relates_to: Some(Relation::Replacement(Replacement::new(event_id)))}))
-        .sender(&BOB)
+        .sender(User::Bob)
         .event_id(event_id!("$event2:termina.org.uk"));
     let second_event = event_factory
         .event(encrypted_message(
@@ -510,7 +510,7 @@ async fn test_retry_edit_and_more() {
                  2r/fEvAW/9QB+N6fX4g9729bt5ftXRqa5QI7NA351RNUveRHxVvx+2x0WJArQjYGRk7tMS2rUto\
                  IYt2ZY17nE1UJjN7M87STnCF9c9qy4aGNqIpeVIht6XbtgD7gQ",
         ))
-        .sender(&BOB)
+        .sender(User::Bob)
         .event_id(event_id!("$event3:termina.org.uk"));
     server
         .mock_sync()
@@ -620,7 +620,7 @@ async fn test_retry_message_decryption_highlighted() {
         ),
         None,
     );
-    let event = event_factory.event(content).sender(&BOB);
+    let event = event_factory.event(content).sender(User::Bob);
 
     server
         .mock_sync()
@@ -807,9 +807,10 @@ async fn test_retry_decryption_updates_reply() {
             None,
         ))
         .event_id(original_event_id)
-        .sender(&BOB);
+        .sender(User::Bob);
 
-    let reply = event_factory.text_msg("well said!").reply_to(original_event_id).sender(&ALICE);
+    let reply =
+        event_factory.text_msg("well said!").reply_to(original_event_id).sender(User::Alice);
 
     server
         .mock_sync()

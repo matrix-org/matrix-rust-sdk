@@ -249,6 +249,7 @@ async fn test_shared_history_out_of_order() {
 
     matrix_mock_server
         .mock_room_event()
+        .expect_any_access_token()
         .room(room_id)
         .match_event_id()
         .ok(TimelineEvent::from_utd(
@@ -379,6 +380,7 @@ async fn test_shared_history_crash_before_import() {
 
     matrix_mock_server
         .mock_room_event()
+        .expect_any_access_token()
         .room(room_id)
         .match_event_id()
         .ok(TimelineEvent::from_utd(

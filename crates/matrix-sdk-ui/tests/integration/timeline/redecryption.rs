@@ -1,7 +1,6 @@
-use std::{assert_matches, sync::Arc};
+use std::{assert_matches, pin::pin, sync::Arc};
 
 use eyeball_im::VectorDiff;
-use futures_util::pin_mut;
 use matrix_sdk::{
     assert_next_with_timeout, encryption::EncryptionSettings, test_utils::mocks::MatrixMockServer,
 };
@@ -113,7 +112,7 @@ async fn test_redecryption(
         bob_room.timeline().await.expect("We should be able to build a timeline for the room");
     let (initial, stream) = timeline.subscribe().await;
     assert!(initial.is_empty(), "Initially we have an empty timeline");
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     // Let us retrieve the captured event and to-device message.
     let event = event_receiver.await.expect("Alice should have sent the event by now");
