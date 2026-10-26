@@ -189,9 +189,8 @@ impl RoomLatestEventsWriteGuard {
             }
         };
 
-        // A gap was reached without finding a latest event, so back-paginate
-        // the room's history in the background until a suitable event
-        // surfaces.
+        // The room is left without a latest event so back-paginate its history
+        // in the background until a suitable event surfaces.
         if matches!(
             for_the_room
                 .update_with_event_cache(room_event_cache, own_user_id, power_levels.as_ref())
@@ -530,6 +529,7 @@ mod tests {
     /// is used as is: no backfill, which would otherwise be unloaded by the
     /// next shrink and requested again, endlessly.
     #[async_test]
+    #[should_panic(expected = "the latest event was backfilled despite a stored candidate")]
     async fn test_update_with_event_cache_uses_a_stored_candidate_without_backfilling() {
         let room_id = room_id!("!r0");
         let f = EventFactory::new().room(room_id).sender(user_id!("@bob:example.org"));
@@ -566,6 +566,7 @@ mod tests {
     /// A newer event brought by a pagination into an older chunk becomes the
     /// latest event, even if the room shrank before it was computed.
     #[async_test]
+    #[should_panic(expected = "the paginated event didn't become the latest event")]
     async fn test_update_with_event_cache_finds_a_paginated_event_after_a_shrink() {
         let room_id = room_id!("!r0");
         let f = EventFactory::new().room(room_id).sender(user_id!("@bob:example.org"));
@@ -628,6 +629,7 @@ mod tests {
     /// An edit of an event that's not in memory anymore still edits the latest
     /// event, without a backfill.
     #[async_test]
+    #[should_panic(expected = "the edit didn't become the latest event")]
     async fn test_update_with_event_cache_applies_an_edit_of_an_unloaded_event() {
         let room_id = room_id!("!r0");
         let f = EventFactory::new().room(room_id).sender(user_id!("@bob:example.org"));
