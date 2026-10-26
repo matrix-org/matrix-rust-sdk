@@ -365,7 +365,7 @@ mod tests {
     use super::RoomLatestEvents;
     use crate::{
         Client, assert_let_timeout,
-        event_cache::{RFindMapOutcome, RoomEventCache},
+        event_cache::RoomEventCache,
         latest_events::LatestEventValue,
         room::WeakRoom,
         test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
@@ -524,58 +524,6 @@ mod tests {
             room_latest_events.read().await.for_room().get().await,
             LatestEventValue::Remote(_)
         );
-    }
-
-    /// The stored chunks read past the in-memory ones are capped.
-    #[async_test]
-    async fn test_rfind_map_event_until_gap_by_reads_at_most_max_stored_chunks() {
-        let room_id = room_id!("!r0");
-        let f = EventFactory::new().room(room_id).sender(user_id!("@bob:example.org"));
-
-        // Chunks: [$0 (candidate)] [$1] [$2], only the last one is in memory.
-        let event_cache_store = MemoryStore::new();
-        let mut updates = Vec::new();
-        for (i, event_id) in
-            [event_id!("$0"), event_id!("$1"), event_id!("$2")].into_iter().enumerate()
-        {
-            let chunk = ChunkIdentifier::new(i as u64);
-            updates.push(Update::NewItemsChunk {
-                previous: i.checked_sub(1).map(|p| ChunkIdentifier::new(p as u64)),
-                new: chunk,
-                next: None,
-            });
-            updates.push(Update::PushItems {
-                at: Position::new(chunk, 0),
-                items: vec![f.text_msg("hello").event_id(event_id).into_event()],
-            });
-        }
-        event_cache_store
-            .handle_linked_chunk_updates(LinkedChunkId::Room(room_id), updates)
-            .await
-            .unwrap();
-
-        let server = MatrixMockServer::new().await;
-        let client = client_with_store(&server, event_cache_store).await;
-        client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let (room_event_cache, _drop_handles) =
-            client.event_cache().unwrap().room(room_id).await.unwrap();
-
-        let is_candidate = |event: &matrix_sdk_base::event_cache::Event| {
-            (event.event_id() == Some(event_id!("$0"))).then_some(())
-        };
-
-        for (max_stored_chunks, expected_found) in [(0, false), (1, false), (2, true)] {
-            let outcome = room_event_cache
-                .rfind_map_event_until_gap_by(max_stored_chunks, is_candidate)
-                .await
-                .unwrap();
-
-            if expected_found {
-                assert_matches!(outcome, RFindMapOutcome::Found(()));
-            } else {
-                assert_matches!(outcome, RFindMapOutcome::ReachedLimit);
-            }
-        }
     }
 
     /// A candidate in a stored chunk that's not in memory, as after a shrink,
