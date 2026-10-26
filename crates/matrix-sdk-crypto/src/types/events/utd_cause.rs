@@ -93,6 +93,9 @@ pub enum UtdCause {
     ///
     /// Expected message to user: "You need to verify this device".
     HistoricalMessageAndDeviceIsUnverified = 8,
+
+    /// This event is malformed in some way.
+    Malformed = 9,
 }
 
 /// MSC4115 membership info in the unsigned area.
@@ -184,6 +187,12 @@ impl UtdCause {
             SenderIdentityNotTrusted(VerificationLevel::UnsignedDevice) => UtdCause::UnsignedDevice,
 
             SenderIdentityNotTrusted(VerificationLevel::None(_)) => UtdCause::UnknownDevice,
+
+            MalformedEncryptedEvent
+            | PayloadDeserializationFailure
+            | MismatchedIdentityKeys
+            | MegolmDecryptionFailure
+            | SenderIdentityNotTrusted(VerificationLevel::MismatchedSender) => UtdCause::Malformed,
 
             _ => UtdCause::Unknown,
         }
@@ -335,21 +344,6 @@ mod tests {
     }
 
     #[test]
-    fn test_if_reason_is_not_missing_key_we_guess_unknown_even_if_membership_is_leave() {
-        // If the UnableToDecryptReason is other than MissingMegolmSession or
-        // UnknownMegolmMessageIndex, we do not know the reason for the failure
-        // even if membership=leave.
-        assert_eq!(
-            UtdCause::determine(
-                &raw_event(json!({ "unsigned": { "membership": "leave" } })),
-                device_old(),
-                &malformed_encrypted_event()
-            ),
-            UtdCause::Unknown
-        );
-    }
-
-    #[test]
     fn test_if_unstable_prefix_membership_is_leave_we_guess_membership() {
         // Before MSC4115 is merged, we support the unstable prefix too.
         assert_eq!(
@@ -429,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn test_malformed_events_are_never_expected_utds() {
+    fn test_malformed_events_have_malformed_cause() {
         // The event was malformed.
         let info = malformed_encrypted_event();
 
@@ -441,12 +435,12 @@ mod tests {
 
         // So this could be expected historical like the previous test, but
         // because the encrypted event is malformed, that takes precedence, and
-        // it's unexpected.
-        assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Unknown);
+        // the final cause is malformed.
+        assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Malformed);
 
         // Same for decryption failures
         let info = megolm_decryption_failure();
-        assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Unknown);
+        assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Malformed);
     }
 
     #[test]
