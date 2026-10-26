@@ -170,6 +170,8 @@ async fn test_active_call_info() {
     let alice_membership = event_id!("$alice-joined");
     let notification_timestamp = MilliSecondsSinceUnixEpoch::now();
 
+    // Mock the member events for Bob and Carol. We don't set the deprecated
+    // livekit_alias for Carol to ensure the SDK can handle its absence.
     let f = EventFactory::new();
     server
         .sync_room(
@@ -183,12 +185,15 @@ async fn test_active_call_info() {
                 )
                 .add_state_event(
                     f.call_membership_state(BOB.to_owned(), "BOB_DEVICE".to_owned())
-                        .set_livekit_focus(room_id.into(), "https://livekit.localhow".to_owned())
+                        .set_livekit_focus(
+                            Some(room_id.into()),
+                            "https://livekit.localhow".to_owned(),
+                        )
                         .event_id(bob_membership),
                 )
                 .add_state_event(
                     f.call_membership_state(CAROL.to_owned(), "CAROL_DEVICE".to_owned())
-                        .set_livekit_focus(room_id.into(), "https://livekit.localhow".to_owned())
+                        .set_livekit_focus(None, "https://livekit.localhow".to_owned())
                         .event_id(carol_membership),
                 ),
         )
@@ -224,7 +229,7 @@ async fn test_active_call_info() {
             &client,
             JoinedRoomBuilder::new(room_id).add_state_event(
                 f.call_membership_state(ALICE.to_owned(), "ALICE_DEVICE".to_owned())
-                    .set_livekit_focus(room_id.into(), "https://livekit.localhow".to_owned())
+                    .set_livekit_focus(Some(room_id.into()), "https://livekit.localhow".to_owned())
                     .event_id(alice_membership),
             ),
         )
@@ -319,7 +324,7 @@ async fn test_active_call_info_is_restored_when_the_timeline_is_rebuilt() {
                     .add_state_event(
                         f.call_membership_state(BOB.to_owned(), "BOB_DEVICE".to_owned())
                             .set_livekit_focus(
-                                room_id.into(),
+                                Some(room_id.into()),
                                 "https://livekit.example.org".to_owned(),
                             )
                             .event_id(event_id!("$bob-joined")),
@@ -423,7 +428,7 @@ async fn test_only_update_notification_after_it_has_been_marked_as_last() {
             &client,
             JoinedRoomBuilder::new(room_id).add_state_event(
                 f.call_membership_state(BOB.to_owned(), "BOB_DEVICE".to_owned())
-                    .set_livekit_focus(room_id.into(), "https://livekit.localhow".to_owned())
+                    .set_livekit_focus(Some(room_id.into()), "https://livekit.localhow".to_owned())
                     .event_id(event_id!("$bob-joined")),
             ),
         )
@@ -500,7 +505,7 @@ async fn test_only_update_notification_after_it_has_been_marked_as_last() {
             &client,
             JoinedRoomBuilder::new(room_id).add_state_event(
                 f.call_membership_state(CAROL.to_owned(), "CAROL_DEVICE".to_owned())
-                    .set_livekit_focus(room_id.into(), "https://livekit.localhow".to_owned())
+                    .set_livekit_focus(Some(room_id.into()), "https://livekit.localhow".to_owned())
                     .event_id(event_id!("$carol-joined")),
             ),
         )

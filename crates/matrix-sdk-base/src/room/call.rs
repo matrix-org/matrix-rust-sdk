@@ -195,7 +195,7 @@ mod tests {
 
         let application = Application::Call(app_content);
         let foci_preferred = vec![Focus::Livekit(LivekitFocus::new(
-            "my_call_foci_alias".to_owned(),
+            Some("my_call_foci_alias".to_owned()),
             "https://lk.org".to_owned(),
         ))];
         let focus_active = ActiveFocus::Livekit(ActiveLivekitFocus::new());
@@ -240,7 +240,7 @@ mod tests {
                 ruma::events::call::member::CallScope::Room,
             )),
             vec![Focus::Livekit(LivekitFocus::new(
-                "my_call_foci_alias".to_owned(),
+                Some("my_call_foci_alias".to_owned()),
                 "https://lk.org".to_owned(),
             ))],
         )
