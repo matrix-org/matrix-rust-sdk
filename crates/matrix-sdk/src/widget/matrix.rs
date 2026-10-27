@@ -278,7 +278,7 @@ impl MatrixDriver {
             ),
 
             (None, Some(delay)) => {
-                match self.room.send_raw(&type_str, content.clone()).with_delay(delay).await {
+                match self.room.send_raw(&type_str, content.clone()).into_delayed(delay).await {
                     Ok(response) => return Ok(response.into()),
                     Err(error) => {
                         if !self.can_fall_back_to_legacy_endpoint(&error).await? {

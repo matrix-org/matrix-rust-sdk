@@ -247,7 +247,7 @@ impl<'a> SendRawMessageLikeEvent<'a> {
     ///
     /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
     /// [MSC4354]: https://github.com/matrix-org/matrix-spec-proposals/pull/4354
-    pub fn with_delay(self, delay: Duration) -> SendDelayedRawMessageLikeEvent<'a> {
+    pub fn into_delayed(self, delay: Duration) -> SendDelayedRawMessageLikeEvent<'a> {
         SendDelayedRawMessageLikeEvent { inner: self, delay }
     }
 }
@@ -293,7 +293,7 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
     }
 }
 
-/// Future returned by [`SendRawMessageLikeEvent::with_delay`].
+/// Future returned by [`SendRawMessageLikeEvent::into_delayed`].
 #[allow(missing_debug_implementations)]
 pub struct SendDelayedRawMessageLikeEvent<'a> {
     inner: SendRawMessageLikeEvent<'a>,
