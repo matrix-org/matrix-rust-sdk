@@ -424,23 +424,32 @@ mod tests {
 
     #[test]
     fn test_malformed_events_have_malformed_cause() {
-        // The event was malformed.
-        let info = malformed_encrypted_event();
+        const MALFORMED_UTD_REASONS: &[UnableToDecryptReason] = &[
+            UnableToDecryptReason::MalformedEncryptedEvent,
+            UnableToDecryptReason::PayloadDeserializationFailure,
+            UnableToDecryptReason::MegolmDecryptionFailure,
+            UnableToDecryptReason::MismatchedIdentityKeys,
+            UnableToDecryptReason::SenderIdentityNotTrusted(VerificationLevel::MismatchedSender),
+        ];
 
-        // The device is new.
-        let mut context = device_new();
-
-        // There is no key storage backup on the server.
-        context.backup_exists_on_server = false;
-
-        // So this could be expected historical like the previous test, but
-        // because the encrypted event is malformed, that takes precedence, and
-        // the final cause is malformed.
-        assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Malformed);
-
-        // Same for decryption failures
-        let info = megolm_decryption_failure();
-        assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Malformed);
+        for reason in MALFORMED_UTD_REASONS.iter().cloned() {
+            // The event was malformed.
+            let info = UnableToDecryptInfo {
+                session_id: None,
+                reason,
+            };
+        
+            // The device is new.
+            let mut context = device_new();
+        
+            // There is no key storage backup on the server.
+            context.backup_exists_on_server = false;
+        
+            // So this could be expected historical like the previous test, but
+            // because the encrypted event is malformed, that takes precedence, and
+            // the final cause is malformed.
+            assert_eq!(UtdCause::determine(&utd_event(), context, &info), UtdCause::Malformed);
+        }
     }
 
     #[test]
@@ -573,25 +582,11 @@ mod tests {
             reason: UnableToDecryptReason::MissingMegolmSession { withheld_code: None },
         }
     }
-
-    fn malformed_encrypted_event() -> UnableToDecryptInfo {
-        UnableToDecryptInfo {
-            session_id: None,
-            reason: UnableToDecryptReason::MalformedEncryptedEvent,
-        }
-    }
-
+    
     fn unknown_megolm_message_index() -> UnableToDecryptInfo {
         UnableToDecryptInfo {
             session_id: None,
             reason: UnableToDecryptReason::UnknownMegolmMessageIndex,
-        }
-    }
-
-    fn megolm_decryption_failure() -> UnableToDecryptInfo {
-        UnableToDecryptInfo {
-            session_id: None,
-            reason: UnableToDecryptReason::MegolmDecryptionFailure,
         }
     }
 
