@@ -1,5 +1,6 @@
 //! Tests for the MSC4140 delayed-event API: `send_raw(..).into_delayed(..)`,
-//! `Room::send_delayed_state_event_raw` and `Room::update_delayed_event`.
+//! `send_state_event_raw(..).into_delayed(..)` and
+//! `Room::update_delayed_event`.
 
 use matrix_sdk::{
     ruma::api::client::delayed_events::update_delayed_event::UpdateAction,
@@ -155,7 +156,7 @@ async fn test_send_raw_into_delayed_in_encrypted_room() {
 }
 
 #[async_test]
-async fn test_send_delayed_state_event_raw() {
+async fn test_send_state_event_raw_into_delayed() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
@@ -176,12 +177,8 @@ async fn test_send_delayed_state_event_raw() {
         .await;
 
     let response = room
-        .send_delayed_state_event_raw(
-            "m.room.topic",
-            "",
-            json!({ "topic": "hello" }),
-            Duration::from_millis(1000),
-        )
+        .send_state_event_raw("m.room.topic", "", json!({ "topic": "hello" }))
+        .into_delayed(Duration::from_millis(1000))
         .await
         .unwrap();
 
