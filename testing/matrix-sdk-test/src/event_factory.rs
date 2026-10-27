@@ -15,7 +15,7 @@
 #![allow(missing_docs)]
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     sync::atomic::{AtomicU64, Ordering::SeqCst},
     time::Duration,
 };
@@ -37,6 +37,7 @@ use ruma::{
         RedactContent, RedactedMessageLikeEventContent, RedactedStateEventContent,
         RoomAccountDataEventContent, StateEvent, StateEventContent, StaticEventContent,
         StaticStateEventContent, StrippedStateEvent, SyncMessageLikeEvent, SyncStateEvent,
+        TimelineEventType,
         beacon::BeaconEventContent,
         beacon_info::BeaconInfoEventContent,
         call::{
@@ -1310,16 +1311,17 @@ impl EventFactory {
     /// Create a new `m.room.create` event.
     pub fn create(
         &self,
-        creator_user_id: &UserId,
+        creator: impl Into<OwnedUserId>,
         room_version: RoomVersionId,
     ) -> EventBuilder<RoomCreateEventContent> {
-        let mut event = self.event(RoomCreateEventContent::new_v1(creator_user_id.to_owned()));
+        let creator = creator.into();
+        let mut event = self.event(RoomCreateEventContent::new_v1(creator.clone()));
         event.content.room_version = room_version;
 
         if self.sender.is_some() {
             event.sender = self.sender.clone();
         } else {
-            event.sender = Some(creator_user_id.to_owned());
+            event.sender = Some(creator);
         }
 
         event.state_key = Some("".to_owned());
@@ -1327,21 +1329,11 @@ impl EventFactory {
         event
     }
 
-    /// Create a new `m.room.power_levels` event.
-    pub fn power_levels(
-        &self,
-        map: &mut BTreeMap<OwnedUserId, Int>,
-    ) -> EventBuilder<RoomPowerLevelsEventContent> {
-        let mut content = RoomPowerLevelsEventContent::new(&AuthorizationRules::V1);
-        content.users.append(map);
-        let mut event = self.event(content);
+    /// Create a new `m.room.power_levels` event with default values.
+    pub fn power_levels(&self) -> EventBuilder<RoomPowerLevelsEventContent> {
+        let mut event = self.event(RoomPowerLevelsEventContent::new(&AuthorizationRules::V1));
         event.state_key = Some("".to_owned());
         event
-    }
-
-    /// Create a new `m.room.power_levels` event with default values.
-    pub fn default_power_levels(&self) -> EventBuilder<RoomPowerLevelsEventContent> {
-        self.power_levels(&mut BTreeMap::new())
     }
 
     /// Create a new `m.room.server_acl` event.
@@ -1834,6 +1826,30 @@ impl EventBuilder<RtcNotificationEventContent> {
 
     pub fn lifetime(mut self, time_in_seconds: u64) -> Self {
         self.content.lifetime = Duration::from_secs(time_in_seconds);
+        self
+    }
+}
+
+impl EventBuilder<RoomPowerLevelsEventContent> {
+    /// Set the custom power levels of users.
+    pub fn set_users<I, U, P>(mut self, users: I) -> Self
+    where
+        I: IntoIterator<Item = (U, P)>,
+        U: Into<OwnedUserId>,
+        P: Into<Int>,
+    {
+        self.content.users = users.into_iter().map(|(user, pl)| (user.into(), pl.into())).collect();
+        self
+    }
+
+    /// Set the custom power levels of event types.
+    pub fn set_events<I, P>(mut self, events: I) -> Self
+    where
+        I: IntoIterator<Item = (TimelineEventType, P)>,
+        P: Into<Int>,
+    {
+        self.content.events =
+            events.into_iter().map(|(event_type, pl)| (event_type, pl.into())).collect();
         self
     }
 }

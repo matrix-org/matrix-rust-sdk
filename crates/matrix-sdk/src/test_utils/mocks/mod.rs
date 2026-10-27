@@ -1118,6 +1118,13 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, ReportRoomEventEndpoint)
     }
 
+    /// Creates a prebuilt mock for reporting a room.
+    pub fn mock_report_room(&self) -> MockEndpoint<'_, ReportRoomEndpoint> {
+        let mock =
+            Mock::given(method("POST")).and(path_regex(r"^/_matrix/client/v3/rooms/.*/report$"));
+        self.mock_endpoint(mock, ReportRoomEndpoint)
+    }
+
     /// Creates a prebuilt mock for the `/_matrix/client/versions` endpoint.
     pub fn mock_versions(&self) -> MockEndpoint<'_, VersionsEndpoint> {
         let mock = Mock::given(method("GET")).and(path_regex(r"^/_matrix/client/versions"));
@@ -3785,6 +3792,22 @@ pub struct ReportRoomEventEndpoint;
 
 impl<'a> MockEndpoint<'a, ReportRoomEventEndpoint> {
     /// Returns a successful typing update request.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
+    }
+}
+
+/// A prebuilt mock for a `POST /_matrix/client/v3/rooms/{roomId}/report`
+/// request.
+pub struct ReportRoomEndpoint;
+
+impl<'a> MockEndpoint<'a, ReportRoomEndpoint> {
+    /// Look for the given reason in the body.
+    pub fn with_reason(self, reason: &str) -> Self {
+        Self { mock: self.mock.and(body_partial_json(json!({ "reason": reason }))), ..self }
+    }
+
+    /// Returns a successful room report request.
     pub fn ok(self) -> MatrixMock<'a> {
         self.ok_empty_json()
     }

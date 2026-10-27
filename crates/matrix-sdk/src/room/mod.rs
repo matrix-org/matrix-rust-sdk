@@ -4970,7 +4970,7 @@ fn has_state_events_of_type(update: &RoomUpdate, event_type: &StateEventType) ->
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use std::{collections::BTreeMap, time::Duration};
+    use std::time::Duration;
 
     use matrix_sdk_base::{ComposerDraft, DraftAttachment, store::ComposerDraftType};
     use matrix_sdk_test::{
@@ -5044,7 +5044,7 @@ mod tests {
                         .add_state_event(
                             f.member(user_id!("@example:localhost")).display_name("example"),
                         )
-                        .add_state_event(f.default_power_levels())
+                        .add_state_event(f.power_levels())
                         .add_state_event(f.room_encryption()),
                 )
                 .build_sync_response();
@@ -5505,11 +5505,10 @@ mod tests {
         let room_id = room_id!("!a:b.c");
         let sender_id = client.user_id().expect("No session id");
         let f = EventFactory::new().room(room_id).sender(sender_id);
-        let mut user_map = BTreeMap::from([(sender_id.into(), 50.into())]);
 
         // Computing the power levels will need these 3 state events:
-        let room_create_event = f.create(sender_id, RoomVersionId::V1).state_key("").into();
-        let power_levels_event = f.power_levels(&mut user_map).state_key("").into();
+        let room_create_event = f.create(sender_id, RoomVersionId::V1).into();
+        let power_levels_event = f.power_levels().set_users([(sender_id, 50)]).into();
         let room_member_event = f.member(sender_id).into();
 
         // With only the room member event

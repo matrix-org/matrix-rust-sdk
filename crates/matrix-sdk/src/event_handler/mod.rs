@@ -823,7 +823,7 @@ mod tests {
                     .add_typing(
                         f.typing(vec![user_id!("@alice:matrix.org"), user_id!("@bob:example.com")]),
                     )
-                    .add_state_event(f.default_power_levels()),
+                    .add_state_event(f.power_levels()),
             )
             .add_invited_room(
                 InvitedRoomBuilder::new(room_id!("!test_invited:example.org")).add_state_event({
@@ -941,13 +941,13 @@ mod tests {
             .add_joined_room(
                 JoinedRoomBuilder::new(room_id_a)
                     .add_timeline_event(MEMBER_EVENT.clone())
-                    .add_state_event(f.default_power_levels())
+                    .add_state_event(f.power_levels())
                     .add_state_event(f.room_name("room name")),
             )
             .add_joined_room(
                 JoinedRoomBuilder::new(room_id_b)
                     .add_timeline_event(MEMBER_EVENT.clone())
-                    .add_state_event(f.default_power_levels()),
+                    .add_state_event(f.power_levels()),
             )
             .build_sync_response();
         client.process_sync(response).await?;
