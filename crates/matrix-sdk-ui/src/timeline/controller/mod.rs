@@ -733,7 +733,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             SendTarget::Edit => aggregations
                 .pending_send_handle(&target_id, |kind| matches!(kind, AggregationKind::Edit(_))),
             SendTarget::Redaction => aggregations
-                .pending_send_handle(&target_id, |kind| matches!(kind, AggregationKind::Redaction)),
+                .pending_send_handle(&target_id, |kind| matches!(kind, AggregationKind::Redaction { .. })),
             SendTarget::Reaction { key } => {
                 aggregations.pending_send_handle(&target_id, |kind| {
                     matches!(kind, AggregationKind::Reaction { key: k, sender, .. } if k == key && sender == own_user_id)
@@ -1336,10 +1336,11 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 self.handle_local_reaction(key, send_handle, applies_to).await;
             }
 
-            LocalEchoContent::Redaction { redacts, send_handle, send_error, .. } => {
+            LocalEchoContent::Redaction { redacts, reason, send_handle, send_error } => {
                 self.handle_local_redaction(
                     echo.transaction_id.clone(),
                     redacts,
+                    reason,
                     Some(send_handle),
                 )
                 .await;
@@ -1401,6 +1402,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         &self,
         txn_id: OwnedTransactionId,
         redacts: OwnedEventId,
+        reason: Option<String>,
         send_handle: Option<SendHandle>,
     ) {
         let mut state = self.state.write().await;
@@ -1410,7 +1412,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
         let aggregation = Aggregation::new_local(
             TimelineEventItemId::TransactionId(txn_id),
-            AggregationKind::Redaction,
+            AggregationKind::Redaction { reason },
             send_handle,
         );
 

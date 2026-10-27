@@ -22,8 +22,9 @@ use matrix_sdk_test::{User, async_test};
 use ruma::{
     event_id,
     events::{
-        StateEventContentChange, reaction::RedactedReactionEventContent,
-        room::message::OriginalSyncRoomMessageEvent,
+        StateEventContentChange,
+        reaction::RedactedReactionEventContent,
+        room::message::{OriginalSyncRoomMessageEvent, RedactedRoomMessageEventContent},
     },
     owned_event_id,
 };
@@ -152,6 +153,57 @@ async fn test_redact_replied_to_event_not_in_timeline() {
     // The placeholder takes the sender and timestamp from the reply's details.
     assert_eq!(replied_to_event.sender, User::Alice);
     assert_eq!(replied_to_event.timestamp, first_item.timestamp());
+}
+
+#[async_test]
+async fn test_redaction_reason_from_remote_redaction() {
+    let timeline = TestTimeline::new().await;
+    let mut stream = timeline.subscribe_events().await;
+
+    let f = &timeline.factory;
+
+    timeline.handle_live_event(f.text_msg("spam spam").sender(User::Alice)).await;
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    assert_matches!(item.redaction_reason(), None);
+
+    timeline
+        .handle_live_event(f.redaction(item.event_id().unwrap()).sender(User::Bob).reason("spam"))
+        .await;
+
+    let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    assert!(item.content().is_redacted());
+    assert_eq!(item.redaction_reason(), Some("spam"));
+}
+
+#[async_test]
+async fn test_redaction_reason_from_redacted_event() {
+    let timeline = TestTimeline::new().await;
+    let mut stream = timeline.subscribe_events().await;
+
+    let f = &timeline.factory;
+
+    // An event that was redacted before we saw it.
+    timeline
+        .handle_live_event(
+            f.redacted_with_reason(User::Bob, RedactedRoomMessageEventContent::new(), "spam")
+                .sender(User::Alice),
+        )
+        .await;
+
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    assert!(item.content().is_redacted());
+    assert_eq!(item.redaction_reason(), Some("spam"));
+
+    // Without a reason, there is none.
+    timeline
+        .handle_live_event(
+            f.redacted(User::Bob, RedactedRoomMessageEventContent::new()).sender(User::Alice),
+        )
+        .await;
+
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    assert!(item.content().is_redacted());
+    assert_matches!(item.redaction_reason(), None);
 }
 
 #[async_test]
@@ -314,10 +366,12 @@ async fn test_local_and_remote_echo_of_redaction() {
     assert!(original_json.is_some());
 
     // Now redact the message. We first emit the local echo of the redaction
-    // event. The timeline event should be marked as being under redaction.
-    timeline.handle_local_redaction(event_id.clone()).await;
+    // event. The timeline event should be marked as being under redaction, and
+    // our reason is known already.
+    timeline.handle_local_redaction(event_id.clone(), Some("bye")).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().is_redacted());
+    assert_eq!(item.redaction_reason(), Some("bye"));
     assert_let!(Some(unredacted_item) = item.unredacted_item);
     assert!(unredacted_item.original_json.is_some());
     assert_let!(
@@ -326,10 +380,11 @@ async fn test_local_and_remote_echo_of_redaction() {
     assert!(original_json.is_none());
 
     // Then comes the remote echo of the redaction event. The timeline event
-    // should now be redacted.
-    timeline.handle_live_event(f.redaction(&event_id).sender(User::Alice)).await;
+    // should now be redacted, with the same reason.
+    timeline.handle_live_event(f.redaction(&event_id).sender(User::Alice).reason("bye")).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().is_redacted());
+    assert_eq!(item.redaction_reason(), Some("bye"));
     assert!(item.unredacted_item.is_none());
     assert_let!(
         EventTimelineItemKind::Remote(RemoteEventTimelineItem { original_json, .. }) = item.kind
@@ -351,7 +406,7 @@ async fn test_local_redaction_send_state() {
     assert!(item.redaction_send_state().is_none());
 
     // A pending local redaction is applied reversibly and exposed.
-    let txn_id = timeline.handle_local_redaction(event_id.clone()).await;
+    let txn_id = timeline.handle_local_redaction(event_id.clone(), None).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().is_redacted());
     assert!(item.unredacted_item.is_some());
