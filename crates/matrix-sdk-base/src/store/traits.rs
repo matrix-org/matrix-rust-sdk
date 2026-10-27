@@ -252,8 +252,7 @@ pub trait StateStore: AsyncTraitDeps {
     /// # Arguments
     ///
     /// - `room_id` - The id of the room for which the room account data event
-    ///   should
-    /// be fetched.
+    ///   should be fetched.
     /// - `event_type` - The event type of the room account data event.
     async fn get_room_account_data_event(
         &self,
@@ -267,7 +266,6 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// - `room_id` - The id of the room for which the receipt should be
     ///   fetched.
-    ///
     /// - `receipt_type` - The type of the receipt.
     /// - `receipt_thread` - The thread a receipt applies to.
     /// - `user_id` - The id of the user for whom the receipt should be fetched.
@@ -285,7 +283,6 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// - `room_id` - The id of the room for which the receipts should be
     ///   fetched.
-    ///
     /// - `receipt_type` - The type of the receipts.
     /// - `receipt_thread` - The thread a receipt applies to.
     /// - `event_id` - The id of the event for which the receipts should be
@@ -2547,7 +2544,8 @@ pub fn compare_thread_subscription_bump_stamps(
             *new = Some(prev_bump);
         }
 
-        // If the previous bump stamp is newer than the new one, don't store the value at all.
+        // If the previous bump stamp is newer than the new one, don't store the
+        // value at all.
         (Some(prev_bump), Some(new_bump)) if *new_bump <= prev_bump => {
             return false;
         }
