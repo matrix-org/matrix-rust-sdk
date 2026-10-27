@@ -2079,6 +2079,62 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_ignored_user_list_restored_on_activaion() {
+        let store = StoreConfig::new(CrossProcessLockConfig::SingleProcess);
+        let user_id = user_id!("@alice:example.org");
+        let client_a =
+            BaseClient::new(store.clone(), ThreadingSupport::Disabled, DmRoomDefinition::default());
+
+        client_a
+            .activate(
+                SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
+                RoomLoadSettings::default(),
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
+            .await
+            .unwrap();
+
+        let mut subscriber = client_a.subscribe_to_ignore_user_list_changes();
+
+        // Current state is empty.
+        assert!(subscriber.get().is_empty());
+
+        // No further changes.
+        assert!(subscriber.next().now_or_never().is_none());
+
+        // Ignore a user.
+        let f = EventFactory::new();
+        let mut sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
+            .add_global_account_data(f.ignored_user_list([User::Bob.into()]))
+            .build_sync_response();
+        client_a.receive_sync_response(response).await.unwrap();
+
+        assert_let!(Some(ignored) = subscriber.next().await);
+        assert_eq!(ignored, [User::Bob]);
+
+        // Now start the second client.
+        let client_b =
+            BaseClient::new(store, ThreadingSupport::Disabled, DmRoomDefinition::default());
+
+        client_b
+            .activate(
+                SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
+                RoomLoadSettings::default(),
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
+            .await
+            .unwrap();
+
+        let mut subscriber = client_b.subscribe_to_ignore_user_list_changes();
+
+        assert_eq!(subscriber.get(), [User::Bob]);
+        assert!(subscriber.next().now_or_never().is_none());
+    }
+
+    #[async_test]
     async fn test_is_user_ignored() {
         let ignored_user_id = user_id!("@alice:example.org");
         let client = logged_in_base_client(None).await;
