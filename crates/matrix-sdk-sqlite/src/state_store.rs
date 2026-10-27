@@ -54,7 +54,7 @@ use crate::{
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt,
+        SqliteKeyValueStoreConnExt, SqliteTransactionExt,
     },
 };
 
@@ -509,6 +509,22 @@ impl SqliteStateStore {
         }
 
         if to == Some(16) {
+            return Ok(());
+        }
+
+        if from < 17 {
+            debug!("Upgrading database to version 17");
+            conn.with_transaction(move |txn| {
+                // Run the migration.
+                txn.execute_batch(include_str!(
+                    "../migrations/state_store/015_unavailable_global_profiles.sql"
+                ))?;
+                txn.set_db_version(17)
+            })
+            .await?;
+        }
+
+        if to == Some(17) {
             return Ok(());
         }
 
@@ -1325,6 +1341,7 @@ impl StateStore for SqliteStateStore {
                     stripped_state,
                     ambiguity_maps,
                     global_profiles,
+                    unavailable_global_profiles,
                 } = changes;
 
                 if let Some(sync_token) = sync_token {
@@ -1646,6 +1663,13 @@ impl StateStore for SqliteStateStore {
                                 "INSERT OR REPLACE INTO global_profiles (user_id, profile_data) VALUES (?, ?)",
                             )?
                             .execute((&user_id, serialized))?;
+
+                            // If the profile was marked as unavailable we can unmark it.
+                            // Both tables intentionally use the same key for a user.
+                            txn.prepare_cached(
+                                "DELETE FROM unavailable_global_profiles WHERE user_id = ?",
+                            )?
+                            .execute([&user_id])?;
                         }
                         // The user left all shared rooms, so drop their stored profile.
                         UserProfileUpdate::Dropped => {
@@ -1656,6 +1680,17 @@ impl StateStore for SqliteStateStore {
                             warn!(%raw_user_id, "Unhandled UserProfileUpdate variant; ignoring");
                         }
                     }
+                }
+
+                for (user_id, created_at) in unavailable_global_profiles {
+                    // We use the same key as `global_profiles`, so that a user can be
+                    // looked up in both tables with a single encoding.
+                    let user_id = this.encode_key(keys::GLOBAL_PROFILES, &user_id);
+                    let created_at_ts: u64 = created_at.0.into();
+                    txn.prepare_cached(
+                        "INSERT OR REPLACE INTO unavailable_global_profiles (user_id, created_at) VALUES (?, ?)",
+                    )?
+                    .execute((&user_id, created_at_ts))?;
                 }
 
                 Ok::<_, Error>(())
@@ -1807,6 +1842,61 @@ impl StateStore for SqliteStateStore {
                 ))
             })
             .collect()
+    }
+
+    async fn get_missing_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<Vec<&'a UserId>, Self::Error> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // A user's key is the same in both tables, see `save_changes`.
+        let user_keys: Vec<_> = user_ids
+            .iter()
+            .map(|user_id| self.encode_key(keys::GLOBAL_PROFILES, user_id))
+            .collect();
+
+        // Only select user IDs, don't load any profiles.
+        let found: BTreeSet<_> = self
+            .read()
+            .await?
+            .with_transaction({
+                let user_keys = user_keys.clone();
+                move |txn| -> Result<_> {
+                    let select_user_ids = |table: &'static str, user_ids: Vec<Key>| {
+                        txn.chunk_large_query_over(user_ids, None, move |txn, user_ids| {
+                            let sql = format!(
+                                "SELECT user_id FROM {table} WHERE user_id IN ({})",
+                                user_ids.host_parameters(),
+                            );
+
+                            let params = rusqlite::params_from_iter(user_ids);
+
+                            Ok(txn
+                                .prepare(&sql)?
+                                .query(params)?
+                                .mapped(|row| row.get(0))
+                                .collect::<Result<Vec<Vec<u8>>, _>>()?)
+                        })
+                    };
+
+                    let mut found = select_user_ids("global_profiles", user_keys.clone())?;
+                    found.extend(select_user_ids("unavailable_global_profiles", user_keys)?);
+                    Ok(found)
+                }
+            })
+            .await?
+            .into_iter()
+            .collect();
+
+        Ok(user_ids
+            .iter()
+            .zip(&user_keys)
+            .filter(|(_, key)| !found.contains(&key[..]))
+            .map(|(user_id, _)| &**user_id)
+            .collect())
     }
 
     async fn get_user_ids(

@@ -184,6 +184,7 @@ mod keys {
     pub const ROOM_EVENT_RECEIPTS: &str = "room_event_receipts";
 
     pub const GLOBAL_PROFILES: &str = "global_profiles";
+    pub const UNAVAILABLE_GLOBAL_PROFILES: &str = "unavailable_global_profiles";
 
     pub const CUSTOM: &str = "custom";
     pub const KV: &str = "kv";
@@ -206,6 +207,7 @@ mod keys {
         THREAD_SUBSCRIPTIONS,
         DEPENDENT_SEND_QUEUE,
         GLOBAL_PROFILES,
+        UNAVAILABLE_GLOBAL_PROFILES,
         CUSTOM,
         KV,
     ];
@@ -777,6 +779,11 @@ impl_state_store!({
             (!changes.room_account_data.is_empty(), keys::ROOM_ACCOUNT_DATA),
             (!changes.receipts.is_empty(), keys::ROOM_EVENT_RECEIPTS),
             (!changes.global_profiles.is_empty(), keys::GLOBAL_PROFILES),
+            (
+                !changes.global_profiles.is_empty()
+                    || !changes.unavailable_global_profiles.is_empty(),
+                keys::UNAVAILABLE_GLOBAL_PROFILES,
+            ),
         ]
         .iter()
         .filter_map(|(id, key)| if *id { Some(*key) } else { None })
@@ -1104,6 +1111,7 @@ impl_state_store!({
 
         if !changes.global_profiles.is_empty() {
             let store = tx.object_store(keys::GLOBAL_PROFILES)?;
+            let unavailable_store = tx.object_store(keys::UNAVAILABLE_GLOBAL_PROFILES)?;
             for (user_id, profile_update) in &changes.global_profiles {
                 let key = self.encode_key(keys::GLOBAL_PROFILES, user_id);
                 match profile_update {
@@ -1117,6 +1125,10 @@ impl_state_store!({
                         let mut profile = existing.unwrap_or_default();
                         profile.apply(profile_changes.clone());
 
+                        // If the profile was marked as unavailable we can
+                        // unmark it. Both stores use the same key for a user.
+                        unavailable_store.delete(&key).build()?;
+
                         store.put(&self.serialize_value(&profile)?).with_key(key).build()?;
                     }
                     UserProfileUpdate::Dropped => {
@@ -1126,6 +1138,16 @@ impl_state_store!({
                         warn!(%user_id, "Unhandled UserProfileUpdate variant; ignoring");
                     }
                 }
+            }
+        }
+
+        if !changes.unavailable_global_profiles.is_empty() {
+            let store = tx.object_store(keys::UNAVAILABLE_GLOBAL_PROFILES)?;
+            for (user_id, created_at) in &changes.unavailable_global_profiles {
+                // Use the same key as `GLOBAL_PROFILES`, so that a user can be
+                // looked up in both stores with a single encoding.
+                let key = self.encode_key(keys::GLOBAL_PROFILES, user_id);
+                store.put(&self.serialize_value(created_at)?).with_key(key).build()?;
             }
         }
 
@@ -2118,6 +2140,33 @@ impl_state_store!({
         }
 
         Ok(profiles)
+    }
+
+    async fn get_missing_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<Vec<&'a UserId>> {
+        let transaction = self
+            .inner
+            .transaction([keys::GLOBAL_PROFILES, keys::UNAVAILABLE_GLOBAL_PROFILES])
+            .with_mode(TransactionMode::Readonly)
+            .build()?;
+        let profiles = transaction.object_store(keys::GLOBAL_PROFILES)?;
+        let unavailable = transaction.object_store(keys::UNAVAILABLE_GLOBAL_PROFILES)?;
+
+        // Only query user IDs, don't load any profiles.
+        let mut missing = Vec::new();
+        for user_id in user_ids {
+            // A user's key is the same in both stores, see `save_changes`.
+            let key = self.encode_key(keys::GLOBAL_PROFILES, user_id);
+            if profiles.count().with_query(&key).await? == 0
+                && unavailable.count().with_query(&key).await? == 0
+            {
+                missing.push(user_id.as_ref());
+            }
+        }
+
+        Ok(missing)
     }
 
     #[allow(clippy::unused_async)]

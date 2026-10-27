@@ -46,7 +46,7 @@ use matrix_sdk_crypto::store::{DynCryptoStore, IntoCryptoStore};
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use observable_map::ObservableMap;
 use ruma::{
-    EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
     events::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, EmptyStateKey, GlobalAccountDataEventType, RedactContent,
@@ -590,6 +590,13 @@ pub struct StateChanges {
     /// These follow the MSC4262 update pattern: fields with an explicit `null`
     /// value are removed, while fields that aren't present are left unchanged.
     pub global_profiles: BTreeMap<OwnedUserId, UserProfileUpdate>,
+
+    /// Users whose global profiles should be marked as unavailable, mapped to
+    /// the time their profile was last queried.
+    ///
+    /// Saving a global profile for one of these users from
+    /// [`StateChanges::global_profiles`] removes this mark.
+    pub unavailable_global_profiles: BTreeMap<OwnedUserId, MilliSecondsSinceUnixEpoch>,
 }
 
 impl StateChanges {
