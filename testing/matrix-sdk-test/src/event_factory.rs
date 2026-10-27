@@ -1155,6 +1155,25 @@ impl EventFactory {
         builder
     }
 
+    /// Create a redacted event like [`EventFactory::redacted`], with a reason
+    /// in the `unsigned.redacted_because` redaction.
+    pub fn redacted_with_reason<
+        T: StaticEventContent<IsPrefix = False> + RedactedMessageLikeEventContent,
+    >(
+        &self,
+        redacter: impl Into<OwnedUserId>,
+        content: T,
+        reason: impl Into<String>,
+    ) -> EventBuilder<T> {
+        let mut builder = self.redacted(redacter, content);
+        if let Some(because) =
+            builder.unsigned.as_mut().and_then(|unsigned| unsigned.redacted_because.as_mut())
+        {
+            because.content.reason = Some(reason.into());
+        }
+        builder
+    }
+
     /// Create a redacted event, with extra information in the unsigned section
     /// about the redaction itself.
     pub fn redacted<T: StaticEventContent<IsPrefix = False> + RedactedMessageLikeEventContent>(
@@ -1688,6 +1707,14 @@ impl EventBuilder<DirectEventContent> {
         room_id: &RoomId,
     ) -> Self {
         self.content.0.entry(user_id.into()).or_default().push(room_id.to_owned());
+        self
+    }
+}
+
+impl EventBuilder<RoomRedactionEventContent> {
+    /// Set the reason of the redaction.
+    pub fn reason(mut self, reason: impl Into<String>) -> Self {
+        self.content.reason = Some(reason.into());
         self
     }
 }

@@ -189,9 +189,15 @@ impl TestTimeline {
         txn_id
     }
 
-    async fn handle_local_redaction(&self, redacts: OwnedEventId) -> OwnedTransactionId {
+    async fn handle_local_redaction(
+        &self,
+        redacts: OwnedEventId,
+        reason: Option<&str>,
+    ) -> OwnedTransactionId {
         let txn_id = TransactionId::new();
-        self.controller.handle_local_redaction(txn_id.clone(), redacts, None).await;
+        self.controller
+            .handle_local_redaction(txn_id.clone(), redacts, reason.map(ToOwned::to_owned), None)
+            .await;
         txn_id
     }
 
