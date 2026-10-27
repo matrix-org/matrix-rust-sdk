@@ -262,6 +262,17 @@ impl TimelineMetadata {
         let Some(fully_read_event) = &self.fully_read_event else { return };
         trace!(?fully_read_event, "Updating read marker");
 
+        // The fully read event may not be rendered (e.g. a reaction, an edit,
+        // or an event filtered out): use the closest previous visible
+        // event instead.
+        let fully_read_event = &items
+            .all_remote_events()
+            .iter()
+            .rev()
+            .skip_while(|ev| ev.event_id != *fully_read_event)
+            .find(|ev| ev.visible)
+            .map_or_else(|| fully_read_event.clone(), |ev| ev.event_id.clone());
+
         let read_marker_idx = items
             .iter_remotes_region()
             .rev()
