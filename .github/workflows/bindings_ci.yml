@@ -23,7 +23,7 @@ env:
 
 jobs:
   xtask:
-    uses: ./.github/workflows/xtask.yml
+    uses: $/.github/workflows/xtask.yml
 
   test-uniffi-codegen:
     name: Test UniFFI bindings generation
@@ -43,7 +43,7 @@ jobs:
           tool: protoc@3.20.3
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
 
@@ -56,6 +56,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          lookup-only: true
 
       - name: Get xtask
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -103,7 +104,7 @@ jobs:
           ndk-version: r27
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
 
@@ -116,6 +117,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          lookup-only: true
 
       - name: Get xtask
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -158,7 +160,7 @@ jobs:
           tool: protoc@3.20.3
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
 
@@ -174,6 +176,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          lookup-only: true
 
       - name: Get xtask
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -194,7 +197,7 @@ jobs:
 
   complement-crypto:
     name: "Run Complement Crypto tests"
-    uses: matrix-org/complement-crypto/.github/workflows/single_sdk_tests.yml@6a66de0c450cbf5e1dddecb381a6a8ab08c71e13 # main
+    uses: matrix-org/complement-crypto/.github/workflows/single_sdk_tests.yml@6a66de0c450cbf5e1dddecb381a6a8ab08c71e13
     with:
         use_rust_sdk: "." # use local checkout
         use_complement_crypto: "MATCHING_BRANCH"
@@ -217,7 +220,7 @@ jobs:
           tool: protoc@3.20.3
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
 
@@ -234,6 +237,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          lookup-only: true
 
       - name: Run the Build Framework script
         run: ./bindings/apple/build_crypto_xcframework.sh -i
