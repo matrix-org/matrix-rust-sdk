@@ -225,25 +225,20 @@ debug = "line-tables-only"
 [profile.reldbg.package."*"]
 opt-level = 3
 
-# Profile for the distributed Apple framework. `opt-level = "s"` measured ~33%
-# smaller linked code than `release`.
-[profile.small-release]
+# Profile for the distributed Apple and Android libraries. For the Apple
+# framework, `opt-level = "s"` measured ~33% smaller linked code than `release`.
+[profile.small-release-stripped]
 inherits = "release"
 opt-level = "s"
-
-# Stripping host proc-macro dylibs built with `MACOSX_DEPLOYMENT_TARGET` >= 12.0
-# makes them fail to load on macOS 27 ("mis-aligned LINKEDIT string pool").
-[profile.small-release.build-override]
-strip = "none"
-
-# This is the same as `small-release`, but it also strips debug symbols.
-[profile.small-release-stripped]
-# Use release profile as a base
-inherits = "small-release"
 # Strip the minimal debug info, while still allowing us to have proper backtraces, but it will affect debuggers
 strip = "debuginfo"
 # Use link time optimizations
 lto = true
+
+# Stripping host proc-macro dylibs built with `MACOSX_DEPLOYMENT_TARGET` >= 12.0
+# makes them fail to load on macOS 27 ("mis-aligned LINKEDIT string pool").
+[profile.small-release-stripped.build-override]
+strip = "none"
 
 [profile.profiling]
 inherits = "release"
