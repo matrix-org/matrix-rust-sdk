@@ -19,7 +19,7 @@ use matrix_sdk_base::{
     sync::Timeline,
 };
 use ruma::{
-    OwnedEventId,
+    EventId, OwnedEventId,
     events::{
         AnySyncEphemeralRoomEvent,
         receipt::{ReceiptEventContent, ReceiptThread, Receipts},
@@ -61,8 +61,8 @@ pub fn aggregate_timeline_and_read_receipts_for_room(
             _ => None,
         }
         })
-        .map(|(_receipt_thread, (event_id, event_receipts))| {
-            (event_id.clone(), event_receipts.clone())
+        .map(|(_receipt_thread, (acknowledged_event_id, event_receipts))| {
+            (acknowledged_event_id.clone(), event_receipts.clone())
         })
         .collect(),
     }
@@ -87,6 +87,51 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
         },
         read_receipts: MaybeReceiptEventContent::none(),
     };
+
+    async fn find_thread_id_for<'sync, 'state>(
+        event_id: &'sync EventId,
+        existing_threads: &StateLockReadGuard<'state, HashMap<OwnedEventId, ThreadEventCacheState>>,
+        maybe_room: Option<&StateLockReadGuard<'state, RoomEventCacheState>>,
+    ) -> Result<Option<OwnedEventId>> {
+        if match &maybe_room {
+            Some(room) => room.find_event(event_id).await?.is_some(),
+            None => false,
+        } {
+            // The redacted event exists (in the room, because it
+            // contains _all_ the events) **but** the event has been
+            // redacted (in the room). It's no more possible to extract
+            // its thread root (because this information has been
+            // removed).
+            //
+            // But we need to know if the event is part of a thread to
+            // apply the redaction in the thread too. No other choice
+            // than doing a full search…
+
+            let mut associated_thread_root = None;
+
+            for thread in existing_threads.values() {
+                if thread.find_event(&event_id).await?.is_some() {
+                    associated_thread_root = Some(thread.thread_id.clone());
+                    break;
+                }
+            }
+
+            // We've found the thread owning the event being redacted!
+            if let Some(thread_root) = associated_thread_root {
+                return Ok(Some(thread_root));
+            }
+
+            // We haven't found the thread. We see a redaction for an
+            // event we know about, but it doesn't seem to be part of a
+            // thread.
+            //
+            // TODO/FIXME: actually, it can still be in a thread
+            // that **IS NOT** loaded in-memory (it might not be in
+            // `existing_threads`, but it can exist in the store).
+        }
+
+        Ok(None)
+    }
 
     // Look for in-thread events, i.e. events that are part of threads.
     for (nth, event) in timeline.events.iter().enumerate() {
@@ -162,47 +207,19 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
                 // Otherwise, this event might be a redaction that applies to a thread.
                 else if let Some(redaction_target) =
                     extract_redaction_target(event.raw(), redaction_rules)
-                    && match &maybe_room {
-                        Some(room) => room.find_event(&redaction_target).await?.is_some(),
-                        None => false,
-                    }
+                    && let Some(thread_root) = find_thread_id_for(
+                        &redaction_target,
+                        &existing_threads,
+                        maybe_room.as_ref(),
+                    )
+                    .await?
                 {
-                    // The redacted event exists (in the room, because it
-                    // contains _all_ the events) **but** the event has been
-                    // redacted (in the room). It's no more possible to extract
-                    // its thread root (because this information has been
-                    // removed).
-                    //
-                    // But we need to know if the event is part of a thread to
-                    // apply the redaction in the thread too. No other choice
-                    // than doing a full search…
-
-                    let mut associated_thread_root = None;
-
-                    for thread in existing_threads.values() {
-                        if thread.find_event(&redaction_target).await?.is_some() {
-                            associated_thread_root = Some(thread.thread_id.clone());
-                            break;
-                        }
-                    }
-
-                    // We've found the thread owning the event being redacted!
-                    if let Some(thread_root) = associated_thread_root {
-                        new_events_by_thread
-                            .entry(thread_root)
-                            .or_insert_with(default_entry)
-                            .timeline
-                            .events
-                            .push(event.clone());
-                    }
-
-                    // We haven't found the thread. We see a redaction for an
-                    // event we know about, but it doesn't seem to be part of a
-                    // thread.
-                    //
-                    // TODO/FIXME: actually, it can still be in a thread
-                    // that **IS NOT** loaded in-memory (it might not be in
-                    // `existing_threads`, but it can exist in the store).
+                    new_events_by_thread
+                        .entry(thread_root)
+                        .or_insert_with(default_entry)
+                        .timeline
+                        .events
+                        .push(event.clone());
                 }
             }
         }
