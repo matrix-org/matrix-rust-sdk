@@ -415,6 +415,9 @@ impl BaseClient {
         self.state_store.load_sync_token().await?;
         self.state_store.set_session_meta(session_meta);
 
+        let ignore_user_list = self.get_ignore_user_list().await?;
+        self.ignore_user_list_changes.set_if_not_eq(ignore_user_list);
+
         #[cfg(feature = "e2e-encryption")]
         self.regenerate_olm(custom_account).await?;
 
@@ -1168,6 +1171,22 @@ impl BaseClient {
         } else {
             Ok(Ruleset::new())
         }
+    }
+
+    /// Gets the ignore user list.
+    ///
+    /// Retrieves the ignored users from the state store, returning an empty
+    /// list if no ignored user list has been stored.
+    async fn get_ignore_user_list(&self) -> Result<Vec<OwnedUserId>> {
+        let Some(raw) =
+            self.state_store.get_account_data_event_static::<IgnoredUserListEventContent>().await?
+        else {
+            return Ok(Vec::new());
+        };
+
+        let event = raw.deserialize()?;
+
+        Ok(event.content.ignored_users.into_keys().collect())
     }
 
     /// Returns a subscriber that publishes an event every time the ignore user
