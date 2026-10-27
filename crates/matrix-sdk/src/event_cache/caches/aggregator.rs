@@ -225,23 +225,40 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
         }
     }
 
-    for (thread_root, (read_receipt_event_id, read_receipt_event)) in
+    for (thread_root, (acknowledged_event_id, event_receipts)) in
         filter_read_receipts_and_group_by(ephemeral, |receipt_thread| match receipt_thread {
             // `Thread` designates a read receipt for a “thread” timeline.
-            ReceiptThread::Thread(thread_id) => Some(thread_id),
+            ReceiptThread::Thread(thread_id) => Some(Some(thread_id)),
+            // `Unthreaded` designates a read receipt for “all timelines”, i.e.
+            // it includes a “thread” timeline, but we don't know which one yet.
+            ReceiptThread::Unthreaded => Some(None),
             _ => None,
         })
     {
-        // 1. Create an empty `Timeline` if it doesn't exist so that it triggers
-        //    the update for this thread in `Caches`. This is done by
-        //    `default_entry`.
-        // 2. Accumulate the read receipt event.
-        new_events_by_thread
-            .entry(thread_root.to_owned())
-            .or_insert_with(default_entry)
-            .read_receipts
-            .get_or_insert_with(|| ReceiptEventContent(BTreeMap::new()))
-            .insert(read_receipt_event_id.clone(), read_receipt_event.clone());
+        // We don't know the thread root. It means it's an `Unthreaded` receipt.
+        // In that case, to know if the read receipt targets a particular
+        // thread, we need to scan each thread looking for the
+        // `acknowledged_event_id`.
+        let new_thread_root = if thread_root.is_none() {
+            find_thread_id_for(acknowledged_event_id, &existing_threads, maybe_room.as_ref())
+                .await?
+        } else {
+            None
+        };
+
+        // We know the thread root.
+        if let Some(thread_root) = thread_root.or_else(|| new_thread_root.as_ref()) {
+            // 1. Create an empty `Timeline` if it doesn't exist so that it
+            //    triggers the update for this thread in `Caches`. This is done
+            //    by `default_entry`.
+            // 2. Accumulate the read receipt events.
+            new_events_by_thread
+                .entry(thread_root.to_owned())
+                .or_insert_with(default_entry)
+                .read_receipts
+                .get_or_insert_with(|| ReceiptEventContent(BTreeMap::new()))
+                .insert(acknowledged_event_id.clone(), event_receipts.clone());
+        }
     }
 
     Ok(new_events_by_thread)
