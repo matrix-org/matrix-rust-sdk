@@ -377,7 +377,7 @@ impl MediaStore for SqliteMediaStore {
 
         let conn = self.write().await?;
         conn.execute(
-            r#"UPDATE media SET uri = ?, format = ? WHERE uri = ? AND format = ?"#,
+            r#"UPDATE OR REPLACE media SET uri = ?, format = ? WHERE uri = ? AND format = ?"#,
             (new_uri, new_format, prev_uri, prev_format),
         )
         .await?;
