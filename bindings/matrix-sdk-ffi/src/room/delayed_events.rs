@@ -121,12 +121,8 @@ impl Room {
 
         let response = self
             .inner
-            .send_delayed_state_event_raw(
-                &event_type,
-                &state_key,
-                content_json,
-                Duration::from_millis(delay_ms),
-            )
+            .send_state_event_raw(&event_type, &state_key, content_json)
+            .into_delayed(Duration::from_millis(delay_ms))
             .await?;
 
         Ok(response.delay_id)

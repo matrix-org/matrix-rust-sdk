@@ -300,7 +300,8 @@ impl MatrixDriver {
             (Some(key), Some(delay)) => {
                 match self
                     .room
-                    .send_delayed_state_event_raw(&type_str, &key, content.clone(), delay)
+                    .send_state_event_raw(&type_str, &key, content.clone())
+                    .into_delayed(delay)
                     .await
                 {
                     Ok(response) => return Ok(response.into()),

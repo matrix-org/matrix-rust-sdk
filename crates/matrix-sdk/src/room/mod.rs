@@ -77,7 +77,7 @@ use ruma::{
         client::{
             config::{set_global_account_data, set_room_account_data},
             context,
-            delayed_events::{send_delayed_event, update_delayed_event},
+            delayed_events::update_delayed_event,
             filter::LazyLoadOptions,
             membership::{
                 Invite3pid, ban_user, forget_room, get_member_events,
@@ -2707,61 +2707,9 @@ impl Room {
         SendRawMessageLikeEvent::new(self, event_type, content)
     }
 
-    /// Send a delayed state event with custom JSON content to this room
-    /// ([MSC4140]).
-    ///
-    /// A delayed event is handed to the homeserver right away, but only
-    /// distributed to the room once its delay elapses. Until then it can be
-    /// cancelled, restarted or sent immediately with
-    /// [`update_delayed_event()`][Self::update_delayed_event], using the
-    /// `delay_id` from the returned response.
-    ///
-    /// To send a delayed *message-like* event, use
-    /// [`SendRawMessageLikeEvent::into_delayed`] on the future returned by
-    /// [`send_raw()`][Self::send_raw].
-    ///
-    /// # Arguments
-    ///
-    /// * `event_type` - The type of the event that we're sending out.
-    ///
-    /// * `state_key` - A unique key which defines the overwriting semantics for
-    ///   this piece of room state. This value is often a zero-length string.
-    ///
-    /// * `content` - The content of the event as a raw JSON value. The argument
-    ///   type can be `serde_json::Value`, but also other raw JSON types; for
-    ///   the full list check the documentation of [`IntoRawStateEventContent`].
-    ///
-    /// * `delay` - How long the homeserver should hold on to the event.
-    ///
-    /// State events can't be sticky ([MSC4354]), so there is no way to set a
-    /// sticky duration here.
-    ///
-    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
-    /// [MSC4354]: https://github.com/matrix-org/matrix-spec-proposals/pull/4354
-    #[instrument(skip_all)]
-    pub async fn send_delayed_state_event_raw(
-        &self,
-        event_type: &str,
-        state_key: &str,
-        content: impl IntoRawStateEventContent,
-        delay: Duration,
-    ) -> Result<send_delayed_event::unstable::Response> {
-        let request = send_delayed_event::unstable::Request::new_raw(
-            event_type.into(),
-            self.room_id().to_owned(),
-            TransactionId::new(),
-            delay,
-            Some(state_key.to_owned()),
-            content.into_raw_state_event_content().cast(),
-        )?;
-
-        Ok(self.client.send(request).await?)
-    }
-
     /// Update a delayed event that was previously scheduled with
     /// [`SendRawMessageLikeEvent::into_delayed`] or
-    /// [`send_delayed_state_event_raw()`][Self::send_delayed_state_event_raw]
-    /// ([MSC4140]).
+    /// [`SendRawStateEvent::into_delayed`] ([MSC4140]).
     ///
     /// Depending on the `action` this cancels the delayed event, restarts its
     /// timeout, or sends it to the room right away.
@@ -3444,6 +3392,10 @@ impl Room {
     ///
     /// Returns the parsed response from the server.
     ///
+    /// To schedule the event as a delayed event ([MSC4140]), use
+    /// [`.into_delayed()`][SendRawStateEvent::into_delayed] on the returned
+    /// value before `.await`ing it.
+    ///
     /// # Arguments
     ///
     /// - `event_type` - The type of the event that we're sending out.
@@ -3473,6 +3425,7 @@ impl Room {
     /// # anyhow::Ok(()) };
     /// ```
     ///
+    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
     /// [msc4362]: https://github.com/matrix-org/matrix-spec-proposals/pull/4362
     #[instrument(skip_all)]
     pub fn send_state_event_raw<'a>(
