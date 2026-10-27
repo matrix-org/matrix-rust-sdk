@@ -1,4 +1,4 @@
-//! Tests for the MSC4140 delayed-event API: `send_raw(..).with_delay(..)`,
+//! Tests for the MSC4140 delayed-event API: `send_raw(..).into_delayed(..)`,
 //! `Room::send_delayed_state_event_raw` and `Room::update_delayed_event`.
 
 use matrix_sdk::{
@@ -27,7 +27,7 @@ fn delayed_event_path(event_type: &str) -> String {
 }
 
 #[async_test]
-async fn test_send_raw_with_delay() {
+async fn test_send_raw_into_delayed() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
@@ -48,7 +48,7 @@ async fn test_send_raw_with_delay() {
 
     let response = room
         .send_raw("m.room.message", json!({ "msgtype": "m.text", "body": "hello" }))
-        .with_delay(Duration::from_millis(1000))
+        .into_delayed(Duration::from_millis(1000))
         .await
         .unwrap();
 
@@ -61,7 +61,7 @@ async fn test_send_raw_with_delay() {
 /// [MSC4354]: https://github.com/matrix-org/matrix-spec-proposals/pull/4354
 #[cfg(feature = "unstable-msc4354")]
 #[async_test]
-async fn test_send_raw_with_delay_and_sticky_duration() {
+async fn test_send_raw_into_delayed_and_sticky_duration() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
@@ -83,7 +83,7 @@ async fn test_send_raw_with_delay_and_sticky_duration() {
     let response = room
         .send_raw("org.matrix.rtc.member", json!({ "msc4354_sticky_key": "abc" }))
         .with_sticky_duration(Duration::from_secs(600))
-        .with_delay(Duration::from_millis(1000))
+        .into_delayed(Duration::from_millis(1000))
         .await
         .unwrap();
     assert_eq!(response.delay_id, "1234");
@@ -94,7 +94,7 @@ async fn test_send_raw_with_delay_and_sticky_duration() {
 /// homeserver in the clear.
 #[cfg(feature = "e2e-encryption")]
 #[async_test]
-async fn test_send_raw_with_delay_in_encrypted_room() {
+async fn test_send_raw_into_delayed_in_encrypted_room() {
     let room_id = room_id!("!test:localhost");
     let alice_user_id = user_id!("@alice:localhost");
     let alice_device_id = device_id!("ALICEDEVICE");
@@ -147,7 +147,7 @@ async fn test_send_raw_with_delay_in_encrypted_room() {
 
     let response = room
         .send_raw("m.room.message", json!({ "msgtype": "m.text", "body": "hello" }))
-        .with_delay(Duration::from_millis(1000))
+        .into_delayed(Duration::from_millis(1000))
         .await
         .unwrap();
 

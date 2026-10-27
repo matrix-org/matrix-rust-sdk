@@ -83,7 +83,7 @@ impl Room {
         let response = self
             .inner
             .send_raw(&event_type, content_json)
-            .with_delay(Duration::from_millis(delay_ms))
+            .into_delayed(Duration::from_millis(delay_ms))
             .await?;
 
         Ok(response.delay_id)
@@ -197,7 +197,7 @@ impl Room {
             .inner
             .send_raw(&event_type, content_json)
             .with_sticky_duration(Duration::from_millis(sticky_duration_ms))
-            .with_delay(Duration::from_millis(delay_ms))
+            .into_delayed(Duration::from_millis(delay_ms))
             .await?;
 
         Ok(response.delay_id)

@@ -2666,7 +2666,7 @@ impl Room {
     /// [`.with_transaction_id()`][SendRawMessageLikeEvent::with_transaction_id]
     /// on the returned value before `.await`ing it. To schedule the event as a
     /// delayed event ([MSC4140]), use
-    /// [`.with_delay()`][SendRawMessageLikeEvent::with_delay].
+    /// [`.into_delayed()`][SendRawMessageLikeEvent::into_delayed].
     ///
     /// # Arguments
     ///
@@ -2717,7 +2717,7 @@ impl Room {
     /// `delay_id` from the returned response.
     ///
     /// To send a delayed *message-like* event, use
-    /// [`SendRawMessageLikeEvent::with_delay`] on the future returned by
+    /// [`SendRawMessageLikeEvent::into_delayed`] on the future returned by
     /// [`send_raw()`][Self::send_raw].
     ///
     /// # Arguments
@@ -2759,7 +2759,7 @@ impl Room {
     }
 
     /// Update a delayed event that was previously scheduled with
-    /// [`SendRawMessageLikeEvent::with_delay`] or
+    /// [`SendRawMessageLikeEvent::into_delayed`] or
     /// [`send_delayed_state_event_raw()`][Self::send_delayed_state_event_raw]
     /// ([MSC4140]).
     ///
