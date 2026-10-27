@@ -547,6 +547,24 @@ impl<'a> SendRawStateEvent<'a> {
         self
     }
 
+    /// Send the state event as a delayed event ([MSC4140]) instead of sending
+    /// it right away.
+    ///
+    /// The homeserver holds on to the event and only distributes it to the room
+    /// once `delay` elapses. Until then the event can be cancelled, restarted
+    /// or sent immediately with [`Room::update_delayed_event`], using the
+    /// `delay_id` from the response.
+    ///
+    /// The event is prepared exactly like an immediate one: in particular,
+    /// with the `experimental-encrypted-state-events` feature, it is encrypted
+    /// if the room has encrypted state. Note that this happens when the event
+    /// is *scheduled*, and restarting the delay does not re-encrypt it.
+    ///
+    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+    pub fn into_delayed(self, delay: Duration) -> SendDelayedRawStateEvent<'a> {
+        SendDelayedRawStateEvent { inner: self, delay }
+    }
+
     /// Determines whether the inner state event should be encrypted before
     /// sending.
     ///
@@ -595,41 +613,11 @@ impl<'a> IntoFuture for SendRawStateEvent<'a> {
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        #[cfg_attr(not(feature = "experimental-encrypted-state-events"), allow(unused_mut))]
-        let Self { room, mut event_type, state_key, mut content, tracing_span, request_config } =
-            self;
+        let Self { room, event_type, state_key, content, tracing_span, request_config } = self;
 
         let fut = async move {
-            room.ensure_room_joined()?;
-
-            #[cfg_attr(not(feature = "experimental-encrypted-state-events"), allow(unused_mut))]
-            let mut state_key = state_key.to_owned();
-
-            #[cfg(feature = "experimental-encrypted-state-events")]
-            if Self::should_encrypt(room, event_type) {
-                use tracing::debug;
-
-                Span::current().record("should_encrypt", true);
-                debug!(
-                    room_id = ?room.room_id(),
-                    "Sending encrypted event because the room is encrypted.",
-                );
-
-                ensure_room_encryption_ready(room).await?;
-
-                let olm = room.client.olm_machine().await;
-                let olm = olm.as_ref().expect("Olm machine wasn't started");
-
-                content = olm
-                    .encrypt_state_event_raw(room.room_id(), event_type, &state_key, &content)
-                    .await?
-                    .cast_unchecked();
-
-                state_key = format!("{event_type}:{state_key}");
-                event_type = "m.room.encrypted";
-            } else {
-                Span::current().record("should_encrypt", false);
-            }
+            let PreparedStateEvent { event_type, state_key, content } =
+                prepare_state_event(room, event_type, state_key, content).await?;
 
             let request = send_state_event::v3::Request::new_raw(
                 room.room_id().to_owned(),
@@ -648,6 +636,112 @@ impl<'a> IntoFuture for SendRawStateEvent<'a> {
 
         Box::pin(fut.instrument(tracing_span))
     }
+}
+
+/// Future returned by [`SendRawStateEvent::into_delayed`].
+#[allow(missing_debug_implementations)]
+pub struct SendDelayedRawStateEvent<'a> {
+    inner: SendRawStateEvent<'a>,
+    delay: Duration,
+}
+
+impl<'a> SendDelayedRawStateEvent<'a> {
+    /// Assign a given [`RequestConfig`] to configure how this request should
+    /// behave with respect to the network.
+    pub fn with_request_config(mut self, request_config: RequestConfig) -> Self {
+        self.inner = self.inner.with_request_config(request_config);
+        self
+    }
+}
+
+impl<'a> IntoFuture for SendDelayedRawStateEvent<'a> {
+    type Output = Result<send_delayed_event::unstable::Response>;
+    boxed_into_future!(extra_bounds: 'a);
+
+    fn into_future(self) -> Self::IntoFuture {
+        let Self {
+            inner:
+                SendRawStateEvent { room, event_type, state_key, content, tracing_span, request_config },
+            delay,
+        } = self;
+
+        let fut = async move {
+            let PreparedStateEvent { event_type, state_key, content } =
+                prepare_state_event(room, event_type, state_key, content).await?;
+
+            let request = send_delayed_event::unstable::Request::new_raw(
+                event_type.into(),
+                room.room_id().to_owned(),
+                TransactionId::new(),
+                delay,
+                Some(state_key),
+                content.cast(),
+            )?;
+
+            let response = room.client.send(request).with_request_config(request_config).await?;
+
+            info!(delay_id = response.delay_id, "Scheduled delayed state event in room");
+
+            Ok(response)
+        };
+
+        Box::pin(fut.instrument(tracing_span))
+    }
+}
+
+/// A state event that is ready to be handed to the homeserver.
+struct PreparedStateEvent<'a> {
+    /// The type to send, `m.room.encrypted` if the content was encrypted.
+    event_type: &'a str,
+    /// The state key to send, prefixed with the original event type if the
+    /// content was encrypted.
+    state_key: String,
+    content: Raw<AnyStateEventContent>,
+}
+
+/// The steps shared by every way of sending a state event: check that the
+/// room is joined, and encrypt the content if the room has encrypted state.
+#[cfg_attr(
+    not(feature = "experimental-encrypted-state-events"),
+    allow(unused_mut, clippy::unused_async)
+)]
+async fn prepare_state_event<'a>(
+    room: &Room,
+    mut event_type: &'a str,
+    state_key: &str,
+    mut content: Raw<AnyStateEventContent>,
+) -> Result<PreparedStateEvent<'a>> {
+    room.ensure_room_joined()?;
+
+    let mut state_key = state_key.to_owned();
+
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    if SendRawStateEvent::should_encrypt(room, event_type) {
+        use tracing::debug;
+
+        Span::current().record("should_encrypt", true);
+        debug!(
+            room_id = ?room.room_id(),
+            "Sending encrypted event because the room is encrypted.",
+        );
+
+        ensure_room_encryption_ready(room).await?;
+
+        let olm = room.client.olm_machine().await;
+        let olm = olm.as_ref().expect("Olm machine wasn't started");
+
+        content = olm
+            .encrypt_state_event_raw(room.room_id(), event_type, &state_key, &content)
+            .await?
+            .cast_unchecked();
+
+        state_key = format!("{event_type}:{state_key}");
+        event_type = "m.room.encrypted";
+    } else {
+        Span::current().record("should_encrypt", false);
+    }
+
+    Ok(PreparedStateEvent { event_type, state_key, content })
 }
 
 /// Future returned by `Room::send_state_event`.
