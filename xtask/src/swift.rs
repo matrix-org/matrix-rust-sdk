@@ -92,8 +92,11 @@ impl SwiftArgs {
                 // The dev profile seems to cause crashes on some platforms so
                 // we default to reldbg
                 // (https://github.com/matrix-org/matrix-rust-sdk/issues/4009)
-                let profile =
-                    profile.as_deref().unwrap_or(if release { "small-release" } else { "reldbg" });
+                let profile = profile.as_deref().unwrap_or(if release {
+                    "small-release-stripped"
+                } else {
+                    "reldbg"
+                });
                 build_xcframework(
                     profile,
                     targets,
@@ -406,15 +409,18 @@ fn build_targets(
     let _env_guard5 =
         watchos_deployment_target.map(|target| sh.push_env("WATCHOS_DEPLOYMENT_TARGET", target));
 
+    // `cargo build` would also produce the `lib` crate type, which silently
+    // disables the profile's LTO. `cargo rustc` restricts the output to the
+    // static library, but only accepts one target per invocation.
     for target in &targets {
         let triple = target.triple;
 
         println!("-- Building for {}", target.description);
         if target.status == TargetStatus::TopTier {
-            cmd!(sh, "rustup run stable cargo build -p matrix-sdk-ffi --target {triple} --profile {profile} --features {FFI_FEATURES}")
+            cmd!(sh, "rustup run stable cargo rustc -p matrix-sdk-ffi --crate-type staticlib --target {triple} --profile {profile} --features {FFI_FEATURES}")
                 .run()?;
         } else {
-            cmd!(sh, "rustup run nightly cargo build -p matrix-sdk-ffi -Zbuild-std --target {triple} --profile {profile} --features {FFI_FEATURES}")
+            cmd!(sh, "rustup run nightly cargo rustc -p matrix-sdk-ffi --crate-type staticlib -Zbuild-std --target {triple} --profile {profile} --features {FFI_FEATURES}")
                 .run()?;
         }
     }
