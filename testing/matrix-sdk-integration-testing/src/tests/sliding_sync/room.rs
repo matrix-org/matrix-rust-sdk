@@ -3,6 +3,7 @@
 
 use std::{
     collections::BTreeMap,
+    pin::pin,
     sync::{Arc, LazyLock, Mutex as StdMutex},
     time::Duration,
 };
@@ -10,7 +11,7 @@ use std::{
 use anyhow::Result;
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use futures_util::{StreamExt as _, pin_mut};
+use futures_util::StreamExt as _;
 use matrix_sdk::{
     Client, Room, RoomInfo, RoomMemberships, RoomState, SlidingSyncList, SlidingSyncMode,
     assert_let_timeout,
@@ -18,25 +19,31 @@ use matrix_sdk::{
     config::SyncSettings,
     room_preview::RoomPreview,
     ruma::{
-        RoomId,
+        OwnedUserId, RoomId,
         api::client::{
             receipt::create_receipt::v3::ReceiptType,
             room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
+            to_device::send_event_to_device::v3::Request as ToDeviceRequest,
         },
         assign,
         directory::PublicRoomsChunkInit,
         events::{
-            AnySyncMessageLikeEvent, InitialStateEvent, Mentions, StateEventType,
+            AnySyncMessageLikeEvent, AnyToDeviceEventContent, InitialStateEvent, Mentions,
+            StateEventType, ToDeviceEventType,
             receipt::ReceiptThread,
             room::{
                 history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
                 join_rules::{JoinRule, RoomJoinRulesEventContent},
                 message::RoomMessageEventContent,
             },
+            secret::send::{ToDeviceSecretSendEvent, ToDeviceSecretSendEventContent},
         },
         mxc_uri, owned_server_name,
         room::JoinRuleSummary,
-        room_id, uint,
+        room_id,
+        serde::Raw,
+        to_device::DeviceIdOrAllDevices,
+        uint,
     },
     sliding_sync::VersionBuilder,
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
@@ -86,7 +93,7 @@ async fn test_left_room() -> Result<()> {
 
         async move {
             let stream = peter_sliding.sync();
-            pin_mut!(stream);
+            let mut stream = pin!(stream);
 
             while let Some(up) = stream.next().await {
                 let up = up.expect("sync should not fail");
@@ -179,7 +186,7 @@ async fn test_room_avatar_group_conversation() -> Result<()> {
 
         async move {
             let stream = alice_sliding.sync();
-            pin_mut!(stream);
+            let mut stream = pin!(stream);
 
             while let Some(up) = stream.next().await {
                 let up = up.expect("update must not fail");
@@ -324,7 +331,7 @@ async fn test_joined_user_can_create_push_context_with_room_list_service() -> Re
     let rls = room_list_service.clone();
     let alice_handle = spawn(async move {
         let sync = rls.sync();
-        pin_mut!(sync);
+        let mut sync = pin!(sync);
         while let Some(update) = sync.next().await {
             warn!("Update from the room list service: {update:?}");
         }
@@ -437,7 +444,7 @@ async fn test_room_notification_count() -> Result<()> {
 
         async move {
             let stream = alice_sync.sync();
-            pin_mut!(stream);
+            let mut stream = pin!(stream);
 
             while let Some(update) = stream.next().await {
                 warn!(?update, "Alice sliding sync received an update");
@@ -785,7 +792,7 @@ async fn test_delayed_invite_response_and_sent_message_decryption() {
     // Join the room from Bob's client.
     let bob_timeline = bob_room.timeline().await.unwrap();
     let (_, timeline_stream) = bob_timeline.subscribe().await;
-    pin_mut!(timeline_stream);
+    let mut timeline_stream = pin!(timeline_stream);
 
     info!("Bob joins the room.");
     bob_room.join().await.unwrap();
@@ -860,7 +867,7 @@ async fn test_room_info_notable_update_deduplication() -> Result<()> {
 
     alice_room_controller.set_filter(Box::new(new_filter_all(vec![])));
 
-    pin_mut!(alice_rooms);
+    let mut alice_rooms = pin!(alice_rooms);
 
     // First, we observe the initial reset.
     assert_let_timeout!(Duration::from_secs(3), Some(diffs) = alice_rooms.next());
@@ -983,7 +990,7 @@ async fn test_room_preview() -> Result<()> {
     // Wait for Alice's stream to stabilize (stop updating when we haven't
     // received successful updates for more than 2 seconds).
     let stream = sliding_alice.sync();
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     // Wait for updates coming in under than 15 seconds. After that, we consider
     // the sync as stable.
@@ -1213,4 +1220,106 @@ async fn get_room_preview_with_room_summary(
     assert_eq!(preview.name.unwrap(), "Alice's Room 2");
     assert!(preview.state.is_none());
     assert!(preview.heroes.is_none());
+}
+
+async fn send_todevice_send_event(
+    client: &Client,
+    target: OwnedUserId,
+    request_id: &str,
+) -> Result<()> {
+    let message = ToDeviceSecretSendEventContent::new(request_id.into(), "".into());
+    let messages = BTreeMap::from_iter([(
+        target,
+        BTreeMap::from_iter([(
+            DeviceIdOrAllDevices::AllDevices,
+            Raw::new(&AnyToDeviceEventContent::from(message)).unwrap(),
+        )]),
+    )]);
+    client
+        .send(ToDeviceRequest::new_raw(
+            ToDeviceEventType::SecretSend,
+            format!("{request_id}-txn").into(),
+            messages,
+        ))
+        .await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_todevice_when_switching_sync() -> Result<()> {
+    // We use the `SendSecret` event here because it lets us embed arbitrary
+    // strings to tell messages apart.
+
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+    let alice_user_id = alice.user_id().unwrap().to_owned();
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
+    let bob_user_id = bob.user_id().unwrap().to_owned();
+
+    let received_events = Arc::new(Mutex::new(vec![]));
+    {
+        let received_events = Arc::clone(&received_events);
+        alice.add_event_handler(move |ev: ToDeviceSecretSendEvent| async move {
+            received_events.lock().await.push(ev.content.request_id);
+        });
+    }
+
+    // Send one ToDevice message using sync v3 to get a cached `next_batch`
+    // token
+    let request_id_1 = "message-1";
+    send_todevice_send_event(&bob, alice_user_id.clone(), request_id_1).await?;
+
+    alice.sync_once(Default::default()).await?;
+    assert!(received_events.lock().await.contains(&request_id_1.into()));
+
+    // Queue another message for alice
+    let request_id_2 = "message-2";
+    send_todevice_send_event(&bob, alice_user_id.clone(), request_id_2).await?;
+
+    // Set up sliding sync for alice
+    let sliding_alice = alice
+        .sliding_sync("main")?
+        .with_all_extensions()
+        .poll_timeout(Duration::from_secs(3))
+        .network_timeout(Duration::from_secs(3))
+        .build()
+        .await?;
+
+    spawn({
+        let alice_sliding = sliding_alice.clone();
+        async move {
+            let stream = alice_sliding.sync();
+            let mut stream = pin!(stream);
+
+            while let Some(up) = stream.next().await {
+                let up = up.expect("sync should not fail");
+
+                info!("received update: {up:?}");
+            }
+        }
+    });
+
+    // Wait for the second message to arrive
+    let mut received = false;
+    for _ in 0..10 {
+        sleep(Duration::from_secs(1)).await;
+
+        if received_events.lock().await.contains(&request_id_2.into()) {
+            received = true;
+            break;
+        }
+    }
+    assert!(received, "ToDevice message was not delivered in 10 seconds");
+
+    // Switch back to sync v3
+    sliding_alice.stop_sync()?;
+    sleep(Duration::from_secs(1)).await;
+
+    let request_id_3 = "message-3";
+    send_todevice_send_event(&bob, alice_user_id.clone(), request_id_3).await?;
+
+    alice.sync_once(Default::default()).await?;
+    assert!(received_events.lock().await.contains(&request_id_3.into()));
+
+    Ok(())
 }

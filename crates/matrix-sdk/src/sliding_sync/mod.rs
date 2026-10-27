@@ -36,6 +36,8 @@ use matrix_sdk_base::RequestedRequiredStates;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::executor::JoinHandleExt as _;
 use matrix_sdk_common::{executor::spawn, timer};
+#[cfg(feature = "e2e-encryption")]
+use ruma::api::error::{ErrorBody, StandardErrorBody};
 use ruma::{
     OwnedRoomId, RoomId,
     api::{client::sync::sync_events::v5 as http, error::ErrorKind},
@@ -830,6 +832,19 @@ impl SlidingSync {
                                     self.expire_session().await;
                                 }
 
+                                #[cfg(feature = "e2e-encryption")]
+                                if is_synapse_incompatible_token_error(&error)
+                                    && let Some(olm_machine) = &*self.inner.client.olm_machine().await {
+                                    // Just delete the token since that error should only happen
+                                    // once when upgrading to Sliding Sync.
+
+
+                                    if let Ok(()) = olm_machine.store().delete_next_batch_token().await {
+                                        warn!("Outdated to_device token loaded from cache. Retrying without token.");
+                                        continue;
+                                    }
+                                }
+
                                 yield Err(error);
 
                                 // Terminates the loop, and terminates the stream.
@@ -906,6 +921,27 @@ impl SlidingSync {
             self.inner.room_subscriptions.write().unwrap().clear();
         }
     }
+}
+
+/// Identify whether an error indicates an invalid `next_batch` token.
+///
+/// Synapse uses different `to_device` tokens for Sliding Sync and sync v3. This
+/// function matches the error that is returned if the sync v3 token is used
+/// with the Sliding Sync API.
+#[cfg(feature = "e2e-encryption")]
+fn is_synapse_incompatible_token_error(error: &crate::Error) -> bool {
+    let Some(ruma::api::error::Error {
+        status_code: ::http::StatusCode::BAD_REQUEST,
+        body: ErrorBody::Standard(StandardErrorBody { message, .. }),
+        ..
+    }) = error.as_client_api_error()
+    else {
+        return false;
+    };
+
+    message.starts_with("1 validation error for SlidingSyncBody")
+        && message.contains("'extensions.to_device.since' is invalid")
+        && message.contains("(should look like an int)")
 }
 
 /// Add a subscription for each room of `room_ids` that isn't subscribed yet,
@@ -1085,16 +1121,17 @@ mod tests {
         collections::BTreeMap,
         future::ready,
         ops::Not,
+        pin::pin,
         sync::{Arc, Mutex},
         time::Duration,
     };
 
     use assert_matches::assert_matches;
     use event_listener::Listener;
-    use futures_util::{StreamExt, future::join_all, pin_mut};
+    use futures_util::{StreamExt, future::join_all};
     use matrix_sdk_base::{RequestedRequiredStates, RoomMemberships};
     use matrix_sdk_common::executor::spawn;
-    use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{ALICE, User, async_test, event_factory::EventFactory};
     use ruma::{
         OwnedRoomId, assign,
         events::{direct::DirectEvent, room::member::MembershipState},
@@ -1174,7 +1211,7 @@ mod tests {
 
         // Subscribing emits the currently stored value immediately.
         let stream = client.subscribe_to_own_profile().expect("client should be logged in");
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         let profile = stream.next().await.expect("should emit the initial profile");
         assert_eq!(profile.get_static::<DisplayName>().unwrap().as_deref(), Some("Example"));
@@ -1261,7 +1298,7 @@ mod tests {
         .await?;
 
         let stream = sliding_sync.sync();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         let room_id_0 = room_id!("!r0:bar.org");
         let room_id_1 = room_id!("!r1:bar.org");
@@ -1594,7 +1631,7 @@ mod tests {
         .await?;
 
         let stream = sliding_sync.sync();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         let room_id_0 = room_id!("!r0:bar.org");
         let room_id_1 = room_id!("!r1:bar.org");
@@ -1781,7 +1818,7 @@ mod tests {
         .await?;
 
         let _stream = sliding_sync.sync();
-        pin_mut!(_stream);
+        let mut _stream = pin!(_stream);
 
         sliding_sync
             .add_list(
@@ -2144,7 +2181,7 @@ mod tests {
         }
 
         let sync = sliding_sync.sync();
-        pin_mut!(sync);
+        let mut sync = pin!(sync);
 
         // Sync goes well, and then the position is saved both into the internal
         // memory and the database.
@@ -2233,7 +2270,7 @@ mod tests {
         }
 
         let sync = sliding_sync.sync();
-        pin_mut!(sync);
+        let mut sync = pin!(sync);
 
         // Sync goes well, and then the position is saved both into the internal
         // memory and the database.
@@ -2309,7 +2346,7 @@ mod tests {
 
         // Start the sync loop.
         let stream = sliding_sync.sync();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // The sync loop is actually running.
         assert!(stream.next().await.is_some());
@@ -2322,7 +2359,7 @@ mod tests {
 
         // Start a new sync loop.
         let stream = sliding_sync.sync();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // The sync loop is actually running.
         assert!(stream.next().await.is_some());
@@ -2843,7 +2880,7 @@ mod tests {
                 .await?;
 
         let stream = sliding_sync.sync();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         let cloned_sync = sliding_sync.clone();
         spawn(async move {
@@ -3152,7 +3189,7 @@ mod tests {
             .and(wiremock::matchers::path_regex(r"/_matrix/client/v3/rooms/.*/members"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "chunk": [
-                    f.member(&ALICE).membership(MembershipState::Join).into_raw_timeline(),
+                    f.member(User::Alice).membership(MembershipState::Join).into_raw_timeline(),
                 ]
             })))
             .mount(server.server())
@@ -3275,5 +3312,125 @@ mod tests {
         assert_key_count!(client, 10);
 
         Ok(())
+    }
+
+    /// `pos` must never be persisted ahead of the event cache: if the process
+    /// dies after `pos` is saved but before the events of the same response
+    /// are in the event cache store, the server won't send these events again,
+    /// and they're lost for good. See #5500.
+    ///
+    /// `pos` is only persisted with the `e2e-encryption` feature, as it lives
+    /// in the crypto store (see `store_sliding_sync_state`).
+    #[cfg(feature = "e2e-encryption")]
+    mod pos_and_event_cache {
+        use std::time::Duration;
+
+        use matrix_sdk_base::{
+            event_cache::store::{ControlledMemoryStore, EventCacheStore},
+            store::StoreConfig,
+        };
+        use matrix_sdk_common::{
+            cross_process_lock::CrossProcessLockConfig, executor::spawn, sleep::sleep,
+        };
+        use matrix_sdk_test::{async_test, event_factory::EventFactory};
+        use ruma::{event_id, room_id};
+        use serde_json::json;
+        use tokio::time::timeout;
+        use wiremock::{Mock, ResponseTemplate};
+
+        use super::{SlidingSyncMatcher, restore_sliding_sync_state};
+        use crate::{
+            Client, Result, SlidingSyncList, sliding_sync::SlidingSync,
+            test_utils::mocks::MatrixMockServer,
+        };
+
+        /// Create a client using the given event cache store, and a sliding
+        /// sync whose next response carries a timeline event for a room.
+        async fn set_up(
+            server: &MatrixMockServer,
+            store: &ControlledMemoryStore,
+        ) -> Result<(Client, SlidingSync)> {
+            let store_config = StoreConfig::new(CrossProcessLockConfig::SingleProcess)
+                .event_cache_store(store.clone());
+            let client = server
+                .client_builder()
+                .on_builder(|builder| builder.store_config(store_config))
+                .build()
+                .await;
+
+            let room_id = room_id!("!r0:example.org");
+            let f = EventFactory::new().room(room_id).sender(ruma::user_id!("@alice:example.org"));
+
+            Mock::given(SlidingSyncMatcher)
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "pos": "0",
+                    "lists": {},
+                    "rooms": {
+                        room_id: {
+                            "initial": true,
+                            "timeline": [
+                                f.text_msg("hello").event_id(event_id!("$ev0")).into_raw_sync(),
+                            ],
+                        },
+                    },
+                })))
+                .mount(server.server())
+                .await;
+
+            let sliding_sync = client
+                .sliding_sync("pos-test")?
+                .add_list(SlidingSyncList::builder("all"))
+                .build()
+                .await?;
+
+            Ok((client, sliding_sync))
+        }
+
+        async fn persisted_pos(client: &Client, sliding_sync: &SlidingSync) -> Option<String> {
+            restore_sliding_sync_state(client, &sliding_sync.inner.storage_key)
+                .await
+                .unwrap()
+                .and_then(|fields| fields.pos)
+        }
+
+        #[async_test]
+        async fn test_pos_is_persisted_after_the_event_cache() -> Result<()> {
+            let server = MatrixMockServer::new().await;
+            let store = ControlledMemoryStore::new();
+            store.block_writes();
+
+            let (client, sliding_sync) = set_up(&server, &store).await?;
+
+            let sync = spawn({
+                let sliding_sync = sliding_sync.clone();
+                async move { sliding_sync.sync_once().await }
+            });
+
+            // The event cache has started to write the events of the response…
+            timeout(Duration::from_secs(5), store.wait_for_write_to_start())
+                .await
+                .expect("the event cache never wrote to its store");
+
+            // … but hasn't finished. If the process was killed now, the `pos`
+            // must still be the previous one. Leave some time to the sync to
+            // (wrongly) persist it.
+            sleep(Duration::from_millis(200)).await;
+            assert!(!sync.is_finished(), "the sync must wait for the event cache store");
+            assert_eq!(persisted_pos(&client, &sliding_sync).await, None);
+
+            // Once the events are stored, the `pos` can be persisted.
+            store.unblock_writes();
+            timeout(Duration::from_secs(5), sync)
+                .await
+                .expect("the sync never finished after unblocking the store")
+                .unwrap()?;
+
+            assert!(
+                store.find_event(room_id!("!r0:example.org"), event_id!("$ev0")).await?.is_some()
+            );
+            assert_eq!(persisted_pos(&client, &sliding_sync).await.as_deref(), Some("0"));
+
+            Ok(())
+        }
     }
 }

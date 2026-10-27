@@ -5,7 +5,7 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_base::timeout::timeout;
-use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{EventSendState, RoomExt};
 use ruma::{
     event_id,
@@ -101,7 +101,7 @@ async fn test_send_location_as_reply() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
-                f.text_msg("Where are you?").sender(&BOB).event_id(event_id_from_bob),
+                f.text_msg("Where are you?").sender(User::Bob).event_id(event_id_from_bob),
             ),
         )
         .await;
@@ -118,7 +118,7 @@ async fn test_send_location_as_reply() {
                 content["m.relates_to"]["m.in_reply_to"]["event_id"],
                 event_id_from_bob.as_str()
             );
-            assert_eq!(content["m.mentions"]["user_ids"], json!([BOB.as_str()]));
+            assert_eq!(content["m.mentions"]["user_ids"], json!([User::Bob]));
 
             ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$location_event" }))
         })

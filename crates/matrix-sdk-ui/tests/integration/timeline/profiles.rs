@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    ALICE, BOB, CAROL, DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, async_test,
+    DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, User, async_test,
     event_factory::{EventFactory, PreviousMembership},
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails};
@@ -46,30 +46,33 @@ async fn test_user_profile_after_being_banned() {
             JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
                 // Bob joins the room
                 .add_timeline_event(
-                    f.member(&BOB)
+                    f.member(User::Bob)
                         .display_name("Bob")
                         .avatar_url("mxc://123".into())
                         .membership(MembershipState::Join),
                 )
                 // Alice accepts an invite into the room
                 .add_timeline_event(
-                    f.member(&ALICE)
+                    f.member(User::Alice)
                         .display_name("*profanities*")
                         .avatar_url("mxc://456".into())
                         .membership(MembershipState::Join)
                         .previous(MembershipState::Invite),
                 )
                 // Bob sends a text message
-                .add_timeline_event(f.text_msg("hey!").sender(&BOB))
+                .add_timeline_event(f.text_msg("hey!").sender(User::Bob))
                 // Alice send some insults and gets banned
-                .add_timeline_event(f.text_msg("*insults*").sender(&ALICE))
-                .add_timeline_event(f.text_msg("Nope. You are out.").sender(&BOB))
+                .add_timeline_event(f.text_msg("*insults*").sender(User::Alice))
+                .add_timeline_event(f.text_msg("Nope. You are out.").sender(User::Bob))
                 .add_timeline_event(
-                    f.member(&ALICE).membership(MembershipState::Ban).sender(&BOB).previous(
-                        PreviousMembership::new(MembershipState::Join)
-                            .display_name("*profanities*")
-                            .avatar_url("mxc://456".into()),
-                    ),
+                    f.member(User::Alice)
+                        .membership(MembershipState::Ban)
+                        .sender(User::Bob)
+                        .previous(
+                            PreviousMembership::new(MembershipState::Join)
+                                .display_name("*profanities*")
+                                .avatar_url("mxc://456".into()),
+                        ),
                 ),
         )
         .await;
@@ -85,7 +88,7 @@ async fn test_user_profile_after_being_banned() {
     let alice_event = timeline_items[4].as_event().unwrap();
     let alice_profile = alice_event.sender_profile();
     // Was this event sent by Alice?
-    assert_eq!(alice_event.sender(), *ALICE);
+    assert_eq!(alice_event.sender(), User::Alice);
     match alice_profile {
         TimelineDetails::Ready(profile) => {
             assert_eq!(profile.display_name, None);
@@ -115,25 +118,25 @@ async fn test_user_profile_after_leaving() {
             JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
                 // Bob joins the room
                 .add_timeline_event(
-                    f.member(&BOB)
+                    f.member(User::Bob)
                         .display_name("Bob")
                         .avatar_url("mxc://...".into())
                         .membership(MembershipState::Join),
                 )
                 // Alice accepts an invite into the room
                 .add_timeline_event(
-                    f.member(&ALICE)
+                    f.member(User::Alice)
                         .display_name("Alice")
                         .avatar_url("mxc://...".into())
                         .membership(MembershipState::Join)
                         .previous(MembershipState::Invite),
                 )
                 // Bob sends a text message
-                .add_timeline_event(f.text_msg("hey!").sender(&BOB))
+                .add_timeline_event(f.text_msg("hey!").sender(User::Bob))
                 // Alice send a message and leaves the room
-                .add_timeline_event(f.text_msg("bye now").sender(&ALICE))
+                .add_timeline_event(f.text_msg("bye now").sender(User::Alice))
                 .add_timeline_event(
-                    f.member(&ALICE).membership(MembershipState::Leave).previous(
+                    f.member(User::Alice).membership(MembershipState::Leave).previous(
                         PreviousMembership::new(MembershipState::Join)
                             .display_name("Alice")
                             .avatar_url("mxc://...".into()),
@@ -151,7 +154,7 @@ async fn test_user_profile_after_leaving() {
     let alice_event = timeline_items[4].as_event().unwrap();
     let alice_profile = alice_event.sender_profile();
     // Was this event sent by Alice?
-    assert_eq!(alice_event.sender(), *ALICE);
+    assert_eq!(alice_event.sender(), User::Alice);
     match alice_profile {
         TimelineDetails::Ready(profile) => {
             assert_eq!(profile.display_name, Some("Alice".to_owned()));
@@ -164,7 +167,7 @@ async fn test_user_profile_after_leaving() {
     let bob_event = timeline_items[3].as_event().unwrap();
     let bob_profile = bob_event.sender_profile();
     // Was this event sent by Bob?
-    assert_eq!(bob_event.sender(), *BOB);
+    assert_eq!(bob_event.sender(), User::Bob);
     match bob_profile {
         TimelineDetails::Ready(profile) => {
             assert_eq!(profile.display_name, Some("Bob".to_owned()));
@@ -192,14 +195,16 @@ async fn test_update_sender_profiles() {
             JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
                 // Alice accepts an invite into the room
                 .add_timeline_event(
-                    f.member(&ALICE)
+                    f.member(User::Alice)
                         .membership(MembershipState::Join)
                         .previous(MembershipState::Invite),
                 )
                 // Bob sends a text message
-                .add_timeline_event(f.text_msg("text message event").sender(&BOB))
+                .add_timeline_event(f.text_msg("text message event").sender(User::Bob))
                 // Carol kicks bob
-                .add_timeline_event(f.member(&CAROL).kicked(&BOB).previous(MembershipState::Join)),
+                .add_timeline_event(
+                    f.member(User::Carol).kicked(User::Bob).previous(MembershipState::Join),
+                ),
         )
         .await;
 
@@ -251,13 +256,13 @@ async fn test_update_sender_profiles() {
         .mock_get_members()
         .ok(vec![
             // This event wasn't previously observed by the client
-            f.member(&CAROL).membership(MembershipState::Join).into_raw(),
+            f.member(User::Carol).membership(MembershipState::Join).into_raw(),
             // Same as above
-            f.member(&ALICE)
+            f.member(User::Alice)
                 .membership(MembershipState::Join)
                 .previous(MembershipState::Invite)
                 .into_raw(),
-            f.member(&CAROL).kicked(&BOB).previous(MembershipState::Join).into_raw(),
+            f.member(User::Carol).kicked(User::Bob).previous(MembershipState::Join).into_raw(),
         ])
         .mount()
         .await;

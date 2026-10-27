@@ -1280,7 +1280,8 @@ impl Account {
     /// # Examples
     ///
     /// ```no_run
-    /// # use futures_util::{pin_mut, StreamExt};
+    /// # use std::pin::pin;
+    /// # use futures_util::StreamExt;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::events::media_preview_config::MediaPreviews;
     /// # use url::Url;
@@ -1294,7 +1295,7 @@ impl Account {
     ///
     /// println!("Initial media preview config: {:?}", initial_config);
     ///
-    /// pin_mut!(config_stream);
+    /// let mut config_stream = pin!(config_stream);
     /// while let Some(new_config) = config_stream.next().await {
     ///     println!("Updated media preview config: {:?}", new_config);
     /// }

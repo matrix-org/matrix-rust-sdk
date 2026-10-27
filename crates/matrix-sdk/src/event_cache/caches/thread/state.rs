@@ -83,7 +83,7 @@ pub struct ThreadEventCacheState {
     room_version_rules: RoomVersionRules,
 
     /// The linked chunk for this thread.
-    thread_linked_chunk: EventLinkedChunk,
+    pub(super) thread_linked_chunk: EventLinkedChunk,
 
     /// The information related to this thread, [`ThreadInfo`].
     pub thread_info: SharedObservable<ThreadInfo, AsyncLock>,

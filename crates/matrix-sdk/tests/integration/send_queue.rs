@@ -1780,11 +1780,8 @@ async fn test_abort_with_reason_while_being_sent_then_sent() {
     // Sending will take a moment, so the abort happens while the event is being
     // sent.
     mock.mock_room_send()
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_delay(Duration::from_secs(1))
-                .set_body_json(json!({ "event_id": "$1" })),
-        )
+        .with_delay(Duration::from_secs(1))
+        .ok(event_id!("$1"))
         .mock_once()
         .mount()
         .await;
@@ -2067,6 +2064,53 @@ async fn test_unwedge_reaction() {
 
     assert_update!((global_watch, watch) => retry { txn = reaction_txn });
     assert_update!((global_watch, watch) => sent { txn = reaction_txn, event_id = event_id!("$2") });
+}
+
+#[async_test]
+async fn test_duplicate_reaction_does_not_wedge_the_queue() {
+    let mock = MatrixMockServer::new().await;
+
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+    let (_, mut watch) = q.subscribe().await.unwrap();
+
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // The message goes out; the server already has this reaction from us (sent
+    // from another device while this one was offline), and says so.
+    mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
+    mock.mock_room_send()
+        .respond_with_code_and_json(
+            400,
+            json!({
+                "errcode": "M_DUPLICATE_ANNOTATION",
+                "error": "Can't send same reaction twice",
+            }),
+        )
+        .mock_once()
+        .mount()
+        .await;
+    mock.mock_room_send().ok(event_id!("$2")).mock_once().mount().await;
+
+    let msg_handle = q.send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
+    msg_handle.react("👍".to_owned()).await.unwrap().expect("reaction was queued");
+
+    let (msg_txn, _) = assert_update!((global_watch, watch) => local echo { body = "1" });
+    let reaction_txn =
+        assert_update!((global_watch, watch) => local reaction { key = "👍", parent = msg_txn });
+    assert_update!((global_watch, watch) => sent { txn = msg_txn, event_id = event_id!("$1") });
+
+    // The reaction is already there: it's dropped, not wedged.
+    assert_update!((global_watch, watch) => cancelled { txn = reaction_txn });
+
+    // So the next message isn't stuck behind it.
+    q.send(RoomMessageEventContent::text_plain("2").into()).await.unwrap();
+    let (msg2_txn, _) = assert_update!((global_watch, watch) => local echo { body = "2" });
+    assert_update!((global_watch, watch) => sent { txn = msg2_txn, event_id = event_id!("$2") });
 }
 
 #[async_test]
@@ -2393,7 +2437,8 @@ async fn test_redaction() {
 
     server.mock_room_state_encryption().plain().mount().await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
 
     let queue = room.send_queue();
@@ -3480,7 +3525,7 @@ async fn test_media_upload_retry_with_520_http_status_code() {
     // attempts.
     mock.mock_upload()
         .expect_mime_type("image/jpeg")
-        .respond_with(ResponseTemplate::new(520).set_body_json(json!({})))
+        .respond_with_code_and_json(520, json!({}))
         .up_to_n_times(3)
         .expect(3)
         .mount()
@@ -3802,11 +3847,8 @@ async fn test_cancel_upload_before_active() {
     mock.mock_room_state_encryption().plain().mount().await;
 
     mock.mock_room_send()
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(1)).set_body_json(
-            json!({
-              "event_id": event_id!("$msg")
-            }),
-        ))
+        .with_delay(Duration::from_secs(1))
+        .ok(event_id!("$msg"))
         .mock_once()
         .mount()
         .await;
@@ -3874,7 +3916,8 @@ async fn test_cancel_upload_with_thumbnail_active() {
     // Have the thumbnail upload take forever and time out, if continued. This
     // will be interrupted when aborting, so this will never have to complete.
     mock.mock_upload()
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(60)))
+        .with_delay(Duration::from_secs(60))
+        .respond_with(ResponseTemplate::new(200))
         .expect(1)
         .mount()
         .await;
@@ -3944,7 +3987,8 @@ async fn test_cancel_upload_with_uploaded_thumbnail_and_file_active() {
     // Have the file upload take forever and time out, if continued. This will
     // be interrupted when aborting, so this will never have to complete.
     mock.mock_upload()
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(60)))
+        .with_delay(Duration::from_secs(60))
+        .respond_with(ResponseTemplate::new(200))
         .expect(1)
         .named("file upload")
         .mount()
@@ -4010,7 +4054,8 @@ async fn test_cancel_upload_only_file_with_file_active() {
     // Have the file upload take forever and time out, if continued. This will
     // be interrupted when aborting, so this will never have to complete.
     mock.mock_upload()
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(60)))
+        .with_delay(Duration::from_secs(60))
+        .respond_with(ResponseTemplate::new(200))
         .expect(1)
         .named("file upload")
         .mount()
@@ -4085,11 +4130,8 @@ async fn test_cancel_upload_while_sending_event() {
     // Sending of the media event will take 1 second, so we can abort it while
     // it's happening.
     mock.mock_room_send()
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(1)).set_body_json(
-            json!({
-              "event_id": "$media"
-            }),
-        ))
+        .with_delay(Duration::from_secs(1))
+        .ok(event_id!("$media"))
         .mock_once()
         .named("send event")
         .mock_once()
@@ -4182,11 +4224,8 @@ async fn test_update_caption_while_sending_media() {
 
     // File upload will take a second.
     mock.mock_upload()
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(1)).set_body_json(
-            json!({
-              "content_uri": "mxc://sdk.rs/media"
-            }),
-        ))
+        .with_delay(Duration::from_secs(1))
+        .ok(mxc_uri!("mxc://sdk.rs/media"))
         .mock_once()
         .named("file upload")
         .mount()
@@ -4272,11 +4311,8 @@ async fn test_update_caption_before_event_is_sent() {
 
     // File upload will take a second.
     mock.mock_upload()
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(1)).set_body_json(
-            json!({
-              "content_uri": "mxc://sdk.rs/media"
-            }),
-        ))
+        .with_delay(Duration::from_secs(1))
+        .ok(mxc_uri!("mxc://sdk.rs/media"))
         .mock_once()
         .named("file upload")
         .mount()
@@ -4398,11 +4434,8 @@ async fn test_add_mention_to_caption_before_media_sent() {
 
     // File upload will take a second.
     mock.mock_upload()
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(1)).set_body_json(
-            json!({
-              "content_uri": "mxc://sdk.rs/media"
-            }),
-        ))
+        .with_delay(Duration::from_secs(1))
+        .ok(mxc_uri!("mxc://sdk.rs/media"))
         .mock_once()
         .named("file upload")
         .mount()
@@ -4510,11 +4543,8 @@ async fn test_update_caption_while_sending_media_event() {
 
     // Sending of the media event will take one second.
     mock.mock_room_send()
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(1)).set_body_json(
-            json!({
-                "event_id": "$1"
-            }),
-        ))
+        .with_delay(Duration::from_secs(1))
+        .ok(event_id!("$1"))
         .mock_once()
         .named("send event")
         .mock_once()
@@ -4641,7 +4671,8 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
         .build()
         .await;
 
-    let mut thread_subscriber_updates = client.event_cache().subscribe_thread_subscriber_updates();
+    let mut thread_subscriber_updates =
+        client.event_cache().unwrap().subscribe_thread_subscriber_updates();
 
     let room_id = room_id!("!a:b.c");
     let room = server.sync_joined_room(&client, room_id).await;
@@ -4774,7 +4805,8 @@ async fn test_sending_event_still_saves_sync_gap() {
     // Give time to the Event Cache to handle the sync.
     sleep(Duration::from_secs(1)).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
 

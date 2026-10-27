@@ -173,34 +173,32 @@ impl ThreadListService {
         let items: Arc<Mutex<ObservableVector<ThreadListItem>>> =
             Arc::new(Mutex::new(ObservableVector::new()));
 
-        let event_cache_task = room
-            .client()
+        let client = room.client();
+
+        let event_cache_task = client
             .task_monitor()
             .spawn_infinite_task("thread_list_service::event_cache_listener", {
                 let room = room.clone();
                 let items = items.clone();
+                let client = client.clone();
+
                 async move {
                     // Obtain the room event cache and a subscriber.
-                    let (_event_cache_drop, mut subscriber) = match async {
-                        let (room_event_cache, drop_handles) = room.event_cache().await?;
-                        let (_, subscriber) = room_event_cache.subscribe().await?;
-                        matrix_sdk::event_cache::Result::Ok((drop_handles, subscriber))
-                    }
-                    .await
+                    if let Some(event_cache) = client.event_cache()
+                        && let Ok((room_event_cache, _event_cache_drop_handles)) =
+                            event_cache.room(room.room_id()).await
+                        && let Ok((_initial_events, mut subscriber)) =
+                            room_event_cache.subscribe().await
                     {
-                        Ok(pair) => pair,
-                        Err(e) => {
-                            error!(
-                                "ThreadListService: failed to subscribe to room event cache, \
-                                 live updates will not work: {e}"
-                            );
-                            return;
-                        }
-                    };
+                        trace!("ThreadListService: event cache listener started");
 
-                    trace!("ThreadListService: event cache listener started");
-
-                    Self::event_cache_listener_loop(&room, &mut subscriber, items).await;
+                        Self::event_cache_listener_loop(&room, &mut subscriber, items).await;
+                    } else {
+                        error!(
+                            "ThreadListService: failed to subscribe to room event cache, \
+                                 live updates will not work"
+                        );
+                    }
                 }
             })
             .abort_on_drop();
@@ -474,10 +472,9 @@ struct ThreadList {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{pin::pin, time::Duration};
 
     use assert_matches::assert_matches;
-    use futures_util::pin_mut;
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
@@ -495,9 +492,7 @@ mod tests {
         serde::Raw,
         user_id,
     };
-    use serde_json::json;
     use stream_assert::{assert_next_matches, assert_pending};
-    use wiremock::ResponseTemplate;
 
     use super::{ThreadListPaginationState, ThreadListService};
     use crate::timeline::{MsgLikeContent, MsgLikeKind, TimelineItemContent};
@@ -620,11 +615,8 @@ mod tests {
             vec![f.text_msg("Thread root").event_id(eid1).into_raw()];
         server
             .mock_room_threads()
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(json!({ "chunk": chunk, "next_batch": null }))
-                    .set_delay(Duration::from_millis(100)),
-            )
+            .with_delay(Duration::from_millis(100))
+            .ok(chunk, None)
             .expect(1)
             .mount()
             .await;
@@ -735,7 +727,7 @@ mod tests {
         let service = ThreadListService::new(room);
 
         let subscriber = service.subscribe_to_pagination_state_updates();
-        pin_mut!(subscriber);
+        let mut subscriber = pin!(subscriber);
 
         assert_pending!(subscriber);
 

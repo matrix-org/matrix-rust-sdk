@@ -137,7 +137,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
     future::IntoFuture,
-    ops::Not,
     str::FromStr as _,
     sync::{
         Arc, OnceLock, RwLock,
@@ -169,8 +168,9 @@ use mime::Mime;
 #[cfg(feature = "unstable-msc4354")]
 use ruma::events::sticky::StickyDurationMs;
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
-    TransactionId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
+    TransactionId, UInt, UserId,
+    api::error::ErrorKind,
     events::{
         AnyMessageLikeEventContent, Mentions, MessageLikeEventContent as _, TimelineEventType,
         reaction::ReactionEventContent,
@@ -304,7 +304,7 @@ impl SendQueue {
         let data = self.data();
 
         data.session_change_task.get_or_init(|| {
-            let client = WeakClient::from_client(&self.client);
+            let client = self.client.downgrade();
             self.client
                 .task_monitor()
                 .spawn_infinite_task("send_queue_session_change", Self::session_change_task(client))
@@ -543,10 +543,10 @@ impl RoomSendQueue {
     ) -> Self {
         let (update_sender, _) = broadcast::channel(32);
 
-        let queue = QueueStorage::new(WeakClient::from_client(client), room_id.clone());
+        let queue = QueueStorage::new(client.downgrade(), room_id.clone());
         let notifier = Arc::new(Notify::new());
 
-        let weak_room = WeakRoom::new(WeakClient::from_client(client), room_id);
+        let weak_room = WeakRoom::new(client.downgrade(), room_id);
         let locally_enabled = Arc::new(AtomicBool::new(globally_enabled));
 
         let task = client.task_monitor().spawn_infinite_task(
@@ -912,25 +912,21 @@ impl RoomSendQueue {
                             // Send Queue will continue as if everything
                             // happened successfully. This feature is not
                             // considered “crucial”.
-                            if let Ok((room_event_cache, _drop_handles)) = room.event_cache().await
+                            if let Some(event_cache) = room.client().event_cache()
+                                && let Ok((room_event_cache, _drop_handles)) =
+                                    event_cache.room(room.room_id()).await
                             {
-                                let timeline_event = match Raw::from_json_string(
-                                    // Create a compact string: remove all useless spaces.
-                                    format!(
-                                        "{{\
-                                            \"event_id\":\"{event_id}\",\
-                                            \"origin_server_ts\":{ts},\
-                                            \"sender\":\"{sender}\",\
-                                            \"type\":\"{type}\",\
-                                            \"content\":{content}\
-                                        }}",
-                                        event_id = event_id,
-                                        ts = MilliSecondsSinceUnixEpoch::now().get(),
-                                        sender = room.client().user_id().expect("Client must be logged-in"),
-                                        type = event_type,
-                                        content = event.into_json(),
-                                    ),
-                                ) {
+                                let event = build_timeline_event(
+                                    &event_id,
+                                    MilliSecondsSinceUnixEpoch::now().get(),
+                                    room.client().user_id().expect("Client must be logged-in"),
+                                    &event_type,
+                                    event.into_json(),
+                                );
+
+                                let timeline_event = match serde_json::value::to_raw_value(&event)
+                                    .map(Raw::from_json)
+                                {
                                     Ok(event) => match encryption_info {
                                         #[cfg(feature = "e2e-encryption")]
                                         Some(encryption_info) => {
@@ -1017,46 +1013,27 @@ impl RoomSendQueue {
                             // cache the event now to avoid any inconsistencies
                             // until the server sends down the remote echo via
                             // the sync.
-                            if let Ok((room_event_cache, _drop_handles)) = room.event_cache().await
+                            if let Some(event_cache) = room.client().event_cache()
+                                && let Ok((room_event_cache, _drop_handles)) =
+                                    event_cache.room(room.room_id()).await
                             {
                                 let content_field_redacts = room.version().is_some_and(|id| {
                                     id.rules()
                                         .is_some_and(|rules| rules.redaction.content_field_redacts)
                                 });
-                                let redacts = if content_field_redacts.not() {
-                                    format!("\"redacts\":\"{redacts}\",")
-                                } else {
-                                    "".to_owned()
-                                };
-                                let reason = reason.map_or_else(
-                                    || "".to_owned(),
-                                    |r| format!("\"reason\": \"{r}\""),
-                                );
-                                let content = if content_field_redacts {
-                                    format!("\"redacts\":\"{redacts}\",{reason}")
-                                } else {
-                                    reason
-                                };
 
-                                let timeline_event = match Raw::from_json_string(
-                                    // Create a compact string: remove all useless spaces.
-                                    format!(
-                                        "{{\
-                                            {redacts}\
-                                            \"event_id\":\"{event_id}\",\
-                                            \"origin_server_ts\":{ts},\
-                                            \"sender\":\"{sender}\",\
-                                            \"type\":\"{type}\",\
-                                            \"content\":{{{content}}}\
-                                        }}",
-                                        redacts = redacts,
-                                        event_id = event_id,
-                                        ts = MilliSecondsSinceUnixEpoch::now().get(),
-                                        sender = room.client().user_id().expect("Client must be logged-in"),
-                                        type = TimelineEventType::RoomRedaction,
-                                        content = content
-                                    ),
-                                ) {
+                                let event = build_redaction_event(
+                                    &event_id,
+                                    MilliSecondsSinceUnixEpoch::now().get(),
+                                    room.client().user_id().expect("Client must be logged-in"),
+                                    &redacts,
+                                    reason.as_deref(),
+                                    content_field_redacts,
+                                );
+
+                                let timeline_event = match serde_json::value::to_raw_value(&event)
+                                    .map(Raw::from_json)
+                                {
                                     Ok(event) => Some(TimelineEvent::from_plaintext(event)),
                                     Err(err) => {
                                         error!(
@@ -1096,6 +1073,41 @@ impl RoomSendQueue {
 
                 Ok((None, _)) => {
                     debug!("Request has been aborted while running, continuing.");
+                }
+
+                // The server already has this exact reaction from us (sent from
+                // another device, or by an earlier attempt it no longer
+                // remembers), so there's nothing left to do. Wedging would
+                // block the room for good: every retry gets the same answer.
+                Err(err)
+                    if err.client_api_error_kind() == Some(&ErrorKind::DuplicateAnnotation) =>
+                {
+                    debug!(txn_id = %txn_id, "the server already has this reaction, dropping it");
+
+                    queue.mark_as_not_being_sent(&txn_id).await;
+
+                    match queue.cancel_event(&txn_id, None).await {
+                        Ok(true) => send_update(
+                            &global_update_sender,
+                            &update_sender,
+                            room_id,
+                            RoomSendQueueUpdate::CancelledLocalEvent { transaction_id: txn_id },
+                        ),
+
+                        // Removed meanwhile (aborted before we got here);
+                        // nothing to report.
+                        Ok(false) => {}
+
+                        Err(storage_error) => {
+                            // Still queued, so it would be sent again right
+                            // away, over and over: stop the queue instead.
+                            error!(
+                                txn_id = %txn_id,
+                                "couldn't drop the duplicate reaction, disabling the queue: {storage_error}"
+                            );
+                            locally_enabled.store(false, Ordering::SeqCst);
+                        }
+                    }
                 }
 
                 Err(err) => {
@@ -3516,6 +3528,51 @@ fn canonicalize_dependent_requests(
     by_txn.into_values().flat_map(|entries| entries.into_iter().cloned()).collect()
 }
 
+fn build_timeline_event(
+    event_id: &EventId,
+    now: UInt,
+    sender: &UserId,
+    event_type: &str,
+    content: Box<serde_json::value::RawValue>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "event_id": event_id,
+        "origin_server_ts": now,
+        "sender": sender,
+        "type": event_type,
+        "content": content
+    })
+}
+
+fn build_redaction_event(
+    event_id: &EventId,
+    now: UInt,
+    sender: &UserId,
+    redacts: &EventId,
+    reason: Option<&str>,
+    content_field_redacts: bool,
+) -> serde_json::Value {
+    let mut event = serde_json::json!({
+        "event_id": event_id,
+        "origin_server_ts": now,
+        "sender": sender,
+        "type": TimelineEventType::RoomRedaction,
+        "content": {},
+    });
+
+    if content_field_redacts {
+        event["content"]["redacts"] = redacts.to_string().into();
+    } else {
+        event["redacts"] = redacts.to_string().into();
+    }
+
+    if let Some(reason) = reason {
+        event["content"]["reason"] = reason.into();
+    }
+
+    event
+}
+
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use std::{assert_matches, sync::Arc, time::Duration};
@@ -3526,18 +3583,20 @@ mod tests {
     };
     use matrix_sdk_test::{JoinedRoomBuilder, SyncResponseBuilder, async_test};
     use ruma::{
-        MilliSecondsSinceUnixEpoch, TransactionId,
+        MilliSecondsSinceUnixEpoch, TransactionId, UInt,
         api::error::UnknownTokenErrorData,
         event_id,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
-        room_id,
+        room_id, user_id,
     };
     use strass::assert_let;
 
-    use super::{RoomSendQueueUpdate, canonicalize_dependent_requests};
+    use super::{
+        RoomSendQueueUpdate, build_redaction_event, build_timeline_event,
+        canonicalize_dependent_requests,
+    };
     use crate::{
         SessionChange,
-        client::WeakClient,
         test_utils::{logged_in_client, mocks::MatrixMockServer},
     };
 
@@ -3577,7 +3636,7 @@ mod tests {
     async fn test_client_no_cycle_with_send_queue() {
         for enabled in [true, false] {
             let client = logged_in_client(None).await;
-            let weak_client = WeakClient::from_client(&client);
+            let weak_client = client.downgrade();
 
             {
                 let mut sync_response_builder = SyncResponseBuilder::new();
@@ -3839,5 +3898,73 @@ mod tests {
         // Which is still enough for the request to be retried.
         assert_let!(Ok(RoomSendQueueUpdate::RetryEvent { .. }) = watch.recv().await);
         assert_let!(Ok(RoomSendQueueUpdate::SentEvent { .. }) = watch.recv().await);
+    }
+
+    #[test]
+    fn test_build_timeline_event() {
+        let content = serde_json::value::to_raw_value(&serde_json::json!({
+            "msgtype": "m.text",
+            "body": "some text",
+        }))
+        .unwrap();
+
+        let now = UInt::new(1_700_000_000_000).unwrap();
+
+        let event = build_timeline_event(
+            event_id!("$123"),
+            now,
+            user_id!("@bob:matrix.org"),
+            "m.room.message",
+            content,
+        );
+
+        assert_eq!(event["event_id"], "$123");
+        assert_eq!(event["origin_server_ts"].as_u64(), Some(now.into()));
+        assert_eq!(event["sender"], "@bob:matrix.org");
+        assert_eq!(event["type"], "m.room.message");
+        assert_eq!(event["content"]["msgtype"], "m.text");
+        assert_eq!(event["content"]["body"], "some text");
+    }
+
+    #[test]
+    fn test_build_redaction_event_no_content_field_redacts() {
+        let now = UInt::new(1_700_000_000_000).unwrap();
+
+        let event = build_redaction_event(
+            event_id!("$123"),
+            now,
+            user_id!("@alice:matrix.org"),
+            event_id!("$1234"),
+            Some("reason"),
+            false,
+        );
+
+        assert_eq!(event["event_id"], "$123");
+        assert_eq!(event["origin_server_ts"].as_u64(), Some(now.into()));
+        assert_eq!(event["sender"], "@alice:matrix.org");
+        assert_eq!(event["type"], "m.room.redaction");
+        assert_eq!(event["redacts"], "$1234");
+        assert_eq!(event["content"]["reason"], "reason");
+    }
+
+    #[test]
+    fn test_build_redaction_event_content_field_redacts() {
+        let now = UInt::new(1_700_000_000_000).unwrap();
+
+        let event = build_redaction_event(
+            event_id!("$123"),
+            now,
+            user_id!("@alice:matrix.org"),
+            event_id!("$1234"),
+            Some("reason"),
+            true,
+        );
+
+        assert_eq!(event["event_id"], "$123");
+        assert_eq!(event["origin_server_ts"].as_u64(), Some(now.into()));
+        assert_eq!(event["sender"], "@alice:matrix.org");
+        assert_eq!(event["type"], "m.room.redaction");
+        assert_eq!(event["content"]["redacts"], "$1234");
+        assert_eq!(event["content"]["reason"], "reason");
     }
 }

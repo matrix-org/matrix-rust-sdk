@@ -72,6 +72,7 @@ mod tasks;
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
 
+pub(crate) use self::caches::room::RFindMapOutcome;
 pub use self::{
     back_pagination_queue::BackPaginationQueue,
     caches::{
@@ -184,9 +185,6 @@ pub type Result<T> = std::result::Result<T, EventCacheError>;
 
 /// Hold handles to the tasks spawn by a [`EventCache`].
 pub struct EventCacheDropHandles {
-    /// Task that listens to room updates.
-    _listen_updates_task: BackgroundTaskHandle,
-
     /// Task that listens to updates to the user's ignored list.
     _ignore_user_list_update_task: BackgroundTaskHandle,
 
@@ -222,17 +220,6 @@ impl EventCacheDropHandles {
         client: Client,
     ) -> Self {
         let task_monitor = client.task_monitor();
-
-        // Spawn the task that will listen to all the room updates at once.
-        let listen_updates_task = task_monitor
-            .spawn_infinite_task(
-                "event_cache::room_updates_task",
-                tasks::room_updates_task(
-                    event_cache_inner.clone(),
-                    client.subscribe_to_all_room_updates(),
-                ),
-            )
-            .abort_on_drop();
 
         let ignore_user_list_update_task = task_monitor
             .spawn_infinite_task(
@@ -295,7 +282,6 @@ impl EventCacheDropHandles {
         }
 
         Self {
-            _listen_updates_task: listen_updates_task,
             _ignore_user_list_update_task: ignore_user_list_update_task,
             _auto_shrink_linked_chunk_task: auto_shrink_linked_chunk_task,
             // It is initialised with `EventCache::initialise_redecryptor`. See this method to learn
@@ -437,9 +423,21 @@ impl EventCache {
         self.inner.thread_subscriber_sender.subscribe()
     }
 
-    /// For benchmarking purposes only.
-    #[doc(hidden)]
+    /// Handle [`RoomUpdates`], i.e. the entry point of the `EventCache` for
+    /// receiving new updates.
+    ///
+    /// This method is `pub` because the `testing` feature is turned on.
+    #[cfg(feature = "testing")]
     pub async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
+        self.inner.handle_room_updates(updates).await
+    }
+
+    /// Handle [`RoomUpdates`], i.e. the entry point of the `EventCache` for
+    /// receiving new updates.
+    ///
+    /// This method is `pub(crate)` because the `testing` feature is turned off.
+    #[cfg(not(feature = "testing"))]
+    pub(crate) async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
         self.inner.handle_room_updates(updates).await
     }
 
@@ -456,6 +454,10 @@ impl EventCache {
     }
 
     /// Return a thread-specific view over the [`EventCache`].
+    ///
+    /// Note: it is impossible to know if `thread_id` represents a valid thread
+    /// identifier. It means it's possible to create a [`ThreadEventCache`] for
+    /// an event that is not a thread root.
     pub async fn thread(
         &self,
         room_id: &RoomId,
@@ -862,7 +864,7 @@ mod tests {
         client.base_client().get_or_create_room(room_id1, RoomState::Joined);
         client.base_client().get_or_create_room(room_id2, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         // Insert two rooms with a few events.
         let f = EventFactory::new().room(room_id1).sender(user_id!("@ben:saucisse.bzh"));
@@ -898,9 +900,7 @@ mod tests {
         event_cache.inner.handle_room_updates(updates).await.unwrap();
 
         // We can find the events in a single room.
-        let room1 = client.get_room(room_id1).unwrap();
-
-        let (room_event_cache, _drop_handles) = room1.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id1).await.unwrap();
 
         let found1 = room_event_cache.find_event(eid1).await.unwrap().unwrap();
         assert_event_matches_msg(&found1, "hey");
@@ -961,7 +961,7 @@ mod tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
@@ -1062,7 +1062,7 @@ mod tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
@@ -1111,7 +1111,7 @@ mod tests {
         let client = logged_in_client(None).await;
         let room_id = room_id!("!raclette:patate.ch");
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         // Room doesn't exist. It returns an error.
         assert_matches!(
@@ -1138,8 +1138,8 @@ mod tests {
         // Wait for the init tasks to die.
         sleep(Duration::from_secs(1)).await;
 
-        let event_cache_weak = Arc::downgrade(&client.event_cache().inner);
-        assert_eq!(event_cache_weak.strong_count(), 3);
+        let event_cache_weak = Arc::downgrade(&client.event_cache().unwrap().inner);
+        assert_eq!(event_cache_weak.strong_count(), 2);
 
         {
             let room_id = room_id!("!room:example.org");
@@ -1151,7 +1151,7 @@ mod tests {
             client.inner.base_client.receive_sync_response(response).await.unwrap();
 
             let (_room_event_cache, _drop_handles) =
-                client.get_room(room_id).unwrap().event_cache().await.unwrap();
+                client.event_cache().unwrap().room(room_id).await.unwrap();
         }
 
         drop(client);
@@ -1166,5 +1166,43 @@ mod tests {
             "Too many strong references to the event cache {}",
             event_cache_weak.strong_count()
         );
+    }
+
+    /// Dropping the future creating a room's caches must not leave the room
+    /// state half-created, which would make every later attempt fail.
+    #[async_test]
+    async fn test_cancelled_caches_creation_can_be_retried() {
+        let client = logged_in_client(None).await;
+        let room_id_a = room_id!("!a:saucisse.bzh");
+        let room_id_b = room_id!("!b:saucisse.bzh");
+
+        client.base_client().get_or_create_room(room_id_a, RoomState::Joined);
+        client.base_client().get_or_create_room(room_id_b, RoomState::Joined);
+
+        let event_cache = client.event_cache().unwrap();
+
+        let (room_a, _drop_handles) = event_cache.room(room_id_a).await.unwrap();
+
+        // Hold the state write lock so that creating room B's caches waits on
+        // it.
+        let guard = room_a.state().write().await.unwrap();
+
+        let mut create_b = Box::pin(event_cache.room(room_id_b));
+        assert!(create_b.as_mut().now_or_never().is_none());
+
+        // Queue another writer behind room B's creation.
+        let mut other_writer = Box::pin(room_a.state().write());
+        assert!(other_writer.as_mut().now_or_never().is_none());
+
+        // Room B's creation gets the lock and inserts its state. If anything
+        // still has to wait after that (behind the other writer), cancel it
+        // there.
+        drop(guard);
+        let _ = create_b.as_mut().now_or_never();
+        drop(create_b);
+        drop(other_writer);
+
+        // Creating room B's caches again works.
+        event_cache.room(room_id_b).await.unwrap();
     }
 }

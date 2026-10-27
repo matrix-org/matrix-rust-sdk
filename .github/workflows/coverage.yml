@@ -20,7 +20,7 @@ env:
 
 jobs:
   xtask:
-    uses: ./.github/workflows/xtask.yml
+    uses: $/.github/workflows/xtask.yml
 
   code_coverage:
     name: Code Coverage
@@ -115,7 +115,7 @@ jobs:
           sudo rm -rf /var/lib/apt/lists/*
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
 
@@ -131,7 +131,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest and llvm-cov
-        uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v 2.87.17
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v 2.87.29
         with:
           tool: nextest,cargo-llvm-cov
 

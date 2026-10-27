@@ -1,23 +1,38 @@
-use std::collections::BTreeSet;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
 use futures_util::future::try_join_all;
 use matrix_sdk_base::{
     RequestedRequiredStates, ThreadSubscriptionCatchupToken, sync::SyncResponse, timer,
 };
-use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
+use matrix_sdk_common::{deserialized_responses::ProcessedToDeviceEvent, timeout::timeout};
 use ruma::{
     OwnedRoomId,
     api::{
         FeatureFlag, SupportedVersions,
         client::sync::sync_events::v5::{self as http, response},
     },
+    assign,
+    directory::RoomTypeFilter,
     events::GlobalAccountDataEventType,
+    presence::PresenceState,
+    uint,
 };
 use tokio::sync::MutexGuard;
 use tracing::error;
 
 use super::{SlidingSync, SlidingSyncBuilder};
 use crate::{Client, Result, sync::subscribe_to_room_latest_events};
+
+/// The connection ID of the dedicated sliding sync connection used by
+/// [`Client::has_encrypted_rooms`].
+const HAS_ENCRYPTED_ROOMS_CONNECTION_ID: &str = "encrypted-rooms";
+
+/// The name of the single sliding sync list requested by
+/// [`Client::has_encrypted_rooms`].
+const HAS_ENCRYPTED_ROOMS_LIST_NAME: &str = "encrypted_rooms";
 
 /// A sliding sync version.
 #[derive(Clone, Debug)]
@@ -127,6 +142,66 @@ impl Client {
         Ok(SlidingSync::builder(id.into(), self.clone())?)
     }
 
+    /// Whether the user has joined at least one encrypted room.
+    ///
+    /// Spaces, as well as invited, knocked and left rooms, aren't taken into
+    /// account. A joined room whose encryption state is still unknown is
+    /// considered to be encrypted.
+    ///
+    /// The local room cache is consulted first. If it doesn't know of any
+    /// encrypted room, e.g. on a fresh login, the homeserver is asked directly
+    /// via a dedicated SS connection with the appropriate filters.
+    pub async fn has_encrypted_rooms(&self, wait: Duration) -> Result<bool> {
+        // Ask the local cache first to avoid asking the server if we already
+        // know the answer.
+        if self.joined_rooms().iter().any(|room| {
+            if room.is_space() {
+                return false;
+            }
+
+            let state = room.encryption_state();
+            state.is_encrypted() || state.is_unknown()
+        }) {
+            return Ok(true);
+        }
+
+        if matches!(self.sliding_sync_version(), Version::None) {
+            return Err(super::Error::VersionIsMissing.into());
+        }
+
+        // Ask the server for an authoritative count using a one-off request on
+        // a dedicated SS connection.
+        let list = assign!(http::request::List::default(), {
+            // Only fetch the first room. The default `room_details` requests
+            // no state and no timeline events.
+            ranges: vec![(uint!(0), uint!(0))],
+            filters: Some(assign!(http::request::ListFilters::default(), {
+                is_encrypted: Some(true),
+                is_invite: Some(false),
+                not_room_types: vec![RoomTypeFilter::Space],
+            })),
+        });
+
+        let request = assign!(http::Request::new(), {
+            conn_id: Some(HAS_ENCRYPTED_ROOMS_CONNECTION_ID.to_owned()),
+            lists: BTreeMap::from([(HAS_ENCRYPTED_ROOMS_LIST_NAME.to_owned(), list)]),
+            // This request must not mark the user as online.
+            set_presence: PresenceState::Offline,
+        });
+
+        let response = timeout(async { self.send(request).await }, wait)
+            .await
+            .map_err(|_| crate::Error::Timeout)??;
+
+        let Some(list) = response.lists.get(HAS_ENCRYPTED_ROOMS_LIST_NAME) else {
+            return Err(crate::Error::UnknownError(
+                "the sliding sync response is missing the encrypted rooms count".into(),
+            ));
+        };
+
+        Ok(u64::from(list.count) > 0)
+    }
+
     /// Handle all the information provided in a sliding sync response, except
     /// for the e2ee bits.
     ///
@@ -149,6 +224,13 @@ impl Client {
             .await?;
 
         tracing::debug!("done processing on base_client");
+
+        // The Event Cache now receives the room updates.
+        if let Some(event_cache) = self.event_cache() {
+            Box::pin(event_cache.handle_room_updates(response.rooms.clone())).await?;
+        }
+
+        // Finally, let's call the sync response handler.
         self.call_sync_response_handlers(&response).await?;
 
         Ok(response)
@@ -259,6 +341,12 @@ impl SlidingSyncResponseProcessor {
 
         response.to_device.extend(self.to_device_events);
 
+        // The Event Cache now receives the room updates.
+        if let Some(event_cache) = self.client.event_cache() {
+            Box::pin(event_cache.handle_room_updates(response.rooms.clone())).await?;
+        }
+
+        // Finally, let's call the sync response handler.
         self.client.call_sync_response_handlers(&response).await?;
 
         Ok(response)
@@ -639,7 +727,7 @@ mod tests {
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
         // The latest event “listener” for this room has NOT been enabled.
-        assert!(client.latest_events().await.is_listening_to_room(room_id).await.not());
+        assert!(client.latest_events().await.unwrap().is_listening_to_room(room_id).await.not());
 
         // Create the sliding sync client.
         let sliding_sync = client
@@ -675,7 +763,7 @@ mod tests {
         assert!(client.get_room(room_id).is_some());
 
         // The latest event “listener” for this room has been enabled.
-        assert!(client.latest_events().await.is_listening_to_room(room_id).await);
+        assert!(client.latest_events().await.unwrap().is_listening_to_room(room_id).await);
 
         Ok(())
     }

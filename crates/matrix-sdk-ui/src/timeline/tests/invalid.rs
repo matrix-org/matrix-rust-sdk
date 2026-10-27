@@ -14,7 +14,7 @@
 
 use eyeball_im::VectorDiff;
 use matrix_sdk::deserialized_responses::TimelineEvent;
-use matrix_sdk_test::{ALICE, BOB, async_test, sync_timeline_event};
+use matrix_sdk_test::{User, async_test, sync_timeline_event};
 use ruma::{
     MilliSecondsSinceUnixEpoch,
     events::{MessageLikeEventType, StateEventType, room::message::MessageType},
@@ -32,7 +32,7 @@ async fn test_invalid_edit() {
     let mut stream = timeline.subscribe_events().await;
 
     let f = &timeline.factory;
-    timeline.handle_live_event(f.text_msg("test").sender(&ALICE)).await;
+    timeline.handle_live_event(f.text_msg("test").sender(User::Alice)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let msg = item.content().as_message().unwrap();
     assert_eq!(msg.body(), "test");
@@ -44,7 +44,7 @@ async fn test_invalid_edit() {
         .handle_live_event(
             f.text_msg(" * fake")
                 .edit(msg_event_id, MessageType::text_plain("fake").into())
-                .sender(&BOB),
+                .sender(User::Bob),
         )
         .await;
 

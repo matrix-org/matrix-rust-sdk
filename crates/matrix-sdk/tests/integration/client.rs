@@ -1,7 +1,7 @@
-use std::{assert_matches, collections::BTreeMap, ops::Not as _, time::Duration};
+use std::{assert_matches, collections::BTreeMap, ops::Not as _, pin::pin, time::Duration};
 
 use eyeball_im::VectorDiff;
-use futures_util::{FutureExt, StreamExt, pin_mut};
+use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
     Client, Error, MemoryStore, SlidingSyncList, StateChanges, StateStore, ThreadingSupport,
     assert_let_timeout,
@@ -30,7 +30,7 @@ use matrix_sdk_test::{
     },
 };
 use ruma::{
-    EventId, Int, MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, RoomVersionId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, RoomVersionId,
     api::client::{
         directory::{
             get_public_rooms,
@@ -1239,8 +1239,8 @@ async fn test_avatar_url_changes() {
     let changes = assert_next_matches!(updates, Ok(RoomUpdate::Joined { updates, .. }) => updates.avatar_changes);
     assert!(changes.is_none());
 
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("room");
-    let (room_cache, _handle) = room.event_cache().await.expect("room cache");
+    let (room_cache, _handle) =
+        client.event_cache().unwrap().room(&DEFAULT_TEST_ROOM_ID).await.expect("room cache");
     let (_, mut subscriber) = room_cache.subscribe().await.expect("subscription");
 
     // Now we sync a room member with an avatar URL.
@@ -1385,7 +1385,7 @@ async fn test_observe_own_beacon_info_updates_emits_room_id_event_id_and_content
     let client = server.client_builder().build().await;
 
     let stream = client.observe_own_beacon_info_updates().unwrap();
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     let now = MilliSecondsSinceUnixEpoch::now();
     let f = EventFactory::new();
@@ -1421,7 +1421,7 @@ async fn test_observe_own_beacon_info_updates_filters_other_users() {
     let client = server.client_builder().build().await;
 
     let stream = client.observe_own_beacon_info_updates().unwrap();
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     let now = MilliSecondsSinceUnixEpoch::now();
     let f = EventFactory::new();
@@ -1448,7 +1448,7 @@ async fn test_observe_own_beacon_info_updates_delivers_updates_from_multiple_roo
     let client = server.client_builder().build().await;
 
     let stream = client.observe_own_beacon_info_updates().unwrap();
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     let now = MilliSecondsSinceUnixEpoch::now();
     let f = EventFactory::new();
@@ -1494,7 +1494,7 @@ async fn test_observe_own_beacon_info_updates_stays_idle_without_matching_update
     let client = server.client_builder().build().await;
 
     let stream = client.observe_own_beacon_info_updates().unwrap();
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
     server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
 
@@ -1546,7 +1546,49 @@ async fn test_total_unread_notifications() {
     let invited_room = server.sync_room(&client, InvitedRoomBuilder::new(room_id!("!f:b.c"))).await;
     set_num_notifications(&invited_room, 100).await;
 
-    assert_eq!(client.total_unread_notifications(), 3 + 1 + 2);
+    // A joined space is hidden from room lists, so it doesn't contribute.
+    let space = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!g:b.c")).add_state_event(
+                f.create(user_id!("@alice:b.c"), RoomVersionId::V11).with_space_type(),
+            ),
+        )
+        .await;
+    assert!(space.is_space());
+    set_num_notifications(&space, 100).await;
+
+    // An old room version whose successor is joined is hidden from room lists,
+    // so it doesn't contribute. Its successor does.
+    let successor_room_id = room_id!("!i:b.c");
+    let old_version = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!h:b.c")).add_state_event(
+                f.room_tombstone("upgraded", successor_room_id).sender(user_id!("@alice:b.c")),
+            ),
+        )
+        .await;
+    set_num_notifications(&old_version, 100).await;
+    let successor_room = server.sync_joined_room(&client, successor_room_id).await;
+    set_num_notifications(&successor_room, 4).await;
+
+    // An old room version whose successor is only invited is still the active
+    // version, so it contributes.
+    let invited_successor_room_id = room_id!("!k:b.c");
+    let active_old_version = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!j:b.c")).add_state_event(
+                f.room_tombstone("upgraded", invited_successor_room_id)
+                    .sender(user_id!("@alice:b.c")),
+            ),
+        )
+        .await;
+    set_num_notifications(&active_old_version, 5).await;
+    server.sync_room(&client, InvitedRoomBuilder::new(invited_successor_room_id)).await;
+
+    assert_eq!(client.total_unread_notifications(), 3 + 1 + 2 + 4 + 5);
 }
 
 #[async_test]
@@ -1570,9 +1612,7 @@ async fn test_dms_are_processed_in_any_sync_response() {
     let f = EventFactory::new();
     let mut sync_response_builder = SyncResponseBuilder::new();
     sync_response_builder.add_global_account_data(
-        f.direct()
-            .add_user(user_a_id.to_owned().into(), room_id_1)
-            .add_user(user_b_id.to_owned().into(), room_id_2),
+        f.direct().add_user(user_a_id, room_id_1).add_user(user_b_id, room_id_2),
     );
     sync_response_builder.add_joined_room(joined_room_builder);
     let json_response = sync_response_builder.build_json_sync_response();
@@ -1842,12 +1882,12 @@ async fn test_room_sync_state_after() {
                 .use_state_after()
                 .add_state_bulk([
                     f.create(user_id!("@example:localhost"), RoomVersionId::V1).into(),
-                    {
-                        let mut users = BTreeMap::new();
-                        users.insert(owned_user_id!("@example:localhost"), Int::new(100).unwrap());
-                        users.insert(owned_user_id!("@bob:localhost"), Int::new(0).unwrap());
-                        f.power_levels(&mut users).into()
-                    },
+                    f.power_levels()
+                        .set_users([
+                            (owned_user_id!("@example:localhost"), 100),
+                            (owned_user_id!("@bob:localhost"), 0),
+                        ])
+                        .into(),
                     f.room_history_visibility(HistoryVisibility::WorldReadable).into(),
                     f.room_join_rules(JoinRule::Public).into(),
                     f.member(user_id!("@invited:localhost"))

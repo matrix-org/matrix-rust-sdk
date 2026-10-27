@@ -57,7 +57,8 @@ async fn test_unread_count_new_message_no_receipt() {
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -88,7 +89,8 @@ async fn test_unread_count_new_message_with_known_receipt() {
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -131,7 +133,8 @@ async fn test_unread_count_implicit_receipt_own_message() {
     let own_user_id = client.user_id().unwrap();
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -168,7 +171,8 @@ async fn test_unread_count_receipt_only_no_new_message() {
     let own_user_id = client.user_id().unwrap();
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -217,7 +221,8 @@ async fn test_unread_count_pending_receipt() {
     let own_user_id = client.user_id().unwrap();
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -285,7 +290,8 @@ async fn test_unread_count_accumulates_across_syncs() {
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -329,7 +335,8 @@ async fn test_state_event_does_not_increment_unread() {
     let f = EventFactory::new().room(room_id);
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -360,7 +367,8 @@ async fn test_reaction_does_not_increment_unread() {
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -390,7 +398,8 @@ async fn test_redaction_does_not_increment_unread() {
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -424,7 +433,8 @@ async fn test_gappy_sync_keeps_then_next_sync_resets_unread_count() {
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -490,7 +500,8 @@ async fn test_mentions_increments_unread_mentions() {
     let f = EventFactory::new().room(room_id).sender(*BOB);
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -534,7 +545,8 @@ async fn test_compute_unread_counts_considers_active_receipt() {
 
     let room = server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -607,7 +619,8 @@ async fn test_select_best_receipt_considers_thread_config() {
 
     let room = server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -649,7 +662,8 @@ async fn test_unread_counts_updated_after_duplicate_only_sync_response() {
 
     let room = server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -715,7 +729,8 @@ async fn test_compute_unread_counts_triggers_backpaginations() {
 
     let room = server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -724,12 +739,11 @@ async fn test_compute_unread_counts_triggers_backpaginations() {
     server
         .mock_room_messages()
         .match_from("prev_batch")
-        .ok(RoomMessagesResponseTemplate::default()
-            .events(vec![
-                f.text_msg("hello 2").event_id(event_id!("$2")),
-                f.text_msg("hello 1").event_id(event_id!("$1")),
-            ])
-            .with_delay(Duration::from_millis(100)))
+        .with_delay(Duration::from_millis(100))
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            f.text_msg("hello 2").event_id(event_id!("$2")),
+            f.text_msg("hello 1").event_id(event_id!("$1")),
+        ]))
         .mock_once()
         .mount()
         .await;
@@ -837,7 +851,8 @@ async fn test_read_receipt_from_store_used_as_latest_active() {
         .await;
 
     let room = client.get_room(room_id).unwrap();
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -927,7 +942,8 @@ async fn test_all_read_receipts_from_store_used_as_latest_active() {
         .await;
 
     let room = client.get_room(room_id).unwrap();
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
     assert!(room_cache_updates.is_empty());
 
@@ -1005,7 +1021,8 @@ async fn test_compute_unread_counts_after_backfill_from_disk() {
     let own_user_id = client.user_id().unwrap();
 
     let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (initial_events, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
 
     // Only the last chunk is loaded: $4 and $5. $1, $2 and $3 are in the store.

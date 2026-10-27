@@ -152,7 +152,6 @@ async fn test_auto_sync_still_fires_delete_after_failed_put() {
     // After a failed PUT the state machine must NOT get stuck: the next real
     // transition (join → leave) should still fire. We update `was_in_call`
     // optimistically for exactly this reason.
-    use wiremock::ResponseTemplate;
 
     let (mock_server, client) = make_client().await;
     let own_user_id = client.user_id().unwrap().to_owned();
@@ -165,7 +164,7 @@ async fn test_auto_sync_still_fires_delete_after_failed_put() {
     {
         let _fail = mock_server
             .mock_set_profile_field(&own_user_id, ProfileFieldName::Call)
-            .respond_with(ResponseTemplate::new(500))
+            .error500()
             .expect(1)
             .named("PUT fails")
             .mount_as_scoped()

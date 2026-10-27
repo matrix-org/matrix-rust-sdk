@@ -381,7 +381,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         // FIXME: This branch is a complete hackjob.
                         //
                         // The reason being is that this branch is here to
-                        // handle UTD -> Decrypted event remplacements for
+                        // handle UTD -> Decrypted event replacements for
                         // focused timelines. But this transition should
                         // naturally happen the same way it happens for
                         // unfocused timelines.
@@ -400,12 +400,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         // items.
                         //
                         // This hackjob continues in the
-                        // `handle_remote_aggregation()` method as we can't just
-                        // handle any `TimelineAction::AddItem` due to:
-                        // https://github.com/matrix-org/matrix-rust-sdk/pull/4645
-                        //
-                        // Doing so breaks the
-                        // `test_new_pinned_events_are_not_added_on_sync` test.
+                        // `handle_remote_aggregation()`.
                         //
                         // Relevant issue:
                         // https://github.com/matrix-org/matrix-rust-sdk/issues/5954.
@@ -1280,7 +1275,7 @@ mod tests {
 
         let _ = server.sync_joined_room(&client, room_id).await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         // Given a timeline with clashing receipts
         let mut items = create_items_with_receipts(vec![
@@ -1319,7 +1314,7 @@ mod tests {
 
         let _ = server.sync_joined_room(&client, room_id).await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         // Given a timeline with receipts, but no clashes (users are different)
         let mut items = create_items_with_receipts(vec![
@@ -1358,7 +1353,7 @@ mod tests {
 
         let _ = server.sync_joined_room(&client, room_id).await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         // Given a timeline with receipts, but no clashes (users are different)
         let mut items = create_items_with_receipts(vec![

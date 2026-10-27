@@ -1300,11 +1300,12 @@ impl Store {
     /// ```no_run
     /// # use matrix_sdk_crypto::OlmMachine;
     /// # use ruma::{device_id, user_id};
-    /// # use futures_util::{pin_mut, StreamExt};
+    /// # use std::pin::pin;
+    /// # use futures_util::StreamExt;
     /// # let machine: OlmMachine = unimplemented!();
     /// # futures_executor::block_on(async {
     /// let identities_stream = machine.store().user_identities_stream();
-    /// pin_mut!(identities_stream);
+    /// let mut identities_stream = pin!(identities_stream);
     ///
     /// for identity_updates in identities_stream.next().await {
     ///     for (_, identity) in identity_updates.new {
@@ -1356,11 +1357,12 @@ impl Store {
     /// ```no_run
     /// # use matrix_sdk_crypto::OlmMachine;
     /// # use ruma::{device_id, user_id};
-    /// # use futures_util::{pin_mut, StreamExt};
+    /// # use std::pin::pin;
+    /// # use futures_util::StreamExt;
     /// # let machine: OlmMachine = unimplemented!();
     /// # futures_executor::block_on(async {
     /// let devices_stream = machine.store().devices_stream();
-    /// pin_mut!(devices_stream);
+    /// let mut devices_stream = pin!(devices_stream);
     ///
     /// for device_updates in devices_stream.next().await {
     ///     if let Some(user_devices) = device_updates.new.get(machine.user_id()) {
@@ -1438,13 +1440,14 @@ impl Store {
     /// ```no_run
     /// # use matrix_sdk_crypto::OlmMachine;
     /// # use ruma::{device_id, owned_user_id};
-    /// # use futures_util::{pin_mut, StreamExt};
+    /// # use std::pin::pin;
+    /// # use futures_util::StreamExt;
     /// # let alice = owned_user_id!("@alice:example.org");
     /// # futures_executor::block_on(async {
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     ///
     /// let secret_stream = machine.store().secrets_stream();
-    /// pin_mut!(secret_stream);
+    /// let mut secret_stream = pin!(secret_stream);
     ///
     /// for secret in secret_stream.next().await {
     ///     // Accept the secret if it's valid, then delete all the secrets of this type.
@@ -1475,12 +1478,13 @@ impl Store {
     /// #    types::room_history::RoomKeyBundle
     /// # };
     /// # use ruma::{device_id, owned_user_id};
-    /// # use futures_util::{pin_mut, StreamExt};
+    /// # use std::pin::pin;
+    /// # use futures_util::StreamExt;
     /// # let alice = owned_user_id!("@alice:example.org");
     /// # async {
     /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// let bundle_stream = machine.store().historic_room_key_stream();
-    /// pin_mut!(bundle_stream);
+    /// let mut bundle_stream = pin!(bundle_stream);
     ///
     /// while let Some(bundle_info) = bundle_stream.next().await {
     ///     // Try to find the bundle content in the store and if it's valid accept it.

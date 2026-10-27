@@ -40,6 +40,7 @@ use ruma::{
     },
     events::{room::power_levels::PowerLevelsError, tag::InvalidUserTagName},
     push::{InsertPushRuleError, RemovePushRuleError},
+    time::SystemTime,
 };
 use serde_json::Error as JsonError;
 use thiserror::Error;
@@ -186,6 +187,9 @@ impl From<FromHttpResponseError<RumaApiError>> for HttpError {
     }
 }
 
+/// The HTTP status code that some reverse proxies return for server errors.
+const STATUS_CODE_PROXY_UNKNOWN_SERVER_ERROR: u16 = 520;
+
 /// How should we behave with respect to retry behavior after an [`HttpError`]
 /// happened?
 #[derive(Debug)]
@@ -220,7 +224,10 @@ impl RetryKind {
                     RetryKind::from_retry_after(limit_exceeded.retry_after.as_ref())
                 }
                 Some(ErrorKind::Unrecognized) => RetryKind::Permanent,
-                _ => RetryKind::from_status_code(client_error.status_code),
+                _ => RetryKind::from_status_code(client_error.status_code)
+                    // This should only happen for non-error status codes, which shouldn't be
+                    // checked here
+                    .unwrap_or(RetryKind::Permanent),
             },
             UiaaResponse::AuthResponse(_) => RetryKind::Permanent,
         }
@@ -232,12 +239,12 @@ impl RetryKind {
     /// This method should be used for errors where the server explicitly tells
     /// us how long we must wait before we retry the request again.
     fn from_retry_after(retry_after: Option<&RetryAfter>) -> Self {
-        let retry_after = retry_after
-            .and_then(|retry_after| match retry_after {
-                RetryAfter::Delay(d) => Some(d),
-                RetryAfter::DateTime(_) => None,
-            })
-            .copied();
+        let retry_after = retry_after.and_then(|retry_after| match retry_after {
+            RetryAfter::Delay(d) => Some(*d),
+            // `duration_since` fails if the date is already in the past, in which case we
+            // fall back to the regular backoff.
+            RetryAfter::DateTime(time) => time.duration_since(SystemTime::now()).ok(),
+        });
 
         Self::Transient { retry_after }
     }
@@ -248,20 +255,34 @@ impl RetryKind {
     /// which gives us more information about the nature of the error, i.e. if
     /// we received an error from a reverse proxy while the Matrix homeserver is
     /// down.
-    fn from_status_code(status_code: StatusCode) -> Self {
-        // If the status code is 429, this is requesting a retry in HTTP,
-        // without the custom `errcode`. Treat that as a retriable request with
-        // no specified retry_after delay.
-        //
-        // All 5xx errors are considered transient, including non-standard ones
-        // like 520 ("web server returned an unknown error", from Cloudflare or
-        // another reverse proxy): they reflect the state of the server at the
-        // time of the request, and the request may well succeed when retried
-        // later.
-        if status_code == StatusCode::TOO_MANY_REQUESTS || status_code.is_server_error() {
-            RetryKind::Transient { retry_after: None }
-        } else {
-            RetryKind::Permanent
+    ///
+    /// Non-error status codes will return a [None] value.
+    fn from_status_code(status_code: StatusCode) -> Option<Self> {
+        // The list of status code below should be considered retryable, since
+        // they reference an issue that should fix itself with time. Any
+        // other status codes besides 520 (unknown server error emitted by
+        // reverse proxies) should be considered permanent.
+        match status_code {
+            // The timeout should probably have been processed somewhere else as a different error
+            // type, but we can add it for completeness
+            StatusCode::REQUEST_TIMEOUT
+            | StatusCode::TOO_MANY_REQUESTS
+            | StatusCode::INTERNAL_SERVER_ERROR
+            | StatusCode::BAD_GATEWAY
+            | StatusCode::SERVICE_UNAVAILABLE
+            | StatusCode::GATEWAY_TIMEOUT
+            | StatusCode::INSUFFICIENT_STORAGE => Some(RetryKind::Transient { retry_after: None }),
+            _ => {
+                // Special case: unknown server error from a reverse proxy, the
+                // server might recover
+                if status_code.as_u16() == STATUS_CODE_PROXY_UNKNOWN_SERVER_ERROR {
+                    Some(RetryKind::Transient { retry_after: None })
+                } else if status_code.is_client_error() || status_code.is_server_error() {
+                    Some(RetryKind::Permanent)
+                } else {
+                    None
+                }
+            }
         }
     }
 }
@@ -777,11 +798,19 @@ impl WrongRoomState {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use assert_matches::assert_matches;
     use http::StatusCode;
-    use ruma::api::EndpointError as _;
+    use ruma::{
+        api::{EndpointError as _, error::RetryAfter},
+        time::SystemTime,
+    };
 
-    use super::{HttpError, RefreshTokenError, RetryKind, RumaApiError};
+    use super::{
+        HttpError, RefreshTokenError, RetryKind, RumaApiError,
+        STATUS_CODE_PROXY_UNKNOWN_SERVER_ERROR,
+    };
     use crate::error::FromHttpResponseError;
 
     /// The error a request gets back when refreshing its access token failed
@@ -819,5 +848,81 @@ mod tests {
             HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired).retry_kind(),
             RetryKind::Permanent
         );
+    }
+
+    #[test]
+    fn test_retry_kind_from_retry_after() {
+        assert_matches!(
+            RetryKind::from_retry_after(None),
+            RetryKind::Transient { retry_after: None }
+        );
+
+        assert_matches!(
+            RetryKind::from_retry_after(Some(&RetryAfter::Delay(Duration::from_secs(5)))),
+            RetryKind::Transient { retry_after: Some(delay) } => {
+                assert_eq!(delay, Duration::from_secs(5));
+            }
+        );
+
+        // A date in the future is turned into the delay until that date.
+        let in_a_minute = SystemTime::now() + Duration::from_secs(60);
+        assert_matches!(
+            RetryKind::from_retry_after(Some(&RetryAfter::DateTime(in_a_minute))),
+            RetryKind::Transient { retry_after: Some(delay) } => {
+                assert!(delay > Duration::from_secs(55));
+                assert!(delay <= Duration::from_secs(60));
+            }
+        );
+
+        // A date in the past falls back to the regular backoff.
+        let a_minute_ago = SystemTime::now() - Duration::from_secs(60);
+        assert_matches!(
+            RetryKind::from_retry_after(Some(&RetryAfter::DateTime(a_minute_ago))),
+            RetryKind::Transient { retry_after: None }
+        );
+    }
+
+    #[test]
+    fn test_retry_kind_of_http_status_codes() {
+        let retry_status_code = [
+            StatusCode::REQUEST_TIMEOUT,
+            StatusCode::TOO_MANY_REQUESTS,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::BAD_GATEWAY,
+            StatusCode::SERVICE_UNAVAILABLE,
+            StatusCode::GATEWAY_TIMEOUT,
+            StatusCode::INSUFFICIENT_STORAGE,
+            StatusCode::from_u16(STATUS_CODE_PROXY_UNKNOWN_SERVER_ERROR).unwrap(),
+        ];
+
+        // Check retryable status codes
+        for code in retry_status_code.iter() {
+            assert_matches!(
+                RetryKind::from_status_code(code.to_owned()),
+                Some(RetryKind::Transient { .. })
+            );
+        }
+
+        // Check any possible (existing) non-error code
+        for i in 1..400 {
+            let Ok(code) = StatusCode::from_u16(i) else {
+                continue;
+            };
+            if retry_status_code.contains(&code) {
+                continue;
+            }
+            assert_matches!(RetryKind::from_status_code(code.to_owned()), None);
+        }
+
+        // Check any possible (existing) error code
+        for i in 400..600 {
+            let Ok(code) = StatusCode::from_u16(i) else {
+                continue;
+            };
+            if retry_status_code.contains(&code) {
+                continue;
+            }
+            assert_matches!(RetryKind::from_status_code(code), Some(RetryKind::Permanent));
+        }
     }
 }

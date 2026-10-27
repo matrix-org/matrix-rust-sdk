@@ -57,8 +57,14 @@ async fn test_latest_event_is_recomputed_when_a_user_is_ignored() {
     let _room = server.sync_joined_room(&client, &room_id).await;
 
     // Listen to the latest event to get updates.
-    let mut latest_event_stream =
-        client.latest_events().await.listen_and_subscribe_to_room(&room_id).await.unwrap().unwrap();
+    let mut latest_event_stream = client
+        .latest_events()
+        .await
+        .unwrap()
+        .listen_and_subscribe_to_room(&room_id)
+        .await
+        .unwrap()
+        .unwrap();
 
     // In some configurations, this makes the test non-flaky.
     yield_now().await;

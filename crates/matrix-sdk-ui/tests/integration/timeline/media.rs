@@ -27,7 +27,7 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{
-    ALICE, JoinedRoomBuilder, TestResult, async_test, event_factory::EventFactory,
+    JoinedRoomBuilder, TestResult, User, async_test, event_factory::EventFactory,
 };
 use matrix_sdk_ui::timeline::{
     AttachmentConfig, AttachmentSource, EventSendState, EventTimelineItem, MediaUploadProgress,
@@ -45,10 +45,12 @@ use ruma::{
     },
     mxc_uri, owned_mxc_uri, room_id, uint,
 };
+#[cfg(feature = "unstable-msc4274")]
 use serde_json::json;
 use strass::assert_let;
 use stream_assert::assert_pending;
 use tempfile::TempDir;
+#[cfg(feature = "unstable-msc4274")]
 use wiremock::ResponseTemplate;
 
 fn create_temporary_file(filename: &str) -> anyhow::Result<(TempDir, PathBuf)> {
@@ -91,7 +93,7 @@ async fn test_send_attachment_from_file() -> TestResult {
     mock.sync_room(
         &client,
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(event_id)),
+            .add_timeline_event(f.text_msg("hello").sender(User::Alice).event_id(event_id)),
     )
     .await;
 
@@ -108,11 +110,8 @@ async fn test_send_attachment_from_file() -> TestResult {
 
     // Set up mocks for the file upload.
     mock.mock_upload()
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(2)).set_body_json(
-            json!({
-              "content_uri": "mxc://sdk.rs/media"
-            }),
-        ))
+        .with_delay(Duration::from_secs(2))
+        .ok(mxc_uri!("mxc://sdk.rs/media"))
         .mock_once()
         .mount()
         .await;
@@ -241,7 +240,7 @@ async fn test_send_attachment_from_bytes() -> TestResult {
     let f = EventFactory::new();
     mock.sync_room(
         &client,
-        JoinedRoomBuilder::new(room_id).add_timeline_event(f.text_msg("hello").sender(&ALICE)),
+        JoinedRoomBuilder::new(room_id).add_timeline_event(f.text_msg("hello").sender(User::Alice)),
     )
     .await;
 
@@ -261,11 +260,8 @@ async fn test_send_attachment_from_bytes() -> TestResult {
 
     // Set up mocks for the file upload.
     mock.mock_upload()
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(2)).set_body_json(
-            json!({
-              "content_uri": "mxc://sdk.rs/media"
-            }),
-        ))
+        .with_delay(Duration::from_secs(2))
+        .ok(mxc_uri!("mxc://sdk.rs/media"))
         .mock_once()
         .mount()
         .await;
@@ -610,7 +606,7 @@ async fn test_send_gallery_from_bytes() -> TestResult {
                 "rickroll.gif".to_owned(),
                 owned_mxc_uri!("mxc://sdk.rs/rickroll"),
             )
-            .sender(&ALICE),
+            .sender(User::Alice),
         ),
     )
     .await;
@@ -629,11 +625,8 @@ async fn test_send_gallery_from_bytes() -> TestResult {
 
     // Set up mocks for the file upload.
     mock.mock_upload()
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(2)).set_body_json(
-            json!({
-              "content_uri": "mxc://sdk.rs/media"
-            }),
-        ))
+        .with_delay(Duration::from_secs(2))
+        .ok(mxc_uri!("mxc://sdk.rs/media"))
         .mock_once()
         .mount()
         .await;
@@ -833,11 +826,8 @@ async fn test_edit_with_attachment() -> TestResult {
     // before the media has been uploaded.
     mock.mock_upload()
         .expect_mime_type("image/jpeg")
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(1)).set_body_json(
-            json!({
-              "content_uri": "mxc://sdk.rs/new-media"
-            }),
-        ))
+        .with_delay(Duration::from_secs(1))
+        .ok(mxc_uri!("mxc://sdk.rs/new-media"))
         .mock_once()
         .mount()
         .await;

@@ -21,7 +21,7 @@ env:
 
 jobs:
   xtask:
-    uses: ./.github/workflows/xtask.yml
+    uses: $/.github/workflows/xtask.yml
 
   test-matrix-sdk-features:
     name: 🐧 [m], ${{ matrix.name }}
@@ -46,7 +46,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
 
@@ -65,9 +65,10 @@ jobs:
           # ... but only save the cache on the main branch
           # cf https://github.com/Swatinem/rust-cache/issues/95
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          lookup-only: true
 
       - name: Install nextest
-        uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v 2.87.17
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v 2.87.29
         with:
           tool: nextest
 
@@ -94,7 +95,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
 
@@ -102,9 +103,10 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          lookup-only: true
 
       - name: Install nextest
-        uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v 2.87.17
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v 2.87.29
         with:
           tool: nextest
 
@@ -136,7 +138,7 @@ jobs:
           sudo apt-get install libsqlite3-dev
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
           components: clippy
@@ -145,9 +147,10 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          lookup-only: true
 
       - name: Install nextest
-        uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v 2.87.17
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v 2.87.29
         with:
           tool: nextest
 
@@ -189,7 +192,7 @@ jobs:
           persist-credentials: false
 
       - name: Install protoc
-        uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2.87.17
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: protoc@3.20.3
 
@@ -200,7 +203,7 @@ jobs:
           sudo apt-get install libsqlite3-dev
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: ${{ matrix.rust }}
 
@@ -208,9 +211,10 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          lookup-only: true
 
       - name: Install nextest
-        uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v 2.87.17
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v 2.87.29
         with:
           tool: nextest
 
@@ -265,7 +269,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
           targets: wasm32-unknown-unknown
@@ -287,9 +291,10 @@ jobs:
           # ... but only save the cache on the main branch
           # cf https://github.com/Swatinem/rust-cache/issues/95
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          lookup-only: true
 
       - name: Install nextest
-        uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v 2.87.17
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v 2.87.29
         with:
           tool: nextest
 
@@ -320,7 +325,7 @@ jobs:
           persist-credentials: false
 
       - name: Check the spelling of the files in our repo
-        uses: crate-ci/typos@512fc24f32f44ab01972217aaaf3dc86ec234d53 # v1.50.2
+        uses: crate-ci/typos@7f9d0819ca1c008ade73f4b41fa9d258d48f605b # v1.51.1
 
   lint:
     name: Lint
@@ -334,12 +339,12 @@ jobs:
           persist-credentials: false
 
       - name: Install protoc
-        uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2.87.17
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: protoc@3.20.3
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: nightly-2026-09-28
           components: clippy, rustfmt
@@ -348,6 +353,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          lookup-only: true
 
       - name: Get xtask
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -400,7 +406,7 @@ jobs:
           sudo apt-get install libsqlite3-dev
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
 
@@ -408,9 +414,10 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          lookup-only: true
 
       - name: Install nextest
-        uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v 2.87.17
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v 2.87.29
         with:
           tool: nextest
 

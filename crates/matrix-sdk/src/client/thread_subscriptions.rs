@@ -124,7 +124,7 @@ pub struct ThreadSubscriptionCatchup {
 impl ThreadSubscriptionCatchup {
     pub async fn new(client: Client) -> Arc<Self> {
         let is_outdated = Arc::new(AtomicBool::new(true));
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
         let ping = Arc::new(Notify::new());
         let task_ping = Arc::clone(&ping);
         let uniq_mutex = Arc::new(Mutex::new(()));
@@ -473,7 +473,7 @@ mod timed_tests {
     use matrix_sdk_test::async_test;
     use tokio::task::yield_now;
 
-    use crate::{client::WeakClient, test_utils::mocks::MatrixMockServer};
+    use crate::test_utils::mocks::MatrixMockServer;
 
     #[async_test]
     async fn test_issue_6573_client_can_drop_thread_subscriptions_task() {
@@ -499,7 +499,7 @@ mod timed_tests {
         assert!(tsc._task.get().is_some());
 
         // Get a weak reference to the client.
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
 
         // Drop the client will drop the task.
         drop(client);

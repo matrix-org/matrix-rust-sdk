@@ -111,7 +111,6 @@ use crate::encryption::{
 };
 use crate::{
     Client,
-    client::WeakClient,
     encryption::{backups::BackupState, secret_storage::SecretStorageError},
 };
 
@@ -404,8 +403,7 @@ impl Recovery {
     ///
     /// ```no_run
     /// # use matrix_sdk::{
-    ///     encryption::recovery, encryption::CrossSigningResetAuthType, ruma::api::client::uiaa,
-    ///     Client,
+    ///     encryption::recovery, encryption::CrossSigningResetAuthType, Client,
     ///   };
     /// # use url::Url;
     /// # async {
@@ -418,18 +416,16 @@ impl Recovery {
     ///     match handle.auth_type() {
     ///         CrossSigningResetAuthType::Uiaa(uiaa) => {
     ///             let password = "1234".to_owned();
-    ///             let mut password = uiaa::Password::new(user_id, password);
-    ///             password.session = uiaa.session;
     ///
-    ///             handle.reset(Some(uiaa::AuthData::Password(password))).await?;
+    ///             handle.reset(uiaa.as_password_auth_data(user_id, password)).await?;
     ///         }
-    ///         CrossSigningResetAuthType::OAuth(o) => {
+    ///         CrossSigningResetAuthType::OAuth(oauth) => {
     ///             println!(
     ///                 "To reset your end-to-end encryption cross-signing identity, \
     ///                 you first need to approve it at {}",
-    ///                 o.approval_url
+    ///                 oauth.approval_url
     ///             );
-    ///             handle.reset(None).await?;
+    ///             handle.reset(oauth.as_auth_data()).await?;
     ///         }
     ///     }
     /// }
@@ -727,7 +723,7 @@ impl Recovery {
         client: &Client,
     ) -> impl Future<Output = ()> + use<> {
         let mut stream = client.encryption().backups().state_stream();
-        let weak = WeakClient::from_client(client);
+        let weak = client.downgrade();
 
         async move {
             while let Some(update) = stream.next().await {
@@ -789,7 +785,7 @@ impl IdentityResetHandle {
 
     /// This method will retry to upload the device keys after the previous try
     /// failed due to required authentication
-    pub async fn reset(&self, auth: Option<AuthData>) -> Result<()> {
+    pub async fn reset(&self, auth: AuthData) -> Result<()> {
         self.cross_signing_reset_handle.auth(auth).await?;
 
         if self.client.encryption().recovery().should_auto_enable_backups().await? {

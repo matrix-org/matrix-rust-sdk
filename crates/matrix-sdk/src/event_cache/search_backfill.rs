@@ -87,6 +87,9 @@ impl EventCache {
     /// compete with interactive traffic. [`SearchBackfillStrategy::Background`]
     /// introduces them as fast as the concurrency cap allows.
     ///
+    /// Before that, the events already saved in the event cache store are
+    /// indexed, once.
+    ///
     /// No-ops if automatic back-pagination is disabled.
     pub async fn run_search_backfill(&self, strategy: SearchBackfillStrategy) {
         let Some(queue) = self.back_pagination_queue() else {
@@ -95,6 +98,9 @@ impl EventCache {
         let Ok(client) = self.inner.client() else {
             return;
         };
+
+        #[cfg(feature = "experimental-search")]
+        self.reindex_stored_events(&client).await;
 
         let enqueue_delay = strategy.enqueue_delay();
         let started = Instant::now();
@@ -154,7 +160,13 @@ impl EventCache {
                         ?reason,
                         "finished search backpagination request"
                     );
-                    if reason == BackPaginationStopReason::ReachedTimelineStart {
+                    // Skipped rooms won't change on the next week, so don't
+                    // retry them.
+                    if matches!(
+                        reason,
+                        BackPaginationStopReason::ReachedTimelineStart
+                            | BackPaginationStopReason::Skipped
+                    ) {
                         drained.insert(room_id);
                     }
                 }
@@ -168,6 +180,69 @@ impl EventCache {
             elapsed = ?started.elapsed(),
             "search backfill finished"
         );
+    }
+}
+
+/// Marker file, in the search index directory, telling that the events saved in
+/// the event cache store have been indexed. Bump it when the index format
+/// changes, so the events get indexed again.
+#[cfg(feature = "experimental-search")]
+const REINDEX_MARKER: &str = "reindexed-v1";
+
+impl EventCache {
+    /// Index the events saved in the event cache store, once: the search index
+    /// may have missed some, or have been recreated.
+    #[cfg(feature = "experimental-search")]
+    async fn reindex_stored_events(&self, client: &Client) {
+        let dir = client.search_index().directory();
+        if dir.is_some_and(|dir| dir.join(REINDEX_MARKER).exists()) {
+            return;
+        }
+
+        let started = Instant::now();
+        let rooms = client.joined_rooms();
+        info!(total_rooms = rooms.len(), "reindexing stored events");
+
+        for room in rooms {
+            let room_id = room.room_id();
+
+            let loaded = async {
+                let caches = self.inner.all_caches_for_room(room_id).await?;
+                Ok::<_, super::EventCacheError>((
+                    caches.room().clone(),
+                    caches.stored_events().await?,
+                ))
+            };
+            let Ok((room_cache, events)) = loaded.await.inspect_err(|err| {
+                warn!(%room_id, "couldn't load the room's stored events: {err}");
+            }) else {
+                continue;
+            };
+
+            let redaction_rules = room.clone_info().room_version_rules_or_default().redaction;
+            if let Err(err) = client
+                .search_index()
+                .bulk_handle_timeline_event(
+                    events.into_iter(),
+                    &room_cache,
+                    room_id,
+                    &redaction_rules,
+                )
+                .await
+            {
+                warn!(%room_id, "couldn't index the room's stored events: {err}");
+            }
+        }
+
+        // Only now, so an interrupted reindex starts over next time.
+        if let Some(dir) = dir
+            && let Err(err) = std::fs::create_dir_all(dir)
+                .and_then(|()| std::fs::write(dir.join(REINDEX_MARKER), b""))
+        {
+            warn!("couldn't write the reindex marker: {err}");
+        }
+
+        info!(elapsed = ?started.elapsed(), "reindexed stored events");
     }
 }
 
@@ -233,6 +308,7 @@ mod tests {
     use eyeball_im::VectorDiff;
     use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{MilliSecondsSinceUnixEpoch, event_id, room_id, time::SystemTime};
+    use tokio::task::yield_now;
 
     use super::{SearchBackfillStrategy, WEEK, stop_when_older_than};
     use crate::{
@@ -277,13 +353,14 @@ mod tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         let room_id = room_id!("!omelette:fromage.fr");
         let f = EventFactory::new().room(room_id).sender(*BOB);
 
-        let room = server.sync_joined_room(&client, room_id).await;
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        server.sync_joined_room(&client, room_id).await;
+
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
         let (room_events, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
         assert!(room_events.is_empty());
 
@@ -330,5 +407,173 @@ mod tests {
         assert_eq!(room_events.len(), 2);
         assert_eq!(room_events[0].event_id().unwrap(), event_id!("$1"));
         assert_eq!(room_events[1].event_id().unwrap(), event_id!("$2"));
+    }
+
+    /// A search backfill first indexes the events saved in the store, once.
+    #[cfg(feature = "experimental-search")]
+    #[async_test]
+    async fn test_search_backfill_reindexes_stored_events_once() {
+        use futures_util::TryStreamExt as _;
+        use matrix_sdk_base::cross_process_lock::MappedCrossProcessLockState;
+
+        use crate::search_index::SearchIndexStoreKind;
+
+        let index_dir = tempfile::tempdir().unwrap();
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| {
+                builder.with_enable_automatic_back_pagination(true).search_index_store(
+                    SearchIndexStoreKind::UnencryptedDirectory(index_dir.path().to_path_buf()),
+                )
+            })
+            .build()
+            .await;
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        let f = EventFactory::new().room(room_id).sender(*BOB);
+        server.sync_joined_room(&client, room_id).await;
+
+        // Save events straight into the store: the indexer never sees them.
+        let save = async |body: &str, event_id| {
+            let store = match client.event_cache_store().lock().await.unwrap() {
+                MappedCrossProcessLockState::Clean(store)
+                | MappedCrossProcessLockState::Dirty(store) => store,
+            };
+            store.save_event(room_id, f.text_msg(body).event_id(event_id).into()).await.unwrap();
+        };
+        let search = async |query: &str| -> usize {
+            let results: Vec<_> =
+                client.search_messages(query.to_owned()).build().try_concat().await.unwrap();
+            results.len()
+        };
+
+        save("comté", event_id!("$1")).await;
+        assert_eq!(search("comté").await, 0);
+
+        client.event_cache().unwrap().run_search_backfill(SearchBackfillStrategy::Background).await;
+        assert_eq!(search("comté").await, 1);
+
+        // The reindex ran already: it doesn't run again.
+        save("beaufort", event_id!("$2")).await;
+        client.event_cache().unwrap().run_search_backfill(SearchBackfillStrategy::Background).await;
+        assert_eq!(search("beaufort").await, 0);
+    }
+
+    /// A search backfill doesn't leave the history it loaded in memory: a room
+    /// nobody is subscribed to is shrunk back to its last chunk, so the next
+    /// subscriber (e.g. a timeline) doesn't receive the whole history at once.
+    #[async_test]
+    async fn test_search_backfill_shrinks_rooms_without_subscribers() {
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.with_enable_automatic_back_pagination(true))
+            .build()
+            .await;
+
+        let event_cache = client.event_cache().unwrap();
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        let f = EventFactory::new().room(room_id).sender(*BOB);
+
+        // Receive a single event as the first chunk
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id)
+                    .add_timeline_event(f.text_msg("emmental").event_id(event_id!("$3")))
+                    .set_timeline_limited()
+                    .set_timeline_prev_batch("prev_batch"),
+            )
+            .await;
+
+        // Back paginate and load a couple more events in a different chunk
+        server
+            .mock_room_messages()
+            .match_from("prev_batch")
+            .ok(RoomMessagesResponseTemplate::default().events(vec![
+                f.text_msg("comté").event_id(event_id!("$2")),
+                f.text_msg("beaufort").event_id(event_id!("$1")),
+            ]))
+            .mock_once()
+            .mount()
+            .await;
+
+        event_cache.run_search_backfill(SearchBackfillStrategy::Background).await;
+
+        // Give some time for the auto-shrinking to run after the back
+        // pagination
+        yield_now().await;
+
+        // Check the cache only contains a single chunk, so it was properly
+        // shrunk
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+        let (room_events, _room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+        assert_eq!(room_events.len(), 1, "the backfilled history stayed in memory");
+        assert_eq!(room_events[0].event_id().unwrap(), event_id!("$3"));
+    }
+
+    /// A search backfill running while a room is open, and while the user
+    /// back-paginates it, doesn't shrink that room's timeline.
+    #[async_test]
+    async fn test_search_backfill_doesnt_shrink_rooms_with_subscribers() {
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.with_enable_automatic_back_pagination(true))
+            .build()
+            .await;
+
+        let event_cache = client.event_cache().unwrap();
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        let f = EventFactory::new().room(room_id).sender(*BOB);
+
+        // Back paginating loads a couple more events in a different chunk.
+        // Mounted before the sync, as the sync already starts a read-receipt
+        // back-pagination.
+        server
+            .mock_room_messages()
+            .match_from("prev_batch")
+            .ok(RoomMessagesResponseTemplate::default().events(vec![
+                f.text_msg("comté").event_id(event_id!("$2")),
+                f.text_msg("beaufort").event_id(event_id!("$1")),
+            ]))
+            .mock_once()
+            .mount()
+            .await;
+
+        // Receive a single event as the first chunk
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id)
+                    .add_timeline_event(f.text_msg("emmental").event_id(event_id!("$3")))
+                    .set_timeline_limited()
+                    .set_timeline_prev_batch("prev_batch"),
+            )
+            .await;
+
+        // The user opens the room
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+        let (room_events, _room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+        assert_eq!(room_events.len(), 1);
+
+        // The user back-paginates while the search backfill runs
+        let pagination = room_event_cache.pagination();
+        let (outcome, ()) = futures_util::future::join(
+            pagination.run_backwards_once(20),
+            event_cache.run_search_backfill(SearchBackfillStrategy::Background),
+        )
+        .await;
+        outcome.unwrap();
+
+        // Give some time for a (wrong) auto-shrinking to run
+        yield_now().await;
+
+        // The open room kept everything it loaded
+        let room_events = room_event_cache.events().await.unwrap();
+        assert_eq!(room_events.len(), 3, "the open room was shrunk");
     }
 }
