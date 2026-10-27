@@ -24,7 +24,7 @@ use std::{
 
 use matrix_sdk_base::task_monitor::BackgroundTaskHandle;
 use ruma::{
-    OwnedUserId,
+    MilliSecondsSinceUnixEpoch, OwnedUserId,
     api::client::profile::query_profile,
     profile::{UserProfileChanges, UserProfileUpdate},
 };
@@ -44,22 +44,12 @@ struct FetcherState {
 
     /// Users in the batch currently being fetched.
     in_flight_users: BTreeSet<OwnedUserId>,
-
-    /// Users the homeserver didn't return a profile for, e.g. remote users.
-    ///
-    /// TBC: This is only kept in memory so these users are fetched at most
-    /// once per run. Whether they should be persisted (or retried) is still
-    /// to be decided.
-    unavailable_users: BTreeSet<OwnedUserId>,
 }
 
 impl FetcherState {
-    /// Whether the given user is already queued, being fetched, or known to be
-    /// unavailable.
+    /// Whether the given user is already queued or being fetched.
     fn is_tracked(&self, user_id: &OwnedUserId) -> bool {
-        self.in_flight_users.contains(user_id)
-            || self.unavailable_users.contains(user_id)
-            || self.pending_users.contains(user_id)
+        self.in_flight_users.contains(user_id) || self.pending_users.contains(user_id)
     }
 
     /// Queue the given users, if they aren't tracked already.
@@ -92,22 +82,14 @@ impl FetcherState {
         users
     }
 
-    /// Record the given users as not having a profile on the homeserver.
-    fn record_unavailable_users(&mut self, user_ids: impl IntoIterator<Item = OwnedUserId>) {
-        self.unavailable_users.extend(user_ids);
-    }
-
     /// The current batch is done, successfully or not.
     fn finish_batch(&mut self) {
         self.in_flight_users.clear();
     }
 }
 
-/// Fetches the global profiles of users in batches, in the background.
-///
-/// Users that already have a global profile in the store, or are already
-/// tracked by the fetcher, are ignored so that the same profile is only
-/// fetched once.
+/// Fetches the global profiles of users in batches, in the background, only
+/// fetching each user once even if they're queued several times.
 pub(crate) struct GlobalProfileFetcher {
     /// The users being tracked.
     state: Arc<StdMutex<FetcherState>>,
@@ -138,8 +120,8 @@ impl GlobalProfileFetcher {
     /// Queue the given users to have their global profiles fetched, if they
     /// aren't tracked already.
     ///
-    /// Users that already have a stored global profile are skipped when their
-    /// batch is built.
+    /// Users that already have a stored global profile, or whose global profile
+    /// is marked as unavailable, are skipped when their batch is built.
     pub(crate) fn enqueue(&self, user_ids: impl IntoIterator<Item = OwnedUserId>) {
         let queued = self.state.lock().unwrap().enqueue(user_ids);
 
@@ -179,10 +161,11 @@ impl GlobalProfileFetcher {
     /// Fetch and save the global profiles of the next batch of pending users.
     #[instrument(skip_all)]
     async fn fetch_next_batch(client: &Client, state: &StdMutex<FetcherState>) -> Result<()> {
+        let store = client.state_store();
         let mut users = Vec::new();
 
-        // Take pending users until there are enough without a stored profile
-        // to fill a request.
+        // Keep taking pending users until there are enough missing profiles, to
+        // fill a request.
         while users.len() < MAX_USERS_PER_REQUEST {
             let candidates =
                 state.lock().unwrap().take_pending_users(MAX_USERS_PER_REQUEST - users.len());
@@ -191,14 +174,8 @@ impl GlobalProfileFetcher {
                 break;
             }
 
-            let stored_users: BTreeSet<OwnedUserId> = client
-                .state_store()
-                .get_global_profiles(&candidates)
-                .await?
-                .into_keys()
-                .map(ToOwned::to_owned)
-                .collect();
-            users.extend(candidates.into_iter().filter(|user_id| !stored_users.contains(user_id)));
+            let missing = store.get_missing_global_profiles(&candidates).await?;
+            users.extend(missing.into_iter().map(ToOwned::to_owned));
         }
 
         if users.is_empty() {
@@ -208,12 +185,13 @@ impl GlobalProfileFetcher {
         let request = query_profile::unstable::Request::new(users.clone());
         let mut response = client.send(request).await?;
 
+        let now = MilliSecondsSinceUnixEpoch::now();
         let mut profiles = BTreeMap::new();
-        let mut unavailable = Vec::new();
+        let mut unavailable = BTreeMap::new();
 
         for user_id in users {
             let Some(profile) = response.profiles.remove(&user_id) else {
-                unavailable.push(user_id);
+                unavailable.insert(user_id, now);
                 continue;
             };
 
@@ -228,8 +206,7 @@ impl GlobalProfileFetcher {
             "Fetched global profiles"
         );
 
-        state.lock().unwrap().record_unavailable_users(unavailable);
-        client.base_client().receive_fetched_global_profiles(profiles).await?;
+        client.base_client().receive_fetched_global_profiles(profiles, unavailable).await?;
 
         Ok(())
     }
@@ -281,13 +258,7 @@ mod tests {
 
         // Users being fetched (Alice) or pending (Bob) aren't queued again.
         assert_eq!(state.take_pending_users(1), vec![alice.clone()]);
-        assert_eq!(state.enqueue([alice.clone(), bob, carol]), 1);
-
-        // Users without a profile on the homeserver aren't queued again either,
-        // even once their batch is finished.
-        state.record_unavailable_users([alice.clone()]);
-        state.finish_batch();
-        assert_eq!(state.enqueue([alice]), 0);
+        assert_eq!(state.enqueue([alice, bob, carol]), 1);
     }
 
     #[async_test]
@@ -316,9 +287,10 @@ mod tests {
         fetcher.enqueue(users.clone());
         wait_until_idle(fetcher).await;
 
-        // And as none were returned, they are all marked as unavailable.
-        let state = fetcher.state.lock().unwrap();
-        assert_eq!(state.unavailable_users, users.into_iter().collect::<BTreeSet<_>>());
+        // And as none were returned, they are all stored as unavailable, so
+        // none are missing anymore.
+        let missing = client.state_store().get_missing_global_profiles(&users).await.unwrap();
+        assert!(missing.is_empty());
     }
 
     #[async_test]
@@ -349,11 +321,14 @@ mod tests {
         // Then Alice's profile is stored, and subscribers are notified.
         let profile = client.state_store().get_global_profile(&alice).await.unwrap().unwrap();
         assert_eq!(profile.get(ProfileFieldName::DisplayName.as_str()), Some(&json!("Alice")));
-        assert_eq!(profile_updates.recv().await.unwrap(), BTreeSet::from([alice]));
+        assert_eq!(profile_updates.recv().await.unwrap(), BTreeSet::from([alice.clone()]));
 
-        // And Bob is marked as unavailable, without a stored profile.
-        assert!(client.state_store().get_global_profile(&bob).await.unwrap().is_none());
-        assert!(fetcher.state.lock().unwrap().unavailable_users.contains(&bob));
+        // And Bob is stored as unavailable, without any profile being stored.
+        let store = client.state_store();
+        assert!(store.get_global_profile(&bob).await.unwrap().is_none());
+        let requested = [alice, bob];
+        let missing = store.get_missing_global_profiles(&requested).await.unwrap();
+        assert!(missing.is_empty());
     }
 
     #[async_test]
