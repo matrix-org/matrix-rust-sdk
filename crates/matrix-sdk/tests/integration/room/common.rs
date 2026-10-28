@@ -9,7 +9,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::DmRoomDefinition;
 use matrix_sdk_test::{
-    BOB, DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, LeftRoomBuilder, SyncResponseBuilder, User,
+    DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, LeftRoomBuilder, SyncResponseBuilder, User,
     async_test, bulk_room_members, event_factory::EventFactory, test_json,
 };
 use ruma::{
@@ -593,7 +593,7 @@ async fn test_event() {
         .mock_room_event()
         .ok(f
             .room_tombstone("This room has been replaced", room_id!("!newroom:localhost"))
-            .sender(*BOB)
+            .sender(User::Bob)
             .event_id(event_id)
             .room(*DEFAULT_TEST_ROOM_ID)
             .into())
@@ -642,7 +642,7 @@ async fn test_event_with_context() {
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     let room_id = room.room_id();
 
-    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
     let event =
         f.event(RoomMessageEventContent::text_plain("The requested message")).event_id(event_id);
     let event_before =

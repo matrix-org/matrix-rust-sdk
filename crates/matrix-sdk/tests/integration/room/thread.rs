@@ -5,7 +5,7 @@ use matrix_sdk::{
     room::ThreadSubscription,
     test_utils::mocks::{MatrixMockServer, PushRuleIdSpec},
 };
-use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use ruma::{event_id, owned_event_id, push::RuleKind, room_id};
 
 #[async_test]
@@ -200,7 +200,7 @@ async fn test_thread_push_rule_is_triggered_for_subscribed_threads() {
     let room = server.sync_joined_room(&client, room_id).await;
 
     let thread_root_id = owned_event_id!("$root");
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
 
     // Make it so that the client has a member event for the current user.
     server
@@ -272,7 +272,7 @@ async fn test_thread_push_rules_and_notification_modes() {
         .await;
 
     let room_id = room_id!("!test:example.org");
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     // Make it so that the client has a member event for the current user.
     let room = server
         .sync_room(

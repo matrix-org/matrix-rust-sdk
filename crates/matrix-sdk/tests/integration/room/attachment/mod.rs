@@ -6,7 +6,7 @@ use matrix_sdk::{
     room::reply::{EnforceThread, Reply},
     test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, User, async_test, event_factory::EventFactory};
 use ruma::{
     event_id,
     events::{
@@ -380,7 +380,7 @@ async fn test_room_attachment_reply_outside_thread() {
         .match_event_id()
         .ok(f
             .text_msg("Send me your attachments")
-            .sender(*ALICE)
+            .sender(User::Alice)
             .event_id(replied_to_event_id)
             .into())
         .mock_once()
@@ -447,7 +447,7 @@ async fn test_room_attachment_start_thread() {
         .match_event_id()
         .ok(f
             .text_msg("Send me your attachments")
-            .sender(*ALICE)
+            .sender(User::Alice)
             .event_id(replied_to_event_id)
             .into())
         .mock_once()
@@ -514,7 +514,7 @@ async fn test_room_attachment_reply_on_thread_as_reply() {
         .match_event_id()
         .ok(f
             .text_msg("Send me your attachments")
-            .sender(*ALICE)
+            .sender(User::Alice)
             .event_id(replied_to_event_id)
             .in_thread(thread_root_event_id, thread_root_event_id)
             .into())
@@ -583,7 +583,7 @@ async fn test_room_attachment_reply_forwarding_thread() {
         .match_event_id()
         .ok(f
             .text_msg("Send me your attachments")
-            .sender(*ALICE)
+            .sender(User::Alice)
             .event_id(replied_to_event_id)
             .in_thread(thread_root_event_id, thread_root_event_id)
             .into())
