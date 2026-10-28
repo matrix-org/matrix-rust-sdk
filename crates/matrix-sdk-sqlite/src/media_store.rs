@@ -283,20 +283,18 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         // fails with the error message: "cannot change into wal mode from
         // within a transaction".
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
-        conn.with_immediate_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/media_store/001_init.sql"))?;
-            txn.set_db_version(1)
+        conn.upgrade_database(1, |txn| {
+            txn.execute_batch(include_str!("../migrations/media_store/001_init.sql"))
         })
         .await?;
     }
 
     if version < 2 {
         debug!("Upgrading database to version 2");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(2, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/media_store/002_lease_locks_with_generation.sql"
-            ))?;
-            txn.set_db_version(2)
+            ))
         })
         .await?;
     }

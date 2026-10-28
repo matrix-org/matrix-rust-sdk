@@ -322,155 +322,140 @@ pub(crate) async fn run_migrations(
 
     if version < 2 {
         debug!("Upgrading database to version 2");
-        conn.with_immediate_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/crypto_store/002_reset_olm_hash.sql"))?;
-            txn.set_db_version(2)
+        conn.upgrade_database(2, |txn| {
+            txn.execute_batch(include_str!("../migrations/crypto_store/002_reset_olm_hash.sql"))
         })
         .await?;
     }
 
     if version < 3 {
         debug!("Upgrading database to version 3");
-        conn.with_immediate_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/crypto_store/003_room_settings.sql"))?;
-            txn.set_db_version(3)
+        conn.upgrade_database(3, |txn| {
+            txn.execute_batch(include_str!("../migrations/crypto_store/003_room_settings.sql"))
         })
         .await?;
     }
 
     if version < 4 {
         debug!("Upgrading database to version 4");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(4, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/004_drop_outbound_group_sessions.sql"
-            ))?;
-            txn.set_db_version(4)
+            ))
         })
         .await?;
     }
 
     if version < 5 {
         debug!("Upgrading database to version 5");
-        conn.with_immediate_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/crypto_store/005_withheld_code.sql"))?;
-            txn.set_db_version(5)
+        conn.upgrade_database(5, |txn| {
+            txn.execute_batch(include_str!("../migrations/crypto_store/005_withheld_code.sql"))
         })
         .await?;
     }
 
     if version < 6 {
         debug!("Upgrading database to version 6");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(6, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/006_drop_outbound_group_sessions.sql"
-            ))?;
-            txn.set_db_version(6)
+            ))
         })
         .await?;
     }
 
     if version < 7 {
         debug!("Upgrading database to version 7");
-        conn.with_immediate_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/crypto_store/007_lock_leases.sql"))?;
-            txn.set_db_version(7)
+        conn.upgrade_database(7, |txn| {
+            txn.execute_batch(include_str!("../migrations/crypto_store/007_lock_leases.sql"))
         })
         .await?;
     }
 
     if version < 8 {
         debug!("Upgrading database to version 8");
-        conn.with_immediate_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/crypto_store/008_secret_inbox.sql"))?;
-            txn.set_db_version(8)
+        conn.upgrade_database(8, |txn| {
+            txn.execute_batch(include_str!("../migrations/crypto_store/008_secret_inbox.sql"))
         })
         .await?;
     }
 
     if version < 9 {
         debug!("Upgrading database to version 9");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(9, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/009_inbound_group_session_sender_key_sender_data_type.sql"
-            ))?;
-            txn.set_db_version(9)
+            ))
         })
         .await?;
     }
 
     if version < 10 {
         debug!("Upgrading database to version 10");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(10, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/010_received_room_key_bundles.sql"
-            ))?;
-            txn.set_db_version(10)
+            ))
         })
         .await?;
     }
 
     if version < 11 {
         debug!("Upgrading database to version 11");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(11, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/011_received_room_key_bundles_with_curve_key.sql"
-            ))?;
-            txn.set_db_version(11)
+            ))
         })
         .await?;
     }
 
     if version < 12 {
         debug!("Upgrading database to version 12");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(12, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/012_withheld_code_by_room.sql"
-            ))?;
-            txn.set_db_version(12)
+            ))
         })
         .await?;
     }
 
     if version < 13 {
         debug!("Upgrading database to version 13");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(13, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/013_lease_locks_with_generation.sql"
-            ))?;
-            txn.set_db_version(13)
+            ))
         })
         .await?;
     }
 
     if version < 14 {
         debug!("Upgrading database to version 14");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(14, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/014_room_key_backups_fully_downloaded.sql"
-            ))?;
-            txn.set_db_version(14)
+            ))
         })
         .await?;
     }
 
     if version < 15 {
         debug!("Upgrading database to version 15");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(15, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/015_rooms_pending_key_bundle.sql"
-            ))?;
-            txn.set_db_version(15)
+            ))
         })
         .await?;
     }
 
     if version < 16 {
         debug!("Upgrading database to version 16");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(16, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/016_remove_old_generation_counter.sql"
-            ))?;
-            txn.set_db_version(16)
+            ))
         })
         .await?;
     }
@@ -482,7 +467,7 @@ pub(crate) async fn run_migrations(
     if version < 17 {
         debug!("Upgrading database to version 17");
         let store = store.clone();
-        conn.with_immediate_transaction(move |txn| {
+        conn.upgrade_database(17, move |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/017_add_new_secrets_inbox.sql"
             ))?;
@@ -508,8 +493,7 @@ pub(crate) async fn run_migrations(
             }
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/017_drop_old_secrets_inbox.sql"
-            ))?;
-            txn.set_db_version(17)
+            ))
         })
         .await?;
     }
@@ -517,7 +501,7 @@ pub(crate) async fn run_migrations(
     if version < 18 {
         debug!("Upgrading database to version 18");
         let store = store.clone();
-        conn.with_immediate_transaction(move |txn| {
+        conn.upgrade_database(18, move |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/018_add_gossip_request_info.sql"
             ))?;
@@ -536,7 +520,7 @@ pub(crate) async fn run_migrations(
                 let info = store.encode_key("key_requests", request.info.as_key());
                 update_query.execute((info, row.get::<_, Vec<u8>>(0)?))?;
             }
-            txn.set_db_version(18)
+            rusqlite::Result::<_, rusqlite::Error>::Ok(())
         })
         .await?;
     }
@@ -548,11 +532,11 @@ pub(crate) async fn run_migrations(
         // never reset the `pos` value, this fixes it.
         let user_id = store.load_account().await?.map(|account| account.user_id.clone());
 
-        conn.with_immediate_transaction(move |txn| {
+        conn.upgrade_database(19, move |txn| {
             if let Some(user_id) = user_id {
                 txn.clear_kv(&format!("sliding_sync_store::room-list::{user_id}::instance"))?;
             }
-            txn.set_db_version(19)
+            rusqlite::Result::<_, rusqlite::Error>::Ok(())
         })
         .await?;
     }

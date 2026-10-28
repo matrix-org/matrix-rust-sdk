@@ -193,7 +193,7 @@ impl SqliteStateStore {
         if from < 2 {
             debug!("Upgrading database to version 2");
             let this = self.clone();
-            conn.with_immediate_transaction(move |txn| {
+            conn.upgrade_database(2, move |txn| {
                 // Create new table.
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/002_a_create_new_room_info.sql"
@@ -222,7 +222,6 @@ impl SqliteStateStore {
                     "../migrations/state_store/002_b_replace_room_info.sql"
                 ))?;
 
-                txn.set_db_version(2)?;
                 Result::<_, Error>::Ok(())
             })
             .await?;
@@ -236,7 +235,7 @@ impl SqliteStateStore {
         if from < 3 {
             debug!("Upgrading database to version 3");
             let this = self.clone();
-            conn.with_immediate_transaction(move |txn| {
+            conn.upgrade_database(3, move |txn| {
                 // Migrate data .
                 for data in txn
                     .prepare("SELECT data FROM room_info")?
@@ -278,7 +277,6 @@ impl SqliteStateStore {
                         .execute((data, room_id))?;
                 }
 
-                txn.set_db_version(3)?;
                 Result::<_, Error>::Ok(())
             })
             .await?;
@@ -290,10 +288,9 @@ impl SqliteStateStore {
 
         if from < 4 {
             debug!("Upgrading database to version 4");
-            conn.with_immediate_transaction(move |txn| {
+            conn.upgrade_database(4, move |txn| {
                 // Create new table.
-                txn.execute_batch(include_str!("../migrations/state_store/003_send_queue.sql"))?;
-                txn.set_db_version(4)
+                txn.execute_batch(include_str!("../migrations/state_store/003_send_queue.sql"))
             })
             .await?;
         }
@@ -304,12 +301,11 @@ impl SqliteStateStore {
 
         if from < 5 {
             debug!("Upgrading database to version 5");
-            conn.with_immediate_transaction(move |txn| {
+            conn.upgrade_database(5, move |txn| {
                 // Create new table.
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/004_send_queue_with_roomid_value.sql"
-                ))?;
-                txn.set_db_version(4)
+                ))
             })
             .await?;
         }
@@ -320,12 +316,11 @@ impl SqliteStateStore {
 
         if from < 6 {
             debug!("Upgrading database to version 6");
-            conn.with_immediate_transaction(move |txn| {
+            conn.upgrade_database(6, move |txn| {
                 // Create new table.
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/005_send_queue_dependent_events.sql"
-                ))?;
-                txn.set_db_version(6)
+                ))
             })
             .await?;
         }
@@ -336,10 +331,9 @@ impl SqliteStateStore {
 
         if from < 7 {
             debug!("Upgrading database to version 7");
-            conn.with_immediate_transaction(move |txn| {
+            conn.upgrade_database(7, move |txn| {
                 // Drop media table.
-                txn.execute_batch(include_str!("../migrations/state_store/006_drop_media.sql"))?;
-                txn.set_db_version(7)
+                txn.execute_batch(include_str!("../migrations/state_store/006_drop_media.sql"))
             })
             .await?;
         }
@@ -356,7 +350,7 @@ impl SqliteStateStore {
             };
             let default_err = self.serialize_value(&error)?;
 
-            conn.with_immediate_transaction(move |txn| {
+            conn.upgrade_database(8, move |txn| {
                 // Update send queue table to persist the wedge reason if any.
                 txn.execute_batch(include_str!("../migrations/state_store/007_a_send_queue_wedge_reason.sql"))?;
 
@@ -378,9 +372,7 @@ impl SqliteStateStore {
 
 
                 // Clean up the table now that data is migrated
-                txn.execute_batch(include_str!("../migrations/state_store/007_b_send_queue_clean.sql"))?;
-
-                txn.set_db_version(8)
+                txn.execute_batch(include_str!("../migrations/state_store/007_b_send_queue_clean.sql"))
             })
                 .await?;
         }
@@ -391,10 +383,9 @@ impl SqliteStateStore {
 
         if from < 9 {
             debug!("Upgrading database to version 9");
-            conn.with_immediate_transaction(move |txn| {
+            conn.upgrade_database(9, move |txn| {
                 // Run the migration.
-                txn.execute_batch(include_str!("../migrations/state_store/008_send_queue.sql"))?;
-                txn.set_db_version(9)
+                txn.execute_batch(include_str!("../migrations/state_store/008_send_queue.sql"))
             })
             .await?;
         }
@@ -405,12 +396,11 @@ impl SqliteStateStore {
 
         if from < 10 {
             debug!("Upgrading database to version 10");
-            conn.with_immediate_transaction(move |txn| {
+            conn.upgrade_database(10, move |txn| {
                 // Run the migration.
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/009_send_queue_priority.sql"
-                ))?;
-                txn.set_db_version(10)
+                ))
             })
             .await?;
         }
@@ -421,12 +411,11 @@ impl SqliteStateStore {
 
         if from < 11 {
             debug!("Upgrading database to version 11");
-            conn.with_immediate_transaction(move |txn| {
+            conn.upgrade_database(11, move |txn| {
                 // Run the migration.
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/010_send_queue_enqueue_time.sql"
-                ))?;
-                txn.set_db_version(11)
+                ))
             })
             .await?;
         }
@@ -450,12 +439,11 @@ impl SqliteStateStore {
 
         if from < 13 {
             debug!("Upgrading database to version 13");
-            conn.with_immediate_transaction(move |txn| {
+            conn.upgrade_database(13, move |txn| {
                 // Run the migration.
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/011_thread_subscriptions.sql"
-                ))?;
-                txn.set_db_version(13)
+                ))
             })
             .await?;
         }
@@ -466,12 +454,11 @@ impl SqliteStateStore {
 
         if from < 14 {
             debug!("Upgrading database to version 14");
-            conn.with_immediate_transaction(move |txn| {
+            conn.upgrade_database(14, move |txn| {
                 // Run the migration.
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/012_thread_subscriptions_bumpstamp.sql"
-                ))?;
-                txn.set_db_version(14)
+                ))
             })
             .await?;
         }
@@ -482,12 +469,11 @@ impl SqliteStateStore {
 
         if from < 15 {
             debug!("Upgrading database to version 15");
-            conn.with_immediate_transaction(move |txn| {
+            conn.upgrade_database(15, move |txn| {
                 // Run the migration.
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/013_send_queue_new_parent_key_format.sql"
-                ))?;
-                txn.set_db_version(15)
+                ))
             })
             .await?;
         }
@@ -498,12 +484,9 @@ impl SqliteStateStore {
 
         if from < 16 {
             debug!("Upgrading database to version 16");
-            conn.with_immediate_transaction(move |txn| {
+            conn.upgrade_database(16, move |txn| {
                 // Run the migration.
-                txn.execute_batch(include_str!(
-                    "../migrations/state_store/014_global_profiles.sql"
-                ))?;
-                txn.set_db_version(16)
+                txn.execute_batch(include_str!("../migrations/state_store/014_global_profiles.sql"))
             })
             .await?;
         }
@@ -1896,13 +1879,12 @@ impl StateStore for SqliteStateStore {
                 //
                 // This is for compatibility reasons since:
                 //
-                // 1. Previously "Alice" and "alice" were considered to be
-                //    distinct display names, while we now consider them to be
-                //    the same so we need to merge the previously distinct
-                //    buckets of user IDs.
-                // 2. We can't do a migration to merge the previously distinct
-                //    buckets of user IDs since the display names itself are
-                //    hashed before they are persisted in the store.
+                // 1. Previously "Alice" and "alice" were considered to be distinct display
+                //    names, while we now consider them to be the same so we need to merge the
+                //    previously distinct buckets of user IDs.
+                // 2. We can't do a migration to merge the previously distinct buckets of user
+                //    IDs since the display names itself are hashed before they are persisted in
+                //    the store.
                 let raw =
                     (self.encode_key(keys::DISPLAY_NAME, display_name.as_raw_str()), display_name);
                 let normalized = display_name.as_normalized_str().map(|normalized| {
