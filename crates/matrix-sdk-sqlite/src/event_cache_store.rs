@@ -43,9 +43,7 @@ use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, events::relation::RelationType,
 };
-use rusqlite::{
-    OptionalExtension, ToSql, Transaction, TransactionBehavior, params, params_from_iter,
-};
+use rusqlite::{OptionalExtension, ToSql, Transaction, params, params_from_iter};
 use tokio::{
     fs,
     sync::{Mutex, OwnedMutexGuard},
@@ -742,7 +740,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         // Use a single transaction throughout this function, so that either all
         // updates work, or none is taken into account.
-        with_immediate_transaction(self, move |txn| {
+        self.write().await?.with_immediate_transaction::<_, Self::Error, _>(move |txn| {
             for update in updates {
                 match update {
                     Update::NewItemsChunk { previous, new, next } => {
@@ -1951,46 +1949,6 @@ fn find_event_relations_transaction(
 
         collect_results(transaction)
     }
-}
-
-/// Like `deadpool::managed::Object::with_transaction`, but starts the
-/// transaction in immediate (write) mode from the beginning, precluding errors
-/// of the kind SQLITE_BUSY from happening, for transactions that may involve
-/// both reads and writes, and start with a write.
-async fn with_immediate_transaction<
-    T: Send + 'static,
-    F: FnOnce(&Transaction<'_>) -> Result<T, Error> + Send + 'static,
->(
-    this: &SqliteEventCacheStore,
-    f: F,
-) -> Result<T, Error> {
-    this.write()
-        .await?
-        .interact(move |conn| -> Result<T, Error> {
-            // Start the transaction in IMMEDIATE mode since all updates may
-            // cause writes, to avoid read transactions upgrading to write mode
-            // and causing SQLITE_BUSY errors. See also:
-            // https://www.sqlite.org/lang_transaction.html#deferred_immediate_and_exclusive_transactions
-            conn.set_transaction_behavior(TransactionBehavior::Immediate);
-
-            let code = || -> Result<T, Error> {
-                let txn = conn.transaction()?;
-                let res = f(&txn)?;
-                txn.commit()?;
-                Ok(res)
-            };
-
-            let res = code();
-
-            // Reset the transaction behavior to use Deferred, after this
-            // transaction has been run, whether it was successful or not.
-            conn.set_transaction_behavior(TransactionBehavior::Deferred);
-
-            res
-        })
-        .await
-        // SAFETY: same logic as in [`deadpool::managed::Object::with_transaction`].`
-        .unwrap()
 }
 
 fn insert_chunk(
