@@ -3732,8 +3732,14 @@ impl TryFrom<RumaAllowRule> for AllowRule {
 pub enum RtcTransport {
     /// A LiveKit RTC transport.
     LiveKit {
-        /// The URL of the LiveKit service.
-        service_url: String,
+        /// The WebSocket URL of the LiveKit SFU.
+        url: Option<String>,
+
+        /// The URL of the LiveKit JWT service.
+        ///
+        /// Deprecated in favor of `url`. Should only be used when backwards
+        /// compatibility with older versions of MSC4195 is required
+        service_url: Option<String>,
     },
 
     /// A transport type the SDK doesn't know about, up for interpretation by
@@ -3749,10 +3755,13 @@ pub enum RtcTransport {
 }
 
 impl From<&RumaRtcTransport> for RtcTransport {
+    // `service_url` is deprecated, but still exposed for backwards
+    // compatibility.
+    #[allow(deprecated)]
     fn from(value: &RumaRtcTransport) -> Self {
         match value {
             RumaRtcTransport::LiveKit(info) => {
-                Self::LiveKit { service_url: info.service_url.clone() }
+                Self::LiveKit { url: info.url.clone(), service_url: info.service_url.clone() }
             }
             _ => Self::Custom {
                 transport_type: value.transport_type().to_owned(),
@@ -3865,7 +3874,10 @@ mod tests {
 
     use ruma::{
         ServerName,
-        api::client::room::{Visibility, create_room},
+        api::client::{
+            room::{Visibility, create_room},
+            rtc::LiveKitRtcTransport,
+        },
         authentication::TokenType,
         events::StateEventType,
         room::RoomType,
@@ -4052,15 +4064,19 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_rtc_transport_conversion() {
         use ruma::api::client::rtc::RtcTransport as RumaRtcTransport;
         use strass::assert_let;
 
         use super::RtcTransport;
 
-        let livekit = RumaRtcTransport::livekit("https://livekit.example.com".to_owned());
-        assert_let!(RtcTransport::LiveKit { service_url } = RtcTransport::from(&livekit));
-        assert_eq!(service_url, "https://livekit.example.com");
+        let mut transport = LiveKitRtcTransport::new("wss://livekit.example.com".to_owned());
+        transport.service_url = Some("https://livekit-jwt.example.com".to_owned());
+        let livekit = RumaRtcTransport::LiveKit(transport);
+        assert_let!(RtcTransport::LiveKit { url, service_url } = RtcTransport::from(&livekit));
+        assert_eq!(url.as_deref(), Some("wss://livekit.example.com"));
+        assert_eq!(service_url.as_deref(), Some("https://livekit-jwt.example.com"));
 
         let custom = RumaRtcTransport::new(
             "com.example.custom",
